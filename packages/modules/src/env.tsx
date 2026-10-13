@@ -8,8 +8,12 @@
  * - `SpecEditor`: the host's collaborative block editor (Tiptap 3 + Yjs + @hocuspocus/provider, see
  *   product/spec/editor-contract.ts). When absent, the Specification tab falls back to the plain block editor that
  *   saves through `product.spec.editBlock`.
+ * - `canWrite`: whether the signed-in person may change a section (a write role and the section's staff permission,
+ *   `hasSectionAccess` in @foundmill/shared, as the API and apps/collab enforce). Screens hide or lock their editing
+ *   controls when it is false, so a viewer never types into an editor whose edits the server throws away.
  */
 import { createContext, useContext, type ComponentType, type ReactNode } from "react";
+import type { Section } from "@foundmill/shared/permissions";
 
 export const DEFAULT_COLLAB_URL = "ws://localhost:4004";
 
@@ -42,9 +46,12 @@ export interface ModuleEnv {
    * change controls (Hire, New record, Train) and show it as the reason instead of offering what the API refuses.
    */
   readOnly?: string;
+  /** Whether the signed-in person may change `section`. Outside a host (stories, tests) everything is writable. */
+  canWrite: (section: Section) => boolean;
 }
 
-const DEFAULT_ENV: ModuleEnv = { collabUrl: DEFAULT_COLLAB_URL };
+const writeAll = () => true;
+const DEFAULT_ENV: ModuleEnv = { collabUrl: DEFAULT_COLLAB_URL, canWrite: writeAll };
 
 const Ctx = createContext<ModuleEnv>(DEFAULT_ENV);
 
@@ -55,4 +62,9 @@ export function ModuleEnvProvider({ value, children }: { value: Partial<ModuleEn
 /** The host environment; outside a provider the defaults apply (local collab server, plain editor). */
 export function useModuleEnv(): ModuleEnv {
   return useContext(Ctx);
+}
+
+/** Whether the signed-in person may change `section` (the host's role and staff permissions). */
+export function useCanWrite(section: Section): boolean {
+  return useContext(Ctx).canWrite(section);
 }

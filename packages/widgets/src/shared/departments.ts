@@ -44,7 +44,9 @@ export function departmentForModule(rows: readonly DepartmentRow[] | undefined, 
 
 /** Href of a module tab: the department that owns the module and the tab slug (falls back to the first tab). */
 export function moduleHref(bid: string, rows: readonly DepartmentRow[] | undefined, moduleKey: ModuleKey, tabSlug?: string): string | null {
-  const d = departmentForModule(rows, moduleKey);
+  // A department may show only some of its module's tabs (Operations: Specialists and Plan), so a link to a tab goes to
+  // the first department over the module that has it.
+  const d = (tabSlug ? orderedDepartments(rows).find((x) => x.moduleKeys.includes(moduleKey) && x.tabs.some((t) => t.slug === tabSlug)) : undefined) ?? departmentForModule(rows, moduleKey);
   if (!d) return null;
   const tab = (tabSlug && d.tabs.find((t) => t.slug === tabSlug)) || d.tabs.slice().sort((a, b) => a.position - b.position)[0];
   return tab ? routes.department(bid, d.slug, tab.slug) : null;

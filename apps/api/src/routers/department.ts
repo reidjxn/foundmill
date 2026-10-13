@@ -222,7 +222,8 @@ export const departmentRouter = router({
         } else {
           id = (await repos.departments.create(tx, ctx.businessId, { name: d.name, slug, icon: d.icon, colourToken: d.colourToken, position: d.position, moduleKeys: d.moduleKeys, budgetMinor: d.budgetMinor })).id;
         }
-        await syncModuleScreens(tx, ctx.businessId, id, d.moduleKeys);
+        // The archetype's own tabs (Operations: Specialists and Plan only), as at Commit.
+        await syncModuleScreens(tx, ctx.businessId, id, d.moduleKeys, d.tabSlugs);
         restored.push(id);
       }
       const seedModules = new Set<string>(seed.departments.flatMap((d) => d.moduleKeys));

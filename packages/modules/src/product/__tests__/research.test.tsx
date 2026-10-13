@@ -27,7 +27,7 @@ describe("ResearchScreen", () => {
     // A real list (no role="img" over list items): one item per section with its count.
     const coverageList = screen.getByRole("list", { name: "Sources per spec section" });
     expect(within(coverageList).getAllByRole("listitem").some((li) => /Pricing\s*1$/.test(li.textContent ?? ""))).toBe(true);
-    expect(screen.getByText(/1 competitors · pricing and market figures are the agent's estimates/)).toBeTruthy();
+    expect(screen.getByText(/^1 competitor · pricing and market figures are the agent's estimates/)).toBeTruthy();
   });
 
   it("navigates to a linked spec block from a note", () => {

@@ -1,21 +1,24 @@
 "use client";
 /**
  * Product › Sources (BUILD §11.5): everything the Source Watcher reads — interviews, feedback, issues, documents,
- * competitor pages, legal and finance notes — as a DataTable with kind filters, saved views, right-click verbs and
- * an "Add source" dialog. `?source=<id>` highlights one (the Changes tab links evidence here). Sources an import
- * (Door B) created say whether the gateway has read them; one that was not read (not connected yet, refused, failed)
- * has Read now, which reads it again through `import.readAgain` once the founder has connected it.
+ * competitor pages, legal and finance notes — as a DataTable with kind filters, saved views, right-click verbs (open
+ * the link, open the linked block, remove the source after a confirmation) and an "Add source" dialog. Adding and
+ * removing need write access to Product. `?source=<id>` highlights one (the Changes tab links evidence here). Sources an
+ * import (Door B) created say whether the gateway has read them; one that was not read (not connected yet, refused,
+ * failed) has Read now, which reads it again through `import.readAgain` once the founder has connected it.
  */
 import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, FileText, Inbox, Plus, RefreshCw } from "lucide-react";
-import { Button, Chip, DataTable, Panel, ProvenanceChip, formatRelative, type DataTableColumn, type SavedView } from "@foundmill/dugout";
+import { ExternalLink, FileText, Inbox, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Button, Chip, DataTable, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Panel, ProvenanceChip, formatRelative, type DataTableColumn, type SavedView } from "@foundmill/dugout";
 import { SOURCE_KINDS, type SourceKind } from "@foundmill/shared";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
+import { useCanWrite } from "../env";
+import { plural } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { InlineError, Screen, blockTitle, useAction } from "./shared";
 import { AddSourceDialog } from "./sources/AddSourceDialog";
-import { IMPORT_STATE_META, SOURCE_KIND_META, hostOf, importState, isSimulatedSummary, isSourceKind, linkedBlocks, readState, relevance, summaryLine, topics } from "./sources/kinds";
+import { IMPORT_STATE_META, SOURCE_KIND_META, hostOf, importState, isSimulatedSummary, isSourceKind, isWebUri, linkedBlocks, readState, relevance, summaryLine, topics } from "./sources/kinds";
 import type { SourceRow, SourcesListResponse, SpecBlockRow, SpecGetResponse } from "./types";
 import { DateText } from "../dates";
 
@@ -40,8 +43,8 @@ function sourceFromLocation(): string | null {
 }
 
 export function openExternal(uri: string | null): boolean {
-  if (!uri || typeof window === "undefined") return false;
-  window.open(uri, "_blank", "noopener,noreferrer");
+  if (!isWebUri(uri) || typeof window === "undefined") return false;
+  window.open(uri.trim(), "_blank", "noopener,noreferrer");
   return true;
 }
 
@@ -151,9 +154,24 @@ export function SourcesScreen({ businessId }: ModuleScreenProps) {
   // Saved per person, business and table (audit #204): they come back after a reload.
   const savedViews = useSavedViews("product.sources", SOURCE_VIEWS, { defaultViewId: "all" });
   const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<SourceRow | null>(null);
   const [highlight] = useState<string | null>(() => sourceFromLocation());
+  const canWrite = useCanWrite("product");
+  const action = useAction();
   useBusinessEvents(() => list.refetch(), ["source.added", "source.scored", "spec.proposal_created"]);
   const reading = useAction();
+  // Removing archives the source (product.sources.remove): it leaves the list and the Source Watcher stops reading it;
+  // proposals that cite it keep their evidence.
+  const remove = async () => {
+    if (!removing) return;
+    await action.run("product.sources.remove", { sourceId: removing.id }, {
+      key: "remove",
+      then: () => {
+        setRemoving(null);
+        list.refetch();
+      },
+    });
+  };
 
   const rows = useMemo(() => list.data?.items ?? [], [list.data]);
   // Import sources the gateway could not read (not connected yet, refused, failed): Read now tries them again.
@@ -179,20 +197,26 @@ export function SourcesScreen({ businessId }: ModuleScreenProps) {
         loading={list.isLoading}
         error={list.error ? list.error.message : undefined}
         onRetry={list.refetch}
-        empty={list.data && rows.length === 0 && !kind ? { icon: Inbox, title: "No sources yet", children: "Connected tools (GitHub issues, Drive, Notion, support mail) feed this list automatically; you can also add a link or a note by hand.", action: { label: "Add source", icon: Plus, onClick: () => setAdding(true) } } : undefined}
-        actions={
-          <span className="flex items-center gap-2">
-            {unread.length ? (
-              <Button size="sm" variant="secondary" icon={RefreshCw} loading={reading.pending === "read-now"} onClick={() => readNow(unread.map((r) => r.id))} title={`Read the ${unread.length} imported source${unread.length === 1 ? "" : "s"} that ${unread.length === 1 ? "was" : "were"} not read, read only, once connected in Settings › Integrations`} data-testid="read-imports-now">
-                Read now · {unread.length}
-              </Button>
-            ) : null}
-            <Button size="sm" variant="primary" icon={Plus} onClick={() => setAdding(true)}>
-              Add source
-            </Button>
-          </span>
+        empty={
+          list.data && rows.length === 0 && !kind
+            ? { icon: Inbox, title: "No sources yet", children: "Connected tools (GitHub issues, Drive, Notion, support mail) feed this list automatically; you can also add a link or a note by hand.", action: canWrite ? { label: "Add source", icon: Plus, onClick: () => setAdding(true) } : undefined }
+            : undefined
         }
-        footer={<span className="tabular-nums">{rows.length} sources{kind ? ` of kind ${SOURCE_KIND_META[kind].word}` : ""} · the Source Watcher scores relevance against every spec block and raises proposals from the Changes tab</span>}
+        actions={
+          canWrite ? (
+            <span className="flex items-center gap-2">
+              {unread.length ? (
+                <Button size="sm" variant="secondary" icon={RefreshCw} loading={reading.pending === "read-now"} onClick={() => readNow(unread.map((r) => r.id))} title={`Read the ${unread.length} imported source${unread.length === 1 ? "" : "s"} that ${unread.length === 1 ? "was" : "were"} not read, read only, once connected in Settings › Integrations`} data-testid="read-imports-now">
+                  Read now · {unread.length}
+                </Button>
+              ) : null}
+              <Button size="sm" variant="primary" icon={Plus} onClick={() => setAdding(true)}>
+                Add source
+              </Button>
+            </span>
+          ) : null
+        }
+        footer={<span className="tabular-nums">{plural(rows.length, "source")}{kind ? ` of kind ${SOURCE_KIND_META[kind].word}` : ""} · the Source Watcher scores relevance against every spec block and raises proposals from the Changes tab</span>}
         flush
       >
         <div role="group" aria-label="Filter by kind" className="flex flex-wrap items-center gap-1 border-b border-subtle px-panel-pad py-2">
@@ -220,19 +244,47 @@ export function SourcesScreen({ businessId }: ModuleScreenProps) {
           exportFileName="sources"
           rowClassName={(row) => (row.id === highlight ? "bg-panel-alt" : undefined)}
           onRowOpen={(row) => (openExternal(row.uri) ? undefined : linkedBlocks(row)[0] && openBlock(linkedBlocks(row)[0]!.blockId))}
-          empty={kind ? { icon: SOURCE_KIND_META[kind].icon, children: `No ${SOURCE_KIND_META[kind].word.toLowerCase()} sources yet.`, action: { label: `Add ${SOURCE_KIND_META[kind].word.toLowerCase()}`, icon: Plus, onClick: () => setAdding(true) } } : undefined}
+          empty={kind ? { icon: SOURCE_KIND_META[kind].icon, children: `No ${SOURCE_KIND_META[kind].word.toLowerCase()} sources yet.`, action: canWrite ? { label: `Add ${SOURCE_KIND_META[kind].word.toLowerCase()}`, icon: Plus, onClick: () => setAdding(true) } : undefined } : undefined}
           rowActions={(row) => {
             const linked = linkedBlocks(row);
             const imported = importState(row);
             return [
-              { id: "open-link", label: "Open link", icon: ExternalLink, disabled: !row.uri, onSelect: (r) => void openExternal(r.uri) },
+              { id: "open-link", label: "Open link", icon: ExternalLink, disabled: !isWebUri(row.uri), onSelect: (r) => void openExternal(r.uri) },
               { id: "open-block", label: linked.length ? "Open linked spec block" : "No linked spec block", icon: FileText, disabled: linked.length === 0, onSelect: () => linked[0] && openBlock(linked[0].blockId) },
-              ...(imported && imported.state !== "read" ? [{ id: "read-now", label: "Read now", icon: RefreshCw, disabled: reading.pending === "read-now", onSelect: (r: SourceRow) => readNow([r.id]) }] : []),
+              ...(canWrite && imported && imported.state !== "read" ? [{ id: "read-now", label: "Read now", icon: RefreshCw, disabled: reading.pending === "read-now", onSelect: (r: SourceRow) => readNow([r.id]) }] : []),
+              ...(canWrite ? [{ id: "remove", label: "Remove source", icon: Trash2, onSelect: (r: SourceRow) => setRemoving(r) }] : []),
             ];
           }}
         />
       </Panel>
       <AddSourceDialog open={adding} kind={kind && isSourceKind(kind) ? kind : undefined} onClose={() => setAdding(false)} onSaved={() => list.refetch()} />
+      <Dialog
+        open={removing !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRemoving(null);
+            action.clearError();
+          }
+        }}
+      >
+        <DialogContent size="sm">
+          <DialogHeader>
+            <DialogTitle>Remove this source?</DialogTitle>
+            <DialogDescription>
+              {removing ? `"${removing.title || removing.uri || "Untitled"}" leaves the list and the Source Watcher stops reading it. Change proposals that cite it keep it as evidence.` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <InlineError error={action.error} />
+            <Button variant="ghost" onClick={() => setRemoving(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" icon={Trash2} onClick={() => void remove()} loading={action.pending === "remove"}>
+              Remove source
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Screen>
   );
 }

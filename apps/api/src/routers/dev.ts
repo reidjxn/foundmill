@@ -65,6 +65,9 @@ async function readableSession(tx: Executor, ctx: Pick<BusinessContext, "busines
   return session;
 }
 
+/** A merged pull request row: GitHub's `pr.merged` payload (repo, PR number, diff stats…) or the merge queue's own fields. */
+type MergedPr = Record<string, unknown> & { eventId: string | null; occurredAt: Date; source: "github" | "merge_queue"; taskId?: unknown; title?: unknown };
+
 function departmentOfRoadmapItem(item: { ownerRef: unknown } | null): string | null {
   const ref = item?.ownerRef as { kind?: string; id?: string } | null | undefined;
   return ref && ref.kind === "department" && typeof ref.id === "string" ? ref.id : null;
@@ -398,13 +401,23 @@ export const devRouter = router({
   }),
 
   prs: router({
-    /** Pull requests = tasks in review/merging/done plus `pr.merged` events (the GitHub connector is the source). */
+    /**
+     * Pull requests are code tasks only (a finance or specialist task in review has no branch): open = code tasks in
+     * review or the merge queue; merged = the `pr.merged` events GitHub reports, plus every done code task the platform's
+     * own merge queue landed (no event: in mock mode and with pushing off nothing reaches GitHub), one row per task with
+     * GitHub's event winning, newest first. So the table agrees with Environments and Home, which count done code tasks.
+     */
     list: read.query(({ ctx }) =>
       ctx.rls(async (tx) => {
-        const [tasks, merged] = await Promise.all([repos.tasks.list(tx, ctx.businessId, { status: ["review", "merging", "done"], limit: 200 }), repos.events.list(tx, ctx.businessId, { type: "pr.merged", limit: 200 })]);
+        const [tasks, events] = await Promise.all([repos.tasks.list(tx, ctx.businessId, { kind: "code", status: ["review", "merging", "done"], limit: 200 }), repos.events.list(tx, ctx.businessId, { type: "pr.merged", limit: 200 })]);
+        const fromGitHub: MergedPr[] = events.items.map((e) => ({ ...(e.payload as Record<string, unknown>), eventId: e.id, occurredAt: e.occurredAt, source: "github" as const }));
+        const reported = new Set(fromGitHub.map((m) => m.taskId).filter((id): id is string => typeof id === "string"));
+        const fromQueue: MergedPr[] = tasks.items
+          .filter((t) => t.status === "done" && !reported.has(t.id))
+          .map((t) => ({ eventId: null, occurredAt: t.endedAt ?? t.updatedAt, source: "merge_queue" as const, taskId: t.id, title: t.title, branch: agentBranch(t.id), mergedBy: t.assigneeAgentId ? { kind: "agent", id: t.assigneeAgentId } : { kind: "system", id: null } }));
         return {
-          open: tasks.items.filter((t) => t.status !== "done").map((t) => ({ taskId: t.id, title: t.title, status: t.status, branch: agentBranch(t.id), agentId: t.assigneeAgentId })),
-          merged: merged.items.map((e) => ({ eventId: e.id, occurredAt: e.occurredAt, ...(e.payload as Record<string, unknown>) })),
+          open: tasks.items.filter((t) => t.status !== "done").map((t) => ({ taskId: t.id, title: t.title, status: t.status, kind: t.kind, branch: agentBranch(t.id), agentId: t.assigneeAgentId })),
+          merged: [...fromGitHub, ...fromQueue].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()),
         };
       }),
     ),

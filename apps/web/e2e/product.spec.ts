@@ -108,6 +108,29 @@ test.describe("product", () => {
     const added = table.getByRole("row").filter({ hasText: new RegExp(suffix, "i") });
     await expect(added).toBeVisible({ timeout: LONG });
     await expect(added).toContainText(/Waiting for the Source Watcher|per month/, { timeout: LONG });
+    // A source added by mistake goes again from the right-click menu, after a confirmation (TPD-30).
+    await added.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Remove source" }).click();
+    const confirm = page.getByRole("dialog", { name: "Remove this source?" });
+    await confirm.getByRole("button", { name: "Remove source" }).click();
+    await expect(confirm).toBeHidden({ timeout: LONG });
+    await expect(added).toHaveCount(0, { timeout: LONG });
+    await expect(page.getByTestId("module-screen")).not.toContainText(/\b1 sources\b/);
+  });
+
+  test("Roadmap board: a card moved to another column and back returns to its place (TPD-34)", async ({ page }) => {
+    await openProductTab(page, "roadmap");
+    const later = page.getByRole("list", { name: "Later items" });
+    await expect(later.locator("[data-roadmap-item]").first()).toBeVisible({ timeout: LONG });
+    const before = await later.locator("[data-roadmap-item]").evaluateAll((cards) => cards.map((c) => c.getAttribute("data-roadmap-item")));
+    const last = later.locator(`[data-roadmap-item="${before.at(-1)}"]`);
+    await last.focus();
+    await page.keyboard.press("Alt+ArrowLeft");
+    await expect(page.getByRole("list", { name: "Next items" }).locator(`[data-roadmap-item="${before.at(-1)}"]`)).toBeVisible({ timeout: LONG });
+    await page.getByRole("list", { name: "Next items" }).locator(`[data-roadmap-item="${before.at(-1)}"]`).focus();
+    await page.keyboard.press("Alt+ArrowRight");
+    await expect(later.locator(`[data-roadmap-item="${before.at(-1)}"]`)).toBeVisible({ timeout: LONG });
+    await expect.poll(() => later.locator("[data-roadmap-item]").evaluateAll((cards) => cards.map((c) => c.getAttribute("data-roadmap-item")))).toEqual(before);
   });
 
   test("Sources: the default view fits the panel at 1280", async ({ page }) => {

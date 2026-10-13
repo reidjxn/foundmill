@@ -4,8 +4,8 @@
  * stable), agents hired from `@foundmill/agents` templates with a live version 1 and baseline skills, leads set,
  * one screen_definition per module tab rendered by `module:<moduleKey>/<tabSlug>`.
  */
-import { getSkillDefinition, getTemplate, type AgentTemplate, type ArchetypeSeed } from "@foundmill/agents";
-import { MODULE_TABS, type AgentStatus } from "@foundmill/shared";
+import { departmentTabs, getSkillDefinition, getTemplate, type AgentTemplate, type ArchetypeSeed } from "@foundmill/agents";
+import type { AgentStatus } from "@foundmill/shared";
 import { eq } from "drizzle-orm";
 import { repos } from "../repos";
 import { agents as agentsTable, type Agent, type Department } from "../schema";
@@ -131,19 +131,18 @@ export async function seedSquad(ctx: SeedCtx, businessId: string, seed: Archetyp
     await repos.departments.addMember(db, businessId, dept.id, { memberKind: "agent", memberId: chief.agent.id });
   }
 
-  // Module screens: one tab per module default (BUILD §6.3).
-  for (const dept of departments) {
-    let position = 0;
-    for (const moduleKey of dept.moduleKeys) {
-      for (const tab of MODULE_TABS[moduleKey as keyof typeof MODULE_TABS] ?? []) {
-        await repos.screens.upsert(db, businessId, {
-          departmentId: dept.id,
-          tabSlug: tab.slug,
-          title: tab.title,
-          position: position++,
-          layout: { widgets: [{ key: `module:${moduleKey}/${tab.slug}`, x: 0, y: 0, w: 12, h: 60, settings: {} }] },
-        });
-      }
+  // Module screens: one tab per module default (BUILD §6.3), or the department's own subset (Operations: Specialists
+  // and Plan, not a copy of Development).
+  for (const d of seed.departments) {
+    const dept = departmentBySlug.get(d.slug)!;
+    for (const [position, tab] of departmentTabs(d).entries()) {
+      await repos.screens.upsert(db, businessId, {
+        departmentId: dept.id,
+        tabSlug: tab.slug,
+        title: tab.title,
+        position,
+        layout: { widgets: [{ key: `module:${tab.moduleKey}/${tab.slug}`, x: 0, y: 0, w: 12, h: 60, settings: {} }] },
+      });
     }
   }
 

@@ -71,6 +71,85 @@ describe("product.proposals", () => {
   });
 });
 
+describe("product.spec.publish", () => {
+  it("numbers simultaneous publishes consecutively and publishes a repeated press once (TPD-18, ARB-22)", async () => {
+    const { businessId, ownerId, adminId } = hz.B;
+    const owner = hz.caller({ userId: ownerId });
+    const admin = hz.caller({ userId: adminId });
+    await repos.product.createBlock(hz.db, businessId, { section: "Problem", content: doc("Invoices go unpaid.") });
+    const before = (await owner.product.spec.versions({ businessId })).length;
+
+    // Two members publish different changelogs at the same moment: both land, one number each.
+    const [a, b] = await Promise.all([owner.product.spec.publish({ businessId, changelogMd: "Owner's pass" }), admin.product.spec.publish({ businessId, changelogMd: "Admin's pass" })]);
+    expect(new Set([a.version, b.version])).toEqual(new Set([before + 1, before + 2]));
+
+    // The same press twice (two tabs): one new version, announced once; the second answer is that version.
+    const [c, d] = await Promise.all([owner.product.spec.publish({ businessId, changelogMd: "Pricing final" }), owner.product.spec.publish({ businessId, changelogMd: "Pricing final" })]);
+    expect(c.id).toBe(d.id);
+    expect(c.version).toBe(before + 3);
+    const versions = await owner.product.spec.versions({ businessId });
+    expect(versions.map((v) => v.version)).toEqual([before + 3, before + 2, before + 1, ...Array.from({ length: before }, (_, i) => before - i)]);
+    const events = await repos.events.list(hz.db, businessId, { type: "spec.version_published", limit: 50 });
+    expect(events.items.filter((e) => (e.payload as { specVersionId: string }).specVersionId === c.id)).toHaveLength(1);
+    expect(events.items.find((e) => (e.payload as { specVersionId: string }).specVersionId === c.id)?.payload).toMatchObject({ version: before + 3, previousVersion: before + 2 });
+
+    // A changed spec, or a new changelog on the same spec, is a new version.
+    expect((await owner.product.spec.publish({ businessId, changelogMd: "Same blocks, new note" })).version).toBe(before + 4);
+  });
+});
+
+describe("product.roadmap", () => {
+  it("link adds spec blocks and keeps the item's dates, confidence, owner and horizon (ARB-16)", async () => {
+    const { businessId, ownerId } = hz.A;
+    const owner = hz.caller({ userId: ownerId });
+    const block = await repos.product.createBlock(hz.db, businessId, { section: "Features", content: doc("Reminders.") });
+    const item = await owner.product.roadmap.upsert({ businessId, title: "Annual billing", horizon: "later", targetStart: "2026-11-02", targetEnd: "2026-12-20", confidence: 5, ownerRef: { kind: "user", id: ownerId } });
+    const linked = await owner.product.roadmap.link({ businessId, itemId: item.id, specBlockIds: [block.id] });
+    expect(linked).toMatchObject({ horizon: "later", targetStart: "2026-11-02", targetEnd: "2026-12-20", confidence: 5, ownerRef: { kind: "user", id: ownerId }, specBlockIds: [block.id] });
+    // Linking the same block again changes nothing; a block of another business is refused and nothing is stored.
+    expect((await owner.product.roadmap.link({ businessId, itemId: item.id, specBlockIds: [block.id] })).specBlockIds).toEqual([block.id]);
+    await expect(owner.product.roadmap.link({ businessId, itemId: item.id, specBlockIds: [hz.B.specBlockId] })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect((await repos.product.getRoadmapItem(hz.db, businessId, item.id)).specBlockIds).toEqual([block.id]);
+  });
+
+  it("move puts a card where it was dropped, a move and its reverse bring it back, and a column can be reordered (TPD-34)", async () => {
+    const { businessId, ownerId, viewerId } = hz.B;
+    const owner = hz.caller({ userId: ownerId });
+    // A board with only this test's cards (the fixture seeds one item of its own).
+    for (const i of await repos.product.listRoadmap(hz.db, businessId)) await repos.product.archiveRoadmapItem(hz.db, businessId, i.id);
+    const make = (title: string, horizon: "now" | "next" | "later", position: number) => owner.product.roadmap.upsert({ businessId, title, horizon, position, targetEnd: "2027-01-24", confidence: 4 });
+    const next = [await make("Bank feeds", "next", 2), await make("Multi-currency matching", "next", 3), await make("Receipts", "next", 4)];
+    const later = [await make("Accountant portal", "later", 5), await make("Tax packs", "later", 6), await make("Partner program", "later", 7)];
+    const ours = new Set([...next, ...later].map((i) => i.id));
+    const column = async (h: "now" | "next" | "later") =>
+      (await owner.product.roadmap.list({ businessId, horizon: h })).items
+        .filter((i) => ours.has(i.id))
+        .sort((a, b) => a.position - b.position || a.title.localeCompare(b.title))
+        .map((i) => i.title);
+    const partner = later[2]!;
+
+    // Alt+← sends it to the end of Next; Alt+→ brings it back to the end of Later, where it started.
+    await owner.product.roadmap.move({ businessId, itemId: partner.id, horizon: "next", index: 3 });
+    expect(await column("next")).toEqual(["Bank feeds", "Multi-currency matching", "Receipts", "Partner program"]);
+    await owner.product.roadmap.move({ businessId, itemId: partner.id, horizon: "later", index: 2 });
+    expect(await column("later")).toEqual(["Accountant portal", "Tax packs", "Partner program"]);
+    expect(await column("next")).toEqual(["Bank feeds", "Multi-currency matching", "Receipts"]);
+
+    // Dropped above "Multi-currency matching" in Next: lands exactly there.
+    await owner.product.roadmap.move({ businessId, itemId: partner.id, horizon: "next", index: 1 });
+    expect(await column("next")).toEqual(["Bank feeds", "Partner program", "Multi-currency matching", "Receipts"]);
+    // Reordered inside a column, and an index past the end is the bottom.
+    await owner.product.roadmap.move({ businessId, itemId: next[0]!.id, horizon: "next", index: 99 });
+    expect(await column("next")).toEqual(["Partner program", "Multi-currency matching", "Receipts", "Bank feeds"]);
+
+    // Nothing but the horizon and the order changed.
+    expect(await repos.product.getRoadmapItem(hz.db, businessId, partner.id)).toMatchObject({ title: "Partner program", targetEnd: "2027-01-24", confidence: 4, horizon: "next" });
+    await expect(hz.caller({ userId: viewerId }).product.roadmap.move({ businessId, itemId: partner.id, horizon: "now", index: 0 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    // Another business's item is not found from here.
+    await expect(hz.caller({ userId: hz.A.ownerId }).product.roadmap.move({ businessId: hz.A.businessId, itemId: partner.id, horizon: "now", index: 0 })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
 describe("product.sources.add", () => {
   it("announces the source, keeps the founder's notes and starts the Source Watcher", async () => {
     const { businessId, ownerId } = hz.A;
@@ -87,9 +166,11 @@ describe("product.sources.add", () => {
   it("never takes relevance, fetch times or non-web links from the client", async () => {
     const { businessId, ownerId } = hz.A;
     const owner = hz.caller({ userId: ownerId });
-    const forged = await owner.product.sources.add({ businessId, kind: "doc", uri: null, title: "Note", relevance: { notes: "Pasted text" }, ...({ fetchedAt: new Date(), embedding: null } as object) } as never);
+    const forged = await owner.product.sources.add({ businessId, kind: "doc", uri: null, title: "Note", relevance: { notes: "Pasted text", ...({ imported: true, score: 1, untrusted: false } as object) }, ...({ fetchedAt: new Date(), embedding: Array.from({ length: 1024 }, () => 0.5), contentRef: "s3://anything" } as object) } as never);
     expect(forged.fetchedAt).toBeNull();
+    expect(forged.contentRef).toBeNull();
     expect(forged.relevance).toEqual({ notes: "Pasted text", summary: "Pasted text", addedBy: "user" });
+    expect((await repos.product.getSource(hz.db, businessId, forged.id)).embedding ?? null).toBeNull();
     await expect(owner.product.sources.add({ businessId, kind: "doc", uri: "file:///etc/passwd", title: "x" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });

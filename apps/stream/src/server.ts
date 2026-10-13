@@ -86,7 +86,7 @@ export interface StreamServer {
   readonly http: HttpServer;
   readonly connections: number;
   /** Channels subscribed per open socket (tests). */
-  subscriptions(): { userId: string; channels: string[] }[];
+  subscriptions(): { userId: string; channels: string[]; focused: string[] }[];
 }
 
 interface Subscription {
@@ -352,14 +352,18 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
         else client.queue.focused.delete(frame.ch);
         return;
       case "sub":
-        return subscribe(client, frame.ch, frame.focus === true);
+        // A channel is focused unless the client says otherwise: both clients (apps/web, ./client.ts) send `focus:false`
+        // for an unfocused tile and leave the field out for a focused one (RES-12).
+        return subscribe(client, frame.ch, frame.focus !== false);
       case "auth":
         return reauthenticate(client, frame.token);
     }
   }
 
   async function subscribe(client: Client, ch: string, focus: boolean): Promise<void> {
+    // The latest frame decides: a repeated sub (a retry after an error) carries the channel's current focus.
     if (focus) client.queue.focused.add(ch);
+    else client.queue.focused.delete(ch);
     // Idempotent: a repeated sub of a live channel is acknowledged again; a pending one is acknowledged when it lands.
     if (client.subs.has(ch)) return sendControl(client, { t: "subscribed", ch });
     if (client.pending.has(ch)) return;
@@ -536,7 +540,7 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
       return clients.size;
     },
     subscriptions() {
-      return [...clients].map((c) => ({ userId: c.user.userId, channels: [...c.subs.keys()] }));
+      return [...clients].map((c) => ({ userId: c.user.userId, channels: [...c.subs.keys()], focused: [...c.queue.focused] }));
     },
     address() {
       const a = http.address();

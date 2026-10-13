@@ -18,9 +18,10 @@ export const moduleTabLayout = (moduleKey: string, tabSlug: string) => ({ widget
 /**
  * Makes a department's live tabs match `moduleKeys`: tabs of a module the department no longer holds are archived,
  * missing default tabs of its modules are added (a customized tab is kept as it is), and the tabs are numbered in
- * module order, then any tab of the department's own. Returns the live tabs in that order.
+ * module order, then any tab of the department's own. `tabSlugs` limits the tabs added to the department's own subset
+ * (the archetype seed's `tabSlugs`). Returns the live tabs in that order.
  */
-export async function syncModuleScreens(tx: Executor, businessId: string, departmentId: string, moduleKeys: readonly string[]): Promise<ScreenDefinition[]> {
+export async function syncModuleScreens(tx: Executor, businessId: string, departmentId: string, moduleKeys: readonly string[], tabSlugs?: readonly string[] | null): Promise<ScreenDefinition[]> {
   const live = await repos.screens.list(tx, businessId, departmentId);
   const held = new Set(moduleKeys);
   const stale = live.filter((s) => {
@@ -31,7 +32,9 @@ export async function syncModuleScreens(tx: Executor, businessId: string, depart
   const kept = live.filter((s) => !stale.includes(s));
   const ordered: ScreenDefinition[] = [];
   for (const moduleKey of moduleKeys) {
-    for (const tab of tabsFor(moduleKey)) {
+    // A department seeded with its own subset of tabs (Operations) gets only those, in the seed's order; others get every tab of the module.
+    const tabs = tabsFor(moduleKey);
+    for (const tab of tabSlugs ? tabSlugs.flatMap((slug) => tabs.filter((t) => t.slug === slug).slice(0, 1)) : tabs) {
       const existing = kept.find((s) => s.tabSlug === tab.slug);
       ordered.push(existing ?? (await repos.screens.upsert(tx, businessId, { departmentId, tabSlug: tab.slug, title: tab.title, position: ordered.length, layout: moduleTabLayout(moduleKey, tab.slug) })));
     }

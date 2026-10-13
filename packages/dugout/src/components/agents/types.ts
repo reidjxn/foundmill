@@ -231,6 +231,11 @@ export interface AgentTileSession {
   preview: PreviewState;
   /** Awaiting a founder decision (approval hold). */
   awaitingApprovalId: string | null;
+  /**
+   * Started but not yet picked up by a worker: the session's stream holds no event yet. The tile says "Queued" and shows
+   * no elapsed clock or streaming prompt until the first event arrives.
+   */
+  queued?: boolean;
 }
 
 export type ShoutPreset = "focus_on_tests" | "simplify" | "ask_before_schema_changes" | "match_design_system" | "hurry_up";

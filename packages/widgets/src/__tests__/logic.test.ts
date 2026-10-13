@@ -21,6 +21,7 @@ import { teamHealth, teamHealthCounts, teamHealthSummary } from "../shared/healt
 import { milestoneKey, trophyCards } from "../widgets/trophy-cabinet";
 import { monthRevenueMinor } from "../shared/cash";
 import { humanSender, NETWORK_SENDER } from "../shared/note-tags";
+import { moduleHref } from "../shared/departments";
 import { routes } from "../shared/routes";
 import { BID, TODAY, channelMetrics, channels, departments, finance, leaderboardEntries, leaderboards, ribbon, roadmap, sessions, team } from "./fixtures";
 
@@ -347,5 +348,17 @@ describe("text helpers", () => {
     expect(describeEvent({ type: "inbox.item_created", payload: { inboxItemId: "x", blocksContinue: false } }).title).toBe("New inbox note");
     expect(describeEvent({ type: "membership.changed", payload: { userId: "u", change: "updated" } }).title).toBe("Staff access changed");
     expect(describeEvent({ type: "membership.changed", payload: { userId: "u", change: "removed" } }).title).toBe("Staff member removed");
+  });
+});
+
+describe("moduleHref", () => {
+  it("links a tab to the first department over the module that shows it (Operations shows only Specialists and Plan)", () => {
+    const dev = departments[0]!;
+    const ops = { ...dev, id: "ops", slug: "operations", name: "Formulation Lab", position: -1, tabs: [{ id: "s", slug: "specialists", title: "Specialists", position: 0 }, { id: "p", slug: "plan", title: "Plan", position: 1 }] };
+    const rows = [ops, dev];
+    expect(moduleHref(BID, rows, "development", "training-ground")).toBe(routes.department(BID, dev.slug, "training-ground"));
+    expect(moduleHref(BID, rows, "development", "specialists")).toBe(routes.department(BID, "operations", "specialists"));
+    // Without a tab, the first department over the module and its first tab.
+    expect(moduleHref(BID, rows, "development")).toBe(routes.department(BID, "operations", "specialists"));
   });
 });

@@ -44,7 +44,7 @@ import { getBrowserAccessToken } from "@/lib/supabase/client";
 import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { WidgetDataHost } from "@/lib/widget-data";
-import { SpecUserProvider } from "@/components/spec/spec-user";
+import { SpecUserProvider, specUserName } from "@/components/spec/spec-user";
 import { AgentDeskHost, prefetchAgentDesk, type AgentDeskApi } from "@/components/conversation/DeskHost";
 import { useNetworkBadge } from "@/components/live/signals";
 import { agentOfAskItem, askPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
@@ -56,7 +56,8 @@ export interface BusinessShellProps {
   businessId: string;
   initialBusiness: BusinessGet;
   initialDepartments: DepartmentList;
-  viewer: { email: string | null; userId: string | null };
+  /** The signed-in person; `name` is their profile's display name (the label on their caret in the spec editor). */
+  viewer: { email: string | null; userId: string | null; name?: string | null };
   children: ReactNode;
 }
 
@@ -517,8 +518,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   useEffect(() => {
     void getBrowserAccessToken().then((t) => setCollabToken(t ?? undefined));
   }, []);
-  const moduleEnv = useMemo<Partial<ModuleEnv>>(() => ({ collabUrl: publicEnv().collabUrl, collabToken, SpecEditor, readOnly: access.canChange ? undefined : readOnlyReason(access) }), [collabToken, access]);
-  const specUser = useMemo(() => ({ id: viewer.userId ?? "dev", name: viewer.email ?? "You" }), [viewer.userId, viewer.email]);
+  const moduleEnv = useMemo<Partial<ModuleEnv>>(() => ({ collabUrl: publicEnv().collabUrl, collabToken, SpecEditor, canWrite: access.canWrite, readOnly: access.canChange ? undefined : readOnlyReason(access) }), [collabToken, access]);
+  const specUser = useMemo(() => ({ id: viewer.userId ?? "dev", name: specUserName(viewer) }), [viewer]);
   // Every mention resolves (lib/entity-resolver.tsx): agents (by agent id, or by their CRM record) open their profile,
   // records their CRM profile, with a full hover card and the right-click verbs (audit GTM-19, VFR3-X1, GTM-26).
   const agentSummaries = useMemo<AgentSummary[]>(

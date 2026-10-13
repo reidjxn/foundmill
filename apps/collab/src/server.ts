@@ -10,7 +10,9 @@
  *   removed, walled from Product or made read-only meanwhile is closed or turned read-only without reconnecting.
  * - `onLoadDocument`: fills the fresh Y.Doc from `spec_blocks.content` (ProseMirror JSON → y-prosemirror layout).
  * - `onStoreDocument`: debounced (`debounce` / `maxDebounce`) write back through `repos.product.editBlock`, which
- *   bumps `version` and records the last writer as `authored_by_kind` / `authored_by`.
+ *   bumps `version` and records the last writer as `authored_by_kind` / `authored_by`. A store that carries any human
+ *   update since the last one (tracked in `onChange`, so an agent's update landing last in the same debounce window
+ *   does not hide it) pins the block, so agents are read-only on it from their next connection or HTTP edit.
  * - HTTP on the same port: `GET /health`; `GET|POST /v1/spec-blocks/:businessId/:specBlockId` for agents (Bearer
  *   service token) that have no WebSocket editor: POST reconciles a full ProseMirror document into the live CRDT
  *   through a direct connection, so concurrent human edits in untouched blocks survive.
@@ -18,7 +20,7 @@
 import { APP_NAME } from "@foundmill/config";
 import { repos, type Db, type SpecBlock } from "@foundmill/db";
 import { AppError, NotFoundError, hasSectionAccess, type Section } from "@foundmill/shared";
-import { Server, type Hocuspocus, type onAuthenticatePayload, type onLoadDocumentPayload, type onRequestPayload, type onStoreDocumentPayload, type ServerConfiguration } from "@hocuspocus/server";
+import { Server, type Hocuspocus, type onAuthenticatePayload, type onChangePayload, type onLoadDocumentPayload, type onRequestPayload, type onStoreDocumentPayload, type ServerConfiguration } from "@hocuspocus/server";
 import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { CollabAuthError, type CollabAuthenticator, type Principal } from "./auth";
@@ -182,6 +184,8 @@ export function createCollabServer(deps: CollabServerDeps, options: CollabServer
   let bound: { port: number; host: string } | null = null;
   /** Revision = fingerprint of the content a reader saw; an edit with `expectedRevision` only applies to that content. */
   const revisionOf = (content: PmNode) => createHash("sha256").update(JSON.stringify(content)).digest("hex").slice(0, 16);
+  /** Documents a human changed since their last store: that store pins the block (AC-11.5.3). */
+  const humanEdits = new Set<string>();
   const liveContent = (documentName: string): PmNode | null => {
     const live = hocuspocus.documents.get(documentName);
     return live && !live.isLoading ? fragmentToPmDoc(live.getXmlFragment(field)) : null;
@@ -238,13 +242,20 @@ export function createCollabServer(deps: CollabServerDeps, options: CollabServer
     await store.load(name.businessId, name.specBlockId, data.document);
   };
 
+  const onChange = async (data: onChangePayload<CollabContext>): Promise<void> => {
+    // The load's own fill carries no principal; read-only connections never get an update this far.
+    if ((data.context as Partial<CollabContext> | undefined)?.principal?.kind === "user") humanEdits.add(data.documentName);
+  };
+
   const onStoreDocument = async (data: onStoreDocumentPayload<CollabContext>): Promise<void> => {
     const name = parseDocumentName(data.documentName);
     const author = authorOf(data.lastContext);
+    const humanEdited = humanEdits.delete(data.documentName);
     try {
-      const result = await store.save(name.businessId, name.specBlockId, data.document, author);
-      if (result.stored) log.info({ documentName: data.documentName, version: result.block?.version, author }, "collab: stored spec block");
+      const result = await store.save(name.businessId, name.specBlockId, data.document, author, { humanEdited });
+      if (result.stored) log.info({ documentName: data.documentName, version: result.block?.version, author, pinned: result.block?.pinned }, "collab: stored spec block");
     } catch (err) {
+      if (humanEdited) humanEdits.add(data.documentName);
       // Hocuspocus keeps the document in memory when the store hook rejects, so nothing is lost; retry on next change.
       log.error({ documentName: data.documentName, err }, "collab: store failed; document kept in memory");
       throw err;
@@ -269,10 +280,12 @@ export function createCollabServer(deps: CollabServerDeps, options: CollabServer
     ...(options.timeoutMs ? { timeout: options.timeoutMs } : {}),
     onAuthenticate,
     onLoadDocument,
+    onChange,
     onStoreDocument,
     onRequest,
     async afterUnloadDocument({ documentName }) {
       const name = parseDocumentName(documentName);
+      humanEdits.delete(documentName);
       store.forget(name.businessId, name.specBlockId);
     },
   };

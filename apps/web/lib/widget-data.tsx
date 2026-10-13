@@ -26,6 +26,7 @@ export interface WidgetSourceOptions {
   queryClient: QueryClient;
   navigate: (href: string) => void;
   subscribe?: WidgetDataSource["subscribe"];
+  setFocus?: WidgetDataSource["setFocus"];
 }
 
 /** Every procedure the widgets call takes `businessId`; it is merged into the input so widgets never pass it. */
@@ -70,7 +71,9 @@ export function createWidgetSource(opts: WidgetSourceOptions): WidgetDataSource 
     currency: opts.currency,
     timeZone: opts.timeZone ?? null,
     navigate: opts.navigate,
-    subscribe: opts.subscribe ?? ((channel, handler) => getStreamClient().subscribe(channel, handler)),
+    // Focus reaches the stream server too, so a watched Live sessions tile is the last to be shed under backpressure.
+    subscribe: opts.subscribe ?? ((channel, handler, so) => getStreamClient().subscribe(channel, handler, so)),
+    setFocus: opts.setFocus ?? ((channel, focused) => getStreamClient().setFocus(channel, focused)),
     // While this business's event channel is live the shell refetches on events (INVALIDATE_ON_EVENT); screens poll
     // otherwise. A hook by contract (widgets call it in render).
     useStreamOpen: () => useBusinessLive(businessId),

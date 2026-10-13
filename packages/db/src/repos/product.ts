@@ -151,13 +151,21 @@ export const productRepo = {
     return one(await db.select().from(specBlocks).where(and(eq(specBlocks.businessId, businessId), eq(specBlocks.id, blockId))).limit(1), "spec block", blockId);
   },
 
+  /**
+   * Without a position, a block goes after the last block of its section, and a block that opens a new section goes
+   * after every block of the business, so the outline (ordered by each section's first position) shows a new section
+   * last instead of next to the first one.
+   */
   async createBlock(db: Executor, businessId: string, input: CreateSpecBlockInput): Promise<SpecBlock> {
     const v = parseInput(CreateSpecBlockInput, input, "spec block");
     const position =
       v.position ??
       Number(
         one(
-          await db.select({ n: sql<number>`coalesce(max(${specBlocks.position}), -1) + 1` }).from(specBlocks).where(and(eq(specBlocks.businessId, businessId), eq(specBlocks.section, v.section))),
+          await db
+            .select({ n: sql<number>`coalesce(max(${specBlocks.position}) filter (where ${specBlocks.section} = ${v.section}) + 1, max(${specBlocks.position}) + 1, 0)` })
+            .from(specBlocks)
+            .where(eq(specBlocks.businessId, businessId)),
           "position",
         ).n,
       );
@@ -208,16 +216,44 @@ export const productRepo = {
     return one(await db.select().from(specVersions).where(and(eq(specVersions.businessId, businessId), eq(specVersions.version, version))).limit(1), "spec version", String(version));
   },
 
-  /** Publishes a snapshot as the next version number (max + 1). Without a snapshot, the live blocks are snapshotted. */
+  /**
+   * Publishes a snapshot as the next version number (max + 1). Without a snapshot, the live blocks are snapshotted.
+   * Numbering is serialised per business (a transaction-scoped advisory lock taken before the max is read), so two
+   * publishes at once (two tabs, two members, a proposal settling) get consecutive numbers instead of one of them
+   * failing on the unique (business_id, version) index.
+   */
   async publishVersion(db: Executor, businessId: string, input: { snapshot?: Record<string, unknown>; changelogMd?: string; publishedBy?: string | null }): Promise<SpecVersion> {
-    const v = parseInput(z.object({ snapshot: JsonObject.optional(), changelogMd: z.string().default(""), publishedBy: Id.nullable().optional() }), input, "spec version");
+    return (await productRepo.publish(db, businessId, input)).version;
+  },
+
+  /**
+   * `publishVersion` that says what happened. With `unlessUnchanged`, a publish whose snapshot and changelog equal the
+   * latest version's returns that version (`created: false`) instead of numbering a duplicate: the second of two
+   * simultaneous Publish presses publishes nothing new. `previousVersion` is the latest number before this call, read
+   * under the same lock.
+   */
+  async publish(
+    db: Executor,
+    businessId: string,
+    input: { snapshot?: Record<string, unknown>; changelogMd?: string; publishedBy?: string | null; unlessUnchanged?: boolean },
+  ): Promise<{ version: SpecVersion; created: boolean; previousVersion: number | null }> {
+    const v = parseInput(z.object({ snapshot: JsonObject.optional(), changelogMd: z.string().default(""), publishedBy: Id.nullable().optional(), unlessUnchanged: z.boolean().default(false) }), input, "spec version");
     return db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('spec_versions'), hashtext(${businessId}::text))`);
       const snapshot = v.snapshot ?? { blocks: await productRepo.listBlocks(tx, businessId) };
-      const next = one(await tx.select({ n: sql<number>`coalesce(max(${specVersions.version}), 0) + 1` }).from(specVersions).where(eq(specVersions.businessId, businessId)), "version");
-      return one(
-        await tx.insert(specVersions).values({ businessId, version: Number(next.n), snapshot, changelogMd: v.changelogMd, publishedBy: v.publishedBy ?? null }).returning(),
+      const [latest] = await tx.select().from(specVersions).where(eq(specVersions.businessId, businessId)).orderBy(desc(specVersions.version)).limit(1);
+      if (latest && v.unlessUnchanged && latest.changelogMd === v.changelogMd) {
+        const [same] = await tx
+          .select({ id: specVersions.id })
+          .from(specVersions)
+          .where(and(eq(specVersions.id, latest.id), sql`${specVersions.snapshot} = ${JSON.stringify(snapshot)}::jsonb`));
+        if (same) return { version: latest, created: false, previousVersion: latest.version };
+      }
+      const version = one(
+        await tx.insert(specVersions).values({ businessId, version: (latest?.version ?? 0) + 1, snapshot, changelogMd: v.changelogMd, publishedBy: v.publishedBy ?? null }).returning(),
         "spec version",
       );
+      return { version, created: true, previousVersion: latest?.version ?? null };
     });
   },
 
@@ -484,6 +520,49 @@ export const productRepo = {
     return one(await db.insert(roadmapItems).values({ businessId, ...values }).returning(), "roadmap item");
   },
 
+  /**
+   * Moves an item to `horizon` at `index` among that column's other items (board order: position, then title) and
+   * renumbers the column 0..n-1, so a card lands exactly where it was dropped, a move and its reverse bring it back,
+   * and a move inside one column reorders it. Only horizon and position change: dates, confidence, owner and links stay
+   * as they are (TPD-34).
+   */
+  async moveRoadmapItem(db: Executor, businessId: string, itemId: string, input: { horizon: (typeof ROADMAP_HORIZONS)[number]; index: number }): Promise<RoadmapItem> {
+    const v = parseInput(z.object({ horizon: z.enum(ROADMAP_HORIZONS), index: z.number().int().min(0) }), input, "roadmap move");
+    return db.transaction(async (tx) => {
+      const item = one(await tx.select().from(roadmapItems).where(and(eq(roadmapItems.businessId, businessId), eq(roadmapItems.id, itemId), isNull(roadmapItems.archivedAt))).for("update").limit(1), "roadmap item", itemId);
+      const column = await tx
+        .select({ id: roadmapItems.id, position: roadmapItems.position })
+        .from(roadmapItems)
+        .where(and(eq(roadmapItems.businessId, businessId), eq(roadmapItems.horizon, v.horizon), isNull(roadmapItems.archivedAt)))
+        .orderBy(asc(roadmapItems.position), asc(roadmapItems.title))
+        .for("update");
+      const others = column.filter((c) => c.id !== item.id);
+      const at = Math.min(v.index, others.length);
+      const order = [...others.slice(0, at), { id: item.id, position: item.position }, ...others.slice(at)];
+      for (const [position, row] of order.entries()) {
+        if (row.id !== item.id && row.position !== position) await tx.update(roadmapItems).set({ position }).where(and(eq(roadmapItems.businessId, businessId), eq(roadmapItems.id, row.id)));
+      }
+      return one(await tx.update(roadmapItems).set({ horizon: v.horizon, position: at }).where(and(eq(roadmapItems.businessId, businessId), eq(roadmapItems.id, item.id))).returning(), "roadmap item", itemId);
+    });
+  },
+
+  /**
+   * Adds spec blocks to an item's links and changes nothing else (`roadmap.link`; the upsert would reset the fields it
+   * was not given). Every block must be a live block of the business.
+   */
+  async addRoadmapSpecBlocks(db: Executor, businessId: string, itemId: string, specBlockIds: readonly string[]): Promise<RoadmapItem> {
+    const ids = [...new Set(parseInput(z.array(Id), specBlockIds, "spec block ids"))];
+    return db.transaction(async (tx) => {
+      const item = one(await tx.select().from(roadmapItems).where(and(eq(roadmapItems.businessId, businessId), eq(roadmapItems.id, itemId))).for("update").limit(1), "roadmap item", itemId);
+      if (ids.length === 0) return item;
+      const owned = await tx.select({ id: specBlocks.id }).from(specBlocks).where(and(eq(specBlocks.businessId, businessId), inArray(specBlocks.id, ids), isNull(specBlocks.archivedAt)));
+      const missing = ids.filter((id) => !owned.some((b) => b.id === id));
+      if (missing.length) throw new NotFoundError("spec block", missing[0]!);
+      const merged = [...new Set([...item.specBlockIds, ...ids])];
+      return one(await tx.update(roadmapItems).set({ specBlockIds: merged }).where(and(eq(roadmapItems.businessId, businessId), eq(roadmapItems.id, item.id))).returning(), "roadmap item", itemId);
+    });
+  },
+
   async archiveRoadmapItem(db: Executor, businessId: string, itemId: string): Promise<RoadmapItem> {
     return one(await db.update(roadmapItems).set({ archivedAt: new Date() }).where(and(eq(roadmapItems.businessId, businessId), eq(roadmapItems.id, itemId))).returning(), "roadmap item", itemId);
   },
@@ -643,9 +722,7 @@ async function finishDecision(tx: Executor, businessId: string, proposal: Change
     h.specBlockId ? (blocks.find((b) => b.id === h.specBlockId)?.section ?? "A spec block") : `Roadmap: ${items.find((i) => i.id === h.roadmapItemId)?.title ?? "an item"}`;
   const changelogMd = proposalChangelog(settled.title, settled.hunks, labelOf);
 
-  const [previous] = await tx.select({ n: sql<number | null>`max(${specVersions.version})` }).from(specVersions).where(eq(specVersions.businessId, businessId));
-  const version = await productRepo.publishVersion(tx, businessId, { changelogMd, publishedBy: opts.decidedBy ?? null });
+  const { version, previousVersion } = await productRepo.publish(tx, businessId, { changelogMd, publishedBy: opts.decidedBy ?? null });
   const changedBlockIds = [...new Set(settled.hunks.filter((h) => h.specBlockId && (h.decision === "accepted" || h.decision === "edited")).map((h) => h.specBlockId!))];
-  const previousVersion = previous?.n === null || previous?.n === undefined ? null : Number(previous.n);
   return { ...settled, applied, published: { version, previousVersion, changedBlockIds, counts } };
 }

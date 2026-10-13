@@ -344,6 +344,11 @@ export const DepartmentSeed = z.object({
   colourToken: DeptColourToken,
   position: z.number().int().nonnegative(),
   moduleKeys: z.array(ModuleKey).min(1),
+  /**
+   * The module tabs this department shows, in order, when it is not every tab of its modules (Operations sits over the
+   * development module's Specialists and Plan only, not a second copy of Development). Absent: every tab.
+   */
+  tabSlugs: z.array(z.string().min(1)).min(1).optional(),
   leadTemplateKey: SnakeKey,
   memberTemplateKeys: z.array(SnakeKey),
   budgetMinor: z.number().int().nonnegative(),

@@ -23,24 +23,48 @@ export interface TerminalViewProps {
   live?: boolean;
   /** The task's goal in plain words: the empty state shows it, so every waiting tile says what it is about. */
   brief?: string;
-  /** A small tile (the focus rail, a grid of 12 or more): the empty state keeps only its prompt line. */
+  /** A small tile (the focus rail, a grid of 12 or more): the empty state keeps only its prompt line, on one line. */
   compact?: boolean;
+  /** Started, but no worker has picked the session up yet: the empty state says so instead of "streaming". */
+  queued?: boolean;
+  /**
+   * What the session has done so far without writing to the terminal (its latest note, a tool call waiting for your
+   * approval): the empty state shows it rather than claiming the agent has written nothing.
+   */
+  activity?: string | null;
 }
+
+export type TerminalEmptyState = "queued" | "live" | "idle";
+
+/** Which empty state a terminal shows: queued wins (nothing runs yet), then live, then idle. */
+export function terminalEmptyState({ live, queued }: { live?: boolean; queued?: boolean }): TerminalEmptyState {
+  return queued ? "queued" : live ? "live" : "idle";
+}
+
+const EMPTY_HEADLINE: Record<TerminalEmptyState, string> = {
+  queued: "session queued · waiting for a worker",
+  live: "session attached · streaming",
+  idle: "session idle · no output yet",
+};
 
 /**
  * What an empty terminal shows instead of a black void: a live prompt with a blinking caret and the agent's name while
- * the session runs, or a quiet idle note, over the task's goal when it is known (so no two waiting tiles read alike).
- * CSS-only motion; reduced motion leaves a solid caret and the words.
+ * the session runs, "Queued, waiting for a worker" before a worker has picked it up, or a quiet idle note, over the
+ * task's goal when it is known (so no two waiting tiles read alike). When the session has done something that is not
+ * terminal output (a note, a tool call waiting for approval), that is the prompt line. CSS-only motion; reduced motion
+ * leaves a solid caret and the words. The block clips: in a small tile the prompt is one truncated line and never
+ * grows over the tile's header.
  */
-export function TerminalEmpty({ agentName, live, brief, compact }: { agentName?: string; live?: boolean; brief?: string; compact?: boolean }) {
+export function TerminalEmpty({ agentName, live, brief, compact, queued, activity }: { agentName?: string; live?: boolean; brief?: string; compact?: boolean; queued?: boolean; activity?: string | null }) {
   const who = agentName ?? "The agent";
+  const state = terminalEmptyState({ live, queued });
+  const prompt = state === "queued" ? "Queued, waiting for a worker" : activity ? activity : state === "live" ? `waiting for ${who}'s first output` : `${who} has not written anything yet`;
   return (
-    <div className={cn("pointer-events-none absolute inset-0 flex flex-col justify-end font-mono text-mono", compact ? "p-2" : "gap-3 p-3")} data-terminal-empty={live ? "live" : "idle"}>
-      <div className="flex flex-col gap-1 text-tertiary">
-        {compact ? null : <span>{live ? "session attached · streaming" : "session idle · no output yet"}</span>}
-        <span>
-          <span className="text-kit-lift">❯</span> <span className="text-secondary">{live ? `waiting for ${who}'s first output` : `${who} has not written anything yet`}</span>{" "}
-          {live ? <span aria-hidden className="prompt-caret" /> : null}
+    <div className={cn("pointer-events-none absolute inset-0 flex flex-col justify-end overflow-hidden font-mono text-mono", compact ? "p-2" : "gap-3 p-3")} data-terminal-empty={state}>
+      <div className="flex min-w-0 flex-col gap-1 text-tertiary">
+        {compact ? null : <span className="opacity-60">{EMPTY_HEADLINE[state]}</span>}
+        <span className={cn("min-w-0", compact && "truncate")} title={compact ? prompt : undefined} data-terminal-prompt>
+          <span className="text-kit-lift">❯</span> <span className="text-secondary">{prompt}</span> {state === "live" ? <span aria-hidden className="prompt-caret" /> : null}
         </span>
       </div>
       {compact ? null : brief ? (
@@ -49,7 +73,7 @@ export function TerminalEmpty({ agentName, live, brief, compact }: { agentName?:
           {brief}
         </p>
       ) : (
-        <p className="font-body text-small text-tertiary">{live ? "Lines stream in here as the session runs." : "Output appears here when the session starts."}</p>
+        <p className="font-body text-small text-tertiary">{state === "live" ? "Lines stream in here as the session runs." : "Output appears here when the session starts."}</p>
       )}
     </div>
   );
@@ -119,7 +143,7 @@ function toTerminalText(chunk: StdoutChunk): string {
  * replay from the top when the chunk list rewinds (session scrubber). Falls back to a plain `<pre>` when asked or when
  * no DOM is available.
  */
-export function TerminalView({ chunks, label, renderer, follow = true, className, style, agentName, live, brief, compact }: TerminalViewProps) {
+export function TerminalView({ chunks, label, renderer, follow = true, className, style, agentName, live, brief, compact, queued, activity }: TerminalViewProps) {
   const useXterm = renderer ? renderer === "xterm" : typeof window !== "undefined";
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerminal | null>(null);
@@ -208,12 +232,12 @@ export function TerminalView({ chunks, label, renderer, follow = true, className
     if (followRef.current) term.scrollToBottom();
   }, [chunks]);
 
-  const empty = chunks.length === 0 ? <TerminalEmpty agentName={agentName} live={live} brief={brief} compact={compact} /> : null;
+  const empty = chunks.length === 0 ? <TerminalEmpty agentName={agentName} live={live} brief={brief} compact={compact} queued={queued} activity={activity} /> : null;
 
   if (!useXterm) {
     if (empty) {
       return (
-        <div role="log" aria-label={label} aria-live="polite" data-renderer="plain" className={cn("terminal-well relative h-full min-h-0", className)} style={style}>
+        <div role="log" aria-label={label} aria-live="polite" data-renderer="plain" className={cn("terminal-well relative h-full min-h-0 overflow-hidden", className)} style={style}>
           {empty}
         </div>
       );
@@ -238,7 +262,7 @@ export function TerminalView({ chunks, label, renderer, follow = true, className
   }
 
   return (
-    <div className={cn("terminal-well relative h-full min-h-0 w-full", className)} style={style} data-scroll-region="terminal">
+    <div className={cn("terminal-well relative h-full min-h-0 w-full overflow-hidden", className)} style={style} data-scroll-region="terminal">
       <div ref={hostRef} role="log" aria-label={label} data-renderer="xterm" className="dugout-terminal h-full min-h-0 w-full overflow-hidden px-2 py-1.5 [&_.xterm]:h-full [&_.xterm-viewport]:bg-ink!" />
       {empty}
     </div>

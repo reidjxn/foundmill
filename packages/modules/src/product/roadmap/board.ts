@@ -1,12 +1,11 @@
 /**
- * Pure helpers for the Roadmap tab (BUILD §11.5): grouping by horizon, the upsert payload for a move between columns,
+ * Pure helpers for the Roadmap tab (BUILD §11.5): grouping by horizon, the move payload (between and inside columns),
  * dependency lookups and the timeline scale. Kept free of React so the tests pin the behaviour directly.
  */
 import { formatDate } from "@foundmill/dugout/lib/format";
 import type { DateFormatPrefs } from "@foundmill/dugout/lib/date-preferences";
 import { ROADMAP_HORIZONS, type RoadmapHorizon } from "@foundmill/shared";
 import type { RoadmapResponse, RoadmapRow } from "../types";
-import { draftFrom, upsertInput } from "./ItemDialog";
 
 export type Columns = Record<RoadmapHorizon, RoadmapRow[]>;
 
@@ -17,9 +16,19 @@ export function groupByHorizon(items: readonly RoadmapRow[]): Columns {
   return out;
 }
 
-/** The `product.roadmap.upsert` input that moves an item to another column (status untouched: it is computed). */
-export function moveInput(item: RoadmapRow, horizon: RoadmapHorizon, position: number): Record<string, unknown> {
-  return { ...upsertInput(draftFrom(item)), horizon, position };
+/**
+ * The `product.roadmap.move` input that puts an item in `horizon` at `index` among that column's other items (0 is the
+ * top). The API renumbers the column and changes nothing else on the item (status stays computed).
+ */
+export function moveInput(item: RoadmapRow, horizon: RoadmapHorizon, index: number): { itemId: string; horizon: RoadmapHorizon; index: number } {
+  return { itemId: item.id, horizon, index: Math.max(0, index) };
+}
+
+/** Whether moving `item` to `horizon` at `index` (among the column's other items) changes anything. */
+export function isMove(columns: Columns, item: RoadmapRow, horizon: RoadmapHorizon, index: number): boolean {
+  if (item.horizon !== horizon) return true;
+  const current = columns[horizon].findIndex((i) => i.id === item.id);
+  return current !== -1 && Math.min(Math.max(0, index), columns[horizon].length - 1) !== current;
 }
 
 /** The horizon one step left or right of `h`, or null at the edge. */

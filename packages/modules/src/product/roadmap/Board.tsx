@@ -1,11 +1,12 @@
 "use client";
 /**
- * The Now / Next / Later board (BUILD §11.5). Cards drag between columns (HTML5 drag and drop) and move with the
- * keyboard (Alt+←/→ on a focused card, or the right-click verbs); each move is a `product.roadmap.upsert` with the new
- * horizon. Status is computed (roadmap-status.ts), never set here.
+ * The Now / Next / Later board (BUILD §11.5). Cards drag between and within columns (HTML5 drag and drop: a card
+ * lands above the card it is dropped on) and move with the keyboard (Alt+←/→ to the end of the next column, Alt+↑/↓
+ * within a column, or the right-click verbs); each move is a `product.roadmap.move` with the horizon and the place in
+ * the column. Status is computed (roadmap-status.ts), never set here.
  */
 import { useRef, useState, type DragEvent, type KeyboardEvent } from "react";
-import { ArrowLeftRight, Bot, FileText, Link2, Pencil, Workflow } from "lucide-react";
+import { ArrowDown, ArrowLeftRight, ArrowUp, Bot, FileText, Link2, Pencil, Workflow } from "lucide-react";
 import { Chip, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, DeptChip, EntityLink, Icon, StatusPill, cn, useEntityLinkContext, useFormatters } from "@foundmill/dugout";
 import { useDepartments } from "@foundmill/widgets";
 import { ROADMAP_HORIZONS, type RoadmapHorizon } from "@foundmill/shared";
@@ -20,7 +21,8 @@ export interface BoardProps {
   dependencies: DependencyIndex;
   /** The item being moved (its id) while the mutation runs. */
   movingId: string | null;
-  onMove: (item: RoadmapRow, horizon: RoadmapHorizon, position: number) => void;
+  /** `index` is the item's new place among the target column's other items (0 is the top). */
+  onMove: (item: RoadmapRow, horizon: RoadmapHorizon, index: number) => void;
   onEdit: (item: RoadmapRow) => void;
   onOpenBlock: (blockId: string) => void;
   onOpenTasks: (item: RoadmapRow) => void;
@@ -50,8 +52,8 @@ function Owner({ ownerRef }: { ownerRef: RoadmapRow["ownerRef"] }) {
   return <EntityLink entity={{ id: ownerRef.id, kind, name }} className="text-small" />;
 }
 
-function Card({ item, blocks, dependencies, titleById, moving, onMove, onEdit, onOpenBlock, onOpenTasks }: { item: RoadmapRow; blocks: readonly SpecBlockRow[]; dependencies: DependencyIndex; titleById: Map<string, string>; moving: boolean; onMove: (h: RoadmapHorizon) => void; onEdit: () => void; onOpenBlock: (id: string) => void; onOpenTasks: () => void }) {
-  const { formatDateShort, formatRange } = useFormatters();
+function Card({ item, index, count, blocks, dependencies, titleById, moving, onMove, onShift, onEdit, onOpenBlock, onOpenTasks }: { item: RoadmapRow; index: number; count: number; blocks: readonly SpecBlockRow[]; dependencies: DependencyIndex; titleById: Map<string, string>; moving: boolean; onMove: (h: RoadmapHorizon) => void; onShift: (dir: -1 | 1) => void; onEdit: () => void; onOpenBlock: (id: string) => void; onOpenTasks: () => void }) {
+  const { formatDateSmart, formatRange } = useFormatters();
   const status = computeRoadmapStatus(item);
   const tasks = taskSummary(item);
   const linked = (item.specBlockIds ?? []).map((id) => blocks.find((b) => b.id === id)).filter((b): b is SpecBlockRow => b !== undefined);
@@ -62,6 +64,12 @@ function Card({ item, blocks, dependencies, titleById, moving, onMove, onEdit, o
       if (target) {
         e.preventDefault();
         onMove(target);
+      }
+    } else if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      const dir = e.key === "ArrowUp" ? -1 : 1;
+      if (index + dir >= 0 && index + dir < count) {
+        e.preventDefault();
+        onShift(dir);
       }
     } else if (e.key === "Enter" && e.target === e.currentTarget) {
       e.preventDefault();
@@ -97,7 +105,7 @@ function Card({ item, blocks, dependencies, titleById, moving, onMove, onEdit, o
             </StatusPill>
           </div>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-small text-secondary tabular-nums">
-            {item.targetEnd ? <span title={item.targetStart ? formatRange(item.targetStart, item.targetEnd, { withYear: true }) : undefined}>by {formatDateShort(item.targetEnd)}</span> : <span>No date</span>}
+            {item.targetEnd ? <span title={item.targetStart ? formatRange(item.targetStart, item.targetEnd, { withYear: true }) : undefined}>by {formatDateSmart(item.targetEnd)}</span> : <span>No date</span>}
             <span>· confidence {item.confidence}/5</span>
             {tasks.total ? (
               <span className="inline-flex items-center gap-1" title={`${tasks.done} of ${tasks.total} tasks done`}>
@@ -155,6 +163,14 @@ function Card({ item, blocks, dependencies, titleById, moving, onMove, onEdit, o
             <Icon icon={ArrowLeftRight} size="inline" /> Move to {HORIZON_LABEL[h]}
           </ContextMenuItem>
         ))}
+        <ContextMenuItem disabled={index === 0} onSelect={() => onShift(-1)}>
+          <Icon icon={ArrowUp} size="inline" /> Move up
+          <ContextMenuShortcut>Alt+↑</ContextMenuShortcut>
+        </ContextMenuItem>
+        <ContextMenuItem disabled={index >= count - 1} onSelect={() => onShift(1)}>
+          <Icon icon={ArrowDown} size="inline" /> Move down
+          <ContextMenuShortcut>Alt+↓</ContextMenuShortcut>
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem disabled={linked.length === 0} onSelect={() => linked[0] && onOpenBlock(linked[0].id)}>
           <Icon icon={FileText} size="inline" /> Open spec block
@@ -174,14 +190,20 @@ export function Board({ columns, blocks, dependencies, movingId, onMove, onEdit,
   const titleById = new Map(all.map((i) => [i.id, i.title]));
   const find = (id: string | null) => (id ? all.find((i) => i.id === id) : undefined);
 
+  // A card dropped on another card lands just above it; dropped on the column's empty space, at the bottom. The index
+  // counts the column's other items, so dropping inside the item's own column reorders it.
   const drop = (h: RoadmapHorizon, e: DragEvent<HTMLElement>) => {
     e.preventDefault();
     const id = e.dataTransfer?.getData("text/plain") || dragging.current;
     setOver(null);
     dragging.current = null;
     const item = find(id);
-    if (!item || item.horizon === h) return;
-    onMove(item, h, columns[h].length);
+    if (!item) return;
+    const others = columns[h].filter((i) => i.id !== item.id);
+    const onCard = (e.target instanceof Element ? e.target.closest("[data-roadmap-item]") : null)?.getAttribute("data-roadmap-item");
+    if (onCard === item.id) return; // released over the card it was dragging: nothing moves
+    const at = onCard ? others.findIndex((i) => i.id === onCard) : -1;
+    onMove(item, h, at === -1 ? others.length : at);
   };
 
   return (
@@ -215,15 +237,18 @@ export function Board({ columns, blocks, dependencies, movingId, onMove, onEdit,
           </header>
           <div role="list" aria-label={`${HORIZON_LABEL[h]} items`} className="flex flex-1 flex-col gap-2 p-2">
             {columns[h].length === 0 ? <p className="px-1 py-4 text-center text-small text-secondary">{HORIZON_HINT[h]} Drop an item here.</p> : null}
-            {columns[h].map((item) => (
+            {columns[h].map((item, index) => (
               <Card
                 key={item.id}
                 item={item}
+                index={index}
+                count={columns[h].length}
                 blocks={blocks}
                 dependencies={dependencies}
                 titleById={titleById}
                 moving={movingId === item.id}
                 onMove={(target) => onMove(item, target, columns[target].length)}
+                onShift={(dir) => onMove(item, h, index + dir)}
                 onEdit={() => onEdit(item)}
                 onOpenBlock={onOpenBlock}
                 onOpenTasks={() => onOpenTasks(item)}

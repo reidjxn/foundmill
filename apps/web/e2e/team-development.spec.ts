@@ -163,6 +163,18 @@ for (const width of [1280, 1440]) {
       await expect(page.getByRole("grid", { name: "Merged pull requests" })).toBeVisible({ timeout: LONG });
       await expect(page.getByText(/AC-\d/)).toHaveCount(0);
       expect(await headersInside(page, "Merged pull requests")).toEqual([]);
+      // The merge queue's own merges are listed (the seed has done code tasks), and nothing claims to be deploying (TPD-14, TPD-15).
+      await expect(page.getByRole("grid", { name: "Merged pull requests" }).getByRole("row").nth(1)).toBeVisible({ timeout: LONG });
+      await expect(page.getByText("Deploying…")).toHaveCount(0);
+      // Only code tasks are pull requests: the Formulation Chemist's stability-data task is not one (TPD-13).
+      await expect(page.getByRole("grid", { name: "Open pull requests" }).getByText(/Stability data/)).toHaveCount(0);
+
+      // The Formulation Lab (Operations) shows the Specialists and Plan tabs only, not a copy of Development (DB-11).
+      const lab = await departmentBase(page, /formulation lab/i);
+      await page.goto(`${lab}/specialists`);
+      await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/specialists", { timeout: LONG });
+      const labTabs = page.getByRole("tablist").first().getByRole("tab");
+      await expect(labTabs).toHaveText([/Specialists/, /Plan/]);
 
       await openTab(page, dev, "environments", "development/environments");
       const envs = page.getByRole("grid", { name: "Environments" });
@@ -185,6 +197,14 @@ for (const width of [1280, 1440]) {
       await openTab(page, dev, "specialists", "development/specialists");
       await expect(page.getByTestId("specialist-counts")).toBeVisible({ timeout: LONG });
       await expect(page.getByTestId("specialist-counts")).not.toContainText(/\b1 specialists\b/);
+      // Specialists are agents and tasks are tasks: "4 specialists · 30 tasks", never 30 specialists (TPD-22).
+      const counts = ((await page.getByTestId("specialist-counts").textContent()) ?? "").replace(/\s+/g, " ").trim();
+      const parsed = /^(\d+) specialists? · (\d+) tasks? · \d+ running · \d+ reporting$/.exec(counts);
+      expect(parsed, `header reads "N specialists · N tasks · …": ${counts}`).not.toBeNull();
+      expect(Number(parsed![1]), "no more specialists than tasks").toBeLessThanOrEqual(Number(parsed![2]));
+      // A ready task that never started is not finished (AC-11): the finished list never shows a Ready pill.
+      const quiet = page.getByTestId("specialists-quiet");
+      if (await quiet.count()) await expect(quiet.getByRole("table")).not.toContainText("Ready");
       const tiles = await page.getByRole("article").count();
       expect(tiles, "finished specialists with nothing to show collapse into one list, not a wall of tiles").toBeLessThanOrEqual(12);
       await expect(page.locator("[data-module-screen='development/specialists']")).not.toContainText("€");

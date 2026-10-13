@@ -32,7 +32,7 @@ export function validateSourceDraft(d: SourceDraft): string | null {
 /** The `product.sources.add` input: the notes (or pasted text) are read with the source and show as its summary until the Source Watcher writes one. */
 export function sourceInput(d: SourceDraft): Record<string, unknown> {
   const uri = d.uri.trim() || null;
-  return { kind: d.kind, uri, title: d.title.trim() || uri || "", contentRef: null, relevance: d.notes.trim() ? { notes: d.notes.trim() } : {} };
+  return { kind: d.kind, uri, title: d.title.trim() || uri || "", relevance: d.notes.trim() ? { notes: d.notes.trim() } : {} };
 }
 
 export function AddSourceDialog({ open, kind, onClose, onSaved }: { open: boolean; kind?: SourceKind; onClose: () => void; onSaved: () => void }) {

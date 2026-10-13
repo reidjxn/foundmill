@@ -129,8 +129,34 @@ describe("SourcesScreen", () => {
     await act(async () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "Add source" }));
     });
-    expect(fake.mutations[0]).toEqual({ path: "product.sources.add", input: { kind: "doc", uri: "https://rival.example/pricing", title: "Pricing page", contentRef: null, relevance: { notes: "Annual plan 20% off" } } });
+    expect(fake.mutations[0]).toEqual({ path: "product.sources.add", input: { kind: "doc", uri: "https://rival.example/pricing", title: "Pricing page", relevance: { notes: "Annual plan 20% off" } } });
     expect(fake.refetches["product.sources.list"]).toBe(1);
+  });
+
+  it("removes a source from the right-click menu after a confirmation, and counts in the singular (TPD-30)", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ businessId: BID, responses: { ...responses, "product.sources.list": { items: [sources[1]!], nextCursor: null } } });
+    renderScreen(fake, <SourcesScreen businessId={BID} departmentId="d1" />);
+    expect(screen.getByText(/^1 source ·/)).toBeTruthy();
+    fireEvent.contextMenu(within(screen.getByRole("grid", { name: "Sources" })).getByText("Invoicely"));
+    await user.click(await screen.findByRole("menuitem", { name: "Remove source" }));
+    const dialog = await screen.findByRole("dialog", { name: "Remove this source?" });
+    expect(within(dialog).getByText(/Invoicely/)).toBeTruthy();
+    expect(fake.mutations).toHaveLength(0);
+    await user.click(within(dialog).getByRole("button", { name: "Remove source" }));
+    await waitFor(() => expect(fake.mutations).toEqual([{ path: "product.sources.remove", input: { sourceId: sources[1]!.id } }]));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Remove this source?" })).toBeNull());
+    expect(fake.refetches["product.sources.list"]).toBe(1);
+  });
+
+  it("offers no Add or Remove to people who may only read Product", async () => {
+    const fake = createFakeSource({ businessId: BID, responses });
+    renderScreen(fake, <SourcesScreen businessId={BID} departmentId="d1" />, { canWrite: () => false });
+    expect(screen.queryByRole("button", { name: "Add source" })).toBeNull();
+    fireEvent.contextMenu(within(screen.getByRole("grid", { name: "Sources" })).getByText("Invoicely"));
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).queryByRole("menuitem", { name: "Remove source" })).toBeNull();
+    expect(within(menu).getByRole("menuitem", { name: "Open link" })).toBeTruthy();
   });
 
   it("opens the link in a new tab when a row is opened", () => {

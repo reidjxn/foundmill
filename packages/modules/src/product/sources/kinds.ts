@@ -120,6 +120,11 @@ export function isSimulatedSummary(s: Pick<SourceRow, "relevance">): boolean {
   return Boolean(meta && typeof meta === "object" && meta.provenance === "Estimate" && importState(s)?.state !== "read");
 }
 
+/** Only http(s) links are opened from the browser; a stored `javascript:`, `data:` or `s3:` uri never reaches `window.open`. */
+export function isWebUri(uri: string | null | undefined): uri is string {
+  return !!uri && /^https?:\/\//i.test(uri.trim());
+}
+
 export function hostOf(uri: string | null | undefined): string | null {
   if (!uri) return null;
   try {

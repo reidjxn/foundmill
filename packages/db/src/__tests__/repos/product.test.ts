@@ -4,9 +4,11 @@
  * changelog, rejected hunks change nothing, and a decided hunk cannot be decided differently.
  */
 import { ValidationError } from "@foundmill/shared";
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "../../repos";
 import { docText, mergeBlockContent, textDoc } from "../../repos/spec-merge";
+import { createBusinessFixture } from "../rls/fixtures";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
 
 let r: RepoHarness;
@@ -164,5 +166,61 @@ describe("change proposals", () => {
     const p = await repos.product.createProposal(r.db, businessId, { title: "y", hunks: [{ specBlockId: own.id, theirs: doc("Changed.") }] });
     await expect(r.as(r.B.ownerId, (tx) => repos.product.decideHunk(tx, r.B.businessId, p.hunks[0]!.id, "accepted"))).rejects.toThrow(/not found/);
     expect(docText((await repos.product.getBlock(r.db, businessId, own.id)).content)).toBe("A's problem.");
+  });
+});
+
+describe("block positions (AC-10)", () => {
+  it("appends a block to its section, and a new section after every block of the business", async () => {
+    const h = await createBusinessFixture(r.h, "prod-pos");
+    const outline = ["Problem", "Customers", "Features", "Risks"];
+    for (const [position, section] of outline.entries()) await repos.product.createBlock(r.db, h.businessId, { section, position });
+    expect((await repos.product.createBlock(r.db, h.businessId, { section: "Features" })).position).toBe(3);
+    const fresh = await repos.product.createBlock(r.db, h.businessId, { section: "Go-to-market" });
+    expect(fresh.position).toBe(4);
+    expect((await repos.product.createBlock(r.db, h.businessId, { section: "Go-to-market" })).position).toBe(5);
+    // A business with no blocks starts at 0.
+    const empty = await createBusinessFixture(r.h, "prod-pos-empty");
+    const before = await repos.product.listBlocks(r.db, empty.businessId);
+    expect((await repos.product.createBlock(r.db, empty.businessId, { section: "Problem" })).position).toBe(before.length ? Math.max(...before.map((b) => b.position)) + 1 : 0);
+  });
+});
+
+describe("version numbering (TPD-18, ARB-22)", () => {
+  /** Advisory locks held by the current transaction (PGlite runs one connection, so this is the lock a second publish would wait on). */
+  const advisoryLocks = async (tx: Pick<typeof r.db, "execute">) => ((await tx.execute(sql`select objid from pg_locks where locktype = 'advisory' and granted`)) as unknown as { rows: unknown[] }).rows.length;
+
+  it("numbers a spec version under a per-business lock held until the transaction ends", async () => {
+    const { businessId } = r.B;
+    await r.db.transaction(async (tx) => {
+      expect(await advisoryLocks(tx)).toBe(0);
+      await repos.product.publishVersion(tx, businessId, { changelogMd: "locked" });
+      expect(await advisoryLocks(tx)).toBe(1);
+    });
+    const versions = await repos.product.listVersions(r.db, businessId);
+    const [x, y] = await Promise.all([repos.product.publishVersion(r.db, businessId, { changelogMd: "x" }), repos.product.publishVersion(r.db, businessId, { changelogMd: "y" })]);
+    expect([x.version, y.version].sort()).toEqual([versions[0]!.version + 1, versions[0]!.version + 2]);
+  });
+
+  it("with unlessUnchanged, an identical publish returns the latest version; a new changelog or a changed block publishes", async () => {
+    const { businessId } = r.B;
+    const first = await repos.product.publish(r.db, businessId, { changelogMd: "Pricing final", unlessUnchanged: true });
+    expect(first.created).toBe(true);
+    const again = await repos.product.publish(r.db, businessId, { changelogMd: "Pricing final", unlessUnchanged: true });
+    expect(again).toMatchObject({ created: false, previousVersion: first.version.version });
+    expect(again.version.id).toBe(first.version.id);
+    // Without the flag (a proposal settling) a version is always published.
+    expect((await repos.product.publish(r.db, businessId, { changelogMd: "Pricing final" })).created).toBe(true);
+    const block = await repos.product.createBlock(r.db, businessId, { section: "Risks", content: doc("Supply.") });
+    const changed = await repos.product.publish(r.db, businessId, { changelogMd: "Pricing final", unlessUnchanged: true });
+    expect(changed.created).toBe(true);
+    expect((changed.version.snapshot as { blocks: Array<{ id: string }> }).blocks.map((b) => b.id)).toContain(block.id);
+  });
+
+  it("numbers an agent version under a per-agent lock", async () => {
+    const { businessId, agentId } = r.B;
+    await r.db.transaction(async (tx) => {
+      await repos.agents.createVersion(tx, businessId, agentId, { state: "draft" });
+      expect(await advisoryLocks(tx)).toBe(1);
+    });
   });
 });

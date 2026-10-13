@@ -4,7 +4,9 @@
  * There is no Yjs state column on `spec_blocks` (checked 0003_product.sql), so the store converts: load reads
  * `spec_blocks.content` (ProseMirror JSON) into the Yjs fragment; save converts the fragment back and calls
  * `repos.product.editBlock`, which bumps `version` and records `authored_by_kind` / `authored_by` for the last
- * writer. Unchanged content is not written again, so idle documents never inflate the version.
+ * writer. Unchanged content is not written again, so idle documents never inflate the version. A store that carries a
+ * human's edit pins the block (BUILD §11.5 "never overwrite pinned (human-edited) blocks", AC-11.5.3), exactly as
+ * product.spec.editBlock does in apps/api; an agent's or the system's store leaves `pinned` as it is.
  */
 import { repos, type Db, type SpecBlock } from "@foundmill/db";
 import type * as Y from "yjs";
@@ -22,10 +24,18 @@ export interface SpecBlockStore {
   getBlock(businessId: string, specBlockId: string): Promise<SpecBlock>;
   /** Fills a freshly created document from the stored ProseMirror JSON. Returns the block. */
   load(businessId: string, specBlockId: string, document: Y.Doc): Promise<SpecBlock>;
-  /** Persists the document's current content when it differs from what was last stored. */
-  save(businessId: string, specBlockId: string, document: Y.Doc, author: Author): Promise<{ stored: boolean; block: SpecBlock | null }>;
+  /**
+   * Persists the document's current content when it differs from what was last stored. The block is pinned when the
+   * author is a user or `options.humanEdited` says a human changed the document since the last store.
+   */
+  save(businessId: string, specBlockId: string, document: Y.Doc, author: Author, options?: SaveOptions): Promise<{ stored: boolean; block: SpecBlock | null }>;
   /** Forget the cached last-stored content (called on unload). */
   forget(businessId: string, specBlockId: string): void;
+}
+
+export interface SaveOptions {
+  /** A human edited the document since the last store, even if an agent's update came last. */
+  humanEdited?: boolean;
 }
 
 export interface SpecBlockStoreOptions {
@@ -60,7 +70,7 @@ export function createSpecBlockStore(db: Db, options: SpecBlockStoreOptions = {}
       return block;
     },
 
-    async save(businessId, specBlockId, document, author) {
+    async save(businessId, specBlockId, document, author, options = {}) {
       const content = fragmentToPmDoc(document.getXmlFragment(field));
       const serialised = JSON.stringify(content);
       const key = keyOf(businessId, specBlockId);
@@ -69,6 +79,7 @@ export function createSpecBlockStore(db: Db, options: SpecBlockStoreOptions = {}
         content: content as unknown as Record<string, unknown>,
         authoredByKind: author.kind,
         authoredBy: author.id,
+        ...(author.kind === "user" || options.humanEdited ? { pinned: true } : {}),
       });
       lastStored.set(key, serialised);
       return { stored: true, block };

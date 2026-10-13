@@ -24,8 +24,14 @@ export type WidgetDataSource = {
   mutate: <T = unknown>(path: string, input: Record<string, unknown>) => Promise<T>;
   /** Navigate inside the app (host router). */
   navigate: (href: string) => void;
-  /** Subscribe to a realtime channel ("ev:<businessId>" | "as:<sessionId>"); returns unsubscribe. */
-  subscribe: (channel: string, handler: (event: unknown) => void) => () => void;
+  /**
+   * Subscribe to a realtime channel ("ev:<businessId>" | "as:<sessionId>"); returns unsubscribe. `focused: false` marks
+   * a channel nobody is watching closely (a Live sessions tile that is not the focused one): the stream delivers it in
+   * bursts and sheds it first when the socket backs up. Default focused.
+   */
+  subscribe: (channel: string, handler: (event: unknown) => void, opts?: { focused?: boolean }) => () => void;
+  /** Change a subscribed channel's focus (see `subscribe`). Hosts without a stream may leave it out. */
+  setFocus?: (channel: string, focused: boolean) => void;
   /** Current business context. */
   businessId: string;
   /** Business glossary (BUILD §11.13) for renaming nouns. */

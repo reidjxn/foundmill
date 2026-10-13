@@ -1,7 +1,8 @@
 "use client";
 /**
- * Development › Pull requests (BUILD §6.3, §11.6): open PRs from `dev.prs.list` with their merge-queue status and
- * preview links, and the merged PRs (`pr.merged` events) in a second table.
+ * Development › Pull requests (BUILD §6.3, §11.6): open PRs (code tasks in review or the merge queue) from
+ * `dev.prs.list` with their merge-queue status and preview links, and the merged PRs (GitHub's `pr.merged` events and
+ * the code tasks the merge queue landed) in a second table.
  */
 import { useMemo, useState } from "react";
 import { ExternalLink, GitMerge, GitPullRequest, MonitorPlay, Network, SearchCheck } from "lucide-react";
@@ -89,8 +90,13 @@ export function previewFromEvent(event: WidgetEvent): { branch: string | null; t
   return { branch: typeof p.branch === "string" ? p.branch : null, taskId: typeof p.taskId === "string" ? p.taskId : null, url: typeof p.url === "string" ? p.url : null };
 }
 
+/** Only code tasks have a branch, so only they are pull requests (a finance or specialist task in review is not). */
+export function isCodePr(pr: Pick<OpenPrRow, "kind">): boolean {
+  return pr.kind === undefined || pr.kind === "code";
+}
+
 export function toOpenRows(open: readonly OpenPrRow[], agents: Map<string, AgentRow>, previews: Map<string, string>): OpenPrTableRow[] {
-  return open.map((pr) => {
+  return open.filter(isCodePr).map((pr) => {
     const agent = pr.agentId ? agents.get(pr.agentId) : undefined;
     return { ...pr, id: pr.taskId, agent, agentName: agent?.name ?? (pr.agentId ? "Agent" : "Unassigned"), queue: QUEUE_META[pr.status]?.word ?? pr.status, previewUrl: previews.get(pr.branch) ?? previews.get(pr.taskId) ?? null };
   });
@@ -99,14 +105,21 @@ export function toOpenRows(open: readonly OpenPrRow[], agents: Map<string, Agent
 /** Who merged, in words, when the event carries a kind but no name. */
 const MERGED_BY_KIND: Record<string, string> = { user: "A staff member", agent: "An agent", system: "Automatic merge" };
 
-export function toMergedRows(merged: readonly MergedPrRow[]): MergedPrTableRow[] {
-  return merged.map((m) => ({
-    ...m,
-    id: m.eventId,
-    mergedAt: toDate(m.occurredAt),
-    mergedByName: m.mergedBy?.name ?? (m.mergedBy?.kind ? (MERGED_BY_KIND[m.mergedBy.kind] ?? humanise(m.mergedBy.kind)) : "GitHub"),
-    prLabel: m.prNumber ? `#${m.prNumber}` : m.eventId.slice(0, 8),
-  }));
+/**
+ * Merged rows: GitHub's `pr.merged` events and the merges the merge queue landed itself (done code tasks, no event).
+ * An agent who merged is named from the team; a queue merge has no PR number, line counts or commit to show.
+ */
+export function toMergedRows(merged: readonly MergedPrRow[], agents: Map<string, AgentRow> = new Map()): MergedPrTableRow[] {
+  return merged.map((m) => {
+    const agentName = m.mergedBy?.kind === "agent" && m.mergedBy.id ? agents.get(m.mergedBy.id)?.name : undefined;
+    return {
+      ...m,
+      id: m.eventId ?? `task:${m.taskId ?? m.occurredAt}`,
+      mergedAt: toDate(m.occurredAt),
+      mergedByName: m.mergedBy?.name ?? agentName ?? (m.mergedBy?.kind ? (MERGED_BY_KIND[m.mergedBy.kind] ?? humanise(m.mergedBy.kind)) : "GitHub"),
+      prLabel: m.prNumber ? `#${m.prNumber}` : m.source === "merge_queue" || !m.eventId ? "—" : m.eventId.slice(0, 8),
+    };
+  });
 }
 
 export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenProps) {
@@ -142,7 +155,7 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
   );
 
   const openRows = useMemo(() => toOpenRows(prs.data?.open ?? [], agentIndex, previews), [prs.data, agentIndex, previews]);
-  const mergedRows = useMemo(() => toMergedRows(prs.data?.merged ?? []), [prs.data]);
+  const mergedRows = useMemo(() => toMergedRows(prs.data?.merged ?? [], agentIndex), [prs.data, agentIndex]);
   const optionNow = options.now;
   const now = useMemo(() => optionNow ?? new Date(), [optionNow]);
 
@@ -197,7 +210,9 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
               <MonitorPlay size={14} aria-hidden /> Open preview
             </a>
           ) : (
-            <span className="text-secondary">Deploying…</span>
+            // No preview has been reported for this branch (deployments are live `deploy.succeeded` events): say so in
+            // the Environments tab's words, never that something is deploying.
+            <span className="text-secondary">Awaiting deployment</span>
           ),
       },
     ], OPEN_PR_FIT),
@@ -210,8 +225,8 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
       { id: "title", accessorKey: "title", header: "Title", size: mergedSizes.title, cell: ({ row }) => <span className="block min-w-0 truncate text-body-strong" title={row.original.title ?? undefined}>{row.original.title ?? "—"}</span> },
       { id: "branch", accessorKey: "branch", header: "Branch", size: mergedSizes.branch, cell: ({ row }) => (row.original.branch ? <BranchName branch={row.original.branch} /> : <span className="text-tertiary">—</span>) },
       { id: "mergedByName", accessorKey: "mergedByName", header: "Merged by", size: mergedSizes.mergedByName },
-      { id: "additions", accessorKey: "additions", header: "Added", size: mergedSizes.additions, meta: { numeric: true, label: "Lines added" }, cell: ({ row }) => <span className="text-status-good tabular-nums">+{formatNumber(row.original.additions ?? 0)}</span> },
-      { id: "deletions", accessorKey: "deletions", header: "Removed", size: mergedSizes.deletions, meta: { numeric: true, label: "Lines removed" }, cell: ({ row }) => <span className="text-status-bad tabular-nums">−{formatNumber(row.original.deletions ?? 0)}</span> },
+      { id: "additions", accessorKey: "additions", header: "Added", size: mergedSizes.additions, meta: { numeric: true, label: "Lines added" }, cell: ({ row }) => (row.original.additions === undefined ? <span className="text-tertiary">—</span> : <span className="text-status-good tabular-nums">+{formatNumber(row.original.additions)}</span>) },
+      { id: "deletions", accessorKey: "deletions", header: "Removed", size: mergedSizes.deletions, meta: { numeric: true, label: "Lines removed" }, cell: ({ row }) => (row.original.deletions === undefined ? <span className="text-tertiary">—</span> : <span className="text-status-bad tabular-nums">−{formatNumber(row.original.deletions)}</span>) },
       { id: "sha", accessorKey: "mergeCommitSha", header: "Commit", size: mergedSizes.sha, cell: ({ row }) => <span className="font-mono text-mono text-secondary">{shortSha(row.original.mergeCommitSha) || "—"}</span> },
       { id: "mergedAt", accessorFn: (r) => r.mergedAt?.getTime() ?? 0, header: "Merged", size: mergedSizes.mergedAt, meta: { filter: "date", label: "Merged" }, cell: ({ row }) => (row.original.mergedAt ? <RelativeDateText className="text-secondary" value={row.original.mergedAt} now={now} /> : <span className="text-tertiary">—</span>) },
     ], MERGED_PR_FIT),
