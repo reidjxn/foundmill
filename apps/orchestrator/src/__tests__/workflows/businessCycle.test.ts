@@ -4,6 +4,8 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Activities, BusinessBrief, CyclePlan, SessionLaunch, SessionResult } from "../../activities";
+import { ApplicationFailure } from "@temporalio/common";
+import { CYCLE_PLAN_FAILURE, PLAN_FAILED_MESSAGE } from "../../cycle-contract";
 import { businessCycle, fileScopesOverlap, stopSignal } from "../../workflows";
 import { createTemporalRig, type TemporalRig } from "./temporal";
 
@@ -57,8 +59,13 @@ function plan(): CyclePlan {
 const launch: SessionLaunch = { sandboxMode: "mock", fellBackFrom: null, modelKey: "sonnet", modelId: "claude-sonnet-5-5", recordingKey: "stub", allowedTools: [], mcpConnectors: [], envNames: [], modelBilling: "credits", branch: "agent/x", maxTurns: 1, planSteps: 1, acceptanceTests: 1 };
 const done = (): SessionResult => ({ outcome: "done", reason: null, blockedReason: null, approvalId: null, progress: { planStepsDone: 1, planSteps: 1, acceptanceTestsPassing: 1, acceptanceTests: 1, reviewPassed: true, merged: true, phase: "done", progress: 1, etaAt: null, at: null }, eventsEmitted: 3, toolCalls: 1, toolFailures: 0, tokensIn: 0, tokensOut: 0, costMinor: 5, durationMs: 60_000, prNumber: null, summary: "ok", providerSessionId: null });
 
+/** Each mock run opens sessions under its own ids: an abandoned child of an earlier test may still run under its id. */
+let runs = 0;
+
 interface Calls {
   opened: { taskId: string; agentId: string }[];
+  /** The session ids handed out, in order. */
+  sessionIds: string[];
   /** Every openSession input as received (the workflow sends no workflow id: the row carries `session:<id>`). */
   openInputs: Record<string, unknown>[];
   running: Set<string>;
@@ -67,23 +74,30 @@ interface Calls {
   narrated: string[][];
   completed: Record<string, unknown>[];
   started: number;
+  plans: number;
+  startedPlans: CyclePlan[];
+  planFailures: { message: string; details: unknown }[];
 }
 
-function mockActivities(opts: { holdSessions?: boolean; stoppedBrief?: boolean; refuseAfter?: number; planned?: number } = {}): { acts: Partial<Activities>; calls: Calls; release: () => void } {
-  const calls: Calls = { opened: [], openInputs: [], running: new Set(), maxConcurrent: 0, overlapSeen: false, narrated: [], completed: [], started: 0 };
+function mockActivities(opts: { holdSessions?: boolean; stoppedBrief?: boolean; refuseAfter?: number; planned?: number; planError?: () => Error; budgetMinor?: number } = {}): { acts: Partial<Activities>; calls: Calls; release: () => void } {
+  const calls: Calls = { opened: [], sessionIds: [], openInputs: [], running: new Set(), maxConcurrent: 0, overlapSeen: false, narrated: [], completed: [], started: 0, plans: 0, startedPlans: [], planFailures: [] };
+  const run = String(++runs).padStart(4, "0");
   const scopes = new Map(tasks.map((t) => [t.id, t.fileScope]));
   let release = () => {};
   const held = new Promise<void>((r) => (release = r));
   const acts: Partial<Activities> = {
     async loadBrief() {
-      return { ...brief(), agentsStopped: opts.stoppedBrief ?? false };
+      return { ...brief(), agentsStopped: opts.stoppedBrief ?? false, budgetRemainingMinor: opts.budgetMinor ?? null };
     },
     async planCycle({ brief: b }) {
+      calls.plans += 1;
+      if (opts.planError) throw opts.planError();
       if (b.agentsStopped) return { ...plan(), starts: [], costMinor: 0 };
       return opts.planned === undefined ? plan() : { ...plan(), starts: plan().starts.slice(0, opts.planned) };
     },
-    async startCycle() {
+    async startCycle({ plan: p }) {
       calls.started += 1;
+      calls.startedPlans.push(p);
       return { cycleId: id(900), eventId: id(901) };
     },
     async openSession(input) {
@@ -92,7 +106,9 @@ function mockActivities(opts: { holdSessions?: boolean; stoppedBrief?: boolean; 
       // The kill switch lands after `refuseAfter` sessions: every later dispatch is refused.
       if (opts.refuseAfter !== undefined && calls.opened.length >= opts.refuseAfter) return { sessionId: null, refused: "agents_stopped" as const, detail: "agents are stopped (kill switch)" };
       calls.opened.push({ taskId, agentId });
-      return { sessionId: `${taskId.slice(0, 8)}-0000-4000-8000-${String(calls.opened.length).padStart(12, "0")}`, refused: null, detail: null };
+      const sessionId = `${taskId.slice(0, 8)}-${run}-4000-8000-${String(calls.opened.length).padStart(12, "0")}`;
+      calls.sessionIds.push(sessionId);
+      return { sessionId, refused: null, detail: null };
     },
     async prepareSession() {
       return launch;
@@ -117,6 +133,10 @@ function mockActivities(opts: { holdSessions?: boolean; stoppedBrief?: boolean; 
     async completeCycle(input) {
       calls.completed.push(input);
       return { eventId: id(902) };
+    },
+    async notePlanFailure(input) {
+      calls.planFailures.push(input);
+      return { inboxItemIds: [id(556)] };
     },
   };
   return { acts, calls, release };
@@ -168,8 +188,7 @@ describe("businessCycle workflow", () => {
     const m = mockActivities({ planned: 1 });
     const result = await rig.run(m.acts, async (client, taskQueue) => {
       const r = await client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:3`, taskQueue, args: [{ businessId: B, cycleNumber: 3, trigger: "continue" }] });
-      const sessionId = `${tasks[0]!.id.slice(0, 8)}-0000-4000-8000-000000000001`;
-      const child = await client.workflow.getHandle(`session:${sessionId}`).describe();
+      const child = await client.workflow.getHandle(`session:${m.calls.sessionIds[0]}`).describe();
       expect(child.type).toBe("agentSession");
       return r;
     });
@@ -186,6 +205,51 @@ describe("businessCycle workflow", () => {
     // The refusal stopped the loop at the first refused task; the others were never asked for.
     expect(m.calls.openInputs).toHaveLength(2);
     expect(m.calls.completed[0]).toMatchObject({ outcome: "stopped", tasksDispatched: 1 });
+  });
+
+  it("a finished session gives its reserve back and takes what it really cost, so the cycle's credits last for the whole plan (audit O-29)", async () => {
+    // 1,500 US cents of credits: the first sessions reserve it all, and the task whose scope waits for the first can only
+    // start once that session returned its reserve (it cost 5).
+    const m = mockActivities({ budgetMinor: 1_500 });
+    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:71`, taskQueue, args: [{ businessId: B, cycleNumber: 71, trigger: "continue" }] }));
+    expect(result.tasksDispatched).toBe(4);
+    expect(m.calls.opened.map((o) => o.taskId).sort()).toEqual(tasks.map((t) => t.id).sort());
+  });
+
+  it("a session that cost more than its reserve ends the dispatching: later tasks wait for the next cycle", async () => {
+    const expensive = mockActivities({ budgetMinor: 1_500 });
+    expensive.acts.runAgentSession = async (input) => {
+      await new Promise((r) => setTimeout(r, 100));
+      return { ...done(), costMinor: input.taskId === id(1) ? 1_400 : 5 };
+    };
+    const result = await rig.run(expensive.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:72`, taskQueue, args: [{ businessId: B, cycleNumber: 72, trigger: "continue" }] }));
+    // Task 1 spent 1,400 against a 500 reserve: nothing is left for task 2, which was waiting behind it.
+    expect(expensive.calls.opened.map((o) => o.taskId)).not.toContain(id(2));
+    expect(result.tasksDispatched).toBe(3);
+  });
+
+  it("a plan the model account cannot pay for ends the cycle failed at once, with the reason in the Inbox (audit BILL-06)", async () => {
+    const billing = "This cycle's plan could not run: the model account that runs Foundmill is out of credit. Our team has been alerted, and nothing was charged to your credits. Try again later.";
+    const m = mockActivities({ planError: () => ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: billing, nonRetryable: true, details: [{ kind: "billing", billedTo: "credits", reason: "credit_balance" }] }) });
+    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:6`, taskQueue, args: [{ businessId: B, cycleNumber: 6, trigger: "continue" }] }));
+    expect(result).toMatchObject({ outcome: "failed", tasksDispatched: 0, costMinor: 0, inboxItemIds: [id(556)] });
+    // Not retried: the account cannot pay until someone adds credit.
+    expect(m.calls.plans).toBe(1);
+    expect(m.calls.openInputs).toHaveLength(0);
+    // Recorded as a cycle (so the shell stops showing it as processing) with nothing planned.
+    expect(m.calls.startedPlans[0]).toMatchObject({ starts: [], summary: billing });
+    expect(m.calls.planFailures[0]).toEqual({ businessId: B, cycleNumber: 6, message: billing, details: { kind: "billing", billedTo: "credits", reason: "credit_balance" } });
+    expect(m.calls.completed[0]).toMatchObject({ outcome: "failed", tasksDispatched: 0, inboxItemIds: [id(556)] });
+  });
+
+  it("a plan that fails every retry ends the cycle failed with a plain reason instead of failing the workflow", async () => {
+    const m = mockActivities({ planError: () => new Error("Anthropic unavailable after 4 attempts for route \"chiefOfStaff\": overloaded") });
+    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:7`, taskQueue, args: [{ businessId: B, cycleNumber: 7, trigger: "continue" }] }));
+    expect(result.outcome).toBe("failed");
+    expect(m.calls.plans).toBe(3);
+    expect(m.calls.planFailures[0]).toMatchObject({ cycleNumber: 7, message: PLAN_FAILED_MESSAGE, details: { kind: "error" } });
+    expect(m.calls.planFailures[0]!.message).not.toMatch(/Anthropic|overloaded|chiefOfStaff/);
+    expect(m.calls.completed[0]).toMatchObject({ outcome: "failed" });
   });
 
   it("a brief that says the team is stopped dispatches nothing and records the cycle as stopped", async () => {

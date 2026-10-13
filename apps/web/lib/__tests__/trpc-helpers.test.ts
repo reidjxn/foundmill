@@ -60,6 +60,8 @@ describe("trpc helpers", () => {
     const retry = makeQueryClient().getDefaultOptions().queries?.retry as (count: number, err: unknown) => boolean;
     expect(retry(0, { data: { code: "TOO_MANY_REQUESTS" } })).toBe(false);
     expect(retry(0, { data: { code: "FORBIDDEN" } })).toBe(false);
+    // A model account that cannot pay (`model_billing`) stays refused until someone adds credit.
+    expect(retry(0, { data: { code: "PAYMENT_REQUIRED" } })).toBe(false);
     expect(retry(0, { data: { code: "INTERNAL_SERVER_ERROR" } })).toBe(true);
   });
 

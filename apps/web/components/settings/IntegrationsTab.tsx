@@ -7,11 +7,13 @@
  * staging only.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Activity, ExternalLink, FlaskConical, FolderGit2, Plug, Unplug } from "lucide-react";
+import { Activity, ExternalLink, FlaskConical, FolderGit2, KeyRound, Plug, Unplug } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Button, Chip, IconButton, SimpleSelect, StatusPill, useDateFormat, type StatusTone, type DateFormatPrefs } from "@foundmill/dugout";
 import type { IntegrationStatus } from "@foundmill/shared";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { ShellLinkButton } from "@/components/live/ShellLinkButton";
 import { simulatePanelAvailable } from "@/lib/env";
 import { formatDateTime, plainWords, plural } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
@@ -85,6 +87,13 @@ export function connectorDetail(c: { tools: readonly unknown[] }, integ: { accou
   if (integ?.lastHealthAt) parts.push(`checked ${formatDateTime(integ.lastHealthAt, prefs)}`);
   return parts.join(" · ");
 }
+
+/**
+ * Connectors managed on another tab: the Anthropic key decides who pays for model calls (`model_billing`), pauses and
+ * resumes the team and posts the Inbox note, so it is stored, rotated and revoked in Settings › Keys only (audit
+ * ARB-04). Its row here shows the state and links there instead of a generic Connect or Disconnect.
+ */
+export const MANAGED_ON_KEYS_TAB: ReadonlySet<string> = new Set(["anthropic"]);
 
 /** Leaves for a vendor's consent page in this tab (a seam for tests). */
 export const navigation = { assign: (url: string) => window.location.assign(url) };
@@ -180,7 +189,11 @@ export function IntegrationsTab() {
                   {integ?.lastError ? <span className="break-words text-small text-status-bad">{integ.lastError}</span> : null}
                 </span>
                 <span className="flex shrink-0 items-center gap-1 pt-0.5">
-                  {connected ? (
+                  {MANAGED_ON_KEYS_TAB.has(c.key) ? (
+                    <ShellLinkButton size="sm" icon={KeyRound} href={routes.settings(businessId, "keys")} data-testid="manage-in-keys">
+                      Manage in Keys
+                    </ShellLinkButton>
+                  ) : connected ? (
                     <>
                       <IconButton label={`Check ${c.displayName} health`} icon={Activity} size="sm" disabled={health.isPending} onClick={() => integ && health.mutate({ businessId, integrationId: integ.id })} />
                       <IconButton label={`Disconnect ${c.displayName}`} icon={Unplug} size="sm" disabled={disconnect.isPending} onClick={() => integ && disconnect.mutate({ businessId, integrationId: integ.id })} />

@@ -2,8 +2,9 @@
  * HTTP surface (docs/ARCHITECTURE.md §11). JSON in, JSON out; Zod on every body; `AppError`s map to their status;
  * nothing here touches the database directly. `createApp(service)` is pure so tests boot it on an ephemeral port.
  */
+import { modelBillingFacts, modelBillingMessage } from "@foundmill/agents";
 import { APP_NAME } from "@foundmill/config";
-import type { ModelLogger } from "@foundmill/models";
+import { isModelBillingError, platformBillingRefusal, type ModelLogger } from "@foundmill/models";
 import { AppError } from "@foundmill/shared";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -44,7 +45,9 @@ export function createApp(service: ComposerService, options: AppOptions = {}) {
   app.get("/health", async (c) => {
     const db = await service.healthy();
     // Readiness for Railway's healthcheck (railway/composer.toml) and the api's `composer.reachable()`: 503 without a database.
-    return c.json({ ok: db, service: "composer", db, env: options.env?.APP_ENV ?? null, modes: { integrations: options.env?.INTEGRATIONS_MODE ?? null, models: options.env?.MODEL_MODE ?? null }, time: new Date().toISOString() }, db ? 200 : 503);
+    // `modelBilling`: Anthropic refusing to bill the platform key (no credit, a spend limit) is reported, not failed on.
+    const billingRefusal = platformBillingRefusal();
+    return c.json({ ok: db, service: "composer", db, env: options.env?.APP_ENV ?? null, modes: { integrations: options.env?.INTEGRATIONS_MODE ?? null, models: options.env?.MODEL_MODE ?? null }, modelBilling: billingRefusal ? { ok: false, ...billingRefusal } : { ok: true }, time: new Date().toISOString() }, db ? 200 : 503);
   });
 
   const body = async <T>(c: { req: { json(): Promise<unknown> } }, schema: z.ZodType<T>): Promise<T> => {
@@ -99,6 +102,13 @@ export function createApp(service: ComposerService, options: AppOptions = {}) {
     if (err instanceof AppError) {
       if (err.status >= 500) log?.error({ err: err.message, code: err.code, requestId: c.get("requestId") }, "request failed");
       return c.json({ error: err.code, message: err.message, details: err.details ?? null }, err.status as 400);
+    }
+    // Anthropic refused to bill the call (no credit, a spend limit): the caller passes these words to the founder, and
+    // the operator's alert is the error log (`alert: "model_billing"`). Final: the same call gets the same answer.
+    if (isModelBillingError(err)) {
+      const facts = modelBillingFacts(err) ?? { reason: "credit_balance", billedTo: "credits" };
+      log?.error({ alert: facts.billedTo === "byok" ? undefined : "model_billing", reason: facts.reason, billedTo: facts.billedTo, path: c.req.path, requestId: c.get("requestId") }, "model call refused for billing");
+      return c.json({ error: "model_billing", message: modelBillingMessage(facts, "This note"), details: { reason: facts.reason, billedTo: facts.billedTo, alerted: facts.billedTo !== "byok" } }, 402);
     }
     log?.error({ err: err.message, stack: err.stack, requestId: c.get("requestId") }, "unhandled error");
     return c.json({ error: "internal", message: "Internal error" }, 500);

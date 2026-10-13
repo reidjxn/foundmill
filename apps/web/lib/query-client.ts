@@ -70,7 +70,8 @@ export function makeQueryClient(): QueryClient {
         retry: (count, err) => {
           const code = (err as { data?: { code?: string } } | undefined)?.data?.code;
           // A rate limit is not a blip: retrying spends the allowance again and is refused again.
-          if (code === "UNAUTHORIZED" || code === "FORBIDDEN" || code === "NOT_FOUND" || code === "TOO_MANY_REQUESTS") return false;
+          // Nor is a model account that cannot pay (PAYMENT_REQUIRED, `model_billing`): it lasts until someone adds credit.
+          if (code === "UNAUTHORIZED" || code === "FORBIDDEN" || code === "NOT_FOUND" || code === "TOO_MANY_REQUESTS" || code === "PAYMENT_REQUIRED") return false;
           return count < 2;
         },
       },

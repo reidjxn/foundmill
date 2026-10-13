@@ -5,6 +5,7 @@
  */
 import { TRPCError } from "@trpc/server";
 import { repos } from "@foundmill/db";
+import { clearPlatformBillingRefusal, ModelBillingError, notePlatformBillingRefusal } from "@foundmill/models";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app";
 import { requestIdFrom } from "../request-id";
@@ -88,6 +89,42 @@ describe("INTERNAL errors outside development and test", () => {
     expect(internalErrorMessage(RAW, "test")).toBe(RAW);
     expect(internalErrorMessage(RAW, "production")).toBe("Something went wrong on our side.");
     expect(internalErrorMessage(RAW, "staging", "req-1")).toContain("req-1");
+  });
+});
+
+describe("model calls Anthropic refused to bill (audit BILL-06, CML-07)", () => {
+  it("reach the founder as a plain 402 naming who acts, never 'Something went wrong', and the health check reports them", async () => {
+    clearPlatformBillingRefusal();
+    const refused = new ModelBillingError('Anthropic refused to bill route "conversation" on the platform key: the account\'s credit balance is too low (400)', "credit_balance", "credits", 400, "invalid_request_error");
+    const spy = vi.spyOn(repos.social, "unreadCount").mockRejectedValueOnce(refused);
+    try {
+      const res = await call(signedIn(), { "x-request-id": "req-billing1" });
+      expect(res.status).toBe(402);
+      const err = (await res.json()) as { error: { json: { message: string; data: { code: string; appCode?: string; details?: Record<string, unknown> } } } };
+      expect(err.error.json.data.code).toBe("PAYMENT_REQUIRED");
+      expect(err.error.json.data.appCode).toBe("model_billing");
+      expect(err.error.json.data.details).toMatchObject({ reason: "credit_balance", billedTo: "credits", alerted: true });
+      expect(err.error.json.message).toMatch(/out of credit\. Our team has been alerted, and nothing was charged to your credits/);
+      expect(err.error.json.message).not.toMatch(/Something went wrong|invalid_request_error|platform key/);
+    } finally {
+      spy.mockRestore();
+    }
+    // The client recorded the refusal for the platform key: /health says so while the database check stays green.
+    notePlatformBillingRefusal("spend_limit", "chiefOfStaff");
+    try {
+      const health = await createApp(hz.deps).request("/health");
+      expect(health.status).toBe(200);
+      expect(((await health.json()) as { modelBilling: unknown }).modelBilling).toMatchObject({ ok: false, reason: "spend_limit", route: "chiefOfStaff", count: 1 });
+    } finally {
+      clearPlatformBillingRefusal();
+    }
+    expect(((await (await createApp(hz.deps).request("/health")).json()) as { modelBilling: unknown }).modelBilling).toEqual({ ok: true });
+  });
+
+  it("a business's own key that cannot pay tells the founder to fund it", () => {
+    const mapped = toTRPCError(new ModelBillingError("refused", "spend_limit", "byok", 429, "rate_limit_error"));
+    expect(mapped.code).toBe("PAYMENT_REQUIRED");
+    expect(mapped.message).toMatch(/your Anthropic account has reached its spend limit\. Raise the limit in the Anthropic Console/);
   });
 });
 

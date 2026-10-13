@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { PRICE_TBA_LABEL } from "@foundmill/config";
 import { checkoutNotice, includedCreditsFact, periodLabel, tierFacts, tierPriceLabel } from "../BillingTab";
 import { glossaryRows, rowsToGlossary } from "../GlossaryTab";
-import { connectorDetail, formatSimulateResult, simulateInput, simulateRefusalMessage, SIMULATIONS } from "../IntegrationsTab";
+import { connectorDetail, formatSimulateResult, MANAGED_ON_KEYS_TAB, simulateInput, simulateRefusalMessage, SIMULATIONS } from "../IntegrationsTab";
 import { GAME_MODE_REVIEW } from "../ModeTab";
 
 describe("settings logic", () => {
@@ -39,6 +39,11 @@ describe("settings logic", () => {
     expect(connectorDetail({ tools: [1, 2] }, integ)).toBe("acct_1 · 2 agent actions · 1 permission · checked Oct 7, 3:45 PM UTC");
     expect(connectorDetail({ tools: [1, 2] }, integ, { date: "iso", time: "24h" })).toBe("acct_1 · 2 agent actions · 1 permission · checked 10-07 15:45 UTC");
     expect(connectorDetail({ tools: [1, 2] }, integ, { date: "day_first", time: "24h" })).toBe("acct_1 · 2 agent actions · 1 permission · checked 7 Oct, 15:45 UTC");
+  });
+
+  it("the Anthropic key is managed on the Keys tab, never connected or disconnected as a generic connector", () => {
+    expect(MANAGED_ON_KEYS_TAB.has("anthropic")).toBe(true);
+    expect(MANAGED_ON_KEYS_TAB.has("stripe")).toBe(false);
   });
 
   it("round-trips the glossary and drops blank rows", () => {

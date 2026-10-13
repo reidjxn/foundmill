@@ -5,6 +5,7 @@
  * `createApp(deps)` is pure so tests can boot it on an ephemeral port.
  */
 import { APP_NAME } from "@foundmill/config";
+import { platformBillingRefusal } from "@foundmill/models";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { Hono } from "hono";
 import { compress } from "hono/compress";
@@ -106,7 +107,10 @@ export function createApp(deps: ApiDeps) {
     const [db, redis, temporal, composer] = await Promise.all([probe(deps.health.db), probe(deps.health.redis), probe(deps.health.temporal), probe(() => deps.composer.reachable())]);
     // Readiness: Railway's healthcheck (railway/api.toml) moves traffic to a new deployment only on a 2xx, so an api
     // without its database answers 503 and the previous deployment keeps serving. Redis, Temporal and the composer
-    // are optional (the api degrades without them) and never fail the check.
+    // are optional (the api degrades without them) and never fail the check. `modelBilling` says whether Anthropic is
+    // refusing to bill the platform key (no credit, a spend limit): every model call fails until the operator pays,
+    // but the api still serves everything else, so it is reported, not failed on.
+    const billingRefusal = platformBillingRefusal();
     return c.json(
       {
         ok: db,
@@ -118,6 +122,7 @@ export function createApp(deps: ApiDeps) {
         temporal,
         composer,
         vault: deps.vault !== null,
+        modelBilling: billingRefusal ? { ok: false, ...billingRefusal } : { ok: true },
         time: new Date().toISOString(),
       },
       db ? 200 : 503,

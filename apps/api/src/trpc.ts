@@ -9,7 +9,9 @@ import superjson from "superjson";
 import { ZodError, z } from "zod";
 import { repos, withRls, type Business, type DbTx, type Executor, type Membership } from "@foundmill/db";
 import type { EventPayloadInput } from "@foundmill/events";
+import { isModelBillingError } from "@foundmill/models";
 import { assertAllowlisted } from "./services/access";
+import { modelBillingAppError } from "./services/model-errors";
 import { writeEventRow } from "./services/events";
 import { AppError, NotFoundError, WRITE_ROLES, effectivePermission, type Actor, type EventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
 import type { Context } from "./context";
@@ -86,6 +88,8 @@ const CODE_BY_APP_CODE: Record<string, TRPC_ERROR_CODE_KEY> = {
   // The Ideation agent's plain-language failures (services/ideation.ts): shown to the founder, never hidden as internal.
   ideation_too_long: "BAD_GATEWAY",
   ideation_incomplete: "BAD_GATEWAY",
+  // Anthropic refused to bill a model call (services/model-errors.ts): the founder reads who has to act, never "internal".
+  model_billing: "PAYMENT_REQUIRED",
 };
 
 const codeForStatus = (status: number): TRPC_ERROR_CODE_KEY => {
@@ -118,6 +122,10 @@ export function toTRPCError(err: unknown): TRPCError {
   const cause = err instanceof TRPCError ? (err.cause ?? err) : err;
   if (cause instanceof AppError) {
     return new TRPCError({ code: CODE_BY_APP_CODE[cause.code] ?? codeForStatus(cause.status), message: cause.message, cause });
+  }
+  if (isModelBillingError(cause)) {
+    const billing = modelBillingAppError(cause);
+    return new TRPCError({ code: "PAYMENT_REQUIRED", message: billing.message, cause: billing });
   }
   if (cause instanceof ZodError) {
     return new TRPCError({ code: "BAD_REQUEST", message: cause.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "), cause });
@@ -193,7 +201,12 @@ const mapErrors = t.middleware(async ({ next, ctx, path, type }) => {
       const shown = internalErrorMessage(mapped.message, ctx.env.APP_ENV, ctx.requestId);
       throw shown === mapped.message ? mapped : new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: shown, cause: mapped.cause });
     }
-    ctx.log.debug({ path, type, code: mapped.code, requestId: ctx.requestId }, mapped.message);
+    if (mapped.cause instanceof AppError && mapped.cause.code === "model_billing") {
+      // The operator's alert (packages/models logs each refused call too): which procedure the founder could not use.
+      const details = mapped.cause.details as { billedTo?: string; reason?: string } | undefined;
+      if (details?.billedTo === "byok") ctx.log.warn({ path, type, reason: details.reason, billedTo: "byok", requestId: ctx.requestId }, "model call refused for billing on the business's own key");
+      else ctx.log.error({ path, type, alert: "model_billing", reason: details?.reason, billedTo: "credits", requestId: ctx.requestId }, "model call refused for billing on the platform key");
+    } else ctx.log.debug({ path, type, code: mapped.code, requestId: ctx.requestId }, mapped.message);
     throw mapped;
   }
   return result;

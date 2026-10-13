@@ -5,7 +5,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { LiveModelClient, MAX_TOKENS_CEILING, createModelClient, grammarGaps, keyFingerprint, structuredOutputFor, validateApiKey } from "./client";
-import { ModelAbortedError, ModelOutputError, ModelRateLimitError, ModelRequestError, ModelUnavailableError } from "./errors";
+import { ModelAbortedError, ModelBillingError, ModelOutputError, ModelRateLimitError, ModelRequestError, ModelUnavailableError, isModelBillingError } from "./errors";
+import { clearPlatformBillingRefusal, platformBillingRefusal } from "./billing-state";
 import { MockModelClient } from "./mock";
 import { RateLimiter } from "./rate-limit";
 import { MODELS, THINKING_MAX_TOKENS } from "./routing";
@@ -373,6 +374,95 @@ describe("LiveModelClient.complete", () => {
     expect((err as ModelRequestError).status).toBe(401);
     expect((err as ModelRequestError).code).toBe("auth");
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("billing refusals (audit BILL-06, CML-07)", () => {
+  const billingError = (status: number, type: string, msg: string, details?: Record<string, unknown>) =>
+    new Response(JSON.stringify({ type: "error", error: { type, message: msg, ...(details ? { details } : {}) }, request_id: "req_bill" }), { status, headers: { "content-type": "application/json", "request-id": "req_bill" } });
+
+  it("an empty credit balance (400) is a ModelBillingError, sent once", async () => {
+    const { fetch, calls } = fakeFetch([() => billingError(400, "invalid_request_error", "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.")]);
+    const c = clock();
+    const client = new LiveModelClient({ apiKey: "k", fetch, sleep: c.sleep });
+    const err = await client.complete({ route: "worker", messages: [{ role: "user", content: "go" }] }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ModelBillingError);
+    expect(err).toBeInstanceOf(ModelRequestError);
+    expect(err).toMatchObject({ code: "billing", reason: "credit_balance", status: 400, retryable: false });
+    expect(isModelBillingError(err)).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(c.sleeps).toEqual([]);
+  });
+
+  it("the tier's spend cap (429 enforced_spend_limit_reached) is never retried as a rate limit", async () => {
+    const { fetch, calls } = fakeFetch([() => billingError(429, "rate_limit_error", "You have reached your monthly spend limit.", { error_code: "enforced_spend_limit_reached" })]);
+    const c = clock();
+    const limiter = new RateLimiter({ now: c.now, sleep: c.sleep, random: () => 0.5 });
+    const client = new LiveModelClient({ apiKey: "k", fetch, sleep: c.sleep, rateLimiter: limiter, random: () => 0.5 });
+    const err = await client.complete({ route: "worker", messages: [{ role: "user", content: "go" }], scope: "s" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ModelBillingError);
+    expect(err).toMatchObject({ reason: "spend_limit", status: 429 });
+    expect(calls).toHaveLength(1);
+    expect(c.sleeps).toEqual([]);
+    expect(limiter.penalty("s")).toBeUndefined();
+  });
+
+  it("the Console's own usage limit (400) is a spend limit; any other 400 stays a plain request error", async () => {
+    const limit = fakeFetch([() => billingError(400, "invalid_request_error", "You have reached your specified API usage limits. You will regain access on 2026-11-01 at 00:00 UTC.")]);
+    const e1 = await new LiveModelClient({ apiKey: "k", fetch: limit.fetch, sleep: noSleep }).complete({ route: "worker", messages: [{ role: "user", content: "go" }] }).catch((e: unknown) => e);
+    expect(e1).toMatchObject({ name: "ModelBillingError", reason: "spend_limit" });
+    const other = fakeFetch([() => billingError(400, "invalid_request_error", "messages: at least one message is required")]);
+    const e2 = await new LiveModelClient({ apiKey: "k", fetch: other.fetch, sleep: noSleep }).complete({ route: "worker", messages: [{ role: "user", content: "go" }] }).catch((e: unknown) => e);
+    expect(e2).toBeInstanceOf(ModelRequestError);
+    expect(e2).not.toBeInstanceOf(ModelBillingError);
+    expect((e2 as ModelRequestError).code).toBe("request");
+  });
+
+  it("fast mode does not retry a billing refusal at standard speed", async () => {
+    const { fetch, calls } = fakeFetch([() => billingError(400, "invalid_request_error", "Your credit balance is too low to access the Anthropic API.")]);
+    const client = new LiveModelClient({ apiKey: "k", fetch, sleep: noSleep, fastMode: true });
+    const err = await client.complete({ route: "ideation", messages: [{ role: "user", content: "go" }] }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ModelBillingError);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("a streamed call refused for billing fails with the same error", async () => {
+    const { fetch } = fakeFetch([() => billingError(400, "invalid_request_error", "Your credit balance is too low to access the Anthropic API.")]);
+    const client = new LiveModelClient({ apiKey: "k", fetch, sleep: noSleep });
+    const err = await client.streamStructured({ route: "ideationSlate", messages: [{ role: "user", content: "go" }], schema: z.object({ items: z.array(z.string()) }), elementPath: "items", elementSchema: z.string() }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ModelBillingError);
+  });
+
+  it("a platform-key refusal alerts the operator and shows on the process's billing state until a call is billed again", async () => {
+    clearPlatformBillingRefusal();
+    const errors: { obj: Record<string, unknown>; msg: string }[] = [];
+    const logger = { debug() {}, info() {}, warn() {}, error: (obj: Record<string, unknown>, msg: string) => errors.push({ obj, msg }) };
+    const { fetch } = fakeFetch([() => billingError(400, "invalid_request_error", "Your credit balance is too low to access the Anthropic API."), () => message("ok")]);
+    const client = new LiveModelClient({ apiKey: "k", fetch, sleep: noSleep, logger });
+    const err = await client.complete({ route: "chiefOfStaff", messages: [{ role: "user", content: "go" }] }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ billedTo: "credits" });
+    expect(errors[0]?.obj).toMatchObject({ alert: "model_billing", reason: "credit_balance", billedTo: "credits", route: "chiefOfStaff" });
+    expect(platformBillingRefusal()).toMatchObject({ reason: "credit_balance", route: "chiefOfStaff", count: 1 });
+    await client.complete({ route: "worker", messages: [{ role: "user", content: "go" }] });
+    expect(platformBillingRefusal()).toBeNull();
+  });
+
+  it("a business's own key that cannot pay is the founder's to fund: no operator alert, no platform state", async () => {
+    clearPlatformBillingRefusal();
+    const errors: unknown[] = [];
+    const logger = { debug() {}, info() {}, warn() {}, error: (obj: unknown) => errors.push(obj) };
+    const { fetch } = fakeFetch([() => billingError(400, "invalid_request_error", "Your credit balance is too low to access the Anthropic API.")]);
+    const client = new LiveModelClient({ apiKey: "k", fetch, sleep: noSleep, logger, billedTo: "byok" });
+    const err = await client.complete({ route: "worker", messages: [{ role: "user", content: "go" }] }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ name: "ModelBillingError", billedTo: "byok" });
+    expect(errors).toEqual([]);
+    expect(platformBillingRefusal()).toBeNull();
+  });
+
+  it("validateApiKey reports a key whose account cannot pay", async () => {
+    const { fetch } = fakeFetch([() => billingError(400, "invalid_request_error", "Your credit balance is too low to access the Anthropic API.")]);
+    const result = await validateApiKey("sk-ant-unfunded", { mode: "live", fetch });
+    expect(result).toMatchObject({ ok: false, reason: "billing", message: expect.stringMatching(/no credit left/) });
   });
 });
 

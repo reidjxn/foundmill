@@ -1,6 +1,8 @@
 /**
- * Bring-your-own Anthropic key (BUILD §10.2). Validate through the anthropic connector (mock or live), encrypt with
- * the business vault (envelope encryption, packages/shared/crypto) into `credentials`, never return or log the key.
+ * Bring-your-own Anthropic key (BUILD §10.2). Validate the way the key will be used (`MODEL_MODE`, audit BILL-04: with
+ * live models a real one-token messages call through packages/models, which also refuses a key whose account has no
+ * credit, then the live connector's model list for the routed models; with mock models the mock connector), encrypt
+ * with the business vault (envelope encryption, packages/shared/crypto) into `credentials`, never return or log the key.
  * Only the gateway/orchestrator decrypt. Revoke stops the team (the business's stop flag, reason `key_revoked`) and
  * posts an Inbox note; storing a key afterwards resumes it (and a stop for used-up credits), never Stop all agents.
  *
@@ -8,9 +10,11 @@
  * (`BYOK_CREDENTIAL_KIND`), the row the gateway's `loadCredential` and the orchestrator's `loadByokApiKey` read. Storing
  * a key moves the business onto its own key (`model_billing = byok`); revoking it moves it back to credits (every tier
  * includes a bounded monthly credit since 2026-10-12; a tier without credits would stay on `byok`), team paused.
+ * These two are the only ways in and out: Settings › Integrations hands the Anthropic row to them (routers/integrations.ts).
  */
 import { TIERS } from "@foundmill/config";
 import { mockIntegrationRecord, type Connector, type ToolContext } from "@foundmill/connectors";
+import { validateApiKey } from "@foundmill/models";
 import { BYOK_CREDENTIAL_KIND, repos, resumeBusinessAgents, stopBusinessAgents, type Executor } from "@foundmill/db";
 import { AppError, ValidationError, type AgentStopReason, type ModelBilling } from "@foundmill/shared";
 import { buildAad, encryptJson, redactSecret } from "@foundmill/shared/crypto";
@@ -26,11 +30,23 @@ export interface KeyValidationResult {
   mode: "mock" | "live";
 }
 
-const ANTHROPIC = "anthropic";
+export const ANTHROPIC = "anthropic";
 const NIL = "00000000-0000-0000-0000-000000000000";
 
+/**
+ * Checks a key the way it will be used. The models' mode decides, not the connectors': staging runs live models with
+ * mock connectors, and the mock connector's look-alike check let any `sk-ant-…` string through, after which every model
+ * call for the business failed (audit BILL-04). With live models the key must answer a real one-token messages call
+ * (a typo, a revoked key and an account with no credit or at its spend limit are refused), then the routed models are
+ * checked on the live connector (`models.list`, free). `checkedAt` is the time of this check.
+ */
 export async function validateAnthropicKey(ctx: BusinessContext, apiKey: string): Promise<KeyValidationResult> {
-  const mode = ctx.env.INTEGRATIONS_MODE;
+  const mode: "mock" | "live" = ctx.env.MODEL_MODE === "live" ? "live" : "mock";
+  const checkedAt = () => new Date().toISOString();
+  if (mode === "live") {
+    const call = await validateApiKey(apiKey, { mode: "live" });
+    if (!call.ok) return { valid: false, reason: call.message ?? "Anthropic rejected the key", routedModels: [], checkedAt: checkedAt(), mode };
+  }
   const connector: Connector = ctx.connectors.get(ANTHROPIC, mode);
   const toolCtx: ToolContext = {
     businessId: ctx.businessId,
@@ -42,9 +58,9 @@ export async function validateAnthropicKey(ctx: BusinessContext, apiKey: string)
     mode,
   };
   const result = await connector.callTool("validate_key", {}, toolCtx);
-  if (!result.ok) return { valid: false, reason: result.error?.message ?? "validation failed", routedModels: [], checkedAt: new Date().toISOString(), mode };
+  if (!result.ok) return { valid: false, reason: result.error?.message ?? "validation failed", routedModels: [], checkedAt: checkedAt(), mode };
   const data = result.data as { valid: boolean; reason: string | null; routedModels: KeyValidationResult["routedModels"]; checkedAt: string };
-  return { ...data, mode };
+  return { ...data, checkedAt: checkedAt(), mode };
 }
 
 export interface StoredKey {
@@ -83,7 +99,8 @@ export async function storeAnthropicKey(ctx: BusinessContext, apiKey: string, ac
   const stored = await ctx.db.transaction(async (tx: Executor) => {
     const integration = await repos.integrations.upsert(tx, ctx.businessId, {
       connectorKey: ANTHROPIC,
-      status: ctx.env.INTEGRATIONS_MODE === "mock" ? "mock" : "connected",
+      // Test data unless the key was checked against Anthropic for real (the models' mode, as the validation).
+      status: validation.mode === "live" ? "connected" : "mock",
       authKind: "api_key",
       accountLabel: fingerprint,
       connectedBy: ctx.userId,
@@ -139,6 +156,8 @@ export async function revokeAnthropicKey(ctx: BusinessContext): Promise<{ revoke
         entity_ids: [],
       });
       noteId = note.id;
+      // Through the outbox like every Inbox note, so an open Inbox, its badge and Continue update at once (audit BILL-21).
+      await emit(tx, ctx, { type: "inbox.item_created", actor: { kind: "agent", id: chief.id }, payload: { inboxItemId: note.id, type: note.type, fromAgentId: chief.id, subject: note.subject, blocksContinue: note.blocksContinue, sourceEventIds: [], cost: null } });
     }
     await audit(tx, ctx, { action: "keys.revoke", target: { kind: "integration", id: integration.id }, details: { connector: ANTHROPIC, revoked, pausedAgents, modelBilling: { from: ctx.business.modelBilling, to: modelBilling } } });
     return { revoked, pausedAgents, noteId, modelBilling };
