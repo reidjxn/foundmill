@@ -2,7 +2,8 @@
  * business.stopAllAgents — the kill switch (BUILD §14: ≤ 30 s; pauses workflows, engines and campaigns) — and
  * business.resumeAgents, its only way back.
  *
- * Stop signals every running workflow of the business within the budget: each open session by its computed id
+ * Stop signals every running workflow of the business within the budget: Autopilot (`autopilot:<businessId>`, which
+ * also pauses in the same transaction as the flag and stays paused through the resume), each open session by its computed id
  * `session:<id>` (never a stored placeholder), the running business cycle (whose children it fans out to, a vacation's
  * cycle included), every enabled channel's engine `engine:<channelId>`, executing plans and the vacation. It then sets
  * the business's stop flag (0023), marks every agent paused with the reason, pauses running tasks and live campaigns,
@@ -16,7 +17,7 @@
  * a credit balance used up. Live campaigns the stop paused stay paused (they spend money; Distribution resumes them).
  */
 import { LIMITS } from "@foundmill/config";
-import { periodOf, repos, resumeBusinessAgents, stopBusinessAgents, type Executor } from "@foundmill/db";
+import { autopilotChangedPayload, periodOf, repos, resumeBusinessAgents, stopBusinessAgents, type Executor } from "@foundmill/db";
 import type { AgentStopReason } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
@@ -63,6 +64,8 @@ export async function stopAllAgents(ctx: BusinessContext, reason = "kill_switch"
   }
   for (const p of plans.items) if (p.workflowId) ids.add(p.workflowId);
   if (holiday) ids.add(workflowIds.holiday(holiday.id));
+  // Autopilot ends with the stop (it also pauses in the local write below and stays paused through the resume).
+  if (ctx.business.autopilotEnabled && ctx.business.autopilotPausedReason === null) ids.add(workflowIds.autopilot(businessId));
 
   // Signals first (the clock is running), with most of the budget; local writes follow and are fast.
   const workflows = await ctx.temporal.signalMany([...ids], "stop", [{ reason, by: ctx.userId }], Math.max(1_000, budgetMs - 8_000));
@@ -81,6 +84,7 @@ export async function stopAllAgents(ctx: BusinessContext, reason = "kill_switch"
         pausedCampaigns++;
       }
     }
+    if (stop.autopilotPaused) await emit(tx, ctx, { type: "autopilot.changed", payload: autopilotChangedPayload(ctx.business, "paused", "kill_switch") });
     for (const a of stop.paused) {
       await emit(tx, ctx, {
         type: "agent.health_changed",

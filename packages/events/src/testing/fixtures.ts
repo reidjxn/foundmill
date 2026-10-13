@@ -417,6 +417,21 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     inboxItemIds: [fixtureId("inbox-1")],
     durationMs: 11_520_000,
   },
+  "autopilot.changed": {
+    change: "paused",
+    pausedReason: "idle_cycles",
+    cadence: "every_4h",
+    dailyHour: 9,
+    maxCyclesPerDay: 6,
+    spendCeiling: { amountMinor: 2_500, currency: "USD" },
+    maxIdleCycles: 3,
+  },
+  "autopilot.cycle_started": {
+    cycleNumber: 13,
+    workflowId: `cycle:${FIXTURE_BUSINESS_ID}:13`,
+    cadence: "every_4h",
+    cyclesToday: 2,
+  },
   "inbox.item_created": {
     inboxItemId: fixtureId("inbox-1"),
     type: "decision",

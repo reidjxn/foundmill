@@ -11,7 +11,7 @@
  */
 import { TIERS } from "@foundmill/config";
 import { mockIntegrationRecord, type Connector, type ToolContext } from "@foundmill/connectors";
-import { BYOK_CREDENTIAL_KIND, repos, resumeBusinessAgents, stopBusinessAgents, type Executor } from "@foundmill/db";
+import { autopilotChangedPayload, BYOK_CREDENTIAL_KIND, repos, resumeBusinessAgents, stopBusinessAgents, type Executor } from "@foundmill/db";
 import { AppError, ValidationError, type AgentStopReason, type ModelBilling } from "@foundmill/shared";
 import { buildAad, encryptJson, redactSecret } from "@foundmill/shared/crypto";
 import type { BusinessContext } from "../trpc";
@@ -121,6 +121,7 @@ export async function revokeAnthropicKey(ctx: BusinessContext): Promise<{ revoke
     // The team-wide stop (0023): nothing starts work until a new key is stored or an owner or admin resumes.
     const stop = await stopBusinessAgents(tx, ctx.businessId, { reason: "key_revoked" });
     const pausedAgents = stop.paused.length;
+    if (stop.autopilotPaused) await emit(tx, ctx, { type: "autopilot.changed", payload: autopilotChangedPayload(ctx.business, "paused", "key_revoked") });
     for (const a of stop.paused) await emit(tx, ctx, { type: "agent.health_changed", payload: { agentId: a.id, from: a.from, to: "paused", reason: "Anthropic key revoked", signals: {}, expectedReturnAt: null, sessionId: null } });
     const chief = await repos.agents.chiefOfStaff(tx, ctx.businessId);
     let noteId: string | null = null;

@@ -1,7 +1,7 @@
 /** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses); 0022 — account preferences. */
-import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, GAME_MODES, MODEL_BILLING, PLAN_TIERS, TIME_FORMAT_PREFERENCES, VISIBILITY } from "@foundmill/shared";
+import { AGENT_STOP_REASONS, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, GAME_MODES, MODEL_BILLING, PLAN_TIERS, TIME_FORMAT_PREFERENCES, VISIBILITY } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
-import { index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { archivedAt, currency, emptyArray, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
 
@@ -73,6 +73,22 @@ export const businesses = pgTable(
      */
     agentsStoppedAt: tstz("agents_stopped_at"),
     agentsStoppedReason: text("agents_stopped_reason", { enum: AGENT_STOP_REASONS }),
+    /**
+     * 0041 — Autopilot: the business starts its own cycles (`autopilot` workflow, id `autopilot:<businessId>`). Off by
+     * default. `autopilotPausedReason` is set when a guard rail paused it (stop, credits, idle cycles) and cleared only
+     * when an owner or admin turns it on again; `autopilotChangedAt` is when it was last turned on (the idle streak
+     * counts from there); `autopilotNextAt` is the next planned cycle (an Estimate, written by the workflow).
+     */
+    autopilotEnabled: boolean("autopilot_enabled").notNull().default(false),
+    autopilotCadence: text("autopilot_cadence", { enum: AUTOPILOT_CADENCES }).notNull().default("every_4h"),
+    autopilotDailyHour: integer("autopilot_daily_hour").notNull().default(9),
+    autopilotMaxCyclesPerDay: integer("autopilot_max_cycles_per_day").notNull().default(6),
+    /** USD cents of model spend per UTC day; null: the credits left. */
+    autopilotSpendCeilingMinor: minor("autopilot_spend_ceiling_minor"),
+    autopilotMaxIdleCycles: integer("autopilot_max_idle_cycles").notNull().default(3),
+    autopilotPausedReason: text("autopilot_paused_reason", { enum: AUTOPILOT_PAUSE_REASONS }),
+    autopilotChangedAt: tstz("autopilot_changed_at"),
+    autopilotNextAt: tstz("autopilot_next_at"),
     ...timestampsWithArchive(),
   },
   (t) => [

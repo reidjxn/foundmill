@@ -16,12 +16,13 @@
 import { randomUUID } from "node:crypto";
 import { getArchetypeSeed, getTemplate } from "@foundmill/agents";
 import { includedCreditsMinor, initialModelBilling } from "@foundmill/config";
-import { assertBusinessAllowance, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
+import { assertBusinessAllowance, autopilotChangedPayload, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
 import { CHANNEL_KEYS, CHANNEL_META, DEFAULT_BUSINESS_MODE, MODULE_TABS, ValidationError, slugify, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
 import { PRESET_LAYOUTS } from "../presets";
 import { checkLogoChoice, type LogoChoice } from "./logo";
 import { hireMany, type PlannedHire } from "./squad";
+import { startAutopilotWorkflow } from "./autopilot";
 import type { TemporalService } from "./temporal";
 import { WORKFLOWS, workflowIds } from "./temporal";
 import { importJobIdOf, resolveImportLink, seedFoundations, type ImportLink } from "./foundations";
@@ -37,6 +38,8 @@ export interface CommitIdeaInput {
   logo?: LogoChoice | null;
   currency?: string;
   spendCapMinor?: number | null;
+  /** "Run on autopilot" (Commit): the business starts its own cycles (0041). Off unless chosen. */
+  autopilot?: boolean;
 }
 
 export interface CommitIdeaResult {
@@ -47,6 +50,8 @@ export interface CommitIdeaResult {
   boardItem: InboxItem;
   taskIds: string[];
   cycle: { queued: boolean; workflowId: string; reason?: string };
+  /** The Autopilot workflow start, when the founder chose to run on autopilot. */
+  autopilot?: { queued: boolean; workflowId: string; reason?: string } | null;
   /** The vision, specification and roadmap wait for the first open (BUILD §11.1, §11.5). */
   foundations: { status: "pending"; door: "ideation" | "import"; importSourceIds: string[] };
   /** True when the idea was already a business (a second Take charge): nothing was created and no cycle started. */
@@ -136,6 +141,12 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     });
     const businessId = business.id;
     await repos.memberships.add(tx, businessId, { userId, role: "owner" });
+    // "Run on autopilot": on from the first minute, audited like turning it on in Settings.
+    if (input.autopilot) {
+      const on = await repos.autopilot.set(tx, businessId, { enabled: true });
+      await repos.audit.append(tx, businessId, { actorKind: "user", actorId: userId, action: "autopilot.turn_on", target: { kind: "business", id: businessId }, details: { enabled: true, cadence: on.business.autopilotCadence, maxCyclesPerDay: on.business.autopilotMaxCyclesPerDay, via: "commit" } });
+      await writeEventRow(tx, { businessId, type: "autopilot.changed", actor: { kind: "user", id: userId }, payload: autopilotChangedPayload(on.business, "turned_on", null) });
+    }
     // This month's included credits (USD), so the first cycle already runs against a balance that pauses the team.
     const credits = modelBilling === "credits" ? (await repos.usage.ensurePeriodCredits(tx, businessId, periodOf(new Date()), includedCreditsMinor(planTier))).balance : null;
     const logo = input.logo && checkedLogo ? (await repos.logos.set(tx, businessId, { source: input.logo.source, logo: checkedLogo, createdBy: userId })).meta : null;
@@ -295,6 +306,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
         departments: departmentIds.length,
         agents: agentIds.length,
         spendCapMinor: input.spendCapMinor ?? null,
+        autopilot: input.autopilot === true,
         planTier,
         modelBilling,
         includedCreditsMinor: credits ? Number(credits.grantedMinor) : null,
@@ -316,7 +328,9 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   if (!result) return committedIdeaResult(db, userId, input.ideaId);
 
   const cycle = await temporal.start(WORKFLOWS.businessCycle, { workflowId: workflowIds.cycle(result.business.id, 1), args: [{ businessId: result.business.id, cycleNumber: 1, trigger: "continue" }] });
-  return { ...result, cycle, alreadyCommitted: false };
+  // Autopilot starts after the first cycle, which it waits for (and for the Board decision, which blocks Continue).
+  const autopilot = input.autopilot ? await startAutopilotWorkflow({ businessId: result.business.id, temporal }) : null;
+  return { ...result, cycle, autopilot, alreadyCommitted: false };
 }
 
 /**

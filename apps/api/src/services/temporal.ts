@@ -2,13 +2,14 @@
  * Temporal client (docs/ARCHITECTURE.md §10). The connection is opened lazily on first use and every call degrades
  * gracefully: when the server is unreachable the API answers `{ queued: false, reason }` instead of failing the
  * founder's request. Workflow ids are deterministic (`cycle:{businessId}:{n}`, `session:{sessionId}`,
- * `engine:{channelId}`, `holiday:{holidayId}`, `plan:{planId}`, `training:{runId}`, `incorporation:{id}`,
+ * `engine:{channelId}`, `autopilot:{businessId}`, `holiday:{holidayId}`, `plan:{planId}`, `training:{runId}`, `incorporation:{id}`,
  * `foundations:{businessId}:{attempt}`, `source-watch:{sourceId}:{reason}`).
  */
 import type { ApiLogger } from "./log";
 
 export const WORKFLOWS = {
   businessCycle: "businessCycle",
+  autopilot: "autopilot",
   agentSession: "agentSession",
   channelEngine: "channelEngine",
   holiday: "holiday",
@@ -30,11 +31,14 @@ export const SIGNALS = {
   stop: "stop",
   founderSubmit: "founderSubmit",
   wake: "wake",
+  autopilotRefresh: "autopilotRefresh",
 } as const;
 export type SignalName = (typeof SIGNALS)[keyof typeof SIGNALS];
 
 export const workflowIds = {
   cycle: (businessId: string, n: number) => `cycle:${businessId}:${n}`,
+  /** One Autopilot per business (0041): started when it is turned on, ended by Stop all agents or when it is turned off. */
+  autopilot: (businessId: string) => `autopilot:${businessId}`,
   session: (sessionId: string) => `session:${sessionId}`,
   engine: (channelId: string) => `engine:${channelId}`,
   holiday: (holidayId: string) => `holiday:${holidayId}`,

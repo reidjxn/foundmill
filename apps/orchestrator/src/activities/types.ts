@@ -108,7 +108,7 @@ export interface CyclePlan {
   costMinor: number;
 }
 
-export type CycleTrigger = "continue" | "holiday" | "schedule" | "wake";
+export type CycleTrigger = "continue" | "holiday" | "schedule" | "wake" | "autopilot";
 
 export interface BusinessCycleInput {
   businessId: string;

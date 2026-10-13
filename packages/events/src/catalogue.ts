@@ -17,6 +17,8 @@ import {
   Actor,
   AgentStatus,
   Archetype,
+  AUTOPILOT_CADENCES,
+  AUTOPILOT_PAUSE_REASONS,
   BusinessMode,
   ChannelKey,
   ConversationAuthorKind,
@@ -1017,7 +1019,7 @@ const cycleStarted = declareEvent(
     cycleId: Id,
     cycleNumber: z.number().int().positive(),
     workflowId: z.string().min(1),
-    trigger: z.enum(["continue", "holiday", "schedule", "wake"]),
+    trigger: z.enum(["continue", "holiday", "schedule", "wake", "autopilot"]),
     timeBoxAgentHours: z.number().positive(),
     /** Tasks the Chief of Staff planned for this cycle. */
     plannedTaskIds: z.array(Id),
@@ -1050,6 +1052,42 @@ const cycleCompleted = declareEvent(
   {
     doc: "The businessCycle ended (all branches done, time box reached, waiting on decisions, stopped or failed). The composer narrates the cycle summary.",
     consumers: ["composer", "metrics", "stream", "playbooks"],
+  },
+);
+
+const autopilotChanged = declareEvent(
+  "autopilot.changed",
+  z.object({
+    /** What happened: an owner or admin turned it on or off or changed its settings, or a guard rail paused it. */
+    change: z.enum(["turned_on", "turned_off", "settings_changed", "paused"]),
+    pausedReason: z.enum(AUTOPILOT_PAUSE_REASONS).nullable().default(null),
+    cadence: z.enum(AUTOPILOT_CADENCES),
+    dailyHour: z.number().int().min(0).max(23),
+    maxCyclesPerDay: z.number().int().min(1).max(24),
+    /** The day's spend ceiling in USD (an Estimate); null: the credits left. */
+    spendCeiling: Money.nullable().default(null),
+    maxIdleCycles: z.number().int().min(1).max(10),
+  }),
+  {
+    doc: "Autopilot was turned on or off, its settings changed, or a guard rail (Stop all agents, used-up credits, failed or empty cycles) paused it. Only an owner or admin turns it back on.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const autopilotCycleStarted = declareEvent(
+  "autopilot.cycle_started",
+  z.object({
+    cycleNumber: z.number().int().positive(),
+    workflowId: z.string().min(1),
+    cadence: z.enum(AUTOPILOT_CADENCES),
+    /** Autopilot cycles started today (UTC), this one included. */
+    cyclesToday: z.number().int().positive(),
+  }),
+  {
+    doc: "Autopilot started the next businessCycle through the same entry point as Continue (trigger `autopilot`); every approval, hard gate and policy check applies as for a founder press.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
   },
 );
 
@@ -1199,6 +1237,8 @@ export const EVENTS = {
   "negotiation.message": negotiationMessage,
   "cycle.started": cycleStarted,
   "cycle.completed": cycleCompleted,
+  "autopilot.changed": autopilotChanged,
+  "autopilot.cycle_started": autopilotCycleStarted,
   "inbox.item_created": inboxItemCreated,
   "decision.made": decisionMade,
   "foundations.progressed": foundationsProgressed,

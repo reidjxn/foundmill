@@ -242,6 +242,8 @@ export const ideaRouter = router({
         logo: LogoChoice.nullable().optional(),
         currency: z.string().length(3).default("EUR"),
         spendCapMinor: z.number().int().nonnegative().nullable().default(null),
+        /** "Run on autopilot": the business starts its own cycles; off unless chosen. */
+        autopilot: z.boolean().default(false),
       }),
     )
     .mutation(async ({ ctx, input }) => {

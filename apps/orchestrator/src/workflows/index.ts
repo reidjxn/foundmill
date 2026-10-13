@@ -13,6 +13,8 @@ export type { PlanExecutionInput, PlanExecutionResult } from "./planExecution";
 export { channelEngine, WEEK_MS, MEASURE_DELAY_MS } from "./channelEngine";
 export type { ChannelEngineResult } from "./channelEngine";
 export { trainingRun, TRAINING_PARALLELISM, TRAINING_START_FAILED } from "./trainingRun";
+export { autopilot, AUTOPILOT_ROUNDS_PER_RUN } from "./autopilot";
+export type { AutopilotInput, AutopilotResult } from "./autopilot";
 export { holiday, MAX_HOLIDAY_CYCLES } from "./holiday";
 export type { HolidayResult } from "./holiday";
 export { playbook } from "./playbook";
