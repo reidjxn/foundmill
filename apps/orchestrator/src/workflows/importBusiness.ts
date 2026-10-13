@@ -20,8 +20,10 @@ export async function importBusiness(input: ImportBusinessInput): Promise<Import
   const queue = [...input.sourceIds];
   const worker = async () => {
     for (;;) {
+      // Check the stop before taking a source: one taken and then dropped would never be reported as not read.
+      if (stopped) return;
       const sourceId = queue.shift();
-      if (!sourceId || stopped) return;
+      if (!sourceId) return;
       try {
         results.push(await acts.importSource({ businessId: input.businessId, sourceId }));
       } catch (err) {
@@ -30,6 +32,8 @@ export async function importBusiness(input: ImportBusinessInput): Promise<Import
     }
   };
   await Promise.all(Array.from({ length: Math.min(3, Math.max(1, queue.length)) }, worker));
+  // A stop leaves the rest unread: they finish as not read (finishImport records it), never "not read yet" forever.
+  for (const sourceId of queue.splice(0)) results.push({ sourceId, ok: false, summary: "failed: the import was stopped before this source was read" });
   const { inboxItemId } = await acts.finishImport({ businessId: input.businessId, results });
   await condition(allHandlersFinished);
   return { results, inboxItemId };

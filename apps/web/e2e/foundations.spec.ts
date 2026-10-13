@@ -100,7 +100,7 @@ test.describe("foundations", () => {
     await expect(page.getByText("Vision, specification and roadmap drafted").first()).toBeVisible({ timeout: LONG });
   });
 
-  test("Door B: the business is drafted from the Import report and every imported issue is on the roadmap", async ({ page }) => {
+  test("Door B: the business is drafted from the Import report, which claims nothing it has not read", async ({ page }) => {
     await signIn(page);
     await page.goto("/new/import");
     await expect(page.getByTestId("import-sources")).toBeVisible({ timeout: LONG });
@@ -109,8 +109,9 @@ test.describe("foundations", () => {
     await page.getByTestId("start-import").click();
     const report = page.getByTestId("scouting-report");
     await expect(report).toBeVisible({ timeout: LONG });
-    const seeds = (await page.getByTestId("roadmap-seeds").locator("li > span:first-child").allTextContents()).map((s) => s.trim()).filter(Boolean);
-    expect(seeds.length).toBeGreaterThanOrEqual(3);
+    // Nothing is read before the business exists: no invented issues, the repository is still to be read.
+    await expect(page.getByTestId("roadmap-seeds").locator("li")).toHaveCount(0);
+    await expect(report).toContainText("Not read yet");
 
     await page.getByTestId("continue-to-commit").click();
     await expect(page).toHaveURL(/\/new\/commit\/[0-9a-f-]+\?name=Ledgerly&from=import/, { timeout: LONG });
@@ -122,10 +123,23 @@ test.describe("foundations", () => {
     const board = page.locator("[data-roadmap-board]");
     await expect(board).toBeVisible({ timeout: LONG });
     // Drafting may still be running when the tab opens; it fills in by itself.
-    for (const seed of seeds) await expect(board.locator("[data-roadmap-item]").filter({ hasText: seed }).first()).toBeVisible({ timeout: LONG });
+    await expect(board.locator("[data-roadmap-item]").first()).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("foundations-status")).toHaveCount(0);
 
+    // The repository is listed as an import source with what is true of it (the e2e stack has no Temporal worker, so
+    // it is not read), never with invented counts.
+    await page.goto(`/b/${bid}/d/product/sources`);
+    const row = page.getByRole("row").filter({ hasText: "GitHub import: acme/ledgerly" });
+    await expect(row).toBeVisible({ timeout: LONG });
+    await expect(row.locator("[data-import-state]")).toHaveAttribute("data-import-state", "not_read");
+    await expect(row).toContainText("import worker was not reachable");
+    await expect(row).not.toContainText(/files read/);
+    // Read now asks the import to read it again (still no worker here, so it stays not read, with the reason).
+    await page.getByTestId("read-imports-now").click();
+    await expect(row.locator("[data-import-state]")).toHaveAttribute("data-import-state", "not_read", { timeout: LONG });
+    await expect(page.getByRole("alert")).toHaveCount(0);
+
     await page.goto(`/b/${bid}/d/product/vision`);
-    await expect(page.getByTestId("vision-record")).toContainText("imported sources", { timeout: LONG });
+    await expect(page.getByTestId("vision-record")).toContainText("existing source", { timeout: LONG });
   });
 });

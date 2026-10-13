@@ -27,7 +27,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Drafting: Story = {};
-export const DraftingFromImport: Story = { args: { basis: "From the Import report and the 3 sources you connected." } };
+export const DraftingFromImport: Story = { args: { basis: "From the Import report and the 3 sources you chose." } };
 export const Pending: Story = { args: { state: "pending" } };
 export const Ready: Story = { args: { state: "ready", summary: "10 specification sections · 11 roadmap items, 4 in Now" } };
 export const Failed: Story = { args: { state: "failed", error: "The model service did not answer. Try again in a few minutes." } };

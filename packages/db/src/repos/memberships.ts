@@ -39,13 +39,14 @@ export const membershipsRepo = {
    * What apps/api's `businessProcedure` checks before every procedure: the user's membership and the business, in one
    * statement (one round trip pair instead of two lookups on two connections). No membership: both null, whether or
    * not the business exists, so a non-member learns nothing about it. A membership of an archived business comes back
-   * with a null business, as `businesses.get` would not find it.
+   * with a null business, as `businesses.get` would not find it, unless `includeArchived` (the few things an archived
+   * business still allows: restore, export, deletion requests).
    */
-  async access(db: Executor, businessId: string, userId: string): Promise<{ membership: Membership | null; business: Business | null }> {
+  async access(db: Executor, businessId: string, userId: string, options: { includeArchived?: boolean } = {}): Promise<{ membership: Membership | null; business: Business | null }> {
     const rows = await db
       .select({ membership: memberships, business: businesses })
       .from(memberships)
-      .leftJoin(businesses, and(eq(businesses.id, memberships.businessId), isNull(businesses.archivedAt)))
+      .leftJoin(businesses, options.includeArchived ? eq(businesses.id, memberships.businessId) : and(eq(businesses.id, memberships.businessId), isNull(businesses.archivedAt)))
       .where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId)))
       .limit(1);
     const row = rows[0];

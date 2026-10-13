@@ -170,9 +170,11 @@ describe("Import timing and prompt", () => {
     expect(DEFAULT_STEP_MS).toBe(120);
     const text = importReportText(buildScoutingReport(SOURCES));
     expect(text).toMatch(/^Existing business import: Ledgerly\./);
-    expect(text).toMatch(/Roadmap seeds: .+\./);
+    // Nothing was read at sign-up, so the brief carries no invented issues and says what is still to be read.
+    expect(text).not.toMatch(/Roadmap seeds/);
+    expect(text).toMatch(/Not read yet/);
     const report = buildScoutingReport(SOURCES);
-    expect(importReportText({ ...report, roadmapSeeds: [] })).not.toMatch(/Roadmap seeds/);
+    expect(importReportText({ ...report, roadmapSeeds: [{ title: "Export to CSV", source: "acme/ledgerly issue #4" }] })).toMatch(/Roadmap seeds: Export to CSV\./);
     expect(importReportText({ ...report, whatExists: Array.from({ length: 200 }, (_, i) => `Source ${i}: ${"x".repeat(60)}`) }).length).toBeLessThanOrEqual(3900);
   });
 

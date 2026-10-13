@@ -11,6 +11,15 @@ const read = sectionRead("finance");
 const write = sectionWrite("finance");
 const admin = sectionAdmin("finance");
 
+/** Net burn, revenue, MRR and the paying-customer base all read the same trailing full months (BUILD §11.8). */
+const TRAILING_MONTHS = 3;
+
+/** The last `months` full calendar months (UTC) before `now`'s month: [from, to). */
+function trailingMonthsWindow(now: Date, months: number): { from: Date; to: Date } {
+  const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  return { from: new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth() - months, 1)), to };
+}
+
 const Period = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "period is YYYY-MM");
 const currentPeriod = () => new Date().toISOString().slice(0, 7);
 
@@ -18,12 +27,14 @@ export const financeRouter = router({
   /** Cash, burn, runway (Estimate), revenue (cash basis) and the latest forecast. */
   overview: read.query(({ ctx }) =>
     ctx.rls(async (tx) => {
-      const [cash, burn, forecasts, monthly, conversions] = await Promise.all([
+      const window = trailingMonthsWindow(new Date(), TRAILING_MONTHS);
+      const [cash, burn, forecasts, monthly, conversions, payingCustomers] = await Promise.all([
         repos.finance.cashPosition(tx, ctx.businessId),
-        repos.finance.netBurn(tx, ctx.businessId, { months: 3 }),
+        repos.finance.netBurn(tx, ctx.businessId, { months: TRAILING_MONTHS }),
         repos.finance.latestForecasts(tx, ctx.businessId),
         repos.finance.monthlyTotals(tx, ctx.businessId, { from: new Date(Date.now() - 180 * 86_400_000) }),
         repos.journeys.countConversions(tx, ctx.businessId, { from: new Date(Date.now() - 30 * 86_400_000) }),
+        repos.journeys.countPayingCustomers(tx, ctx.businessId, window),
       ]);
       const base = cash.byCurrency[0];
       const cashMinor = base?.balanceMinor ?? 0;
@@ -35,6 +46,12 @@ export const financeRouter = router({
         runway: { months: runwayMonths, label: "Estimate" as const, warnings, blocksContinue: runwayMonths !== null && runwayMonths < LIMITS.runwayBlockMonths },
         revenue: { monthly, basis: "cash" as const, label: "Management P&L, unaudited, cash basis" },
         customers30d: conversions.payment ?? 0,
+        /**
+         * The paying customer base of the same trailing full months as revenue and MRR (everyone who had paid by the
+         * window's end and had not churned before it began): the payback tile divides gross profit by it (BUILD §11.8),
+         * never by the customers newly acquired (those feed acquisition cost).
+         */
+        payingCustomers: { count: payingCustomers, months: TRAILING_MONTHS, from: window.from.toISOString(), to: window.to.toISOString() },
         forecasts: Object.fromEntries(Object.entries(forecasts).map(([k, v]) => [k, v ? { ...v, label: "Forecast" as const } : null])),
       };
     }),

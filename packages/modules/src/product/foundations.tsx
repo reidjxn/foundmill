@@ -28,7 +28,7 @@ export const FOUNDATIONS_STREAM_POLL_MS = 10_000;
 
 /** What the drafting reads, by door. */
 export function foundationsBasis(door: FoundationsResponse["door"]): string {
-  return door === "import" ? "From the Import report and the sources you connected at sign-up." : "From your idea and your founder profile.";
+  return door === "import" ? "From the Import report and the sources you chose at sign-up." : "From your idea and your founder profile.";
 }
 
 /** "10 specification sections · 11 roadmap items, 4 in Now · 3 imported issues" (null when the summary is empty). */

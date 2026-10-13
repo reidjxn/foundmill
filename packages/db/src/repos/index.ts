@@ -41,6 +41,7 @@ import { usageRepo } from "./usage";
 import { workspacesRepo } from "./workspaces";
 import { conversationsRepo } from "./conversations";
 import { preferencesRepo } from "./preferences";
+import { portabilityRepo } from "./portability";
 
 export const repos = {
   businesses: businessesRepo,
@@ -80,6 +81,7 @@ export const repos = {
   conversations: conversationsRepo,
   preferences: preferencesRepo,
   checkouts: checkoutsRepo,
+  portability: portabilityRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -124,3 +126,4 @@ export * from "./logos";
 export * from "./conversations";
 export * from "./preferences";
 export * from "./checkouts";
+export * from "./portability";

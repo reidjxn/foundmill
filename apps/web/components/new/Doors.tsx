@@ -2,7 +2,8 @@
 /**
  * /new — Door A (Ideation Studio) or Door B (Import an existing business), BUILD §11.1. Two large choices, each a
  * panel with a logo-sized icon, what happens behind the door and who it is for. Earlier concepts are listed below
- * so a founder who left mid-studio can pick up where they stopped.
+ * so a founder who left mid-studio can pick up where they stopped, and under them the businesses the founder archived
+ * (Restore, Export everything, Delete permanently; `#archived`).
  */
 import { ArrowRight, FolderInput, Lightbulb } from "lucide-react";
 import Link from "next/link";
@@ -12,6 +13,7 @@ import { Chip, Icon, Panel, StarRating, buttonVariants, cn, type IconComponent }
 import { LinkButton } from "./LinkButton";
 import { plural } from "@/lib/format";
 import { useTRPC } from "@/lib/trpc-react";
+import { ArchivedBusinesses } from "./ArchivedBusinesses";
 import { StudioFrame } from "./StudioFrame";
 import { commitHref, num, toConcept } from "./ideate/concepts";
 
@@ -50,7 +52,7 @@ const DOORS: Door[] = [
     icon: FolderInput,
     kicker: "Door B",
     title: "Import what exists",
-    lede: "Point the Import agent at your repository, documents, trackers, revenue and registry. It reads, never writes, and returns an Import report with first decisions.",
+    lede: "Point the Import agent at your repository, documents, trackers, revenue and registry. It checks them, returns an Import report with first decisions, and reads them once you take charge. It never writes.",
     steps: ["GitHub, Drive, Notion, Linear, Jira, website", "Stripe, Shopify, bank, company registry", "Import report: what exists, what is missing", "Commit and take charge"],
     cta: "Choose sources",
   },
@@ -134,6 +136,7 @@ export function Doors({ viewer, profileLine, businessCount }: DoorsProps) {
           ) : null}
         </Panel>
       </div>
+      <ArchivedBusinesses />
     </StudioFrame>
   );
 }

@@ -217,7 +217,7 @@ export const protectedProcedure = publicProcedure.use(({ ctx, next }) => {
 /** What `businessProcedure` learns about one user and one business: the membership, and the business if it is open. */
 export interface BusinessAccess {
   membership: Membership | null;
-  /** Null when there is no membership, or the business is archived. */
+  /** Null when there is no membership, or the business is archived and the procedure does not take archived ones. */
   business: Business | null;
 }
 
@@ -227,11 +227,12 @@ export interface BusinessAccess {
  * the whole batch; without one (in-process caller, tests) it runs on every call. A failed lookup is dropped from the
  * memo so it is never reused.
  */
-export function loadBusinessAccess(ctx: Pick<Context, "db" | "accessMemo">, userId: string, businessId: string): Promise<BusinessAccess> {
-  const run = (): Promise<BusinessAccess> => repos.memberships.access(ctx.db, businessId, userId);
+export function loadBusinessAccess(ctx: Pick<Context, "db" | "accessMemo">, userId: string, businessId: string, options: { includeArchived?: boolean } = {}): Promise<BusinessAccess> {
+  const includeArchived = options.includeArchived === true;
+  const run = (): Promise<BusinessAccess> => repos.memberships.access(ctx.db, businessId, userId, { includeArchived });
   const memo = ctx.accessMemo;
   if (!memo) return run();
-  const key = `${userId}\u0000${businessId}`;
+  const key = `${userId}\u0000${businessId}${includeArchived ? "\u0000archived" : ""}`;
   const cached = memo.get(key);
   if (cached) return cached;
   const pending = run();
@@ -242,19 +243,29 @@ export function loadBusinessAccess(ctx: Pick<Context, "db" | "accessMemo">, user
   return pending;
 }
 
-/** Procedures whose input carries `businessId`: membership asserted, RLS runner attached. */
-export const businessProcedure = protectedProcedure.input(BusinessInput).use(async ({ ctx, input, next }) => {
-  const access = await loadBusinessAccess(ctx, ctx.userId, input.businessId);
-  // Membership first: a non-member learns nothing about the business, not even whether it exists.
-  const membership = access.membership;
-  if (!membership) throw new TRPCError({ code: "FORBIDDEN", message: "You are not a member of this business" });
-  // A member of an archived business gets what `repos.businesses.get` says about it.
-  if (!access.business) throw new NotFoundError("business", input.businessId);
-  const business = access.business;
-  const rls: RlsRunner = (fn) => withRls(ctx.db, { userId: ctx.userId, claims: ctx.email ? { email: ctx.email } : undefined }, fn);
-  const bctx: BusinessContext = { ...ctx, businessId: input.businessId, business, membership, role: membership.role, rls };
-  return next({ ctx: bctx });
-});
+/** The procedure base for a business: membership asserted, the business loaded (archived ones only when asked), RLS attached. */
+function businessBase(options: { includeArchived: boolean }) {
+  return protectedProcedure.input(BusinessInput).use(async ({ ctx, input, next }) => {
+    const access = await loadBusinessAccess(ctx, ctx.userId, input.businessId, options);
+    // Membership first: a non-member learns nothing about the business, not even whether it exists.
+    const membership = access.membership;
+    if (!membership) throw new TRPCError({ code: "FORBIDDEN", message: "You are not a member of this business" });
+    // A member of an archived business gets what `repos.businesses.get` says about it.
+    if (!access.business) throw new NotFoundError("business", input.businessId);
+    const business = access.business;
+    const rls: RlsRunner = (fn) => withRls(ctx.db, { userId: ctx.userId, claims: ctx.email ? { email: ctx.email } : undefined }, fn);
+    const bctx: BusinessContext = { ...ctx, businessId: input.businessId, business, membership, role: membership.role, rls };
+    return next({ ctx: bctx });
+  });
+}
+
+/** Procedures whose input carries `businessId`: membership asserted, RLS runner attached. An archived business is not found. */
+export const businessProcedure = businessBase({ includeArchived: false });
+/**
+ * The same for the few things an archived business still allows (BUILD §11.15): restore it, export it, and request or
+ * cancel its permanent deletion. Everything else keeps answering NOT_FOUND until it is restored.
+ */
+export const archivedBusinessProcedure = businessBase({ includeArchived: true });
 
 export function requireRoles(roles: readonly MembershipRole[], what = "this action") {
   return t.middleware(({ ctx, next }) => {
@@ -282,6 +293,10 @@ export const writeProcedure = businessProcedure.use(requireRoles(WRITE_ROLES, "c
 export const adminProcedure = businessProcedure.use(requireRoles(["owner", "admin"], "administration"));
 /** Owner only: tier changes, permanent actions. */
 export const ownerProcedure = businessProcedure.use(requireRoles(["owner"], "owner actions"));
+/** Owner/admin on a business that may be archived (export). */
+export const adminArchivedProcedure = archivedBusinessProcedure.use(requireRoles(["owner", "admin"], "administration"));
+/** Owner only on a business that may be archived (restore, permanent deletion). */
+export const ownerArchivedProcedure = archivedBusinessProcedure.use(requireRoles(["owner"], "owner actions"));
 
 export const sectionRead = (section: Section) => businessProcedure.use(sectionPermission(section, "read"));
 export const sectionWrite = (section: Section) => writeProcedure.use(sectionPermission(section, "write"));

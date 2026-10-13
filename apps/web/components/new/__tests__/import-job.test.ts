@@ -44,5 +44,13 @@ describe("Import job progress (AC-11.1.5)", () => {
     };
     expect(totalSteps(job)).toBe(3);
     expect(doneSteps(job)).toBe(1);
+    // A read planned for after commit is not part of this job's progress.
+    const planned: ImportJob = { ...job, sources: [{ ...job.sources[0]!, status: "planned", steps: [{ id: "github:0", label: "Check", status: "done" }, { id: "github:1", label: "Read", status: "planned" }] }] };
+    expect(totalSteps(planned)).toBe(1);
+    expect(doneSteps(planned)).toBe(1);
+    // A source the import has no reader for finishes its read step as not read: finished, not pending.
+    const unreadable: ImportJob = { ...job, sources: [{ ...job.sources[0]!, key: "linear", value: "", status: "failed", steps: [{ id: "linear:0", label: "Check", status: "done" }, { id: "linear:1", label: "No reader", status: "failed" }] }] };
+    expect(totalSteps(unreadable)).toBe(2);
+    expect(doneSteps(unreadable)).toBe(2);
   });
 });

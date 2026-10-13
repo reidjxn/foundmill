@@ -98,8 +98,11 @@ export interface FinanceOverview {
   cash: { amountMinor: number; currency: string; accounts: number; asOf: Iso | null; label: string };
   burn: { netBurnMinor: number; grossBurnMinor: number; months: number; label: "Estimate"; definition?: string };
   runway: { months: number | null; label: "Estimate"; warnings: number[]; blocksContinue: boolean };
-  revenue: { monthly: { month: string; inflowMinor: number; outflowMinor: number; netMinor: number; count: number }[]; basis: "cash" | string; label: string };
+  /** Monthly totals; the operating fields leave financing and transfers out (net and gross burn read them). */
+  revenue: { monthly: { month: string; inflowMinor: number; outflowMinor: number; netMinor: number; count: number; operatingInflowMinor?: number; operatingOutflowMinor?: number }[]; basis: "cash" | string; label: string };
   customers30d: number;
+  /** The paying customer base of the trailing full months revenue covers: paid by its end, not churned before (the payback denominator). */
+  payingCustomers?: { count: number; months: number; from?: Iso; to?: Iso };
   forecasts: Partial<Record<string, ForecastRecord | null>>;
 }
 

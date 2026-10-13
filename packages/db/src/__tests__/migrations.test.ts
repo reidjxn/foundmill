@@ -22,7 +22,6 @@ describe("journal", () => {
   it("is readable by drizzle's own migrator and by our reader, in the same order", () => {
     const theirs = readMigrationFiles({ migrationsFolder: MIGRATIONS_DIR });
     const ours = readMigrations();
-    expect(theirs).toHaveLength(readJournal().entries.length);
     expect(ours.map((m) => m.tag)).toEqual(readJournal().entries.map((e) => e.tag));
     expect(theirs.map((m) => m.folderMillis)).toEqual(ours.map((m) => m.when));
     expect(ours.map((m) => m.tag)).toEqual([
@@ -52,6 +51,7 @@ describe("journal", () => {
       "0024_billing_enforcement",
       "0026_membership_guards",
       "0030_approvals_inbox",
+      "0031_settings_lifecycle",
       "0033_payments",
       "0034_first_payments",
       "0035_owner_lock",

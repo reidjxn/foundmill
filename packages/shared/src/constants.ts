@@ -164,6 +164,24 @@ export type InteractionKind = (typeof INTERACTION_KINDS)[number];
 export const SOURCE_KINDS = ["doc", "issue", "feedback", "transcript", "competitor", "legal", "finance"] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
+/**
+ * Door B (BUILD §11.1): the one read-only gateway call that reads each import source, keyed by the import source key
+ * (apps/api `IMPORT_SOURCE_KEYS`). apps/api words the Import report from it and the orchestrator's `importSource` makes
+ * the call; a source without a reader (null) is reported as not read, never as imported.
+ */
+export const IMPORT_READERS: Readonly<Record<string, { connector: string; tool: string } | null>> = {
+  github: { connector: "github", tool: "read_tree" },
+  google_drive: { connector: "google_drive", tool: "search_files" },
+  notion: { connector: "notion", tool: "search" },
+  stripe: { connector: "stripe", tool: "get_account" },
+  shopify: { connector: "shopify", tool: "get_shop" },
+  bank: { connector: "tink", tool: "list_accounts" },
+  registry: { connector: "opencorporates", tool: "search_companies" },
+  linear: null,
+  jira: null,
+  website: null,
+};
+
 export const PROPOSAL_STATUSES = ["open", "accepted", "partially_accepted", "rejected"] as const;
 export type ProposalStatus = (typeof PROPOSAL_STATUSES)[number];
 
@@ -202,6 +220,17 @@ export type IncorporationRoute = (typeof INCORPORATION_ROUTES)[number];
 
 export const SECURITY_KINDS = ["common", "preferred", "option", "warrant", "safe", "note"] as const;
 export type SecurityKind = (typeof SECURITY_KINDS)[number];
+
+/**
+ * Bank transaction category keys that are not operating cash flow (BUILD §11.8: net burn is "operating outflows −
+ * operating inflows, financing excluded"), normalized (lower case, `_` and `-` read as spaces). One list for both
+ * readers: packages/db `netBurn` leaves these out of burn, and the finance module's chart of accounts files exactly
+ * these under Financing and Transfers, so the burn tiles and the P&L agree on what a raise is.
+ */
+export const NON_OPERATING_CATEGORY_KEYS = {
+  financing: ["financing", "funding", "investment", "equity", "safe", "loan", "loan repayment", "grant", "founder loan", "director loan", "share capital"],
+  transfers: ["transfer", "transfers", "internal transfer", "between accounts"],
+} as const satisfies Record<string, readonly string[]>;
 
 export const USAGE_KINDS = ["tokens", "sandbox", "tool", "training"] as const;
 export type UsageKind = (typeof USAGE_KINDS)[number];

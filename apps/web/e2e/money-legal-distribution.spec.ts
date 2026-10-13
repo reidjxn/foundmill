@@ -75,6 +75,17 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(table).not.toContainText("£");
   });
 
+  test("finance: payback divides by the whole paying base, never by the customers the channels just won", async ({ page }) => {
+    await openTab(page, "finance", "overview");
+    const caption = async (metric: string) => (await page.locator(`[data-metric="${metric}"] [data-metric-caption]`).innerText()).trim();
+    const payback = await caption("payback");
+    // "<n> paying customers": the base at the end of the revenue window, not the customers the channels just won.
+    expect(payback).toMatch(/^[\d,]+ paying customers?$/);
+    const base = Number(payback.replace(/[^\d]/g, ""));
+    const won = Number(((await caption("acquisitionCost")).match(/^([\d,]+) customers?/)?.[1] ?? "0").replace(/,/g, ""));
+    expect(base, "the payback base is larger than the customers acquired in the channel window").toBeGreaterThan(won);
+  });
+
   test("finance: an empty cap table says so once and has nothing to export", async ({ page }) => {
     await openTab(page, "finance", "cap-table");
     await expect(page.getByText("No cap table yet")).toHaveCount(1);

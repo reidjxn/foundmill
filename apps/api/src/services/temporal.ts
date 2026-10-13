@@ -47,6 +47,7 @@ export const workflowIds = {
   approval: (approvalId: string) => `approval:${approvalId}`,
   /** One Source Watcher read of one source (a re-read after it settled gets a new suffix). */
   sourceWatch: (sourceId: string, suffix = "added") => `source-watch:${sourceId}:${suffix}`,
+  importBusiness: (businessId: string, at: Date) => `import:${businessId}:${at.getTime().toString(36)}`,
 } as const;
 
 export interface TemporalResult {

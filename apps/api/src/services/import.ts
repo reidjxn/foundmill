@@ -3,19 +3,25 @@
  *
  * `import.start` takes the founder's source choices (GitHub repo, Drive, Notion/Linear/Jira, website, Stripe/Shopify,
  * bank, registry; every one read-only). When a business exists and Temporal is reachable the sources become
- * `sources` rows and the orchestrator's `importBusiness` workflow runs them through the gateway. Otherwise (no business
- * yet, or no worker) the job runs server-side and deterministically: the job id encodes the inputs and the start time,
- * `import.status` replays the step schedule from the clock, and the Scouting report is built with a seeded RNG from the
- * same inputs, so the same sources always give the same report. Every figure in the report is an Estimate. A GitHub
- * import never pushes (AC-11.1.5).
+ * `sources` rows and the orchestrator's `importBusiness` workflow reads each through the gateway (`IMPORT_READERS`).
+ * Before a business exists (the sign-up import) nothing can be read: no business, no connection, no gateway session.
+ * That job only checks what the founder typed and lists what the import will read once they take charge (status
+ * `planned`); commit stores the sources as not read yet and starts `importBusiness` for them. The job id encodes the
+ * inputs and the start time and `import.status` replays the check schedule from the clock, so the same sources always
+ * give the same job and report.
+ *
+ * The Import report claims only what was read: a source the gateway read is named with what was read, a source still
+ * to be read is worded "once …", a source that failed or has no reader is listed under what is missing, and nothing
+ * (counts, issues, findings) is invented for a source that was not read. A source that was not read can be read again
+ * (`readImportSourcesAgain`, Read now in Product › Sources) once the founder has connected it. A GitHub import never
+ * pushes (AC-11.1.5).
  */
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { repos, type Db, type Source } from "@foundmill/db";
-import { createSeededRng, type SeededRng } from "@foundmill/journey";
-import { AppError, NotFoundError, ValidationError, type Archetype, type Env, type SourceKind } from "@foundmill/shared";
+import { AppError, IMPORT_READERS, NotFoundError, ValidationError, type Archetype, type Env, type SourceKind } from "@foundmill/shared";
 import { z } from "zod";
 import type { TemporalService } from "./temporal";
-import { WORKFLOWS } from "./temporal";
+import { WORKFLOWS, workflowIds } from "./temporal";
 
 export const IMPORT_SOURCE_KEYS = ["github", "google_drive", "notion", "linear", "jira", "website", "stripe", "shopify", "bank", "registry"] as const;
 export const ImportSourceKey = z.enum(IMPORT_SOURCE_KEYS);
@@ -128,7 +134,8 @@ export function sourceUri(key: ImportSourceKey, value: string): string | null {
 
 // --- the job --------------------------------------------------------------------------------------------------------
 
-export type StepStatus = "queued" | "running" | "done" | "failed";
+/** `planned`: what the import will do once the business exists (the sign-up job never reads a source itself). */
+export type StepStatus = "queued" | "running" | "done" | "failed" | "planned";
 
 export interface SourceStep {
   id: string;
@@ -143,7 +150,7 @@ export interface SourceProgress {
   sourceId: string | null;
   status: StepStatus;
   steps: SourceStep[];
-  /** Mirrors `ImportSourceResult.summary` from the orchestrator. */
+  /** What was read (done), why not (failed), or what happens after commit (planned). Never an invented figure. */
   summary: string | null;
 }
 
@@ -160,35 +167,67 @@ export interface ImportJob {
   stepMs: number;
 }
 
-/** Steps each source runs (GitHub's are the ones BUILD §11.1 lists; the last confirms nothing was pushed). */
-export function stepsFor(key: ImportSourceKey, value: string): string[] {
-  switch (key) {
-    case "github":
-      return [`Clone ${value} into the sandbox (read only)`, "Summarize the file tree", "Read the top 200 files by importance", "Run the test suite if one exists", "Turn open issues into roadmap seeds", "Confirm nothing was pushed"];
-    case "google_drive":
-      return ["List the folder", "Read decks and plans", "Extract positioning and numbers"];
-    case "notion":
-      return ["List shared pages", "Read specs and notes", "Extract decisions and open questions"];
-    case "linear":
-    case "jira":
-      return ["List projects", "Read open issues", "Turn issues into roadmap seeds"];
-    case "website":
-      return ["Fetch robots.txt", `Crawl ${value} within the rules`, "Extract positioning, pricing and pages"];
-    case "stripe":
-      return ["Read customers and subscriptions", "Read invoices and payments", "Build revenue history"];
-    case "shopify":
-      return ["Read orders", "Read products and customers", "Build revenue history"];
-    case "bank":
-      return ["Read account balances", "Read the last 24 months of transactions", "Estimate burn and runway"];
-    case "registry":
-      return [`Look up ${value}`, "Read officers and filings", "List upcoming deadlines"];
+/** The founder-typed value the sign-up job checks (and the one step it actually runs). */
+export function checkStepLabel(key: ImportSourceKey, value: string): string {
+  const meta = IMPORT_SOURCES[key];
+  switch (meta.input) {
+    case "repo":
+      return `Check the repository name ${value}`;
+    case "url":
+      return `Check the address ${value}`;
+    case "regno":
+      return `Check the registration number ${value}`;
+    case "none":
+      return `Note the ${meta.label} connection it needs`;
   }
 }
 
+/** The read the gateway makes for a source (orchestrator `importSource`); a source with no reader says so. */
+export function readStepLabel(key: ImportSourceKey, value: string): string {
+  const label = IMPORT_SOURCES[key].label;
+  switch (key) {
+    case "github":
+      return `Read the file tree of ${value} through the GitHub App (read only; nothing is pushed)`;
+    case "google_drive":
+      return "List your Drive files (read only)";
+    case "notion":
+      return "Search the pages Notion shares with the business (read only)";
+    case "stripe":
+      return "Read the Stripe account (read only)";
+    case "shopify":
+      return "Read the Shopify store (read only)";
+    case "bank":
+      return "List the bank accounts (read only)";
+    case "registry":
+      return `Look up ${value} in the public register`;
+    case "linear":
+    case "jira":
+    case "website":
+      return `The import has no reader for ${label} yet, so it is listed as not read`;
+  }
+}
+
+/** True when the gateway can read this source (`IMPORT_READERS`); false sources are reported as not read. */
+export function hasReader(key: ImportSourceKey): boolean {
+  return Boolean(IMPORT_READERS[key]);
+}
+
+/** Steps a job shows for a source: the sign-up job checks the value, then plans the read; a business job reads. */
+export function stepsFor(key: ImportSourceKey, value: string, mode: "local" | "temporal" = "local"): string[] {
+  return mode === "local" ? [checkStepLabel(key, value), readStepLabel(key, value)] : [readStepLabel(key, value)];
+}
+
+/** What the sign-up job says about a source it has checked: nothing was read, and what happens after commit. */
+export function plannedSummary(key: ImportSourceKey): string {
+  const meta = IMPORT_SOURCES[key];
+  if (!hasReader(key)) return `Not read: the import has no reader for ${meta.label} yet.`;
+  if (meta.input === "none") return `Not read yet: read after you take charge, if ${meta.label} is connected in Settings › Integrations.`;
+  return "Not read yet: read after you take charge (read only).";
+}
+
 /**
- * Step length of the local (no-Temporal) job. Its steps are simulated, so they only need to be readable as they pass:
- * 120 ms keeps a three-source import to about a second and a half instead of five (audit P7). Temporal jobs follow
- * the real `sources` rows and are unaffected.
+ * Step length of the local (sign-up) job's checks, so they are readable as they pass: 120 ms keeps a three-source job
+ * well under a second (audit P7). Temporal jobs follow the real `sources` rows and are unaffected.
  */
 export const DEFAULT_STEP_MS = 120;
 
@@ -250,50 +289,33 @@ export function decodeJobId(key: string, jobId: string): JobToken {
   throw new NotFoundError("import job", jobId.slice(0, 24));
 }
 
-function sourceSummary(key: ImportSourceKey, value: string): string {
-  const rng = createSeededRng(`import:${key}:${value}`);
-  switch (key) {
-    case "github":
-      return `${rng.int(80, 420)} files read, ${rng.int(6, 60)} tests ${rng.bool(0.8) ? "passing" : "with failures"}, ${rng.int(3, 24)} open issues, nothing pushed`;
-    case "google_drive":
-      return `${rng.int(4, 30)} documents read`;
-    case "notion":
-      return `${rng.int(6, 40)} pages read`;
-    case "linear":
-    case "jira":
-      return `${rng.int(8, 60)} open issues read`;
-    case "website":
-      return `${rng.int(4, 40)} pages crawled within robots.txt`;
-    case "stripe":
-      return `${rng.int(5, 400)} customers, ${rng.int(1, 24)} months of revenue`;
-    case "shopify":
-      return `${rng.int(20, 3000)} orders, ${rng.int(3, 120)} products`;
-    case "bank":
-      return `${rng.int(1, 3)} accounts, 24 months of transactions`;
-    case "registry":
-      return `entity found, ${rng.int(1, 4)} officers, ${rng.int(1, 3)} upcoming deadlines`;
-  }
-}
-
-/** The local job's progress at `now`: sources run in order, each step takes `stepMs`. Deterministic in (token, now). */
+/**
+ * The sign-up job's progress at `now`: each source's value is checked in turn (one step of `stepMs`), then its read is
+ * planned for after commit. Nothing is read here, so a checked source is `planned`, never `done`; a source the import has
+ * no reader for is `failed` (not read) once checked. Deterministic in (token, now).
+ */
 export function localJobAt(token: JobToken, jobId: string, now: Date): ImportJob {
   const elapsed = Math.max(0, now.getTime() - token.t);
   let consumed = 0;
   let finishedAtMs: number | null = null;
   const sources: SourceProgress[] = token.s.map((s) => {
-    const labels = stepsFor(s.k, s.v);
-    const steps: SourceStep[] = labels.map((label, i) => {
-      const startsAt = consumed * token.ms;
-      consumed++;
-      const endsAt = consumed * token.ms;
-      const status: StepStatus = elapsed >= endsAt ? "done" : elapsed >= startsAt ? "running" : "queued";
-      return { id: `${s.k}:${i}`, label, status };
-    });
-    const done = steps.every((st) => st.status === "done");
-    if (done) finishedAtMs = token.t + consumed * token.ms;
-    return { key: s.k, value: s.v, sourceId: s.id, status: done ? "done" : steps.some((st) => st.status !== "queued") ? "running" : "queued", steps, summary: done ? sourceSummary(s.k, s.v) : null };
+    const [check, read] = stepsFor(s.k, s.v, "local") as [string, string];
+    const startsAt = consumed * token.ms;
+    consumed++;
+    const endsAt = consumed * token.ms;
+    const checkStatus: StepStatus = elapsed >= endsAt ? "done" : elapsed >= startsAt ? "running" : "queued";
+    const checked = checkStatus === "done";
+    if (checked) finishedAtMs = token.t + consumed * token.ms;
+    const readable = hasReader(s.k);
+    const steps: SourceStep[] = [
+      { id: `${s.k}:0`, label: check, status: checkStatus },
+      // The read always happens after commit, whatever the check's progress; without a reader it never happens.
+      { id: `${s.k}:1`, label: read, status: readable ? "planned" : checked ? "failed" : "queued" },
+    ];
+    const status: StepStatus = !checked ? checkStatus : readable ? "planned" : "failed";
+    return { key: s.k, value: s.v, sourceId: s.id, status, steps, summary: checked ? plannedSummary(s.k) : null };
   });
-  const allDone = sources.every((s) => s.status === "done");
+  const allDone = sources.every((s) => s.status === "planned" || s.status === "failed");
   return {
     id: jobId,
     mode: "local",
@@ -321,14 +343,12 @@ export async function temporalJobAt(db: Db, token: JobToken, jobId: string, now:
   }
   const sources: SourceProgress[] = token.s.map((s) => {
     const row = s.id ? rows.get(s.id) : undefined;
-    const labels = stepsFor(s.k, s.v);
     const relevance = (row?.relevance ?? {}) as Record<string, unknown>;
     const finished = row?.fetchedAt != null || relevance.imported === false;
     const ok = relevance.imported === true;
     const status: StepStatus = !row ? "failed" : finished ? (ok ? "done" : "failed") : "running";
-    const steps: SourceStep[] = labels.map((label, i) => ({ id: `${s.k}:${i}`, label, status: finished ? (ok || i < labels.length - 1 ? "done" : "failed") : i === 0 ? "running" : "queued" }));
-    const summary = !row ? "source row missing" : finished ? (ok ? `imported through ${String(relevance.connector ?? IMPORT_SOURCES[s.k].connectorKey)}` : String(relevance.reason ?? relevance.outcome ?? "not imported")) : null;
-    return { key: s.k, value: s.v, sourceId: s.id, status, steps, summary };
+    const steps: SourceStep[] = stepsFor(s.k, s.v, "temporal").map((label, i) => ({ id: `${s.k}:${i}`, label, status }));
+    return { key: s.k, value: s.v, sourceId: s.id, status, steps, summary: !row ? "The source row is missing." : finished ? readSummary(relevance, ok) : null };
   });
   const allFinished = sources.every((s) => s.status === "done" || s.status === "failed");
   const anyOk = sources.some((s) => s.status === "done");
@@ -343,6 +363,15 @@ export async function temporalJobAt(db: Db, token: JobToken, jobId: string, now:
     finishedAt: allFinished ? now.toISOString() : null,
     stepMs: token.ms,
   };
+}
+
+/** What the orchestrator recorded on a finished source row: what was read, or why it was not. */
+export function readSummary(relevance: Record<string, unknown>, ok: boolean): string {
+  const connector = typeof relevance.connector === "string" ? relevance.connector : null;
+  const tool = typeof relevance.tool === "string" ? relevance.tool : null;
+  if (ok) return `Read through ${connector ?? "the gateway"}${tool ? ` (${tool})` : ""}, read only.`;
+  const reason = relevance.reason ?? relevance.outcome;
+  return `Not read: ${typeof reason === "string" && reason ? reason : "the gateway did not answer"}.`;
 }
 
 // --- the Scouting report -------------------------------------------------------------------------------------------
@@ -360,6 +389,15 @@ export interface RoadmapSeed {
   source: string;
 }
 
+/** One source as the report states it: read, still to be read after commit, or not read (and why). */
+export interface ReportSource {
+  key: ImportSourceKey;
+  label: string;
+  value: string;
+  state: "read" | "planned" | "not_read";
+  note: string;
+}
+
 export interface ScoutingReport {
   title: string;
   suggestedName: string;
@@ -370,7 +408,10 @@ export interface ScoutingReport {
   strengths: string[];
   weaknesses: string[];
   firstDecisions: ScoutingDecision[];
+  /** Open issues actually read from a tracker or repository; empty until a reader returns issues. Never invented. */
   roadmapSeeds: RoadmapSeed[];
+  /** Every chosen source with what is true of it now (read, planned, not read). */
+  sources: ReportSource[];
   /** AC-11.1.5: a GitHub import never pushes. */
   neverPushed: true;
   provenance: "Estimate";
@@ -379,7 +420,6 @@ export interface ScoutingReport {
 const CODE_SOURCES: ImportSourceKey[] = ["github"];
 const REVENUE_SOURCES: ImportSourceKey[] = ["stripe", "shopify", "bank"];
 const TRACKING_SOURCES: ImportSourceKey[] = ["linear", "jira", "notion"];
-const ISSUE_TITLES = ["Onboarding drop-off after sign-up", "Export to CSV", "Billing page shows stale invoice totals", "Slow dashboard query for large accounts", "Mobile layout of the pricing page", "Webhook retries on timeout", "Team invitations by link", "Audit log for admin actions", "SSO for enterprise plan", "Localize dates and currencies", "Flaky integration test in checkout", "Rate limit public API"];
 
 export function titleCase(s: string): string {
   return s
@@ -413,70 +453,91 @@ export function archetypeFromSources(configs: readonly SourceConfig[]): Archetyp
   return "services";
 }
 
-function seedsFor(configs: readonly SourceConfig[], rng: SeededRng): RoadmapSeed[] {
-  const out: RoadmapSeed[] = [];
-  const github = configs.find((c) => c.key === "github");
-  if (github) {
-    const titles = rng.shuffle(ISSUE_TITLES).slice(0, rng.int(3, 6));
-    for (const t of titles) out.push({ title: t, source: `${normaliseSourceValue("github", github.value)} issue #${rng.int(4, 240)}` });
-  }
-  for (const c of configs) {
-    if (c.key !== "linear" && c.key !== "jira") continue;
-    const titles = rng.shuffle(ISSUE_TITLES).slice(0, rng.int(2, 4));
-    for (const t of titles) out.push({ title: t, source: `${IMPORT_SOURCES[c.key].label} ${c.key === "jira" ? "ISS" : "LIN"}-${rng.int(10, 999)}` });
-  }
-  return out;
+/** Each source's state from the job: `done` was read, `planned` waits for commit, anything else (or no reader) was not read. */
+export function reportSources(configs: readonly SourceConfig[], job?: ImportJob): ReportSource[] {
+  const progress = new Map(job?.sources.map((s) => [s.key, s]) ?? []);
+  return configs.map((c) => {
+    const value = normaliseSourceValue(c.key, c.value);
+    const label = IMPORT_SOURCES[c.key].label;
+    const p = progress.get(c.key);
+    const status = p?.status ?? "planned";
+    const state: ReportSource["state"] = status === "done" ? "read" : status === "planned" && hasReader(c.key) ? "planned" : "not_read";
+    const note = p?.summary ?? plannedSummary(c.key);
+    return { key: c.key, label, value, state, note };
+  });
 }
 
-/** Deterministic in the sources (and the per-source summaries when the job supplies them). */
-export function buildScoutingReport(configs: readonly SourceConfig[], job?: ImportJob): ScoutingReport {
-  const rng = createSeededRng(`scouting:${configs.map((c) => `${c.key}=${normaliseSourceValue(c.key, c.value)}`).join("|")}`);
-  const keys = new Set(configs.map((c) => c.key));
-  const has = (k: ImportSourceKey) => keys.has(k);
-  const any = (ks: ImportSourceKey[]) => ks.some(has);
-  const name = nameFrom(configs);
-  const archetypeHint = archetypeFromSources(configs);
+/**
+ * What a source makes possible, worded by what is true of it: read (exactly what the one read returned, and what it
+ * did not bring in: an account answering is not its revenue history), or still to be read ("Once Stripe is connected,
+ * …"). A source that was not read adds nothing here; it is listed under what is missing.
+ */
+const STRENGTH: Record<"code" | "revenue" | "bank" | "tracking" | "registry", { read: (label: string) => string; planned: (label: string) => string }> = {
+  code: { read: (l) => `${l} was read through the gateway (its file tree, read only): agents start from your real code, not a blank repository.`, planned: (l) => `Once ${l} is read after you take charge, agents start from your real code, not a blank repository.` },
+  revenue: { read: (l) => `${l} is connected read only and its account answered. Its revenue history was not imported, so forecasts still start from archetype priors.`, planned: (l) => `Once ${l} is connected, forecasts can start from real revenue history rather than archetype priors.` },
+  bank: { read: (l) => `${l} is connected read only and its accounts were listed. Transactions were not imported, so cash and runway stay estimates.`, planned: (l) => `Once ${l} is connected, cash and runway can be measured instead of estimated.` },
+  tracking: { read: (l) => `${l} is connected read only: the pages it shares were listed for the team to read.`, planned: (l) => `Once ${l} is connected, the team can read the pages it shares: specs, roadmaps and notes.` },
+  registry: { read: (l) => `The ${l.toLowerCase()} answered a search for this number (read only); the entity goes on record once Legal confirms the match with you.`, planned: (l) => `Once the ${l.toLowerCase()} is read, the legal entity and its filing deadlines can be put on record.` },
+};
 
-  const whatExists: string[] = [];
-  const whatIsMissing: string[] = [];
+/**
+ * Deterministic in the sources and the job's per-source outcome. Claims only what was read: no counts, findings or
+ * issues are made up for a source that was not read, failed sources are listed under what is missing, and every
+ * strength of a source still to be read is worded "once …".
+ */
+export function buildScoutingReport(configs: readonly SourceConfig[], job?: ImportJob): ScoutingReport {
+  const sources = reportSources(configs, job);
+  const usable = sources.filter((s) => s.state !== "not_read");
+  const usableConfigs = configs.filter((c) => usable.some((s) => s.key === c.key));
+  const stateOf = (k: ImportSourceKey) => sources.find((s) => s.key === k)?.state ?? null;
+  const usableKey = (k: ImportSourceKey) => stateOf(k) === "read" || stateOf(k) === "planned";
+  const any = (ks: ImportSourceKey[]) => ks.some(usableKey);
+  const first = (ks: ImportSourceKey[]) => sources.find((s) => ks.includes(s.key) && s.state !== "not_read");
+  const name = nameFrom(configs);
+  const archetypeHint = archetypeFromSources(usableConfigs.length ? usableConfigs : configs);
+  const read = sources.filter((s) => s.state === "read").length;
+  const planned = sources.filter((s) => s.state === "planned").length;
+
+  const whatExists = usable.map((s) => `${s.label}${s.value ? ` (${s.value})` : ""}: ${s.note}`);
+  const whatIsMissing: string[] = sources.filter((s) => s.state === "not_read").map((s) => `${s.label}${s.value ? ` (${s.value})` : ""}: ${s.note}`);
   const strengths: string[] = [];
   const weaknesses: string[] = [];
+  const strength = (kind: keyof typeof STRENGTH, s: ReportSource | undefined) => {
+    if (s) strengths.push(s.state === "read" ? STRENGTH[kind].read(s.label) : STRENGTH[kind].planned(s.label));
+  };
 
-  const summaries = new Map(job?.sources.map((s) => [s.key, s.summary]) ?? []);
-  for (const c of configs) {
-    const value = normaliseSourceValue(c.key, c.value);
-    whatExists.push(`${IMPORT_SOURCES[c.key].label}${value ? ` (${value})` : ""}: ${summaries.get(c.key) ?? sourceSummary(c.key, value)}`);
-  }
-  if (any(CODE_SOURCES)) {
-    strengths.push("A working codebase with a test suite: agents can start from real code, not a blank repo.");
-    weaknesses.push(rng.bool(0.5) ? "No deployment pipeline was found; releases look manual." : "README is out of date with the code; the Specification should be rebuilt from the repository.");
-  } else whatIsMissing.push("No code source: the Development department starts from the Specification.");
-  if (any(REVENUE_SOURCES)) {
-    strengths.push("Real revenue history: forecasts start from actuals rather than archetype priors.");
-    if (has("bank")) strengths.push("Cash position is known, so runway is a measurement, not an estimate.");
-    else whatIsMissing.push("No bank connection: runway stays an estimate until one is added.");
-  } else whatIsMissing.push("No revenue source: Finance starts with a management P&L and labeled estimates.");
-  if (any(TRACKING_SOURCES)) strengths.push("A backlog exists: the first roadmap is seeded from your open issues.");
+  if (any(CODE_SOURCES)) strength("code", first(CODE_SOURCES));
+  else whatIsMissing.push("No code source: the Development department starts from the Specification.");
+  if (any(["stripe", "shopify"])) strength("revenue", first(["stripe", "shopify"]));
+  if (usableKey("bank")) strength("bank", first(["bank"]));
+  else if (any(REVENUE_SOURCES)) whatIsMissing.push("No bank connection: runway stays an estimate until one is added.");
+  if (!any(REVENUE_SOURCES)) whatIsMissing.push("No revenue source: Finance starts with a management P&L and labeled estimates.");
+  if (any(TRACKING_SOURCES)) strength("tracking", first(TRACKING_SOURCES));
   else whatIsMissing.push("No work tracking: the first roadmap comes from the Board's proposals.");
-  if (has("website")) strengths.push("Public positioning and pricing exist and can be tested against competitors.");
-  else whatIsMissing.push("No website: positioning will be drafted from the Specification.");
-  if (has("registry")) strengths.push("The legal entity is on record; filing deadlines are known.");
+  if (!usableKey("website")) whatIsMissing.push("No website read: positioning will be drafted from the Specification.");
+  if (usableKey("registry")) strength("registry", first(["registry"]));
   else whatIsMissing.push("No registry record: Legal will ask whether an entity exists.");
-  if (!has("stripe") && !has("shopify") && has("github")) weaknesses.push("Code without customers: distribution clarity is the main risk.");
-  if (weaknesses.length === 0) weaknesses.push("The sources agree with each other; the risk is pace, not knowledge.");
+  if (!any(["stripe", "shopify"]) && any(CODE_SOURCES)) weaknesses.push("No revenue source was given alongside the code: distribution is the main unknown.");
+  if (read === 0) weaknesses.push(planned ? "Nothing has been read yet, so no weakness is measured: the team reports what it finds once the import has read your sources." : "Nothing could be read, so no weakness is measured yet.");
 
   const firstDecisions: ScoutingDecision[] = [
-    { id: "spec", label: "Rebuild the Specification from the imported sources", recommended: true, consequence: "The Product lead drafts the spec from what exists; you review it before any task starts.", reversible: true },
-    any(TRACKING_SOURCES) || has("github")
-      ? { id: "roadmap", label: "Seed the roadmap from open issues", recommended: false, consequence: "Open issues become roadmap items in a Proposed state; nothing is scheduled until you decide.", reversible: true }
+    { id: "spec", label: "Rebuild the Specification from the imported sources", recommended: true, consequence: "The Product lead drafts the spec from what the import has read and what you tell it; you review it before any task starts.", reversible: true },
+    any(TRACKING_SOURCES) || any(CODE_SOURCES)
+      ? { id: "roadmap", label: "Seed the roadmap from open issues", recommended: false, consequence: "Open issues the import reads become roadmap items in a Proposed state; nothing is scheduled until you decide.", reversible: true }
       : { id: "roadmap", label: "Let the Board propose a first roadmap", recommended: false, consequence: "Three proposals arrive in the Inbox for you to accept or edit.", reversible: true },
     any(REVENUE_SOURCES)
-      ? { id: "finance", label: "Build the management P&L from revenue history", recommended: false, consequence: "Finance reconciles the imported revenue into a cash-basis P&L.", reversible: true }
+      ? { id: "finance", label: "Build the management P&L from revenue history", recommended: false, consequence: "Finance reconciles revenue into a cash-basis P&L once the revenue source is connected and read.", reversible: true }
       : { id: "finance", label: "Connect a revenue or bank source later", recommended: false, consequence: "Finance works from labeled estimates until then.", reversible: true },
   ];
-  const roadmapSeeds = seedsFor(configs, rng);
-  const summary = `${name}: ${whatExists.length} source${whatExists.length === 1 ? "" : "s"} imported. ${strengths[0] ?? ""} ${whatIsMissing[0] ?? ""}`.trim();
-  return { title: `Import report: ${name}`, suggestedName: name, archetypeHint, summary, whatExists, whatIsMissing, strengths, weaknesses, firstDecisions, roadmapSeeds, neverPushed: true, provenance: "Estimate" };
+  const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+  const state =
+    read > 0
+      ? `${count(read, "source")} of ${sources.length} read${sources.length - read - planned > 0 ? `, ${sources.length - read - planned} not read` : ""}.`
+      : planned > 0
+        ? `${count(planned, "source")} to read after you take charge; nothing has been read yet.`
+        : "None of the sources could be read.";
+  const summary = `${name}: ${state} ${strengths[0] ?? ""} ${whatIsMissing[0] ?? ""}`.replace(/\s+/g, " ").trim();
+  return { title: `Import report: ${name}`, suggestedName: name, archetypeHint, summary, whatExists, whatIsMissing, strengths, weaknesses, firstDecisions, roadmapSeeds: [], sources, neverPushed: true, provenance: "Estimate" };
 }
 
 // --- start / status -------------------------------------------------------------------------------------------------
@@ -504,7 +565,73 @@ export interface ImportDeps {
   key: string;
 }
 
-/** Start the import: Temporal workflow over `sources` rows when a business exists and the worker answers, else the local job. */
+/**
+ * The `sources` row an import source becomes on a business: not read yet (`import.status: "pending"`), no summary.
+ * The orchestrator's `importSource` records what the gateway read (or why it could not) on the same row.
+ */
+export function importSourceRow(key: ImportSourceKey, value: string): { kind: SourceKind; uri: string | null; title: string; relevance: Record<string, unknown> } {
+  const meta = IMPORT_SOURCES[key];
+  return {
+    kind: meta.sourceKind,
+    uri: webUri(sourceUri(key, value)),
+    title: `${meta.label} import${value ? `: ${value}` : ""}`.slice(0, 400),
+    relevance: { import: { key, value, connector: IMPORT_READERS[key]?.connector ?? meta.connectorKey, readOnly: true, status: "pending" } },
+  };
+}
+
+/**
+ * Start `importBusiness` over a business's import sources (import.start with a business, and commit for Door B). When
+ * Temporal does not take it, nothing will read them: each row is marked not read with the reason, so no screen shows
+ * a source as imported or as still running.
+ */
+export async function queueImportReads(deps: Pick<ImportDeps, "db" | "temporal">, businessId: string, sourceIds: readonly string[], now: Date = new Date()): Promise<{ queued: boolean; workflowId: string; reason?: string }> {
+  const workflowId = workflowIds.importBusiness(businessId, now);
+  if (sourceIds.length === 0) return { queued: false, workflowId, reason: "no sources to import" };
+  const workflow = await deps.temporal.start(WORKFLOWS.importBusiness, { workflowId, args: [{ businessId, sourceIds: [...sourceIds] }] });
+  if (workflow.queued) return workflow;
+  const reason = `the import worker was not reachable (${workflow.reason ?? "unavailable"}), so nothing was read`;
+  for (const id of sourceIds) {
+    const row = await repos.product.getSource(deps.db, businessId, id);
+    const relevance = (row.relevance ?? {}) as Record<string, unknown>;
+    const meta = (relevance.import ?? {}) as Record<string, unknown>;
+    await repos.product.updateSource(deps.db, businessId, id, { relevance: { ...relevance, imported: false, reason, import: { ...meta, status: "failed", note: `Not read: ${reason}.` } } });
+  }
+  return workflow;
+}
+
+/** True for a `sources` row an import created (`relevance.import`) that the gateway has not read. */
+export function isUnreadImportSource(source: Pick<Source, "relevance">): boolean {
+  const relevance = (source.relevance ?? {}) as Record<string, unknown>;
+  const meta = relevance.import;
+  if (!meta || typeof meta !== "object") return false;
+  return relevance.imported !== true && (meta as Record<string, unknown>).status !== "read";
+}
+
+/**
+ * Read now (Product › Sources): read again the import sources the gateway has not read, typically once the founder has
+ * connected them in Settings › Integrations. Each row goes back to "not read yet" (the old reason is dropped) and
+ * `importBusiness` reads them; without a worker they are marked not read again with that reason. A source that was
+ * read, or that did not come from an import, is refused rather than read twice.
+ */
+export async function readImportSourcesAgain(deps: Pick<ImportDeps, "db" | "temporal">, businessId: string, sourceIds: readonly string[], now: Date = new Date()): Promise<{ sourceIds: string[]; workflow: { queued: boolean; workflowId: string; reason?: string } }> {
+  const rows: Source[] = [];
+  for (const id of new Set(sourceIds)) rows.push(await repos.product.getSource(deps.db, businessId, id));
+  const refused = rows.find((r) => !isUnreadImportSource(r));
+  if (refused) throw new ValidationError("Only an import source that was not read can be read again", { sourceId: refused.id });
+  for (const row of rows) {
+    const relevance = { ...((row.relevance ?? {}) as Record<string, unknown>) };
+    const meta = relevance.import as Record<string, unknown>;
+    delete relevance.imported;
+    delete relevance.reason;
+    delete relevance.outcome;
+    const { note: _note, ...kept } = meta;
+    await repos.product.updateSource(deps.db, businessId, row.id, { relevance: { ...relevance, import: { ...kept, status: "pending" } } });
+  }
+  const ids = rows.map((r) => r.id);
+  return { sourceIds: ids, workflow: await queueImportReads(deps, businessId, ids, now) };
+}
+
+/** Start the import: Temporal workflow over `sources` rows when a business exists, else the sign-up job (checks only). */
 export async function startImport(deps: ImportDeps, input: StartImportInput): Promise<ImportStatus> {
   const now = input.now ?? new Date();
   const configs = input.sources.map((s) => ({ key: s.key, value: normaliseSourceValue(s.key, s.value) }));
@@ -517,23 +644,15 @@ export async function startImport(deps: ImportDeps, input: StartImportInput): Pr
     const businessId = input.businessId;
     const rows = await deps.db.transaction(async (tx) => {
       const out: Source[] = [];
-      for (const c of configs) {
-        const meta = IMPORT_SOURCES[c.key];
-        out.push(await repos.product.createSource(tx, businessId, { kind: meta.sourceKind, uri: sourceUri(c.key, c.value), title: `${meta.label} import${c.value ? `: ${c.value}` : ""}`, relevance: { import: { key: c.key, value: c.value, connector: meta.connectorKey, readOnly: true } } }));
-      }
+      for (const c of configs) out.push(await repos.product.createSource(tx, businessId, importSourceRow(c.key, c.value)));
       return out;
     });
-    const workflowId = `import:${businessId}:${now.getTime().toString(36)}`;
-    const workflow = await deps.temporal.start(WORKFLOWS.importBusiness, { workflowId, args: [{ businessId, sourceIds: rows.map((r) => r.id) }] });
-    if (workflow.queued) {
-      const token: JobToken = { v: 1, m: "temporal", u: input.userId, b: businessId, w: workflowId, t: now.getTime(), ms: stepMs, s: configs.map((c, i) => ({ k: c.key, v: c.value, id: rows[i]!.id })) };
-      const jobId = encodeJobId(deps.key, token);
-      return { job: await temporalJobAt(deps.db, token, jobId, now), report: null, workflow };
-    }
-    const token: JobToken = { v: 1, m: "local", u: input.userId, b: businessId, w: null, t: now.getTime(), ms: stepMs, s: configs.map((c, i) => ({ k: c.key, v: c.value, id: rows[i]!.id })) };
+    // Without a worker nothing reads the sources: they are marked not read at once rather than shown as running.
+    const workflow = await queueImportReads(deps, businessId, rows.map((r) => r.id), now);
+    const token: JobToken = { v: 1, m: "temporal", u: input.userId, b: businessId, w: workflow.queued ? workflow.workflowId : null, t: now.getTime(), ms: stepMs, s: configs.map((c, i) => ({ k: c.key, v: c.value, id: rows[i]!.id })) };
     const jobId = encodeJobId(deps.key, token);
-    const job = localJobAt(token, jobId, now);
-    return { job, report: job.status === "done" ? buildScoutingReport(configs, job) : null, workflow };
+    const job = await temporalJobAt(deps.db, token, jobId, now);
+    return { job, report: job.status === "running" ? null : buildScoutingReport(configs, job), workflow };
   }
 
   const token: JobToken = { v: 1, m: "local", u: input.userId, b: null, w: null, t: now.getTime(), ms: stepMs, s: configs.map((c) => ({ k: c.key, v: c.value, id: null })) };
@@ -548,5 +667,6 @@ export async function importStatus(deps: Pick<ImportDeps, "db" | "key">, jobId: 
   if (token.u !== userId) throw new NotFoundError("import job", jobId.slice(0, 24));
   const configs: SourceConfig[] = token.s.map((s) => ({ key: s.k, value: s.v }));
   const job = token.m === "temporal" ? await temporalJobAt(deps.db, token, jobId, now) : localJobAt(token, jobId, now);
+  // The report states each source by its own outcome (read, planned, not read), never by what was configured.
   return { job, report: job.status === "running" ? null : buildScoutingReport(configs, job), workflow: token.w ? { queued: true, workflowId: token.w } : null };
 }

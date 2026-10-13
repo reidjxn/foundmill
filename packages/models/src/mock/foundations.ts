@@ -263,7 +263,7 @@ export function generateFoundations(ctx: MockContext): FoundationsOutput {
       statement: truncate(`${b.name} exists so that ${b.audience} can ${b.outcome}.`, 600),
       for_whom: truncate(`${sentenceCase(b.audience)} in ${b.markets}${b.constraints.length ? `, served within the founder's constraints (${b.constraints.slice(0, 2).join("; ")})` : ""}.`, 600),
       problem: truncate(`${sentenceCase(b.audience)} lose time and money doing this by hand, and the tools they have were built for someone else. ${b.risks[0] ?? ""}`.trim(), 1000),
-      why_now: truncate(`AI agents can now do the repetitive part of the work reliably and cheaply, so a small team can serve this market well.${b.imported && b.exists.length ? ` ${b.name} is not starting from zero: ${b.exists.length} imported sources already describe the product and its customers.` : ""}`, 1000),
+      why_now: truncate(`AI agents can now do the repetitive part of the work reliably and cheaply, so a small team can serve this market well.${b.imported && b.exists.length ? ` ${b.name} is not starting from zero: the founder pointed the import at ${b.exists.length} existing source${b.exists.length === 1 ? "" : "s"}.` : ""}`, 1000),
       principles: [
         { title: "First customer before scale", detail: "Every piece of work in the first chapter must move a real customer closer to paying." },
         { title: "Agents act, the founder decides", detail: "The team does the work inside clear limits; spending, signing and anything irreversible waits for the founder." },

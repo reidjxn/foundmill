@@ -1,10 +1,11 @@
 "use client";
 /**
  * /new/import — Door B (BUILD §11.1, AC-11.1.5). Three phases in one screen: pick sources (GitHub repo, Drive,
- * Notion/Linear/Jira, website URL, Stripe/Shopify, bank, registry; every one read-only), watch the import job run
- * step by step, read the Scouting report (what exists, what is missing, strengths, weaknesses, first decisions,
- * roadmap seeds, "nothing pushed"). "Continue to Commit" saves the concept card describing the business and opens the
- * Commit screen with the suggested name.
+ * Notion/Linear/Jira, website URL, Stripe/Shopify, bank, registry; every one read-only), watch the job check them,
+ * read the Import report (what exists, what is missing, strengths, weaknesses, first decisions, roadmap seeds,
+ * "nothing pushed"). Nothing is read before the business exists: the report says which sources the import will read
+ * once the founder takes charge (commit starts that import) and words every strength "once …". "Continue to Commit"
+ * saves the concept card describing the business and opens the Commit screen with the suggested name.
  *
  * The job runs on the API: `import.start` returns the job, `import.status` is polled until it is done and carries the
  * report. The moment the report is on screen the card is drafted ahead (`import.prepareConcept`, held on the API and
@@ -12,7 +13,7 @@
  * `ImportFlow` is pure over an `ImportRunner` so it is tested with a fake runner and no tRPC.
  */
 import { useMutation } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Check, CircleDashed, FileSearch, GitBranch, Lock, Play, ShieldCheck, ThumbsUp, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CircleDashed, Clock, FileSearch, GitBranch, Lock, Play, ShieldCheck, ThumbsUp, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ARCHETYPE_LABELS } from "@foundmill/shared";
@@ -23,7 +24,7 @@ import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
 import { IMPORT_STEPS, StudioFrame } from "../StudioFrame";
 import { commitHref } from "../ideate/concepts";
-import { IMPORT_SOURCES, IMPORT_SOURCE_GROUPS, doneSteps, normaliseSourceValue, sourceByKey, totalSteps, validateConfigs, type ImportJob, type ImportSourceKey, type ImportStartInput, type ImportStatus, type ScoutingReport, type SourceConfig, type StepStatus } from "./import-job";
+import { IMPORT_SOURCES, IMPORT_SOURCE_GROUPS, doneSteps, hasImportReader, normaliseSourceValue, sourceByKey, totalSteps, validateConfigs, type ImportJob, type ImportSourceKey, type ImportStartInput, type ImportStatus, type ScoutingReport, type SourceConfig, type StepStatus } from "./import-job";
 
 export interface ImportScreenProps {
   viewer: { email: string | null };
@@ -181,6 +182,11 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, p
                             <label htmlFor={`src-${s.key}`} className="flex cursor-pointer items-center gap-2">
                               <span className="text-body-strong">{s.label}</span>
                               <Chip icon={Lock}>Read only</Chip>
+                              {hasImportReader(s.key) ? null : (
+                                <Chip tone="warn" data-testid="no-import-reader">
+                                  Not read by the import yet
+                                </Chip>
+                              )}
                             </label>
                             <p className="text-small text-secondary">{s.description}</p>
                             {on ? (
@@ -274,7 +280,7 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, p
     const total = totalSteps(job);
     const done = doneSteps(job);
     return (
-      <StudioFrame step="import" steps={IMPORT_STEPS} title="Importing" lede="The Import agent reads each source in turn. Nothing is written anywhere." viewer={viewer} actions={<Button variant="ghost" icon={X} onClick={reset}>Cancel</Button>}>
+      <StudioFrame step="import" steps={IMPORT_STEPS} title="Checking your sources" lede="Each source is checked now and read through the gateway, read only, once you take charge. Nothing is read or written before then." viewer={viewer} actions={<Button variant="ghost" icon={X} onClick={reset}>Cancel</Button>}>
         <div className="mb-gutter flex items-center gap-3" data-testid="import-progress" aria-live="polite">
           <ProgressRing value={total ? done / total : 0} size={24} strokeWidth={3} tone="kit" label="Import progress" />
           <span className="t-display-sm tabular-nums">
@@ -316,6 +322,11 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, p
               Nothing was pushed
             </StatusPill>
           ) : null}
+          {report.sources.some((s) => s.state === "read") ? null : (
+            <StatusPill tone="info" icon={Clock} data-testid="report-read-state">
+              Nothing read yet: the import reads your sources once you take charge
+            </StatusPill>
+          )}
         </div>
         <div className="grid grid-cols-2 gap-gutter">
           <ListPanel title="What exists" items={report.whatExists} tone="good" />
@@ -343,7 +354,7 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, p
               ))}
             </ol>
           </Panel>
-          <Panel title={`Roadmap seeds · ${report.roadmapSeeds.length}`} empty={report.roadmapSeeds.length === 0 ? "No tracker or repository was imported, so the Board proposes the first roadmap." : undefined} data-testid="roadmap-seeds">
+          <Panel title={`Roadmap seeds · ${report.roadmapSeeds.length}`} empty={report.roadmapSeeds.length === 0 ? "No open issues have been read, so the Board proposes the first roadmap. Issues the import reads later can be added to it." : undefined} data-testid="roadmap-seeds">
             <ul className="flex flex-col divide-y divide-line-faint">
               {report.roadmapSeeds.map((s, i) => (
                 <li key={`${s.source}-${i}`} className="flex items-center gap-3 py-1.5 first:pt-0 last:pb-0">
@@ -378,8 +389,9 @@ function ListPanel({ title, items, tone }: { title: string; items: string[]; ton
 const STEP_TONE: Record<StepStatus, { tone: "good" | "info" | "neutral" | "bad"; word: string }> = {
   queued: { tone: "neutral", word: "Queued" },
   running: { tone: "info", word: "Running" },
-  done: { tone: "good", word: "Done" },
-  failed: { tone: "bad", word: "Failed" },
+  done: { tone: "good", word: "Read" },
+  failed: { tone: "bad", word: "Not read" },
+  planned: { tone: "neutral", word: "After you take charge" },
 };
 
 function JobPanels({ job, compact }: { job: ImportJob; compact?: boolean }) {
@@ -392,8 +404,8 @@ function JobPanels({ job, compact }: { job: ImportJob; compact?: boolean }) {
           <Panel key={s.key} title={`${source?.label ?? s.key}${s.value ? ` · ${s.value}` : ""}`} actions={<StatusPill tone={st.tone} pulse={s.status === "running"}>{st.word}</StatusPill>} footer={s.summary ? <span>{s.summary}</span> : undefined} data-source-progress={s.key} data-status={s.status}>
             <ol className="flex flex-col gap-1">
               {s.steps.map((step) => (
-                <li key={step.id} className={cn("flex items-center gap-2 text-body", step.status === "queued" && "text-secondary")} data-step-status={step.status}>
-                  {step.status === "done" ? <Check size={14} className="text-status-good" aria-hidden /> : step.status === "running" ? <ProgressRing indeterminate size={14} label="Running" tone="kit" /> : <CircleDashed size={14} aria-hidden />}
+                <li key={step.id} className={cn("flex items-center gap-2 text-body", (step.status === "queued" || step.status === "planned") && "text-secondary")} data-step-status={step.status}>
+                  {step.status === "done" ? <Check size={14} className="text-status-good" aria-hidden /> : step.status === "running" ? <ProgressRing indeterminate size={14} label="Running" tone="kit" /> : step.status === "planned" ? <Clock size={14} className="text-secondary" aria-label="After you take charge" /> : step.status === "failed" ? <X size={14} className="text-status-bad" aria-hidden /> : <CircleDashed size={14} aria-hidden />}
                   <span>{step.label}</span>
                 </li>
               ))}

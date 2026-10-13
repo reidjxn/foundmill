@@ -48,6 +48,9 @@ export function readState(s: Pick<SourceRow, "relevance" | "fetchedAt">): { stat
 export function summaryLine(s: Pick<SourceRow, "relevance" | "fetchedAt">): string {
   const summary = relevance(s).summary;
   if (typeof summary === "string" && summary.trim()) return summary;
+  // An imported source says what the import did with it (read, reading, or why not); the Source Watcher's states are for watched pages.
+  const imported = importState(s);
+  if (imported) return imported.note;
   const { state, reason } = readState(s);
   if (state === "unreachable") return `Could not read it: ${reason ?? "the page is not readable."}`;
   if (state === "failed") return "The read did not finish; the Source Watcher tries again on the next sweep.";
@@ -82,6 +85,39 @@ export function topicCounts(sources: readonly SourceRow[]): { topic: string; cou
   const counts = new Map<string, number>();
   for (const s of sources) for (const t of topics(s)) counts.set(t, (counts.get(t) ?? 0) + 1);
   return [...counts.entries()].map(([topic, count]) => ({ topic, count })).sort((a, b) => b.count - a.count || a.topic.localeCompare(b.topic));
+}
+
+/** Door B: where an imported source stands. */
+export type ImportState = "read" | "pending" | "not_read";
+
+export const IMPORT_STATE_META: Record<ImportState, { word: string; tone: ChipTone }> = {
+  read: { word: "Read", tone: "good" },
+  pending: { word: "Not read yet", tone: "neutral" },
+  not_read: { word: "Not read", tone: "warn" },
+};
+
+/**
+ * An imported source's state, from what the orchestrator's `importSource` recorded on the row: read through the gateway,
+ * not read (and why), or not read yet. Null for a source that did not come from an import. A row the sign-up simulation
+ * stored as "done" without any read is not read yet, whatever its stored status says.
+ */
+export function importState(s: Pick<SourceRow, "relevance">): { state: ImportState; note: string } | null {
+  const r = relevance(s);
+  const meta = r.import;
+  if (!meta || typeof meta !== "object") return null;
+  const m = meta as Record<string, unknown>;
+  const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  if (r.imported === true || m.status === "read") return { state: "read", note: `Read through ${text(r.connector) ?? text(m.connector) ?? "the gateway"}${text(r.tool) ? ` (${text(r.tool)})` : ""}, read only.` };
+  if (r.imported === false || m.status === "failed") return { state: "not_read", note: `Not read: ${text(r.reason) ?? text(r.outcome) ?? "the import could not read it"}.` };
+  // The sign-up simulation's "done" (before migration 0031): nothing ever read it, and nothing is going to.
+  if (m.status === "done") return { state: "not_read", note: "Not read: the sign-up import never read it." };
+  return { state: "pending", note: "Not read yet: the import reads it through the gateway." };
+}
+
+/** True when the stored summary is the sign-up simulation's (labeled Estimate), not something read or written by a person. */
+export function isSimulatedSummary(s: Pick<SourceRow, "relevance">): boolean {
+  const meta = relevance(s).import as Record<string, unknown> | undefined;
+  return Boolean(meta && typeof meta === "object" && meta.provenance === "Estimate" && importState(s)?.state !== "read");
 }
 
 export function hostOf(uri: string | null | undefined): string | null {

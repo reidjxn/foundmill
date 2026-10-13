@@ -9,6 +9,7 @@ import { z } from "zod";
 import { Gauge } from "lucide-react";
 import { StatusStrip, formatNumber, type MetricTileProps } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
+import { monthRevenueMinor } from "../shared/cash";
 import { RUNWAY_WORDS, runwayWords } from "../shared/runway";
 import { registerWidget, type WidgetProps } from "../registry";
 import { moduleHref, orderedDepartments, useDepartments } from "../shared/departments";
@@ -85,14 +86,15 @@ export function statusTiles(i: StatusStripInputs): MetricTileProps[] {
   const customersWeek = sumInRange(rows, weekFrom, i.today, (r) => r.payments);
   const customersPrev = sumInRange(rows, prevFrom, prevTo, (r) => r.payments);
   const month = monthKey(i.today);
-  const revenueMonth = i.finance?.revenue.monthly.find((m) => m.month === month)?.inflowMinor ?? null;
-  const revenueSeries = (i.finance?.revenue.monthly ?? []).slice(-6).map((m) => m.inflowMinor);
+  const revenueRow = i.finance?.revenue.monthly.find((m) => m.month === month);
+  const revenueMonth = revenueRow ? monthRevenueMinor(revenueRow) : null;
+  const revenueSeries = (i.finance?.revenue.monthly ?? []).slice(-6).map(monthRevenueMinor);
   const health = squadHealth(i.departments);
   const currency = i.finance?.cash.currency ?? i.currency;
   const tiles: MetricTileProps[] = [
     { label: "Cash", value: i.finance ? { amountMinor: i.finance.cash.amountMinor, currency } : null, loading: i.loading.finance, caption: i.finance?.cash.accounts ? `${i.finance.cash.accounts} account${i.finance.cash.accounts === 1 ? "" : "s"}` : "Connect a bank in Settings", provenance: { source: "Bank balances", asOf: i.finance?.cash.asOf ?? undefined }, onClick: () => i.open("finance") },
     runwayTile(i.finance, i.loading.finance, () => i.open("finance")),
-    { label: "Revenue this month", value: revenueMonth === null ? (i.loading.finance ? null : "—") : { amountMinor: revenueMonth, currency }, spark: revenueSeries, loading: i.loading.finance, caption: i.finance?.revenue.label ?? "Cash basis", provenance: { source: "Bank inflows, cash basis" }, onClick: () => i.open("finance") },
+    { label: "Revenue this month", value: revenueMonth === null ? (i.loading.finance ? null : "—") : { amountMinor: revenueMonth, currency }, spark: revenueSeries, loading: i.loading.finance, caption: i.finance?.revenue.label ?? "Cash basis", provenance: { source: "Bank inflows, cash basis, financing and transfers excluded" }, onClick: () => i.open("finance") },
     { label: "Customers this week", value: i.ribbon ? customersWeek : null, format: "integer", loading: i.loading.ribbon, delta: i.ribbon ? { value: customersWeek - customersPrev, label: "vs last week" } : undefined, spark: i.ribbon ? dailySeries(rows, lastDays(14, i.today), (r) => r.payments) : undefined, provenance: { source: "Payments (first payments count as customers)" }, onClick: () => i.open("customers") },
     { label: "Business health", value: health === null ? (i.loading.departments ? null : "—") : health, format: "percent", loading: i.loading.departments, caption: health === null ? "No agents hired yet" : health >= 0.9 ? "Team healthy" : health >= 0.6 ? "Some agents need attention" : "Team in trouble", provenance: { source: "Share of agents healthy or idle" }, onClick: () => i.open("team") },
   ];
