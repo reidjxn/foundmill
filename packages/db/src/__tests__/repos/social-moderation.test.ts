@@ -51,7 +51,8 @@ describe("connections: a request notifies once, and a block needs no prior row",
     // An incoming request becomes the block (the asker cannot see or lift it).
     const req = await repos.social.requestConnection(r.db, asker!, me!);
     expect(await repos.social.blockPerson(r.db, me!, asker!)).toMatchObject({ id: req.id, status: "blocked", blockedBy: me });
-    expect((await repos.social.listConnections(r.db, asker!)).map((c) => c.id)).not.toContain(req.id);
+    // The asker keeps seeing their request as still waiting (a request that vanished would say it was blocked).
+    expect((await repos.social.listConnections(r.db, asker!)).find((c) => c.id === req.id)).toMatchObject({ status: "requested", blockedBy: null });
     // An accepted connection too.
     await connect(me!, friend!);
     expect((await repos.social.blockPerson(r.db, me!, friend!))?.status).toBe("blocked");

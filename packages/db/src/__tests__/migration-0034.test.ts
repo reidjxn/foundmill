@@ -17,7 +17,8 @@ const one = async (text: string, params: unknown[]): Promise<string> => ((await 
 
 beforeAll(async () => {
   const all = readMigrations();
-  h = await createTestDb({ migrations: all.filter((m) => m.tag !== TAG) });
+  // Everything before 0034, the payments, then 0034 itself, then the later migrations (some of them read the column 0034 adds).
+  h = await createTestDb({ migrations: all.filter((m) => m.tag < TAG) });
   const owner = await h.createUser("owner-0034@m.test");
   businessId = await one(`insert into businesses (name, slug, created_by) values ('M0034', 'm-0034', $1) returning id`, [owner]);
   const anna = await one(`insert into entities (business_id, kind, display_name) values ($1, 'person', 'Anna') returning id`, [businessId]);
@@ -37,6 +38,7 @@ beforeAll(async () => {
   ids.unlinkedFirst = await conversion(null, 1_500, "2026-09-01", await payment(true));
   ids.signup = await one(`insert into conversions (business_id, entity_id, kind, occurred_at) values ($1, $2, 'signup', '2026-09-01T09:00:00Z') returning id`, [businessId, anna]);
   await h.pg.exec(all.find((m) => m.tag === TAG)!.sql);
+  for (const m of all.filter((m) => m.tag > TAG)) await h.pg.exec(m.sql);
 });
 afterAll(() => h?.close());
 
