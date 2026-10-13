@@ -11,6 +11,7 @@ import { repos, type DbTx, type Decision, type InboxItem, type PlanWithActions }
 import { ValidationError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
+import { assertMayConfirmAsks } from "./approver";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
 import { assertPlanSectionAccess, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, requiresConfirmation, syncChannelEngines, type ActionEvaluation, type PlanContext } from "./plans";
 
@@ -139,6 +140,9 @@ export async function confirmPlan(ctx: BusinessContext, planId: string) {
     if (plan.status !== "pending_confirmation") throw new ValidationError(`Plan is ${plan.status}, not awaiting confirmation`, { planId });
     // The confirmer needs write on every section the plan changes, whoever staged it (audit RUI-01).
     assertPlanSectionAccess(ctx.membership, plan.actions.filter((a) => a.status === "pending").map((a) => ({ type: a.type, params: a.params, denied: a.policyOutcome === "deny" })));
+    // An action that asked the founder first (a spend above the threshold, a message) is an owner's or admin's to
+    // confirm, or the person Team › Responsibilities names for it; any member with Inbox write is not enough (SEC-7).
+    await assertMayConfirmAsks(tx, ctx.businessId, { userId: ctx.userId, role: ctx.role }, plan.actions);
     await repos.plans.confirm(tx, ctx.businessId, planId);
     const confirmed = await repos.plans.get(tx, ctx.businessId, planId);
     const exec = await executePlanActions(tx, ctx.businessId, confirmed, { actorUserId: ctx.userId, temporal: ctx.temporal, currency: planCtx.currency });

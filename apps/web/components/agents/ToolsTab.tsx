@@ -15,7 +15,7 @@ import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import type { TabProps } from "./AgentProfileScreen";
-import { currentVersion, grantedTools, grantsEqual, humaniseKey, latestDraft, parseInstructions, parseToolGrants, toggleToolGrant, toolDisplay, type ToolGrant } from "./logic";
+import { currentVersion, grantedTools, grantsEqual, grantsWiden, humaniseKey, latestDraft, parseInstructions, parseToolGrants, toggleToolGrant, toolDisplay, type ToolGrant } from "./logic";
 
 type IntegrationsList = NonNullable<ReturnType<typeof useIntegrations>["data"]>;
 type CatalogueEntry = IntegrationsList["catalogue"][number];
@@ -135,7 +135,7 @@ export function ToolsTab({ businessId, profile, refetch }: TabProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { data } = useBusiness();
+  const { data, isAdmin } = useBusiness();
   const current = currentVersion(profile);
   const draft = latestDraft(profile.versions);
   const liveToolsKey = JSON.stringify(current?.tools ?? []);
@@ -143,6 +143,8 @@ export function ToolsTab({ businessId, profile, refetch }: TabProps) {
   const [grants, setGrants] = useState<ToolGrant[]>(liveGrants);
   useEffect(() => setGrants(liveGrants), [liveGrants]);
   const dirty = !grantsEqual(grants, liveGrants);
+  // New tools are an owner's or admin's to give (the api refuses anyone else); anyone with Team write may remove tools.
+  const adminOnly = !isAdmin && grantsWiden(liveGrants, grants);
 
   const saveDraft = useMutation(
     trpc.agent.training.saveDraft.mutationOptions({
@@ -176,12 +178,12 @@ export function ToolsTab({ businessId, profile, refetch }: TabProps) {
         }
         footer={
           <span className="flex w-full items-center gap-2">
-            <span>Changes save as a draft version and are retested before promotion; the live version keeps its tools until then.</span>
+            <span data-testid="tools-footer">{adminOnly ? "Only an owner or admin can give this agent new tools. You can remove tools." : "Changes save as a draft version and are retested before promotion; the live version keeps its tools until then."}</span>
             <span className="ml-auto inline-flex items-center gap-2">
               <Button size="sm" variant="ghost" icon={Undo2} disabled={!dirty || saveDraft.isPending} onClick={() => setGrants(liveGrants)}>
                 Reset
               </Button>
-              <Button size="sm" variant="primary" disabled={!dirty} loading={saveDraft.isPending} onClick={() => saveDraft.mutate({ businessId, agentId: profile.agent.id, instructions: parseInstructions(draft?.instructions ?? current?.instructions ?? {}), tools: grants.filter((g) => g.tools.length > 0), comment: "Tools changed from the profile" })} data-testid="save-tools-draft">
+              <Button size="sm" variant="primary" disabled={!dirty || adminOnly} loading={saveDraft.isPending} onClick={() => saveDraft.mutate({ businessId, agentId: profile.agent.id, instructions: parseInstructions(draft?.instructions ?? current?.instructions ?? {}), tools: grants.filter((g) => g.tools.length > 0), comment: "Tools changed from the profile" })} data-testid="save-tools-draft">
                 Save as draft
               </Button>
             </span>

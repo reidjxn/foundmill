@@ -15,6 +15,7 @@ import type { ModelKey } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { formatDayMonth } from "@/lib/format";
+import { useBusiness } from "@/components/shell/business-context";
 import type { TabProps } from "./AgentProfileScreen";
 import { ModelChangeDialog } from "./ModelChangeDialog";
 import { ToolGrantsEditor } from "./ToolsTab";
@@ -25,6 +26,7 @@ import {
   coachProposals,
   currentVersion,
   grantsEqual,
+  grantsWiden,
   instructionVersions,
   isRetestVersion,
   latestDraft,
@@ -47,6 +49,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
   const datePrefs = useDateFormat();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const { isAdmin } = useBusiness();
   const agent = profile.agent;
   const live = currentVersion(profile);
   const draftVersion = latestDraft(profile.versions);
@@ -362,6 +365,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
               <p className="text-small text-secondary">Tool changes are part of the draft and are retested when you train.</p>
               <ToolGrantsEditor businessId={businessId} value={tools} onChange={(t) => setTools(t)} />
               {!grantsEqual(tools, parseToolGrants(baseVersion?.tools)) ? <Chip tone="info">Tools changed in this draft</Chip> : null}
+              {!isAdmin && grantsWiden(parseToolGrants(live?.tools), tools) ? <Chip tone="warn" data-testid="tools-admin-only">Only an owner or admin can give this agent new tools</Chip> : null}
             </div>
           ) : null}
         </div>

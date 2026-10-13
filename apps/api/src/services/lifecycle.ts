@@ -12,7 +12,7 @@
  */
 import { APP_NAME } from "@foundmill/config";
 import { repos, type Business, type Executor, type InboxItem } from "@foundmill/db";
-import { AppError, ValidationError } from "@foundmill/shared";
+import { AppError, ForbiddenError, ValidationError, hasSectionAccess, type Section, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit } from "../trpc";
 import { stopAllAgents, type StopAllResult } from "./killswitch";
@@ -72,8 +72,22 @@ async function allPages<T>(fetch: (cursor: string | null) => Promise<{ items: T[
   return out;
 }
 
-/** Export everything (admin). One RLS transaction; repositories only. */
+/** The sections the archive carries (LIVE network data and billing usage are not in it). */
+export const EXPORT_SECTIONS: readonly Section[] = ["product", "development", "distribution", "finance", "team", "legal", "inbox", "crm", "settings"];
+
+/**
+ * The export is everything, so it needs read access to every section it carries: an admin walled from Finance (or any
+ * other section) by an owner cannot take that section's data out through the archive (BUILD §11.9 staff permissions).
+ */
+export function assertExportAccess(membership: SectionMembership): void {
+  const walled = EXPORT_SECTIONS.filter((s) => !hasSectionAccess(membership, s, "read"));
+  if (walled.length === 0) return;
+  throw new ForbiddenError(`Exporting the business needs read access to every section; you have no access to ${walled.join(", ")}. An owner can export it.`);
+}
+
+/** Export everything (admin with read access to every section). One RLS transaction; repositories only. */
 export async function exportBusiness(ctx: BusinessContext): Promise<ExportResult> {
+  assertExportAccess(ctx.membership);
   const generatedAt = new Date().toISOString();
   const archive = await ctx.rls(async (tx): Promise<ExportArchive> => {
     const b = ctx.businessId;
