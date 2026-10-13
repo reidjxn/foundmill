@@ -20,7 +20,7 @@ export function createE2bConnector(options: LiveConnectorOptions = {}): Connecto
       key: E2B_KEY,
       displayName: "E2B sandboxes",
       phase: 1,
-      auth: { kind: "api_key" },
+      auth: { kind: "api_key", platformKey: true },
       tools: e2bTools,
       rateLimits: E2B_RATE_LIMITS,
       now,

@@ -9,7 +9,7 @@ export const companiesHouseMock = buildMockConnector({
   key: COMPANIES_HOUSE_KEY,
   displayName: "Companies House",
   phase: 1,
-  auth: { kind: "api_key" },
+  auth: { kind: "api_key", platformKey: true },
   tools: companiesHouseTools,
   rateLimits: COMPANIES_HOUSE_RATE_LIMITS,
   now: () => MOCK_NOW,

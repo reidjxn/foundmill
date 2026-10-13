@@ -11,7 +11,7 @@ export const anthropicMock = buildMockConnector({
   key: ANTHROPIC_KEY,
   displayName: "Anthropic",
   phase: 1,
-  auth: { kind: "api_key" },
+  auth: { kind: "api_key", platformKey: true },
   tools: anthropicTools,
   rateLimits: ANTHROPIC_RATE_LIMITS,
   now: () => MOCK_NOW,

@@ -26,7 +26,7 @@ export { createE2bConnector, e2bMock, E2B_KEY } from "./connectors/e2b";
 export { createDropboxSignConnector, dropboxSignMock, DROPBOX_SIGN_KEY, DROPBOX_SIGN_CALLBACK_RESPONSE } from "./connectors/dropbox_sign";
 export { createEcbRatesConnector, ecbRatesMock, ECB_KEY } from "./connectors/ecb_rates";
 export { createWebConnector, webMock, WEB_KEY, WEB_USER_AGENT, WEB_ROBOTS_TOKEN, type WebConnectorOptions } from "./connectors/web";
-export { createStripeConnector, stripeMock, STRIPE_KEY, normaliseStripeEvent, verifyStripeSignature, stripeSignatureHeader, signedStripeRequest } from "./connectors/stripe";
+export { createStripeConnector, isPlatformBillingIntegration, PLATFORM_BILLING_INTEGRATION_ID, stripeMock, STRIPE_KEY, normaliseStripeEvent, verifyStripeSignature, stripeSignatureHeader, signedStripeRequest } from "./connectors/stripe";
 export { createSendgridConnector, sendgridMock, SENDGRID_KEY, normaliseSendgridEvents, normaliseInboundMail, verifySendgridSignature, signedEventRequest as signedSendgridEventRequest, inboundParseRequest as sendgridInboundParseRequest } from "./connectors/sendgrid";
 export { createShopifyConnector, shopifyMock, SHOPIFY_KEY, normaliseShopifyEvent, shopifyHmac, signedShopifyRequest } from "./connectors/shopify";
 export { createTinkConnector, tinkMock, TINK_KEY } from "./connectors/tink";

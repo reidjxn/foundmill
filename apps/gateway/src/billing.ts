@@ -11,7 +11,7 @@
  * here: credits arrive from the platform Stripe webhook (apps/ingest) or the api's labeled mock completion.
  */
 import { z } from "zod";
-import { isConfigError, STRIPE_KEY, type ConnectorMode, type IntegrationRecord, type ToolContext } from "@foundmill/connectors";
+import { isConfigError, PLATFORM_BILLING_INTEGRATION_ID, STRIPE_KEY, type ConnectorMode, type IntegrationRecord, type ToolContext } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import { GatewayError, modeFor, type GatewayDeps } from "./pipeline";
 
@@ -52,10 +52,14 @@ export const CHECKOUT_METADATA = { checkoutId: "foundmill_checkout_id", business
 
 const NIL_ID = "00000000-0000-0000-0000-000000000000";
 
-/** The platform account as an integration record: no credential (the platform key), no connected account. */
+/**
+ * The platform account as an integration record: no credential (the platform key), no connected account. The live
+ * Stripe connector lets the platform key act without a Connect account only for this record (`PLATFORM_BILLING_INTEGRATION_ID`
+ * and `kind: "platform"`), and only to open a checkout.
+ */
 function platformIntegration(businessId: string, now: Date): IntegrationRecord {
   const at = now.toISOString();
-  return { id: NIL_ID, businessId, connectorKey: STRIPE_KEY, status: "connected", scopes: [], accountLabel: "Platform account", externalAccountId: null, config: { kind: "platform" }, credentialRef: null, expiresAt: null, lastHealthAt: at, createdAt: at };
+  return { id: PLATFORM_BILLING_INTEGRATION_ID, businessId, connectorKey: STRIPE_KEY, status: "connected", scopes: [], accountLabel: "Platform account", externalAccountId: null, config: { kind: "platform" }, credentialRef: null, expiresAt: null, lastHealthAt: at, createdAt: at };
 }
 
 const CreatedSession = z.object({ id: z.string().min(1), url: z.string().nullable(), expiresAt: z.string().nullable(), amountTotalMinor: z.number().int().nullable(), currency: z.string().nullable() });

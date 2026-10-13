@@ -46,3 +46,49 @@ export function verifyInstallState(secret: string | null | undefined, state: str
   if (payload.exp * 1000 < now.getTime()) throw new ForbiddenError("This GitHub installation link has expired: connect GitHub again from Settings › Integrations");
   if (payload.u !== who.userId || payload.b !== who.businessId) throw new ForbiddenError("This GitHub installation was started by someone else or for another business: connect GitHub again from Settings › Integrations");
 }
+
+/**
+ * The `state` of an OAuth consent (Google, Notion, Shopify): the same shape and lifetime as an installation state, under
+ * its own label, plus the connector (`c`, so a code granted for one vendor can never finish another) and, for Shopify,
+ * the store the consent was asked of (`s`). The web callback reads `b` and `c` to send the founder back to the
+ * business's Integrations tab; only the api can verify it.
+ */
+const CONNECT_LABEL = "foundmill/oauth-connect-state/v1";
+const ConnectPayload = Payload.extend({ c: z.string().regex(/^[a-z0-9_]{1,60}$/), s: z.string().min(1).max(200).optional() });
+
+const connectMac = (secret: string, body: string): Buffer => createHmac("sha256", secret).update(`${CONNECT_LABEL}\n${body}`).digest();
+
+export interface ConnectStateWho {
+  userId: string;
+  businessId: string;
+  connectorKey: string;
+}
+
+export function signConnectState(secret: string | null | undefined, who: ConnectStateWho & { account?: string | null }, now: Date = new Date()): string {
+  const key = requireSecret(secret);
+  const body = Buffer.from(JSON.stringify({ b: who.businessId, u: who.userId, c: who.connectorKey, ...(who.account ? { s: who.account } : {}), exp: Math.floor(now.getTime() / 1000) + INSTALL_STATE_TTL_SECONDS, n: randomBytes(12).toString("base64url") })).toString("base64url");
+  return `${body}.${connectMac(key, body).toString("base64url")}`;
+}
+
+/** Throws ForbiddenError unless `state` was signed here for this founder, business and connector and has not expired; returns the account it names. */
+export function verifyConnectState(secret: string | null | undefined, state: string, who: ConnectStateWho, now: Date = new Date()): { account: string | null } {
+  const key = requireSecret(secret);
+  const invalid = () => new ForbiddenError("This sign-in link is not valid: connect again from Settings › Integrations");
+  const [body, sig, ...rest] = state.split(".");
+  if (!body || !sig || rest.length > 0) throw invalid();
+  const expected = connectMac(key, body);
+  const given = Buffer.from(sig, "base64url");
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) throw invalid();
+  let payload: z.infer<typeof ConnectPayload>;
+  try {
+    payload = ConnectPayload.parse(JSON.parse(Buffer.from(body, "base64url").toString("utf8")));
+  } catch {
+    throw invalid();
+  }
+  if (payload.exp * 1000 < now.getTime()) throw new ForbiddenError("This sign-in link has expired: connect again from Settings › Integrations");
+  if (payload.u !== who.userId || payload.b !== who.businessId || payload.c !== who.connectorKey) throw new ForbiddenError("This sign-in was started by someone else, for another business or another connector: connect again from Settings › Integrations");
+  return { account: payload.s ?? null };
+}
+
+/** Where every OAuth vendor sends the founder back (apps/web `app/integrations/oauth/callback`); registered with each vendor. */
+export const oauthRedirectUri = (appUrl: string): string => `${appUrl.replace(/\/+$/, "")}/integrations/oauth/callback`;

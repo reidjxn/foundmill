@@ -9,7 +9,7 @@ export const opencorporatesMock = buildMockConnector({
   key: OPENCORPORATES_KEY,
   displayName: "OpenCorporates",
   phase: 1,
-  auth: { kind: "api_key" },
+  auth: { kind: "api_key", platformKey: true },
   tools: opencorporatesTools,
   rateLimits: OPENCORPORATES_RATE_LIMITS,
   now: () => MOCK_NOW,

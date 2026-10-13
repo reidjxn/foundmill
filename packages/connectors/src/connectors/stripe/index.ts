@@ -13,6 +13,16 @@ import { stripeMock } from "./mock";
 import { mapAccount, mapBalance, mapCheckoutSession, mapCustomer, mapInvoice, mapPayout, STRIPE_API_VERSION, STRIPE_KEY, STRIPE_RATE_LIMITS, stripeTools, type StAccount, type StBalance, type StCheckoutSession, type StCustomer, type StInvoice, type StPayout } from "./tools";
 import { createStripeWebhook } from "./webhooks";
 
+/**
+ * The integration record of Foundmill's own billing on the platform Stripe account (credit top-ups, apps/gateway
+ * billing.ts): the nil id, which no stored integration row has, and no credential.
+ */
+export const PLATFORM_BILLING_INTEGRATION_ID = "00000000-0000-0000-0000-000000000000";
+
+export function isPlatformBillingIntegration(integration: IntegrationRecord): boolean {
+  return integration.id === PLATFORM_BILLING_INTEGRATION_ID && integration.credentialRef === null && (integration.config as { kind?: unknown } | null)?.kind === "platform";
+}
+
 export function createStripeConnector(options: LiveConnectorOptions = {}): Connector {
   const { secrets, fetch, now, getBusinessSecret, resolveBusinessId } = resolveLiveOptions(options);
 
@@ -21,7 +31,18 @@ export function createStripeConnector(options: LiveConnectorOptions = {}): Conne
     return new Stripe(apiKey, { apiVersion: STRIPE_API_VERSION as Stripe.LatestApiVersion, httpClient: Stripe.createFetchHttpClient(fetch), maxNetworkRetries: 1, timeout: 20_000, telemetry: false });
   };
   const requestOptions = (integration: IntegrationRecord): Stripe.RequestOptions => ((integration.config as { kind?: unknown }).kind === "connect" && integration.externalAccountId ? { stripeAccount: integration.externalAccountId } : {});
-  const forCtx = (ctx: ToolContext) => ({ stripe: client(ctx.credential?.secret ?? secrets.stripeSecretKey), opts: requestOptions(ctx.integration) });
+  /**
+   * The platform key acts for a business only through its Connect account (Stripe-Account); without one it would reach
+   * the platform's own Stripe account, which no business may use. The one exception is Foundmill's own billing: the
+   * gateway opens a credit top-up checkout on the platform account (apps/gateway billing.ts), with the platform
+   * integration record no stored row can be (`PLATFORM_BILLING_INTEGRATION_ID`), and only for a checkout.
+   */
+  const forCtx = (ctx: ToolContext, use: { platformBilling?: boolean } = {}) => {
+    const opts = requestOptions(ctx.integration);
+    const platformBilling = use.platformBilling === true && isPlatformBillingIntegration(ctx.integration);
+    if (!ctx.credential?.secret && !opts.stripeAccount && !platformBilling) throw new ConfigError(STRIPE_KEY, "a Stripe key or a Connect account for this business", "connect Stripe in Settings → Integrations");
+    return { stripe: client(ctx.credential?.secret ?? secrets.stripeSecretKey), opts };
+  };
 
   const webhook = createStripeWebhook({
     secretFor: async (businessId) => (businessId && getBusinessSecret ? await getBusinessSecret(businessId, "stripe_webhook_secret") : null) ?? secrets.stripeWebhookSecret ?? null,
@@ -34,7 +55,7 @@ export function createStripeConnector(options: LiveConnectorOptions = {}): Conne
       key: STRIPE_KEY,
       displayName: "Stripe",
       phase: 2,
-      auth: { kind: "oauth", scopes: ["read_write"] },
+      auth: { kind: "oauth", scopes: ["read_write"], platformKey: true },
       tools: stripeTools,
       rateLimits: STRIPE_RATE_LIMITS,
       now,
@@ -86,7 +107,7 @@ export function createStripeConnector(options: LiveConnectorOptions = {}): Conne
           return mapInvoice((await stripe.invoices.sendInvoice(invoiceId, {}, opts)) as unknown as StInvoice);
         },
         create_checkout_session: async ({ mode, priceId, lines, successUrl, cancelUrl, customerEmail, customerId, metadata }, ctx) => {
-          const { stripe, opts } = forCtx(ctx);
+          const { stripe, opts } = forCtx(ctx, { platformBilling: true });
           const session = await stripe.checkout.sessions.create(
             {
               mode,

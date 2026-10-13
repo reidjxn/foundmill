@@ -5,10 +5,10 @@
  */
 import type { HealthResult, IntegrationRecord } from "@foundmill/connectors";
 import { repos, type Executor } from "@foundmill/db";
-import { AppError, connectorMode } from "@foundmill/shared";
+import { AppError, connectorMode, ForbiddenError } from "@foundmill/shared";
 import { buildAad, encryptJson, redactSecret } from "@foundmill/shared/crypto";
 import { z } from "zod";
-import { signInstallState, verifyInstallState } from "../services/install-state";
+import { oauthRedirectUri, signConnectState, signInstallState, verifyConnectState, verifyInstallState } from "../services/install-state";
 import { revokeAnthropicKey, storeAnthropicKey, validateAnthropicKey } from "../services/keys";
 import { Id, audit, router, sectionAdmin, sectionRead } from "../trpc";
 
@@ -26,6 +26,9 @@ function keptSettings(row: { settings: unknown } | null, externalAccountId: stri
 
 /** Finishing an App installation (GitHub): what GitHub sent back to the founder, with the state Connect signed. */
 const AppInstallation = z.object({ installationId: z.number().int().positive(), code: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/), state: z.string().min(1).max(600) });
+
+/** Finishing an OAuth consent (Google, Notion, Shopify): the code the vendor sent back, the state Connect signed and, for Shopify, the store. */
+const OAuthFinish = z.object({ code: z.string().regex(/^[A-Za-z0-9._~/+=-]{1,2000}$/), state: z.string().min(1).max(1000), shop: z.string().max(200).optional() });
 
 const admin = sectionAdmin("settings");
 
@@ -61,6 +64,22 @@ export const integrationsRouter = router({
       const finish = AppInstallation.parse(input.input);
       verifyInstallState(ctx.env.SESSION_TOKEN_SECRET, finish.state, { userId: ctx.userId!, businessId: ctx.businessId });
       record = await ctx.gateway.connect(ctx.businessId, input.connectorKey, { installationId: finish.installationId, code: finish.code });
+    } else if (mode === "live" && connector.auth.authorizationCode) {
+      // OAuth (Google, Notion, Shopify): the founder consents on the vendor's page, which sends them back to
+      // /integrations/oauth/callback (apps/web) with a code and the state signed here. Nothing is written before the code
+      // comes back signed for this founder, business and connector; the redirect URI is always the api's own.
+      const redirectUri = oauthRedirectUri(ctx.env.APP_URL);
+      if (typeof input.input.code !== "string") {
+        const account = typeof input.input.shop === "string" ? input.input.shop.trim().toLowerCase() : null;
+        const state = signConnectState(ctx.env.SESSION_TOKEN_SECRET, { userId: ctx.userId!, businessId: ctx.businessId, connectorKey: input.connectorKey, account });
+        const { credentialToStore: _none, ...first } = await connector.connect(ctx.businessId, { ...(account ? { shop: account } : {}), state, redirectUri });
+        const consentUrl = typeof first.config.authorizeUrl === "string" ? first.config.authorizeUrl : null;
+        return { integration: await repos.integrations.getByKey(ctx.db, ctx.businessId, input.connectorKey), record: { ...first, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null };
+      }
+      const finish = OAuthFinish.parse(input.input);
+      const { account } = verifyConnectState(ctx.env.SESSION_TOKEN_SECRET, finish.state, { userId: ctx.userId!, businessId: ctx.businessId, connectorKey: input.connectorKey });
+      if (account !== null && finish.shop?.toLowerCase() !== account) throw new ForbiddenError("This sign-in came back for a different store: connect again from Settings › Integrations");
+      record = await connector.connect(ctx.businessId, { code: finish.code, redirectUri, ...(account ? { shop: account } : {}) });
     } else {
       record = await connector.connect(ctx.businessId, input.input);
     }
@@ -101,8 +120,14 @@ export const integrationsRouter = router({
     }),
   ),
 
-  health: read.input(z.object({ integrationId: Id })).mutation(async ({ ctx, input }) => {
+  // A health check can call the vendor in live mode and records its result, so it needs settings administration (a
+  // viewer cannot run it). A disconnected integration is reported as such without calling anything.
+  health: admin.input(z.object({ integrationId: Id })).mutation(async ({ ctx, input }) => {
     const integration = await repos.integrations.get(ctx.db, ctx.businessId, input.integrationId);
+    if (integration.status === "disconnected" || integration.archivedAt !== null) {
+      const result: HealthResult = { ok: false, status: "disconnected", checkedAt: new Date().toISOString(), latencyMs: 0, message: "Not connected: connect it again from Settings › Integrations" };
+      return { integration, health: result };
+    }
     const mode = connectorMode(ctx.env, integration.connectorKey);
     const connector = ctx.connectors.get(integration.connectorKey, mode);
     const settings = (integration.settings ?? {}) as Record<string, unknown>;

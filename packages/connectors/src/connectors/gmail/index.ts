@@ -22,7 +22,7 @@ export function createGmailConnector(options: LiveConnectorOptions = {}): Connec
       key: GMAIL_KEY,
       displayName: "Gmail",
       phase: 1,
-      auth: { kind: "oauth", scopes: GMAIL_SCOPES },
+      auth: { kind: "oauth", scopes: GMAIL_SCOPES, authorizationCode: true },
       tools: gmailTools,
       rateLimits: GMAIL_RATE_LIMITS,
       now,

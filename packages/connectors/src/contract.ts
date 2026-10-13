@@ -16,6 +16,19 @@ export type ConnectorPhase = 1 | 2 | 3;
 export interface ConnectorAuth {
   kind: ConnectorAuthKind;
   scopes?: string[];
+  /**
+   * The live connector runs on the platform's own key (`PlatformSecrets`) for a business that connected it without
+   * storing a credential of its own: the public registries, Voyage, E2B, Anthropic on credits, and Stripe Connect (the
+   * platform key acting for the business's connected account). The gateway then needs a connected integration row, not
+   * a stored secret. Absent or false: a live call needs the business's own credential.
+   */
+  platformKey?: boolean;
+  /**
+   * The live connect() runs the OAuth authorization-code flow (Google, Notion, Shopify): without `code` it answers the
+   * vendor's consent page as `config.authorizeUrl` for the `state` and `redirectUri` the host passes, and stores
+   * nothing; with the `code` the vendor sent back (and the same `redirectUri`) it exchanges it.
+   */
+  authorizationCode?: boolean;
 }
 
 /**

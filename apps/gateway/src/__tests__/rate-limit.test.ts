@@ -89,3 +89,55 @@ describe("RedisRateLimitStore", () => {
     expect(fallbacks).toBe(1);
   });
 });
+
+describe("RedisRateLimitStore after a Redis failure", () => {
+  it("tries Redis again after the cooldown and goes back to it (the first call used to latch memory for good)", async () => {
+    let up = false;
+    const counters = new Map<string, number>();
+    let recovered = 0;
+    const redis: RedisCounter = {
+      async incr(key) {
+        // The lazily connecting client refuses the very first command (offline queue off).
+        if (!up) throw new Error("Stream isn't writeable and enableOfflineQueue options is false");
+        const n = (counters.get(key) ?? 0) + 1;
+        counters.set(key, n);
+        return n;
+      },
+      async pexpire() {},
+    };
+    const store = new RedisRateLimitStore(redis, { retryAfterMs: 30_000, onRecover: () => (recovered += 1) });
+    await store.hit("k", DAY_MS, T0);
+    expect(store.isDegraded).toBe(true);
+    up = true;
+    // Within the cooldown the store stays on memory without asking Redis.
+    await store.hit("k", DAY_MS, T0 + 10_000);
+    expect(counters.size).toBe(0);
+    // After it, Redis is asked again and counts from there on.
+    expect((await store.hit("k", DAY_MS, T0 + 31_000)).count).toBe(1);
+    expect((await store.hit("k", DAY_MS, T0 + 32_000)).count).toBe(2);
+    expect(store.isDegraded).toBe(false);
+    expect(recovered).toBe(1);
+  });
+
+  it("reports one fallback per outage", async () => {
+    let fallbacks = 0;
+    let up = true;
+    const redis: RedisCounter = {
+      async incr() {
+        if (!up) throw new Error("ECONNRESET");
+        return 1;
+      },
+      async pexpire() {},
+    };
+    const store = new RedisRateLimitStore(redis, { retryAfterMs: 1_000, onFallback: () => (fallbacks += 1) });
+    up = false;
+    await store.hit("k", MINUTE_MS, T0);
+    await store.hit("k", MINUTE_MS, T0 + 2_000);
+    expect(fallbacks).toBe(1);
+    up = true;
+    await store.hit("k", MINUTE_MS, T0 + 4_000);
+    up = false;
+    await store.hit("k", MINUTE_MS, T0 + 4_500);
+    expect(fallbacks).toBe(2);
+  });
+});

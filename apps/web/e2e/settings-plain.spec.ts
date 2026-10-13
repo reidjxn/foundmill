@@ -68,6 +68,23 @@ test.describe("settings, plain words", () => {
     await expect(list).toContainText(/API key|Sign in with the vendor|Install the app|No sign-in needed/);
   });
 
+  test("Integrations: back from a vendor's consent page, the founder finishes or is told why nothing connected (#225)", async ({ page }) => {
+    // The vendor's redirect lands on /integrations/oauth/callback, which sends the founder to the business the signed
+    // state names (the api checks the signature when the founder finishes; nothing is connected on the way).
+    const state = `${Buffer.from(JSON.stringify({ b: NORTHWIND_BUSINESS_ID, c: "gmail", u: "x", exp: 1, n: "n" })).toString("base64url")}.sig`;
+    await page.goto(`/integrations/oauth/callback?state=${encodeURIComponent(state)}&error=access_denied`);
+    await expect(page).toHaveURL(new RegExp(`${B}/settings/integrations\\?oauth_connector=gmail&oauth_error=access_denied`), { timeout: LONG });
+    const refused = page.getByTestId("oauth-finish");
+    await expect(refused).toContainText("You did not allow access on Gmail's page, so nothing was connected.", { timeout: LONG });
+    await refused.getByRole("button", { name: "Dismiss" }).click();
+    await expect(page.getByTestId("oauth-finish")).toHaveCount(0);
+    await expect(page).not.toHaveURL(/oauth_/);
+
+    // With a code and the state, one button finishes it (not pressed here: this spec saves nothing).
+    await page.goto(`${B}/settings/integrations?oauth_connector=gmail&oauth_code=4%2F0Adeu5&oauth_state=${encodeURIComponent(state)}`);
+    await expect(page.getByTestId("oauth-finish").getByRole("button", { name: "Connect Gmail" })).toBeVisible({ timeout: LONG });
+  });
+
   test("Glossary and Departments: no retired default words, modules named in words", async ({ page }) => {
     await page.goto(`${B}/settings/glossary`);
     await expect(page.getByTestId("glossary-rows")).toBeVisible({ timeout: LONG });

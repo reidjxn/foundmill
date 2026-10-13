@@ -7,7 +7,7 @@ export const bolagsverketMock = buildMockConnector({
   key: BOLAGSVERKET_KEY,
   displayName: "Bolagsverket",
   phase: 1,
-  auth: { kind: "api_key" },
+  auth: { kind: "api_key", platformKey: true },
   tools: bolagsverketTools,
   rateLimits: BOLAGSVERKET_RATE_LIMITS,
   now: () => MOCK_NOW,

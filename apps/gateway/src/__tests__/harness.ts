@@ -27,6 +27,8 @@ export interface SeenCall {
   credentialSecret: string | null;
   mode: "mock" | "live";
   integrationStatus: string;
+  /** What the connector read as `ctx.integration.config`. */
+  integrationConfig: Record<string, unknown>;
 }
 
 export interface TestConnectorOptions {
@@ -36,6 +38,8 @@ export interface TestConnectorOptions {
   key?: string;
   /** How the connector authenticates; "app" stands in for GitHub (platform App keys, no stored secret). */
   authKind?: "api_key" | "app";
+  /** Runs on the platform's own key once connected, with no stored credential (registries, Voyage, E2B...). */
+  platformKey?: boolean;
   /** Stands in for the connector's connect() (GitHub's installation check). */
   connect?: (businessId: string, input: unknown) => Promise<IntegrationRecord>;
 }
@@ -43,7 +47,7 @@ export interface TestConnectorOptions {
 export function createTestConnector(options: TestConnectorOptions = {}, seen: SeenCall[] = []): { key: string; connector: Connector; registry: ConnectorRegistry; seen: SeenCall[] } {
   const key = options.key ?? TEST_CONNECTOR;
   const record = (tool: string, args: unknown, ctx: ToolContext) =>
-    seen.push({ tool, args, credentialSecret: ctx.credential?.secret ?? null, mode: ctx.mode, integrationStatus: ctx.integration.status });
+    seen.push({ tool, args, credentialSecret: ctx.credential?.secret ?? null, mode: ctx.mode, integrationStatus: ctx.integration.status, integrationConfig: ctx.integration.config });
 
   const tools = [
     defineTool({ name: "note", description: "Internal note (no hints).", input: z.object({ text: z.string().max(500).default("") }), output: z.object({ saved: z.literal(true) }), hints: {} }),
@@ -79,7 +83,7 @@ export function createTestConnector(options: TestConnectorOptions = {}, seen: Se
     key,
     displayName: key === TEST_CONNECTOR ? "Test connector" : `Test connector (${key})`,
     phase: 1 as const,
-    auth: { kind: options.authKind ?? ("api_key" as const) },
+    auth: { kind: options.authKind ?? ("api_key" as const), ...(options.platformKey ? { platformKey: true } : {}) },
     tools,
     rateLimits: { perMinute: options.perMinute ?? 1000, ...(options.perDay !== undefined ? { perDay: options.perDay } : {}) },
     costModel: (name: string) => (name === "note" ? 3 : 0),

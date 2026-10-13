@@ -59,7 +59,19 @@ export async function storeCredential(
   });
 }
 
-/** Maps an `integrations` row onto the connector contract's `IntegrationRecord` (settings → config). */
+/**
+ * The connector's own configuration inside an `integrations.settings` value. The api writes `settings` as
+ * `{ externalAccountId, config: <what connect() returned>, expiresAt, …the founder's choices }` (integrations.connect),
+ * so the connector reads `settings.config`: Stripe Connect's `kind`, Gmail's `email`, Tink and Plaid's `institution`.
+ * A row written before that shape (flat settings) is passed as it is.
+ */
+export function connectorConfigOf(settings: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  const all = settings ?? {};
+  const nested = all["config"];
+  return nested !== null && typeof nested === "object" && !Array.isArray(nested) ? (nested as Record<string, unknown>) : all;
+}
+
+/** Maps an `integrations` row onto the connector contract's `IntegrationRecord` (settings.config → config). */
 export function toIntegrationRecord(row: Integration, credential: LoadedCredential | null): IntegrationRecord {
   return {
     id: row.id,
@@ -69,7 +81,7 @@ export function toIntegrationRecord(row: Integration, credential: LoadedCredenti
     scopes: row.scopes,
     accountLabel: row.accountLabel,
     externalAccountId: typeof row.settings["externalAccountId"] === "string" ? (row.settings["externalAccountId"] as string) : null,
-    config: row.settings,
+    config: connectorConfigOf(row.settings),
     credentialRef: credential?.credentialId ?? null,
     expiresAt: credential?.expiresAt ?? null,
     lastHealthAt: row.lastHealthAt ? row.lastHealthAt.toISOString() : null,

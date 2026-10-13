@@ -39,6 +39,18 @@ export function mergeSessionEvents(existing: readonly AgentSessionEvent[], incom
 }
 
 /**
+ * Where the replay came from, in words: a finished session's saved recording (its stream expires an hour after it ends),
+ * the live stream, or the mock recording a demo session was played from.
+ */
+export function replaySourceLabel(data: { source: string; reason?: string | null; recording?: { title: string } | null } | null | undefined): string | null {
+  if (!data) return null;
+  if (data.source === "recording" && data.recording) return `Recording · ${data.recording.title}`;
+  if (data.source === "saved") return data.reason ? "Saved recording · long output shortened" : "Saved recording";
+  if (data.source === "stream") return "From the stream";
+  return null;
+}
+
+/**
  * Why a replay is empty, for the founder. The api's reason is an internal message (a Redis client error, a missing
  * recording key); it is never shown as is.
  */
@@ -148,7 +160,7 @@ function ReplayPanel({ businessId, profile, session }: { businessId: string; pro
       actions={
         <span className="inline-flex items-center gap-2">
           {session.live ? <Chip tone="info">Live</Chip> : <Chip tone="neutral">{events.length} events</Chip>}
-          {replayQ.data?.source === "recording" && replayQ.data.recording ? <Chip tone="neutral">Recording · {replayQ.data.recording.title}</Chip> : replayQ.data?.source === "stream" ? <Chip tone="neutral">From the stream</Chip> : null}
+          {replaySourceLabel(replayQ.data) ? <Chip tone="neutral">{replaySourceLabel(replayQ.data)}</Chip> : null}
         </span>
       }
       error={replayQ.error ? errorMessage(replayQ.error) : undefined}

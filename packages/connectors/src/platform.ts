@@ -1,9 +1,9 @@
 /**
  * Platform-level secrets and host hooks for the live connectors. Secrets never travel through
  * `ToolContext.credential` when they belong to the platform (Stripe platform key, GitHub App private key,
- * Tink/Plaid client credentials...). `shared/env.ts` knows only a subset of them; the host (gateway, ingest)
- * supplies the rest through `LiveConnectorOptions.secrets` — never by reading `process.env` here
- * (docs/ARCHITECTURE.md §3).
+ * Tink/Plaid client credentials...). `shared/env.ts` declares every one of them and `platformSecretsFromEnv` maps them;
+ * the host (gateway, ingest, api) passes the result through `LiveConnectorOptions.secrets` — never by reading
+ * `process.env` here (docs/ARCHITECTURE.md §3).
  */
 import { loadEnv, type Env } from "@foundmill/shared";
 import type { FetchLike } from "./http";
@@ -47,23 +47,50 @@ export interface PlatformSecrets {
   dropboxSignApiKey?: string;
 }
 
-/** The subset of platform secrets `packages/shared` env schema already declares (BUILD §4.6). */
+/**
+ * Every platform secret, read from the shared env schema (packages/shared/src/env.ts declares each variable; BUILD
+ * §4.6, docs/DEPLOY.md §5.6). Hosts (gateway, ingest, the api's registry) pass this to the live connectors; nothing in
+ * this package reads `process.env`. `platform-secrets.test.ts` holds every `PlatformSecrets` key and every variable a
+ * connector's ConfigError names to this mapping.
+ */
 export function platformSecretsFromEnv(env: Env = loadEnv()): PlatformSecrets {
   const s: PlatformSecrets = {};
-  if (env.ANTHROPIC_API_KEY) s.anthropicApiKey = env.ANTHROPIC_API_KEY;
-  if (env.VOYAGE_API_KEY) s.voyageApiKey = env.VOYAGE_API_KEY;
-  if (env.E2B_API_KEY) s.e2bApiKey = env.E2B_API_KEY;
-  if (env.STRIPE_SECRET_KEY) s.stripeSecretKey = env.STRIPE_SECRET_KEY;
-  if (env.STRIPE_WEBHOOK_SECRET) s.stripeWebhookSecret = env.STRIPE_WEBHOOK_SECRET;
-  if (env.SENDGRID_API_KEY) s.sendgridApiKey = env.SENDGRID_API_KEY;
-  if (env.SENDGRID_WEBHOOK_PUBLIC_KEY) s.sendgridWebhookPublicKey = env.SENDGRID_WEBHOOK_PUBLIC_KEY;
-  if (env.GITHUB_APP_ID) s.githubAppId = env.GITHUB_APP_ID;
+  const set = <K extends keyof PlatformSecrets>(key: K, value: PlatformSecrets[K] | undefined) => {
+    if (value) s[key] = value;
+  };
+  set("anthropicApiKey", env.ANTHROPIC_API_KEY);
+  set("voyageApiKey", env.VOYAGE_API_KEY);
+  set("e2bApiKey", env.E2B_API_KEY);
+  set("stripeSecretKey", env.STRIPE_SECRET_KEY);
+  set("stripeWebhookSecret", env.STRIPE_WEBHOOK_SECRET);
+  set("stripeConnectClientId", env.STRIPE_CONNECT_CLIENT_ID);
+  set("sendgridApiKey", env.SENDGRID_API_KEY);
+  set("sendgridWebhookPublicKey", env.SENDGRID_WEBHOOK_PUBLIC_KEY);
+  set("sendgridInboundToken", env.SENDGRID_INBOUND_TOKEN);
+  set("githubAppId", env.GITHUB_APP_ID);
   // A PEM pasted into a single-line variable arrives with literal "\n"; the App needs real line breaks.
-  if (env.GITHUB_APP_PRIVATE_KEY) s.githubAppPrivateKey = env.GITHUB_APP_PRIVATE_KEY.includes("\n") ? env.GITHUB_APP_PRIVATE_KEY : env.GITHUB_APP_PRIVATE_KEY.replace(/\\n/g, "\n");
-  if (env.GITHUB_APP_SLUG) s.githubAppSlug = env.GITHUB_APP_SLUG;
-  if (env.GITHUB_APP_CLIENT_ID) s.githubAppClientId = env.GITHUB_APP_CLIENT_ID;
-  if (env.GITHUB_APP_CLIENT_SECRET) s.githubAppClientSecret = env.GITHUB_APP_CLIENT_SECRET;
-  if (env.GITHUB_WEBHOOK_SECRET) s.githubWebhookSecret = env.GITHUB_WEBHOOK_SECRET;
+  set("githubAppPrivateKey", env.GITHUB_APP_PRIVATE_KEY && (env.GITHUB_APP_PRIVATE_KEY.includes("\n") ? env.GITHUB_APP_PRIVATE_KEY : env.GITHUB_APP_PRIVATE_KEY.replace(/\\n/g, "\n")));
+  set("githubAppSlug", env.GITHUB_APP_SLUG);
+  set("githubAppClientId", env.GITHUB_APP_CLIENT_ID);
+  set("githubAppClientSecret", env.GITHUB_APP_CLIENT_SECRET);
+  set("githubWebhookSecret", env.GITHUB_WEBHOOK_SECRET);
+  set("shopifyClientId", env.SHOPIFY_CLIENT_ID);
+  set("shopifyClientSecret", env.SHOPIFY_CLIENT_SECRET);
+  set("tinkClientId", env.TINK_CLIENT_ID);
+  set("tinkClientSecret", env.TINK_CLIENT_SECRET);
+  set("plaidClientId", env.PLAID_CLIENT_ID);
+  set("plaidSecret", env.PLAID_SECRET);
+  set("plaidEnv", env.PLAID_ENV);
+  set("companiesHouseApiKey", env.COMPANIES_HOUSE_API_KEY);
+  set("bolagsverketClientId", env.BOLAGSVERKET_CLIENT_ID);
+  set("bolagsverketClientSecret", env.BOLAGSVERKET_CLIENT_SECRET);
+  set("opencorporatesApiToken", env.OPENCORPORATES_API_TOKEN);
+  set("cloudflareApiToken", env.CLOUDFLARE_API_TOKEN);
+  set("googleClientId", env.GOOGLE_CLIENT_ID);
+  set("googleClientSecret", env.GOOGLE_CLIENT_SECRET);
+  set("notionClientId", env.NOTION_CLIENT_ID);
+  set("notionClientSecret", env.NOTION_CLIENT_SECRET);
+  set("dropboxSignApiKey", env.DROPBOX_SIGN_API_KEY);
   return s;
 }
 

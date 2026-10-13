@@ -22,7 +22,7 @@ export function createGoogleDriveConnector(options: LiveConnectorOptions = {}): 
       key: GOOGLE_DRIVE_KEY,
       displayName: "Google Drive & Docs",
       phase: 1,
-      auth: { kind: "oauth", scopes: GOOGLE_DRIVE_SCOPES },
+      auth: { kind: "oauth", scopes: GOOGLE_DRIVE_SCOPES, authorizationCode: true },
       tools: googleDriveTools,
       rateLimits: GOOGLE_DRIVE_RATE_LIMITS,
       now,

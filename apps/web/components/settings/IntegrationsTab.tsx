@@ -18,6 +18,7 @@ import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { OAuthFinish } from "./OAuthFinish";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
 
@@ -103,7 +104,8 @@ export function IntegrationsTab() {
         void invalidate(["integrations"]);
         if (r.consentUrl) {
           // The vendor's page opens in this tab: a new tab opened after the request returns is a pop-up browsers block
-          // (Safari always). The vendor sends the founder back here to finish (GitHub: /integrations/github/callback).
+          // (Safari always). The vendor sends the founder back here to finish (GitHub: /integrations/github/callback;
+          // Google, Notion, Shopify: /integrations/oauth/callback, finished in OAuthFinish).
           t.info("Your consent is needed", "Opening the vendor's page; the connection completes when you accept and come back here.");
           navigateTo(r.consentUrl);
         } else t.saved("Connected", r.record.accountLabel ?? undefined);
@@ -156,6 +158,7 @@ export function IntegrationsTab() {
           </div>
         </SettingsSection>
       ) : null}
+      <OAuthFinish businessId={businessId} connectors={rows} pending={connect.isPending} onFinish={(connectorKey, input, done) => connect.mutate({ businessId, connectorKey, input }, { onSettled: done })} />
       <SettingsSection wide title="Connectors" meta={list.data ? plural(rows.filter((r) => r.integration && r.integration.status !== "disconnected").length, "connected", "connected") : undefined} actions={list.data ? <Chip tone={list.data.mode === "mock" ? "info" : "good"}>{modeLabel(list.data.mode, rows)}</Chip> : undefined} loading={list.isLoading}>
         <Hint>Consents and API keys are yours to grant: a connector that needs one opens the vendor's page and waits for you. Secrets are stored encrypted and never shown again.</Hint>
         <ul className="flex flex-col" data-testid="connector-list">

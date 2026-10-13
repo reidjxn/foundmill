@@ -6,8 +6,11 @@
 import { ConfigError, type IntegrationRecord, type ToolContext } from "../../contract";
 import { createHttp, type FetchLike } from "../../http";
 import type { PlatformSecrets } from "../../platform";
+import { authorizeUrl, consentRecord, consentStartOf, hasAuthorizationCode } from "./oauth-consent";
 
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com";
+/** Google's OAuth 2.0 consent page (web server flow). */
+export const GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 
 export interface GoogleAuthDeps {
   connectorKey: string;
@@ -41,10 +44,19 @@ export async function googleAccessToken(ctx: ToolContext, deps: GoogleAuthDeps):
 
 export const googleHeaders = (token: string): Record<string, string> => ({ authorization: `Bearer ${token}` });
 
-/** OAuth code exchange shared by the Google connectors' `connect()`. */
+/**
+ * The Google connectors' `connect()`. Without a code it answers Google's consent page for the connector's scopes
+ * (offline access, so a refresh token comes back, and `prompt=consent`, so a reconnect gets one again); with the code
+ * Google sent back it exchanges it.
+ */
 export async function googleOAuthConnect(input: unknown, deps: GoogleAuthDeps, opts: { businessId: string; scopes: string[]; label: string; newId: () => string }): Promise<IntegrationRecord> {
-  const code = typeof input === "object" && input && typeof (input as { code?: unknown }).code === "string" ? (input as { code: string; redirectUri?: string }) : null;
-  if (!code) throw new ConfigError(deps.connectorKey, "OAuth authorization code", "connect() expects { code, redirectUri } from the Google OAuth redirect");
+  if (!hasAuthorizationCode(input)) {
+    const start = consentStartOf(input, opts.label);
+    if (!deps.secrets.googleClientId) throw new ConfigError(deps.connectorKey, "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET", "create an OAuth client (web application) in the Google Cloud console");
+    const url = authorizeUrl(GOOGLE_AUTHORIZE_URL, { client_id: deps.secrets.googleClientId, redirect_uri: start.redirectUri, response_type: "code", scope: ["openid", "email", ...opts.scopes].join(" "), access_type: "offline", prompt: "consent", include_granted_scopes: "true", state: start.state });
+    return consentRecord(deps.connectorKey, opts.businessId, url, { now: deps.now, newId: opts.newId });
+  }
+  const code = input as { code: string; redirectUri?: string };
   const { googleClientId, googleClientSecret } = deps.secrets;
   if (!googleClientId || !googleClientSecret) throw new ConfigError(deps.connectorKey, "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET");
   const http = createHttp({ connectorKey: deps.connectorKey, baseUrl: GOOGLE_TOKEN_URL, fetch: deps.fetch });

@@ -19,7 +19,7 @@ export function createVoyageConnector(options: LiveConnectorOptions = {}): Conne
       key: VOYAGE_KEY,
       displayName: "Voyage AI",
       phase: 1,
-      auth: { kind: "api_key" },
+      auth: { kind: "api_key", platformKey: true },
       tools: voyageTools,
       rateLimits: VOYAGE_RATE_LIMITS,
       now,
