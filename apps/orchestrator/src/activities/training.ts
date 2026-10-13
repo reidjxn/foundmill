@@ -13,7 +13,7 @@
  * Training spends model credits, so it honours the team-wide stop (0023) on its own, whether or not Stop all agents'
  * signal reached the workflow (a revoked key or used-up credits signal nothing): a run that loads while the team is
  * stopped, and a skill whose next test would start while it is, end the run canceled with the reason; the tests already
- * run are booked.
+ * run are booked. A run that ended stays ended: its remaining skills run no test, even after the agents resume.
  */
 import { AgentInstructions, buildSystemPrompt, detectClubRuleViolation, getPrompt, getSkillDefinition, getSkillTests, ratingFromTested, runDeterministicChecks, type AgentTemplate, type SkillTest } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
@@ -66,6 +66,17 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
   /** Ends the run canceled for the stop, unless it already ended (a founder's cancel, Stop all agents' own cancel). */
   async function cancelForStop(input: TrainingRunInput, coachSummaryMd: string): Promise<void> {
     await repos.training.transition(deps.db, input.businessId, input.trainingRunId, ACTIVE_TRAINING_STATUSES, { status: "cancelled", coachSummaryMd, endedAt: deps.clock.now() });
+  }
+
+  /**
+   * Why the next test must not start, or null while it may: the team is stopped (`cancelWith` is the summary the run
+   * ends canceled with), or the run already ended (a founder's cancel, or a stop that canceled it and was lifted since;
+   * no signal may have reached the workflow, and a canceled run's remaining skills never spend once the agents resume).
+   */
+  async function haltFor(input: TrainingRunInput): Promise<{ cancelWith: string | null } | null> {
+    const [stopped, run] = await Promise.all([stoppedSummary(input.businessId), repos.training.get(deps.db, input.businessId, input.trainingRunId)]);
+    if (stopped) return { cancelWith: stopped };
+    return (ACTIVE_TRAINING_STATUSES as readonly string[]).includes(run.status) ? null : { cancelWith: null };
   }
 
   async function graderFor(skill: string, test: SkillTest, output: string, checks: { kind: string; passed: boolean; detail?: string }[], attribution: { businessId: string; agentId: string }) {
@@ -157,9 +168,10 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
     },
 
     /**
-     * One skill's test set against the draft version, in the mock sandbox with mock tools only. The stop flag is read
-     * before each test: once the team is stopped no further test starts, the run ends canceled and the tests already run
-     * are booked.
+     * One skill's test set against the draft version, in the mock sandbox with mock tools only. The stop flag and the
+     * run are read before each test: once the team is stopped no further test starts and the run ends canceled; once the
+     * run has ended (canceled by the founder or by a stop lifted since) no further test starts either. The tests already
+     * run are booked.
      */
     async runSkillTests(input: TrainingRunInput & { agentId: string; draftVersionId: string; skillKey: string; modelKey: "opus" | "sonnet" | "haiku" }): Promise<SkillTestsOutcome> {
       const { db } = deps;
@@ -191,16 +203,16 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       const attribution = { businessId: input.businessId, agentId: agent.id, kind: "training" };
       const CONCURRENCY = 4;
       const queue = [...tests];
-      /** The canceled run's summary once the team stopped mid-skill. */
-      let halted: string | null = null;
+      /** Set once the team stopped or the run ended mid-skill: no further test starts. */
+      let halted: { cancelWith: string | null } | null = null;
       const worker = async () => {
         for (;;) {
           if (halted) return;
           const test = queue.shift();
           if (!test) return;
-          const stopped = await stoppedSummary(input.businessId);
-          if (stopped) {
-            halted = stopped;
+          const halt = await haltFor(input);
+          if (halt) {
+            halted = halt;
             return;
           }
           // 1. the candidate answers with mock tools only (no real email or spend can happen here)
@@ -244,7 +256,8 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
         }
       };
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tests.length) }, worker));
-      if (halted) await cancelForStop(input, halted);
+      const stoppedWith = (halted as { cancelWith: string | null } | null)?.cancelWith;
+      if (stoppedWith) await cancelForStop(input, stoppedWith);
       const testsRun = scores.length;
       const meanScore = scores.reduce((a, b) => a + b, 0) / Math.max(1, testsRun);
       // Stopped before any test ran: the rating stands where it was.

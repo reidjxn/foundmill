@@ -509,10 +509,14 @@ export function createSessionActivities(deps: OrchestratorDeps) {
     }
   }
 
-  /** An idle agent that starts a session is working: `healthy`, with the event the Team screen listens for. */
-  async function markWorking(input: AgentSessionInput, agent: Agent, task: Task): Promise<void> {
+  /**
+   * An idle agent that starts a session is working: `healthy`, with the event the Team screen listens for. Never over a
+   * pause (Stop all agents, the credits pause or a wage cap that landed after the run read its agent): false then, and
+   * the run ends before anything starts. A failed write is logged and the run goes on.
+   */
+  async function markWorking(input: AgentSessionInput, agent: Agent, task: Task): Promise<boolean> {
     try {
-      await repos.agents.setStatus(deps.db, input.businessId, agent.id, "healthy");
+      if (!(await repos.agents.setHealthStatus(deps.db, input.businessId, agent.id, "healthy"))) return false;
       await emitEvent(deps.db, {
         businessId: input.businessId,
         type: "agent.health_changed",
@@ -522,6 +526,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
     } catch (err) {
       deps.log.warn({ err: (err as Error).message, agentId: agent.id }, "agent status could not be set to working");
     }
+    return true;
   }
 
   return {
@@ -603,13 +608,13 @@ export function createSessionActivities(deps: OrchestratorDeps) {
         await clearControl(input.sessionId);
         return stoppedBeforeStart(AGENTS_STOPPED_REASON, "Not started: agents are stopped for this business.");
       }
-      if (agent.status === "paused") {
+      // An agent with an open session is working (as on api-started sessions); the Team screen shows it. A pause that
+      // landed after the agent was read (Stop all agents committing now) wins: the run ends here too.
+      if (agent.status === "paused" || (agent.status === "idle" && !(await markWorking(input, agent, task)))) {
         await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Not started: ${agent.name} is paused.` });
         await clearControl(input.sessionId);
         return stoppedBeforeStart("agent paused", `Not started: ${agent.name} is paused.`);
       }
-      // An agent with an open session is working (as on api-started sessions); the Team screen shows it.
-      if (agent.status === "idle") await markWorking(input, agent, task);
 
       const { provider } = await deps.sandbox();
       const recording = run.resume?.cursor ?? launch.recordingKey;

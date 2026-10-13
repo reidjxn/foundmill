@@ -406,6 +406,30 @@ describe("a paused agent stays paused (O-06)", () => {
     }
   });
 
+  it("a pause that lands after the run read its agent idle is never overwritten by marking it working: the run ends before anything starts (SEC3)", async () => {
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = await acts.prepareSession(input);
+    const idle = await repos.agents.get(t.db, t.businessId, t.workerId);
+    expect(idle.status).toBe("idle");
+    // The run reads the agent idle; the pause (Stop all agents committing, a wage cap) is written right after.
+    const read = vi.spyOn(repos.agents, "get").mockResolvedValueOnce(idle);
+    await repos.agents.setStatus(t.db, t.businessId, t.workerId, "paused", { pausedReason: "wage_cap" });
+    const create = vi.spyOn(t.sandbox, "create");
+    try {
+      const result = await acts.runAgentSession(input, launch);
+      expect(result).toMatchObject({ outcome: "stopped", reason: "agent paused", blockedReason: "stopped" });
+      expect(create).not.toHaveBeenCalled();
+      expect(await repos.agents.get(t.db, t.businessId, t.workerId)).toMatchObject({ status: "paused", pausedReason: "wage_cap" });
+      const changes = await repos.events.list(t.db, t.businessId, { type: "agent.health_changed", limit: 20 });
+      expect(changes.items.some((e) => (e.payload as { sessionId?: string }).sessionId === sessionId)).toBe(false);
+    } finally {
+      read.mockRestore();
+      create.mockRestore();
+      await repos.agents.setStatus(t.db, t.businessId, t.workerId, "idle");
+    }
+  });
+
   it("a running session re-reads the stop flag and stops itself once the team is stopped, with no signal; the task waits paused (SEC3)", async () => {
     const clock = new FakeClock();
     const deps = { ...t.deps, clock, sandbox: async () => ({ provider: clockedProvider(clock), mode: "mock" as const, fellBackFrom: null }) };

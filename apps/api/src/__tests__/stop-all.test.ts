@@ -1,7 +1,7 @@
 import { LIMITS } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
 describe("business.stopAllAgents (kill switch, BUILD §14)", () => {
@@ -44,6 +44,22 @@ describe("business.stopAllAgents (kill switch, BUILD §14)", () => {
   it("only owners and admins may pull the kill switch", async () => {
     await expect(hz.caller({ userId: hz.A.memberId }).business.stopAllAgents({ businessId: hz.A.businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(hz.caller({ userId: hz.B.ownerId }).business.stopAllAgents({ businessId: hz.A.businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("a failure while listing the workflows to signal neither hides nor undoes the stop: it is reported and audited (SEC3)", async () => {
+    const { businessId, ownerId } = hz.B;
+    const list = vi.spyOn(repos.plans, "list").mockRejectedValueOnce(new Error("connection reset"));
+    try {
+      const result = await hz.caller({ userId: ownerId }).business.stopAllAgents({ businessId });
+      expect(result.pausedAgents).toBeGreaterThanOrEqual(1);
+      expect(result.workflows).toMatchObject({ queued: false, signalled: [], reason: expect.stringMatching(/^workflows not signaled: connection reset/) });
+    } finally {
+      list.mockRestore();
+    }
+    expect(await repos.businesses.stopState(hz.db, businessId)).toMatchObject({ stopped: true, reason: "kill_switch" });
+    const audit = (await repos.audit.list(hz.db, businessId, { action: "business.stop_all_agents" })).items;
+    expect(audit).toHaveLength(1);
+    expect(audit[0]!.details).toMatchObject({ temporalQueued: false, temporalReason: expect.stringMatching(/connection reset/), lateSessions: 0 });
   });
 });
 

@@ -150,9 +150,30 @@ describe("training honours the team-wide stop (SEC3)", () => {
       const rest = await acts.runSkillTests({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, skillKey: (next ?? big)!.skillKey, modelKey: "opus" });
       expect(rest.testsRun).toBe(0);
       expect(answers).toBe(calls);
+
+      // The agents resume before the workflow's last skills run (a credits stop signals nothing): the run stays
+      // canceled and spends nothing more.
+      await resumeBusinessAgents(t.db, t.businessId);
+      const afterResume = await acts.runSkillTests({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, skillKey: big!.skillKey, modelKey: "opus" });
+      expect(afterResume.testsRun).toBe(0);
+      expect(answers).toBe(calls);
+      expect((await repos.training.get(t.db, t.businessId, run.id)).status).toBe("cancelled");
     } finally {
       await resumeBusinessAgents(t.db, t.businessId);
     }
+  });
+
+  it("a founder's cancel whose signal never arrived: the next skill starts no test and books nothing", async () => {
+    const acts = createTrainingActivities(t.deps);
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const { run, draft } = (await repos.training.createModelRetest(t.db, t.businessId, agent.id, { modelKey: "sonnet" }))!;
+    const loaded = await acts.loadTrainingRun({ businessId: t.businessId, trainingRunId: run.id });
+    await repos.training.cancel(t.db, t.businessId, run.id);
+    const usageBefore = (await repos.usage.list(t.db, t.businessId, { agentId: agent.id, kind: "training", limit: 200 })).items.length;
+    const outcome = await acts.runSkillTests({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, skillKey: loaded.skillKeys[0]!, modelKey: "sonnet" });
+    expect(outcome).toMatchObject({ testsRun: 0, costMinor: 0 });
+    expect((await repos.usage.list(t.db, t.businessId, { agentId: agent.id, kind: "training", limit: 200 })).items.length).toBe(usageBefore);
+    expect((await repos.training.get(t.db, t.businessId, run.id)).status).toBe("cancelled");
   });
 });
 

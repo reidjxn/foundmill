@@ -12,7 +12,8 @@
  * out to, a vacation's cycle included), every enabled channel's engine `engine:<channelId>`, executing plans, the
  * vacation and the canceled training runs. It lists open sessions once more afterwards and signals any opened while it
  * worked, then writes the audit entry with what reached Temporal. Works without Temporal: the local state is always
- * written; the signal result reports `{ queued: false, reason }`.
+ * written; the signal result reports `{ queued: false, reason }`, as it does when listing the workflows fails (the stop
+ * is in effect and audited either way).
  *
  * Resume (owner or admin) lifts the flag, sets the agents the stop paused back to idle, restarts the channel engines
  * that were running and starts the model-change retests queued while the team was stopped. It refuses while the team
@@ -78,7 +79,43 @@ export async function stopAllAgents(ctx: BusinessContext, reason = "kill_switch"
     return { pausedAgents: stop.paused.length, pausedTasks, pausedCampaigns, cancelledTraining: training.map((r) => r.id), stoppedAt: stop.stoppedAt };
   });
 
-  // 2. Then every workflow that is still running, by its deterministic id.
+  // 2. Then every workflow still running. Nothing depends on these signals any more (everything re-reads the flag), so
+  // a failure while listing them is reported in the result and the audit entry, never thrown over a stop in effect.
+  let signals: SignalledStop;
+  try {
+    signals = await signalStop(ctx, reason, local.cancelledTraining, started, budgetMs);
+  } catch (err) {
+    const why = `workflows not signaled: ${(err as Error).message ?? String(err)}`.slice(0, 300);
+    ctx.log.warn({ businessId, err: (err as Error).message }, "Stop all agents: the stop is in effect but its signals did not go out");
+    signals = { workflows: { queued: false, signalled: [], failed: [], reason: why }, lateSessions: 0, cycleWorkflowId: null };
+  }
+  const { workflows } = signals;
+
+  await ctx.rls((tx) =>
+    audit(tx, ctx, {
+      action: "business.stop_all_agents",
+      target: { kind: "business", id: businessId },
+      details: { reason, pausedAgents: local.pausedAgents, pausedTasks: local.pausedTasks, pausedCampaigns: local.pausedCampaigns, cancelledTraining: local.cancelledTraining.length, signalled: workflows.signalled.length, failed: workflows.failed.length, lateSessions: signals.lateSessions, temporalQueued: workflows.queued, temporalReason: workflows.reason ?? null, cycleWorkflowId: signals.cycleWorkflowId },
+    }),
+  );
+
+  return { pausedAgents: local.pausedAgents, pausedTasks: local.pausedTasks, pausedCampaigns: local.pausedCampaigns, cancelledTraining: local.cancelledTraining.length, stoppedAt: local.stoppedAt, workflows, elapsedMs: Date.now() - started, budgetMs };
+}
+
+interface SignalledStop {
+  workflows: SignalManyResult;
+  /** Sessions opened while the first signals went out, signalled in a second round. */
+  lateSessions: number;
+  cycleWorkflowId: string | null;
+}
+
+/**
+ * Signal `stop` to every workflow of the business still running, by its deterministic id, within the budget left; then
+ * list open sessions once more and signal those opened meanwhile (a dispatch that read the flag just before it was
+ * written; their own start re-checks the flag as well).
+ */
+async function signalStop(ctx: BusinessContext, reason: string, cancelledTraining: readonly string[], started: number, budgetMs: number): Promise<SignalledStop> {
+  const { businessId } = ctx;
   const [sessions, channels, plans, holiday, cycle] = await Promise.all([
     repos.agents.listSessions(ctx.db, businessId, { openOnly: true, limit: 500 }),
     repos.channels.list(ctx.db, businessId, { enabled: true }),
@@ -98,27 +135,16 @@ export async function stopAllAgents(ctx: BusinessContext, reason = "kill_switch"
   }
   for (const p of plans.items) if (p.workflowId) ids.add(p.workflowId);
   if (holiday) ids.add(workflowIds.holiday(holiday.id));
-  for (const runId of local.cancelledTraining) ids.add(workflowIds.training(runId));
+  for (const runId of cancelledTraining) ids.add(workflowIds.training(runId));
 
   const signal = (list: readonly string[], ms: number) => ctx.temporal.signalMany(list, "stop", [{ reason, by: ctx.userId }], Math.max(1_000, ms));
   const first = await signal([...ids], budgetMs - 8_000 - (Date.now() - started));
-  // 3. A session opened by a dispatch that read the flag just before it was written: signalled too (its own start
-  // re-checks the flag as well).
   const again = await repos.agents.listSessions(ctx.db, businessId, { openOnly: true, limit: 500 });
   const late = again.items.map((s) => workflowIds.session(s.id)).filter((id) => !ids.has(id));
   const second = late.length ? await signal(late, budgetMs - 4_000 - (Date.now() - started)) : null;
   const unreachable = first.reason ?? second?.reason;
   const workflows: SignalManyResult = second ? { queued: first.queued || second.queued, signalled: [...first.signalled, ...second.signalled], failed: [...first.failed, ...second.failed], ...(unreachable ? { reason: unreachable } : {}) } : first;
-
-  await ctx.rls((tx) =>
-    audit(tx, ctx, {
-      action: "business.stop_all_agents",
-      target: { kind: "business", id: businessId },
-      details: { reason, pausedAgents: local.pausedAgents, pausedTasks: local.pausedTasks, pausedCampaigns: local.pausedCampaigns, cancelledTraining: local.cancelledTraining.length, signalled: workflows.signalled.length, failed: workflows.failed.length, lateSessions: late.length, temporalQueued: workflows.queued, temporalReason: workflows.reason ?? null, cycleWorkflowId: cycle.running ? cycle.workflowId : null },
-    }),
-  );
-
-  return { pausedAgents: local.pausedAgents, pausedTasks: local.pausedTasks, pausedCampaigns: local.pausedCampaigns, cancelledTraining: local.cancelledTraining.length, stoppedAt: local.stoppedAt, workflows, elapsedMs: Date.now() - started, budgetMs };
+  return { workflows, lateSessions: late.length, cycleWorkflowId: cycle.running ? cycle.workflowId : null };
 }
 
 /** Write one `agent.health_changed` per agent a resume set back to idle. */
