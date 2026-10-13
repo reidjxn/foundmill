@@ -11,25 +11,35 @@
 import {
   Activity,
   Award,
+  Briefcase,
   CodeXml,
   Factory,
+  FlaskConical,
   Folder,
   Funnel,
   Gauge,
+  GraduationCap,
+  Headset,
+  HeartHandshake,
   Inbox,
   Landmark,
   LayoutGrid,
+  LifeBuoy,
   Lightbulb,
   ListOrdered,
   MapIcon,
   Megaphone,
+  Palette,
   Radio,
   Route,
   Scale,
+  ShoppingBag,
   Sigma,
   TrendingUp,
   Trophy,
+  Truck,
   Users,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 
@@ -43,6 +53,17 @@ const ICONS: Readonly<Record<string, LucideIcon>> = {
   Users,
   Scale,
   Factory,
+  // More a founder can pick for a department (Settings › Departments).
+  Briefcase,
+  FlaskConical,
+  GraduationCap,
+  Headset,
+  HeartHandshake,
+  LifeBuoy,
+  Palette,
+  ShoppingBag,
+  Truck,
+  Wrench,
   // Widgets.
   Activity,
   Award,
@@ -77,3 +98,6 @@ export function lookupIcon(name: string | null | undefined): LucideIcon | undefi
 export function iconByName(name: string | null | undefined, fallback: LucideIcon = Folder): LucideIcon {
   return lookupIcon(name) ?? fallback;
 }
+
+/** The icons a founder can give a department (stored names; every one is in the map above). */
+export const DEPARTMENT_ICON_NAMES = ["folder", "lightbulb", "code-2", "megaphone", "landmark", "users", "scale", "factory", "briefcase", "flask-conical", "graduation-cap", "headset", "heart-handshake", "life-buoy", "palette", "shopping-bag", "truck", "wrench"] as const;

@@ -159,7 +159,10 @@ export function Markdown({
       </em>
     ),
     a: ({ children: c, href, ...rest }: ComponentPropsWithoutRef<"a">) => {
-      const external = externalLinks && !!href && /^https?:/i.test(href);
+      // The parser blanks a URL it will not follow (javascript:, data:, vbscript:) to "". That is text, not a link: an
+      // anchor with an empty href would look clickable and reload the page.
+      if (!href) return <span>{c}</span>;
+      const external = externalLinks && /^https?:/i.test(href);
       return (
         <a
           href={href}

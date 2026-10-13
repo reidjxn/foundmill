@@ -90,6 +90,34 @@ describe("Conversation", () => {
     expect(items[1]!.querySelector("time")!.getAttribute("datetime")).toBe(messages[1]!.at);
   });
 
+  it("offers 'Load earlier messages' only when older ones exist, and older messages arriving on top keep what is being read where it is", () => {
+    const onLoadEarlier = vi.fn();
+    const { rerender } = render(<Conversation label="Conversation" messages={messages} onSend={() => undefined} />);
+    expect(screen.queryByRole("button", { name: "Load earlier messages" })).toBeNull();
+    rerender(<Conversation label="Conversation" messages={messages} onSend={() => undefined} hasEarlier onLoadEarlier={onLoadEarlier} />);
+    // The control is the first item of the log; the messages keep their order after it.
+    const log = screen.getByRole("log", { name: "Conversation" }) as HTMLDivElement;
+    expect(Array.from(log.querySelectorAll("li p")).map((p) => p.textContent)).toEqual(["Hello\nthere", "Hi Priya"]);
+
+    // The log is 600 px tall and the reader is at its top when they ask for earlier messages.
+    let height = 600;
+    Object.defineProperty(log, "scrollHeight", { configurable: true, get: () => height });
+    log.scrollTop = 0;
+    fireEvent.click(screen.getByRole("button", { name: "Load earlier messages" }));
+    expect(onLoadEarlier).toHaveBeenCalledTimes(1);
+
+    // They arrive above (the log grows by 400 px): the reader stays on the message they were reading, not at the bottom.
+    height = 1000;
+    const older: ConversationMessage = { id: "z", author: "Priya Nair", body: "Earlier", at: iso(300) };
+    rerender(<Conversation label="Conversation" messages={[older, ...messages]} onSend={() => undefined} hasEarlier onLoadEarlier={onLoadEarlier} />);
+    expect(log.scrollTop).toBe(400);
+    expect(Array.from(log.querySelectorAll("li p")).map((p) => p.textContent)).toEqual(["Earlier", "Hello\nthere", "Hi Priya"]);
+
+    // A new newest message does scroll to the bottom.
+    rerender(<Conversation label="Conversation" messages={[older, ...messages, { id: "n", author: "Priya Nair", body: "Now", at: iso(0) }]} onSend={() => undefined} />);
+    expect(log.scrollTop).toBe(1000);
+  });
+
   it("sends through the composer and shows empty, loading and error states instead of the log", async () => {
     const onSend = vi.fn();
     const { rerender } = render(<Conversation label="Conversation" messages={[]} empty="Say hello." onSend={onSend} />);

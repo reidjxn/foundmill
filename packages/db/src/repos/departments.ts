@@ -1,6 +1,6 @@
 /** departments + department_members (BUILD §11.13; routers department.*). Departments are labels over modules. */
 import { departmentLetters, DEPT_COLOUR_TOKENS, isDepartmentShortcut, MODULE_KEYS, slugify, ValidationError } from "@foundmill/shared";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { departmentMembers, departments, MEMBER_KINDS, screenDefinitions, type Department, type DepartmentMember } from "../schema";
 import { Currency, defined, Id, JsonArray, maybeOne, MinorAmount, one, parseInput, type Executor, patchSchema } from "./_shared";
@@ -68,16 +68,34 @@ export const departmentsRepo = {
     return maybeOne(await db.select().from(departments).where(and(live(businessId), eq(departments.slug, slug))).limit(1));
   },
 
+  /**
+   * A slug no department of the business uses yet: `base`, else `base-2`, `base-3`, … The unique key covers archived
+   * departments too, so a new "Team" next to an archived one gets `team-2` instead of failing the insert.
+   */
+  async freeSlug(db: Executor, businessId: string, base: string): Promise<string> {
+    const rows = await db
+      .select({ slug: departments.slug })
+      .from(departments)
+      .where(and(eq(departments.businessId, businessId), or(eq(departments.slug, base), like(departments.slug, `${base}-%`))));
+    const taken = new Set(rows.map((r) => r.slug));
+    if (!taken.has(base)) return base;
+    for (let n = 2; ; n++) {
+      const candidate = `${base.slice(0, 59 - String(n).length)}-${n}`;
+      if (!taken.has(candidate)) return candidate;
+    }
+  },
+
   async create(db: Executor, businessId: string, input: CreateDepartmentInput): Promise<Department> {
     const v = parseInput(CreateDepartmentInput, input, "department");
     const position = v.position ?? Number(one(await db.select({ n: sql<number>`coalesce(max(${departments.position}), -1) + 1` }).from(departments).where(live(businessId)), "position").n);
+    const slug = await departmentsRepo.freeSlug(db, businessId, v.slug ?? slugify(v.name));
     const created = one(
       await db
         .insert(departments)
         .values({
           businessId,
           name: v.name,
-          slug: v.slug ?? slugify(v.name),
+          slug,
           icon: v.icon,
           colourToken: v.colourToken,
           position,
@@ -154,13 +172,29 @@ export const departmentsRepo = {
     });
   },
 
-  /** Archives a department and its screens; members rows are kept for history. */
+  /**
+   * Archives a department and its live screens; members rows are kept for history. The screens carry the department's
+   * archive moment, so `restore` brings back exactly these and not a tab that was removed earlier on its own.
+   */
   async archive(db: Executor, businessId: string, departmentId: string): Promise<Department> {
     return db.transaction(async (tx) => {
       const now = new Date();
-      await tx.update(screenDefinitions).set({ archivedAt: now }).where(and(eq(screenDefinitions.businessId, businessId), eq(screenDefinitions.departmentId, departmentId)));
+      await tx.update(screenDefinitions).set({ archivedAt: now }).where(and(eq(screenDefinitions.businessId, businessId), eq(screenDefinitions.departmentId, departmentId), isNull(screenDefinitions.archivedAt)));
       // Its letter goes back to the pool for the next department that needs one.
       return one(await tx.update(departments).set({ archivedAt: now, hidden: true, shortcut: null, shortcutChosen: false }).where(and(eq(departments.businessId, businessId), eq(departments.id, departmentId))).returning(), "department", departmentId);
+    });
+  },
+
+  /** Brings an archived department back: visible again, with the tabs it had when it was archived (members were kept). */
+  async restore(db: Executor, businessId: string, departmentId: string): Promise<Department> {
+    return db.transaction(async (tx) => {
+      const dept = await departmentsRepo.get(tx, businessId, departmentId);
+      if (!dept.archivedAt) return dept;
+      await tx.update(screenDefinitions).set({ archivedAt: null }).where(and(eq(screenDefinitions.businessId, businessId), eq(screenDefinitions.departmentId, departmentId), eq(screenDefinitions.archivedAt, dept.archivedAt)));
+      await tx.update(departments).set({ archivedAt: null, hidden: false }).where(and(eq(departments.businessId, businessId), eq(departments.id, departmentId)));
+      // Archiving gave its letter back to the pool: it takes the first free letter of its name again.
+      await settleShortcuts(tx, businessId);
+      return departmentsRepo.get(tx, businessId, departmentId);
     });
   },
 

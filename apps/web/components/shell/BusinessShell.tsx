@@ -33,6 +33,7 @@ import { streamAwareStaleTime } from "@/lib/query-client";
 import { shellQueryInputs } from "@/lib/shell-queries";
 import { useBusinessLogoSrc } from "@/components/logo/useBusinessLogo";
 import { KeyboardRegistryProvider, createKeyboardRegistry, useRegisteredShortcuts } from "@/lib/keys";
+import { publicPaletteItems, publicSearchText } from "@/lib/public-search";
 import { entityPaletteItems, filterLocal, localPaletteItems, searchInputFor } from "@/lib/search";
 import { SIDEBAR_BRAND, SIDEBAR_IDS, activeSidebarId, buildSidebarItems, orderedVisibleDepartments } from "@/lib/sidebar";
 import { signOut } from "@/lib/auth/sign-out";
@@ -452,12 +453,16 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     () => localPaletteItems({ businessId, departments, inboxItems: inboxQ.data?.items, live, canEditLayout, businesses, access }),
     [businessId, departments, inboxQ.data?.items, live, canEditLayout, businesses, access],
   );
+  // A LIVE business also searches the public profiles ("On Foundmill"): founders and businesses found by name.
+  const publicText = live && debounced ? publicSearchText(debounced.q) : null;
+  const publicQ = useQuery(trpc.live.people.search.queryOptions({ q: publicText ?? "--", limit: 5 }, { enabled: publicText !== null, staleTime: 15_000, retry: false }));
   const paletteItems = useMemo<PaletteItem[]>(() => {
     const text = parsed?.text ?? searchText;
     const local = filterLocal(localItems, text);
     const remote = debounced && searchQ.data ? entityPaletteItems(businessId, searchQ.data.hits) : [];
-    return [...remote, ...local];
-  }, [parsed, searchText, localItems, debounced, searchQ.data, businessId]);
+    const network = publicText !== null && publicQ.data ? publicPaletteItems(publicQ.data.hits) : [];
+    return [...remote, ...network, ...local];
+  }, [parsed, searchText, localItems, debounced, searchQ.data, businessId, publicText, publicQ.data]);
   const onQueryChange = useCallback((raw: string, q: SearchQuery) => {
     setSearchText(raw);
     setParsed(q);

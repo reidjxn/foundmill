@@ -109,6 +109,8 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
 /** The LIVE pages sit outside /b/[bid] (BUILD §6.2); each lights its own sidebar item, whichever business is current. */
 const LIVE_ROUTE_ITEMS = [
   ["/network", SIDEBAR_IDS.network],
+  // A public profile is reached from search or the Network; it lights the Network item.
+  ["/profiles", SIDEBAR_IDS.network],
   ["/communities", SIDEBAR_IDS.communities],
   ["/leaderboards", SIDEBAR_IDS.leaderboards],
 ] as const;

@@ -8,7 +8,7 @@ import { z } from "zod";
 import { Award } from "lucide-react";
 import type { ModelKey } from "@foundmill/shared";
 import { MODEL_KEYS } from "@foundmill/shared/constants";
-import { Avatar, Button, DeptChip, FormCells, KeyValueList, ModelChip, RatingCell, StarRating, formScore, formatMoney, type FormResult } from "@foundmill/dugout";
+import { Avatar, Button, DeptChip, EntityLink, FormCells, KeyValueList, ModelChip, RatingCell, StarRating, formScore, formatMoney, type FormResult } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { WidgetFrame } from "../shared/frame";
@@ -67,7 +67,13 @@ function AgentOfTheWeekWidget({ settings }: WidgetProps<AgentOfTheWeekSettings>)
             <Avatar size={48} name={agent.name} agent={{ seed: agent.avatarSeed || agent.id, dept: dept?.colourToken ?? "dept-1" }} status={agent.status} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="t-display-md truncate text-primary">{agent.name}</span>
+                {/* An agent mention like any other (hover card, in-app navigation), not inert text. */}
+                <EntityLink
+                  entity={{ id: agent.id, kind: "agent", name: agent.name, href: routes.agent(businessId, agent.id) }}
+                  onOpen={() => navigate(routes.agent(businessId, agent.id))}
+                  contextMenu={false}
+                  className="t-display-md truncate text-primary"
+                />
                 {agent.rating !== null ? <RatingCell value={agent.rating} /> : null}
               </div>
               <div className="flex flex-wrap items-center gap-2 text-small text-secondary">

@@ -1,6 +1,6 @@
-/** department.list/create/update/merge/split/reorder/archive/resetDefaults + screen.* + dashboard.* (BUILD §11.2, §11.13). */
-import { getArchetypeSeed } from "@foundmill/agents";
-import { CreateDepartmentInput, repos, ScreenLayout, UpdateDepartmentInput } from "@foundmill/db";
+/** department.list/create/update/merge/split/reorder/archive/restore/resetDefaults + screen.* + dashboard.* (BUILD §11.2, §11.13). */
+import { DEPARTMENT_DEFAULTS, getArchetypeSeed } from "@foundmill/agents";
+import { CreateDepartmentInput, repos, ScreenLayout, UpdateDepartmentInput, type Department, type Executor } from "@foundmill/db";
 import { MODULE_KEYS, MODULE_TABS, ValidationError, type ModuleKey } from "@foundmill/shared";
 
 const isModuleKey = (v: string): v is ModuleKey => (MODULE_KEYS as readonly string[]).includes(v);
@@ -10,6 +10,34 @@ import { z } from "zod";
 import { DASHBOARD_PRESETS, PRESET_LAYOUTS } from "../presets";
 import { compileMetric, listMetrics, runMetric, type MetricReader } from "../services/metrics";
 import { Id, adminProcedure, audit, businessProcedure, hasSectionAccess, router, writeProcedure, type BusinessContext } from "../trpc";
+
+/** Default screens for a department's modules, one per module tab (a new, split or re-created department). */
+async function seedScreens(tx: Executor, businessId: string, departmentId: string, moduleKeys: readonly string[]): Promise<void> {
+  let position = 0;
+  for (const moduleKey of moduleKeys) for (const tab of tabsFor(moduleKey)) await repos.screens.upsert(tx, businessId, { departmentId, tabSlug: tab.slug, title: tab.title, position: position++, layout: { widgets: [{ key: `module:${moduleKey}/${tab.slug}`, x: 0, y: 0, w: 12, h: 60, settings: {} }] } });
+}
+
+/**
+ * Makes `leadId` the department's lead (BUILD §11.13 people). The agent must be an active agent of the business; it
+ * joins the department if it was not in it, and the department's agents who reported to nobody or to the previous lead
+ * now report to the new lead (never the lead itself, nor anyone above it, so no reporting loop can form).
+ */
+async function assignLead(tx: Executor, businessId: string, department: Department, leadId: string): Promise<void> {
+  const lead = await repos.agents.get(tx, businessId, leadId);
+  if (lead.archivedAt) throw new ValidationError("A released agent cannot lead a department");
+  if (!lead.departmentIds.includes(department.id)) await repos.agents.update(tx, businessId, lead.id, { departmentIds: [...lead.departmentIds, department.id] });
+  await repos.departments.addMember(tx, businessId, department.id, { memberKind: "agent", memberId: lead.id });
+  const members = (await repos.agents.list(tx, businessId, { departmentId: department.id, limit: 500 })).items;
+  const above = new Set<string>();
+  for (let at = lead.lineManagerId; at && !above.has(at); ) {
+    above.add(at);
+    at = (await repos.agents.byIds(tx, businessId, [at]))[0]?.lineManagerId ?? null;
+  }
+  for (const a of members) {
+    if (a.id === lead.id || above.has(a.id)) continue;
+    if (a.lineManagerId === null || (department.leadAgentId !== null && a.lineManagerId === department.leadAgentId)) await repos.agents.update(tx, businessId, a.id, { lineManagerId: lead.id });
+  }
+}
 
 /** The custom-metric catalogue as the caller may see it: only sections they can read (BUILD §11.9). */
 const metricReader = (ctx: Pick<BusinessContext, "membership">): MetricReader => ({ canRead: (section) => hasSectionAccess(ctx.membership, section, "read") });
@@ -39,11 +67,36 @@ export const departmentRouter = router({
     }),
   ),
 
+  /**
+   * Templates for "Add department" (BUILD §11.13 "create … template"): the business archetype's seed departments, then
+   * one per module the seed does not cover on its own. `inUse` marks a template whose department is in the sidebar;
+   * `archivedId` one whose department is archived (restore it rather than make a second one).
+   */
+  templates: businessProcedure.query(({ ctx }) =>
+    ctx.rls(async (tx) => {
+      const existing = await repos.departments.list(tx, ctx.businessId, { includeHidden: true, includeArchived: true });
+      const seed = ctx.business.archetype ? getArchetypeSeed(ctx.business.archetype).departments : [];
+      const fromSeed = seed.map((d) => ({ key: d.slug.replace(/_/g, "-"), name: d.name, icon: d.icon, colourToken: d.colourToken, moduleKeys: d.moduleKeys as ModuleKey[], budgetMinor: d.budgetMinor as number | null }));
+      const fromModules = MODULE_KEYS.filter((m) => !fromSeed.some((t) => t.moduleKeys.length === 1 && t.moduleKeys[0] === m)).map((m) => {
+        const d = DEPARTMENT_DEFAULTS[m];
+        return { key: d.slug, name: d.name, icon: d.icon, colourToken: d.colourToken, moduleKeys: [...d.moduleKeys], budgetMinor: null as number | null };
+      });
+      return [...fromSeed, ...fromModules].map((t) => {
+        const match = existing.find((e) => e.slug === t.key);
+        return { ...t, inUse: Boolean(match && !match.archivedAt), archivedId: match?.archivedAt ? match.id : null };
+      });
+    }),
+  ),
+
   create: adminProcedure.input(CreateDepartmentInput).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
-      const dept = await repos.departments.create(tx, ctx.businessId, input);
-      let position = 0;
-      for (const moduleKey of dept.moduleKeys) for (const tab of tabsFor(moduleKey)) await repos.screens.upsert(tx, ctx.businessId, { departmentId: dept.id, tabSlug: tab.slug, title: tab.title, position: position++, layout: { widgets: [{ key: `module:${moduleKey}/${tab.slug}`, x: 0, y: 0, w: 12, h: 60, settings: {} }] } });
+      const { leadAgentId, ...rest } = input;
+      let dept = await repos.departments.create(tx, ctx.businessId, rest);
+      await seedScreens(tx, ctx.businessId, dept.id, dept.moduleKeys);
+      if (leadAgentId) {
+        await assignLead(tx, ctx.businessId, dept, leadAgentId);
+        dept = await repos.departments.setLead(tx, ctx.businessId, dept.id, leadAgentId);
+      }
       await audit(tx, ctx, { action: "department.create", target: { kind: "department", id: dept.id }, details: { moduleKeys: dept.moduleKeys } });
       return dept;
     }),
@@ -51,6 +104,8 @@ export const departmentRouter = router({
 
   update: adminProcedure.input(z.object({ departmentId: Id, patch: UpdateDepartmentInput })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
+      const before = await repos.departments.get(tx, ctx.businessId, input.departmentId);
+      if (input.patch.leadAgentId && input.patch.leadAgentId !== before.leadAgentId) await assignLead(tx, ctx.businessId, before, input.patch.leadAgentId);
       const dept = await repos.departments.update(tx, ctx.businessId, input.departmentId, input.patch);
       await audit(tx, ctx, { action: "department.update", target: { kind: "department", id: dept.id }, details: { fields: Object.keys(input.patch) } });
       return dept;
@@ -89,8 +144,7 @@ export const departmentRouter = router({
   split: adminProcedure.input(z.object({ sourceId: Id, department: CreateDepartmentInput })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const result = await repos.departments.split(tx, ctx.businessId, input.sourceId, input.department);
-      let position = 0;
-      for (const moduleKey of result.created.moduleKeys) for (const tab of tabsFor(moduleKey)) await repos.screens.upsert(tx, ctx.businessId, { departmentId: result.created.id, tabSlug: tab.slug, title: tab.title, position: position++, layout: { widgets: [{ key: `module:${moduleKey}/${tab.slug}`, x: 0, y: 0, w: 12, h: 60, settings: {} }] } });
+      await seedScreens(tx, ctx.businessId, result.created.id, result.created.moduleKeys);
       await audit(tx, ctx, { action: "department.split", target: { kind: "department", id: result.created.id }, details: { source: input.sourceId } });
       return result;
     }),
@@ -112,23 +166,37 @@ export const departmentRouter = router({
     }),
   ),
 
-  /** Restore archetype seeds: missing departments are re-created, existing ones get their default identity back. */
+  /** Brings an archived department back with its tabs (Settings › Departments "Archived", and the archive toast's Undo). */
+  restore: adminProcedure.input(z.object({ departmentId: Id })).mutation(({ ctx, input }) =>
+    ctx.rls(async (tx) => {
+      const dept = await repos.departments.restore(tx, ctx.businessId, input.departmentId);
+      await audit(tx, ctx, { action: "department.restore", target: { kind: "department", id: dept.id } });
+      return dept;
+    }),
+  ),
+
+  /**
+   * Restore archetype seeds: existing ones get their default identity back, archived ones are restored first (their slug
+   * still holds the unique key, so they are never inserted twice), missing ones are re-created.
+   */
   resetDefaults: adminProcedure.mutation(({ ctx }) =>
     ctx.rls(async (tx) => {
       if (!ctx.business.archetype) throw new ValidationError("The business has no archetype to reset to");
       const seed = getArchetypeSeed(ctx.business.archetype);
-      const existing = await repos.departments.list(tx, ctx.businessId, { includeHidden: true });
+      const existing = await repos.departments.list(tx, ctx.businessId, { includeHidden: true, includeArchived: true });
       const restored: string[] = [];
       for (const d of seed.departments) {
         const slug = d.slug.replace(/_/g, "-");
         const match = existing.find((e) => e.slug === slug);
         if (match) {
+          if (match.archivedAt) await repos.departments.restore(tx, ctx.businessId, match.id);
           await repos.departments.update(tx, ctx.businessId, match.id, { name: d.name, icon: d.icon, colourToken: d.colourToken, position: d.position, moduleKeys: d.moduleKeys, hidden: false });
+          // A department that comes back without tabs (all of them removed before it was archived) gets its module tabs.
+          if ((await repos.screens.list(tx, ctx.businessId, match.id)).length === 0) await seedScreens(tx, ctx.businessId, match.id, d.moduleKeys);
           restored.push(match.id);
         } else {
           const created = await repos.departments.create(tx, ctx.businessId, { name: d.name, slug, icon: d.icon, colourToken: d.colourToken, position: d.position, moduleKeys: d.moduleKeys, budgetMinor: d.budgetMinor });
-          let position = 0;
-          for (const moduleKey of d.moduleKeys) for (const tab of tabsFor(moduleKey)) await repos.screens.upsert(tx, ctx.businessId, { departmentId: created.id, tabSlug: tab.slug, title: tab.title, position: position++, layout: { widgets: [{ key: `module:${moduleKey}/${tab.slug}`, x: 0, y: 0, w: 12, h: 60, settings: {} }] } });
+          await seedScreens(tx, ctx.businessId, created.id, d.moduleKeys);
           restored.push(created.id);
         }
       }

@@ -13,7 +13,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { createServerPrefetch } from "./hydrate.server";
 import { shellQueryInputs } from "./shell-queries";
 import type { RouterOutputs } from "./trpc";
-import { createServerClient, serverBusiness, type ServerApi } from "./trpc-server";
+import { createServerClient, serverBusiness, serverDepartments, type ServerApi } from "./trpc-server";
 
 export interface BusinessShellStart {
   businessId: string;
@@ -29,7 +29,12 @@ export function startBusinessShell(server: ServerApi, businessId: string): Busin
     if (!b) throw new Error("Signed out");
     return b;
   });
-  const data = Promise.all([business, server.api.department.list.query(inputs.departments)]);
+  // `serverDepartments` is the same request-cached call the department and agent pages' browser titles read.
+  const departments = serverDepartments(businessId).then((d) => {
+    if (!d) throw new Error("Signed out");
+    return d;
+  });
+  const data = Promise.all([business, departments]);
   // The caller may leave before awaiting (a redirect, a different business); it handles the outcome when it does await.
   data.catch(() => undefined);
   return {

@@ -7,7 +7,7 @@
  * agents never send a human-to-human message; only the founder's own Send does. The shell's stream signal refreshes
  * these lists when something reaches the founder.
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { StatusStrip, useToast, type MetricTileProps } from "@foundmill/dugout";
@@ -21,8 +21,12 @@ import { ConnectionsPanel, InvitationsPanel, RequestsPanel, SentRequestsPanel, t
 import { MessagesPanel, type Selection } from "./MessagesPanel";
 import { AdultNotice, PersonalNotice, usePeople } from "./shared";
 import { userChannel } from "./signals";
+import { PeopleSearchPanel } from "./PeopleSearchPanel";
 import { useLiveViewer } from "./viewer";
 import { VisibilityPanel } from "./VisibilityPanel";
+
+/** Conversations per page; "Show more conversations" asks for the next. */
+const THREADS_PAGE = 50;
 
 export function NetworkScreen() {
   const viewer = useLiveViewer();
@@ -37,12 +41,17 @@ export function NetworkScreen() {
   // without the stream they are polled, like the shell's badge, so a request never waits for a reload.
   const poll = streamPollInterval(useChannelLive(userChannel(viewer.userId)), 30_000);
   const connectionsQ = useQuery(trpc.live.connections.list.queryOptions(undefined, { staleTime: 15_000, refetchInterval: poll }));
-  const threadsQ = useQuery(trpc.live.messages.threads.queryOptions({ limit: 100 }, { staleTime: 10_000, refetchInterval: 30_000 }));
+  const threadsQ = useInfiniteQuery(
+    trpc.live.messages.threads.infiniteQueryOptions({ limit: THREADS_PAGE }, { getNextPageParam: (last) => last.nextCursor ?? undefined, initialCursor: null, staleTime: 10_000, refetchInterval: 30_000 }),
+  );
   const unreadQ = useQuery(trpc.live.messages.unread.queryOptions(undefined, { staleTime: 10_000, refetchInterval: 30_000 }));
   const invitationsQ = useQuery(trpc.live.communities.invitations.queryOptions(undefined, { staleTime: 15_000, refetchInterval: poll }));
 
   const rows = useMemo<ConnectionRow[]>(() => connectionsQ.data ?? [], [connectionsQ.data]);
-  const threads = useMemo(() => threadsQ.data?.items ?? [], [threadsQ.data]);
+  const threads = useMemo(() => {
+    const seen = new Set<string>();
+    return (threadsQ.data?.pages ?? []).flatMap((p) => p.items).filter((t) => !seen.has(t.id) && !!seen.add(t.id));
+  }, [threadsQ.data]);
   const invitations = useMemo<InvitationRow[]>(() => invitationsQ.data ?? [], [invitationsQ.data]);
   const groups = useMemo(() => groupConnections(rows, viewer.userId), [rows, viewer.userId]);
   const peopleIds = useMemo(
@@ -115,6 +124,7 @@ export function NetworkScreen() {
       <StatusStrip className="col-span-12" tiles={tiles} aria-label="Network at a glance" data-testid="network-strip" />
       {/* One way on from an empty network, not three: only Connections offers "Browse communities". */}
       <div className="col-span-4 flex min-w-0 flex-col gap-gutter">
+        <PeopleSearchPanel />
         <RequestsPanel rows={groups.incoming} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} busyId={busyId} onAccept={handlers.onAccept} onRemove={handlers.onRemove} onBlock={handlers.onBlock} />
         <SentRequestsPanel rows={groups.outgoing} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} busyId={busyId} onRemove={handlers.onRemove} />
         <InvitationsPanel rows={invitations} people={people} loading={invitationsQ.isLoading} error={invitationsQ.error ? errorMessage(invitationsQ.error) : undefined} onRetry={() => void invitationsQ.refetch()} busyId={invitationBusy} onJoin={onJoin} onDecline={onDecline} />
@@ -131,6 +141,9 @@ export function NetworkScreen() {
           loading={threadsQ.isLoading}
           error={threadsQ.error ? errorMessage(threadsQ.error) : undefined}
           onRetry={() => void threadsQ.refetch()}
+          hasMoreThreads={threadsQ.hasNextPage}
+          onLoadMoreThreads={() => void threadsQ.fetchNextPage()}
+          loadingMoreThreads={threadsQ.isFetchingNextPage}
         />
         <ConnectionsPanel rows={[...groups.accepted, ...groups.blocked]} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} onBlock={handlers.onBlock} onRemove={handlers.onRemove} onMessage={handlers.onMessage} onFind={findFounders} />
       </div>

@@ -34,6 +34,11 @@ test.describe("settings, plain words", () => {
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await expect(dialog).not.toContainText(/come later|for now this records/);
+    // Going live is for adults: the review asks for "I am 18 or older" and Confirm waits for it.
+    await expect(dialog).toContainText("18 or older");
+    await expect(dialog.getByRole("button", { name: "Confirm" })).toBeDisabled();
+    await dialog.getByTestId("confirm-adult").click();
+    await expect(dialog.getByRole("button", { name: "Confirm" })).toBeEnabled();
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toBeHidden();
   });

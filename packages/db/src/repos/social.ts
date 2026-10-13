@@ -177,6 +177,50 @@ export const socialRepo = {
     return one(await db.select({ at: networkAttestations.adultConfirmedAt }).from(networkAttestations).where(eq(networkAttestations.userId, v)).limit(1), "attestation").at;
   },
 
+  /**
+   * "On {APP_NAME}" search for a signed-in person: the public profiles that match, minus the viewer's own founder row and
+   * any founder who is blocked either way (a block is never announced, so those simply do not turn up). Businesses and
+   * founders come from the `public_profiles` view, so only LIVE, committed businesses and founders who made their name
+   * public can be found (BUILD §11.14).
+   */
+  async searchPublicFor(db: Executor, viewerId: string, q: string, options: { limit?: number } = {}): Promise<PublicProfile[]> {
+    const limit = options.limit ?? 10;
+    const rows = await socialRepo.searchPublic(db, q, { limit: limit + 10 });
+    const blocked = new Set<string>();
+    await Promise.all(
+      rows
+        .filter((r) => r.kind === "founder" && r.userId && r.userId !== viewerId)
+        .map(async (r) => {
+          const res = rowsOf<{ blocked: boolean }>(await db.execute(sql`select connection_is_blocked(${viewerId}::uuid, ${r.userId}::uuid) as blocked`));
+          if (res[0]?.blocked) blocked.add(r.userId!);
+        }),
+    );
+    return rows.filter((r) => r.kind === "business" || (!!r.userId && r.userId !== viewerId && !blocked.has(r.userId))).slice(0, limit);
+  },
+
+  /**
+   * One public profile and what hangs off it, from the same view: a business (by its id) with the founders who made
+   * their name public, or a founder (by user id) with the LIVE businesses they run. Null when it is not public.
+   */
+  async publicProfileOf(db: Executor, kind: (typeof publicProfiles.kind.enumValues)[number], id: string): Promise<{ profile: PublicProfile; businesses: PublicProfile[]; founders: PublicProfile[] } | null> {
+    const key = parseInput(Id, id, "profile id");
+    if (kind === "business") {
+      const profile = await socialRepo.publicProfile(db, key);
+      if (!profile) return null;
+      const founders = await db.select().from(publicProfiles).where(and(eq(publicProfiles.kind, "founder"), eq(publicProfiles.businessId, key))).orderBy(asc(publicProfiles.displayName));
+      return { profile, businesses: [profile], founders };
+    }
+    const rows = await db.select().from(publicProfiles).where(and(eq(publicProfiles.kind, "founder"), eq(publicProfiles.userId, key)));
+    const profile = rows[0];
+    if (!profile) return null;
+    const businessRows = await db
+      .select()
+      .from(publicProfiles)
+      .where(and(eq(publicProfiles.kind, "business"), inArray(publicProfiles.businessId, rows.map((r) => r.businessId))))
+      .orderBy(asc(publicProfiles.displayName));
+    return { profile, businesses: businessRows, founders: [profile] };
+  },
+
   // connections (user-scoped) -----------------------------------------------------------------------------------------
   /**
    * A new request. Whoever has blocked the other, the answer is no: the blocker is told to unblock first; the blocked

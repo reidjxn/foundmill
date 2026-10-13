@@ -123,7 +123,7 @@ export const businessRouter = router({
       const changed = await repos.businesses.setGameMode(tx, ctx.businessId, input.gameMode);
       if (from !== input.gameMode) {
         await emit(tx, ctx, { type: "mode.changed", payload: { scope: "game", from, to: input.gameMode, reason: input.reason ?? null } });
-        await audit(tx, ctx, { action: "business.set_game_mode", target: { kind: "business", id: ctx.businessId }, details: { from, to: input.gameMode } });
+        await audit(tx, ctx, { action: "business.set_game_mode", target: { kind: "business", id: ctx.businessId }, details: { from, to: input.gameMode, ...(input.gameMode === "live" ? { confirmedAdult: true } : {}) } });
       }
       return changed;
     });

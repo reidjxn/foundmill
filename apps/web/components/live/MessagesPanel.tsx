@@ -9,7 +9,7 @@
  * in it, connected or not (`live.connections.block`). A thread the founder can no longer write to (a removed connection,
  * a group member they are not connected with, a block) shows why in place of the reply box.
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { Ban, BellOff, BellRing, Lock, LogOut, Mail, MailCheck, MessageSquare, MoreHorizontal, SquarePen, UserPlus } from "lucide-react";
 import { useEffect, useMemo, useRef, type KeyboardEvent } from "react";
 import {
@@ -52,8 +52,14 @@ export interface MessagesPanelProps {
   loading?: boolean;
   error?: string;
   onRetry?: () => void;
+  /** More conversations exist than `threads` holds (the threads query is paged). */
+  hasMoreThreads?: boolean;
+  onLoadMoreThreads?: () => void;
+  loadingMoreThreads?: boolean;
 }
 
+/** Messages per page; the log opens on the newest and "Load earlier messages" pages upward. */
+export const MESSAGES_PAGE = 50;
 const NIL_THREAD = "00000000-0000-0000-0000-000000000000";
 const REFRESH = ["live.messages.threads", "live.messages.unread", "live.messages.list", "live.messages.thread", "live.summary"] as const;
 
@@ -64,14 +70,20 @@ const CLOSED_COPY: Record<string, string> = {
   archived: "This conversation is closed.",
 };
 
-export function MessagesPanel({ viewerId, threads, unreadTotal, people, selection, onSelect, loading, error, onRetry }: MessagesPanelProps) {
+export function MessagesPanel({ viewerId, threads, unreadTotal, people, selection, onSelect, loading, error, onRetry, hasMoreThreads, onLoadMoreThreads, loadingMoreThreads }: MessagesPanelProps) {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const { toast } = useToast();
 
   const thread = selection?.kind === "thread" ? threads.find((t) => t.id === selection.threadId) : undefined;
   const threadId = selection?.kind === "thread" ? selection.threadId : NIL_THREAD;
-  const messagesQ = useQuery(trpc.live.messages.list.queryOptions({ threadId, limit: 200 }, { enabled: selection?.kind === "thread", staleTime: 5_000, refetchInterval: 15_000, retry: false }));
+  // Newest first, a page at a time: nextCursor leads to older messages, so none is silently out of reach (audit LS2-13).
+  const messagesQ = useInfiniteQuery(
+    trpc.live.messages.list.infiniteQueryOptions(
+      { threadId, limit: MESSAGES_PAGE },
+      { getNextPageParam: (last) => last.nextCursor ?? undefined, initialCursor: null, enabled: selection?.kind === "thread", staleTime: 5_000, refetchInterval: 15_000, retry: false },
+    ),
+  );
   const paneQ = useQuery(trpc.live.messages.thread.queryOptions({ threadId }, { enabled: selection?.kind === "thread", staleTime: 5_000, retry: false }));
 
   const refresh = (paths: readonly string[]) => Promise.all(paths.map((p) => qc.invalidateQueries({ queryKey: trpcPathPrefix(p) as unknown[] })));
@@ -126,10 +138,11 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
   const connectStates = useConnectStates();
   const askable = connect.blocker ? [] : (pane?.participants ?? []).filter((p) => !p.connected && !p.blockedByMe && connectStates.stateOf(p.userId) === "none");
 
-  const messages = useMemo<ConversationMessage[]>(
-    () => [...(messagesQ.data?.items ?? [])].reverse().map((m) => ({ id: m.id, author: people.name(m.fromUser), self: m.fromUser === viewerId, body: m.body, at: m.createdAt })),
-    [messagesQ.data, people, viewerId],
-  );
+  const messages = useMemo<ConversationMessage[]>(() => {
+    const seen = new Set<string>();
+    const newestFirst = (messagesQ.data?.pages ?? []).flatMap((p) => p.items).filter((m) => !seen.has(m.id) && !!seen.add(m.id));
+    return newestFirst.reverse().map((m) => ({ id: m.id, author: people.name(m.fromUser), self: m.fromUser === viewerId, body: m.body, at: m.createdAt }));
+  }, [messagesQ.data, people, viewerId]);
 
   const titleOf = (t: ThreadRow) => threadTitle(t, viewerId, (id) => people.person(id));
   const withName = selection?.kind === "new" ? people.name(selection.userId) : thread ? titleOf(thread) : "";
@@ -206,6 +219,13 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
               );
             })}
           </ul>
+          {hasMoreThreads ? (
+            <div className="flex justify-center p-2">
+              <Button size="sm" variant="ghost" loading={loadingMoreThreads} onClick={onLoadMoreThreads}>
+                Show more conversations
+              </Button>
+            </div>
+          ) : null}
         </aside>
         <div className="flex min-w-0 flex-1 flex-col">
           {selection ? (
@@ -283,6 +303,9 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
                     </span>
                   ) : undefined
                 }
+                hasEarlier={selection.kind === "thread" && messagesQ.hasNextPage}
+                onLoadEarlier={() => void messagesQ.fetchNextPage()}
+                loadingEarlier={messagesQ.isFetchingNextPage}
               />
             </>
           ) : (

@@ -151,7 +151,7 @@ export function DangerTab() {
         <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>Delete {data.business.name} permanently?</DialogTitle>
-            <DialogDescription>Type the business name to continue. You will be asked to sign in again, then deletion runs in {DELETION_DELAY_DAYS} days unless canceled from the Inbox.</DialogDescription>
+            <DialogDescription>Type the business name to continue. You will be asked to sign in again, then deletion runs in {DELETION_DELAY_DAYS} days unless an owner cancels it here, in Settings › Danger zone.</DialogDescription>
           </DialogHeader>
           <DialogBody>
             <Field htmlFor="delete-confirm" label="Business name">
