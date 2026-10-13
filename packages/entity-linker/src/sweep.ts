@@ -283,7 +283,7 @@ function createMatcher(manifest: Manifest, opts: Required<Pick<SweepOptions, "fu
   // sentence is a name; any other lone word there is just the first word of the sentence.
   const surnames = new Set<string>();
   for (const e of visible) {
-    if (e.kind !== "person") continue;
+    if (!personLike(e)) continue;
     const words = normalizeName(e.name).split(" ");
     if (words.length >= 2) surnames.add(words[words.length - 1] as string);
   }
@@ -322,7 +322,7 @@ function createMatcher(manifest: Manifest, opts: Required<Pick<SweepOptions, "fu
       // Inside a quoted title it is just a word of the title; and at the start of a sentence every word is capitalized, so
       // there it needs to be a known given name or the surname of someone in the manifest (audit FR-23).
       if (singleToken && !quoted && opts.linkPartialMatches && key.length >= 3 && !DEFAULT_STOPLIST.has(key)) {
-        const partial = (wordIndex.get(key) ?? []).filter((e) => e.kind === "person");
+        const partial = (wordIndex.get(key) ?? []).filter(personLike);
         if (partial.length > 0) {
           if (sentenceStart && !GIVEN_NAMES.has(key) && !surnames.has(key)) return null;
           return { tier: "partial", candidates: dedupeById(partial).map((e) => toCandidate(e, PARTIAL_SCORE, "partial")) };
@@ -431,6 +431,12 @@ function draftPiece(text: string, tokens: readonly Token[], ignore: ReadonlySet<
   if (words.every((w) => w.length <= 1)) return null;
   if (words.every((w) => ORG_MARKERS.has(w) || DEFAULT_STOPLIST.has(w))) return null;
   return { kind: "draft", start: first.start, end: last.end, text: span, kindGuess: guessKind(words, personHint) };
+}
+
+/** A person, or an agent named like one ("Priya Natarajan"), as opposed to one named with common nouns ("Email Automation Engine"). */
+function personLike(e: ManifestEntity): boolean {
+  if (e.kind === "person") return true;
+  return e.kind === "agent" && guessKind(normalizeName(e.name).split(" ")) === "person";
 }
 
 /** Best-effort kind for a draft: a founder confirms it when the CRM entity is created. */

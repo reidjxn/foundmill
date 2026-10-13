@@ -14,10 +14,13 @@ import type { EntityLinkContextValue, EntityRef, EntityVerb } from "@foundmill/d
 import { routes } from "@foundmill/widgets/shared/routes";
 import { agentDetails, entityHref, recordDetails, type AgentSummary, type EntityLookupRow } from "./entity-links";
 import { isGuid } from "./ids";
+import { trpcErrorCode } from "./trpc";
 import { useTRPC } from "./trpc-react";
 
 /** Largest batch `crm.entity.lookup` takes. */
 export const LOOKUP_BATCH = 50;
+/** A lookup that failed (not a wall) is asked again no sooner than this. */
+const RETRY_AFTER_MS = 30_000;
 
 export interface EntityResolverOptions {
   businessId: string;
@@ -41,12 +44,14 @@ export function useEntityResolver({ businessId, agents, canReadCrm, navigate, on
   const queryClient = useQueryClient();
   const cache = useRef(new Map<string, EntityLookupRow | null>());
   const pending = useRef(new Set<string>());
+  const failedAt = useRef(new Map<string, number>());
   const timer = useRef<number | null>(null);
   const [version, setVersion] = useState(0);
 
   // A new business starts with an empty cache.
   useEffect(() => {
     cache.current = new Map();
+    failedAt.current = new Map();
     pending.current.clear();
     setVersion((v) => v + 1);
   }, [businessId]);
@@ -69,9 +74,16 @@ export function useEntityResolver({ businessId, agents, canReadCrm, navigate, on
       const rows = await queryClient.fetchQuery(trpc.crm.entity.lookup.queryOptions({ businessId, entityIds: ids }, { staleTime: 60_000 }));
       for (const id of ids) cache.current.set(id, null);
       for (const row of rows) cache.current.set(row.id, row);
-    } catch {
-      // Not readable (a wall, a blip): the mentions keep their names; nothing is asked again for these ids.
-      for (const id of ids) cache.current.set(id, null);
+    } catch (err) {
+      if (trpcErrorCode(err) === "FORBIDDEN") {
+        // A wall: the mentions keep their names and nothing is asked again for these ids.
+        for (const id of ids) cache.current.set(id, null);
+      } else {
+        // A blip must not unlink the mentions for good (null reads as "not a record"): leave them unresolved and ask
+        // again after a pause.
+        const at = Date.now();
+        for (const id of ids) failedAt.current.set(id, at);
+      }
     }
     setVersion((v) => v + 1);
     if (pending.current.size && timer.current === null) timer.current = window.setTimeout(() => void flush(), 0);
@@ -80,6 +92,7 @@ export function useEntityResolver({ businessId, agents, canReadCrm, navigate, on
   const request = useCallback(
     (id: string) => {
       if (!canReadCrm || !isGuid(id) || cache.current.has(id) || pending.current.has(id)) return;
+      if (Date.now() - (failedAt.current.get(id) ?? 0) < RETRY_AFTER_MS) return;
       pending.current.add(id);
       if (timer.current === null && typeof window !== "undefined") timer.current = window.setTimeout(() => void flush(), 0);
     },

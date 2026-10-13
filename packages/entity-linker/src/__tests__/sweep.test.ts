@@ -282,6 +282,13 @@ describe("sweep: partial links are for names, not for words (audit FR-23)", () =
     ]);
   });
 
+  it("still links an agent named like a person by a lone first name", async () => {
+    const PRIYA = "33333333-3333-4333-8333-333333333333";
+    const m = buildManifest([{ id: PRIYA, kind: "agent", name: "Priya Natarajan", role: "Distribution strategist" }, { id: AGENT, kind: "agent", name: "Email Automation Engine", role: "Email automation" }]);
+    const r = await sweep("Priya will review the launch plan.", m, null, { draftUnknown: false });
+    expect(r.linked.map((l) => [l.text, l.id])).toEqual([["Priya", PRIYA]]);
+  });
+
   it("a lone name inside a quotation is just a word of the quotation", async () => {
     const r = await sweep('The note "Lindqvist approved" was archived; then Lindqvist replied.', manifest, null, { draftUnknown: false });
     expect(r.linked.map((l) => [l.text, l.id])).toEqual([["Lindqvist", PERSON]]);
