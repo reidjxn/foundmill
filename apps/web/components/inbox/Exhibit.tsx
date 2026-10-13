@@ -7,7 +7,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Bot, ImageOff } from "lucide-react";
 import { useMemo } from "react";
-import { AgentStatusPill, Avatar, BarChart, Chip, DiffView, EmptyState, EntityCard, FunnelChart, LineChart, MiniTable, Panel, ProgressRing, ProvenanceChip, formatMoney, formatNumber, type EntityDetails, type MiniTableColumn } from "@foundmill/dugout";
+import { AgentStatusPill, Avatar, BarChart, Chip, DiffView, EmptyState, EntityCard, EntityLink, FunnelChart, LineChart, MiniTable, Panel, ProgressRing, ProvenanceChip, formatMoney, formatNumber, type EntityDetails, type MiniTableColumn } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useTRPC } from "@/lib/trpc-react";
@@ -202,9 +202,14 @@ function AgentExhibit({ agentId }: { agentId: string | null }) {
         <Avatar size={32} name={found.name} agent={{ seed: found.avatarSeed || found.id, dept: found.dept }} status={found.status} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <a href={routes.agent(businessId, found.id)} className="entity-link truncate text-body-strong text-primary">
-              {found.name}
-            </a>
+            {/* An agent mention like any other: hover card, and a click navigates in the app through the shell's EntityLink provider. */}
+            <EntityLink
+              entity={{ id: found.id, kind: "agent", name: found.name, href: routes.agent(businessId, found.id) }}
+              details={{ id: found.id, kind: "agent", name: found.name, href: routes.agent(businessId, found.id), subtitle: `${found.role} · ${found.department}`, portrait: { type: "agent", seed: found.avatarSeed || found.id, dept: found.dept, status: found.status } }}
+              contextMenu={false}
+              className="truncate text-body-strong text-primary"
+              data-testid="exhibit-agent-link"
+            />
             <AgentStatusPill status={found.status} />
           </div>
           <p className="truncate text-small text-secondary">

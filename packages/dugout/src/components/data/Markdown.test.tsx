@@ -54,6 +54,23 @@ describe("Markdown parser loading", () => {
     expect(container.querySelector("[data-entity-id]")).toBeNull();
   });
 
+  it("renders a link the parser will not follow as plain text, not an anchor with an empty href", async () => {
+    vi.resetModules();
+    const { Markdown, preloadMarkdown } = await import("./Markdown");
+    await preloadMarkdown();
+    const { container } = render(
+      <Markdown variant="body" entities={false} images={false}>
+        {"[js link](javascript:alert(4)) [data link](data:text/html,hi) [site](https://example.com) [here](/b/x/inbox)"}
+      </Markdown>,
+    );
+    const anchors = Array.from(container.querySelectorAll("a"));
+    expect(anchors.map((a) => a.getAttribute("href"))).toEqual(["https://example.com", "/b/x/inbox"]);
+    expect(screen.getByText("js link").tagName).toBe("SPAN");
+    expect(screen.getByText("data link").tagName).toBe("SPAN");
+    expect(anchors[0]?.getAttribute("target")).toBe("_blank");
+    expect(anchors[1]?.getAttribute("target")).toBeNull();
+  });
+
   it("renders formatted at once when the parser is already in", async () => {
     vi.resetModules();
     const { Markdown, preloadMarkdown } = await import("./Markdown");

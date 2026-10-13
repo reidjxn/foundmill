@@ -212,6 +212,45 @@ describe("/communities/[id]", () => {
     }
   });
 
+  it("after leaving, the feed asks to join again instead of showing the API's refusal as an error (audit MLSL-31)", async () => {
+    memberView();
+    let joined = true;
+    const forbidden = () => new TRPCClientError("Join the community to read its feed", { result: { error: { message: "Join the community to read its feed", code: -32003, data: { code: "FORBIDDEN" } } } as never });
+    const feed = api.handlers["live.communities.posts"]!;
+    api.handlers["live.communities.get"] = () => ({ community: community({ role: joined ? "owner" : null }), members: joined ? [member] : [], isMember: joined, role: joined ? "owner" : null });
+    api.handlers["live.communities.posts"] = (v) => {
+      if (!joined) throw forbidden();
+      return feed(v);
+    };
+    api.handlers["live.communities.leave"] = () => ((joined = false), {});
+    mount(<CommunityScreen communityId={ids.community} />);
+    expect(await screen.findAllByTestId("feed-post")).toHaveLength(2);
+    const postsBefore = callsTo(api, "live.communities.posts").length;
+    fireEvent.click(screen.getByTestId("community-leave"));
+    expect(await screen.findByText("Join this community to read its feed and post.")).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId("community-screen").getAttribute("data-member")).toBe("false"));
+    const feedPanel = screen.getByTestId("community-feed");
+    expect(feedPanel.textContent).not.toMatch(/Join the community to read its feed|Try again/);
+    expect(within(feedPanel).queryByRole("alert")).toBeNull();
+    // The feed is not asked for again once the person has left.
+    expect(callsTo(api, "live.communities.posts").length).toBe(postsBefore);
+  });
+
+  it("a reply box says who the reply goes out as, following the Post as switch", async () => {
+    memberView();
+    mount(<CommunityScreen communityId={ids.community} />);
+    const posts = await screen.findAllByTestId("feed-post");
+    fireEvent.click(within(posts[0]!).getByRole("button", { name: "Reply" }));
+    const thread = await within(posts[0]!).findByTestId("reply-thread");
+    expect(within(thread).getByText(/Replying as yourself/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("switch", { name: "Post as Ledgerly" }));
+    expect(within(thread).getByText(/Replying as Ledgerly/)).toBeTruthy();
+    const reply = within(thread).getByLabelText("Write a reply");
+    fireEvent.change(reply, { target: { value: "For the company." } });
+    fireEvent.click(within(thread).getByRole("button", { name: "Reply" }));
+    await waitFor(() => expect(callsTo(api, "live.communities.post").at(-1)).toMatchObject({ bodyMd: "For the company.", parentPostId: "p1", businessId: "b1" }));
+  });
+
   it("a visitor sees the description and size, is asked to join, and the feed is never requested", async () => {
     api.handlers["live.communities.get"] = () => ({ community: community({ role: null }), members: [], isMember: false, role: null });
     api.handlers["live.communities.join"] = () => ({});

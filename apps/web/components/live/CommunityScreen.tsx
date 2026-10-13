@@ -83,6 +83,8 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
     }),
   );
   const write = (body: string, parentPostId?: string) => post.mutateAsync({ communityId, bodyMd: body, parentPostId: parentPostId ?? null, businessId: mayPostAsBusiness && asBusiness ? businessId : null });
+  // Posts and replies go out under the same choice, so both boxes say who they post as.
+  const postingAs = mayPostAsBusiness && asBusiness ? data.business.name : "yourself";
 
   if (getQ.isLoading) return <div className="grid grid-cols-12 gap-gutter p-gutter"><Panel title="Community" span={12} loading data-testid="community-loading" /></div>;
   if (getQ.error || !community) {
@@ -137,7 +139,8 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
             span={8}
             flush
             loading={isMember && postsQ.isLoading}
-            error={postsQ.error ? errorMessage(postsQ.error) : undefined}
+            // A feed error belongs to a member's view only: a visitor (or someone who just left) sees the join prompt.
+            error={isMember && postsQ.error ? errorMessage(postsQ.error) : undefined}
             onRetry={() => void postsQ.refetch()}
             empty={!isMember ? { icon: Lock, children: "Join this community to read its feed and post.", action: { label: "Join", icon: LogIn, onClick: () => membership.join(community.id, community.name) } } : undefined}
             actions={isMember ? <span className="text-small tabular-nums text-secondary">{posts.length} {posts.length === 1 ? "post" : "posts"}</span> : undefined}
@@ -151,7 +154,7 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
                 icon={MessageSquare}
                 placeholder="Share something with the community"
                 onSubmit={(body) => write(body)}
-                note={`Posting as ${mayPostAsBusiness && asBusiness ? data.business.name : "yourself"}. Only you post; an agent can draft, never send.`}
+                note={`Posting as ${postingAs}. Only you post; an agent can draft, never send.`}
               />
               {mayPostAsBusiness ? (
                 <div className="mt-2 flex items-center gap-2">
@@ -174,6 +177,7 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
                   onReply={() => toggleThread(p.id, true)}
                   communityId={communityId}
                   onWrite={write}
+                  postingAs={postingAs}
                 />
               ))}
             </div>
@@ -219,7 +223,7 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
   );
 }
 
-function FeedPostItem({ post, people, open, onToggle, onReply, communityId, onWrite }: { post: PostRow; people: People; open: boolean; onToggle: () => void; onReply: () => void; communityId: string; onWrite: (body: string, parentPostId?: string) => Promise<unknown> }) {
+function FeedPostItem({ post, people, open, onToggle, onReply, communityId, onWrite, postingAs }: { post: PostRow; people: People; open: boolean; onToggle: () => void; onReply: () => void; communityId: string; onWrite: (body: string, parentPostId?: string) => Promise<unknown>; postingAs: string }) {
   const datePrefs = useDateFormat();
   return (
     <FeedPost
@@ -231,7 +235,7 @@ function FeedPostItem({ post, people, open, onToggle, onReply, communityId, onWr
       repliesOpen={open}
       onToggleReplies={onToggle}
       onReply={onReply}
-      thread={open ? <ReplyThread communityId={communityId} parentId={post.id} onWrite={onWrite} /> : undefined}
+      thread={open ? <ReplyThread communityId={communityId} parentId={post.id} onWrite={onWrite} postingAs={postingAs} /> : undefined}
       data-testid="feed-post"
       data-post-id={post.id}
     >
@@ -240,8 +244,8 @@ function FeedPostItem({ post, people, open, onToggle, onReply, communityId, onWr
   );
 }
 
-/** The replies under one post, oldest first, and a box to add one. */
-function ReplyThread({ communityId, parentId, onWrite }: { communityId: string; parentId: string; onWrite: (body: string, parentPostId?: string) => Promise<unknown> }) {
+/** The replies under one post, oldest first, and a box to add one (saying who the reply goes out as). */
+function ReplyThread({ communityId, parentId, onWrite, postingAs }: { communityId: string; parentId: string; onWrite: (body: string, parentPostId?: string) => Promise<unknown>; postingAs: string }) {
   const datePrefs = useDateFormat();
   const trpc = useTRPC();
   const q = useQuery(trpc.live.communities.posts.queryOptions({ communityId, parentPostId: parentId, limit: 100 }, { staleTime: 10_000, retry: false }));
@@ -261,7 +265,7 @@ function ReplyThread({ communityId, parentId, onWrite }: { communityId: string; 
       ))}
       {!q.isLoading && replies.length === 0 && !q.error ? <p className="px-panel-pad py-2 text-small text-secondary">No replies yet.</p> : null}
       <div className="px-panel-pad py-2">
-        <Composer aria-label="Write a reply" label="Reply" rows={2} placeholder="Write a reply" onSubmit={(body) => onWrite(body, parentId)} />
+        <Composer aria-label="Write a reply" label="Reply" rows={2} placeholder="Write a reply" onSubmit={(body) => onWrite(body, parentId)} note={`Replying as ${postingAs}.`} />
       </div>
     </div>
   );
