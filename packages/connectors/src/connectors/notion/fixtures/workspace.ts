@@ -14,7 +14,7 @@ export const NOTION_BLOCKS: Record<string, NotionBlock[]> = {
   [NOTION_PAGE_BRAND]: [
     { id: "0000000000000000000000000000b001", type: "heading_2", has_children: false, heading_2: { rich_text: [{ plain_text: "Voice" }] } },
     { id: "0000000000000000000000000000b002", type: "paragraph", has_children: false, paragraph: { rich_text: [{ plain_text: "Warm, direct, no superlatives. Every claim traces to a study or a customer quote." }] } },
-    { id: "0000000000000000000000000000b003", type: "bulleted_list_item", has_children: false, bulleted_list_item: { rich_text: [{ plain_text: "Kit colours: deep green #1F4D3A and sand #E7D8C3" }] } },
+    { id: "0000000000000000000000000000b003", type: "bulleted_list_item", has_children: false, bulleted_list_item: { rich_text: [{ plain_text: "Brand colors: deep green #1F4D3A and sand #E7D8C3" }] } },
   ],
   [NOTION_PAGE_LAUNCH]: [
     { id: "0000000000000000000000000000b010", type: "to_do", has_children: false, to_do: { rich_text: [{ plain_text: "Ship landing page" }], checked: true } },

@@ -498,9 +498,9 @@ describe("GitHub writes follow the founder's push settings", () => {
     const row = (settings: Record<string, unknown>) => ({ id: "i1", status: "connected", archivedAt: null, settings }) as unknown as Parameters<typeof guardGithubWrite>[1];
     const on = row({ repo: "acme/shop", writeEnabled: true });
     const args = { owner: "Acme", repo: "Shop", branch: "agent/t1", message: "Code saved", files: [] };
-    expect(guardGithubWrite("commit_files", null, args)).toEqual({ reason: "Pushing to GitHub is not turned on for this business (Development › Code)" });
+    expect(guardGithubWrite("commit_files", null, args)).toEqual({ reason: "Pushing to GitHub is not turned on for this business (the Code tab)" });
     expect(guardGithubWrite("commit_files", row({ repo: "acme/shop" }), args)).toMatchObject({ reason: expect.stringContaining("not turned on") });
-    expect(guardGithubWrite("commit_files", row({ repo: "acme/other", writeEnabled: true }), args)).toEqual({ reason: "Agents change only acme/other, the repository chosen on Development › Code" });
+    expect(guardGithubWrite("commit_files", row({ repo: "acme/other", writeEnabled: true }), args)).toEqual({ reason: "Agents change only acme/other, the repository chosen on the Code tab" });
     expect(guardGithubWrite("commit_files", on, args)).toEqual({ args: { ...args, message: "Code saved\n\n[skip ci]" } });
     expect(guardGithubWrite("commit_files", on, { ...args, message: "x [skip ci]" })).toEqual({ args: { ...args, message: "x [skip ci]" } });
     // An upper-case marker is not GitHub's: the real one is still added.

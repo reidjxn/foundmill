@@ -10,12 +10,12 @@
  * founder canceled (agent.training.cancel) stays canceled whatever lands later. The live version is never touched
  * here; Promote is the founder's button (apps/api).
  */
-import { AgentInstructions, buildSystemPrompt, detectClubRuleViolation, getPrompt, getSkillDefinition, getSkillTests, ratingFromTested, runDeterministicChecks, type AgentTemplate, type SkillTest } from "@foundmill/agents";
+import { AgentInstructions, buildSystemPrompt, detectClubRuleViolation, getPrompt, getSkillDefinition, getSkillTests, ratingFromTested, runDeterministicChecks, skillDisplayName, type AgentTemplate, type SkillTest } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { ACTIVE_TRAINING_STATUSES, repos } from "@foundmill/db";
 import { SkillGradeOutput, resolveModel } from "@foundmill/models";
 import { MockSandboxProvider, RECORDINGS, type MockSandbox } from "@foundmill/sandbox";
-import { NotFoundError, type ModelKey } from "@foundmill/shared";
+import { NotFoundError, countOf, formatCount, type ModelKey } from "@foundmill/shared";
 import { ApplicationFailure } from "@temporalio/common";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
@@ -169,7 +169,7 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
           // 1. the candidate answers with mock tools only (no real email or spend can happen here)
           const answer = await deps.models.complete({
             route: template.route,
-            system: [system, `## Training\nYou are being tested on "${definition?.name ?? input.skillKey}". Available mock tools: ${test.task.mockTools.join(", ") || "none"}. Answer the task directly.`],
+            system: [system, `## Training\nYou are being tested on "${skillDisplayName(input.skillKey)}". Available mock tools: ${test.task.mockTools.join(", ") || "none"}. Answer the task directly.`],
             messages: [{ role: "user", content: `${test.task.prompt}\n\n\`\`\`json\n${JSON.stringify({ task: { id: test.id, title: test.task.title, kind: template.taskKinds[0] ?? "ops" }, fixtures: test.task.fixtures })}\n\`\`\`` }],
             modelOverride: route.modelKey,
             scope: `training:${agent.id}`,
@@ -235,7 +235,8 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       const advice = !retest ? recommendation : recommendation === "promote" ? `promote, so the live version runs on ${MODEL_NAMES[retest.toModelKey]} too` : `discard, and change the model back to ${MODEL_NAMES[retest.fromModelKey]} (the agent works on ${MODEL_NAMES[retest.toModelKey]} until you do)`;
       const coachSummaryMd = input.status
         ? `Training ${input.status === "cancelled" ? "canceled" : "failed"}${input.error ? `: ${input.error}` : ""}.`
-        : `${intro}${input.outcomes.reduce((a, o) => a + o.testsRun, 0)} tests across ${input.outcomes.length} skills. ${gains.length} skill${gains.length === 1 ? "" : "s"} up, ${drops.length} dropped by more than a point${drops.length ? ` (${drops.map((d) => `${d.skillKey} ${d.before}→${d.after}`).join(", ")})` : ""}.${flagNote} Recommendation: ${advice} (Estimate from tested ratings; proven ratings follow live work).`;
+        : // Skills by their display names ("Prioritization", "Test automation"), never the stored keys.
+          `${intro}${countOf(input.outcomes.reduce((a, o) => a + o.testsRun, 0), "test")} across ${countOf(input.outcomes.length, "skill")}. ${countOf(gains.length, "skill")} up, ${formatCount(drops.length)} dropped by more than a point${drops.length ? ` (${drops.map((d) => `${skillDisplayName(d.skillKey)} ${d.before}→${d.after}`).join(", ")})` : ""}.${flagNote} Recommendation: ${advice} (Estimate from tested ratings; proven ratings follow live work).`;
       // Only a run still in flight takes the outcome: a founder's cancel (agent.training.cancel) that landed while the
       // tests ran stands, and keeps what the tests cost.
       const moved = await repos.training.transition(db, input.businessId, run.id, ACTIVE_TRAINING_STATUSES, { status: input.status ?? "awaiting_decision", results, coachSummaryMd, costMinor, endedAt: deps.clock.now() });

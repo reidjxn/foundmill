@@ -55,8 +55,8 @@ interface CommitFilesData {
 /** Push one save to the agent's branch. Records the outcome on the save; never throws. */
 export async function pushWorkspace(db: Db, gateway: GatewayClient, ctx: PushContext, snapshot: WorkspaceSnapshot): Promise<PushResult> {
   const target = await repos.integrations.codeRepository(db, ctx.businessId);
-  if (!target) return { status: "skipped", reason: "connect GitHub and choose a repository on Development › Code" };
-  if (!target.writeEnabled) return { status: "skipped", reason: `pushing to ${target.fullName} is turned off (Development › Code)` };
+  if (!target) return { status: "skipped", reason: "connect GitHub and choose a repository on the Code tab" };
+  if (!target.writeEnabled) return { status: "skipped", reason: `pushing to ${target.fullName} is turned off (the Code tab)` };
   if (ctx.holdBack) return { status: "skipped", reason: ctx.holdBack };
   const repo = target.fullName;
   const branch = ctx.branch;
@@ -136,7 +136,7 @@ export function describePush(push: PushResult): { level: "info" | "warn"; text: 
     case "up_to_date":
       return null;
     case "skipped":
-      return { level: "info", text: `Not pushed to GitHub: ${push.reason}. The code is saved on Development › Code.` };
+      return { level: "info", text: `Not pushed to GitHub: ${push.reason}. The code is saved on the Code tab.` };
     case "awaiting_approval":
       return { level: "info", text: `Pushing to ${push.branch} on ${push.repo} is waiting for your approval.` };
     case "failed":

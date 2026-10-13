@@ -166,8 +166,8 @@ export function makeEvent<T extends EventType>(type: T, input: MakeEventInput<T>
 // ---------------------------------------------------------------------------------------------------
 
 export const SIMULATE_EVENTS = [
-  { name: "signup.created", label: "New signup", description: "A visitor signs up (Match Day: friendly).", emits: "signup.created" },
-  { name: "payment.received", label: "Payment received", description: "A first Stripe payment lands (Match Day: cup tie).", emits: "payment.received" },
+  { name: "signup.created", label: "New signup", description: "A visitor signs up (a brief Customer Update).", emits: "signup.created" },
+  { name: "payment.received", label: "Payment received", description: "A first Stripe payment lands (a featured Customer Update).", emits: "payment.received" },
   { name: "lead.replied", label: "Lead replied", description: "An outbound email gets a reply.", emits: "lead.replied" },
   { name: "bank.sync", label: "Bank sync", description: "Open-banking sync updates the balance.", emits: "bank.balance_updated" },
   { name: "cpa.spike", label: "CPA spike", description: "Paid campaign CPA over cap for 48 h; engine pauses it.", emits: "channel.threshold_breached" },

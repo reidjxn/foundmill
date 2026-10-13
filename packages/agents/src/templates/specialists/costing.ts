@@ -23,12 +23,12 @@ export const costing = defineSpecialistTemplate({
     "Build the per-unit landed cost per volume tier; add channel fees and expected returns per channel.",
     "Compute margins at each price point; flag channels below the target margin.",
     "Run scenarios (volume, FX ±10%, air vs sea) and write the one-paragraph implication for the founder.",
-    "Publish the model version; notify Finance and Distribution.",
+    "Publish the model version; notify the finance and distribution leads.",
   ],
   examples: [
     {
       input: "Price €38 DTC, €24 wholesale; landed cost lines: formula €3.10 (qte_301), bottle €0.43 (qte_209), carton €0.21 (qte_240), fill €0.95 (qte_315), freight+duty €0.62 (lgq_12), 3PL €1.80 (3pl_2), payment fees 2.9%+€0.30.",
-      output: "Landed cost €7.11/unit (Estimate, EUR at ECB 2026-10-05). DTC margin 78% before marketing; wholesale 70%. Scenario: air freight +€0.29/unit; FX +10% USD on bottle and fill +€0.14. Model v4 published; Finance and Distribution notified.",
+      output: "Landed cost €7.11/unit (Estimate, EUR at ECB 2026-10-05). DTC margin 78% before marketing; wholesale 70%. Scenario: air freight +€0.29/unit; FX +10% USD on bottle and fill +€0.14. Model v4 published; finance and distribution leads notified.",
     },
   ],
   connectors: [grant("ecb_rates", ["rates.latest"])],

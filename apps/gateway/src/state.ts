@@ -78,7 +78,7 @@ export async function byokKeyPresent(db: Db, businessId: string): Promise<boolea
 
 export const keyRevokedDenial = (): StateDenial => ({
   policyId: KEY_REVOKED_POLICY_ID,
-  reasons: ["This club runs on its own Anthropic key and no live key is stored (revoked or never set); set a key in Settings → Keys to resume"],
+  reasons: ["This business runs on its own Anthropic key and no live key is stored (revoked or never set); set a key in Settings → Keys to resume"],
 });
 
 interface CacheEntry {

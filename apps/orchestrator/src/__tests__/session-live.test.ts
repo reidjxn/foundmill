@@ -270,7 +270,7 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
     const saved = await repos.workspaces.latest(t.db, t.businessId, t.codeTaskId);
     expect(saved?.files.map((f) => f.path)).toEqual(["package.json", "src/index.ts"]);
     expect(saved).toMatchObject({ sessionId, agentId: t.workerId, added: 2 });
-    expect(allNotes.some((r) => r.event.kind === "note" && /Saved this task's code: 2 files \(\d+ KB\), 2 added\. Development › Code shows it\./.test(r.event.text))).toBe(true);
+    expect(allNotes.some((r) => r.event.kind === "note" && /Saved this task's code: 2 files \(\d+ KB\), 2 added\. the Code tab shows it\./.test(r.event.text))).toBe(true);
   });
 
   it("code task: the next session on the task starts from the saved code, is told it is data, and its recipients are untrusted from the first call", async () => {
@@ -461,7 +461,7 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
       expect(offline.calls.slice(calls).filter((c) => c.tool === "commit_files")).toEqual([]);
       expect((await repos.workspaces.latest(t.db, t.businessId, t.codeTaskId))).toMatchObject({ sessionId: failedId, pushedCommitSha: null });
       const failedNotes = await readSessionEvents(t.redis, failedId, { kinds: ["note"] });
-      expect(failedNotes.map((r) => (r.event.kind === "note" ? r.event.text : ""))).toContain("Not pushed to GitHub: the session did not finish. The code is saved on Development › Code.");
+      expect(failedNotes.map((r) => (r.event.kind === "note" ? r.event.text : ""))).toContain("Not pushed to GitHub: the session did not finish. The code is saved on the Code tab.");
     } finally {
       await repos.integrations.disconnect(t.deps.db, t.businessId, (await repos.integrations.getByKey(t.deps.db, t.businessId, "github"))!.id);
     }

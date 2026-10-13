@@ -106,6 +106,19 @@ describe("archetype seeds (BUILD §11.1, AC-11.1.6)", () => {
     }
   });
 
+  it("first-cycle tasks and the Board decision use the product's words, not football (CLAUDE.md 2026-10-08)", () => {
+    // Task goals become tasks.goal_md (Live sessions goal line, the agent's task prompt); the Board body is an Inbox item.
+    const FOOTBALL = /\b(?:formations?|squads?|clubs?|bench|captains?|match[\s-]?days?|kick[\s-]?offs?|pitch|troph(?:y|ies)|seasons?|injured)\b/i;
+    for (const seed of ARCHETYPE_SEED_LIST) {
+      for (const t of seed.firstCycleTasks) {
+        for (const text of [t.title, t.goal, ...t.acceptance]) expect(text, `${seed.archetype}/${t.kind}`).not.toMatch(FOOTBALL);
+      }
+      const d = seed.boardDecision;
+      for (const text of [d.subject, d.bodyMd, ...d.options.flatMap((o) => [o.label, o.consequence])]) expect(text, seed.archetype).not.toMatch(FOOTBALL);
+    }
+    expect(getArchetypeSeed("b2b_saas").firstCycleTasks.find((t) => t.kind === "channel")!.goal).toContain("Channel Board");
+  });
+
   it("templateKeysForArchetype starts with the Chief of Staff, hires the utilities and never repeats a key", () => {
     for (const a of ARCHETYPES) {
       const keys = templateKeysForArchetype(a);

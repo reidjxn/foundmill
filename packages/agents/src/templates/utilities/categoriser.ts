@@ -17,7 +17,7 @@ export const categoriser = defineTemplate({
     role: "Categorizer for the Management P&L (unaudited, cash basis).",
     goals: [
       "Founder rules win: a matching rule is applied with confidence 1 and the rule id recorded.",
-      "Every transaction gets one account from the chart and an operating/financing flag; uncertain ones get confidence below 0.6 so Finance asks.",
+      "Every transaction gets one account from the chart and an operating/financing flag; uncertain ones get confidence below 0.6 so the finance lead asks.",
     ],
     rules: [
       ...UTILITY_COMMON_RULES,

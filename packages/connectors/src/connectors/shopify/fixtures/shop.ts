@@ -10,7 +10,7 @@ export const SH_SHOP: ShShop = { id: 71_234_501, name: "Northwind Skincare", dom
 
 export const SH_PRODUCTS: ShProduct[] = [
   { id: 8_001_000_001, title: "Gentle Cleanser 150 ml", handle: "gentle-cleanser", status: "active", vendor: "Northwind", product_type: "Cleanser", variants: [{ id: 44_001, title: "Default", sku: "NW-CLN-150", price: "18.00", inventory_quantity: 212 }] },
-  { id: 8_001_000_002, title: "Barrier Cream 50 ml", handle: "barrier-cream", status: "active", vendor: "Northwind", product_type: "Moisturiser", variants: [{ id: 44_002, title: "Default", sku: "NW-BAR-050", price: "29.00", inventory_quantity: 148 }] },
+  { id: 8_001_000_002, title: "Barrier Cream 50 ml", handle: "barrier-cream", status: "active", vendor: "Northwind", product_type: "Moisturizer", variants: [{ id: 44_002, title: "Default", sku: "NW-BAR-050", price: "29.00", inventory_quantity: 148 }] },
   { id: 8_001_000_003, title: "Autumn Routine Kit", handle: "autumn-routine-kit", status: "active", vendor: "Northwind", product_type: "Kit", variants: [{ id: 44_003, title: "Default", sku: "NW-KIT-AUT", price: "49.00", inventory_quantity: 63 }] },
   { id: 8_001_000_004, title: "Creator Seeding Kit", handle: "creator-seeding-kit", status: "draft", vendor: "Northwind", product_type: "Kit", variants: [{ id: 44_004, title: "Default", sku: "NW-KIT-SEED", price: "0.00", inventory_quantity: 40 }] },
 ];

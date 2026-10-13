@@ -14,14 +14,14 @@ export const channelSeo = defineChannelTemplate({
   ],
   guardrails: [
     "No link schemes, paid links, doorway pages or hidden text; programmatic pages must each answer a distinct query with real data.",
-    "On-page changes ship as pull requests through the Development merge flow, never directly to the live site.",
+    "On-page changes ship as pull requests through the engineering merge flow, never directly to the live site.",
     "Report organic signups, not rankings alone; rankings are a leading indicator and are labeled so.",
   ],
   playbook: [
     "Plan: cluster keywords by intent and business fit; pick the clusters with signup intent and achievable difficulty.",
     "Create: write briefs (query, intent, outline, internal links, schema) and open PRs for technical fixes found in the audit.",
     "Approve: request approval for new page types and for anything published in the founder's name.",
-    "Launch: merge through the Development flow; submit sitemaps; verify indexing.",
+    "Launch: merge through the engineering flow; submit sitemaps; verify indexing.",
     "Measure: impressions, clicks and organic signups by cluster from Search Console and attribution.",
     "Learn and report: weekly movement by cluster, pages to expand or prune, next fixes.",
   ],

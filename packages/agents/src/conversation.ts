@@ -546,6 +546,7 @@ export interface ConversationTaskInput {
   phase?: string | null;
   /** 0–1 as stored; sent as a whole percentage so the agent quotes it as written. */
   progress?: number | null;
+  /** The expected finish as people read it ("Oct 11"), never an ISO date: the agent quotes it as written. */
   eta?: string | null;
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { APP_NAME } from "@foundmill/config";
 import { jsonResponse, routedFetch } from "../../http";
 import { MOCK_NOW } from "../../mock-utils";
 import { isUntrusted } from "../../quarantine";
@@ -59,6 +60,23 @@ describe("plaid live (canned responses)", () => {
     expect(bodies[0]).toMatchObject({ client_id: "cid", secret: "sec", access_token: "access-sandbox-1" });
     expect(bodies[1]).toMatchObject({ cursor: "c1" });
     expect(isUntrusted(r.data) && r.data.content).toMatchObject({ cursor: "c2", hasMore: false, consentExpiresAt: "2027-01-01T00:00:00Z", accounts: [{ type: "checking", booked: { amountMinor: 125_075 }, available: { amountMinor: 100_000 }, institution: "Mercury" }], newTransactions: [{ id: "t1", amount: { amountMinor: -4250 }, category: "GENERAL_SERVICES" }, { id: "t2", amount: { amountMinor: 120_000 } }] });
+  });
+  it("opens Plaid Link under the product's name (APP_NAME), the name the founder sees in Link", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const connector = createPlaidConnector({
+      secrets: { plaidClientId: "cid", plaidSecret: "sec", plaidEnv: "sandbox" },
+      now: () => MOCK_NOW,
+      fetch: routedFetch({
+        "POST https://sandbox.plaid.com/link/token/create": async (req) => {
+          bodies.push((await req.json()) as Record<string, unknown>);
+          return jsonResponse({ link_token: "link-sandbox-1", expiration: "2026-10-07T12:00:00Z" });
+        },
+      }),
+    });
+    const integration = await connector.connect(TEST_BUSINESS_ID, {});
+    expect(integration.config).toMatchObject({ linkToken: "link-sandbox-1" });
+    expect(bodies[0]).toMatchObject({ client_name: APP_NAME });
+    expect(JSON.stringify(bodies[0])).not.toMatch(/Founder Manager/);
   });
   it("throws ConfigError without keys or an access token", async () => {
     const c = createPlaidConnector({ secrets: {} });

@@ -86,7 +86,8 @@ export async function composeCommentary(deps: { db: Db; models: ModelClient; log
   const system = prompts.journeyCommentaryPrompt.render({ business_name: business.name, matchday_level: UPDATE_LEVEL_FOR_PROMPT[journey.matchdayLevel], customer_term: customerTerm, touch_count: touchCount });
   const inputs = {
     business_name: business.name,
-    matchday_level: journey.matchdayLevel,
+    // The update level by its display name (brief / standard / featured), never the internal enum (CLAUDE.md 2026-10-08).
+    update_level: UPDATE_LEVEL_FOR_PROMPT[journey.matchdayLevel],
     conversion_kind: journey.conversion.kind,
     conversion: { id: journey.conversion.id, kind: journey.conversion.kind, amount_minor: journey.conversion.amountMinor, currency: journey.conversion.currency, occurred_at: journey.conversion.occurredAt.toISOString() },
     customer: journey.entity ? { id: journey.entity.id, name: journey.entity.displayName, kind: journey.entity.kind } : null,
