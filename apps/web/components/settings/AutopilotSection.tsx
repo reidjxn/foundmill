@@ -127,6 +127,14 @@ export function AutopilotSection() {
         <Switch id="autopilot-switch" checked={s.enabled && s.pausedReason === null} disabled={toggle.isPending} onCheckedChange={(enabled) => toggle.mutate({ businessId, enabled })} data-testid="autopilot-switch" />
         <Label htmlFor="autopilot-switch">Run this business on Autopilot</Label>
       </div>
+      {/* A paused Autopilot stays on until the founder decides: turn it back on with the switch, or off for good here. */}
+      {s.enabled && s.pausedReason !== null ? (
+        <div>
+          <Button type="button" variant="default" loading={toggle.isPending} onClick={() => toggle.mutate({ businessId, enabled: false })} data-testid="autopilot-turn-off">
+            Turn Autopilot off
+          </Button>
+        </div>
+      ) : null}
       <Hint>
         Off by default. When on, the next cycle starts on its own, the way Continue starts one: every approval, hard gate and policy check applies, and Autopilot never approves anything for you. Stop all agents stops it, and Resume does not turn it back on.
       </Hint>

@@ -98,6 +98,25 @@ describe("Autopilot section", () => {
     await waitFor(() => expect(set).toHaveBeenCalledWith({ businessId: BUSINESS, enabled: true }));
   });
 
+  it("lets the founder turn a paused Autopilot off for good, and offers that only while it is paused", async () => {
+    current = status({ enabled: true, state: "paused", label: "Paused: agents stopped", detail: "Stop all agents was pressed, so Autopilot paused.", pausedReason: "kill_switch" });
+    renderSection();
+    fireEvent.click(await screen.findByTestId("autopilot-turn-off"));
+    await waitFor(() => expect(set).toHaveBeenCalledWith({ businessId: BUSINESS, enabled: false }));
+  });
+
+  it("does not offer Turn off while it is running or off", async () => {
+    current = status({ enabled: true, state: "on", label: "On", detail: "Autopilot is running the business." });
+    const { unmount } = renderSection();
+    await screen.findByTestId("autopilot-chip");
+    expect(screen.queryByTestId("autopilot-turn-off")).toBeNull();
+    unmount();
+    current = status();
+    renderSection();
+    await screen.findByTestId("autopilot-chip");
+    expect(screen.queryByTestId("autopilot-turn-off")).toBeNull();
+  });
+
   it("shows the API's reason when it cannot be turned on (the team is stopped)", async () => {
     set.mockRejectedValueOnce(new Error("Agents are stopped (Stop all agents), so Autopilot cannot start."));
     renderSection();

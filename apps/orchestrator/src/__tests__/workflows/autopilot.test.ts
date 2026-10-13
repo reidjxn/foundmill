@@ -10,7 +10,7 @@ import { AUTOPILOT_DEFAULT_SETTINGS, decideAutopilot, type AutopilotCycleSummary
 import type { Activities, AutopilotEvaluation } from "../../activities";
 import { FakeClock } from "../../clock";
 import { AUTOPILOT_POLL_MS, AUTOPILOT_MAX_SLEEP_MS } from "../../activities/autopilot";
-import { autopilot, autopilotRefreshSignal, stopSignal, type AutopilotInput, type AutopilotResult } from "../../workflows";
+import { autopilot, autopilotRefreshSignal, businessCycle, stopSignal, type AutopilotInput, type AutopilotResult } from "../../workflows";
 import { createTemporalRig, type TemporalRig } from "./temporal";
 
 let rig: TemporalRig;
@@ -245,6 +245,50 @@ describe("autopilot workflow", () => {
     );
     expect(result.outcome).toBe("stopped");
     expect(w.pauses).toContain("kill_switch");
+  });
+
+  it("yields to a founder's Continue that took the same cycle number, then starts the next cycle", async () => {
+    const w = world({ lastEndedAt: Date.parse(START) - 10 * H });
+    // The founder's cycle 1 is still planning when Autopilot decides to start "cycle 1" as well.
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let numberAsked = 0;
+    let failures = 0;
+    const base = mocks(w);
+    const result = await rig.run(
+      {
+        ...base,
+        async autopilotCycleFailed() {
+          failures += 1;
+          return { recorded: false };
+        },
+        async nextCycleNumber() {
+          numberAsked += 1;
+          return { cycleNumber: numberAsked === 1 ? 1 : w.cycles.length + 1 };
+        },
+        async planCycle(input: Parameters<NonNullable<Activities["planCycle"]>>[0]) {
+          if (input.trigger === "continue") await gate;
+          return base.planCycle!(input);
+        },
+      },
+      async (client, taskQueue) => {
+        await client.workflow.start(businessCycle, { workflowId: `cycle:${B}:1`, taskQueue, args: [{ businessId: B, cycleNumber: 1, trigger: "continue" }] });
+        return drive(client, taskQueue, `autopilot:${B}:collision`, async (handle) => {
+          await until(() => numberAsked >= 1);
+          release();
+          await until(() => w.cycles.length >= 2);
+          await handle.signal(stopSignal, { reason: "kill_switch" });
+        });
+      },
+    );
+    expect(w.cycles.slice(0, 2)).toEqual([
+      { number: 1, trigger: "continue" },
+      { number: 2, trigger: "autopilot" },
+    ]);
+    // Only the cycle Autopilot really started is recorded and counted; the collision is neither a start nor a failure.
+    expect(w.recorded).toEqual([{ cycleNumber: 2, cyclesToday: 1 }]);
+    expect(failures).toBe(0);
+    expect(result).toMatchObject({ outcome: "stopped", cyclesStarted: 1 });
   });
 
   it("continues as new after its rounds so the history stays small", async () => {

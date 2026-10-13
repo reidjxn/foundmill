@@ -6,7 +6,7 @@
  * `autopilot`), so every approval, hard gate, section wall and policy check applies as for a founder press. It never
  * approves or decides anything. A guard rail that pauses it persists the pause and ends the workflow; the founder turns
  * it on again (which starts a new run). Stop all agents signals `stop`, which ends it and passes the stop to the cycle
- * it is waiting on. `autopilotRefresh` (settings changed, an Inbox decision made) makes it look again at once. The
+ * it is waiting on. `autopilotRefresh` (settings changed) makes it look again at once; a founder's Inbox decision is noticed at the next look (every few minutes while it waits for the founder). The
  * history is carried forward with `continueAsNew` every few hundred rounds.
  */
 import { ParentClosePolicy, allHandlersFinished, condition, continueAsNew, proxyActivities, setHandler, startChild, type ChildWorkflowHandle } from "@temporalio/workflow";
