@@ -7,6 +7,7 @@
  * short-lived session token; in mock mode it replays a recorded session through packages/sandbox. Both stream
  * `SessionEvent`s to `as:{sessionId}`, heartbeat on every event, persist progress, create approval rows when a tool
  * call waits for the founder, write the usage ledger and fail the session when the same tool call repeats three times.
+ * On the platform's key a live session is capped at the business's credits and books as it runs (./session-credits).
  * `finishSession` settles the task, the agent and the events.
  *
  * Waiting for the founder never holds a worker slot for long (`runAgentSession` runs on the sessions task queue, see
@@ -39,6 +40,7 @@ import { emitEvent, systemActor } from "../events";
 import { applySessionEvent, initialProgress, type ProgressState } from "../progress";
 import { AGENT_PAUSED_FAILURE, CANCELLED_REASON, type RunUsage } from "../session-contract";
 import { LoopDetector } from "./loop";
+import { CREDITS_USED_UP_SUMMARY, SessionCredits, unbookedTokens } from "./session-credits";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
 import { describePush, pushWorkspace, type PushContext } from "./workspace-push";
 import { restoreWorkspace, saveWorkspace, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
@@ -653,8 +655,10 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "sandbox", quantity: minutes, unit: "minutes", costMinor: 0, billedTo: launch.modelBilling, occurredAt: endedAt, details: { sandboxMode: launch.sandboxMode, label: "Estimate", recording: launch.recordingKey } });
       if (result.tokensIn + result.tokensOut > 0 && launch.sandboxMode !== "mock") {
         // The SDK prices in USD (an Estimate). Settled against credits when the platform key ran the session
-        // (`bookUsage` pauses the team on the last credit).
-        await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "tokens", modelKey: launch.modelKey, quantity: result.tokensIn + result.tokensOut, unit: "tokens", costMinor: Math.round(result.costMinor), currency: "USD", billedTo: launch.modelBilling, occurredAt: endedAt, details: { source: "claude-agent-sdk", label: "Estimate" } });
+        // (`bookUsage` pauses the team on the last credit). A session on the platform key booked as it ran
+        // (./session-credits): only the rest is booked here.
+        const rest = await unbookedTokens(deps, input.businessId, input.sessionId, { tokens: result.tokensIn + result.tokensOut, costMinor: result.costMinor });
+        if (rest.tokens > 0 || rest.costMinor > 0) await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "tokens", modelKey: launch.modelKey, quantity: rest.tokens, unit: "tokens", costMinor: rest.costMinor, currency: "USD", billedTo: launch.modelBilling, occurredAt: endedAt, details: { source: "claude-agent-sdk", label: "Estimate" } });
       }
       // Read the agent after booking: the last credit may just have paused the team, and the founder's pause or Stop
       // all agents may have landed while the session ran. Nothing a session does un-pauses an agent.
@@ -919,8 +923,8 @@ class PromptQueue {
   }
 }
 
-/** Why a live run ends before the agent is done: Stop or a cancel, a detected loop, a park, or an undecided approval. */
-type LiveEnding = "stop" | "loop" | "park" | "approval_timeout";
+/** Why a live run ends before the agent is done: Stop or a cancel, a detected loop, a park, an undecided approval, or used-up credits. */
+type LiveEnding = "stop" | "loop" | "park" | "approval_timeout" | "budget";
 
 const PAUSE_CUT_TURN = "The founder paused the session mid-step and has now resumed it. Continue the task from where you stopped.";
 
@@ -953,6 +957,8 @@ export interface TurnFailure {
  * Billing, key and rate-limit refusals block the task (it stays open and runs again once fixed); anything else fails it.
  */
 export function classifyTurnEnd(result: SdkTurnResult, apiError: { kind: string | null; text: string } | null, keySource: "byok" | "platform" | "none"): TurnFailure | null {
+  // The SDK stopped at the `maxBudgetUsd` a session on the platform key is given (./session-credits): used-up credits.
+  if (result.subtype === "error_max_budget_usd") return { outcome: "blocked", blockedReason: "budget", reason: "model budget exhausted: the session spent the credits it was given", summary: CREDITS_USED_UP_SUMMARY };
   if (result.subtype !== "success") {
     const errors = (result.errors?.length ? result.errors : [result.subtype]).join("; ");
     return { outcome: "failed", blockedReason: "error", reason: `${result.subtype}: ${errors}`.slice(0, 500), summary: "The agent run ended with an error." };
@@ -991,6 +997,14 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   if (!key.apiKey) {
     const reason = live.business.modelBilling === "byok" ? "no live Anthropic key for this business: set one in Settings → Keys" : "no Anthropic key: connect one in Settings or set the platform key";
     return { outcome: "blocked", reason, blockedReason: "credential", approvalId: null, summary: "Blocked: no model credential.", providerSessionId: null };
+  }
+  // The platform key's ceiling (SEC2 S2, ./session-credits): a session on it starts only while the credits allow a live
+  // call, is capped at what is spendable, books as it goes and ends when the credits are used up.
+  let credits: SessionCredits | null = null;
+  if (key.source === "platform") {
+    const opened = await SessionCredits.open(deps, { businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, modelKey: launch.modelKey });
+    if (!opened.ok) return { outcome: "blocked", reason: `model budget exhausted: ${opened.reason}`, blockedReason: "budget", approvalId: null, summary: CREDITS_USED_UP_SUMMARY, providerSessionId: null };
+    credits = opened.credits;
   }
 
   const grants = parseGrants(live.version, live.template);
@@ -1062,6 +1076,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   /** Why this session's code is not pushed: stays set unless the session finishes (or waits on an approval). */
   let holdBack: string | null = "the session did not finish";
   let sdkSessionId: string | null = null;
+  /** The agent is done and its input closed: the SDK is only winding down, so used-up credits no longer end the run. */
+  let inputDone = false;
   const openCalls = new Map<string, { tool: string; connectorKey: string | null; startedAt: number }>();
   const usageNow = () => {
     const u = recorder.usage.totals();
@@ -1096,6 +1112,11 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     queue.close(true);
     abortTimer = setTimeout(() => abort.abort(), SDK_STOP_GRACE_MS);
     await interruptTurn();
+  };
+  const endForCredits = async () => {
+    if (ending) return;
+    await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: "This month's credits are used up, so the session stops here. What it spent is booked as an Estimate." });
+    await end("budget");
   };
 
   const apply = async (c: SessionCommand) => {
@@ -1134,7 +1155,10 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         pauseCut = false;
         held = [];
         if (turns.length > 0) send(turns.join("\n\n"));
-        else if (!turnOpen && !recorder.pendingApprovalId) queue.close();
+        else if (!turnOpen && !recorder.pendingApprovalId) {
+          inputDone = true;
+          queue.close();
+        }
         break;
       }
       case "stop":
@@ -1161,6 +1185,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       held = [];
       await end("park");
     }
+    // Mid-turn too, the session books what it spent and stops once the credits are used up (SEC2 S2).
+    if (!ending && !inputDone && credits?.due() && (await credits.settle(recorder.usage.totals())) === "exhausted") await endForCredits();
   };
 
   const loop = controlLoop(deps, input.sessionId, tick, () => recorder.heartbeatDetails({ paused }));
@@ -1184,6 +1210,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         allowedTools: policy.allowedTools,
         disallowedTools: policy.disallowedTools,
         maxTurns: launch.maxTurns,
+        // On the platform key the SDK itself stops past what the credits allowed at launch (SEC2 S2).
+        ...(credits ? { maxBudgetUsd: credits.maxBudgetUsd } : {}),
         cwd,
         env,
         // No host settings, CLAUDE.md, hooks or permission rules from the orchestrator's file system, and no MCP server
@@ -1254,6 +1282,9 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         if (message.type === "result") {
           // Cumulative across turns: the latest result replaces the totals so far (SessionUsage).
           recorder.usage.onResult(message.modelUsage);
+          // Every finished turn on the platform key is booked (SEC2 S2). Used-up credits end the session before it
+          // starts another turn (below); a turn that finished the task stays done, so the task is not run again.
+          const creditsOut = credits !== null && !ending && (await credits.settle(recorder.usage.totals())) === "exhausted";
           const cut = interrupted || paused || ending !== null;
           interrupted = false;
           turnOpen = queue.pending > 0 || ((message as { queued_turn_count?: number }).queued_turn_count ?? 0) > 0;
@@ -1268,8 +1299,13 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
             }
           }
           apiError = null;
-          // More input may come: Resume, the founder's decision, or a nudge already queued.
-          if (ending || paused || recorder.pendingApprovalId || turnOpen) continue;
+          // More input may come: Resume, the founder's decision, or a nudge already queued. Not once the credits are
+          // used up: the session ends `budget` and the task runs again after a top-up.
+          if (ending || paused || recorder.pendingApprovalId || turnOpen) {
+            if (creditsOut) await endForCredits();
+            continue;
+          }
+          inputDone = true;
           queue.close();
         }
       }
@@ -1283,6 +1319,10 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     if (how === "loop") {
       holdBack = "the session stopped on a loop";
       return { outcome: "failed", reason: "loop detected: the same tool call repeated three times", blockedReason: "loop_detected", approvalId: null, summary: "Stopped after a detected loop.", providerSessionId: sdkSessionId, ...usageNow() };
+    }
+    if (how === "budget") {
+      holdBack = "this month's credits ran out";
+      return { outcome: "blocked", reason: "model budget exhausted: this month's credits are used up", blockedReason: "budget", approvalId: null, summary: CREDITS_USED_UP_SUMMARY, providerSessionId: sdkSessionId, ...usageNow() };
     }
     const stop = stoppedBy as { reason: string } | null;
     if (stop) {

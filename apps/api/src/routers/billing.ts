@@ -12,8 +12,8 @@
  * business's own currency: `plan` and `usage` say so (`creditsCurrency`, `usage.currency`), list third-party spend
  * booked in another currency apart, and a top-up is in US dollars only.
  */
-import { CREDITS_CURRENCY, includedCreditsMinor, PRICE_TBA_LABEL, TIERS } from "@foundmill/config";
-import { creditsState, MOCK_TOP_UP_LABEL, periodRange, repos, settleCreditCheckout } from "@foundmill/db";
+import { CREDITS_CURRENCY, PRICE_TBA_LABEL, TIERS } from "@foundmill/config";
+import { MOCK_TOP_UP_LABEL, periodRange, platformCredits, repos, settleCreditCheckout } from "@foundmill/db";
 import { AppError, PLAN_TIERS, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { emitResumed, restartEngines } from "../services/killswitch";
@@ -36,7 +36,7 @@ export const billingRouter = router({
   plan: read.query(({ ctx }) =>
     ctx.rls(async (tx) => {
       const period = currentPeriod();
-      const [balance, credits, usage] = await Promise.all([repos.usage.creditBalance(tx, ctx.businessId, period), creditsState(tx, ctx.business, period), repos.usage.totals(tx, ctx.businessId, periodRange(period))]);
+      const [balance, credits, usage] = await Promise.all([repos.usage.creditBalance(tx, ctx.businessId, period), platformCredits(tx, ctx.business, period), repos.usage.totals(tx, ctx.businessId, periodRange(period))]);
       return {
         tier: ctx.business.planTier,
         modelBilling: ctx.business.modelBilling,
@@ -45,10 +45,14 @@ export const billingRouter = router({
         period,
         /** Every credits amount below is in this currency (USD). */
         creditsCurrency: CREDITS_CURRENCY,
-        /** The monthly platform credit the business's tier includes (granted on the first charge of a month). */
-        includedCreditsMinor: includedCreditsMinor(ctx.business.planTier),
+        /** The monthly platform credit this business gets: its tier's, unless the founder's other businesses took the month's (SEC2 S6). */
+        includedCreditsMinor: credits.includedMinor,
         balance,
-        /** Where credits stand this month (null for a business on its own key, which never touches credits). */
+        /**
+         * Where credits stand this month. Every business has them: on credits they pay for the agents too; on its own key
+         * they pay for conversations, Refresh and planning, which run on the platform key (SEC2 S2). `mockMinor` came from
+         * a simulated payment and never pays for live model calls.
+         */
         credits,
         usage: { ...usage, label: "Estimate" as const },
         /** Which tiers can be chosen here, and why not. */

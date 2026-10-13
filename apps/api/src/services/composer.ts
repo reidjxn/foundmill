@@ -17,6 +17,7 @@ import { APP_NAME, LIMITS } from "@foundmill/config";
 import { HOUSE_STYLE } from "@foundmill/agents";
 import { AppError, type EntityKind } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
+import { noteModelCall } from "./model-calls";
 
 export interface ComposeResult {
   item: InboxItem;
@@ -118,10 +119,17 @@ export function createComposerClient(opts: CreateComposerClientOptions): Compose
   };
 
   const run = async (path: string, body: Record<string, unknown>, businessId: string, local: () => Promise<LocalComposed>): Promise<ComposeResult> => {
+    // The composer service may call a model for this request, so the request's allowance counts as spent
+    // (services/model-calls.ts), unless the composer's credits gate refused it (402 `credits_exhausted`): then the
+    // credits are used up and no further call can follow, so giving the hit back cannot be farmed. The in-process
+    // path notes its calls through the api's client.
     try {
-      return await viaService(path, body, businessId);
+      const composed = await viaService(path, body, businessId);
+      noteModelCall();
+      return composed;
     } catch (err) {
       const failure: CallFailure = err instanceof ComposerCallError ? err.failure : { kind: "unreachable", message: (err as Error).message };
+      if (!(failure.kind === "answered" && failure.error.code === "credits_exhausted")) noteModelCall();
       // Never compose a second note in-process while the service may still be writing one, nor over its answer.
       if (failure.kind === "timeout") throw new ComposerTimeoutError(timeoutMs);
       if (failure.kind === "answered" && (failure.error.status < 500 || !opts.allowFallback)) throw failure.error;

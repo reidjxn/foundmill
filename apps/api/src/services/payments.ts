@@ -8,15 +8,16 @@
  *   the founder completes the simulated payment on the Billing tab (`billing.checkout.completeMock`, labeled; no money
  *   moves). The platform's billing is live where `INTEGRATIONS_MODE=live` or `LIVE_CONNECTORS` names `stripe_billing`
  *   (`platformBillingMode`, read alike by the gateway); a mock checkout calls no vendor, so it is simulated here without
- *   the gateway, as mock connectors run in the api. Mock payments are refused where they would fund real model calls
- *   (MODEL_MODE=live outside development and test): free credits must never pay for the platform's Anthropic spend.
+ *   the gateway, as mock connectors run in the api. Simulated payments exist only where ALLOW_MOCK_PAYMENTS allows them
+ *   (by default development and test), and the credits they grant never pay for a live model call: free credits must
+ *   never pay for the platform's Anthropic spend (SEC2 S10).
  * - **Paid tiers** (Pro, Scale) are not on sale: their prices are still "to be announced" (§19) and there is no
  *   subscription checkout, so choosing one is refused outside development and test (where seeded demos and tests switch
  *   freely). Moving down to Free is always allowed.
  */
 import { APP_NAME, PRICE_TBA_LABEL, TIERS, type TierKey } from "@foundmill/config";
 import { repos, type BillingCheckout, type Db } from "@foundmill/db";
-import { AppError, platformBillingMode, type Env } from "@foundmill/shared";
+import { allowMockPayments, AppError, platformBillingMode, type Env } from "@foundmill/shared";
 import type { ApiGatewayClient } from "./gateway";
 
 export const TOP_UP_MIN_MINOR = 500;
@@ -25,7 +26,7 @@ export const TOP_UP_MAX_MINOR = 1_000_000;
 export const TOP_UP_OPTIONS_MINOR = [2500, 5000, 10000, 25000] as const;
 export const CHECKOUT_DESCRIPTION = `${APP_NAME} credits`;
 
-type PaymentsEnv = Pick<Env, "APP_ENV" | "MODEL_MODE" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS">;
+type PaymentsEnv = Pick<Env, "APP_ENV" | "MODEL_MODE" | "INTEGRATIONS_MODE" | "LIVE_CONNECTORS" | "ALLOW_MOCK_PAYMENTS">;
 
 const testMode = (env: Pick<Env, "APP_ENV">) => env.APP_ENV === "development" || env.APP_ENV === "test";
 
@@ -35,10 +36,15 @@ export const checkoutModeFor = (env: PaymentsEnv): "mock" | "live" => platformBi
 /** How long a simulated checkout stays open (Stripe's own sessions last 24 hours). */
 const MOCK_CHECKOUT_TTL_MS = 24 * 60 * 60_000;
 
-/** Simulated payments grant real credits, so they are refused where credits pay for real model calls. */
-export const mockPaymentsAllowed = (env: PaymentsEnv): boolean => env.MODEL_MODE === "mock" || testMode(env);
+/**
+ * Whether a top-up may be paid by simulation here: `ALLOW_MOCK_PAYMENTS`, which defaults to on only in development and
+ * test (SEC2 S10). The api's own MODEL_MODE says nothing about the platform key's other spenders (the orchestrator runs
+ * live sessions whenever its sandbox is live), so it is not the test. Wherever simulated payments are on, the credits
+ * they grant are labeled and never pay for a live model call (packages/db `checkPlatformCredits`).
+ */
+export const mockPaymentsAllowed = (env: PaymentsEnv): boolean => allowMockPayments(env);
 
-export const MOCK_PAYMENTS_OFF_MESSAGE = "Top-ups are not available on this server yet: payments are not set up, and a simulated payment cannot pay for live model calls. Use your own Anthropic key in Settings › Keys meanwhile.";
+export const MOCK_PAYMENTS_OFF_MESSAGE = "Top-ups are not available on this server yet: payments are not set up, and simulated payments are off here. Use your own Anthropic key in Settings › Keys meanwhile.";
 
 export interface TopUpAvailability {
   mode: "mock" | "live";

@@ -3,7 +3,7 @@
  * real workflow id, nothing starts while the team is stopped, an agent at its wage cap is paused (and comes back next
  * period), failed tasks and failing agents come back after a backoff, and a finishing session never overwrites a pause.
  */
-import { periodOf, repos, resumeBusinessAgents, stopBusinessAgents, type Task } from "@foundmill/db";
+import { concurrencyAllowance, periodOf, repos, resumeBusinessAgents, stopBusinessAgents, type Task } from "@foundmill/db";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createBriefActivities } from "../activities/brief";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
@@ -87,6 +87,24 @@ describe("openSession", () => {
     expect((await repos.agents.listSessions(t.db, B(), { taskId: task.id, limit: 10 })).items).toHaveLength(0);
     expect((await repos.tasks.get(t.db, B(), task.id)).status).toBe("ready");
     await resumeBusinessAgents(t.db, B());
+    expect((await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id })).sessionId).toBeTruthy();
+  });
+
+  it("refuses once every concurrent agent the plan holds is working, for a cycle's start and a plan's task alike (SEC2 S2)", async () => {
+    const business = await repos.businesses.get(t.db, B());
+    const { room } = await concurrencyAllowance(t.db, business, t.clock.now());
+    for (let i = 0; i < room; i++) await repos.agents.createSession(t.db, B(), { agentId: t.workerId, startedAt: t.clock.now() });
+    const task = await readyTask();
+    expect(await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id })).toMatchObject({ sessionId: null, refused: "concurrency_limit", detail: expect.stringMatching(/plan runs at once is working/) });
+    expect((await repos.agents.listSessions(t.db, B(), { taskId: task.id, limit: 10 })).items).toHaveLength(0);
+    expect((await repos.tasks.get(t.db, B(), task.id)).status).toBe("ready");
+    // A task from a decision did not come through a cycle, and waits all the same (ready for the next cycle).
+    const planActs = createPlanActivities(t.deps);
+    const plan = await repos.plans.create(t.db, B(), { origin: "option", actions: [{ type: "create_task", params: { title: "Past the limit", kind: "ops" }, agentId: t.workerId }] });
+    const res = await planActs.executePlanAction({ businessId: B(), planId: plan.id, actionId: plan.actions[0]!.id, workflowId: "plan:limit" });
+    expect(res.spawn).toEqual([]);
+    expect(res.result).toMatchObject({ deferred: expect.stringMatching(/plan runs at once is working/) });
+    await endOpenSessions();
     expect((await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id })).sessionId).toBeTruthy();
   });
 });

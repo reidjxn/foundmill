@@ -1,11 +1,12 @@
 /**
  * The credits ceiling on the API's own platform-key calls (BUILD §10.4, §10.5; DECISIONS 2026-10-12): once a business
- * on credits has used up this month's, a call made for it (a conversation reply, a plan compile, the in-process
- * composer) is refused before it is sent, with the way back for its tier. Nothing is booked for a refused call; a call
- * with no business, a business on its own key and a business with credits left are never refused.
+ * has used up this month's credits, a call made for it (a conversation reply, a plan compile, the in-process composer)
+ * is refused before it is sent, with the way back. Nothing is booked for a refused call; a call with no business and a
+ * business with credits left are never refused. A business on its own key pays for these platform-key calls with its
+ * credits too (SEC2 S2), so it is refused alike, and told its agents keep working on its key.
  */
 import { includedCreditsMinor } from "@foundmill/config";
-import { assertCreditsAvailable, periodOf, repos } from "@foundmill/db";
+import { assertPlatformCredits, periodOf, repos } from "@foundmill/db";
 import { PlanOutput } from "@foundmill/models";
 import { CreditsExhaustedError } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -33,15 +34,14 @@ describe("the API's platform-key calls stop when the credits do", () => {
     const models = createApiModelClient({ MODEL_MODE: "mock" }, silentLog(), { db: hz.db });
     const A = hz.A.businessId;
     await models.complete({ ...ask, attribution: { businessId: A, kind: "plan_compiler" } });
-    await expect(assertCreditsAvailable(hz.db, A)).resolves.toBeUndefined();
+    await expect(assertPlatformCredits(hz.db, A, { live: false })).resolves.toMatchObject({ ok: true });
 
     await useUp(A);
     const before = await ledger(A);
     const refused = await models.complete({ ...ask, attribution: { businessId: A, kind: "plan_compiler" } }).catch((e: unknown) => e);
     expect(refused).toBeInstanceOf(CreditsExhaustedError);
-    expect(refused).toMatchObject({ code: "credits_exhausted", status: 402, details: { tier: "free", period: period(), balanceMinor: 0, currency: "USD" } });
-    expect((refused as Error).message).toMatch(/free plan includes \$5\.00 of model use a month/);
-    expect((refused as Error).message).toMatch(/own Anthropic key in Settings → Keys/);
+    expect(refused).toMatchObject({ code: "credits_exhausted", status: 402, details: { reason: "exhausted", businessId: A, period: period(), balanceMinor: 0 } });
+    expect((refused as Error).message).toMatch(/Top up in Settings › Billing/);
     expect(await ledger(A)).toBe(before);
 
     // Account-level calls (no business yet) are not the business's to pay for.
@@ -64,30 +64,17 @@ describe("the API's platform-key calls stop when the credits do", () => {
     });
   });
 
-  it("a business on its own key is never refused here (its platform-key calls are metered, not charged)", async () => {
+  it("a business on its own key is refused alike, and told its agents keep working", async () => {
     const B = hz.B.businessId;
     await useUp(B);
     await repos.businesses.update(hz.db, B, { modelBilling: "byok" });
     try {
-      await expect(assertCreditsAvailable(hz.db, B)).resolves.toBeUndefined();
+      await expect(assertPlatformCredits(hz.db, B, { live: false })).rejects.toThrow(/Your agents keep working on your own Anthropic key/);
       const models = createApiModelClient({ MODEL_MODE: "mock" }, silentLog(), { db: hz.db });
-      await expect(models.complete({ ...ask, attribution: { businessId: B, kind: "plan_compiler" } })).resolves.toBeDefined();
+      await expect(models.complete({ ...ask, attribution: { businessId: B, kind: "plan_compiler" } })).rejects.toBeInstanceOf(CreditsExhaustedError);
     } finally {
       await repos.businesses.update(hz.db, B, { modelBilling: "credits" });
     }
-    // Back on credits, the used-up month applies again; an unknown business is nobody's to refuse.
-    await expect(assertCreditsAvailable(hz.db, B)).rejects.toBeInstanceOf(CreditsExhaustedError);
-    await expect(assertCreditsAvailable(hz.db, crypto.randomUUID())).resolves.toBeUndefined();
-    await expect(assertCreditsAvailable(hz.db, "not-a-business")).resolves.toBeUndefined();
-  });
-
-  it("on a paid tier the refusal offers a top-up or the founder's own key", async () => {
-    const B = hz.B.businessId;
-    await repos.businesses.update(hz.db, B, { planTier: "pro" });
-    try {
-      await expect(assertCreditsAvailable(hz.db, B)).rejects.toThrow(/Top up in Settings → Billing, or bring your own Anthropic key/);
-    } finally {
-      await repos.businesses.update(hz.db, B, { planTier: "free" });
-    }
+    await expect(assertPlatformCredits(hz.db, B, { live: false })).rejects.toBeInstanceOf(CreditsExhaustedError);
   });
 });

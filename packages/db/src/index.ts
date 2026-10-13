@@ -3,7 +3,7 @@ export * from "./client";
 export * from "./schema";
 export * from "./repos";
 export { BYOK_CONNECTOR_KEY, BYOK_CREDENTIAL_KIND, LEGACY_BYOK_CREDENTIAL_KIND, StoredApiKeySchema, loadByokApiKey, type ByokApiKey } from "./byok";
-export { assertCreditsAvailable, bookUsage, chargesCredits, creditsState, CREDITS_EXHAUSTED_SUBJECT, type BookUsageResult, type CreditsOutcome } from "./billing";
+export { assertPlatformCredits, bookUsage, chargesCredits, checkPlatformCredits, creditsState, creditsUsedUp, CREDITS_EXHAUSTED_SUBJECT, includedCreditsFor, PLATFORM_CREDITS_EXHAUSTED_SUBJECT, platformCredits, type BookUsageResult, type CreditsOutcome, type PlatformCredits, type PlatformCreditsCheck } from "./billing";
 export { resumeBusinessAgents, stopBusinessAgents, type ResumeBusinessResult, type StopBusinessResult } from "./controls";
 export { MOCK_TOP_UP_LABEL, settleCreditCheckout, type SettleCheckoutInput, type SettleCheckoutResult } from "./payments";
 export { assertBusinessAllowance, assertConcurrencyRoom, assertSeatAvailable, businessAllowance, concurrencyAllowance, OPEN_SESSION_WINDOW_HOURS, seatAllowance, type BusinessAllowance, type ConcurrencyAllowance } from "./tiers";

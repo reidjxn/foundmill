@@ -12,10 +12,10 @@
  * allowances that predate this one keep their own rules inside their services (drafting in ideation.ts, logo sets in
  * logo.ts, conversation sends in conversation.ts); their procedures still spend from the shared ceiling.
  */
-import type { ModelClient } from "@foundmill/models";
 import { TRPCError } from "@trpc/server";
 import type { Context } from "../context";
 import { middleware, toTRPCError } from "../trpc";
+import { withModelCallScope } from "./model-calls";
 import { RateLimitedError, type LimitEntry, type WindowLimit } from "./rate-limit";
 
 const MINUTE = 60_000;
@@ -80,25 +80,11 @@ export function modelLimitEntries(name: ModelLimitName, scope: { userId: string;
   return entries;
 }
 
-/** Refused before any model call (another limit, bad input, no access, a conflict): the hit is given back. */
-const REFUNDED_CODES = new Set(["TOO_MANY_REQUESTS", "BAD_REQUEST", "FORBIDDEN", "NOT_FOUND", "CONFLICT", "PRECONDITION_FAILED", "UNAUTHORIZED"]);
-
 /**
- * `models` with every call noted in `seen`: a request refused after it reached the model (the Planner's graph has a
- * cycle, a recommendation fails to save) spent the tokens, so it keeps its hit whatever the refusal's code.
+ * Refusals that give the hit back (another limit, bad input, no access, a conflict, used-up credits), and only when the
+ * request reached no model: a plan compiled before a section wall refused it was paid for (services/model-calls.ts).
  */
-function noteModelCalls(models: ModelClient, seen: { called: boolean }): ModelClient {
-  return new Proxy(models, {
-    get(target, prop, receiver) {
-      const value: unknown = Reflect.get(target, prop, receiver);
-      if ((prop !== "complete" && prop !== "streamStructured") || typeof value !== "function") return value;
-      return (...args: unknown[]) => {
-        seen.called = true;
-        return (value as (...a: unknown[]) => unknown).apply(target, args);
-      };
-    },
-  });
-}
+const REFUNDED_CODES = new Set(["TOO_MANY_REQUESTS", "BAD_REQUEST", "FORBIDDEN", "NOT_FOUND", "CONFLICT", "PRECONDITION_FAILED", "UNAUTHORIZED", "PAYMENT_REQUIRED"]);
 
 export interface ModelLimitOptions {
   /** Only requests whose input this accepts spend the allowance (a decision with free text compiles a plan; an option does not). */
@@ -108,8 +94,8 @@ export interface ModelLimitOptions {
 /**
  * Middleware for a model-backed procedure: spends one hit of `name` (and of the shared ceiling) for the signed-in person and,
  * inside a business, for the business; refuses with TOO_MANY_REQUESTS when any window is full. Use it after
- * `protectedProcedure` / `businessProcedure`. A request refused before reaching the model gets its hit back; one refused
- * after a model call keeps it.
+ * `protectedProcedure` / `businessProcedure`. A request refused before reaching any model gets its hit back; one that
+ * started a model call keeps it spent, whatever refused it afterwards.
  */
 export function modelLimited(name: ModelLimitName, options: ModelLimitOptions = {}) {
   return middleware(async ({ ctx, next, getRawInput }) => {
@@ -118,9 +104,8 @@ export function modelLimited(name: ModelLimitName, options: ModelLimitOptions = 
     if (options.when && !options.when(await getRawInput())) return next();
     const taken = await c.limits.take(modelLimitEntries(name, { userId: c.userId, businessId: c.businessId ?? null }));
     if (!taken.ok) throw new RateLimitedError(MODEL_LIMITS[name].what, taken.retryAfterMs);
-    const seen = { called: false };
-    const result = await next({ ctx: { models: noteModelCalls(c.models, seen) } });
-    if (!result.ok && !seen.called && REFUNDED_CODES.has(toTRPCError(result.error).code)) await c.limits.refund(taken.ticket);
+    const { result, scope } = await withModelCallScope(() => next());
+    if (!result.ok && scope.calls === 0 && REFUNDED_CODES.has(toTRPCError(result.error).code)) await c.limits.refund(taken.ticket);
     return result;
   });
 }

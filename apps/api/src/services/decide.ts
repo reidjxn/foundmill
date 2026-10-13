@@ -12,7 +12,7 @@ import { ValidationError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
-import { assertPlanSectionAccess, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, requiresConfirmation, syncChannelEngines, type ActionEvaluation, type PlanContext } from "./plans";
+import { assertInstructionSectionAccess, assertPlanSectionAccess, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, requiresConfirmation, syncChannelEngines, type ActionEvaluation, type PlanContext } from "./plans";
 
 export interface DecideItemInput {
   itemId: string;
@@ -69,12 +69,15 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   if (chosenOption && !option) throw new ValidationError("chosenOption is not one of the item's options", { chosenOption, options: options.map((o) => o.id) });
 
   const planCtx = await planContextFor(ctx);
+  // Section walls hold in the Inbox too (audit RUI-01): a plan that changes a section the decider cannot write to is
+  // refused before anything is written, and the item stays open for someone who can. Free text is read by the rule
+  // engine first, so what it already shows is refused before the plan compiler (Opus) is paid for (SEC2 S3).
+  if (freeText) assertInstructionSectionAccess(ctx.membership, freeText, planCtx);
   // Only free text goes to the plan compiler model (BUILD §11.3); an option click compiles in-process, so the founder
   // never waits on a model call for a pre-written answer.
   const compiled = freeText ? await compilePlan(ctx.models, freeText, planCtx) : compileOptionPlan(option!, item, planCtx);
   const evaluations = evaluatePlan(compiled.actions, planCtx);
-  // Section walls hold in the Inbox too (audit RUI-01): a plan that changes a section the decider cannot write to is
-  // refused before anything is written, and the item stays open for someone who can.
+  // The compiled plan's own walls (an option's actions are known here, before any model call).
   assertPlanSectionAccess(ctx.membership, evaluations.map((e) => ({ type: e.action.type, params: e.action.params, denied: e.outcome === "deny" })));
   const confirm = requiresConfirmation(evaluations);
 

@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { connectorMode, liveConnectorKeys, loadEnv, platformBillingMode } from "./env";
+import { allowMockPayments, connectorMode, liveConnectorKeys, loadEnv, platformBillingMode } from "./env";
+
+describe("ALLOW_MOCK_PAYMENTS (SEC2 S10)", () => {
+  it("defaults to on only in development and test; an explicit value wins anywhere", () => {
+    expect(allowMockPayments(loadEnv({ APP_ENV: "development", ALLOW_MOCK_PAYMENTS: undefined }))).toBe(true);
+    expect(allowMockPayments(loadEnv({ APP_ENV: "test", ALLOW_MOCK_PAYMENTS: "" }))).toBe(true);
+    expect(allowMockPayments(loadEnv({ APP_ENV: "staging", ALLOW_MOCK_PAYMENTS: undefined, MODEL_MODE: "mock" }))).toBe(false);
+    expect(allowMockPayments(loadEnv({ APP_ENV: "production", ALLOW_MOCK_PAYMENTS: undefined }))).toBe(false);
+    expect(allowMockPayments(loadEnv({ APP_ENV: "staging", ALLOW_MOCK_PAYMENTS: "true" }))).toBe(true);
+    expect(allowMockPayments(loadEnv({ APP_ENV: "staging", ALLOW_MOCK_PAYMENTS: "1" }))).toBe(true);
+    expect(allowMockPayments(loadEnv({ APP_ENV: "development", ALLOW_MOCK_PAYMENTS: "0" }))).toBe(false);
+    expect(allowMockPayments(loadEnv({ APP_ENV: "test", ALLOW_MOCK_PAYMENTS: "FALSE" }))).toBe(false);
+  });
+});
 
 describe("per-connector integrations mode", () => {
   it("runs the connectors LIVE_CONNECTORS names live while the rest stay mock", () => {

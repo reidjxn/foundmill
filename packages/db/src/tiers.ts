@@ -5,9 +5,9 @@
  * - **Businesses per owner** (`idea.commit`): the plan tier is stored per business, so an owner's allowance follows the
  *   highest tier among the unarchived businesses they own (none: free). A new business always starts on free.
  * - **Seats** (`team.humans.invite`): every membership of the business is a seat, the owner included.
- * - **Concurrent agents** (cycle dispatch, and `dev.tasks.start` for a task started by hand): agent sessions still open
- *   for the business, started within the last `OPEN_SESSION_WINDOW_HOURS` (an older open row is a session the
- *   orchestrator lost, not one using a slot).
+ * - **Concurrent agents** (cycle dispatch, `dev.tasks.start` and every session the orchestrator opens): agent sessions
+ *   still open for the business, started within the last `OPEN_SESSION_WINDOW_HOURS` (an older open row is a session
+ *   the orchestrator lost, not one using a slot).
  *
  * Refusals are `TierLimitError` (code `tier_limit`), which the web turns into an upgrade prompt.
  */
@@ -103,13 +103,15 @@ export async function concurrencyAllowance(db: Executor, business: { id: string;
 }
 
 /**
- * Refuses one more agent session when every concurrent-agent slot of the tier is in use (a task started by hand, which
- * takes a slot like a cycle's dispatch). The cycle itself reads `concurrencyAllowance` and defers instead of refusing.
+ * Refuses one more agent session once every concurrent agent the tier holds is working: a task started by hand
+ * (`dev.tasks.start`) and every session the orchestrator opens (a cycle's dispatch, a plan's task) count against the
+ * same limit as the cycle. The count is read just before the session row is written, so two starts landing in the same
+ * instant can both pass; the credits ceiling, not this count, is what bounds spend.
  */
 export async function assertConcurrencyRoom(db: Executor, business: { id: string; planTier: TierKey }, now: Date = new Date()): Promise<ConcurrencyAllowance> {
   const c = await concurrencyAllowance(db, business, now);
   if (c.room <= 0) {
-    throw new TierLimitError(`The ${tierWord(business.planTier)} plan runs ${plural(c.limit, "agent", "agents")} at once and all of them are at work. Wait for a session to finish, or move this business to a larger plan in Settings › Billing.`, {
+    throw new TierLimitError(`The ${tierWord(business.planTier)} plan runs ${plural(c.limit, "agent", "agents")} at once and all of them are working. Start this task when one finishes, or move this business to a larger plan in Settings › Billing.`, {
       limit: "concurrent_agents",
       tier: business.planTier,
       allowed: c.limit,

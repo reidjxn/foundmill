@@ -15,8 +15,8 @@
  */
 import { randomUUID } from "node:crypto";
 import { getArchetypeSeed, getTemplate } from "@foundmill/agents";
-import { includedCreditsMinor, initialModelBilling } from "@foundmill/config";
-import { assertBusinessAllowance, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
+import { initialModelBilling } from "@foundmill/config";
+import { assertBusinessAllowance, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
 import { CHANNEL_KEYS, CHANNEL_META, DEFAULT_BUSINESS_MODE, MODULE_TABS, ValidationError, slugify, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
 import { PRESET_LAYOUTS } from "../presets";
@@ -136,8 +136,11 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     });
     const businessId = business.id;
     await repos.memberships.add(tx, businessId, { userId, role: "owner" });
-    // This month's included credits (USD), so the first cycle already runs against a balance that pauses the team.
-    const credits = modelBilling === "credits" ? (await repos.usage.ensurePeriodCredits(tx, businessId, periodOf(new Date()), includedCreditsMinor(planTier))).balance : null;
+    // This month's included credits (USD), so the first cycle already runs against a balance that pauses the team. They
+    // come from the founder's monthly pool (`includedCreditsFor`): once its places are taken this month (archived
+    // businesses included), a new business starts with nothing included, never a second grant.
+    const period = periodOf(new Date());
+    const credits = modelBilling === "credits" ? (await repos.usage.ensurePeriodCredits(tx, businessId, period, await includedCreditsFor(tx, business, period, { lock: true }))).balance : null;
     const logo = input.logo && checkedLogo ? (await repos.logos.set(tx, businessId, { source: input.logo.source, logo: checkedLogo, createdBy: userId })).meta : null;
     await repos.businesses.commit(tx, businessId, { archetype: input.archetype });
     await repos.ideas.commit(tx, userId, input.ideaId, businessId);
@@ -265,6 +268,10 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
       source_event_ids: [],
       entity_ids: [],
     });
+
+    // The founder's included credits for this month already went to another business they took charge of (SEC2 S6):
+    // this one starts with nothing included, so it is stopped like any team whose credits ran out, and told why.
+    if (credits && Number(credits.balanceMinor) <= 0) await creditsUsedUp(tx, business, period, credits);
 
     const departmentIds = [...departmentIdBySlug.values()];
     await writeEventRow(tx, {

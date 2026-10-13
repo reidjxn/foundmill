@@ -63,8 +63,14 @@ describe("concurrent agents", () => {
     const now = new Date();
     // The fixture leaves one session open.
     expect(await concurrencyAllowance(r.db, business, now)).toEqual({ limit: TIERS.free.maxConcurrentAgents, running: 1, room: TIERS.free.maxConcurrentAgents - 1 });
+    await expect(assertConcurrencyRoom(r.db, business, now)).resolves.toMatchObject({ room: TIERS.free.maxConcurrentAgents - 1 });
     for (let i = 0; i < 3; i++) await repos.agents.createSession(r.db, r.B.businessId, { agentId: r.B.agentId, startedAt: now });
     expect(await concurrencyAllowance(r.db, business, now)).toMatchObject({ running: 4, room: 0 });
+    // One more session is refused with the typed error the web turns into an upgrade prompt (dev.tasks.start, dispatch).
+    const refused = await assertConcurrencyRoom(r.db, business, now).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(TierLimitError);
+    expect(refused).toMatchObject({ code: "tier_limit", details: { limit: "concurrent_agents", tier: "free", allowed: TIERS.free.maxConcurrentAgents, used: 4, planBusinessId: r.B.businessId } });
+    expect((refused as Error).message).toMatch(/^The Free plan runs 4 agents at once and all of them are working\./);
     // An ended session frees its slot; an open row older than the window is a lost session, not a running one.
     const ended = await repos.agents.createSession(r.db, r.B.businessId, { agentId: r.B.agentId, startedAt: now });
     await repos.agents.endSession(r.db, r.B.businessId, ended.id, { outcome: "done" });

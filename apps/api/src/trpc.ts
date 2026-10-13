@@ -78,9 +78,9 @@ const CODE_BY_APP_CODE: Record<string, TRPC_ERROR_CODE_KEY> = {
   composer_rejected: "UNPROCESSABLE_CONTENT",
   no_agents: "CONFLICT",
   continue_blocked: "CONFLICT",
-  // A business on credits whose month is used up (packages/db billing.ts `assertCreditsAvailable`).
-  credits_exhausted: "PAYMENT_REQUIRED",
   reauth_required: "PRECONDITION_FAILED",
+  // A model call on the platform key refused before it was made: the month's credits are used up (packages/db billing.ts `assertPlatformCredits`).
+  credits_exhausted: "PAYMENT_REQUIRED",
   config: "PRECONDITION_FAILED",
   invalid_record: "INTERNAL_SERVER_ERROR",
   decrypt_failed: "INTERNAL_SERVER_ERROR",
@@ -96,6 +96,8 @@ const codeForStatus = (status: number): TRPC_ERROR_CODE_KEY => {
       return "BAD_REQUEST";
     case 401:
       return "UNAUTHORIZED";
+    case 402:
+      return "PAYMENT_REQUIRED";
     case 403:
       return "FORBIDDEN";
     case 404:
@@ -208,7 +210,7 @@ export const publicProcedure = t.procedure.use(mapErrors);
 export const protectedProcedure = publicProcedure.use(({ ctx, next }) => {
   if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to continue" });
   // A deployment that is not open to everyone admits only the accounts SIGNUP_ALLOWLIST names (services/access.ts).
-  assertAllowlisted(ctx.env, { userId: ctx.userId, email: ctx.email });
+  assertAllowlisted(ctx.env, { userId: ctx.userId, email: ctx.email, emailConfirmed: ctx.emailConfirmed });
   return next({ ctx: { ...ctx, userId: ctx.userId } });
 });
 

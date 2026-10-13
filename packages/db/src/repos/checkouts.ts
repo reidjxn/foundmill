@@ -6,7 +6,7 @@
  * the row with `lockForSettlement` so a session announced twice is granted once. Rows are written with the service role
  * (app roles only read this table); the api checks the caller's role and billing section first.
  */
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { BILLING_CHECKOUT_MODES, billingCheckouts, type BillingCheckout } from "../schema";
 import { Id, maybeOne, MinorAmount, one, parseInput, type Executor } from "./_shared";
@@ -79,6 +79,18 @@ export const checkoutsRepo = {
   /** The business's latest top-ups, newest first (the Billing tab). */
   async listRecent(db: Executor, businessId: string, limit = 10): Promise<BillingCheckout[]> {
     return db.select().from(billingCheckouts).where(eq(billingCheckouts.businessId, businessId)).orderBy(desc(billingCheckouts.createdAt)).limit(Math.max(1, Math.min(50, limit)));
+  },
+
+  /**
+   * USD cents granted to `period` by simulated payments (mock checkouts marked paid). Those credits are labeled and
+   * never pay for live model calls (../billing.ts `platformCredits`).
+   */
+  async mockGrantedMinor(db: Executor, businessId: string, period: string): Promise<number> {
+    const [row] = await db
+      .select({ total: sql<number>`coalesce(sum(${billingCheckouts.amountMinor}), 0)::bigint` })
+      .from(billingCheckouts)
+      .where(and(eq(billingCheckouts.businessId, businessId), eq(billingCheckouts.mode, "mock"), eq(billingCheckouts.status, "paid"), eq(billingCheckouts.grantedPeriod, period)));
+    return Number(row?.total ?? 0);
   },
 
   /** The row, locked until the caller's transaction ends (settlement reads and writes it once). */

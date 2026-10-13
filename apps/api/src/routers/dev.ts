@@ -157,6 +157,7 @@ export const devRouter = router({
      * Start: an agentSession workflow is started for the task. Refused (CONFLICT) while the team is stopped, while the
      * task already runs (or has a session open), is in review or done, waits on an unfinished dependency, or when its
      * agent is paused, released or at its wage cap: a start never wakes a paused agent, so it cannot undo Stop all agents.
+     * Refused with `tier_limit` (the web's upgrade prompt) when every concurrent agent the plan holds is already working.
      * The task is claimed with one conditional update, so a double click starts one session; when the workflow cannot
      * be queued the claim is undone and the session row closed (SERVICE_UNAVAILABLE), so a retry is not refused.
      */
@@ -172,7 +173,7 @@ export const devRouter = router({
       if (assignee.status === "paused") throw new TaskStartError(assignee.pausedReason === "wage_cap" ? `${assignee.name} reached its wage cap for the month and is paused. Raise the cap on its profile or reassign the task.` : `${assignee.name} is paused. Resume the agents or reassign the task first.`, { pausedReason: assignee.pausedReason });
       const spend = await repos.usage.agentSpend(ctx.db, ctx.businessId, assignee.id, periodOf(new Date()));
       if (spend.remainingMinor !== null && spend.remainingMinor <= 0) throw new TaskStartError(`${assignee.name} reached its wage cap for the month. Raise the cap on its profile or reassign the task.`);
-      // Plan tier (BUILD §10.5): a task started by hand takes a concurrent-agent slot like a cycle's dispatch.
+      // The plan tier's concurrent agents (BUILD §10.5), as the cycle's dispatch counts them (SEC2 S2).
       await assertConcurrencyRoom(ctx.db, ctx.business);
       // Exactly one start wins the task; a second (double click, another tab) finds it running and is refused.
       const claimed = await ctx.rls((tx) => repos.tasks.claimForStart(tx, ctx.businessId, task.id, STARTABLE_TASK_STATUSES));

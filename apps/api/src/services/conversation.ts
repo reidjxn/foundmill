@@ -67,7 +67,7 @@ import { z } from "zod";
 import { audit, effectivePermission, emit, hasSectionAccess, Id, type BusinessContext, type Section } from "../trpc";
 import { decideInboxItem, planContextFor, type DecideItemResult } from "./decide";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactText, redactValue } from "./inbox-redaction";
-import { assertPlanSectionAccess, compilePlan, evaluatePlan, requiresConfirmation, type ActionEvaluation } from "./plans";
+import { assertInstructionSectionAccess, assertPlanSectionAccess, compilePlan, evaluatePlan, requiresConfirmation, type ActionEvaluation } from "./plans";
 import { takeOrThrow, type RateLimitStore, type WindowLimit } from "./rate-limit";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -735,6 +735,9 @@ async function stageHandOffPlan(ctx: BusinessContext, messageId: string, opts: {
   const already = await stored(message.planId);
   if (already) return already;
 
+  // What the rule engine already sees in the instruction is checked against the person's walls before the model is paid
+  // for (SEC2 S3); the compiled plan is checked again below.
+  assertInstructionSectionAccess(ctx.membership, instruction, planCtx);
   // Compiling is a model call: it counts against the send limits (unless the send that asked for it already did).
   if (!opts.allowanceTaken) await takeConversationAllowance(ctx.limits, { userId: ctx.userId, businessId: ctx.businessId });
   const compiled = await compilePlan(ctx.models, instruction, planCtx);

@@ -7,11 +7,18 @@
  * composer, foundations, logo sets, recommenders) is booked to that business's usage ledger here, one row per model
  * call, as the orchestrator's usage sink does (review item 7). Calls with no business (Ideation drafting, Ask on a
  * concept, a logo before commit) are not booked: there is no ledger to book them to yet (DECISIONS 2026-10-09).
+ *
+ * Every call for a business also asks first (SEC2 S2): the credits gate (`assertPlatformCredits`, packages/db) refuses it
+ * with `credits_exhausted` (402) once the business's credits for the month are used up, whatever its model billing (a
+ * business on its own key pays for these platform-key calls with its credits too), and, where calls are live, when only
+ * credits from a simulated payment are left. A call that passes is noted on the request (services/model-calls.ts), so
+ * its allowance is never given back.
  */
-import { assertCreditsAvailable, bookUsage, type Db } from "@foundmill/db";
-import { createModelClient, type ModelClient, type StreamStructuredRequest, type UsageAttribution, type UsageEvent, type UsageSink } from "@foundmill/models";
+import { assertPlatformCredits, bookUsage, type Db } from "@foundmill/db";
+import { createModelClient, gateModelClient, type ModelCallGate, type ModelClient, type UsageEvent, type UsageSink } from "@foundmill/models";
 import type { Env } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
+import { noteModelCall } from "./model-calls";
 
 export interface ApiModelClientOptions {
   /** The service-role database the usage ledger is written to; without it nothing is booked (logged only). */
@@ -65,31 +72,14 @@ export function apiUsageSink(db: Db, log: ApiLogger): UsageSink {
 }
 
 /**
- * The credits ceiling on the API's platform-key calls (BUILD §10.4, §10.5): a call made for a business on credits whose
- * month is used up is refused before it is sent (`CreditsExhaustedError`, which the web shows with the way back), so
- * conversations, plan compiles and the in-process composer cannot keep spending the platform's key once the team has
- * paused. Calls with no business, and businesses on their own key, are never refused here.
+ * The api's check before every model call (see the module comment): a call for a business runs only while its credits
+ * allow it (`live`: the client spends real money, so simulated credits do not count). Calls with no business (Ideation,
+ * Ask on a concept) have their own allowances and nothing to charge. A call that passes is noted on the request.
  */
-export function withCreditsCeiling(client: ModelClient, db: Db): ModelClient {
-  const check = async (attribution: UsageAttribution | undefined) => {
-    if (attribution?.businessId) await assertCreditsAvailable(db, attribution.businessId);
-  };
-  const complete = (async (req: Parameters<ModelClient["complete"]>[0]) => {
-    await check(req.attribution);
-    return client.complete(req);
-  }) as ModelClient["complete"];
-  const stream = client.streamStructured?.bind(client);
-  return {
-    mode: client.mode,
-    complete,
-    ...(stream
-      ? {
-          streamStructured: async <T, E>(req: StreamStructuredRequest<T, E>) => {
-            await check(req.attribution);
-            return stream(req);
-          },
-        }
-      : {}),
+export function apiCreditsGate(db: Db, live: boolean): ModelCallGate {
+  return async ({ attribution }) => {
+    if (attribution?.businessId) await assertPlatformCredits(db, attribution.businessId, { live });
+    noteModelCall();
   };
 }
 
@@ -100,10 +90,10 @@ export function createApiModelClient(env: Pick<Env, "MODEL_MODE" | "ANTHROPIC_AP
     await book?.(e);
     opts.onUsage?.(e);
   };
-  const guard = (client: ModelClient) => (opts.db ? withCreditsCeiling(client, opts.db) : client);
+  let client: ModelClient;
   if (env.MODEL_MODE === "live" && !env.ANTHROPIC_API_KEY) {
     log.error({}, "MODEL_MODE=live but ANTHROPIC_API_KEY is missing; falling back to the mock model client");
-    return guard(createModelClient({ mode: "mock", onUsage: usage, logger: log }));
-  }
-  return guard(createModelClient({ mode: env.MODEL_MODE, apiKey: env.ANTHROPIC_API_KEY, onUsage: usage, logger: log }));
+    client = createModelClient({ mode: "mock", onUsage: usage, logger: log });
+  } else client = createModelClient({ mode: env.MODEL_MODE, apiKey: env.ANTHROPIC_API_KEY, onUsage: usage, logger: log });
+  return gateModelClient(client, opts.db ? apiCreditsGate(opts.db, client.mode === "live") : async () => noteModelCall());
 }
