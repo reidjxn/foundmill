@@ -275,8 +275,9 @@ export function redactDecisions(decisions: Decision[], source: RedactionSource, 
 }
 
 /** Related records as stubs: never identifiers or a lawful basis, and none at all behind a CRM wall. */
-export function entityStubs(entities: readonly { id: string; kind: string; displayName: string }[], walls: InboxWalls): { id: string; kind: string; displayName: string }[] {
-  return walls.crm ? [] : entities.map((e) => ({ id: e.id, kind: e.kind, displayName: e.displayName }));
+export function entityStubs(entities: readonly { id: string; kind: string; displayName: string; agentId?: string | null }[], walls: InboxWalls): { id: string; kind: string; displayName: string; agentId: string | null }[] {
+  // An agent's record carries the agent it stands for: the note's About links open the agent's profile (audit GTM-19).
+  return walls.crm ? [] : entities.map((e) => ({ id: e.id, kind: e.kind, displayName: e.displayName, agentId: e.agentId ?? null }));
 }
 
 /**

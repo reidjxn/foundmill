@@ -436,6 +436,9 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     planActionCount: 2,
     hardGateActions: 0,
   },
+  "business.updated": {
+    fields: ["name", "kitPrimary"],
+  },
   "foundations.progressed": {
     attempt: 1,
     step: "section",

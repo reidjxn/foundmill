@@ -225,7 +225,7 @@ export const EVENT_TYPES = [
   "bank.balance_updated", "runway.threshold_crossed",
   "agent.health_changed", "credential.expiring", "training.completed", "agent.promoted",
   "approval.requested", "approval.resolved",
-  "mode.changed", "holiday.started", "holiday.ended",
+  "mode.changed", "holiday.started", "holiday.ended", "business.updated",
   "filing.due", "contract.signed",
   "connection.requested", "message.received", "negotiation.message",
   "cycle.started", "cycle.completed", "inbox.item_created", "decision.made",

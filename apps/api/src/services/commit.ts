@@ -81,7 +81,7 @@ export function importBoardDecision(name: string, link: ImportLink): { subject: 
       "",
       report.summary,
       "",
-      "The vision, the specification and the roadmap are drafted from the import when you first open the business. The Board asks for one decision before the team spends anything: which of the import's first decisions comes first?",
+      "The vision, the specification and the roadmap are drafted from the import when you first open the business. The first cycle has already started; the Board asks for one decision before the team goes further: which of the import's first decisions comes first?",
     ].join("\n"),
     options,
   };

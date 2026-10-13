@@ -16,6 +16,29 @@ export const crmRouter = router({
 
   entity: router({
     /**
+     * Hover cards and links for entity mentions (audit GTM-26, VFR3-X1): the records behind up to 50 ids, each with its
+     * kind, active roles and contact facts, and for an agent's record the agent it stands for (an agent's mention opens
+     * the agent's profile, not a CRM record). Ids that are not records of this business are left out.
+     */
+    lookup: read.input(z.object({ entityIds: z.array(Id).min(1).max(50) })).query(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const rows = await repos.entities.byIds(tx, ctx.businessId, [...new Set(input.entityIds)]);
+        const roles = await repos.entities.activeRoles(tx, ctx.businessId, rows.map((e) => e.id));
+        const text = (v: unknown) => (typeof v === "string" && v ? v : null);
+        return rows.map((e) => ({
+          id: e.id,
+          kind: e.kind,
+          displayName: e.displayName,
+          agentId: e.agentId,
+          avatarUrl: e.avatarUrl,
+          mergedIntoId: e.mergedIntoId,
+          email: text(e.identifiers?.email),
+          domain: text(e.identifiers?.domain),
+          roles: (roles.get(e.id) ?? []).map((r) => ({ role: r.role, stage: r.stage })),
+        }));
+      }),
+    ),
+    /**
      * The CRM list without a search term (newest first, keyset paged). Every row carries its active roles (role, stage,
      * owner) for the role and stage views; role, stage, owner and department filters match those roles server-side.
      */
