@@ -3,12 +3,16 @@
  * credits. Only a delivery signed with STRIPE_BILLING_WEBHOOK_SECRET is read (never the businesses' secret, never a
  * fixture secret; without the secret nothing is accepted); a paid session grants its checkout's USD credits once and is
  * audited; a replay is refused, a duplicate event or a mismatched session grants nothing; an unpaid or expired session
- * grants nothing; another business's checkout is never touched.
+ * grants nothing; another business's checkout is never touched. A grant that lifts a credits stop restarts the engines
+ * and queued retests, as every other way back does.
  */
 import { MOCK_NOW, stripeSignatureHeader } from "@foundmill/connectors";
-import { repos } from "@foundmill/db";
+import { repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BILLING_WEBHOOK_PATH } from "../billing";
+import { createFollowups } from "../followups";
+import { silentLogger } from "../types";
+import type { WorkflowStarter } from "../workflows";
 import { createIngestHarness, json, type IngestHarness } from "./harness";
 
 const SECRET = "whsec_test_platform_billing_0123456789";
@@ -97,5 +101,67 @@ describe("POST /billing/stripe", () => {
     const c = await liveCheckout(hz.A.businessId, 2500);
     expect((await post(sessionEvent("checkout.session.expired", c, { payment_status: "unpaid" }))).body).toMatchObject({ outcome: "expired" });
     expect((await repos.checkouts.get(hz.db, hz.A.businessId, c.id)).status).toBe("expired");
+  });
+});
+
+describe("a paid top-up that lifts a credits stop (SEC3)", () => {
+  /** An app whose follow-ups record the workflows they start. */
+  function recordingApp() {
+    const calls: { type: string; workflowId: string; args: unknown[] }[] = [];
+    const workflows: WorkflowStarter = {
+      async start(type, options) {
+        calls.push({ type, ...options });
+        return { started: true, workflowId: options.workflowId };
+      },
+      async close() {},
+    };
+    const followups = createFollowups({ db: hz.db, composer: null, workflows, log: silentLogger });
+    const built = hz.build({ followups });
+    const deliver = async (event: unknown) => {
+      const body = JSON.stringify(event);
+      const res = await built.app.request(BILLING_WEBHOOK_PATH, { method: "POST", headers: { "content-type": "application/json", "stripe-signature": stripeSignatureHeader(SECRET, body, T) }, body });
+      await followups.idle();
+      return { status: res.status, body: await res.json() };
+    };
+    return { calls, deliver };
+  }
+
+  it("restarts the engines the stop ended and the retests queued meanwhile, as Resume agents does; another stop restarts nothing", async () => {
+    const { businessId, agentId, channelId } = hz.A;
+    await repos.channels.setEngineWorkflow(hz.db, businessId, channelId, `engine:${channelId}`);
+    const draft = await repos.agents.createVersion(hz.db, businessId, agentId, { state: "draft" });
+    const queued = await repos.training.create(hz.db, businessId, { agentId, toVersionId: draft.id, status: "queued" });
+    const decided = await repos.training.create(hz.db, businessId, { agentId, toVersionId: draft.id, status: "awaiting_decision" });
+    const channel = await repos.channels.get(hz.db, businessId, channelId);
+    try {
+      // Stop all agents is never lifted by a top-up: nothing restarts.
+      await stopBusinessAgents(hz.db, businessId, { reason: "kill_switch" });
+      const app = recordingApp();
+      expect((await app.deliver(sessionEvent("checkout.session.completed", await liveCheckout(businessId, 2500)))).body).toMatchObject({ outcome: "granted" });
+      expect(await repos.businesses.stopState(hz.db, businessId)).toMatchObject({ stopped: true, reason: "kill_switch" });
+      expect(app.calls).toEqual([]);
+      await resumeBusinessAgents(hz.db, businessId);
+
+      // The credits ran out: the top-up lifts the stop and starts what a resume starts.
+      await stopBusinessAgents(hz.db, businessId, { reason: "credits_exhausted" });
+      const paid = recordingApp();
+      expect((await paid.deliver(sessionEvent("checkout.session.completed", await liveCheckout(businessId, 2500)))).body).toMatchObject({ outcome: "granted" });
+      expect(await repos.businesses.agentsStopped(hz.db, businessId)).toBe(false);
+      expect(paid.calls).toEqual(
+        expect.arrayContaining([
+          { type: "channelEngine", workflowId: `engine:${channelId}`, args: [{ businessId, channelId, channelKey: channel.channelKey }] },
+          { type: "trainingRun", workflowId: `training:${queued.id}`, args: [{ businessId, trainingRunId: queued.id }] },
+        ]),
+      );
+      expect(paid.calls.map((c) => c.workflowId)).not.toContain(`training:${decided.id}`);
+      // A top-up with nothing stopped restarts nothing.
+      const idle = recordingApp();
+      expect((await idle.deliver(sessionEvent("checkout.session.completed", await liveCheckout(businessId, 2500)))).body).toMatchObject({ outcome: "granted" });
+      expect(idle.calls).toEqual([]);
+    } finally {
+      await resumeBusinessAgents(hz.db, businessId);
+      await repos.training.cancelActive(hz.db, businessId, { coachSummaryMd: "test cleanup" });
+      await repos.channels.setEngineWorkflow(hz.db, businessId, channelId, null);
+    }
   });
 });

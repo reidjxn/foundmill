@@ -8,6 +8,10 @@
  *    the event itself, so a composer outage delays the note rather than losing it.
  * 3. Every enabled playbook whose trigger matches an event that was written (the source events and the
  *    `customer.converted` they produced) starts a `playbook` run (`playbook:{playbookId}:{eventId}`).
+ * 4. A paid top-up that lifted a stop for used-up credits (billing.ts, `resumed`) starts again what every other way back
+ *    starts (apps/api killswitch.ts `restartAfterResume`): the engines of enabled channels that had one running
+ *    (`engine:{channelId}`) and the training runs left queued while the team was stopped (`training:{runId}`, a model
+ *    change's retests).
  *
  * None of it holds the vendor's acknowledgement: `dispatch` schedules the work and returns. Failures are logged, never
  * thrown; Temporal ids are deterministic, so a retried delivery cannot start the same work twice. `idle()` lets graceful
@@ -40,6 +44,8 @@ export interface PlaybookRequest {
 export interface IngestFollowups {
   /** Schedules the after-commit work for what an ingest call wrote. Never throws and never waits for the work. */
   dispatch(result: IngestResult): void;
+  /** A paid top-up lifted the business's credits stop: restarts its engines and queued training runs. Never throws. */
+  resumed(businessId: string): void;
   /** Resolves once everything dispatched so far has settled. */
   idle(): Promise<void>;
 }
@@ -115,15 +121,37 @@ export function createFollowups(deps: FollowupDeps): IngestFollowups {
     ]);
   }
 
+  /**
+   * The same restarts as apps/api's `restartAfterResume` after Resume agents, a new key or a mock top-up: without them a
+   * paid top-up left the engines the credits stop ended off and a model change's retest queued for good. A workflow
+   * that is already running counts as started; one that finds the team stopped again ends at its first step.
+   */
+  async function restartAfterResume(businessId: string): Promise<void> {
+    const [channels, queued] = await Promise.all([repos.channels.list(deps.db, businessId, { enabled: true }), repos.training.list(deps.db, businessId, { status: "queued", limit: 100 })]);
+    const engines = channels.filter((c) => c.engineWorkflowId).map((c) => deps.workflows.start(INGEST_WORKFLOWS.channelEngine, { workflowId: ingestWorkflowIds.engine(c.id), args: [{ businessId, channelId: c.id, channelKey: c.channelKey }] }));
+    const training = queued.items.map((run) => deps.workflows.start(INGEST_WORKFLOWS.trainingRun, { workflowId: ingestWorkflowIds.training(run.id), args: [{ businessId, trainingRunId: run.id }] }));
+    const results = await Promise.all([...engines, ...training]);
+    const missed = results.filter((r) => !r.started);
+    if (missed.length > 0) deps.log.warn({ businessId, missed: missed.map((r) => ({ workflowId: r.workflowId, reason: r.reason })) }, "not every workflow restarted after the top-up");
+    else if (results.length > 0) deps.log.info({ businessId, engines: engines.length, training: training.length }, "engines and queued training restarted after the top-up");
+  }
+
+  const track = (work: Promise<void>, what: string) => {
+    const p: Promise<void> = work
+      .catch((e: unknown) => deps.log.error({ err: (e as Error).message }, `${what} failed`))
+      .finally(() => {
+        pending.delete(p);
+      });
+    pending.add(p);
+  };
+
   return {
     dispatch(result) {
       if (!result.events.some((e) => e.written)) return;
-      const p: Promise<void> = run(result)
-        .catch((e: unknown) => deps.log.error({ err: (e as Error).message }, "ingest follow-ups failed"))
-        .finally(() => {
-          pending.delete(p);
-        });
-      pending.add(p);
+      track(run(result), "ingest follow-ups");
+    },
+    resumed(businessId) {
+      track(restartAfterResume(businessId), "restart after the top-up");
     },
     async idle() {
       while (pending.size > 0) await Promise.allSettled([...pending]);
@@ -132,4 +160,4 @@ export function createFollowups(deps: FollowupDeps): IngestFollowups {
 }
 
 /** Does nothing (tools and tests that do not exercise follow-ups). */
-export const noFollowups: IngestFollowups = { dispatch() {}, async idle() {} };
+export const noFollowups: IngestFollowups = { dispatch() {}, resumed() {}, async idle() {} };
