@@ -16,6 +16,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { journeyIdForConversion } from "@/components/journey/mapping";
 import { TIMELINE_KIND_WORD, milestoneForTrophy, otherMilestones, replayLookupWindow, replayRefOf, shareText, trophyCards } from "./milestones";
@@ -94,13 +95,14 @@ export function MilestonesScreen() {
     [others],
   );
 
-  if (ribbonQ.error) return <ErrorPanel title="Milestones" message={errorMessage(ribbonQ.error)} onRetry={() => void ribbonQ.refetch()} />;
+  if (loadFailed(ribbonQ)) return <ErrorPanel title="Milestones" message={errorMessage(ribbonQ.error)} onRetry={() => void ribbonQ.refetch()} />;
   if (!ribbonQ.data) return <ScreenSkeleton />;
 
   const shareCard = shareKey ? cards.find((c) => c.key === shareKey) : undefined;
 
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="milestones-screen" data-won={won}>
+      {refreshFailed(ribbonQ) ? <RefreshFailedNotice query={ribbonQ} className="col-span-12 flex items-center gap-2" /> : null}
       <Panel
         title="Customers and revenue"
         span={12}

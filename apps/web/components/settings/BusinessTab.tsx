@@ -5,18 +5,19 @@
  * the rest of the form, with a suggestion read from the logo).
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Field, Input, SimpleSelect, type Kit } from "@foundmill/dugout";
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared/constants";
 import { LogoPicker, type LogoActions } from "@/components/logo/LogoPicker";
 import { readLogoStream } from "@/components/logo/logo-stream";
 import { useBusinessLogoSrc } from "@/components/logo/useBusinessLogo";
 import type { LogoDraft } from "@/lib/logo";
-import type { RouterOutputs } from "@/lib/trpc";
+import { trpcErrorCode, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, FormRow, Hint, SaveBar, SettingsSection, useSettingsToast } from "./shared";
+import { businessFields, businessSavePayload, changedFields, initialBusinessForm, rebaseBusinessForm, type BusinessFields } from "./business-form";
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
@@ -28,19 +29,34 @@ export function BusinessTab() {
   const invalidate = useInvalidateRouters();
   const t = useSettingsToast();
   const b = data.business;
-  const [name, setName] = useState(b.name);
-  const [slug, setSlug] = useState(b.slug);
-  const [archetype, setArchetype] = useState<Archetype | "">(b.archetype ?? "");
-  const [primary, setPrimary] = useState(b.kitPrimary);
-  const [secondary, setSecondary] = useState(b.kitSecondary);
+  // The form and the server values it started from; untouched fields follow the server copy as it changes (another tab,
+  // a co-founder: `business.updated` refetches it), and a save sends only what changed (business-form.ts).
+  const server = useMemo(() => businessFields(b), [b]);
+  const [state, setState] = useState(() => initialBusinessForm(server));
+  useEffect(() => setState((s) => rebaseBusinessForm(s, server)), [server]);
+  const { name, slug, kitPrimary: primary, kitSecondary: secondary } = state.form;
+  const archetype = (state.form.archetype ?? "") as Archetype | "";
+  const set = (patch: Partial<BusinessFields>) => setState((s) => ({ ...s, form: { ...s.form, ...patch } }));
+  const setPrimary = (kitPrimary: string) => set({ kitPrimary });
+  const setSecondary = (kitSecondary: string) => set({ kitSecondary });
 
   const update = useMutation(
     trpc.business.update.mutationOptions({
-      onSuccess: () => {
+      onSuccess: (saved) => {
+        // The saved values are the new starting point (no stale `expected` on the next save).
+        setState(initialBusinessForm(businessFields(saved)));
         void invalidate(["business"]);
         t.saved("Business saved", "The top bar and the initials mark follow the new brand colors.");
       },
-      onError: (e) => t.failed(e),
+      onError: (e) => {
+        // Someone changed a field this save changes: show the latest values, the founder decides again.
+        if (trpcErrorCode(e) === "CONFLICT") {
+          void queryClient.fetchQuery(trpc.business.get.queryOptions({ businessId }, { staleTime: 0 })).then((fresh) => setState(initialBusinessForm(businessFields(fresh.business))));
+          t.failed(e, "Changed elsewhere");
+          return;
+        }
+        t.failed(e);
+      },
     }),
   );
 
@@ -88,21 +104,21 @@ export function BusinessTab() {
   }
 
   const validHex = HEX_RE.test(primary) && HEX_RE.test(secondary);
-  const dirty = name !== b.name || slug !== b.slug || (archetype || null) !== (b.archetype ?? null) || primary !== b.kitPrimary || secondary !== b.kitSecondary;
+  const dirty = changedFields(state).length > 0;
 
   return (
     <AdminOnly>
       <SettingsSection title="Identity">
         <FormRow>
           <Field htmlFor="biz-name" label="Name" required>
-            <Input id="biz-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} />
+            <Input id="biz-name" value={name} onChange={(e) => set({ name: e.target.value })} maxLength={120} />
           </Field>
           <Field htmlFor="biz-slug" label="Slug" hint="Lower-case letters, digits and dashes.">
-            <Input id="biz-slug" mono value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase())} maxLength={80} invalid={!/^[a-z0-9-]+$/.test(slug)} />
+            <Input id="biz-slug" mono value={slug} onChange={(e) => set({ slug: e.target.value.toLowerCase() })} maxLength={80} invalid={!/^[a-z0-9-]+$/.test(slug)} />
           </Field>
         </FormRow>
         <Field htmlFor="biz-archetype" label="Archetype" hint="Drives the default departments, channels and the Board's first decisions.">
-          <SimpleSelect id="biz-archetype" value={archetype} onValueChange={(v) => setArchetype(v as Archetype)} placeholder="Choose an archetype" options={ARCHETYPES.map((a) => ({ value: a, label: ARCHETYPE_LABELS[a] }))} />
+          <SimpleSelect id="biz-archetype" value={archetype} onValueChange={(v) => set({ archetype: v || null })} placeholder="Choose an archetype" options={ARCHETYPES.map((a) => ({ value: a, label: ARCHETYPE_LABELS[a] }))} />
         </Field>
       </SettingsSection>
       <SettingsSection title="Logo and brand colors" data-testid="settings-logo">
@@ -113,10 +129,7 @@ export function BusinessTab() {
           onChange={saveLogo}
           actions={actions}
           saving={pending !== undefined}
-          onUseColours={(k) => {
-            setPrimary(k.primary);
-            setSecondary(k.secondary);
-          }}
+          onUseColours={(k) => set({ kitPrimary: k.primary, kitSecondary: k.secondary })}
         />
         <FormRow>
           <Field htmlFor="kit-primary" label="Primary color" error={HEX_RE.test(primary) ? undefined : "Use a 6-digit hex color"}>
@@ -128,7 +141,10 @@ export function BusinessTab() {
         </FormRow>
         <Hint>The logo is saved as soon as you choose it. Brand colors are saved with the button below; text on the primary color is picked for you so it always stays readable.</Hint>
         <SaveBar
-          onSave={() => update.mutate({ businessId, name: name.trim(), slug, archetype: archetype || null, kitPrimary: primary, kitSecondary: secondary })}
+          onSave={() => {
+            const { changes, expected } = businessSavePayload(state);
+            update.mutate({ businessId, ...changes, archetype: changes.archetype as Archetype | null | undefined, expected });
+          }}
           saving={update.isPending}
           disabled={!dirty || !validHex || name.trim().length === 0 || !/^[a-z0-9-]+$/.test(slug)}
         />

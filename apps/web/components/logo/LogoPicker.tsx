@@ -18,6 +18,7 @@
 import { Check, Eraser, Palette, Upload } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { BusinessLogo, Button, Chip, FitText, GenerateControl, ProvenanceChip, Skeleton, StatusPill, cn, type Kit } from "@foundmill/dugout";
+import { nextRovingIndex, rovingTabStop } from "@/lib/roving";
 import { errorMessage } from "@/lib/trpc";
 import { LOGO_FILE_ACCEPT, LOGO_FILE_HINT, formatCostEstimate, readLogoFile, sameKit, suggestKit, type LogoDraft } from "@/lib/logo";
 
@@ -53,6 +54,11 @@ export interface LogoActions {
    * ready; the promise resolves with the whole set. `signal` stops the set (the picker unmounted).
    */
   generate(round: number, onProgress?: (progress: LogoProgress) => void, signal?: AbortSignal): Promise<GeneratedLogoSet>;
+}
+
+/** The ids of the marks that are drawn, in order (the failed and still-drawing slots are not options). */
+function optionIds(slots: readonly { option?: { id: string } | null }[] | null): string[] {
+  return (slots ?? []).flatMap((slot) => (slot.option ? [slot.option.id] : []));
 }
 
 /** A slot of the set being drawn. */
@@ -114,6 +120,9 @@ export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, 
   // A mark can be picked as soon as it arrives, while the rest of the set is still being drawn.
   const choosing = disabled || saving || busy === "upload";
   const abortRef = useRef<AbortController | null>(null);
+  // The marks are one Tab stop: the arrow keys move between them (ARIA radio pattern; audit A11Y-20).
+  const optionRefs = useRef(new Map<string, HTMLButtonElement>());
+  const [focusedOption, setFocusedOption] = useState<string | null>(null);
   useEffect(() => () => abortRef.current?.abort(), []);
 
   // Colours read from the chosen logo (SVG fills from the server, or the raster's pixels). Keyed by content, not by the
@@ -205,6 +214,8 @@ export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, 
   // While a set is drawn its slots show (marks as they arrive); otherwise the last finished set.
   const finished = stopped ?? set?.options ?? null;
   const shown: LogoDraftSlot[] | null = slots ?? (finished ? finished.map((option, index) => ({ index, label: option.name, option, failed: false })) : null);
+  const selectedOption = shown?.find((slot) => slot.option && value?.source === "generated" && value.dataUrl === slot.option.dataUrl)?.option?.id ?? null;
+  const tabStop = rovingTabStop(optionIds(shown), focusedOption, selectedOption);
   const total = slots?.length ?? DEFAULT_LOGO_SLOTS.length;
 
   const showSuggestion = suggestion !== null && !sameKit(suggestion, kit);
@@ -269,7 +280,21 @@ export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, 
 
         {shown ? (
           <div className="flex flex-col gap-2" data-testid="logo-options" data-drafting={drafting || undefined}>
-            <div role="radiogroup" aria-label="Generated logos" aria-busy={drafting || undefined} className="grid grid-cols-4 gap-2">
+            <div
+              role="radiogroup"
+              aria-label="Generated logos"
+              aria-busy={drafting || undefined}
+              className="grid grid-cols-4 gap-2"
+              onKeyDown={(e) => {
+                // Arrows only move focus; Space or Enter chooses, so a key press never saves a logo by itself.
+                const ids = optionIds(shown);
+                const at = ids.findIndex((id) => optionRefs.current.get(id) === e.target);
+                const to = at < 0 ? null : nextRovingIndex(e.key, at, ids.length);
+                if (to === null) return;
+                e.preventDefault();
+                optionRefs.current.get(ids[to]!)?.focus();
+              }}
+            >
               {shown.map((slot) => {
                 const o = slot.option;
                 if (!o) {
@@ -284,9 +309,15 @@ export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, 
                 return (
                   <button
                     key={o.id}
+                    ref={(el) => {
+                      if (el) optionRefs.current.set(o.id, el);
+                      else optionRefs.current.delete(o.id);
+                    }}
                     type="button"
                     role="radio"
                     aria-checked={selected}
+                    tabIndex={o.id === tabStop ? 0 : -1}
+                    onFocus={() => setFocusedOption(o.id)}
                     aria-label={`${o.name}: ${o.concept}`}
                     title={o.concept}
                     disabled={choosing}
@@ -294,7 +325,7 @@ export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, 
                     data-testid="logo-option"
                     data-selected={selected || undefined}
                     className={cn(
-                      "relative flex flex-col items-center gap-1.5 rounded-panel border border-subtle bg-panel-alt p-2 text-left outline-none transition-colors duration-micro ease-dugout hover:border-secondary/60 focus-visible:outline-2 focus-visible:outline-link disabled:opacity-60",
+                      "relative flex flex-col items-center gap-1.5 rounded-panel border border-subtle bg-panel-alt p-2 text-left transition-colors duration-micro ease-dugout hover:border-secondary/60 focus-visible:outline-2 focus-visible:outline-link disabled:opacity-60",
                       selected && "border-link",
                     )}
                   >

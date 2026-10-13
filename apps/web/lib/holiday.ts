@@ -3,7 +3,7 @@
  * vocabulary (docs/DECISIONS.md "Hard gates are locked in HolidayDialog"); the API wants platform event types.
  * `sign_contracts` is stripped here too (the API strips it again; hard gates never travel).
  */
-import type { HolidaySettings, HolidayWakeEvent } from "@foundmill/dugout";
+import { endOfLocalDay, type HolidaySettings, type HolidayWakeEvent } from "@foundmill/dugout";
 import type { EventType } from "@foundmill/shared";
 
 export const WAKE_EVENT_TO_EVENT_TYPE: Record<HolidayWakeEvent, EventType | null> = {
@@ -25,7 +25,8 @@ export interface StartHolidayInput {
 }
 
 export function toStartHolidayInput(settings: HolidaySettings, fallbackCurrency = "EUR"): StartHolidayInput {
-  const until: StartHolidayInput["until"] = settings.until.kind === "date" ? { kind: "date", date: new Date(settings.until.date) } : settings.until.kind === "condition" ? { kind: "condition", condition: settings.until.condition } : { kind: "return" };
+  // The picked day lasts until it is over in the founder's own zone (not midnight UTC, which ends it the evening before).
+  const until: StartHolidayInput["until"] = settings.until.kind === "date" ? { kind: "date", date: endOfLocalDay(settings.until.date) ?? new Date(settings.until.date) } : settings.until.kind === "condition" ? { kind: "condition", condition: settings.until.condition } : { kind: "return" };
   const wakeEvents = [...new Set(settings.wakeEvents.map((w) => WAKE_EVENT_TO_EVENT_TYPE[w]).filter((e): e is EventType => e !== null))];
   return {
     until,

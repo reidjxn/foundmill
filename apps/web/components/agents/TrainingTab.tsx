@@ -14,6 +14,8 @@ import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, Dia
 import type { ModelKey } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { readOnlyReason } from "@/lib/access";
+import { useBusiness } from "@/components/shell/business-context";
 import { formatDayMonth } from "@/lib/format";
 import type { TabProps } from "./AgentProfileScreen";
 import { ModelChangeDialog } from "./ModelChangeDialog";
@@ -44,6 +46,9 @@ import {
 } from "./logic";
 
 export function TrainingTab({ businessId, profile, currency, refetch }: TabProps) {
+  // Viewers and advisors read the instructions and the results; saving a draft and training are changes (RUI-05).
+  const { access } = useBusiness();
+  const canChange = access.canChange;
   const datePrefs = useDateFormat();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -260,10 +265,10 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
           <span className="inline-flex items-center gap-2">
             {live ? <Chip tone="neutral">Live v{live.version}</Chip> : <Chip tone="warn">No live version</Chip>}
             {savedVersionId ? <Chip tone={dirtySinceSave ? "info" : "good"}>{dirtySinceSave ? "Draft edited" : `Draft v${profile.versions.find((v) => v.id === savedVersionId)?.version ?? "?"} saved`}</Chip> : dirtySinceSave ? <Chip tone="info">Unsaved edits</Chip> : null}
-            <Button size="sm" icon={Save} onClick={() => doSave()} loading={saveDraft.isPending} disabled={!dirtySinceSave && !!savedVersionId} data-testid="save-draft">
+            <Button size="sm" icon={Save} onClick={() => doSave()} loading={saveDraft.isPending} disabled={!canChange || (!dirtySinceSave && !!savedVersionId)} title={canChange ? undefined : readOnlyReason(access)} data-testid="save-draft">
               Save draft
             </Button>
-            <Button size="sm" variant="primary" icon={Dumbbell} onClick={() => setTrainOpen(true)} disabled={busy || !!flow.active || (!dirtySinceSave && !savedVersionId)} data-testid="train">
+            <Button size="sm" variant="primary" icon={Dumbbell} onClick={() => setTrainOpen(true)} disabled={!canChange || busy || !!flow.active || (!dirtySinceSave && !savedVersionId)} title={canChange ? undefined : readOnlyReason(access)} data-testid="train">
               Train
             </Button>
           </span>

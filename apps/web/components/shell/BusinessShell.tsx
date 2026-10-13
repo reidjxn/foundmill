@@ -23,8 +23,11 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { runwayWords } from "@foundmill/widgets/shared/runway";
 import { agentsStoppedView } from "@/lib/agents-stopped";
 import { LAST_BUSINESS_COOKIE, SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
-import { computeContinueState, respondHref, unviewedWin } from "@/lib/continue-state";
-import { CYCLE_EVENT_TYPES, cycleFromSnapshot, reduceCycleEvent, setPaused, type CycleEvent, type CycleStatus, EMPTY_CYCLE } from "@/lib/cycle";
+import { readOnlyReason } from "@/lib/access";
+import { awayReportId, computeContinueState, journeyHref, respondHref, unviewedWin } from "@/lib/continue-state";
+import { CYCLE_EVENT_TYPES, cycleFromSnapshot, initialCycle, nextPulseKey, reduceCycleEvent, setPaused, type CycleEvent, type CycleStatus } from "@/lib/cycle";
+import type { AgentSummary } from "@/lib/entity-links";
+import { useEntityResolver } from "@/lib/entity-resolver";
 import { publicEnv } from "@/lib/env";
 import { streamAwareStaleTime } from "@/lib/query-client";
 import { shellQueryInputs } from "@/lib/shell-queries";
@@ -34,7 +37,7 @@ import { entityPaletteItems, filterLocal, localPaletteItems, searchInputFor } fr
 import { SIDEBAR_BRAND, SIDEBAR_IDS, activeSidebarId, buildSidebarItems, orderedVisibleDepartments } from "@/lib/sidebar";
 import { signOut } from "@/lib/auth/sign-out";
 import { useStreamSubscription } from "@/lib/stream-client";
-import { streamPollInterval, useBusinessLive } from "@/lib/stream-status";
+import { streamPollInterval, useBusinessLive, useConnectionNotice } from "@/lib/stream-status";
 import { useClientToday } from "@/lib/today";
 import { getBrowserAccessToken } from "@/lib/supabase/client";
 import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
@@ -89,6 +92,8 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   // Stop all agents and its resume write one per agent (from any tab or service): the business carries the stop flag.
   "agent.health_changed": ["department", "team", "business"],
   "mode.changed": ["business"],
+  // A rename or new brand colors saved in another tab or by a co-founder (audit RES-07).
+  "business.updated": ["business"],
   "holiday.started": ["business"],
   "holiday.ended": ["business", "inbox", "cycle"],
   "cycle.started": ["cycle"],
@@ -169,6 +174,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const inboxQ = useQuery(trpc.inbox.list.queryOptions(inputs.inbox, { staleTime: INBOX_STALE, refetchInterval: streamPollInterval(streamLive, POLL_WITHOUT_STREAM_MS) }));
   const financeQ = useQuery(trpc.finance.overview.queryOptions(inputs.finance, { staleTime: FINANCE_STALE, retry: false }));
   const cycleQ = useQuery(trpc.cycle.status.queryOptions(inputs.cycle, { staleTime: CYCLE_STALE, refetchInterval: streamPollInterval(streamLive, POLL_WITHOUT_STREAM_MS), retry: false }));
+  // The founder's businesses, for the business menu and the palette (the same query the Inbox reads for the founder's name).
+  const profileQ = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
 
   // --- foundations: the first open drafts the vision, specification and roadmap (BUILD §11.1, §11.5) ---------------
   // `product.foundations.ensure` is idempotent on the server (it claims a pending draft exactly once, so two tabs or a
@@ -200,6 +207,9 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const logoSrc = useBusinessLogoSrc(businessId, data.logo);
   const live = business.gameMode === "live";
   const currency = financeQ.data?.cash.currency ?? "EUR";
+  const businessCtx = useMemo(() => makeBusinessContext(businessId, data, departments), [businessId, data, departments]);
+  // What this person may open and change (audit RUI-05): the sidebar, the palette and the shell's controls follow it.
+  const access = businessCtx.access;
 
   const agentDepartment = useCallback(
     (agentId: string) => departments.find((d) => d.squad.some((a) => a.id === agentId) || d.leadAgentId === agentId)?.id ?? null,
@@ -207,10 +217,15 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   );
 
   // --- cycle status: `cycle.status` snapshot + the stream ----------------------------------------------------------
-  const [cycle, dispatch] = useReducer(cycleReducer, EMPTY_CYCLE);
+  // Seeded from the snapshot the page arrived with, so its finished cycles never read as one completing (audit WEB-15).
+  const [cycle, dispatch] = useReducer(cycleReducer, cycleQ.data, initialCycle);
   useEffect(() => {
     if (cycleQ.data) dispatch({ type: "snapshot", status: cycleFromSnapshot(cycleQ.data) });
   }, [cycleQ.data]);
+  // One Continue pulse per `cycle.completed` on the stream; adopting a snapshot never pulses.
+  const [pulseKey, setPulseKey] = useState(0);
+  // Come back waits for the "While you were away" note and opens it when it lands (audit OL-27).
+  const awaitingAwayReport = useRef(false);
 
   const invalidate = useCallback((routers: readonly string[]) => Promise.all(routers.map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] }))), [queryClient]);
 
@@ -218,6 +233,12 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     const event: WidgetEvent | null = readWidgetEvent(raw);
     if (!event) return;
     if ((CYCLE_EVENT_TYPES as readonly string[]).includes(event.type)) dispatch({ type: "event", event, agentDepartment });
+    setPulseKey((k) => nextPulseKey(k, event.type));
+    const reportId = awayReportId(event);
+    if (reportId && awaitingAwayReport.current) {
+      awaitingAwayReport.current = false;
+      router.push(routes.inbox(businessId, reportId));
+    }
     const routers = INVALIDATE_ON_EVENT[event.type];
     if (routers) void invalidate(routers);
   });
@@ -238,8 +259,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     [businessId],
   );
   const sidebarItems = useMemo(
-    () => buildSidebarItems({ businessId, departments, inboxCounts: inboxQ.data?.counts, inboxItems: inboxQ.data?.items, live }),
-    [businessId, departments, inboxQ.data?.counts, inboxQ.data?.items, live],
+    () => buildSidebarItems({ businessId, departments, inboxCounts: inboxQ.data?.counts, inboxItems: inboxQ.data?.items, live, access }),
+    [businessId, departments, inboxQ.data?.counts, inboxQ.data?.items, live, access],
   );
   const activeId = useMemo(() => activeSidebarId(pathname, businessId, departments), [pathname, businessId, departments]);
   // Sidebar links navigate by themselves (next/link); this pushes only for keyboard chords, the logo button and items
@@ -272,11 +293,14 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       onError: (err) => toast({ title: "Refresh failed", description: errorMessage(err), tone: "bad" }),
     }),
   );
+  // Come back opens the Inbox at once, then "While you were away" when the Chief of Staff has written it (BUILD §9.6).
   const endHoliday = useMutation(
     trpc.business.endHoliday.mutationOptions({
       onSuccess: () => {
+        awaitingAwayReport.current = true;
         void invalidate(["business", "inbox"]);
-        toast({ title: "Welcome back", description: "The Chief of Staff handed the business back to you.", tone: "good" });
+        router.push(routes.inbox(businessId));
+        toast({ title: "Welcome back", description: "The Chief of Staff handed the business back to you. “While you were away” opens here as soon as it is written.", tone: "good" });
       },
       onError: (err) => toast({ title: "Could not end the vacation", description: errorMessage(err), tone: "bad" }),
     }),
@@ -348,10 +372,22 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const onRespond = useCallback(() => {
     router.push(respondHref(businessId, inboxQ.data?.items));
   }, [inboxQ.data?.items, router, businessId]);
-  const onGoToJourney = useCallback(() => {
+  // "Go to Journey" opens the won customer's Customer Update (the server knows its journey) and marks the win seen,
+  // which frees Continue; without a journey yet it opens the win's note (audit OL-27).
+  const markRead = useMutation(trpc.inbox.markRead.mutationOptions({ onSuccess: () => void invalidate(["inbox"]) }));
+  const markWinRead = markRead.mutate;
+  const onGoToJourney = useCallback(async () => {
     const win = unviewedWin(inboxQ.data?.items);
-    router.push(win ? routes.inbox(businessId, win.id) : routes.inbox(businessId));
-  }, [inboxQ.data?.items, router, businessId]);
+    let state: RouterOutputs["cycle"]["continueState"] | null = null;
+    try {
+      state = await queryClient.fetchQuery(trpc.cycle.continueState.queryOptions({ businessId }, { staleTime: 0 }));
+    } catch {
+      /* fall back to the note */
+    }
+    const winId = (state?.kind === "matchday" ? state.itemId : null) ?? win?.id ?? null;
+    if (winId && state?.kind === "matchday" && state.journeyId) markWinRead({ businessId, itemId: winId });
+    router.push(journeyHref(businessId, state, win?.id));
+  }, [inboxQ.data?.items, router, businessId, queryClient, trpc, markWinRead]);
   const pause = pauseCycle.mutate;
   const pausing = pauseCycle.isPending;
   const onPause = useCallback(() => {
@@ -374,8 +410,14 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     const t = window.setTimeout(() => setDebounced(input), SEARCH_DEBOUNCE_MS);
     return () => window.clearTimeout(t);
   }, [parsed, resolveDepartment]);
-  const searchQ = useQuery(trpc.crm.search.queryOptions({ businessId, ...(debounced ?? { q: "-" }) }, { enabled: debounced !== null, staleTime: 15_000, retry: false }));
-  const localItems = useMemo(() => localPaletteItems({ businessId, departments, inboxItems: inboxQ.data?.items, live }), [businessId, departments, inboxQ.data?.items, live]);
+  // Records only for someone who may read the CRM (anyone else would get a silent refusal).
+  const searchQ = useQuery(trpc.crm.search.queryOptions({ businessId, ...(debounced ?? { q: "-" }) }, { enabled: debounced !== null && access.canRead("crm"), staleTime: 15_000, retry: false }));
+  const businesses = useMemo(() => (profileQ.data?.businesses ?? []).map((b) => ({ id: b.id, name: b.name })), [profileQ.data?.businesses]);
+  const canEditLayout = Boolean(shortcuts.onEditLayout);
+  const localItems = useMemo(
+    () => localPaletteItems({ businessId, departments, inboxItems: inboxQ.data?.items, live, canEditLayout, businesses, access }),
+    [businessId, departments, inboxQ.data?.items, live, canEditLayout, businesses, access],
+  );
   const paletteItems = useMemo<PaletteItem[]>(() => {
     const text = parsed?.text ?? searchText;
     const local = filterLocal(localItems, text);
@@ -386,7 +428,15 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     setSearchText(raw);
     setParsed(q);
   }, []);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchOpen, setSearchOpenState] = useState(false);
+  // Every open starts empty: the last query never lingers for new typing to append to (audit GTM-27).
+  const setSearchOpen = useCallback((open: boolean) => {
+    setSearchOpenState(open);
+    if (!open) {
+      setSearchText("");
+      setParsed(null);
+    }
+  }, []);
   // The palette's Ask rows open a desk: its sheet's code is fetched as soon as the palette opens.
   useEffect(() => {
     if (searchOpen) prefetchAgentDesk();
@@ -405,7 +455,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       setSearchOpen(false);
       deskApi.current?.open({ kind: "agent", id: a.id }, { persona: { name: a.name, role: a.role, avatarSeed: a.avatarSeed, dept: a.dept }, text: askQuestion(text, a) || null });
     },
-    [agents],
+    [agents, setSearchOpen],
   );
   const onSelect = useCallback(
     (item: PaletteItem) => {
@@ -417,11 +467,10 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       if (item.id === "command:sign-out") return signOut();
       if (item.href) router.push(item.href);
     },
-    [router, refreshInbox, businessId, shortcuts],
+    [router, refreshInbox, businessId, shortcuts, setSearchOpen],
   );
 
   // --- providers for the surfaces below ---------------------------------------------------------------------------
-  const businessCtx = useMemo(() => makeBusinessContext(businessId, data, departments), [businessId, data, departments]);
   // Module environment (docs/ARCHITECTURE.md §18): the collab server, the Supabase access token it authenticates (the
   // dev bearer when there is no Supabase session) and the host's collaborative SpecEditor. Without a collab URL the
   // editor keeps its edits local and saves whole blocks through `product.spec.editBlock`.
@@ -429,13 +478,32 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   useEffect(() => {
     void getBrowserAccessToken().then((t) => setCollabToken(t ?? undefined));
   }, []);
-  const moduleEnv = useMemo<Partial<ModuleEnv>>(() => ({ collabUrl: publicEnv().collabUrl, collabToken, SpecEditor }), [collabToken]);
+  const moduleEnv = useMemo<Partial<ModuleEnv>>(() => ({ collabUrl: publicEnv().collabUrl, collabToken, SpecEditor, readOnly: access.canChange ? undefined : readOnlyReason(access) }), [collabToken, access]);
   const specUser = useMemo(() => ({ id: viewer.userId ?? "dev", name: viewer.email ?? "You" }), [viewer.userId, viewer.email]);
-  // Agents open their profile; everything else (people, organisations, staff) opens its CRM record.
-  const entityLinks = useMemo(() => {
-    const hrefFor = (ref: { id: string; kind?: string; href?: string }) => ref.href ?? (ref.kind === "agent" ? routes.agent(businessId, ref.id) : routes.crm(businessId, ref.id));
-    return { hrefFor, onOpen: (ref: { id: string; kind?: string; href?: string }) => router.push(hrefFor(ref)) };
-  }, [businessId, router]);
+  // Every mention resolves (lib/entity-resolver.tsx): agents (by agent id, or by their CRM record) open their profile,
+  // records their CRM profile, with a full hover card and the right-click verbs (audit GTM-19, VFR3-X1, GTM-26).
+  const agentSummaries = useMemo<AgentSummary[]>(
+    () => departments.flatMap((d) => d.squad.map((a) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed, departmentName: d.name, dept: d.colourToken }))),
+    [departments],
+  );
+  const navigate = useCallback((href: string) => router.push(href), [router]);
+  const onMessageAgent = useCallback((a: AgentSummary) => deskApi.current?.open({ kind: "agent", id: a.id }, { persona: { name: a.name, role: a.role ?? "", avatarSeed: String(a.avatarSeed ?? a.id), dept: a.dept ?? "dept-1" }, text: null }), []);
+  const entityLinks = useEntityResolver({ businessId, agents: agentSummaries, canReadCrm: access.canRead("crm"), navigate, onMessageAgent });
+  // "Reconnecting…" / "Live updates paused" once the business's channel has been down a few seconds (audit RES-11).
+  const connectionState = useConnectionNotice(businessId);
+  const connection = useMemo(
+    () => (connectionState ? { state: connectionState, detail: connectionState === "reconnecting" ? "The live connection dropped. What you see may be out of date; the Inbox and Continue refresh every 30 s until it is back." : "Live updates are paused. What you see may be out of date; the Inbox and Continue refresh every 30 s." } : null),
+    [connectionState],
+  );
+  const businessMenu = useMemo(
+    () => ({
+      businesses: (businesses.length ? businesses : [{ id: businessId, name: business.name }]).map((b) => ({ ...b, current: b.id === businessId })),
+      onOpenBusiness: (id: string) => router.push(routes.home(id)),
+      onNewBusiness: () => router.push("/new"),
+      onProfile: () => router.push("/onboarding"),
+    }),
+    [businesses, businessId, business.name, router],
+  );
 
   const financeDept = useMemo(() => visibleDepartments.find((d) => d.moduleKeys.includes("finance")), [visibleDepartments]);
   const onRunwayClick = useCallback(() => {
@@ -464,10 +532,13 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 sidebar={{ items: sidebarItems, activeId, collapsed, onCollapsedChange, brand: SIDEBAR_BRAND }}
                 onNavigate={onNavigate}
                 nav={{ onBack: () => router.back(), onForward: () => router.forward() }}
+                businessMenu={businessMenu}
+                connection={connection}
                 continueButton={{
                   state: continueState,
-                  pulseKey: cycle.completedCount,
-                  disabled: refreshInbox.isPending || endHoliday.isPending || continueCycle.isPending || pauseCycle.isPending,
+                  pulseKey,
+                  // Viewers and advisors follow the business; they do not run cycles (audit RUI-05).
+                  disabled: !access.canChange || refreshInbox.isPending || endHoliday.isPending || continueCycle.isPending || pauseCycle.isPending,
                   onContinue,
                   onRespond,
                   onPause,
@@ -475,6 +546,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                   onComeBack: () => endHoliday.mutate({ businessId, reason: "founder_returned" }),
                 }}
                 stopAll={{
+                  canStop: access.isAdmin,
                   onConfirm: () => stopAll.mutateAsync({ businessId, reason: "kill_switch" }).then(() => undefined),
                   runningCount: cycle.activeAgentIds.length,
                   disabled: stopAll.isPending || resumeAll.isPending,
@@ -509,7 +581,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 onRunwayClick={financeDept ? onRunwayClick : undefined}
                 onModeClick={() => router.push(routes.settings(businessId, "mode"))}
                 keyboard={{
-                  onRefreshInbox: shortcuts.onRefreshInbox ?? (() => refreshInbox.mutate({ businessId })),
+                  onRefreshInbox: shortcuts.onRefreshInbox ?? (access.canChange ? () => refreshInbox.mutate({ businessId }) : undefined),
                   onNextInboxItem: shortcuts.onNextInboxItem,
                   onPrevInboxItem: shortcuts.onPrevInboxItem,
                   onChooseOption: shortcuts.onChooseOption,

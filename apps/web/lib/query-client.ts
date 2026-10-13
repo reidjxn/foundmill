@@ -69,8 +69,9 @@ export function makeQueryClient(): QueryClient {
         refetchOnWindowFocus: (query) => businessOfKey(query.queryKey) !== null,
         retry: (count, err) => {
           const code = (err as { data?: { code?: string } } | undefined)?.data?.code;
-          // A rate limit is not a blip: retrying spends the allowance again and is refused again.
-          if (code === "UNAUTHORIZED" || code === "FORBIDDEN" || code === "NOT_FOUND" || code === "TOO_MANY_REQUESTS") return false;
+          // A rate limit is not a blip: retrying spends the allowance again and is refused again. A malformed input (an
+          // address that is not an id) is refused the same way every time.
+          if (code === "UNAUTHORIZED" || code === "FORBIDDEN" || code === "NOT_FOUND" || code === "TOO_MANY_REQUESTS" || code === "BAD_REQUEST") return false;
           return count < 2;
         },
       },

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseSearchQuery } from "@foundmill/dugout";
+import { accessFor } from "../access";
 import { entityPaletteItems, filterLocal, localPaletteItems, searchInputFor } from "../search";
 
 const BID = "00000000-0000-4000-8000-000000000001";
@@ -43,6 +44,46 @@ describe("universal search", () => {
     for (const q of ["Preferences", "date format", "time format", "24-hour"]) expect(filterLocal(items, q)[0]?.id, q).toBe("command:preferences");
     // One row for it, not a second "Settings · Preferences".
     expect(items.filter((i) => i.href === `/b/${BID}/settings/preferences`)).toHaveLength(1);
+  });
+
+  it("offers Edit layout only where the screen has a layout to edit (audit OL-29)", () => {
+    expect(localPaletteItems({ businessId: BID, departments, live: false }).some((i) => i.id === "command:edit-layout")).toBe(false);
+    expect(localPaletteItems({ businessId: BID, departments, live: false, canEditLayout: true }).some((i) => i.id === "command:edit-layout")).toBe(true);
+  });
+
+  it("opens the founder's other businesses and starts a new one (audit IAE-08, WEB-13)", () => {
+    const items = localPaletteItems({ businessId: BID, departments, live: false, businesses: [{ id: BID, name: "Northwind" }, { id: "b2", name: "Ledgerly" }] });
+    expect(items.find((i) => i.id === "business:b2")).toMatchObject({ label: "Open Ledgerly", href: "/b/b2/home" });
+    expect(items.some((i) => i.id === `business:${BID}`)).toBe(false);
+    expect(items.find((i) => i.id === "command:new-business")?.href).toBe("/new");
+    expect(items.find((i) => i.id === "command:profile")?.href).toBe("/onboarding");
+    expect(filterLocal(items, "switch")[0]?.id).toBe("business:b2");
+    expect(filterLocal(items, "new business")[0]?.id).toBe("command:new-business");
+    expect(filterLocal(items, "Ledgerly")[0]?.id).toBe("business:b2");
+  });
+
+  it("offers only what the person's role and section walls allow (audit RUI-05)", () => {
+    const walled = accessFor({ role: "member", sectionPermissions: { distribution: "none", crm: "none" } });
+    const withModules = [{ ...departments[0]!, moduleKeys: ["distribution"] }];
+    const member = localPaletteItems({ businessId: BID, departments: withModules, live: false, access: walled });
+    expect(member.some((i) => i.id === "department:d1")).toBe(false);
+    expect(member.some((i) => i.id === "screen:crm")).toBe(false);
+    expect(member.some((i) => i.id === "command:stop-all")).toBe(false);
+    expect(member.some((i) => i.id === "command:refresh-inbox")).toBe(true);
+    const viewer = localPaletteItems({ businessId: BID, departments: withModules, live: false, access: accessFor({ role: "viewer", sectionPermissions: {} }) });
+    expect(viewer.some((i) => i.id === "department:d1")).toBe(true);
+    expect(viewer.some((i) => i.id === "command:refresh-inbox")).toBe(false);
+    expect(viewer.some((i) => i.id === "command:holiday")).toBe(false);
+  });
+
+  it("sends an agent's record to the agent's profile (audit GTM-19)", () => {
+    const rows = entityPaletteItems(BID, [{ entity: { id: "e9", kind: "agent", displayName: "Chief of Staff", agentId: "a9" }, score: 1, matchedOn: "prefix" }]);
+    expect(rows[0]?.href).toBe(`/b/${BID}/agents/a9/overview`);
+  });
+
+  it("searches by operators alone (audit GTM-27)", () => {
+    expect(searchInputFor(parseSearchQuery("role:supplier"))).toEqual({ q: "", role: "supplier", stage: undefined, departmentId: undefined, limit: 20 });
+    expect(searchInputFor(parseSearchQuery("department:nowhere"), () => undefined)).toBeNull();
   });
 
   it("offers Sign out as a command with no link, found by its synonyms too", () => {

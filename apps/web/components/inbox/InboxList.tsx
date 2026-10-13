@@ -104,7 +104,7 @@ export function InboxList({ rows, selectedId, onSelect, loading, hasMore, loadin
                 data-unread={row.unread || undefined}
                 data-needs-answer={row.needsAnswer || undefined}
                 className={[
-                  "flex w-full items-start gap-3 px-panel-pad py-2.5 text-left outline-none transition-colors duration-micro ease-dugout hover:bg-white/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
+                  "flex w-full items-start gap-3 px-panel-pad py-2.5 text-left transition-colors duration-micro ease-dugout hover:bg-white/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
                   row.won ? "row-edge-gold" : "",
                   selected ? (row.won ? "bg-panel-alt" : "row-selected") : "",
                 ].join(" ")}

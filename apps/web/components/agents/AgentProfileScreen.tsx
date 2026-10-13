@@ -17,6 +17,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { useAgentDesk } from "@/components/conversation/DeskHost";
 import { AutonomyTab } from "./AutonomyTab";
@@ -79,7 +80,14 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
     [profile?.agent.name, tabs, tab, squadHref],
   );
 
-  if (profileQ.error) return <ErrorPanel title="Agent profile" message={errorMessage(profileQ.error)} onRetry={() => void profileQ.refetch()} />;
+  if (loadFailed(profileQ) && isMissing(profileQ.error)) {
+    return (
+      <NotFoundPanel title="Agent profile" heading="No such agent" back={squadHref ? { label: "Back to Agents", href: squadHref } : { label: "Go to Home", href: routes.home(businessId) }}>
+        No agent in this business has this address: the agent was let go, or the link is wrong.
+      </NotFoundPanel>
+    );
+  }
+  if (loadFailed(profileQ)) return <ErrorPanel title="Agent profile" message={errorMessage(profileQ.error)} onRetry={() => void profileQ.refetch()} />;
   if (!profile) return <ScreenSkeleton />;
 
   const agent = profile.agent;
@@ -103,6 +111,7 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="agent-profile" data-agent-id={agent.id} data-tab={tab}>
+      {refreshFailed(profileQ) ? <RefreshFailedNotice query={profileQ} /> : null}
       <ProfileHeader
         avatar={<Avatar size={64} name={agent.name} agent={{ seed: agent.avatarSeed || agent.id, dept }} status={agent.status} />}
         name={agent.name}

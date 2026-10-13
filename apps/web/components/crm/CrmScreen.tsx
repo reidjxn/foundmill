@@ -33,7 +33,9 @@ const SYNCS = ["Gmail", "Outlook", "Google Calendar"];
 const DEBOUNCE_MS = 150;
 
 export function CrmScreen() {
-  const { businessId, departments, data } = useBusiness();
+  const { businessId, departments, data, access } = useBusiness();
+  // Creating a record needs write access to the CRM (a viewer, an advisor or a member with the CRM read-only only reads).
+  const canCreate = access.canWrite("crm");
   const trpc = useTRPC();
   const router = useRouter();
   useShellChrome({ title: "CRM" });
@@ -166,7 +168,7 @@ export function CrmScreen() {
                 }
                 data-testid="crm-search-input"
               />
-              <Button variant="primary" icon={UserRoundPlus} onClick={() => setNewOpen(true)} data-testid="crm-new">
+              <Button variant="primary" icon={UserRoundPlus} onClick={() => setNewOpen(true)} disabled={!canCreate} title={canCreate ? undefined : "You can read the CRM but not add to it."} data-testid="crm-new">
                 New record
               </Button>
             </div>
@@ -237,7 +239,7 @@ export function CrmScreen() {
         loading={index.loading && index.rows.length === 0}
         error={index.error ? errorMessage(index.error) : undefined}
         onRetry={index.refetch}
-        empty={!index.loading && !index.error && index.rows.length === 0 ? { icon: Database, children: index.mode === "search" ? "Nothing matches. Try fewer words, an email or a domain, or clear the filters." : "People and organizations arrive from imports, integrations and agents' work. Add one by hand or connect an importer.", action: { label: "New record", icon: UserRoundPlus, onClick: () => setNewOpen(true) } } : undefined}
+        empty={!index.loading && !index.error && index.rows.length === 0 ? { icon: Database, children: index.mode === "search" ? "Nothing matches. Try fewer words, an email or a domain, or clear the filters." : "People and organizations arrive from imports, integrations and agents' work. Add one by hand or connect an importer.", action: canCreate ? { label: "New record", icon: UserRoundPlus, onClick: () => setNewOpen(true) } : undefined } : undefined}
         footer={
           index.mode === "search"
             ? "Matches names, emails and domains, notes and documents, and meaning."

@@ -5,6 +5,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { createContext, useContext, type ReactNode } from "react";
+import { accessFor, type Access } from "@/lib/access";
 import type { RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 
@@ -21,6 +22,8 @@ export interface BusinessContextValue {
   /** Role-based gate used by settings (owner/admin). */
   isAdmin: boolean;
   isOwner: boolean;
+  /** The person's role and section permissions: what to show, and what they may change (lib/access.ts). */
+  access: Access;
 }
 
 const Ctx = createContext<BusinessContextValue | null>(null);
@@ -44,6 +47,7 @@ export function makeBusinessContext(businessId: string, data: BusinessGet, depar
     departmentById: (id) => departments.find((d) => d.id === id),
     isAdmin: data.role === "owner" || data.role === "admin",
     isOwner: data.role === "owner",
+    access: accessFor(data.membership),
   };
 }
 

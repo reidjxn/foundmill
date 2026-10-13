@@ -85,7 +85,9 @@ describe("server-started queries use the browser's keys", () => {
   });
 
   it("picks the dashboard on the server the way Home does", () => {
-    expect(pickDashboardId("z", [])).toBe("z");
+    const shared = "5f2b8c1e-9a4d-4c3b-8e7f-1a2b3c4d5e6f";
+    expect(pickDashboardId(shared, [])).toBe(shared);
+    expect(pickDashboardId("z", [])).toBeUndefined();
     expect(pickDashboardId(undefined, [{ id: "a", isActive: false }, { id: "b", isActive: true }])).toBe("b");
     expect(pickDashboardId(undefined, [])).toBeUndefined();
   });

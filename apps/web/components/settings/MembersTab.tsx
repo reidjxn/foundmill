@@ -10,6 +10,7 @@ import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
 
@@ -48,10 +49,11 @@ export function MembersTab() {
   const founder = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
   const viewerName = founder.data?.profile?.displayName?.trim() || null;
 
-  if (members.error) return <ErrorPanel title="Members" message={errorMessage(members.error)} onRetry={() => void members.refetch()} />;
+  if (loadFailed(members)) return <ErrorPanel title="Members" message={errorMessage(members.error)} onRetry={() => void members.refetch()} />;
 
   return (
     <AdminOnly>
+      {refreshFailed(members) ? <RefreshFailedNotice query={members} className="flex items-center gap-2" /> : null}
       <SettingsSection wide title="Staff" meta={members.data ? plural(members.data.length, "person", "people") : undefined} loading={members.isLoading}>
         <ul className="flex flex-col" data-testid="member-list">
           {(members.data ?? []).map((m) => {

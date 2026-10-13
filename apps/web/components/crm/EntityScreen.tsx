@@ -20,6 +20,7 @@ import { useBusiness, useBusinessCurrency } from "@/components/shell/business-co
 import { plainWords } from "@/lib/format";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { AddRoleDialog, DeleteRequestDialog, EditEntityDialog, ExportDialog, MergeDialog, useCrmInvalidate } from "./dialogs";
 import { ENTITY_TABS, KIND_WORD, LAWFUL_BASIS_LABEL, STAGE_TONE, VISIBILITY_WORD, activityItems, commercialSummary, documentItems, introPaths, leadScore, mergeBanner, primaryRole, relationshipStrength, containerWord, roleWord, sourceWord, stageWord, strengthRating, type EntityGet, type EntityTab, type OwnerRef } from "./logic";
@@ -64,6 +65,8 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
   const [dialog, setDialog] = useState<"merge" | "edit" | "export" | "delete" | "role" | null>(null);
   useEffect(() => {
     if (search.get("export") === "1") setDialog("export");
+    // A mention's right-click "Assign agent" / "Add to list" lands here with the role dialog open (lib/entity-resolver).
+    else if (search.get("role") === "1") setDialog("role");
   }, [search]);
   // A merged-away id redirects to the surviving record (the API resolves it; keep the URL honest).
   useEffect(() => {
@@ -90,7 +93,14 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
     }),
   );
 
-  if (getQ.error) return <ErrorPanel title="Record" message={trpcErrorCode(getQ.error) === "NOT_FOUND" ? "No record with this id in this business." : errorMessage(getQ.error)} onRetry={() => void getQ.refetch()} />;
+  if (loadFailed(getQ) && isMissing(getQ.error)) {
+    return (
+      <NotFoundPanel title="Record" heading="No such record" back={{ label: "Back to the CRM", href: routes.crm(businessId) }}>
+        Nothing in this business has this address: the record was deleted, merged away, or the link is wrong.
+      </NotFoundPanel>
+    );
+  }
+  if (loadFailed(getQ)) return <ErrorPanel title="Record" message={errorMessage(getQ.error)} onRetry={() => void getQ.refetch()} />;
   if (!get) return <ScreenSkeleton />;
 
   const entity = get.entity;
@@ -123,6 +133,7 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="entity-profile" data-entity-id={entity.id} data-tab={tab}>
+      {refreshFailed(getQ) ? <RefreshFailedNotice query={getQ} /> : null}
       <ProfileHeader avatar={<Avatar size={64} name={entity.displayName} src={entity.avatarUrl ?? undefined} />} name={entity.displayName} chips={chips} status={role?.stage ? <StatusPill tone={STAGE_TONE[role.stage] ?? "neutral"}>{stageWord(role.stage)}</StatusPill> : undefined} facts={facts} stars={{ current: score.stars }} actions={headerActions} />
       {banner.redirected || banner.absorbed.length ? (
         <div className="flex flex-wrap items-center gap-2 border-b border-subtle bg-panel-alt px-gutter py-1.5 text-small text-secondary" data-testid="merge-banner">

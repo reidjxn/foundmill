@@ -1,0 +1,159 @@
+import { expect, test } from "@playwright/test";
+import { LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
+
+/**
+ * The app shell's resilience and navigation (audit W07): a failed refetch keeps loaded content, a missing record says so,
+ * the business menu and palette reach other businesses, Esc closes one layer, and a code chunk that cannot load reloads
+ * the page. Stack and commands: e2e/README.md.
+ */
+test.describe("shell resilience", () => {
+  test("a failed background refetch keeps the loaded Inbox on screen with a quiet notice (RES-04)", async ({ page }) => {
+    await openBusiness(page, "inbox");
+    const rows = page.locator("[data-inbox-row]");
+    await expect(rows.first()).toBeVisible({ timeout: LONG });
+    const before = await rows.count();
+    await page.route("**/trpc/inbox.list**", (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify([{ error: { json: { message: "Internal server error", code: -32603, data: { code: "INTERNAL_SERVER_ERROR", httpStatus: 500 } } } }]) }));
+    await page.getByTestId("inbox-refresh").click();
+    await expect(page.getByTestId("refresh-failed")).toBeVisible({ timeout: LONG });
+    await expect(rows).toHaveCount(before);
+    await expect(page.getByTestId("error-panel")).toHaveCount(0);
+  });
+
+  test("a note, an agent and a dashboard that are not there say so, with the way back and no Try again (IAE-16, WEB-14)", async ({ page }) => {
+    await openBusiness(page);
+    const nothing = "00000000-0000-4000-8000-000000000000";
+    for (const [path, heading] of [
+      [`inbox/${nothing}`, "No such note"],
+      [`agents/${nothing}/overview`, "No such agent"],
+      [`home/${nothing}`, "No such dashboard"],
+    ] as const) {
+      await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/${path}`);
+      await expect(page.getByTestId("not-found-panel")).toContainText(heading, { timeout: LONG });
+      await expect(page.getByRole("button", { name: /try again/i })).toHaveCount(0);
+    }
+    // An address that is not an id never reaches the API: Home shows the default dashboard and corrects the address.
+    const bad = page.waitForRequest((r) => /dashboard\.get/.test(r.url()) && /not-a-uuid/.test(decodeURIComponent(r.url())), { timeout: 3_000 }).then(() => true, () => false);
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home/not-a-uuid`);
+    await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/home$`), { timeout: LONG });
+    expect(await bad).toBe(false);
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/inbox/not-a-uuid`);
+    await expect(page.getByTestId("not-found-panel")).toContainText("No such note", { timeout: LONG });
+  });
+
+  test("a screen whose code cannot load reloads the page once, in product words (RES-06)", async ({ page }) => {
+    await openBusiness(page, "inbox");
+    let blocked = true;
+    await page.route("**/_next/static/chunks/**", (route) => (blocked ? route.fulfill({ status: 404, body: "" }) : route.continue()));
+    await page.getByRole("link", { name: "Milestones" }).first().click();
+    await expect(page.getByTestId("error-panel")).toContainText("was updated", { timeout: LONG });
+    await expect(page.getByTestId("error-panel")).not.toContainText("Failed to load chunk");
+    blocked = false;
+    await page.reload();
+    await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+  });
+
+  test("the business name opens a menu: Home, the founder's businesses, Start another business (IAE-08, WEB-13)", async ({ page }) => {
+    await openBusiness(page);
+    await page.getByTestId("kitbar-business-menu").click();
+    await expect(page.getByRole("menuitem", { name: /^Home$/ })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: /Start another business/ })).toBeVisible();
+    await page.getByRole("menuitem", { name: /Start another business/ }).click();
+    await expect(page).toHaveURL(/\/new/, { timeout: LONG });
+  });
+
+  test("Ctrl+K reaches New business and the other businesses, opens empty each time, and lists records by operators alone (IAE-08, GTM-27)", async ({ page }) => {
+    await openBusiness(page);
+    await page.keyboard.press("Control+k");
+    const input = page.getByRole("combobox").or(page.getByPlaceholder(/search/i)).first();
+    await input.fill("new business");
+    await expect(page.getByRole("option", { name: /New business/ }).first()).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Control+k");
+    await expect(input).toHaveValue("");
+    await input.fill("role:customer");
+    await expect(page.getByRole("option").first()).toBeVisible({ timeout: LONG });
+  });
+
+  test("Edit layout is offered only where a layout can be edited (OL-29)", async ({ page }) => {
+    await openBusiness(page, "inbox");
+    await page.keyboard.press("Control+k");
+    await page.keyboard.type("Edit layout");
+    await expect(page.getByRole("option", { name: /Edit layout/ })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
+    await expect(page.getByTestId("home-screen")).toBeVisible({ timeout: LONG });
+    await page.keyboard.press("Control+k");
+    await page.keyboard.type("Edit layout");
+    await expect(page.getByRole("option", { name: /Edit layout/ })).toBeVisible();
+  });
+
+  test("Esc closes the Add widget drawer and leaves Edit mode on (OL-15)", async ({ page }) => {
+    await openBusiness(page);
+    await page.keyboard.press("e");
+    await expect(page.getByTestId("home-screen")).toHaveAttribute("data-editing", "true");
+    await page.getByRole("button", { name: /Add widget/ }).first().click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByTestId("home-screen")).toHaveAttribute("data-editing", "true");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("home-screen")).not.toHaveAttribute("data-editing", "true");
+  });
+
+  test("a layout edit survives a trip to the Inbox and back, and the next edit builds on it (WEB-09)", async ({ page }) => {
+    await openBusiness(page);
+    const screen = page.getByTestId("home-screen");
+    const widgets = page.locator("[data-widget-id]");
+    await page.keyboard.press("e");
+    const before = await widgets.count();
+    test.skip(before < 2, "the active dashboard has no widget to remove");
+    await widgets.first().hover();
+    await page.getByRole("button", { name: /^Remove / }).first().click();
+    await expect(widgets).toHaveCount(before - 1, { timeout: LONG });
+    await page.keyboard.press("Escape");
+    const versionAfterEdit = await screen.getAttribute("data-dashboard-version");
+    await page.getByRole("link", { name: "Inbox" }).first().click();
+    await page.waitForURL(/\/inbox/, { timeout: LONG });
+    await page.getByRole("link", { name: "Home" }).first().click();
+    await expect(screen).toBeVisible({ timeout: LONG });
+    await expect(widgets).toHaveCount(before - 1);
+    // Opening Home saved nothing by itself.
+    await expect(screen).toHaveAttribute("data-dashboard-version", versionAfterEdit ?? /\d+/);
+  });
+
+  test("the live-connection chip appears when the stream is down for a few seconds (RES-11)", async ({ page, context }) => {
+    await openBusiness(page);
+    await expect(page.getByTestId("connection-chip")).toHaveCount(0);
+    await context.setOffline(true);
+    await expect(page.getByTestId("connection-chip")).toBeVisible({ timeout: 20_000 });
+    await context.setOffline(false);
+    await expect(page.getByTestId("connection-chip")).toHaveCount(0, { timeout: 60_000 });
+  });
+});
+
+test.describe("keyboard focus is visible (A11Y-02, A11Y-20)", () => {
+  test("a focused Inbox row draws the 2 px outline", async ({ page }) => {
+    await openBusiness(page, "inbox");
+    const row = page.locator("[data-inbox-row]").first();
+    await expect(row).toBeVisible({ timeout: LONG });
+    await page.keyboard.press("Tab");
+    await row.focus({ timeout: 5_000 });
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    const outline = await row.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { style: s.outlineStyle, width: s.outlineWidth };
+    });
+    expect(outline.style).not.toBe("none");
+    expect(parseFloat(outline.width)).toBeGreaterThanOrEqual(2);
+  });
+});
+
+test.describe("a phone gets the larger-window page, not a slice of the desktop one (PAS-4)", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  test("the sign-in page shows NeedsLargerWindow", async ({ page }) => {
+    await page.goto("/login");
+    await expect(page.getByTestId("needs-larger-window")).toBeVisible({ timeout: LONG });
+    await expect(page.locator('meta[name="viewport"]')).toHaveAttribute("content", /width=device-width/);
+  });
+});

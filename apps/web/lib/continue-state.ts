@@ -53,6 +53,23 @@ function holidayUntilLabel(h: NonNullable<ContinueInputs["holiday"]>): string | 
   return h.untilCondition?.text ?? "until I return";
 }
 
+/**
+ * The "While you were away" note a finished vacation wrote (`holiday.ended` from the orchestrator carries its id; the
+ * API's own `holiday.ended`, sent the moment the founder comes back, carries none yet). Null for anything else.
+ */
+export function awayReportId(event: { type: string; payload?: Record<string, unknown> | null }): string | null {
+  if (event.type !== "holiday.ended") return null;
+  const id = event.payload?.reportInboxItemId;
+  return typeof id === "string" && id ? id : null;
+}
+
+/** Where "Go to Journey" goes: the won customer's Customer Update when the server named its journey, else its note. */
+export function journeyHref(businessId: string, state: { kind: string; journeyId?: string | null; itemId?: string | null } | null | undefined, fallbackItemId?: string | null): string {
+  if (state?.kind === "matchday" && state.journeyId) return routes.journey(businessId, state.journeyId);
+  const itemId = (state?.kind === "matchday" ? state.itemId : null) ?? fallbackItemId ?? null;
+  return itemId ? routes.inbox(businessId, itemId) : routes.inbox(businessId);
+}
+
 export function computeContinueState(input: ContinueInputs): ContinueState {
   if (input.holiday) return { kind: "holiday", until: input.holiday.untilAt ?? null, untilLabel: holidayUntilLabel(input.holiday) };
   if (input.blocking > 0) return { kind: "blocked", count: input.blocking };

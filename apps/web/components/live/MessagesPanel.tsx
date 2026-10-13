@@ -127,7 +127,7 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
                     aria-current={active ? "true" : undefined}
                     onClick={() => onSelect({ kind: "thread", threadId: t.id })}
                     className={cn(
-                      "flex w-full items-center gap-2 border-b border-subtle/50 px-panel-pad py-2 text-left outline-none hover:bg-white/4 focus-visible:outline-2 focus-visible:outline-link",
+                      "flex w-full items-center gap-2 border-b border-subtle/50 px-panel-pad py-2 text-left hover:bg-white/4 focus-visible:outline-2 focus-visible:outline-link",
                       active && "bg-panel-alt shadow-[inset_3px_0_0_var(--kit-primary)]",
                     )}
                   >

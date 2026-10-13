@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TRPCClientError } from "@trpc/client";
-import { apiTrpcUrl, appErrorCode, createApiLinks, createUntypedApiClient, errorMessage, isNotInvited, isStreamingOperation, RATE_LIMITED_MESSAGE, resolveBearer, STREAMING_PROCEDURES, tierLimitOf, trpcErrorCode, trpcPathPrefix, trpcQueryKey } from "../trpc";
+import { apiTrpcUrl, appErrorCode, createApiLinks, createUntypedApiClient, errorMessage, fetchWithTimeout, forbiddenMessage, isNotInvited, NO_ACCESS_PREFIX, isStreamingOperation, RATE_LIMITED_MESSAGE, REQUEST_TIMEOUT_MESSAGE, resolveBearer, STREAMING_PROCEDURES, tierLimitOf, trpcErrorCode, trpcPathPrefix, trpcQueryKey } from "../trpc";
 import { makeQueryClient } from "../query-client";
 import { routersToInvalidate, withBusiness } from "../widget-data";
 
@@ -56,11 +56,58 @@ describe("trpc helpers", () => {
     expect(errorMessage(err("Too Many Requests", "TOO_MANY_REQUESTS"))).toBe(RATE_LIMITED_MESSAGE);
   });
 
+  it("says a refusal in product words, never the API's keys and role names (audit RUI-05)", () => {
+    const refused = (message: string) => new TRPCClientError(message, { result: { error: { code: -32003, message, data: { code: "FORBIDDEN", httpStatus: 403 } } } } as never);
+    expect(errorMessage(refused("You do not have read access to finance"))).toBe("No access to Finance. Ask an owner or admin if you need it.");
+    expect(errorMessage(refused("You do not have read access to crm"))).toBe(`${NO_ACCESS_PREFIX}CRM. Ask an owner or admin if you need it.`);
+    expect(errorMessage(refused("You do not have write access to legal"))).toBe("You can read Legal but not change it. Ask an owner or admin for write access.");
+    expect(errorMessage(refused("Your role (viewer) cannot perform changes"))).toBe("As a viewer you can follow this business, but not change it.");
+    expect(errorMessage(refused("Your role (advisor) cannot perform changes"))).toBe("As an advisor you can follow this business, but not change it.");
+    expect(errorMessage(refused("Your role (member) cannot perform administration"))).toBe("Only an owner or admin can do this.");
+    expect(errorMessage(refused("Your role (admin) cannot perform owner actions"))).toBe("Only the owner can do this.");
+    // The plan refusal already explains itself in words; a sentence the API wrote is kept.
+    expect(forbiddenMessage("You do not have write access to finance and legal, and this plan would pay a bill. Someone with that access can decide it.")).toContain("Someone with that access can decide it.");
+    expect(errorMessage(refused("You are not a member of this business"))).toBe("You are not a member of this business");
+  });
+
   it("never retries a query the API refused for a rate limit (a retry spends the allowance again)", () => {
     const retry = makeQueryClient().getDefaultOptions().queries?.retry as (count: number, err: unknown) => boolean;
     expect(retry(0, { data: { code: "TOO_MANY_REQUESTS" } })).toBe(false);
     expect(retry(0, { data: { code: "FORBIDDEN" } })).toBe(false);
     expect(retry(0, { data: { code: "INTERNAL_SERVER_ERROR" } })).toBe(true);
+  });
+
+  it("never retries a malformed input, which is refused the same way every time (audit WEB-14)", () => {
+    const retry = makeQueryClient().getDefaultOptions().queries?.retry as (count: number, err: unknown) => boolean;
+    expect(retry(0, { data: { code: "BAD_REQUEST" } })).toBe(false);
+    expect(retry(0, { data: { code: "NOT_FOUND" } })).toBe(false);
+  });
+
+  it("bounds every plain request: a read that never answers is aborted with a plain sentence (audit RES-13)", async () => {
+    const seen: (AbortSignal | undefined)[] = [];
+    const hang: typeof fetch = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        seen.push(init?.signal ?? undefined);
+        init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
+      });
+    const bounded = fetchWithTimeout(hang, { query: 20, mutation: 60 });
+    await expect(bounded("http://api/trpc/inbox.list", { method: "GET" })).rejects.toThrow(REQUEST_TIMEOUT_MESSAGE);
+    await expect(bounded("http://api/trpc/business.stopAllAgents", { method: "POST" })).rejects.toThrow(REQUEST_TIMEOUT_MESSAGE);
+    expect(seen).toHaveLength(2);
+  });
+
+  it("keeps the caller's own abort, and leaves an answer that came in time alone", async () => {
+    const answer: typeof fetch = (_input, init) =>
+      new Promise((resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
+        setTimeout(() => resolve(new Response("{}")), 5);
+      });
+    const bounded = fetchWithTimeout(answer, { query: 1_000, mutation: 1_000 });
+    await expect(bounded("http://api/trpc/inbox.list", { method: "GET" })).resolves.toBeInstanceOf(Response);
+    const caller = new AbortController();
+    const pending = bounded("http://api/trpc/inbox.list", { method: "GET", signal: caller.signal });
+    caller.abort(new Error("unmounted"));
+    await expect(pending).rejects.toThrow("unmounted");
   });
 
   it("derives the tRPC url", () => {
