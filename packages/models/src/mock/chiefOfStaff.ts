@@ -4,6 +4,7 @@
  * customers.
  */
 import { LIMITS } from "@foundmill/config";
+import { PLANNABLE_TASK_STATUSES } from "@foundmill/shared";
 import type { CyclePlanOutput } from "../schemas";
 import { type AgentLike, type MockContext, agentsFrom, isRecord, truncate } from "./inputs";
 
@@ -18,7 +19,8 @@ export interface TaskIn {
   blocked_by: string[];
 }
 
-const OPEN = new Set(["planned", "ready", "paused", "blocked", "review"]);
+/** The statuses the orchestrator offers a planner (one list with its DISPATCHABLE set: a failed task is retried, never skipped). */
+const OPEN = new Set<string>(PLANNABLE_TASK_STATUSES);
 const CUSTOMER_UNBLOCK = /\b(customer|checkout|payment|signup|onboarding|activation|bug|outage|fix|broken|churn|refund|support|invoice)\b/i;
 
 export function readTasks(ctx: MockContext): TaskIn[] {
@@ -76,9 +78,11 @@ export function generateChiefOfStaff(ctx: MockContext): CyclePlanOutput {
   let started = 0;
 
   for (const t of ranked) {
+    // The orchestrator filters out tasks that cannot start (open dependencies, a retry still waiting): a `blocked` or
+    // `failed` task that reaches the planner is one to try again.
     const unmet = t.blocked_by.filter((b) => ids.has(b) && !done.has(b));
-    if (t.status === "blocked" || unmet.length > 0) {
-      deferred.push({ task_id: t.id, reason: unmet.length > 0 ? `Waiting on ${unmet.join(", ")}` : "Blocked; needs a decision or an upstream task" });
+    if (unmet.length > 0) {
+      deferred.push({ task_id: t.id, reason: `Waiting on ${unmet.join(", ")}` });
       continue;
     }
     if (started >= limit) {
@@ -103,9 +107,10 @@ export function generateChiefOfStaff(ctx: MockContext): CyclePlanOutput {
   if (budgetRemaining === 0) approvalsNeeded.push("Top up the model budget before agents resume");
   if (mode === "augmented" && started > 0) approvalsNeeded.push("Augmented mode: every external action and merge waits for approval");
 
+  const roadmap = ctx.getArray<unknown>("roadmap_without_tasks");
   const summary =
     started === 0
-      ? `No tasks start this cycle for ${businessName}: ${budgetRemaining === 0 ? "the model budget is exhausted" : open.length === 0 ? "the board is clear" : "everything open is blocked"}.`
+      ? `No tasks start this cycle for ${businessName}: ${budgetRemaining === 0 ? "the model budget is exhausted" : open.length === 0 ? "the board is clear" : "the open tasks wait on earlier tasks"}.${roadmap.length > 0 ? ` ${roadmap.length} roadmap item${roadmap.length === 1 ? " has" : "s have"} no tasks yet: build a task graph in Development › Plan.` : ""}`
       : `Start ${started} task${started === 1 ? "" : "s"} across ${departments.size} department${departments.size === 1 ? "" : "s"} for ${businessName} within a cap of ${Number.isFinite(limit) ? limit : maxAgents} concurrent agents; ${deferred.length} deferred. Customer-unblocking work goes first.`;
 
   return {

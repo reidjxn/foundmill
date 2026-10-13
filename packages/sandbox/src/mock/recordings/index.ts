@@ -1,5 +1,5 @@
 /**
- * Bundled recordings for the mock sandbox (BUILD §13.3). Six sessions over the two demo businesses
+ * Bundled recordings for the mock sandbox (BUILD §13.3). Seven sessions over the two demo businesses
  * (BUILD §17.2): a backend task that fails its tests and then fixes them, a research task, a finance task
  * that meets an auto-resolving approval hold and then a hard gate, a code task that loops and fails, a
  * frontend task with Playwright and a founder Shout, and a backend task that waits on the founder's approval
@@ -186,6 +186,41 @@ const ledgerlyAnnualPlanDiscount: RecordingInput = {
   ],
 };
 
+/** Finance lead on Ledgerly: the first runway forecast, built from read-only data, delivered to the Inbox. */
+const ledgerlyRunwayForecast: RecordingInput = {
+  key: "ledgerly-runway-forecast",
+  title: "Build the first runway forecast",
+  summary:
+    "A finance lead reads the connected balances and recurring prices (read only), builds a twelve-month runway Forecast with the assumptions written beside every number, and hands it to the Inbox. Nothing is spent and nothing moves; every figure is labeled Forecast or Estimate.",
+  taskKind: "finance",
+  agentTemplate: "finance-lead",
+  modelKey: "opus",
+  business: "Ledgerly",
+  files: { "forecast/README.md": "# Forecasts\n\nOne markdown file per forecast. Every number is labeled Forecast or Estimate and carries its assumption.\n" },
+  commands: [{ match: "^ls", results: [{ code: 0, stdout: "forecast\n" }] }],
+  planSteps: 3,
+  acceptanceTests: 1,
+  outcome: "done",
+  events: [
+    ev(0, phase(null, "planning", "First runway forecast requested at Commit")),
+    ev(500, note("Plan: read the balances and the recurring prices, model twelve months with three scenarios, write every assumption next to its number.")),
+    ev(1400, call("c1", "stripe", "list_prices", "started", { argsSummary: "active recurring prices" })),
+    ev(2200, call("c1", "stripe", "list_prices", "succeeded", { argsSummary: "active recurring prices", resultSummary: "4 recurring prices read", durationMs: 800, policyOutcome: "allow" })),
+    ev(2400, progress(1, 3, 0, 1)),
+    ev(2900, phase("planning", "implementing", "Building the scenarios")),
+    ev(3800, call("c2", "finance", "read_balances", "started", { argsSummary: "connected accounts, read only" })),
+    ev(4600, call("c2", "finance", "read_balances", "succeeded", { argsSummary: "connected accounts, read only", resultSummary: "Balances read; no connected account is a demo balance", durationMs: 800, policyOutcome: "allow" })),
+    ev(4800, progress(2, 3, 0, 1)),
+    ev(6000, { kind: "file_changed", path: "forecast/runway.md", change: "created", additions: 38, deletions: 0, diff: "--- /dev/null\n+++ b/forecast/runway.md\n@@ -0,0 +1,38 @@\n+# Runway Forecast (12 months)\n+\n+Every figure below is a Forecast, built from the assumptions beside it.\n" }),
+    ev(6800, { kind: "test_result", suite: "forecast checklist", passed: 1, failed: 0, acceptance: true }),
+    ev(7000, progress(3, 3, 1, 1)),
+    ev(7400, phase("implementing", "review", "Forecast handed to the Chief of Staff")),
+    ev(7800, note("Every number is labeled Forecast or Estimate and lists its assumption. Approved.", "reviewer")),
+    ev(8000, progress(3, 3, 1, 1, true)),
+    ev(8200, phase("review", "done", "Forecast delivered to the Inbox")),
+  ],
+};
+
 /** Engineer agent on Ledgerly: the same acceptance test fails three times and loop detection stops the session. */
 const ledgerlyFlakyImportTest: RecordingInput = {
   key: "ledgerly-flaky-import-test",
@@ -222,7 +257,7 @@ const ledgerlyFlakyImportTest: RecordingInput = {
 };
 
 /** Every bundled recording, validated at module load so a malformed fixture fails fast. */
-export const RECORDINGS: readonly Recording[] = [ledgerlyWebhookRetry, northwindSupplierShortlist, ledgerlyAnnualPlanDiscount, ledgerlyFlakyImportTest, northwindBundlePicker, ledgerlyUsageIndex].map(parseRecording);
+export const RECORDINGS: readonly Recording[] = [ledgerlyWebhookRetry, northwindSupplierShortlist, ledgerlyAnnualPlanDiscount, ledgerlyRunwayForecast, ledgerlyFlakyImportTest, northwindBundlePicker, ledgerlyUsageIndex].map(parseRecording);
 
 export const RECORDING_KEYS: readonly string[] = RECORDINGS.map((r) => r.key);
 

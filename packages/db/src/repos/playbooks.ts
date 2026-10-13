@@ -4,6 +4,10 @@ import { z } from "zod";
 import { playbooks, type Playbook } from "../schema";
 import { defined, Id, one, parseInput, type Executor, patchSchema } from "./_shared";
 
+/**
+ * What a row may hold. The playbook contract itself lives in packages/shared (`CompiledPlaybook`): the plan action and the
+ * playbooks api validate it before a row is written; the repository stays loose so rows written under older shapes read back.
+ */
 export const CompiledPlaybook = z.object({
   trigger: z.record(z.string(), z.unknown()),
   steps: z.array(z.record(z.string(), z.unknown())),

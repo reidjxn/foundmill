@@ -5,6 +5,8 @@ import { SectionPermissions, assertSeatAvailable, repos } from "@foundmill/db";
 import { ConflictError, DECISION_TYPES, ForbiddenError, MEMBERSHIP_ROLES, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
+import { modelLimited } from "../services/model-limits";
+import { archivePlaybook, compilePlaybookText, createPlaybook, setPlaybookEnabled, toPlaybookView, updatePlaybook } from "../services/playbooks";
 import { hireFromTemplate } from "../services/squad";
 import { Id, adminProcedure, audit, emit, router, sectionRead, sectionWrite, writeProcedure } from "../trpc";
 
@@ -191,5 +193,18 @@ export const teamRouter = router({
   approvals: router({
     pending: read.query(({ ctx }) => ctx.rls((tx) => pendingApprovals(tx, ctx))),
     resolve: writeProcedure.input(z.object({ approvalId: Id, outcome: z.enum(["approved", "rejected"]), note: z.string().max(2000).optional() })).mutation(({ ctx, input }) => resolveApproval(ctx, input)),
+  }),
+
+  /**
+   * Playbooks (BUILD §11.13): standing rules written in plain words. `compile` shows the flow (trigger, steps, approvals,
+   * stop) without saving; `create` saves it off; the founder edits it and turns it on with `setEnabled`.
+   */
+  playbooks: router({
+    list: read.query(({ ctx }) => ctx.rls(async (tx) => ({ playbooks: (await repos.playbooks.list(tx, ctx.businessId)).map(toPlaybookView) }))),
+    compile: write.input(z.object({ text: z.string().trim().min(3).max(2000) })).use(modelLimited("plan")).mutation(({ ctx, input }) => compilePlaybookText(ctx, input.text)),
+    create: write.input(z.object({ name: z.string().trim().max(120).optional(), sourceText: z.string().trim().min(1).max(2000), flow: z.unknown(), departmentId: Id.nullable().optional() })).mutation(({ ctx, input }) => createPlaybook(ctx, input)),
+    update: write.input(z.object({ id: Id, name: z.string().trim().min(1).max(120).optional(), flow: z.unknown().optional() })).mutation(({ ctx, input }) => updatePlaybook(ctx, input)),
+    setEnabled: write.input(z.object({ id: Id, enabled: z.boolean() })).mutation(({ ctx, input }) => setPlaybookEnabled(ctx, input.id, input.enabled)),
+    archive: write.input(z.object({ id: Id })).mutation(({ ctx, input }) => archivePlaybook(ctx, input.id)),
   }),
 });

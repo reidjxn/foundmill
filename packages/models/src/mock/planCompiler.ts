@@ -12,6 +12,7 @@
 import { CHANNEL_META, DEFAULT_BUSINESS_CURRENCY, PLAN_ACTION_TYPES, type ChannelKey, type PlanActionType, type TaskKind } from "@foundmill/shared";
 import type { PlanAction, PlanOutput } from "../schemas";
 import { type AgentLike, type ManifestEntry, type MockContext, agentsFrom, sentenceCase, truncate } from "./inputs";
+import { compilePlaybookRuleBased, isPlaybookClause } from "./playbookCompiler";
 
 export interface PlanCompilerContext {
   manifest?: ManifestEntry[];
@@ -20,6 +21,8 @@ export interface PlanCompilerContext {
   defaultCurrency?: string;
   /** Restrict the emitted action types (BUILD §12.3 `{action_types}`). Defaults to every PlanActionType. */
   actionTypes?: readonly PlanActionType[];
+  /** Compiling one step of a playbook: a standing rule inside it is not read as another playbook. */
+  insidePlaybook?: boolean;
 }
 
 export type HardGate =
@@ -122,7 +125,6 @@ const INTENT = {
   sendMessage: SEND_MESSAGE_RE,
   schedule: /\b(?:schedule|book|set\s+up|arrange|organi[sz]e)\b[^.;,]*\b(?:call|meeting|demo|chat|interview|session|catch-?up)\b/i,
   approveSpend: /\b(?:approve|ok|okay|go\s+ahead\s+with|green-?light|sign\s+off\s+on|authorise\s+the\s+spend)\b[^.;,]*\b(?:spend|budget|purchase\s+order|po|quote|cost|invoice\s+for\s+approval)\b|\b(?:approve|approved)\b/i,
-  playbook: /\b(?:every\s+time|whenever|each\s+time|automatically\s+when|playbook|from\s+now\s+on|always\s+(?:do|send|create|run))\b/i,
   createTask: /\b(?:build|write|draft|prepare|research|investigate|look\s+into|ship|fix|implement|design|create|set\s+up|make|put\s+together|analy[sz]e|compare|review|audit|benchmark|source|find|explore|map|document|plan|prototype|test|launch|run|spend|target|reach|get|grow|double|improve|optimi[sz]e|ask)\b/i,
   question: /\?\s*$|^\s*(?:should|could|would|can|is|are|do|does|what|why|how|when|which|who|any\s+thoughts)\b/i,
 };
@@ -218,7 +220,7 @@ export function inferTaskKind(text: string): TaskKind {
   return "ops";
 }
 
-function splitClauses(text: string): string[] {
+export function splitClauses(text: string): string[] {
   const rough = text
     .replace(/\s+/g, " ")
     .split(/\s*(?:;|\.\s+|\bthen\b|\bafterwards\b|\balso\b|\band\s+also\b)\s*/i)
@@ -260,7 +262,10 @@ export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}
   }
 
   const enabledChannels = new Set<ChannelKey>();
-  for (const clause of splitClauses(cleaned)) {
+  // A standing rule ("When a lead replies positively, draft a reply and book a call; I approve the first message.") is
+  // compiled as one sentence into a playbook; everything else is read clause by clause.
+  const segments = ctx.insidePlaybook ? [{ text: cleaned, playbook: false }] : cleaned.split(/(?<=[.!?])\s+(?=[A-Z])/).flatMap((sentence) => (isPlaybookClause(sentence) ? [{ text: sentence, playbook: true }] : splitClauses(sentence).map((c) => ({ text: c, playbook: false }))));
+  for (const { text: clause, playbook } of segments) {
     const gates = detectHardGates(clause);
     if (gates.length > 0) {
       for (const g of gates) {
@@ -274,10 +279,14 @@ export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}
       continue; // never compile anything automated out of a gated clause
     }
 
-    // A standing trigger ("whenever", "every time", "from now on") is a playbook, not a one-off channel action.
-    if (INTENT.playbook.test(clause)) {
-      const [trigger, ...rest] = clause.split(/,\s*|\s+then\s+/i);
-      add("create_playbook", { trigger: sentenceCase((trigger ?? clause).trim()), steps: rest.length > 0 ? rest.map((s) => sentenceCase(s.trim())) : [sentenceCase(clause)], original_text: clause }, null, `Create a playbook: ${truncate(clause, 60)}.`);
+    // A standing trigger ("whenever", "every time", "when a lead replies") is a playbook, not a one-off action.
+    if (playbook) {
+      const compiled = compilePlaybookRuleBased(clause, {
+        splitSteps: splitClauses,
+        compileStep: (step) => compilePlanRuleBased(step, { ...ctx, agents, insidePlaybook: true }).actions,
+      });
+      if (compiled.ok) add("create_playbook", compiled.params, null, compiled.summary);
+      else add("reply_only", { question: compiled.question }, null, "Ask which event starts the playbook.");
       continue;
     }
 

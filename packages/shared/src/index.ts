@@ -9,3 +9,5 @@ export * from "./allowlist";
 export * from "./env";
 // Server-only code is not in this barrel, so a browser import of the vocabulary never pulls it in:
 // envelope encryption (libsodium, AWS KMS) is "@foundmill/shared/crypto" and the pino logger "@foundmill/shared/logger".
+export * from "./vacation";
+export * from "./playbook";

@@ -18,6 +18,7 @@ import { createApp } from "./app";
 import { createApiDeps, type ApiDeps } from "./context";
 import { redisReachable, type ApiRedis } from "./services/redis";
 import { seedOnBoot } from "./services/seed-on-boot";
+import { startWorkflowReconciler } from "./services/workflow-reconcile";
 
 export { createApp } from "./app";
 export { createApiDeps, createContextFactory, createTestContext, type ApiDeps, type Context } from "./context";
@@ -107,6 +108,7 @@ export async function main(): Promise<void> {
   const deps = createApiDeps({ env });
   let server: ReturnType<typeof serve> | null = null;
   let relay: OutboxRelay | null = null;
+  let reconciler: { stop(): void } | null = null;
   // Installed before the migration: a SIGTERM during boot still closes the pool (the migration transaction rolls back).
   const lifecycle = onShutdown({
     service: "api",
@@ -122,6 +124,7 @@ export async function main(): Promise<void> {
           if (forced > 0) deps.log.warn({ forced }, "api: connections still open at the drain deadline were cut");
         },
       },
+      { name: "stop workflow reconciler", run: () => reconciler?.stop() },
       { name: "stop outbox relay", run: () => relay?.stop() },
       { name: "close temporal", run: () => deps.temporal.close() },
       {
@@ -141,8 +144,14 @@ export async function main(): Promise<void> {
   const port = servicePort(env, "API_PORT");
 
   server = await listen(app, port, deps);
-  if (migrated) void seedOnBoot(deps);
+  // The demo seed may add a running vacation: the reconciler below runs after it.
+  const seeded = migrated ? seedOnBoot(deps).catch(() => undefined) : Promise.resolve();
   if (env.APP_ENV === "development") void deps.temporal.reachable().then((ok) => !ok && deps.log.warn({ address: env.TEMPORAL_ADDRESS }, "Temporal is unreachable: start it with `temporal server start-dev` (workflows will report queued: false until then)"));
+
+  // Long-lived workflows (vacations, Automated mode) for rows that have none: started at boot and every few minutes.
+  void seeded.then(() => {
+    if (!lifecycle.stopping) reconciler = startWorkflowReconciler(deps);
+  });
 
   void startRelay(deps).then((r) => {
     relay = r;

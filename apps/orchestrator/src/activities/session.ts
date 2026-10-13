@@ -44,6 +44,7 @@ import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { applySessionEvent, initialProgress, type ProgressState } from "../progress";
 import { AGENT_PAUSED_FAILURE, CANCELLED_REASON, type RunUsage } from "../session-contract";
+import { failureStreak } from "../retry";
 import { openApprovalNote } from "./approvals";
 import { LoopDetector } from "./loop";
 import { CREDITS_USED_UP_SUMMARY, SessionCredits, unbookedTokens } from "./session-credits";
@@ -134,11 +135,20 @@ function instructionsFor(version: AgentVersion | null, template: AgentTemplate) 
   return parsed?.success ? parsed.data : template.instructions;
 }
 
-/** Pick the recording for a task: same task kind when available, deterministic by task id. */
-export function recordingForTask(task: Pick<Task, "id" | "kind">, recordings: readonly { key: string; taskKind: string }[] = RECORDINGS): string {
+/**
+ * Pick the recording for a task, deterministic by task id. A new business's first tasks replay sessions that end well:
+ * the same task kind when one exists, else any kind that does (a legal or channel task never replays another kind's failed
+ * session). The failed and blocked recordings are opt-in (`scenarios: "all"`, env MOCK_SESSION_SCENARIOS=all, for demos
+ * and failure drills) or chosen by key; when a caller restricts the pool to such recordings they are used as they are
+ * (audit IAE-22).
+ */
+export function recordingForTask(task: Pick<Task, "id" | "kind">, recordings: readonly { key: string; taskKind: string; outcome?: string }[] = RECORDINGS, options: { scenarios?: "done" | "all" } = {}): string {
+  if (recordings.length === 0) throw new Error("no recordings available for the mock sandbox");
   const sameKind = recordings.filter((r) => r.taskKind === task.kind);
-  const pool = sameKind.length > 0 ? sameKind : recordings;
-  if (pool.length === 0) throw new Error("no recordings available for the mock sandbox");
+  const done = <T extends { outcome?: string }>(list: readonly T[]): T[] => list.filter((r) => r.outcome === undefined || r.outcome === "done");
+  let pool: readonly { key: string }[];
+  if (options.scenarios === "all") pool = sameKind.length > 0 ? sameKind : recordings;
+  else pool = [done(sameKind), done(recordings), sameKind, recordings].find((p) => p.length > 0)!;
   return pool[stableHash32(task.id) % pool.length]!.key;
 }
 
@@ -184,7 +194,12 @@ export class SessionUsage {
   private settled: UsageTotals = { tokensIn: 0, tokensOut: 0, costMinor: 0 };
   private readonly open = new Map<string, UsageTotals>();
 
-  constructor(private readonly fallbackModelId: string) {}
+  constructor(private fallbackModelId: string) {}
+
+  /** The session moved to another model (a nudge's "Upgrade to Opus"): assistant messages that name none are priced on it. */
+  useModel(modelId: string): void {
+    this.fallbackModelId = modelId;
+  }
 
   onResult(modelUsage: Record<string, SdkModelUsage> | null | undefined): void {
     const latest: UsageTotals = { tokensIn: 0, tokensOut: 0, costMinor: 0 };
@@ -378,7 +393,7 @@ class SessionRecorder {
   }
 
   /** Publish one event to the session stream and fold it into progress / loop detection / approvals. */
-  async publish(event: SessionEventInput): Promise<{ loop: boolean }> {
+  async publish(event: SessionEventInput, opts: { args?: unknown } = {}): Promise<{ loop: boolean }> {
     const { deps, ctx } = this;
     const at = event.at ?? deps.clock.now().toISOString();
     const full = { ...event, at } as SessionEventInput;
@@ -409,9 +424,9 @@ class SessionRecorder {
     this.progress = applySessionEvent(this.progress, full);
     await this.persistProgress(before);
 
-    const verdict = this.loop.observe(full);
+    const verdict = this.loop.observe(full, opts.args);
     if (verdict?.loop) {
-      await this.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), level: "error", source: "system", text: `Loop detected: ${verdict.signature.slice(0, 200)} repeated ${verdict.count} times. Stopping the session and returning the task to its lead.` });
+      await this.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), level: "error", source: "system", text: `Loop detected: ${verdict.signature.slice(0, 200)} repeated ${verdict.count} times in a row. Stopping the session and returning the task to its lead.` });
       return { loop: true };
     }
     return { loop: false };
@@ -620,7 +635,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       // AC-11.6.6: the sandbox environment is asserted before anything is created.
       const env = buildSandboxEnv({ businessId: input.businessId, agentId: agent.id, taskId: task.id, sessionId: input.sessionId, gatewayUrl: deps.gateway.baseUrl });
       const pool = provider instanceof MockSandboxProvider ? provider.recordings : RECORDINGS;
-      const recordingKey = mode === "mock" ? recordingForTask(task, pool) : null;
+      const recordingKey = mode === "mock" ? recordingForTask(task, pool, { scenarios: deps.env.MOCK_SESSION_SCENARIOS }) : null;
       const recording = recordingKey ? pool.find((r) => r.key === recordingKey) ?? null : null;
       const acceptance = Array.isArray(task.acceptance) ? task.acceptance.length : 0;
       return {
@@ -744,10 +759,10 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       // price; the platform pays E2B, so the row is billed to credits whatever pays for the model (a business on its own
       // key is never charged credits, `bookUsage`). A Docker sandbox runs on the platform's own host and costs nothing.
       if (launch.sandboxMode === "mock") {
-        await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "sandbox", quantity: Math.max(1, Math.round(result.durationMs / 60_000)), unit: "minutes", costMinor: 0, billedTo: launch.modelBilling, occurredAt: endedAt, details: { sandboxMode: launch.sandboxMode, label: "Estimate", recording: launch.recordingKey } });
+        await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "sandbox", idempotencyKey: `session:${input.sessionId}:sandbox`, quantity: Math.max(1, Math.round(result.durationMs / 60_000)), unit: "minutes", costMinor: 0, billedTo: launch.modelBilling, occurredAt: endedAt, details: { sandboxMode: launch.sandboxMode, label: "Estimate", recording: launch.recordingKey } });
       } else if ((result.sandboxMs ?? 0) > 0) {
         const sandboxMs = result.sandboxMs ?? 0;
-        await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "sandbox", quantity: Math.max(1, Math.ceil(sandboxMs / 60_000)), unit: "minutes", costMicroMinor: sandboxCostMicroMinor(launch.sandboxMode, sandboxMs), currency: CREDITS_CURRENCY, billedTo: "credits", occurredAt: endedAt, details: { sandboxMode: launch.sandboxMode, label: "Estimate", sandboxMs } });
+        await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "sandbox", idempotencyKey: `session:${input.sessionId}:sandbox`, quantity: Math.max(1, Math.ceil(sandboxMs / 60_000)), unit: "minutes", costMicroMinor: sandboxCostMicroMinor(launch.sandboxMode, sandboxMs), currency: CREDITS_CURRENCY, billedTo: "credits", occurredAt: endedAt, details: { sandboxMode: launch.sandboxMode, label: "Estimate", sandboxMs } });
       }
       if (result.tokensIn + result.tokensOut > 0 && launch.sandboxMode !== "mock") {
         // The SDK prices in USD (an Estimate). Settled against credits when the platform key ran the session
@@ -755,7 +770,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
         // Booked as it ran on the platform key (./session-credits): only the rest is booked here, at its exact cost (0039).
         const rest = await unbookedTokens(deps, input.businessId, input.sessionId, { tokens: result.tokensIn + result.tokensOut, costMinor: result.costMinor });
         const restMicro = Math.max(0, (result.costMicroMinor ?? Math.round(result.costMinor) * MICRO_PER_MINOR) - (Math.round(result.costMinor) - rest.costMinor) * MICRO_PER_MINOR);
-        if (rest.tokens > 0 || restMicro > 0) await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "tokens", modelKey: launch.modelKey, quantity: rest.tokens, unit: "tokens", costMicroMinor: restMicro, currency: "USD", billedTo: launch.modelBilling, occurredAt: endedAt, details: { source: "claude-agent-sdk", label: "Estimate" } });
+        if (rest.tokens > 0 || restMicro > 0) await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "tokens", idempotencyKey: `session:${input.sessionId}:tokens`, modelKey: result.modelKey ?? launch.modelKey, quantity: rest.tokens, unit: "tokens", costMicroMinor: restMicro, currency: "USD", billedTo: launch.modelBilling, occurredAt: endedAt, details: { source: "claude-agent-sdk", label: "Estimate" } });
       }
       // Read the agent after booking: the last credit may just have paused the team, and the founder's pause or Stop
       // all agents may have landed while the session ran. Nothing a session does un-pauses an agent.
@@ -770,6 +785,8 @@ export function createSessionActivities(deps: OrchestratorDeps) {
 
       let taskStatus: TaskStatus;
       const cost = { amountMinor: Math.round(result.costMinor), currency: CREDITS_CURRENCY }; // model cost: US cents (DECISIONS 2026-10-12)
+      // How many sessions of this task in a row ended failed or blocked, this one included (it is ended above).
+      const blockedStreak = Math.max(1, failureStreak(await repos.agents.recentOutcomes(db, input.businessId, { taskIds: [task.id], limit: 12 }), ["failed", "blocked"]).failures);
       switch (outcome) {
         case "done": {
           taskStatus = result.progress.merged ? "done" : result.progress.reviewPassed || result.progress.phase === "review" || result.progress.phase === "merge" ? "review" : "done";
@@ -778,7 +795,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
             type: "task.completed",
             actor: { kind: "agent", id: agent.id },
             payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, outcome: result.progress.progress >= 0.999 ? "success" : "partial", durationMs: Math.max(0, Math.round(result.durationMs)), cost, acceptanceTestsPassing: result.progress.acceptanceTestsPassing, acceptanceTests: result.progress.acceptanceTests, prNumber: result.prNumber, branch: launch.branch, summary: result.summary.slice(0, 2000) },
-          });
+          }, { idempotencyKey: `task.completed:${input.sessionId}` });
           eventIds.push(ev.id);
           break;
         }
@@ -788,8 +805,8 @@ export function createSessionActivities(deps: OrchestratorDeps) {
             businessId: input.businessId,
             type: "task.blocked",
             actor: { kind: "agent", id: agent.id },
-            payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, reason: result.blockedReason ?? "error", detail: (result.reason ?? "blocked").slice(0, 2000), approvalId: result.approvalId, occurrence: 1 },
-          });
+            payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, reason: result.blockedReason ?? "error", detail: (result.reason ?? "blocked").slice(0, 2000), approvalId: result.approvalId, occurrence: blockedStreak },
+          }, { idempotencyKey: `task.blocked:${input.sessionId}` });
           eventIds.push(ev.id);
           break;
         }
@@ -799,8 +816,8 @@ export function createSessionActivities(deps: OrchestratorDeps) {
             businessId: input.businessId,
             type: "task.blocked",
             actor: { kind: "agent", id: agent.id },
-            payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, reason: result.blockedReason ?? "error", detail: (result.reason ?? "failed").slice(0, 2000), approvalId: null, occurrence: 1 },
-          });
+            payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, reason: result.blockedReason ?? "error", detail: (result.reason ?? "failed").slice(0, 2000), approvalId: null, occurrence: blockedStreak },
+          }, { idempotencyKey: `task.blocked:${input.sessionId}` });
           eventIds.push(ev.id);
           break;
         }
@@ -835,7 +852,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           businessId: input.businessId,
           type: "agent.health_changed",
           actor: systemActor,
-          payload: { agentId: agent.id, from, to, reason: result.blockedReason === "loop_detected" ? "loop detected: the same call repeated three times" : result.outcome === "failed" ? `session failed: ${(result.reason ?? "error").slice(0, 200)}` : `session ${result.outcome}`, signals: { loopDetected: result.blockedReason === "loop_detected", errorRate: result.toolCalls > 0 ? Math.min(1, result.toolFailures / result.toolCalls) : null }, sessionId: input.sessionId },
+          payload: { agentId: agent.id, from, to, reason: result.blockedReason === "loop_detected" ? "loop detected: the same call repeated three times in a row" : result.outcome === "failed" ? `session failed: ${(result.reason ?? "error").slice(0, 200)}` : `session ${result.outcome}`, signals: { loopDetected: result.blockedReason === "loop_detected", errorRate: result.toolCalls > 0 ? Math.min(1, result.toolFailures / result.toolCalls) : null }, sessionId: input.sessionId },
         });
         eventIds.push(ev.id);
         healthChanged = true;
@@ -860,7 +877,7 @@ export type SessionActivities = ReturnType<typeof createSessionActivities>;
 /** A parked runner's half of `SessionParked`; runAgentSession adds the number of the last command its feed read. */
 type RunnerParked = Omit<SessionParked, "lastSeq">;
 
-type RunOutcome = Pick<SessionResult, "outcome" | "reason" | "blockedReason" | "approvalId" | "summary" | "providerSessionId"> & Partial<Pick<SessionResult, "tokensIn" | "tokensOut" | "costMinor" | "costMicroMinor">> & { parked?: RunnerParked };
+type RunOutcome = Pick<SessionResult, "outcome" | "reason" | "blockedReason" | "approvalId" | "summary" | "providerSessionId"> & Partial<Pick<SessionResult, "tokensIn" | "tokensOut" | "costMinor" | "costMicroMinor" | "modelKey">> & { parked?: RunnerParked };
 
 /** Why a replay frees its slot early: the founder left an approval undecided, or a pause outlasted the hold. */
 type MockEnding = { kind: "approval_timeout" } | ({ kind: "park" } & RunnerParked);
@@ -912,6 +929,11 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         replay.stop(c.reason);
         break;
       case "shout":
+        if (c.modelKey) {
+          // A replay runs no model: say so, rather than claim a switch that changes nothing.
+          await recorder.publishRaw({ kind: "note", at, source: "system", level: "info", text: `Asked to switch to ${c.modelKey}. This is a recorded session, so no model runs and nothing changes.` });
+          break;
+        }
         await recorder.publishRaw({ kind: "note", at, source: "shout", level: "info", text: c.message.slice(0, 4000) });
         break;
       case "decision": {
@@ -959,7 +981,7 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     await loop.flush();
     const stop = stoppedBy as { reason: string; by: string | null } | null;
     const end = ending as MockEnding | null;
-    if (loopTripped) return { outcome: "failed", reason: "loop detected: the same call repeated three times", blockedReason: "loop_detected", approvalId: null, summary: `Stopped after a detected loop (${recorder.loop.loopDetected?.signature.slice(0, 120) ?? "repeated call"}).`, providerSessionId: summary.recordingKey };
+    if (loopTripped) return { outcome: "failed", reason: "loop detected: the same call repeated three times in a row", blockedReason: "loop_detected", approvalId: null, summary: `Stopped after a detected loop (${recorder.loop.loopDetected?.signature.slice(0, 120) ?? "repeated call"}).`, providerSessionId: summary.recordingKey };
     if (stop) return { outcome: "stopped", reason: stop.reason, blockedReason: "stopped", approvalId: null, summary: `Stopped: ${stop.reason}.`, providerSessionId: summary.recordingKey };
     if (end?.kind === "park") return { outcome: "stopped", reason: "paused", blockedReason: "stopped", approvalId: null, summary: "Paused; the session continues on Resume.", providerSessionId: summary.recordingKey, parked: { cursor: end.cursor, carry: carriedOver(end.carry) } };
     if (end?.kind === "approval_timeout") return { outcome: "blocked", reason: `no decision on the approval within ${minutesText(waits.approvalMs)}`, blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: `Blocked after ${summary.emitted} events: waiting for the founder's approval.`, providerSessionId: summary.recordingKey };
@@ -1195,9 +1217,32 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   /** The agent is done and its input closed: the SDK is only winding down, so used-up credits no longer end the run. */
   let inputDone = false;
   const openCalls = new Map<string, { tool: string; connectorKey: string | null; startedAt: number }>();
+  /** The model a nudge moved the session to, once it has (usage after that is booked on it). */
+  let switchedTo: ModelKey | null = null;
   const usageNow = () => {
     const u = recorder.usage.totals();
-    return { tokensIn: u.tokensIn, tokensOut: u.tokensOut, costMinor: Math.round(u.costMinor), costMicroMinor: Math.round(u.costMinor * MICRO_PER_MINOR) };
+    return { tokensIn: u.tokensIn, tokensOut: u.tokensOut, costMinor: Math.round(u.costMinor), costMicroMinor: Math.round(u.costMinor * MICRO_PER_MINOR), ...(switchedTo ? { modelKey: switchedTo } : {}) };
+  };
+  /**
+   * "Upgrade to Opus" on a running task: the SDK query moves to that model for the rest of the session and later usage is
+   * priced and booked on it (audit O-27). A route locked to one model refuses the change and says so.
+   */
+  const switchModel = async (modelKey: ModelKey, at: string) => {
+    const model = resolveModel(live.template.route, modelKey);
+    if (model.modelKey !== modelKey) {
+      await recorder.publishRaw({ kind: "note", at, source: "system", level: "warn", text: model.warning ?? `This work stays on ${model.modelKey}.` });
+      return;
+    }
+    try {
+      await q?.setModel(model.modelId);
+      switchedTo = model.modelKey;
+      credits?.useModel(model.modelKey);
+      recorder.usage.useModel(model.modelId);
+      await recorder.publishRaw({ kind: "note", at, source: "system", level: "info", text: `Switched to ${model.modelKey[0]!.toUpperCase()}${model.modelKey.slice(1)} for the rest of this session.` });
+    } catch (err) {
+      deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "SDK model switch failed");
+      await recorder.publishRaw({ kind: "note", at, source: "system", level: "warn", text: "The model could not be switched; the session carries on with its current model." });
+    }
   };
 
   const send = (text: string) => {
@@ -1240,6 +1285,12 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     switch (c.kind) {
       case "shout":
       case "decision":
+        // A model change is not a message to the agent: it switches the SDK query and nothing is sent.
+        if (c.kind === "shout" && c.modelKey) {
+          if (ending === "park") carry.push(c);
+          else if (!ending) await switchModel(c.modelKey as ModelKey, at);
+          break;
+        }
         if (c.kind === "shout") await recorder.publishRaw({ kind: "note", at, source: "shout", text: c.message.slice(0, 4000) });
         else await recorder.markApprovalResolved(c.approvalId, c.outcome, c.by ?? null);
         if (ending === "park") carry.push(c);
@@ -1378,7 +1429,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
               const connectorKey = parts ? parts[1]! : null;
               const tool = parts ? parts[2]! : block.name;
               openCalls.set(block.id, { tool, connectorKey, startedAt: deps.clock.nowMs() });
-              const { loop: looped } = await recorder.publish({ kind: "tool_call", at: deps.clock.now().toISOString(), callId: block.id, connectorKey, tool, status: "started", argsSummary: summariseArgs(block.input) });
+              const { loop: looped } = await recorder.publish({ kind: "tool_call", at: deps.clock.now().toISOString(), callId: block.id, connectorKey, tool, status: "started", argsSummary: summariseArgs(block.input) }, { args: block.input });
               if (looped) await end("loop");
             }
           }
@@ -1435,7 +1486,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     const how = ending as LiveEnding | null;
     if (how === "loop") {
       holdBack = "the session stopped on a loop";
-      return { outcome: "failed", reason: "loop detected: the same tool call repeated three times", blockedReason: "loop_detected", approvalId: null, summary: "Stopped after a detected loop.", providerSessionId: sdkSessionId, ...usageNow() };
+      return { outcome: "failed", reason: "loop detected: the same tool call repeated three times in a row", blockedReason: "loop_detected", approvalId: null, summary: "Stopped after a detected loop.", providerSessionId: sdkSessionId, ...usageNow() };
     }
     if (how === "budget") {
       holdBack = "this month's credits ran out";

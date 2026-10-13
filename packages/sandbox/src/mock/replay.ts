@@ -8,8 +8,9 @@
  * - `at` is `startAt + tMs / speed` (or `startAt + tMs` when speed is infinite): the recording's own
  *   clock, so a pause or an approval hold never reorders timestamps.
  * - A recorded `hold` pauses the replay after its event until `decide(approvalId, outcome)` (the
- *   orchestrator's `approval` signal), `resume()` or the hold's own auto-resolve timer. A rejection emits a
- *   `denied` tool_call plus a system note and ends the replay as `stopped`.
+ *   orchestrator's `approval` signal) or the hold's own auto-resolve timer. `resume()` only ends a `pause()`: a call
+ *   waiting for the founder stays waiting (audit FR-07). A rejection emits a `denied` tool_call plus a system note and
+ *   ends the replay as `stopped`.
  * - A recording ref `<key>@<index>` (the cursor `snapshot()` returns) continues a replay an earlier sandbox stopped
  *   part-way: a paused agent session that handed its worker slot back resumes where it was.
  */
@@ -200,14 +201,13 @@ export class SessionReplay {
     if (this.status_ === "playing") this.status_ = "paused";
   }
 
-  /** Resume after `pause()`; also releases a pending hold without a decision (treated as approved). */
+  /** Resume after `pause()`. A pending hold is not answered by it: only `decide()`, its own auto-resolve or `stop()` end a hold. */
   resume(): void {
     this.paused = false;
     if (this.status_ === "paused") this.status_ = "playing";
     const wake = this.wake;
     this.wake = null;
     wake?.();
-    if (this.pending) this.pending.resolve("resume");
   }
 
   /** Answer a pending approval. Returns false when no hold with that id is waiting. */
@@ -223,6 +223,7 @@ export class SessionReplay {
     this.status_ = "stopped";
     this.abort.abort();
     this.resume();
+    this.pending?.resolve("resume");
     if (!this.running) this.finish();
   }
 
@@ -342,7 +343,10 @@ export function pickRecording(recordings: readonly Recording[], spec: Pick<Sandb
     if (!found) throw new ValidationError(`Unknown recording "${key}". Known: ${recordings.map((r) => r.key).join(", ")}`);
     return found;
   }
-  return recordings[stableHash32(spec.taskId) % recordings.length]!;
+  // Without a named recording only a session that ends well is picked; failed and blocked ones are chosen by key (audit IAE-22).
+  const done = recordings.filter((r) => r.outcome === "done");
+  const pool = done.length > 0 ? done : recordings;
+  return pool[stableHash32(spec.taskId) % pool.length]!;
 }
 
 export interface MockSandboxOptions extends ReplayOptions {

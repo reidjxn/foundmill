@@ -138,7 +138,7 @@ const sentence = (s: string) => {
 export function failureReply(kind: DeskFailureKind, serverMessage = ""): { bubbles: string[]; retry: boolean } {
   switch (kind) {
     case "offline":
-      return { bubbles: ["Your message didn't reach me: the connection dropped.", "It's kept here. Try again once you're back online."], retry: true };
+      return { bubbles: ["I couldn't confirm your message: the connection dropped.", "It's kept here. Try again once you're back online."], retry: true };
     case "limited": {
       const when = /try again in ([^.]+)/i.exec(serverMessage)?.[1]?.trim() ?? "a minute";
       return { bubbles: ["That's a lot of messages in a short time, so I've paused for a moment.", `Try again in ${when}; your message is kept here.`], retry: true };

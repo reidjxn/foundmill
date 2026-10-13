@@ -855,6 +855,8 @@ export const HOLIDAY_END_REASONS = [
   "wake_event",
   "budget_exhausted",
   "kill_switch",
+  /** The vacation reached its safety limit of cycles without the founder coming back (MAX_HOLIDAY_CYCLES). */
+  "cycle_cap",
 ] as const;
 export const HolidayEndReason = z.enum(HOLIDAY_END_REASONS);
 export type HolidayEndReason = z.infer<typeof HolidayEndReason>;
@@ -878,7 +880,7 @@ const holidayEnded = declareEvent(
     reportInboxItemId: Id.nullable().default(null),
   }),
   {
-    doc: "The vacation ended (date, condition, founder return, wake event, budget, kill switch). The Inbox opens on the While-you-were-away report.",
+    doc: "The vacation ended (date, condition, founder return, wake event, budget, kill switch, cycle safety limit). The Inbox opens on the While-you-were-away report.",
     consumers: ["composer", "metrics", "playbooks"],
   },
 );

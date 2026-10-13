@@ -37,14 +37,16 @@ export async function playbook(input: PlaybookInput): Promise<PlaybookResult> {
     return { playbookId: input.playbookId, stepsRun: 0, stoppedReason: "disabled", results };
   }
   let stepsRun = 0;
-  for (const step of loaded.steps) {
+  for (const [index, step] of loaded.steps.entries()) {
     if (stopped) break;
     const check = await acts.playbookShouldStop({ businessId: input.businessId, playbookId: input.playbookId, stop: loaded.stop, startedAt, runsSoFar: stepsRun });
     if (check.stop) {
       stopped = check.reason;
       break;
     }
-    const { planId, actionIds } = await acts.playbookStepToPlan({ businessId: input.businessId, playbookId: input.playbookId, step, event: input.event ? { type: input.event.type, payload: input.event.payload } : null });
+    // A step the founder asked to approve (`approvals`) waits for the decision: every run, or the first run of the playbook.
+    const requireApproval = (loaded.approvals ?? []).some((a) => a.step === index && (a.scope === "every_run" || loaded.firstRun));
+    const { planId, actionIds } = await acts.playbookStepToPlan({ businessId: input.businessId, playbookId: input.playbookId, step, event: input.event ? { type: input.event.type, payload: input.event.payload } : null, requireApproval });
     if (!planId) continue;
     for (const actionId of actionIds) {
       let result = await acts.executePlanAction({ businessId: input.businessId, planId, actionId, workflowId: info.workflowId });

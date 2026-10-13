@@ -38,9 +38,14 @@ export class SessionCredits {
   /** Settles run one at a time (the control loop and a finished turn can ask at once), so nothing is booked twice. */
   private queue: Promise<unknown> = Promise.resolve();
 
+  /** The model the rest of the session is priced on after an "Upgrade to Opus" nudge (audit O-27). */
+  useModel(modelKey: ModelKey): void {
+    this.session = { ...this.session, modelKey };
+  }
+
   private constructor(
     private readonly deps: OrchestratorDeps,
-    private readonly session: { businessId: string; agentId: string; sessionId: string; modelKey: ModelKey },
+    private session: { businessId: string; agentId: string; sessionId: string; modelKey: ModelKey },
     /** What a live call may spend at launch, USD cents. */
     readonly spendableMinor: number,
   ) {

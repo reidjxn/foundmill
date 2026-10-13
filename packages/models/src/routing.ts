@@ -25,6 +25,15 @@ export const MODELS = {
 export type ModelId = (typeof MODELS)[keyof typeof MODELS];
 export type ModelKey = keyof typeof MODELS;
 
+/**
+ * Older models a real Anthropic account still lists. Nothing routes to them; the mock `list_models` tool reports them
+ * as not routed, so an agent reading the list sees what a live account shows.
+ */
+export const LISTED_UNROUTED_MODELS = [
+  { id: "claude-sonnet-4-5-20250929", displayName: "Claude Sonnet 4.5", createdAt: "2025-09-29T00:00:00Z" },
+  { id: "claude-opus-4-1-20250805", displayName: "Claude Opus 4.1", createdAt: "2025-08-05T00:00:00Z" },
+] as const;
+
 /** What each model accepts (Anthropic model docs, 2026-10-09): Haiku 4.5 has no `effort`; fast mode is Opus only. */
 export const MODEL_CAPABILITIES: Record<ModelKey, { effort: boolean; fastMode: boolean }> = {
   opus: { effort: true, fastMode: true },

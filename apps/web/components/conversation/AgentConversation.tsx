@@ -107,6 +107,11 @@ interface Outgoing {
   quickReplyId?: string;
   /** The option the pressed chip names on screen (sent with it, so a chip that now names another option is refused). */
   optionId?: string | null;
+  /**
+   * The id this message goes out with, kept for every retry: the server stores the message under it and answers a repeat
+   * with the exchange it already holds, so a reply lost on the way back never makes Try again post the question twice.
+   */
+  clientMessageId?: string;
 }
 
 /** The nearest ancestor of `el` that scrolls. */
@@ -142,6 +147,9 @@ function revealAboveBar(el: HTMLElement | null | undefined): void {
   const delta = r.height > bottom - top ? r.top - top : r.bottom > bottom ? r.bottom - bottom : r.top < top ? r.top - top : 0;
   if (delta !== 0) scroller.scrollBy({ top: delta, behavior: "auto" });
 }
+
+/** An id for one outgoing message, kept for its retries (the server dedupes on it). */
+const newClientMessageId = (): string => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`);
 
 let localSeq = 0;
 const nextLocalId = () => `local-${Date.now().toString(36)}-${(localSeq++).toString(36)}`;
@@ -237,6 +245,27 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
     [view, decided, queryClient, key],
   );
 
+  /**
+   * After a send that got no answer (the connection dropped): reload the thread, and when it holds the message the reply
+   * was only lost on the way back, so the exchange appears as if the answer had arrived and nothing is offered to resend.
+   */
+  const arrived = useCallback(
+    async (out: Outgoing, err: unknown): Promise<boolean> => {
+      if (deskFailureOf(err).kind !== "offline" || !out.clientMessageId) return false;
+      try {
+        await queryClient.refetchQueries({ queryKey: key, exact: true });
+      } catch {
+        return false;
+      }
+      const stored = queryClient.getQueryData<{ messages: { clientMessageId?: string | null }[] }>(key);
+      if (!stored?.messages.some((m) => m.clientMessageId === out.clientMessageId)) return false;
+      outgoing.current.delete(out.localId);
+      setLocal((l) => l.filter((m) => m.id !== out.localId && !m.id.startsWith(FAILURE_PREFIX)));
+      return true;
+    },
+    [queryClient, key],
+  );
+
   const deliver = useCallback(
     (out: Outgoing) => {
       inFlight.current = true;
@@ -250,7 +279,7 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
       // Promises, not per-call callbacks: the reply still reaches the cache if the founder moves on before it arrives.
       const job: Promise<void> =
         inboxReply && out.text && subject.kind === "inbox_item"
-          ? replyM.mutateAsync({ businessId, itemId: subject.id, text: out.text }).then((res) => {
+          ? replyM.mutateAsync({ businessId, itemId: subject.id, text: out.text, ...(out.clientMessageId ? { clientMessageId: out.clientMessageId } : {}) }).then((res) => {
               outgoing.current.delete(out.localId);
               if (res.route === "decision") {
                 // An instruction: it answered the note through the decide path (nothing is said in the thread).
@@ -262,22 +291,28 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
               if (res.decision) onDecision?.(res.decision);
               if (res.handOff) showPreview(res.handOff);
             })
-          : sendM.mutateAsync({ businessId, subject: input.subject, ...(out.quickReplyId ? { quickReplyId: out.quickReplyId, ...(out.optionId !== undefined ? { optionId: out.optionId } : {}) } : { text: out.text! }) }).then((res) => {
+          : sendM.mutateAsync({ businessId, subject: input.subject, ...(out.clientMessageId ? { clientMessageId: out.clientMessageId } : {}), ...(out.quickReplyId ? { quickReplyId: out.quickReplyId, ...(out.optionId !== undefined ? { optionId: out.optionId } : {}) } : { text: out.text! }) }).then((res) => {
               outgoing.current.delete(out.localId);
               merge(res, out.localId);
               if (res.decision) onDecision?.(res.decision);
               if (res.handOff) showPreview(res.handOff);
             });
-      void job.catch((err: unknown) => failed(out, err)).finally(settle);
+      void job
+        .catch(async (err: unknown) => {
+          // No answer is not "never arrived": ask the server whether it holds the message before saying it was not sent.
+          if (await arrived(out, err)) return;
+          failed(out, err);
+        })
+        .finally(settle);
     },
-    [queryClient, key, inboxReply, subject.kind, subject.id, replyM, sendM, businessId, input.subject, merge, onDecision, showPreview, failed],
+    [queryClient, key, arrived, inboxReply, subject.kind, subject.id, replyM, sendM, businessId, input.subject, merge, onDecision, showPreview, failed],
   );
 
   const post = useCallback(
     (words: string, payload: Omit<Outgoing, "localId">) => {
       if (inFlight.current || replying) return;
       const localId = nextLocalId();
-      const out = { localId, words, ...payload };
+      const out = { localId, words, clientMessageId: newClientMessageId(), ...payload };
       outgoing.current.set(localId, out);
       // Sending something else lets go of a message that was not sent (and the agent's word about it).
       setLocal((l) => [...l.filter((m) => m.state !== "failed" && !m.id.startsWith(FAILURE_PREFIX)), { id: localId, author: "founder", bubbles: [words], at: new Date(), state: "sending" }]);

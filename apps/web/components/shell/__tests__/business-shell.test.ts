@@ -10,6 +10,7 @@ type ContinueResult = Parameters<typeof describeContinue>[0];
 
 const status = (over: Partial<ContinueResult["status"]> = {}): ContinueResult["status"] => ({
   running: false,
+  queued: false,
   paused: false,
   cycleId: null,
   cycleNumber: null,
@@ -20,6 +21,7 @@ const status = (over: Partial<ContinueResult["status"]> = {}): ContinueResult["s
   activeAgentIds: [],
   activeTaskIds: [],
   plannedTaskIds: [],
+  pausedTaskIds: [],
   completedCount: 0,
   lastCompletedAt: null,
   lastOutcome: null,

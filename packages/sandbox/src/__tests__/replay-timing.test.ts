@@ -150,6 +150,7 @@ describe("emit callback and ordering through the provider", () => {
     expect(byKey.get("northwind-supplier-shortlist")!.taskKind).toBe("research");
     expect(byKey.get("ledgerly-flaky-import-test")!.outcome).toBe("failed");
     expect(RECORDINGS.length).toBeGreaterThanOrEqual(4);
-    expect(RECORDINGS.length).toBeLessThanOrEqual(6);
+    // Six work recordings and the finance one that lets the first runway forecast finish on the golden path.
+    expect(RECORDINGS.length).toBeLessThanOrEqual(7);
   });
 });

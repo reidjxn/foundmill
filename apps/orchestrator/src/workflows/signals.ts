@@ -10,6 +10,14 @@ export interface ByPayload {
   at?: string;
 }
 
+/**
+ * A cycle's pause and resume name the tasks the cycle paused: only their sessions are touched, so a task the founder
+ * paused by hand stays paused through a cycle resume (audit OL-25). Absent: every session of the cycle.
+ */
+export interface CycleHoldPayload extends ByPayload {
+  taskIds?: string[];
+}
+
 export interface StopPayload extends ByPayload {
   reason: string;
 }
@@ -28,8 +36,8 @@ export interface FounderSubmitPayload extends ByPayload {
 
 export const decisionSignal = defineSignal<[ApprovalDecision]>("decision");
 export const shoutSignal = defineSignal<[ShoutPayload]>("shout");
-export const pauseSignal = defineSignal<[ByPayload]>("pause");
-export const resumeSignal = defineSignal<[ByPayload]>("resume");
+export const pauseSignal = defineSignal<[CycleHoldPayload]>("pause");
+export const resumeSignal = defineSignal<[CycleHoldPayload]>("resume");
 export const stopSignal = defineSignal<[StopPayload]>("stop");
 export const founderSubmitSignal = defineSignal<[FounderSubmitPayload]>("founderSubmit");
 export const wakeSignal = defineSignal<[WakePayload]>("wake");

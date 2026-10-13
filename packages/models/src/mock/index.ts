@@ -325,6 +325,7 @@ export { MODELS };
 export type { MockContext } from "./inputs";
 export { buildMockContext, extractJsonValues, normaliseManifest, agentsFrom, numbersIn, keywords, wordCount } from "./inputs";
 export { synthesizeFromZod, synthesizeFromJsonSchema } from "./synth";
+export { compilePlaybookRuleBased, detectTrigger, isPlaybookClause } from "./playbookCompiler";
 export { compilePlanRuleBased, detectAmounts, detectChannels, detectHardGates, detectAudience, detectTimeframe, inferTaskKind, type PlanCompilerContext, type HardGate, type DetectedAmount } from "./planCompiler";
 export { compileOptionPlan, NO_ACTION_OPTION_RE, type DecisionOption, type OptionPlanContext } from "./optionPlan";
 export { generateInboxComposer } from "./inboxComposer";

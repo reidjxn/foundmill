@@ -46,7 +46,7 @@ import {
   type NudgePreset,
   type StarterSubject,
 } from "@foundmill/agents";
-import { repos, type Agent, type AgentMessage, type AgentThread, type DbTx, type InboxItem, type PlanWithActions, type Task } from "@foundmill/db";
+import { repos, sqlState, type Agent, type AgentMessage, type AgentThread, type DbTx, type InboxItem, type PlanWithActions, type Task } from "@foundmill/db";
 import { buildManifest, stripInvalidMentions, stripMarkup, validateMarkup, type ManifestEntityInput } from "@foundmill/entity-linker";
 import { type AgentReplyOutput, type ModelClient, type PlanAction, type QuickReply } from "@foundmill/models";
 import {
@@ -114,6 +114,11 @@ export const SendInput = z
      * older clients.
      */
     optionId: z.string().max(40).nullable().optional(),
+    /**
+     * An id the client makes up for this message and keeps when it retries. A send whose answer was lost in transit
+     * is the same message when it comes again: the exchange already stored is returned and nothing is asked or paid for twice.
+     */
+    clientMessageId: z.string().trim().min(8).max(100).optional(),
   })
   .refine((v) => (v.text ? 1 : 0) + (v.quickReplyId ? 1 : 0) === 1, { message: "Send either text or a quick reply", path: ["text"] });
 export type SendInput = z.infer<typeof SendInput>;
@@ -191,6 +196,8 @@ export interface ConversationMessageView {
    * `plan.confirm` while it is `pending_confirmation`, so the desk offers "Review the plan" again (audit OL-01).
    */
   planStatus: PlanStatus | null;
+  /** Founder messages: the id the client sent with it (so a client can tell its message arrived), else null. */
+  clientMessageId: string | null;
   /** Stored messages have been accepted by the server ("Seen"). */
   state: "seen";
 }
@@ -437,6 +444,7 @@ export function toMessageViews(rows: readonly AgentMessage[], planStatuses: Read
       handOff: m.handOff ? { instruction: m.handOff.instruction, gated: m.handOff.gated === true } : null,
       planId: m.planId,
       planStatus: m.planId ? (planStatuses.get(m.planId) ?? null) : null,
+      clientMessageId: m.clientMessageId ?? null,
       state: "seen",
     };
   });
@@ -538,6 +546,8 @@ interface Prepared {
   latestAgent: AgentMessage | null;
   chip: QuickReply | null;
   founderText: string;
+  /** This message (same client id) was already sent and answered: its stored exchange. */
+  replay: { founder: AgentMessage; reply: AgentMessage | null } | null;
 }
 
 async function prepare(tx: DbTx, ctx: BusinessContext, input: SendInput): Promise<Prepared> {
@@ -545,6 +555,9 @@ async function prepare(tx: DbTx, ctx: BusinessContext, input: SendInput): Promis
   const thread = await repos.conversations.findThread(tx, ctx.businessId, { agentId: r.agent.id, subjectKind: input.subject.kind, subjectId: r.subject.id });
   const history = thread ? await repos.conversations.listMessages(tx, ctx.businessId, thread.id, { limit: 12 }) : [];
   const latestAgent = thread ? await repos.conversations.latestAgentMessage(tx, ctx.businessId, thread.id) : null;
+  // A repeat of a message that was stored (its answer was lost on the way back): nothing is checked or sent again.
+  const replay = input.clientMessageId && thread ? await repos.conversations.findExchange(tx, ctx.businessId, thread.id, input.clientMessageId) : null;
+  if (replay) return { r, thread, history, latestAgent, chip: null, founderText: replay.founder.bubbles.join("\n"), replay };
   let chip: QuickReply | null = null;
   if (input.quickReplyId) {
     chip = asQuickReplies(latestAgent?.quickReplies).find((q) => q.id === input.quickReplyId) ?? r.starters.find((q) => q.id === input.quickReplyId) ?? null;
@@ -555,12 +568,14 @@ async function prepare(tx: DbTx, ctx: BusinessContext, input: SendInput): Promis
     // A chip offered before the item was decided (the DecisionBar, another tab): nothing is left to choose.
     if (chip.kind === "choose_option" && r.subject.answered) throw new ValidationError("This one is already decided, so there is nothing left to choose", { quickReplyId: chip.id, route: "stale" });
   }
-  return { r, thread, history, latestAgent, chip, founderText: chip ? chip.say : (input.text ?? "") };
+  return { r, thread, history, latestAgent, chip, founderText: chip ? chip.say : (input.text ?? ""), replay: null };
 }
 
 const preview = (text: string) => stripMarkup(text).replace(/\s+/g, " ").trim().slice(0, 140);
 
 interface WriteReplyInput {
+  /** The client's id for the founder's message (`SendInput.clientMessageId`). */
+  clientMessageId?: string | null;
   r: Resolved;
   subject: ConversationSubject;
   founderText: string;
@@ -574,10 +589,26 @@ interface WriteReplyInput {
 
 /** Founder message + agent message + two events (marked narrated: a chat is never an Inbox note) + audit, in one transaction. */
 async function writeExchange(ctx: BusinessContext, w: WriteReplyInput): Promise<{ thread: AgentThread; messages: ConversationMessageView[] }> {
+  try {
+    return await writeExchangeOnce(ctx, w);
+  } catch (err) {
+    // The same message came in twice at once and the other copy stored its exchange first: answer with that one.
+    if (!w.clientMessageId || sqlState(err) !== "23505") throw err;
+    const stored = await ctx.rls(async (tx) => {
+      const thread = await repos.conversations.findThread(tx, ctx.businessId, { agentId: w.r.agent.id, subjectKind: w.subject.kind, subjectId: w.r.subject.id });
+      const exchange = thread ? await repos.conversations.findExchange(tx, ctx.businessId, thread.id, w.clientMessageId!) : null;
+      return thread && exchange ? { thread, exchange } : null;
+    });
+    if (!stored) throw err;
+    return { thread: stored.thread, messages: toMessageViews(stored.exchange.reply ? [stored.exchange.founder, stored.exchange.reply] : [stored.exchange.founder]) };
+  }
+}
+
+async function writeExchangeOnce(ctx: BusinessContext, w: WriteReplyInput): Promise<{ thread: AgentThread; messages: ConversationMessageView[] }> {
   return ctx.rls(async (tx) => {
     const thread = await repos.conversations.ensureThread(tx, ctx.businessId, { agentId: w.r.agent.id, subjectKind: w.subject.kind, subjectId: w.r.subject.id });
     const at = new Date();
-    const founder = await repos.conversations.appendMessage(tx, ctx.businessId, { threadId: thread.id, authorKind: "founder", authorUserId: ctx.userId, bubbles: [w.founderText], chosenQuickReplyId: w.chip?.id ?? null }, { at });
+    const founder = await repos.conversations.appendMessage(tx, ctx.businessId, { threadId: thread.id, authorKind: "founder", authorUserId: ctx.userId, bubbles: [w.founderText], chosenQuickReplyId: w.chip?.id ?? null, clientMessageId: w.clientMessageId ?? null }, { at });
     const agent = await repos.conversations.appendMessage(
       tx,
       ctx.businessId,
@@ -618,8 +649,16 @@ function scriptedReply(bubbles: string[], quickReplies: QuickReply[], reaction: 
   return { bubbles, reaction, quick_replies: quickReplies, hand_off: null, refers_to: [] };
 }
 
+/** The answer a repeated message gets: the exchange stored the first time (no decision or hand-off to show again). */
+function replayedSend(p: Prepared & { replay: NonNullable<Prepared["replay"]> }): SendResult {
+  const rows = p.replay.reply ? [p.replay.founder, p.replay.reply] : [p.replay.founder];
+  return { thread: p.thread!, messages: toMessageViews(rows), quickReplies: asQuickReplies(p.replay.reply?.quickReplies), decision: null, handOff: null };
+}
+
 export async function sendConversationMessage(ctx: BusinessContext, input: SendInput): Promise<SendResult> {
   const p = await ctx.rls((tx) => prepare(tx, ctx, input));
+  if (p.replay) return replayedSend({ ...p, replay: p.replay });
+
   // Checked after the chip (a stale or write chip costs nothing), before any model call or decision.
   await takeConversationAllowance(ctx.limits, { userId: ctx.userId, businessId: ctx.businessId });
   const { r, chip } = p;
@@ -636,7 +675,7 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
     const fullAck = ackLine(voice, seed);
     const ack = fullAck.match(/^.*?[.!](?=\s|$)/)?.[0] ?? fullAck;
     const reply = scriptedReply([`${ack} Going with ${option?.label ?? "that option"}.`, next], [quickReply("thanks", "Thanks", "Thanks.", "acknowledge"), quickReply("what_happens_next", "What happens next?", "What happens next?", "ask")], "pleased");
-    const written = await writeExchange(ctx, { r, subject: input.subject, founderText: p.founderText, chip, reply, entityIds: [], handOffGated: false, planId: decision.plan.id, meta: { source: "decide", requiresConfirmation: decision.requiresConfirmation } });
+    const written = await writeExchange(ctx, { clientMessageId: input.clientMessageId, r, subject: input.subject, founderText: p.founderText, chip, reply, entityIds: [], handOffGated: false, planId: decision.plan.id, meta: { source: "decide", requiresConfirmation: decision.requiresConfirmation } });
     return sentAsSeen(ctx, r, { ...written, quickReplies: reply.quick_replies, decision, handOff: null });
   }
 
@@ -647,7 +686,7 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
       ["Here's what would happen.", staged.hardGates > 0 ? "Part of it is yours to do; I've listed exactly what. Nothing runs until you confirm." : "Nothing runs until you confirm it."],
       [quickReply("thanks", "Thanks", "Thanks.", "acknowledge"), quickReply("change_it", "Change it", "I want to change the plan.", "write"), quickReply("not_now", "Not now", "Not now.", "decline")],
     );
-    const written = await writeExchange(ctx, { r, subject: input.subject, founderText: p.founderText, chip, reply, entityIds: [], handOffGated: false, meta: { source: "hand_off", planId: staged.planId } });
+    const written = await writeExchange(ctx, { clientMessageId: input.clientMessageId, r, subject: input.subject, founderText: p.founderText, chip, reply, entityIds: [], handOffGated: false, meta: { source: "hand_off", planId: staged.planId } });
     return sentAsSeen(ctx, r, { ...written, quickReplies: reply.quick_replies, decision: null, handOff: staged });
   }
 
@@ -674,6 +713,7 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
   // Open decision options (ids + labels), quoted vs trusted text: the same checks the conversation evals measure.
   const fin = finaliseAgentReply(result.json, { ...finaliseOptionsFor(requestInput), guard: ctxData.manifest.guard, fallbackQuickReplies: r.starters });
   const written = await writeExchange(ctx, {
+    clientMessageId: input.clientMessageId,
     r,
     subject: input.subject,
     founderText: p.founderText,
@@ -790,9 +830,9 @@ export type InboxReplyResult = ({ route: "conversation" } & SendResult) | { rout
  * decision would be used up with nothing done (audit-conversation P0). The agent's reply offers "Go with: …" chips, so
  * "OK, go ahead" is one press away from a real decision.
  */
-export async function replyToInboxItem(ctx: BusinessContext, input: { itemId: string; text: string }): Promise<InboxReplyResult> {
+export async function replyToInboxItem(ctx: BusinessContext, input: { itemId: string; text: string; clientMessageId?: string }): Promise<InboxReplyResult> {
   if (isConversationalText(input.text)) {
-    const sent = await sendConversationMessage(ctx, { subject: { kind: "inbox_item", id: input.itemId }, text: input.text });
+    const sent = await sendConversationMessage(ctx, { subject: { kind: "inbox_item", id: input.itemId }, text: input.text, ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}) });
     return { route: "conversation", ...sent };
   }
   return { route: "decision", decision: await decideInboxItem(ctx, { itemId: input.itemId, freeText: input.text }) };

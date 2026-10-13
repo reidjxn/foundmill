@@ -29,7 +29,7 @@ export const conversationRouter = router({
 
   /** Inbox free text: a question goes to the conversation (the item stays open), an instruction decides the item. */
   inboxReply: sectionWrite("inbox")
-    .input(z.object({ itemId: Id, text: z.string().trim().min(1).max(2000) }))
+    .input(z.object({ itemId: Id, text: z.string().trim().min(1).max(2000), clientMessageId: z.string().trim().min(8).max(100).optional() }))
     .use(modelLimited("conversation"))
     .mutation(({ ctx, input }) => replyToInboxItem(ctx, input)),
 });

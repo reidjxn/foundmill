@@ -7,7 +7,7 @@
  * every call inside `withRls` as the signed-in member (the Inbox's access model: members write, viewers read).
  */
 import { AGENT_REACTIONS, CONVERSATION_AUTHOR_KINDS, CONVERSATION_SUBJECT_KINDS, QUICK_REPLY_KINDS, ValidationError, type ConversationSubjectKind } from "@foundmill/shared";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agentMessages, agentThreads, type AgentMessage, type AgentThread } from "../schema";
 import { Id, maybeOne, one, parseInput, type Executor } from "./_shared";
@@ -39,6 +39,8 @@ export const AppendMessageInput = z
     reaction: z.enum(AGENT_REACTIONS).default("none"),
     quickReplies: z.array(StoredQuickReplyInput).max(4).default([]),
     chosenQuickReplyId: z.string().regex(/^[a-z0-9_-]{1,24}$/).nullable().optional(),
+    /** The id the founder's client gave this message (founder messages only): a repeat in the same thread is the same message (0036). */
+    clientMessageId: z.string().min(1).max(100).nullable().optional(),
     handOff: z.object({ instruction: z.string().min(1).max(600), gated: z.boolean().optional() }).nullable().optional(),
     refersTo: z.array(z.string().min(1).max(120)).max(5).default([]),
     entityIds: z.array(Id).max(50).default([]),
@@ -47,6 +49,7 @@ export const AppendMessageInput = z
   })
   .superRefine((m, ctx) => {
     if (m.authorKind === "founder" && (m.quickReplies.length > 0 || m.handOff)) ctx.addIssue({ code: "custom", message: "a founder message carries no quick replies and no hand-off", path: ["authorKind"] });
+    if (m.authorKind === "agent" && m.clientMessageId) ctx.addIssue({ code: "custom", message: "only a founder message carries a client message id", path: ["clientMessageId"] });
     if (m.authorKind === "agent" && m.chosenQuickReplyId) ctx.addIssue({ code: "custom", message: "an agent message does not press a quick reply", path: ["chosenQuickReplyId"] });
     if (m.authorKind === "agent" && m.quickReplies.filter((q) => q.recommended).length > 1) ctx.addIssue({ code: "custom", message: "at most one recommended quick reply", path: ["quickReplies"] });
   });
@@ -117,6 +120,25 @@ export const conversationsRepo = {
     return one(await db.select().from(agentMessages).where(and(eq(agentMessages.businessId, businessId), eq(agentMessages.id, messageId))).limit(1), "agent message", messageId);
   },
 
+  /**
+   * The exchange a message with this client id already started in the thread: the founder's message and the agent's reply
+   * that followed it (null while that reply is still being written). Null when the thread has no such message. A repeat
+   * of a send whose answer was lost in transit returns this instead of posting and paying for the question twice.
+   */
+  async findExchange(db: Executor, businessId: string, threadId: string, clientMessageId: string): Promise<{ founder: AgentMessage; reply: AgentMessage | null } | null> {
+    const founder = maybeOne(await db.select().from(agentMessages).where(and(eq(agentMessages.businessId, businessId), eq(agentMessages.threadId, threadId), eq(agentMessages.clientMessageId, clientMessageId))).limit(1));
+    if (!founder) return null;
+    const reply = maybeOne(
+      await db
+        .select()
+        .from(agentMessages)
+        .where(and(eq(agentMessages.businessId, businessId), eq(agentMessages.threadId, threadId), eq(agentMessages.authorKind, "agent"), gt(agentMessages.createdAt, founder.createdAt)))
+        .orderBy(asc(agentMessages.createdAt), asc(agentMessages.id))
+        .limit(1),
+    );
+    return { founder, reply };
+  },
+
   /** The newest agent message of a thread (whose quick replies the founder can press), or null. */
   async latestAgentMessage(db: Executor, businessId: string, threadId: string): Promise<AgentMessage | null> {
     return maybeOne(
@@ -146,6 +168,7 @@ export const conversationsRepo = {
         reaction: m.reaction,
         quickReplies: m.quickReplies,
         chosenQuickReplyId: m.chosenQuickReplyId ?? null,
+        clientMessageId: m.clientMessageId ?? null,
         handOff: m.handOff ?? null,
         refersTo: m.refersTo,
         entityIds: m.entityIds,

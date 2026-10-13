@@ -124,21 +124,31 @@ export async function createApiHarness(options: HarnessOptions): Promise<ApiHarn
 }
 
 /** A fake Temporal client that records starts and signals (and can be told to fail). */
-export function fakeTemporalClient(): TemporalClientLike & { starts: { type: string; workflowId: string; args: unknown[] }[]; signals: { workflowId: string; signal: string; args: unknown[] }[] } {
+export function fakeTemporalClient(options: { rejectDuplicates?: boolean } = {}): TemporalClientLike & { starts: { type: string; workflowId: string; args: unknown[] }[]; signals: { workflowId: string; signal: string; args: unknown[] }[]; statuses: Map<string, string> } {
   const starts: { type: string; workflowId: string; args: unknown[] }[] = [];
   const signals: { workflowId: string; signal: string; args: unknown[] }[] = [];
+  /** Workflow id → Temporal status name; a started workflow is RUNNING until a test sets another. */
+  const statuses = new Map<string, string>();
   return {
     starts,
     signals,
+    statuses,
     workflow: {
-      async start(type, options) {
-        starts.push({ type, workflowId: options.workflowId, args: options.args ?? [] });
-        return { workflowId: options.workflowId };
+      async start(type, startOptions) {
+        if (options.rejectDuplicates && statuses.get(startOptions.workflowId) === "RUNNING") throw Object.assign(new Error("Workflow execution already started"), { name: "WorkflowExecutionAlreadyStartedError" });
+        starts.push({ type, workflowId: startOptions.workflowId, args: startOptions.args ?? [] });
+        statuses.set(startOptions.workflowId, "RUNNING");
+        return { workflowId: startOptions.workflowId };
       },
       getHandle(workflowId) {
         return {
           async signal(signal, ...args) {
             signals.push({ workflowId, signal, args });
+          },
+          async describe() {
+            const name = statuses.get(workflowId);
+            if (!name) throw Object.assign(new Error("workflow not found"), { name: "WorkflowNotFoundError" });
+            return { status: { name } };
           },
         };
       },

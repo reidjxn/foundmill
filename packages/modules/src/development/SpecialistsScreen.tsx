@@ -143,7 +143,7 @@ export function SpecialistsScreen({ businessId, departmentId }: ModuleScreenProp
             <ShoutMenu target="all specialists" labelled disabled={running === 0} onShout={(shout) => void action.run("dev.tasks.shout", shoutInput(shout), { key: "shout:all" })} />
           </div>
         }
-        footer={action.error ? <InlineError error={action.error} /> : <span>Quotes are extracted through the quarantined reader; prices and landed costs are estimates until a supplier confirms them.</span>}
+        footer={action.error ? <InlineError error={action.error} /> : action.notice ? <span role="status">{action.notice}</span> : <span>Quotes are extracted through the quarantined reader; prices and landed costs are estimates until a supplier confirms them.</span>}
       >
         {tiles.length ? (
           <div className="flex min-h-0 flex-col" style={quiet.length ? { height: GRID_WITH_LIST_PX } : { height: GRID_HEIGHT, minHeight: 480 }}>

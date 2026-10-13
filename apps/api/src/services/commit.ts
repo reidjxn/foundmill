@@ -23,6 +23,7 @@ import { assertBusinessAllowance, creditsUsedUp, includedCreditsFor, periodOf, r
 import { writeEventRow } from "./events";
 import { CHANNEL_KEYS, CHANNEL_META, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, MODULE_TABS, ValidationError, slugify, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
 import { PRESET_LAYOUTS } from "../presets";
+import { QUEUE_ACTION } from "./cycle";
 import { checkLogoChoice, type LogoChoice } from "./logo";
 import { hireMany, type PlannedHire } from "./squad";
 import type { TemporalService } from "./temporal";
@@ -336,6 +337,8 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   if (!result) return committedIdeaResult(db, userId, input.ideaId);
 
   const cycle = await temporal.start(WORKFLOWS.businessCycle, { workflowId: workflowIds.cycle(result.business.id, 1), args: [{ businessId: result.business.id, cycleNumber: 1, trigger: "continue" }] });
+  // The first cycle exists from here on, even while the orchestrator has not picked it up: Continue shows it and Pause reaches it.
+  if (cycle.queued && !cycle.alreadyStarted) await repos.audit.append(db, result.business.id, { actorKind: "user", actorId: userId, action: QUEUE_ACTION, target: { kind: "cycle", id: cycle.workflowId }, details: { cycleNumber: 1, workflowId: cycle.workflowId, trigger: "continue" } });
   // Door B: the sign-up job read nothing; this is the import that reads the sources (or marks them not read).
   const imported = result.foundations.importSourceIds.length ? await queueImportReads({ db, temporal }, result.business.id, result.foundations.importSourceIds) : null;
   // The starters are on the board, so their engines run from now on (each records its id on the channel).

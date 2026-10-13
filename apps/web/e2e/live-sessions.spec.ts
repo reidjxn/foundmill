@@ -39,4 +39,22 @@ test.describe("live sessions", () => {
     const stripBox = (await strip.boundingBox())!;
     expect(tileBox.y + tileBox.height, "the focused tile's bottom edge sits above the replay strip").toBeLessThanOrEqual(stripBox.y + 1);
   });
+
+  test("a nudge that reached no session says so instead of showing the agent's answer (audit OL-04, TPD-16)", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openBusiness(page);
+    const dev = page.locator("[data-testid=app-shell] nav a[href*='/d/']").filter({ hasText: /development/i }).first();
+    await expect(dev).toBeVisible({ timeout: LONG });
+    const href = (await dev.getAttribute("href"))!;
+    await page.goto(href.replace(/\/d\/([^/]+)\/.*$/, "/d/$1/training-ground"));
+    await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/training-ground", { timeout: LONG });
+    // The seeded sessions have no workflow behind them, so no nudge can arrive.
+    const tiles = page.locator("[data-tile-id]");
+    await expect(tiles.first()).toBeVisible({ timeout: LONG });
+    await tiles.first().click({ position: { x: 160, y: 120 } });
+    await page.getByTestId("nudge-menu").first().click();
+    await page.getByRole("menuitem").first().click();
+    await expect(page.getByRole("alert").filter({ hasText: "Not delivered" })).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("nudge-ack")).toHaveCount(0);
+  });
 });

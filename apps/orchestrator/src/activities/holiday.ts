@@ -12,10 +12,11 @@
  * waiting for the founder with the reason. A stopped team decides nothing.
  */
 import { LIMITS } from "@foundmill/config";
-import { repos, type Agent, type Business, type InboxItem } from "@foundmill/db";
+import { repos, type Agent, type Business, type Executor, type InboxItem } from "@foundmill/db";
 import { PRICING_CURRENCY, compileOptionPlan, type PlanAction } from "@foundmill/models";
 import { DECISION_TYPES, formatMoney, planSectionWalls, type DecisionType, type EventType, type SectionMembership } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
+import { MAX_HOLIDAY_CYCLES } from "../holiday-contract";
 import { emitEvent, systemActor } from "../events";
 import { ACTION_TOOLS, amountOf, evaluateAction, type PolicyVerdict } from "./plan";
 import type { HolidayCheck, HolidayDecisions, HolidayEnd, HolidayInput, LoadedHoliday } from "./types";
@@ -132,6 +133,67 @@ export function waitingReason(item: Pick<InboxItem, "state" | "subject" | "bodyM
   return stopped ? "the agents were stopped before I could take it" : "it came in after my last pass";
 }
 
+/*
+ * W01's simple helper (decides inside the given authority without compiling a plan) that Automated mode's activity
+ * (./autopilot) calls; the vacation itself takes the plan path above.
+ */
+export interface AutoDecideOptions {
+  chiefOfStaffId: string | null;
+  /** Decision types the Chief of Staff may take (signing never is). */
+  authority: readonly string[];
+  auditAction: "holiday.decide" | "autopilot.decide";
+  /** Words for the audit reason: "vacation" or "Automated mode". */
+  scope: string;
+  /** Business spend cap per action (minor units): an option that costs more waits for the founder. */
+  spendCapMinor?: number | null;
+}
+
+/**
+ * The Chief of Staff answers the Inbox items that block Continue with the recommended option, inside the authority it was
+ * given: the vacation's, or Automated mode's (BUILD §9.6). Signing and anything outside the authority (or above the spend
+ * cap) stays queued for the founder.
+ */
+export async function autoDecideBlocking(deps: OrchestratorDeps, businessId: string, options: AutoDecideOptions): Promise<HolidayDecisions> {
+  const { db } = deps;
+  const chiefId = options.chiefOfStaffId;
+  const authority = new Set(options.authority);
+  const items = await repos.inbox.list(db, businessId, { tab: "respond", limit: 100 });
+  let decided = 0;
+  let queuedGated = 0;
+  const inboxItemIds: string[] = [];
+  for (const item of items.items) {
+    const decision = item.decision as { options?: { id: string; recommended?: boolean; reversible?: boolean; cost_minor?: number }[] } | null;
+    const choices = decision?.options ?? [];
+    const recommended = choices.find((o) => o.recommended) ?? choices[0];
+    if (!recommended || !chiefId) {
+      if (item.blocksContinue) queuedGated += 1;
+      continue;
+    }
+    const kind = classifyDecision(item);
+    const safeUnknown = kind === null && recommended.reversible === true && (recommended.cost_minor ?? 0) === 0;
+    const withinCap = options.spendCapMinor == null || (recommended.cost_minor ?? 0) <= options.spendCapMinor;
+    const allowed = withinCap && (kind === null ? safeUnknown : !GATED.has(kind) && authority.has(kind));
+    if (!allowed) {
+      queuedGated += 1;
+      continue;
+    }
+    if (item.type === "customer_won") {
+      await repos.inbox.markRead(db, businessId, item.id);
+    }
+    const { decision: made } = await repos.inbox.decide(db, businessId, item.id, { chosenOption: recommended.id, decidedByKind: "chief_of_staff", decidedBy: chiefId });
+    await emitEvent(db, {
+      businessId,
+      type: "decision.made",
+      actor: { kind: "agent", id: chiefId },
+      payload: { decisionId: made.id, inboxItemId: item.id, chosenOption: recommended.id, freeText: null, decidedBy: "chief_of_staff", planId: null, planActionCount: 0, hardGateActions: 0 },
+    });
+    await repos.audit.append(db, businessId, { actorKind: "agent", actorId: chiefId, action: options.auditAction, target: { kind: "inbox_item", id: item.id }, details: { option: recommended.id, kind, reason: `within ${options.scope} authority (${kind ?? "safe reversible default"})` } });
+    decided += 1;
+    inboxItemIds.push(item.id);
+  }
+  return { decided, queuedGated, inboxItemIds, planIds: [], waiting: [] };
+}
+
 /** The plan's workflow id, as apps/api's `workflowIds.plan` and Stop all agents know it. */
 export const planWorkflowId = (planId: string): string => `plan:${planId}`;
 
@@ -205,8 +267,7 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
     },
 
     async nextCycleNumber(input: { businessId: string }): Promise<{ cycleNumber: number }> {
-      const counts = await repos.events.countByType(deps.db, input.businessId);
-      return { cycleNumber: (counts["cycle.started"] ?? 0) + 1 };
+      return { cycleNumber: await nextCycleNumberOf(deps.db, input.businessId) };
     },
 
     /** Should the holiday end? Checked after every cycle and on every wake-up. */
@@ -217,11 +278,12 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
       const row = await repos.holidays.get(db, input.businessId, h.holidayId);
       const spentMinor = await spentSince(input.businessId, new Date(h.startedAt));
       const base = { spentMinor, now: now.toISOString(), wakeEventType: null, wakeEventId: null };
+      // The date first: a vacation closed at its date (a new one started after it) ended because the date arrived.
+      if (h.untilAt && new Date(h.untilAt).getTime() <= now.getTime()) return { ...base, shouldEnd: true, reason: "until_reached" };
       if (row.endedAt) return { ...base, shouldEnd: true, reason: "founder_returned" };
       // A stopped team ends the vacation: no cycle may start until an owner or admin resumes the agents.
       const stop = await repos.businesses.stopState(db, input.businessId);
       if (stop.stopped) return { ...base, shouldEnd: true, reason: stop.reason === "credits_exhausted" ? "budget_exhausted" : "kill_switch" };
-      if (h.untilAt && new Date(h.untilAt).getTime() <= now.getTime()) return { ...base, shouldEnd: true, reason: "until_reached" };
       if (h.budgetCeilingMinor !== null && spentMinor >= h.budgetCeilingMinor) return { ...base, shouldEnd: true, reason: "budget_exhausted" };
       if (h.wakeEvents.length > 0) {
         const types = h.wakeEvents.filter((t): t is EventType => typeof t === "string");
@@ -297,11 +359,18 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
       return { decided, queuedGated, inboxItemIds, planIds: await plansToRun(businessId, input.holiday), waiting };
     },
 
-    /** End the holiday: "While you were away" report, holiday row, `holiday.ended`. */
+    /**
+     * End the holiday: "While you were away" report, holiday row, `holiday.ended`. Idempotent, so a retry or an end the
+     * api already wrote ("Come back" ends the row at once) never duplicates anything (audit O-15, DB-15, RA-22): the
+     * report is written once, in the same transaction that ends the row and links it; a row that already has a report
+     * keeps it; `holiday.ended` is written once per vacation (keyed by its id).
+     */
     async endHoliday(input: { businessId: string; holiday: LoadedHoliday; reason: NonNullable<HolidayCheck["reason"]>; wakeEventType: string | null; cyclesRun: number }): Promise<HolidayEnd> {
       const { db, clock } = deps;
       const since = new Date(input.holiday.startedAt);
-      const now = clock.now();
+      const row = await repos.holidays.get(db, input.businessId, input.holiday.holidayId);
+      // The founder's "Come back" (or a start after the date passed) may have ended the row already: that is the end.
+      const now = row.endedAt ? new Date(row.endedAt) : clock.now();
       const [decisions, conversions, payments, pendingApprovals, usage, chief, open, ctx, stopped] = await Promise.all([
         repos.events.list(db, input.businessId, { type: "decision.made", from: since, limit: 200 }),
         repos.events.list(db, input.businessId, { type: "customer.converted", from: since, limit: 200 }),
@@ -326,10 +395,13 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
       const currency = input.holiday.currency;
       const fmt = (minor: number, inCurrency = currency) => formatMoney({ amountMinor: Math.round(minor), currency: inCurrency });
       const gatedItemsQueued = pendingApprovals + founderTasks.length + decisionsWaiting;
-      const days = Math.max(1, Math.round((now.getTime() - since.getTime()) / 86_400_000));
       const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+      const awayMs = now.getTime() - since.getTime();
+      const days = Math.round(awayMs / 86_400_000);
+      const awayFor = days < 1 ? "less than a day" : `${days} day${days === 1 ? "" : "s"}`;
+
       const lines = [
-        `You were away ${days} day${days === 1 ? "" : "s"}; the team ran ${input.cyclesRun} cycle${input.cyclesRun === 1 ? "" : "s"} and the vacation ended because ${describeReason(input.reason, input.wakeEventType)}.`,
+        `You were away ${awayFor}; the team ran ${input.cyclesRun} cycle${input.cyclesRun === 1 ? "" : "s"} and the vacation ended because ${describeReason(input.reason, input.wakeEventType)}.`,
         ``,
         `**Decisions I took (${chiefDecisions.length})** — each one inside the authority you set, run as a plan like your own decisions; open any item to see the plan and how far it got.`,
         ...taken,
@@ -341,29 +413,33 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
         `**Waiting for you (${gatedItemsQueued})** — ${plural(decisionsWaiting, "decision")} to take or confirm, ${plural(pendingApprovals, "approval")} and ${plural(founderTasks.length, "hard-gated action")} only you can take.`,
         ...waiting.slice(0, 10).map((w) => `- "${w.item.subject}": ${w.reason}.`),
       ];
-      let reportInboxItemId: string | null = null;
-      if (chief) {
-        const item = await repos.inbox.createItem(db, input.businessId, {
-          type: "report",
-          from_agent_id: chief.id,
-          subject: "While you were away",
-          body_md: lines.join("\n"),
-          status_strip: [{ metric: "customers_week", source: "journeys.countConversions" }, { metric: "cash", source: "finance.cashPosition" }],
-          exhibit: { kind: "none", spec_ref: null },
-          decision: null,
-          blocks_continue: false,
-          source_event_ids: [],
-          entity_ids: [],
+      let reportInboxItemId: string | null = row.reportInboxItemId;
+      if (!reportInboxItemId && chief) {
+        reportInboxItemId = await db.transaction(async (tx) => {
+          const item = await repos.inbox.createItem(tx, input.businessId, {
+            type: "report",
+            from_agent_id: chief.id,
+            subject: "While you were away",
+            body_md: lines.join("\n"),
+            status_strip: [{ metric: "customers_week", source: "journeys.countConversions" }, { metric: "cash", source: "finance.cashPosition" }],
+            exhibit: { kind: "none", spec_ref: null },
+            decision: null,
+            blocks_continue: false,
+            source_event_ids: [],
+            entity_ids: [],
+          });
+          await repos.holidays.end(tx, input.businessId, input.holiday.holidayId, { reportInboxItemId: item.id, endedAt: now });
+          return item.id;
         });
-        reportInboxItemId = item.id;
+      } else {
+        await repos.holidays.end(db, input.businessId, input.holiday.holidayId, { endedAt: now });
       }
-      await repos.holidays.end(db, input.businessId, input.holiday.holidayId, { reportInboxItemId, endedAt: now });
       const ev = await emitEvent(db, {
         businessId: input.businessId,
         type: "holiday.ended",
         actor: systemActor,
         payload: { holidayId: input.holiday.holidayId, startedAt: since.toISOString(), endedAt: now.toISOString(), reason: input.reason, wakeEventType: (input.wakeEventType as EventType | null) ?? null, cyclesRun: input.cyclesRun, decisionsMade: chiefDecisions.length, customersWon: conversions.items.length, spent: { amountMinor: Math.round(usage.costMinor), currency: PRICING_CURRENCY }, gatedItemsQueued, reportInboxItemId },
-      });
+      }, { idempotencyKey: holidayEndedKey(input.holiday.holidayId) });
       return { reportInboxItemId, eventId: ev.id, cyclesRun: input.cyclesRun, decisionsMade: chiefDecisions.length, customersWon: conversions.items.length, spentMinor: usage.costMinor, gatedItemsQueued };
     },
   };
@@ -383,7 +459,22 @@ function describeReason(reason: NonNullable<HolidayCheck["reason"]>, wake: strin
       return "the budget ceiling was reached";
     case "kill_switch":
       return "the kill switch was pressed";
+    case "cycle_cap":
+      return `it reached its safety limit of ${MAX_HOLIDAY_CYCLES} cycles without you coming back`;
   }
 }
 
+/** One `holiday.ended` per vacation, whoever writes it (this activity, or the api when no workflow runs). */
+export const holidayEndedKey = (holidayId: string) => `holiday.ended:${holidayId}`;
+
 export type HolidayActivities = ReturnType<typeof createHolidayActivities>;
+
+/**
+ * The number the next cycle takes: one past every cycle seen so far (started, completed, or queued by the api and not yet
+ * started), the rule `cycleStatus` in apps/api uses, so a cycle the vacation starts never collides with the founder's press.
+ */
+export async function nextCycleNumberOf(db: Executor, businessId: string): Promise<number> {
+  const [events, queued] = await Promise.all([repos.events.list(db, businessId, { type: ["cycle.started", "cycle.completed"], limit: 500 }), repos.audit.list(db, businessId, { action: ["business.continue", "cycle.queue"], limit: 8 })]);
+  const numbers = [...events.items.map((e) => (e.payload as { cycleNumber?: unknown }).cycleNumber), ...queued.items.map((q) => (q.details as { cycleNumber?: unknown }).cycleNumber)];
+  return numbers.reduce<number>((max, n) => (typeof n === "number" && Number.isFinite(n) ? Math.max(max, n) : max), 0) + 1;
+}

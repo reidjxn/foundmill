@@ -105,6 +105,22 @@ for (const width of [1280, 1440]) {
       await page.getByRole("button", { name: "Close" }).click();
       await expect(page.getByRole("grid", { name: "Responsibilities" }).getByRole("columnheader", { name: /covers/i })).toHaveCount(1);
 
+      // Playbooks (audit AC-07): a sentence becomes a flow the founder sees, saves off, turns on and removes again.
+      const before = await page.getByTestId("playbook-row").count();
+      await page.getByTestId("playbook-text").fill("When a lead replies positively, draft a reply and book a call; I approve the first message.");
+      await page.getByTestId("playbook-preview").click();
+      const flow = page.getByTestId("playbook-draft");
+      await expect(flow.getByTestId("playbook-when")).toContainText(/lead replies/i, { timeout: LONG });
+      await expect(flow.getByTestId("playbook-step").first()).toBeVisible();
+      await page.getByTestId("playbook-save").click();
+      await expect(page.getByTestId("playbook-row")).toHaveCount(before + 1, { timeout: LONG });
+      const saved = page.getByTestId("playbook-row").last();
+      await expect(saved.getByRole("button", { name: "Turn on" })).toBeVisible({ timeout: LONG });
+      await saved.getByRole("button", { name: "Turn on" }).click();
+      await expect(saved.getByRole("button", { name: "Turn off" })).toBeVisible({ timeout: LONG });
+      await saved.getByRole("button", { name: /^Remove/ }).click();
+      await expect(page.getByTestId("playbook-row")).toHaveCount(before, { timeout: LONG });
+
       await openTab(page, team, "recruitment", "team/recruitment");
       const draft = page.getByTestId("draft-agent");
       await expect(draft).toBeVisible({ timeout: LONG });

@@ -12,6 +12,7 @@ export const WORKFLOWS = {
   agentSession: "agentSession",
   channelEngine: "channelEngine",
   holiday: "holiday",
+  autopilot: "autopilot",
   planExecution: "planExecution",
   trainingRun: "trainingRun",
   incorporation: "incorporation",
@@ -38,6 +39,8 @@ export const workflowIds = {
   session: (sessionId: string) => `session:${sessionId}`,
   engine: (channelId: string) => `engine:${channelId}`,
   holiday: (holidayId: string) => `holiday:${holidayId}`,
+  /** One per business in Automated mode. */
+  autopilot: (businessId: string) => `autopilot:${businessId}`,
   plan: (planId: string) => `plan:${planId}`,
   training: (runId: string) => `training:${runId}`,
   incorporation: (incorporationId: string) => `incorporation:${incorporationId}`,
@@ -54,6 +57,22 @@ export interface TemporalResult {
   queued: boolean;
   workflowId: string;
   reason?: string;
+  /**
+   * `start` only: a workflow with this id was already running, so nothing new started (`queued` stays true: the work is
+   * in the orchestrator's hands). Callers that report "started" check this first.
+   */
+  alreadyStarted?: boolean;
+}
+
+/** What Temporal knows about one workflow (`describe`). `reachable: false` means nothing is known. */
+export interface WorkflowState {
+  reachable: boolean;
+  /** Temporal has an execution with this id. */
+  found: boolean;
+  /** The execution is still open. */
+  running: boolean;
+  /** Temporal's status name (RUNNING, COMPLETED, FAILED, TERMINATED, ...), when found. */
+  status: string | null;
 }
 
 export interface SignalManyResult {
@@ -67,7 +86,7 @@ export interface SignalManyResult {
 export interface TemporalClientLike {
   workflow: {
     start(workflowType: string, options: { workflowId: string; taskQueue: string; args?: unknown[] }): Promise<unknown>;
-    getHandle(workflowId: string): { signal(signalName: string, ...args: unknown[]): Promise<void> };
+    getHandle(workflowId: string): { signal(signalName: string, ...args: unknown[]): Promise<void>; describe?(): Promise<{ status: { name: string } }> };
   };
   connection?: { close(): Promise<void> };
 }
@@ -76,6 +95,8 @@ export interface TemporalService {
   reachable(): Promise<boolean>;
   start(workflowType: string, options: { workflowId: string; args?: unknown[] }): Promise<TemporalResult>;
   signal(workflowId: string, signal: SignalName, ...args: unknown[]): Promise<TemporalResult>;
+  /** The state of one workflow, or `reachable: false` when Temporal cannot be asked (never throws). */
+  describe(workflowId: string): Promise<WorkflowState>;
   /** Signal many workflows within a time budget (kill switch). */
   signalMany(workflowIds: readonly string[], signal: SignalName, args?: unknown[], budgetMs?: number): Promise<SignalManyResult>;
   close(): Promise<void>;
@@ -153,7 +174,7 @@ export function createTemporalService(opts: CreateTemporalServiceOptions): Tempo
         return { queued: true, workflowId: options.workflowId };
       } catch (err) {
         if ((err as { name?: string }).name === "WorkflowExecutionAlreadyStartedError") {
-          return { queued: true, workflowId: options.workflowId, reason: "already running" };
+          return { queued: true, workflowId: options.workflowId, reason: "already running", alreadyStarted: true };
         }
         opts.log.warn({ workflowType, workflowId: options.workflowId, err: describe(err) }, "workflow start failed");
         return { queued: false, workflowId: options.workflowId, reason: describe(err) };
@@ -167,6 +188,19 @@ export function createTemporalService(opts: CreateTemporalServiceOptions): Tempo
         return { queued: true, workflowId };
       } catch (err) {
         return { queued: false, workflowId, reason: describe(err) };
+      }
+    },
+    async describe(workflowId) {
+      const c = await getClient();
+      if (!c) return { reachable: false, found: false, running: false, status: null };
+      try {
+        const handle = c.workflow.getHandle(workflowId);
+        if (!handle.describe) return { reachable: false, found: false, running: false, status: null };
+        const d = await withTimeout(handle.describe(), connectTimeoutMs + 500, "describe timeout");
+        return { reachable: true, found: true, running: d.status.name === "RUNNING", status: d.status.name };
+      } catch (err) {
+        if ((err as { name?: string }).name === "WorkflowNotFoundError") return { reachable: true, found: false, running: false, status: null };
+        return { reachable: false, found: false, running: false, status: null };
       }
     },
     async signalMany(ids, signal, args = [], budgetMs = 10_000) {

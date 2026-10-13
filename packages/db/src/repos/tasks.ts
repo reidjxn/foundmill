@@ -1,6 +1,6 @@
 /** tasks + task_edges — the Development Plan graph (BUILD §11.6; routers dev.tasks.*). */
-import { TASK_KINDS, TASK_PHASES, TASK_STATUSES, ValidationError, type TaskStatus } from "@foundmill/shared";
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { PLANNABLE_TASK_STATUSES, TASK_KINDS, TASK_PHASES, TASK_STATUSES, ValidationError, type TaskStatus } from "@foundmill/shared";
+import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { taskEdges, tasks, type Task, type TaskEdge } from "../schema";
 import { Currency, defined, Id, JsonArray, MinorAmount, numericText, one, PageInput, parseInput, rowsOf, timeKeyset, toPage, type Executor, type Page, patchSchema } from "./_shared";
@@ -54,6 +54,18 @@ export const TASK_TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
 };
 
 const scoped = (businessId: string, taskId: string) => and(eq(tasks.businessId, businessId), eq(tasks.id, taskId));
+
+/** Statuses a cycle may start a task from (the orchestrator's DISPATCHABLE; apps/orchestrator retry.ts bounds the retries). */
+export const PLANNABLE_STATUSES = PLANNABLE_TASK_STATUSES;
+
+/** A planning candidate: the task, its dependencies and why it may not start now. */
+export interface PlanningCandidate extends Task {
+  dependsOn: string[];
+  /** An unfinished dependency (anywhere in the business, however old) blocks it. */
+  blocked: boolean;
+  /** A session of this task holds a gated call nobody has decided yet. */
+  awaitingApproval: boolean;
+}
 
 export const tasksRepo = {
   async list(db: Executor, businessId: string, filter: TaskListFilter = {}): Promise<Page<Task>> {
@@ -257,6 +269,53 @@ export const tasksRepo = {
       )
       .orderBy(asc(tasks.priority), asc(tasks.createdAt))
       .limit(limit);
+  },
+
+  /**
+   * What a cycle may plan from (audit SOAK-04): every task in a dispatchable status, not one recency page of the open
+   * ones, most important first and then oldest first, so the first tasks of a business never fall out of view.
+   * `blocked` is computed against every unfinished dependency (an old blocker still blocks), `awaitingApproval` says a
+   * session of the task holds a gated call nobody has answered yet (running it again would only wait on it again).
+   */
+  async planningCandidates(db: Executor, businessId: string, options: { statuses?: readonly TaskStatus[]; limit?: number } = {}): Promise<{ items: PlanningCandidate[]; total: number }> {
+    const statuses = [...(options.statuses ?? PLANNABLE_STATUSES)];
+    const limit = Math.min(Math.max(Math.trunc(options.limit ?? 500), 1), 2000);
+    const where = and(eq(tasks.businessId, businessId), isNull(tasks.archivedAt), inArray(tasks.status, statuses));
+    const [rows, [count]] = await Promise.all([
+      db
+        .select({
+          task: tasks,
+          dependsOn: sql<string[]>`coalesce((select array_agg(e.from_task::text) from task_edges e where e.business_id = tasks.business_id and e.to_task = tasks.id), '{}'::text[])`,
+          blocked: sql<boolean>`exists (select 1 from task_edges e join tasks d on d.id = e.from_task where e.business_id = tasks.business_id and e.to_task = tasks.id and d.status <> 'done' and d.archived_at is null)`,
+          awaitingApproval: sql<boolean>`exists (select 1 from approvals a join agent_sessions s on s.id = a.session_id where a.business_id = tasks.business_id and s.task_id = tasks.id and a.resolved_at is null)`,
+        })
+        .from(tasks)
+        .where(where)
+        .orderBy(desc(tasks.priority), asc(tasks.createdAt), asc(tasks.id))
+        .limit(limit),
+      db.select({ n: sql<number>`count(*)::int` }).from(tasks).where(where),
+    ]);
+    return { items: rows.map((r) => ({ ...r.task, dependsOn: [...(r.dependsOn ?? [])], blocked: Boolean(r.blocked), awaitingApproval: Boolean(r.awaitingApproval) })), total: Number(count?.n ?? rows.length) };
+  },
+
+  /** The task a plan action created (a retried action finds it instead of creating another). */
+  async byPlanAction(db: Executor, businessId: string, planActionId: string): Promise<Task | null> {
+    const rows = await db.select().from(tasks).where(and(eq(tasks.businessId, businessId), eq(tasks.planActionId, planActionId))).limit(1);
+    return rows[0] ?? null;
+  },
+
+  /**
+   * An unfinished task that already carries this exact work (same title and goal): an option clicked again, or chosen
+   * again on the next "Set the focus" decision, reuses it instead of piling up identical tasks (audit SOAK-04).
+   */
+  async openDuplicate(db: Executor, businessId: string, input: { title: string; goalMd: string }): Promise<Task | null> {
+    const rows = await db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.businessId, businessId), isNull(tasks.archivedAt), eq(tasks.title, input.title), eq(tasks.goalMd, input.goalMd), notInArray(tasks.status, ["done", "stopped"])))
+      .orderBy(asc(tasks.createdAt))
+      .limit(1);
+    return rows[0] ?? null;
   },
 
   async countByStatus(db: Executor, businessId: string): Promise<Record<TaskStatus, number>> {

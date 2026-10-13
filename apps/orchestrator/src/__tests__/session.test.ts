@@ -142,6 +142,23 @@ describe("runAgentSession (mock replay)", () => {
     }
   });
 
+  it("a hold the replay resolves by itself leaves no approvals row pending, and the session does not end as waiting on it (audit #241)", async () => {
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = { ...(await acts.prepareSession(input)), recordingKey: "ledgerly-annual-plan-discount" };
+    const result = await acts.runAgentSession(input, launch);
+    // The recording ends blocked on a hard gate afterwards (Stripe's terms), never on the approval that was granted.
+    expect(result.outcome).toBe("blocked");
+    expect(result.blockedReason).toBe("dependency");
+    expect(result.approvalId).toBeNull();
+    const mine = (await repos.approvals.pending(t.db, t.businessId)).filter((a) => a.sessionId === sessionId);
+    expect(mine).toEqual([]);
+    const rows = (await repos.approvals.list(t.db, t.businessId, { limit: 50 })).items.filter((a) => a.sessionId === sessionId);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((a) => a.resolvedAt !== null && a.outcome === "approved")).toBe(true);
+    await acts.finishSession(input, launch, result);
+  });
+
   it("pause holds the replay and resume continues it; a Nudge appears in the log (AC-11.6.4)", async () => {
     const clock = new FakeClock("2026-10-05T08:00:00.000Z");
     const provider = new MockSandboxProvider({ speed: 1, autoplay: false, holds: { autoResolveAfterMs: 1 }, recordings: RECORDINGS, sleep: (ms, signal) => clock.sleep(ms, signal).catch(() => undefined), now: () => clock.now() });

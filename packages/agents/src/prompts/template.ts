@@ -2,9 +2,9 @@
  * Versioned prompt templates with typed variables (BUILD §12 "Store each as a versioned template with variables").
  *
  * A template is immutable data: `key`, `version`, `route`, a Zod object describing its variables and a `text` with
- * `{variable}` placeholders. `render()` validates the variables, substitutes every placeholder and refuses to return
- * text that still contains an unresolved placeholder, so a typo in a template or a missing variable fails loudly
- * instead of reaching a model.
+ * `{variable}` placeholders. `definePrompt()` refuses a text whose placeholders and declared variables differ, and
+ * `render()` validates the variables, refuses a placeholder left without a value and substitutes every placeholder, so a
+ * typo in a template or a missing variable fails loudly instead of reaching a model. Values are inserted verbatim.
  */
 import { z } from "zod";
 import { type RouteKey } from "../types";
@@ -94,16 +94,18 @@ export function definePrompt<TShape extends z.ZodRawShape>(init: PromptTemplateI
       throw new PromptRenderError(`Invalid variables for prompt "${init.key}" v${init.version}: ${issues.join("; ")}`, init.key, issues);
     }
     const values = parsed.data as Record<string, unknown>;
-    // Protect escaped braces, substitute, then restore them as single braces.
-    const ESC_OPEN = "\u0000OPEN\u0000";
-    const ESC_CLOSE = "\u0000CLOSE\u0000";
-    let out = init.text.replace(/\{\{/g, ESC_OPEN).replace(/\}\}/g, ESC_CLOSE);
-    out = out.replace(PLACEHOLDER_RE, (_m, name: string) => formatVariable(values[name]));
-    const leftover = extractPlaceholders(out.replace(new RegExp(ESC_OPEN, "g"), "{{").replace(new RegExp(ESC_CLOSE, "g"), "}}"));
-    if (leftover.length > 0) {
-      throw new PromptRenderError(`Prompt "${init.key}" v${init.version} left unresolved placeholders: ${leftover.join(", ")}`, init.key, leftover);
+    // Missing values are checked against the template's own placeholders, never by scanning the substituted text: a value
+    // is inserted verbatim, so a business named "Acme {Labs}" renders as written instead of failing every call (audit CML-06).
+    const missing = placeholders.filter((name) => values[name] === undefined);
+    if (missing.length > 0) {
+      throw new PromptRenderError(`Prompt "${init.key}" v${init.version} is missing variables: ${missing.join(", ")}`, init.key, missing);
     }
-    return out.replace(new RegExp(ESC_OPEN, "g"), "{").replace(new RegExp(ESC_CLOSE, "g"), "}");
+    // Split on escaped braces exactly as `extractPlaceholders` reads them, substitute the placeholders of each piece and
+    // join the pieces with single braces. Inserted values are never matched again.
+    return init.text
+      .split(/(\{\{|\}\})/)
+      .map((piece) => (piece === "{{" ? "{" : piece === "}}" ? "}" : piece.replace(PLACEHOLDER_RE, (_m, name: string) => formatVariable(values[name]))))
+      .join("");
   };
 
   return Object.freeze({

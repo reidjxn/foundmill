@@ -8,16 +8,26 @@ import { buildSystemPrompt, getPrompt, getTemplate, getTemplateByAgentType, mode
 import { APP_NAME } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { CyclePlanOutput } from "@foundmill/models";
-import { uuid, type TaskKind } from "@foundmill/shared";
+import { PLANNABLE_TASK_STATUSES, uuid, type TaskKind } from "@foundmill/shared";
 import { ComposerRequestError, ComposerUnavailableError } from "../composer-client";
 import { CYCLE_PLAN_FAILURE, type PlanFailureDetails } from "../cycle-contract";
 import type { OrchestratorDeps } from "../deps";
 import { requestJourneyDailyRefresh } from "../journey-refresh";
 import { agentActor, emitEvent, systemActor } from "../events";
+import { foldDuplicates } from "./brief";
 import { openAgentSession, type DispatchRefusal } from "./dispatch";
 import type { BriefAgent, BriefTask, BusinessBrief, CyclePlan, CycleStart, CycleTrigger } from "./types";
 
-const DISPATCHABLE = new Set(["planned", "ready", "paused", "blocked", "failed"]);
+const DISPATCHABLE = new Set<string>(PLANNABLE_TASK_STATUSES);
+
+/** Subject of the note a cycle posts when nothing could start. */
+export const IDLE_CYCLE_SUBJECT = "Nothing is ready to start";
+
+/** Idempotency key of a cycle's `cycle.started` / `cycle.completed`: one of each per cycle id, however often an activity retries. */
+export const cycleEventKey = (kind: "started" | "completed", cycleId: string): string => `cycle.${kind}:${cycleId}`;
+
+/** Tasks the planner is shown: the most important and oldest; identical tasks fold into one and the rest are summarized. */
+export const PLAN_PAYLOAD_TASKS = 60;
 
 /**
  * A model failure in planning as the activity's failure: a billing refusal, a refused or missing key and any other
@@ -40,12 +50,39 @@ export function agentUsable(a: BriefAgent): boolean {
   return a.wageRemainingMinor === undefined || a.wageRemainingMinor === null || a.wageRemainingMinor > 0;
 }
 
-/** Why a dispatchable-looking task is left out before planning (a failed task waiting for its retry), or null. */
+/**
+ * Why a dispatchable-looking task is left out before planning, or null: a failed or blocked task waiting for its retry
+ * (doubling waits, then the founder's Start; audit BF-14), or a task whose session holds an undecided approval.
+ */
 export function retryDeferral(task: BriefTask): string | null {
-  if (task.status !== "failed" || !task.retry || task.retry.due) return null;
-  if (task.retry.exhausted) return `failed ${task.retry.failures} times in a row; start it from the Plan once the cause is fixed`;
+  if (task.awaitingApproval) return "waiting for your approval in the Inbox";
+  if ((task.status !== "failed" && task.status !== "blocked") || !task.retry || task.retry.due) return null;
+  const what = task.status === "failed" ? "failed" : "blocked";
+  if (task.retry.exhausted) return `${what} ${task.retry.failures} times in a row; start it from the Plan once the cause is fixed`;
   const next = task.retry.nextAttemptAt ? new Date(task.retry.nextAttemptAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" }) : null;
-  return `retrying after ${task.retry.failures} failed session${task.retry.failures === 1 ? "" : "s"}${next ? `; next try after ${next} UTC` : ""}`;
+  return `retrying after ${task.retry.failures} ${what} session${task.retry.failures === 1 ? "" : "s"}${next ? `; next try after ${next} UTC` : ""}`;
+}
+
+/**
+ * The Chief of Staff's answer when nothing can start (audit OL-10): no model is called, so no empty cycle is paid for, and
+ * the note says what is actually in the way instead of "everything is blocked". Roadmap items without tasks point to
+ * Development › Plan, where a task graph turns them into work.
+ */
+export function idleSummary(brief: BusinessBrief, waiting: readonly BriefTask[]): string {
+  const roadmap = brief.untaskedRoadmap ?? [];
+  const byDeps = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && t.blocked).length;
+  const approvals = waiting.filter((t) => t.awaitingApproval).length;
+  const retrying = waiting.length - approvals;
+  const parts: string[] = [];
+  if (roadmap.length > 0) {
+    const names = roadmap.slice(0, 3).map((r) => r.title);
+    parts.push(`${roadmap.length} roadmap item${roadmap.length === 1 ? " has" : "s have"} no tasks yet (${names.join(", ")}${roadmap.length > names.length ? ", …" : ""}). Open Development › Plan and choose Build a task graph to turn ${roadmap.length === 1 ? "it" : "them"} into work`);
+  }
+  if (approvals > 0) parts.push(`${approvals} task${approvals === 1 ? " waits" : "s wait"} for your approval in the Inbox`);
+  if (retrying > 0) parts.push(`${retrying} task${retrying === 1 ? " is" : "s are"} waiting to be retried or need${retrying === 1 ? "s" : ""} you to start ${retrying === 1 ? "it" : "them"} from the Plan`);
+  if (byDeps > 0) parts.push(`${byDeps} task${byDeps === 1 ? " waits" : "s wait"} on earlier tasks`);
+  const reason = parts.length > 0 ? `${parts.join("; ")}.` : "The board is clear.";
+  return `Nothing is ready to start for ${brief.businessName}, so no cycle was planned. ${reason}`;
 }
 
 /**
@@ -60,7 +97,7 @@ export function approvalDeferral(task: BriefTask): string | null {
 }
 
 /** Why a dispatchable-looking task sits this cycle out (a retry not yet due, an approval), or null. */
-const deferralOf = (task: BriefTask): string | null => retryDeferral(task) ?? approvalDeferral(task);
+const deferralOf = (task: BriefTask): string | null => approvalDeferral(task) ?? retryDeferral(task);
 
 function pickAssignee(task: BriefTask, brief: BusinessBrief, requested: string | null): BriefAgent | null {
   const byId = new Map(brief.agents.map((a) => [a.id, a]));
@@ -96,6 +133,12 @@ export function createCycleActivities(deps: OrchestratorDeps) {
       const prompt = getPrompt("chief_of_staff_planner").render({ business_name: brief.businessName, max_agents: brief.maxAgents, budget: budgetText, capacity: brief.capacity });
       const waiting = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && deferralOf(t) !== null);
       const candidates = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && deferralOf(t) === null);
+      // Nothing can start: say why instead of paying for a plan that starts nothing (audit OL-10, BF-14).
+      if (candidates.length === 0) {
+        return { summary: idleSummary(brief, waiting), timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: waiting.map((t) => ({ taskId: t.id, reason: deferralOf(t)! })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0, idle: true };
+      }
+      // The planner sees the most important and oldest tasks, identical ones folded; the payload never grows with the backlog.
+      const shown = foldDuplicates(candidates).slice(0, PLAN_PAYLOAD_TASKS).map(({ task }) => task);
       const payload = {
         business_mode: brief.businessMode,
         trigger: input.trigger,
@@ -106,7 +149,9 @@ export function createCycleActivities(deps: OrchestratorDeps) {
         approvals_waiting: brief.pendingApprovals,
         departments: brief.departments.map((d) => ({ id: d.id, name: d.name, lead_agent_id: d.leadAgentId })),
         agents: brief.agents.map((a) => ({ id: a.id, name: a.name, role: a.role, agent_type: a.agentType, layer: a.layer, department_id: a.departmentIds[0] ?? null, status: a.status })),
-        open_tasks: candidates.map((t) => ({ id: t.id, title: t.title, kind: t.kind, status: t.status, department_id: t.departmentId ?? "general", assignee_agent_id: t.assigneeAgentId ?? undefined, priority: Math.max(1, Math.min(5, 3 - Math.sign(t.priority))), blocked_by: t.dependsOn })),
+        open_task_total: brief.openTaskTotal ?? brief.openTasks.length,
+        roadmap_without_tasks: (brief.untaskedRoadmap ?? []).slice(0, 10).map((r) => ({ id: r.id, title: r.title, horizon: r.horizon })),
+        open_tasks: shown.map((t) => ({ id: t.id, title: t.title, kind: t.kind, status: t.status, department_id: t.departmentId ?? "general", assignee_agent_id: t.assigneeAgentId ?? undefined, priority: Math.max(1, Math.min(5, 3 - Math.sign(t.priority))), blocked_by: t.dependsOn })),
       };
       const result = await deps.models
         .complete({
@@ -123,7 +168,7 @@ export function createCycleActivities(deps: OrchestratorDeps) {
           throw planFailure(err);
         });
       const plan = result.json;
-      const byId = new Map(candidates.map((t) => [t.id, t]));
+      const byId = new Map(shown.map((t) => [t.id, t]));
       const starts: CycleStart[] = [];
       const deferred: { taskId: string; reason: string }[] = plan.deferred.filter((d) => byId.has(d.task_id)).map((d) => ({ taskId: d.task_id, reason: d.reason }));
       const seen = new Set<string>();
@@ -156,18 +201,30 @@ export function createCycleActivities(deps: OrchestratorDeps) {
       };
     },
 
-    /** Record the start of a cycle (`cycle.started`). */
-    async startCycle(input: { businessId: string; cycleNumber: number; workflowId: string; trigger: CycleTrigger; plan: CyclePlan; brief: BusinessBrief }): Promise<{ cycleId: string; eventId: string }> {
-      const cycleId = uuid();
+    /**
+     * Record the start of a cycle (`cycle.started`). The workflow names the cycle (`cycleId`, stable across its retries and
+     * known to its failure path), so a retried attempt finds the event it already wrote instead of writing a second
+     * one (audit O-33).
+     */
+    async startCycle(input: { businessId: string; cycleNumber: number; workflowId: string; trigger: CycleTrigger; plan: CyclePlan; brief: BusinessBrief; cycleId?: string }): Promise<{ cycleId: string; eventId: string }> {
+      const cycleId = input.cycleId ?? uuid();
       const budget = input.brief.budgetRemainingMinor === null ? null : { amountMinor: input.brief.budgetRemainingMinor, currency: input.brief.creditsCurrency };
-      const ev = await emitEvent(deps.db, {
-        businessId: input.businessId,
-        type: "cycle.started",
-        actor: systemActor,
-        payload: { cycleId, cycleNumber: input.cycleNumber, workflowId: input.workflowId, trigger: input.trigger, timeBoxAgentHours: input.plan.timeBoxHours, plannedTaskIds: input.plan.starts.map((s) => s.taskId), budget },
+      return deps.db.transaction(async (tx) => {
+        const before = await repos.events.byIdempotencyKey(tx, input.businessId, cycleEventKey("started", cycleId));
+        if (before) return { cycleId, eventId: before.id };
+        const ev = await emitEvent(
+          tx,
+          {
+            businessId: input.businessId,
+            type: "cycle.started",
+            actor: systemActor,
+            payload: { cycleId, cycleNumber: input.cycleNumber, workflowId: input.workflowId, trigger: input.trigger, timeBoxAgentHours: input.plan.timeBoxHours, plannedTaskIds: input.plan.starts.map((s) => s.taskId), budget },
+          },
+          { idempotencyKey: cycleEventKey("started", cycleId) },
+        );
+        await repos.audit.append(tx, input.businessId, { actorKind: "system", action: "cycle.start", target: { kind: "cycle", id: cycleId }, details: { cycleNumber: input.cycleNumber, trigger: input.trigger, planned: input.plan.starts.length, deferred: input.plan.deferred.length, model: input.plan.modelKey, warning: input.plan.warning } });
+        return { cycleId, eventId: ev.id };
       });
-      await repos.audit.append(deps.db, input.businessId, { actorKind: "system", action: "cycle.start", target: { kind: "cycle", id: cycleId }, details: { cycleNumber: input.cycleNumber, trigger: input.trigger, planned: input.plan.starts.length, deferred: input.plan.deferred.length, model: input.plan.modelKey, warning: input.plan.warning } });
-      return { cycleId, eventId: ev.id };
     },
 
     /**
@@ -175,7 +232,7 @@ export function createCycleActivities(deps: OrchestratorDeps) {
      * `task.started`, or refuse (`dispatch.ts`): the team is stopped, the agent is paused or at its wage cap, or the task
      * already has a session. A refusal returns `sessionId: null`; `agents_stopped` ends the cycle's dispatching.
      */
-    async openSession(input: { businessId: string; agentId: string; taskId: string }): Promise<{ sessionId: string | null; refused: DispatchRefusal | null; detail: string | null }> {
+    async openSession(input: { businessId: string; agentId: string; taskId: string; sessionId?: string }): Promise<{ sessionId: string | null; refused: DispatchRefusal | null; detail: string | null }> {
       const opened = await openAgentSession(deps, input);
       if (opened.refused) deps.log.info({ businessId: input.businessId, taskId: input.taskId, agentId: input.agentId, refused: opened.refused }, "session not opened");
       return { sessionId: opened.sessionId, refused: opened.refused, detail: opened.detail };
@@ -219,28 +276,95 @@ export function createCycleActivities(deps: OrchestratorDeps) {
 
     /** Record the end of a cycle (`cycle.completed`). */
     async completeCycle(input: { businessId: string; cycleId: string; cycleNumber: number; workflowId: string; outcome: "completed" | "time_box" | "waiting" | "stopped" | "failed"; tasksDispatched: number; tasksCompleted: number; tasksBlocked: number; agentHours: number; costMinor: number; currency: string; inboxItemIds: string[]; durationMs: number }): Promise<{ eventId: string }> {
-      const ev = await emitEvent(deps.db, {
-        businessId: input.businessId,
-        type: "cycle.completed",
-        actor: systemActor,
-        payload: {
-          cycleId: input.cycleId,
-          cycleNumber: input.cycleNumber,
-          workflowId: input.workflowId,
-          outcome: input.outcome,
-          tasksDispatched: input.tasksDispatched,
-          tasksCompleted: input.tasksCompleted,
-          tasksBlocked: input.tasksBlocked,
-          agentHours: input.agentHours,
-          cost: { amountMinor: Math.round(input.costMinor), currency: input.currency },
-          inboxItemIds: input.inboxItemIds,
-          durationMs: Math.max(0, Math.round(input.durationMs)),
-        },
+      const out = await deps.db.transaction(async (tx) => {
+        const before = await repos.events.byIdempotencyKey(tx, input.businessId, cycleEventKey("completed", input.cycleId));
+        if (before) return { eventId: before.id };
+        const ev = await emitEvent(
+          tx,
+          {
+            businessId: input.businessId,
+            type: "cycle.completed",
+            actor: systemActor,
+            payload: {
+              cycleId: input.cycleId,
+              cycleNumber: input.cycleNumber,
+              workflowId: input.workflowId,
+              outcome: input.outcome,
+              tasksDispatched: input.tasksDispatched,
+              tasksCompleted: input.tasksCompleted,
+              tasksBlocked: input.tasksBlocked,
+              agentHours: input.agentHours,
+              cost: { amountMinor: Math.round(input.costMinor), currency: input.currency },
+              inboxItemIds: input.inboxItemIds,
+              durationMs: Math.max(0, Math.round(input.durationMs)),
+            },
+          },
+          { idempotencyKey: cycleEventKey("completed", input.cycleId) },
+        );
+        await repos.audit.append(tx, input.businessId, { actorKind: "system", action: "cycle.complete", target: { kind: "cycle", id: input.cycleId }, details: { outcome: input.outcome, tasksDispatched: input.tasksDispatched, tasksCompleted: input.tasksCompleted, tasksBlocked: input.tasksBlocked } });
+        return { eventId: ev.id };
       });
-      await repos.audit.append(deps.db, input.businessId, { actorKind: "system", action: "cycle.complete", target: { kind: "cycle", id: input.cycleId }, details: { outcome: input.outcome, tasksDispatched: input.tasksDispatched, tasksCompleted: input.tasksCompleted, tasksBlocked: input.tasksBlocked } });
       // The cycle's sessions, tasks and spend reach the Ribbon and the status strip soon after (debounced).
       requestJourneyDailyRefresh(deps);
-      return { eventId: ev.id };
+      return out;
+    },
+
+    /**
+     * The cycle workflow failed (a planning call that kept failing, a database outage during dispatch): close the cycle
+     * as `failed` so Continue is not stuck on "processing", and tell the founder why in one Inbox note (audit O-07). A
+     * cycle that never reached `cycle.started` is closed the same way; the event carries its workflow id, which also
+     * clears the api's "queued" marker. Idempotent: one `cycle.completed` per cycle, however often it is retried.
+     */
+    async failCycle(input: { businessId: string; cycleId: string; cycleNumber: number; workflowId: string; reason: string; tasksDispatched: number; tasksCompleted: number; tasksBlocked: number; costMinor: number; currency: string; durationMs: number }): Promise<{ eventId: string; inboxItemId: string | null }> {
+      const key = cycleEventKey("completed", input.cycleId);
+      const reason = input.reason.replace(/\s+/g, " ").trim().slice(0, 300) || "an unexpected error";
+      return deps.db.transaction(async (tx) => {
+        const before = await repos.events.byIdempotencyKey(tx, input.businessId, key);
+        if (before) return { eventId: before.id, inboxItemId: null };
+        const chief = await repos.agents.chiefOfStaff(tx, input.businessId);
+        const item = chief
+          ? await repos.inbox.createItem(tx, input.businessId, {
+              type: "warning",
+              from_agent_id: chief.id,
+              subject: `Cycle ${input.cycleNumber} did not finish`,
+              body_md: `The cycle stopped because of an error: ${reason}. Nothing was lost; open work is still on the board. Press Continue to try again, and check Settings › Integrations or credits if it keeps happening.`,
+              status_strip: [],
+              exhibit: { kind: "none", spec_ref: null },
+              decision: null,
+              blocks_continue: false,
+              source_event_ids: [],
+              entity_ids: [],
+            })
+          : null;
+        const ev = await emitEvent(
+          tx,
+          {
+            businessId: input.businessId,
+            type: "cycle.completed",
+            actor: systemActor,
+            payload: { cycleId: input.cycleId, cycleNumber: input.cycleNumber, workflowId: input.workflowId, outcome: "failed", tasksDispatched: input.tasksDispatched, tasksCompleted: input.tasksCompleted, tasksBlocked: input.tasksBlocked, agentHours: 0, cost: { amountMinor: Math.round(input.costMinor), currency: input.currency }, inboxItemIds: item ? [item.id] : [], durationMs: Math.max(0, Math.round(input.durationMs)) },
+          },
+          { idempotencyKey: key },
+        );
+        await repos.audit.append(tx, input.businessId, { actorKind: "system", action: "cycle.failed", target: { kind: "cycle", id: input.cycleId }, details: { cycleNumber: input.cycleNumber, workflowId: input.workflowId, error: reason } });
+        return { eventId: ev.id, inboxItemId: item?.id ?? null };
+      });
+    },
+
+    /**
+     * Nothing could start, so the cycle ran no planner and no narration (audit OL-10): one plain note from the Chief of
+     * Staff says why and where to go next. A note still unread from an earlier press is not repeated.
+     */
+    async noteIdleCycle(input: { businessId: string; cycleNumber: number; summary: string }): Promise<{ inboxItemId: string | null }> {
+      const chief = await repos.agents.chiefOfStaff(deps.db, input.businessId);
+      if (!chief) return { inboxItemId: null };
+      const subject = IDLE_CYCLE_SUBJECT;
+      const earlier = await repos.inbox.list(deps.db, input.businessId, { fromAgentId: chief.id, type: "update", state: "unread", limit: 10 });
+      const repeat = earlier.items.find((i) => i.subject === subject && i.bodyMd.trim() === input.summary.trim());
+      if (repeat) return { inboxItemId: repeat.id };
+      const item = await repos.inbox.createItem(deps.db, input.businessId, { type: "update", from_agent_id: chief.id, subject, body_md: input.summary, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] });
+      await emitEvent(deps.db, { businessId: input.businessId, type: "inbox.item_created", actor: { kind: "agent", id: chief.id }, payload: { inboxItemId: item.id, type: item.type, fromAgentId: chief.id, subject: item.subject, blocksContinue: false, sourceEventIds: [], cost: null } });
+      return { inboxItemId: item.id };
     },
 
     /**

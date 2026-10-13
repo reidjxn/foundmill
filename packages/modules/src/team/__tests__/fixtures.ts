@@ -90,6 +90,7 @@ export const dataResponses: Record<string, unknown> = {
   "department.list": departments,
   "founder.profile.get": me,
   "agent.model.compare": compareJuno,
+  "team.playbooks.list": { playbooks: [] },
 };
 
 export const emptyResponses: Record<string, unknown> = {
@@ -99,4 +100,5 @@ export const emptyResponses: Record<string, unknown> = {
   "team.responsibilities.get": { matrix: [], perDepartment: [], decisionTypes: responsibilities.decisionTypes },
   "department.list": [],
   "founder.profile.get": me,
+  "team.playbooks.list": { playbooks: [] },
 };

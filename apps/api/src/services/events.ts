@@ -9,7 +9,7 @@ import { buildEvent, type WriteEventInput } from "@foundmill/events";
 import type { EventType } from "@foundmill/shared";
 
 /** Validate against the catalogue, then write events + outbox in the caller's transaction. Returns the event id. */
-export async function writeEventRow<T extends EventType>(tx: Executor, input: WriteEventInput<T>): Promise<string> {
+export async function writeEventRow<T extends EventType>(tx: Executor, input: WriteEventInput<T>, idempotencyKey?: string): Promise<string> {
   const event = buildEvent(input);
   const row = await repos.events.write(tx, event.businessId, {
     id: event.id,
@@ -18,6 +18,7 @@ export async function writeEventRow<T extends EventType>(tx: Executor, input: Wr
     entityIds: event.entityIds,
     payload: event.payload as Record<string, unknown>,
     occurredAt: event.occurredAt,
+    ...(idempotencyKey ? { idempotencyKey } : {}),
   });
   return row.id;
 }

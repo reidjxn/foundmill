@@ -93,6 +93,23 @@ describe("prompt templates (BUILD §12)", () => {
     expect(() => getPrompt("chief_of_staff_planner").render({ business_name: "L", max_agents: 0, budget: "b", capacity: "c" })).toThrow(/max_agents/);
   });
 
+  it("inserts values verbatim: a value with {braces} never counts as an unresolved placeholder (audit CML-06)", () => {
+    const rules = getPrompt("club_rules").render({ business_name: "Acme {Labs}", APP_NAME: "Foundmill" });
+    expect(rules).toContain("Acme {Labs}");
+    const composer = getPrompt("inbox_composer").render({ business_name: "Curly {Labs}", from_agent_name: "Nadia {CoS}", from_agent_role: "{role} {{x}}" });
+    expect(composer).toContain("Curly {Labs}");
+    expect(composer).toContain("Nadia {CoS}");
+    expect(composer).toContain("{role} {{x}}");
+    const p = definePrompt({ key: "verbatim", version: 1, route: "worker", description: "x", variables: z.object({ a: z.string(), b: z.string() }), text: "{{literal}} {a} then {b}" });
+    expect(p.render({ a: "{b}", b: "$& {{a}}" })).toBe("{literal} {b} then $& {{a}}");
+  });
+
+  it("refuses a placeholder left without a value, checked on the template", () => {
+    const p = definePrompt({ key: "opt", version: 1, route: "worker", description: "x", variables: z.object({ a: z.string().optional() }), text: "Hello {a}" });
+    expect(() => p.render({})).toThrow(/missing variables: a/);
+    expect(p.render({ a: "you" })).toBe("Hello you");
+  });
+
   it("definePrompt rejects undeclared and unused variables and supports escaped braces", () => {
     expect(() => definePrompt({ key: "bad", version: 1, route: "worker", description: "x", variables: z.object({ a: z.string() }), text: "{a} and {b}" })).toThrow(/undeclared placeholders: b/);
     expect(() => definePrompt({ key: "bad2", version: 1, route: "worker", description: "x", variables: z.object({ a: z.string(), c: z.string() }), text: "{a}" })).toThrow(/never appear/);

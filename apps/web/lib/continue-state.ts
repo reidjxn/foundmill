@@ -10,7 +10,7 @@
  * - A won customer waits for its Customer Update ("Go to Journey") before the next cycle.
  */
 import type { ContinueState } from "@foundmill/dugout";
-import type { InboxItemType, InboxState } from "@foundmill/shared";
+import { vacationUntilLabel, type InboxItemType, type InboxState } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 
 export interface ContinueInboxItem {
@@ -49,8 +49,8 @@ export function respondHref(businessId: string, items: readonly ContinueInboxIte
 
 function holidayUntilLabel(h: NonNullable<ContinueInputs["holiday"]>): string | undefined {
   if (h.untilAt) return undefined;
-  if (typeof h.untilCondition === "string") return h.untilCondition;
-  return h.untilCondition?.text ?? "until I return";
+  // The bar adds "until" itself, so the founder's sentence loses its own ("Until until I return", audit VOL-X2).
+  return vacationUntilLabel(typeof h.untilCondition === "string" ? h.untilCondition : h.untilCondition?.text);
 }
 
 export function computeContinueState(input: ContinueInputs): ContinueState {

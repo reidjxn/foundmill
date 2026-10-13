@@ -5,6 +5,7 @@
 import { APP_NAME } from "@foundmill/config";
 import type { OrchestratorDeps } from "../deps";
 import { createApprovalActivities } from "./approvals";
+import { createAutopilotActivities } from "./autopilot";
 import { createBriefActivities } from "./brief";
 import { createChannelActivities } from "./channel";
 import { createCycleActivities } from "./cycle";
@@ -33,6 +34,7 @@ export function createActivities(deps: OrchestratorDeps) {
     ...createTrainingActivities(deps),
     ...createHealthActivities(deps),
     ...createHolidayActivities(deps),
+    ...createAutopilotActivities(deps),
     ...createChannelActivities(deps),
     ...createJourneyActivities(deps),
     ...createMiscActivities(deps),

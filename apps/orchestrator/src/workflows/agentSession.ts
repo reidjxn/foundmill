@@ -60,6 +60,7 @@ export function combineRuns(a: SessionResult, b: SessionResult): SessionResult {
     durationMs: a.durationMs + b.durationMs,
     sandboxMs: (a.sandboxMs ?? 0) + (b.sandboxMs ?? 0),
     prNumber: b.prNumber ?? a.prNumber,
+    modelKey: b.modelKey ?? a.modelKey,
   };
 }
 

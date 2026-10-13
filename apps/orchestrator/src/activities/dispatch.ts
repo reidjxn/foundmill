@@ -152,7 +152,7 @@ async function pauseForWageCap(deps: OrchestratorDeps, businessId: string, agent
   await repos.audit.append(db, businessId, { actorKind: "agent", actorId: agent.id, action: WAGE_ALERT_ACTION, target: { kind: "agent", id: agent.id }, details: { period: periodOf(deps.clock.now()), percent: 100, spentMinor: info.spentMinor, capMinor: info.capMinor } });
 }
 
-async function postNote(deps: OrchestratorDeps, businessId: string, fromAgentId: string, note: { type: "update" | "warning"; subject: string; body: string; blocksContinue: boolean }): Promise<void> {
+export async function postNote(deps: OrchestratorDeps, businessId: string, fromAgentId: string, note: { type: "update" | "warning"; subject: string; body: string; blocksContinue: boolean }): Promise<void> {
   const item = await repos.inbox.createItem(deps.db, businessId, {
     type: note.type,
     from_agent_id: fromAgentId,
