@@ -9,6 +9,15 @@ export const FLAGS = {
 export type FlagKey = keyof typeof FLAGS;
 
 /**
+ * Whether the LIVE surfaces (the network, communities, leaderboards, going live) are open on this deployment. They are
+ * closed while `FLAGS.liveMode` is false (DECISIONS 2026-10-07: the social layer is Phase 4); an operator opens them for
+ * one environment with `LIVE_MODE=1` (the local stack and the demo do), and nothing else opens them.
+ */
+export function liveModeOpen(env: { LIVE_MODE?: string | undefined }, flag: boolean = FLAGS.liveMode): boolean {
+  return flag || /^(1|true|yes|on)$/i.test((env.LIVE_MODE ?? "").trim());
+}
+
+/**
  * Simulate panel gate (docs/SECURITY_REVIEW.md SEC-2). `FLAGS.devSimulatePanel` alone never opens the route: it is
  * honoured only where `APP_ENV` is development or staging **and** the request carries a verified service token
  * minted by apps/api for the signed-in owner/admin. Production never honours it, whatever the flag says.

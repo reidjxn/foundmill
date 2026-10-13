@@ -640,6 +640,15 @@ export function grantsEqual(a: readonly ToolGrant[], b: readonly ToolGrant[]): b
   return key(a) === key(b);
 }
 
+/**
+ * True when `next` grants a tool `live` does not (`connector:*` covers every tool of its connector). Giving an agent new
+ * tools is an owner's or admin's call (the api refuses anyone else, SEC-7); removing tools is anyone's with Team write.
+ */
+export function grantsWiden(live: readonly ToolGrant[], next: readonly ToolGrant[]): boolean {
+  const has = new Set(live.flatMap((g) => g.tools.map((t) => `${g.connectorKey}:${t}`)));
+  return next.some((g) => g.tools.some((t) => !has.has(`${g.connectorKey}:${t}`) && !has.has(`${g.connectorKey}:*`)));
+}
+
 export function grantedTools(grants: readonly ToolGrant[]): number {
   return grants.reduce((s, g) => s + g.tools.length, 0);
 }

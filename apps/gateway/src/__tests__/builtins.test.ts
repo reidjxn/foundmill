@@ -181,7 +181,9 @@ describe("web reads and the quarantined reader", () => {
     const token = await tokenFor(worker, ["web:fetch_page", "gmail:send_message"]);
     const page = asAllow(await client.call(token, { connector: "web", tool: "fetch_page", args: { url: "https://supplier.example/contact" } }));
     expect(page.result.untrusted).toBe(true);
-    expect(JSON.stringify(page.result.data)).toContain("hello@supplier.example");
+    // A session that holds outbound tools reads a digest, not the page; the address in it is still registered as untrusted.
+    expect(page.result.data).toMatchObject({ quarantined: true });
+    expect(JSON.stringify(page.result.data)).not.toContain("hello@supplier.example");
     const send = (await client.call(token, { connector: "gmail", tool: "send_message", args: { to: ["hello@supplier.example"], subject: "Quote", text: "Hello" } })) as DenyResponse;
     expect(send.outcome).toBe("deny");
     expect(send.policyIds).toContain("untrusted-recipient");

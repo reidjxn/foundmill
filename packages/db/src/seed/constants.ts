@@ -20,6 +20,13 @@ export const LEDGERLY_SLUG = "ledgerly";
 export const LEDGERLY_NAME = "Ledgerly";
 
 export const DEMO_BUSINESS_SLUGS = [NORTHWIND_SLUG, LEDGERLY_SLUG] as const;
+/**
+ * The demo businesses are identified by these fixed ids, never by slug: a slug is founder-editable, so whoever holds
+ * "northwind-skincare" today need not be the seeded business (audit api-services-21).
+ */
+export const DEMO_BUSINESS_IDS = [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID] as const;
+/** The id of the demo business a slug is reserved for, or null for any other slug (no one else may take a demo slug). */
+export const demoBusinessIdForSlug = (slug: string): string | null => (slug === NORTHWIND_SLUG ? NORTHWIND_BUSINESS_ID : slug === LEDGERLY_SLUG ? LEDGERLY_BUSINESS_ID : null);
 
 export const LEDGERLY_COMMUNITY_SLUG = "fintech-ops-founders";
 /** A public community with no members yet, so the demo founder sees Join on offer. */

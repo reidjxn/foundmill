@@ -14,7 +14,7 @@ import { repos } from "../repos";
 import { rowsOf } from "../repos/_shared";
 import { businesses, communities, founderProfiles, leaderboardEntries } from "../schema";
 import { parseOwnerEmails, stubAuthProvisioner, type AuthProvisioner } from "./auth";
-import { DEFAULT_SEED_DAYS, DEMO_BUSINESS_SLUGS, DEMO_OWNER_DISPLAY_NAME, DEMO_OWNER_EMAIL, DEMO_OWNER_USER_ID, DEMO_SEED, LEDGERLY_SLUG, NORTHWIND_SLUG, SEED_COMMUNITY_SLUGS } from "./constants";
+import { DEFAULT_SEED_DAYS, DEMO_BUSINESS_IDS, DEMO_OWNER_DISPLAY_NAME, DEMO_OWNER_EMAIL, DEMO_OWNER_USER_ID, DEMO_SEED, LEDGERLY_BUSINESS_ID, NORTHWIND_BUSINESS_ID, SEED_COMMUNITY_SLUGS } from "./constants";
 import { createSeedCtx, type SeedOwner } from "./context";
 import { seedLedgerly } from "./ledgerly";
 import { seedNorthwind } from "./northwind";
@@ -26,10 +26,15 @@ export * from "./types";
 export { parseOwnerEmails, stubAuthProvisioner, supabaseAuthProvisioner, type AuthProvisioner } from "./auth";
 export { FOUNDER_PRESET_LAYOUT } from "./content";
 
+/** The demo businesses that exist, found by their fixed ids (never by slug, which founders can edit). */
+export async function findDemoBusinesses(db: Db): Promise<{ id: string; slug: string }[]> {
+  return db.select({ id: businesses.id, slug: businesses.slug }).from(businesses).where(inArray(businesses.id, [...DEMO_BUSINESS_IDS]));
+}
+
 /** True when both demo businesses exist (what `SEED_ON_BOOT` checks before seeding). */
 export async function demoBusinessesPresent(db: Db): Promise<boolean> {
-  const rows = await db.select({ slug: businesses.slug }).from(businesses).where(inArray(businesses.slug, [...DEMO_BUSINESS_SLUGS]));
-  return rows.length === DEMO_BUSINESS_SLUGS.length;
+  const rows = await db.select({ id: businesses.id }).from(businesses).where(inArray(businesses.id, [...DEMO_BUSINESS_IDS]));
+  return rows.length === DEMO_BUSINESS_IDS.length;
 }
 
 /**
@@ -39,7 +44,7 @@ export async function demoBusinessesPresent(db: Db): Promise<boolean> {
  */
 export async function putNorthwindFirst(db: Db): Promise<boolean> {
   const result = await db.execute(
-    sql`update businesses n set created_at = l.created_at + interval '1 second' from businesses l where n.slug = ${NORTHWIND_SLUG} and l.slug = ${LEDGERLY_SLUG} and n.created_at <= l.created_at returning n.id`,
+    sql`update businesses n set created_at = l.created_at + interval '1 second' from businesses l where n.id = ${NORTHWIND_BUSINESS_ID} and l.id = ${LEDGERLY_BUSINESS_ID} and n.created_at <= l.created_at returning n.id`,
   );
   return rowsOf(result).length > 0;
 }
@@ -51,7 +56,7 @@ export async function putNorthwindFirst(db: Db): Promise<boolean> {
  * businesses"), which needs the table owner (PGlite superuser, the service connection on Supabase).
  */
 export async function deleteDemoBusinesses(db: Db): Promise<number> {
-  const rows = await db.select({ id: businesses.id, slug: businesses.slug }).from(businesses).where(inArray(businesses.slug, [...DEMO_BUSINESS_SLUGS]));
+  const rows = await db.select({ id: businesses.id }).from(businesses).where(inArray(businesses.id, [...DEMO_BUSINESS_IDS]));
   if (rows.length) {
     const ids = rows.map((r) => r.id);
     await db.transaction(async (tx) => {

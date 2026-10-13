@@ -18,13 +18,17 @@ import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
 beforeAll(async () => {
-  hz = await createApiHarness({ prefix: "live" });
+  hz = await createApiHarness({ prefix: "live", env: { LIVE_MODE: "1" } });
   // Everyone here has confirmed that they are 18 or older (the gate itself is pinned in live-social.test.ts).
   for (const f of [hz.A, hz.B]) for (const userId of [f.ownerId, f.adminId, f.memberId, f.viewerId]) await repos.social.confirmAdult(hz.db, userId);
 }, 120_000);
 afterAll(() => hz.close());
-// Each test starts with fresh per-person limits (posts, messages, requests).
-beforeEach(() => liveLimiter.reset());
+// Each test starts with fresh per-person limits (posts, messages, requests): these cases write far faster than the
+// allowances (services/live.ts, services/live-limits.ts) allow; live-limits.test.ts covers those.
+beforeEach(() => {
+  liveLimiter.reset();
+  hz.limits.reset();
+});
 
 const as = (userId: string) => hz.caller({ userId });
 const NOBODY = "00000000-0000-4000-8000-0000000000ff";
@@ -246,10 +250,11 @@ describe("messages and connections", () => {
     const c = await as(victim).live.connections.request({ businessId: hz.A.businessId, toUserId: attacker });
     const blocked = await as(victim).live.connections.respond({ connectionId: c.id, status: "blocked" });
     expect(blocked).toMatchObject({ status: "blocked", blockedBy: victim });
-    // The recipient is not the blocker: accepting, re-blocking and removing all fail and change nothing.
-    expect((await failure(as(attacker).live.connections.respond({ connectionId: c.id, status: "accepted" }))).code).toBe("BAD_REQUEST");
-    expect((await failure(as(attacker).live.connections.respond({ connectionId: c.id, status: "blocked" }))).code).toBe("BAD_REQUEST");
-    expect((await failure(as(attacker).live.connections.remove({ connectionId: c.id }))).code).toBe("BAD_REQUEST");
+    // The recipient is not the blocker: accepting and re-blocking read as a connection that does not exist, and removing is
+    // the same quiet no-op as removing one that does not; none of them changes the row or confirms the block (GLS2F-04).
+    expect((await failure(as(attacker).live.connections.respond({ connectionId: c.id, status: "accepted" }))).code).toBe("NOT_FOUND");
+    expect((await failure(as(attacker).live.connections.respond({ connectionId: c.id, status: "blocked" }))).code).toBe("NOT_FOUND");
+    await expect(as(attacker).live.connections.remove({ connectionId: c.id })).resolves.toBeDefined();
     expect((await as(victim).live.connections.list({ status: "blocked" })).map((r) => [r.id, r.blockedBy])).toEqual([[c.id, victim]]);
     // The blocked person does not see the row at all: a block is never announced.
     expect((await as(attacker).live.connections.list()).map((r) => r.id)).not.toContain(c.id);
@@ -264,8 +269,9 @@ describe("messages and connections", () => {
     // A requester who blocks their own request: the recipient cannot accept it either.
     const d = await as(hz.A.adminId).live.connections.request({ businessId: hz.A.businessId, toUserId: hz.B.ownerId });
     await as(hz.A.adminId).live.connections.respond({ connectionId: d.id, status: "blocked" });
-    expect((await failure(as(hz.B.ownerId).live.connections.respond({ connectionId: d.id, status: "accepted" }))).code).toBe("BAD_REQUEST");
-    expect((await failure(as(hz.B.ownerId).live.connections.remove({ connectionId: d.id }))).code).toBe("BAD_REQUEST");
+    expect((await failure(as(hz.B.ownerId).live.connections.respond({ connectionId: d.id, status: "accepted" }))).code).toBe("NOT_FOUND");
+    await as(hz.B.ownerId).live.connections.remove({ connectionId: d.id });
+    expect((await as(hz.A.adminId).live.connections.list({ status: "blocked" })).map((r) => r.id), "the recipient's remove changed nothing").toContain(d.id);
     // Only the blocker lifts it; then a fresh request goes through.
     await as(hz.A.adminId).live.connections.remove({ connectionId: d.id });
     expect((await as(hz.B.ownerId).live.connections.list()).map((r) => r.id)).not.toContain(d.id);

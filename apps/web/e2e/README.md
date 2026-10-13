@@ -11,7 +11,7 @@ Everything is mock-first and needs no secrets, Redis, Temporal or Supabase:
 | Database | one file-backed PGlite directory, `DATABASE_URL=pglite:./.pglite/e2e` (relative paths resolve against the workspace root, `packages/db/src/pglite.ts`) |
 | Seed | `pnpm --filter @foundmill/db seed` with `SEED_TARGET=pglite SEED_PGLITE_DIR=./.pglite/e2e` (Northwind Skincare + Ledgerly; `SEED_VOLUME_SCALE=0.1` keeps it quick) |
 | Signed-in founder | `DEV_AUTH_USER_ID` = the seed owner, `DEMO_OWNER_USER_ID` in `packages/db/src/seed/constants.ts` (`0f0a0d00-0000-4000-8000-00000000f0a1`); the login page's "Continue as developer" button sets the dev cookie, the api and the stream accept the literal `dev` bearer |
-| apps/api | `:4000`, `APP_ENV=test INTEGRATIONS_MODE=mock MODEL_MODE=mock`, no reachable `COMPOSER_URL` (the api narrates in-process), no Redis (no live stream; the shell polls `cycle.status`), no Temporal (`business.continue` runs one in-process cycle step) |
+| apps/api | `:4000`, `APP_ENV=test INTEGRATIONS_MODE=mock MODEL_MODE=mock LIVE_MODE=1` (the LIVE pages and Go live are closed without it), no reachable `COMPOSER_URL` (the api narrates in-process), no Redis (no live stream; the shell polls `cycle.status`), no Temporal (`business.continue` runs one in-process cycle step) |
 | apps/web | `next dev` on `:3000` with `NEXT_PUBLIC_APP_ENV=test NEXT_PUBLIC_API_URL=http://localhost:4000` and no `NEXT_PUBLIC_COLLAB_URL` (the spec editor keeps edits local) |
 | Browser | Chromium from `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers` in the build container (`playwright.config.ts` uses `/opt/pw-browsers/chromium` when it exists, or `FM_CHROMIUM`); never run `playwright install` there. CI runners install Chromium with `pnpm --filter @foundmill/web exec playwright install --with-deps chromium` |
 
@@ -37,7 +37,7 @@ Step by step (what CI does in `.github/workflows/ci.yml` and what to do when the
 SEED_TARGET=pglite SEED_PGLITE_DIR=./.pglite/e2e SEED_VOLUME_SCALE=0.1 pnpm --filter @foundmill/db seed
 
 # 2. the api on :4000 against that database
-APP_ENV=test INTEGRATIONS_MODE=mock MODEL_MODE=mock DATABASE_URL=pglite:./.pglite/e2e \
+APP_ENV=test INTEGRATIONS_MODE=mock MODEL_MODE=mock LIVE_MODE=1 DATABASE_URL=pglite:./.pglite/e2e \
 DEV_AUTH_USER_ID=0f0a0d00-0000-4000-8000-00000000f0a1 API_PORT=4000 \
 pnpm --filter @foundmill/api start
 

@@ -7,6 +7,7 @@
 import { initTRPC, TRPCError, type TRPC_ERROR_CODE_KEY } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError, z } from "zod";
+import { liveModeOpen } from "@foundmill/config";
 import { repos, SLUG_TAKEN, uniqueViolation, withRls, type Business, type DbTx, type Executor, type Membership } from "@foundmill/db";
 import type { EventPayloadInput } from "@foundmill/events";
 import { isModelBillingError } from "@foundmill/models";
@@ -153,13 +154,37 @@ export function toTRPCError(err: unknown): TRPCError {
     const conflict = new ConflictError(known?.message ?? "That already exists", known?.field ? { field: known.field } : undefined);
     return new TRPCError({ code: "CONFLICT", message: conflict.message, cause: conflict });
   }
+  // The same holds for the database refusing a write: a row-level-security denial (or a missing grant) is the caller's
+  // permission, not a server fault, and a unique violation is a clash with something that already exists. Neither
+  // echoes the failed statement.
+  const refusal = (!(err instanceof TRPCError) || err.code === "INTERNAL_SERVER_ERROR") ? databaseRefusal(cause) : undefined;
+  if (refusal?.kind === "forbidden") return new TRPCError({ code: "FORBIDDEN", message: "Not permitted for this business", cause: cause as Error });
+  if (refusal?.kind === "duplicate") return new TRPCError({ code: "CONFLICT", message: "Something with these details already exists", cause: cause as Error });
   if (err instanceof TRPCError) return err;
   const message = (cause as { message?: string })?.message ?? String(cause);
-  const nested = (cause as { cause?: { message?: string } })?.cause?.message ?? "";
-  if (RLS_RE.test(message) || RLS_RE.test(nested)) {
-    return new TRPCError({ code: "FORBIDDEN", message: "Not permitted for this business", cause: cause as Error });
-  }
   return new TRPCError({ code: "INTERNAL_SERVER_ERROR", message, cause: cause as Error });
+}
+
+const PG_INSUFFICIENT_PRIVILEGE = "42501";
+const PG_UNIQUE_VIOLATION = "23505";
+
+/**
+ * A database refusal the caller caused, if `err` is one (looking through Drizzle's and tRPC's wrappers): "forbidden" for
+ * a row-level-security denial or a missing grant (SQLSTATE 42501, or the message where a driver gives no code),
+ * "duplicate" for a unique violation (23505), with the constraint's name for the log.
+ */
+export function databaseRefusal(err: unknown): { kind: "forbidden" | "duplicate"; constraint: string | undefined } | undefined {
+  let e: unknown = err;
+  for (let depth = 0; depth < 4 && e && typeof e === "object"; depth++) {
+    const code = (e as { code?: unknown }).code;
+    const message = String((e as { message?: unknown }).message ?? "");
+    const named = (e as { constraint?: unknown }).constraint;
+    const constraint = typeof named === "string" ? named : /constraint "([^"]+)"/.exec(message)?.[1];
+    if (code === PG_UNIQUE_VIOLATION) return { kind: "duplicate", constraint };
+    if (code === PG_INSUFFICIENT_PRIVILEGE || RLS_RE.test(message)) return { kind: "forbidden", constraint: undefined };
+    e = (e as { cause?: unknown }).cause;
+  }
+  return undefined;
 }
 
 const PG_FOREIGN_KEY_VIOLATION = "23503";
@@ -215,6 +240,8 @@ const mapErrors = t.middleware(async ({ next, ctx, path, type }) => {
     const mapped = toTRPCError(result.error);
     const fk = foreignKeyViolation(mapped.cause);
     if (fk && mapped.code !== "INTERNAL_SERVER_ERROR") ctx.log.warn({ path, type, code: mapped.code, constraint: fk.constraint, kind: fk.kind, requestId: ctx.requestId }, "foreign key violation");
+    const refusal = mapped.code === "FORBIDDEN" || mapped.code === "CONFLICT" ? databaseRefusal(mapped.cause) : undefined;
+    if (refusal) ctx.log.warn({ path, type, code: mapped.code, constraint: refusal.constraint, kind: refusal.kind, requestId: ctx.requestId }, refusal.kind === "forbidden" ? "database refused the write (row-level security)" : "unique violation");
     if (mapped.code === "INTERNAL_SERVER_ERROR") {
       ctx.log.error({ path, type, err: mapped.cause ?? mapped, requestId: ctx.requestId }, "procedure failed");
       const shown = internalErrorMessage(mapped.message, ctx.env.APP_ENV, ctx.requestId);
@@ -329,6 +356,19 @@ export const ownerProcedure = businessProcedure.use(requireRoles(["owner"], "own
 export const adminArchivedProcedure = archivedBusinessProcedure.use(requireRoles(["owner", "admin"], "administration"));
 /** Owner only on a business that may be archived (restore, permanent deletion). */
 export const ownerArchivedProcedure = archivedBusinessProcedure.use(requireRoles(["owner"], "owner actions"));
+
+/**
+ * Closes the LIVE surfaces (live.*, going live, committing as LIVE) while `FLAGS.liveMode` is off and the deployment has
+ * not opened them with `LIVE_MODE=1` (`liveModeOpen`; DECISIONS 2026-10-07).
+ */
+export const LIVE_CLOSED_MESSAGE = "LIVE is not open yet";
+export const assertLiveOpen = (env: Pick<Context["env"], "LIVE_MODE">): void => {
+  if (!liveModeOpen(env)) throw new TRPCError({ code: "FORBIDDEN", message: LIVE_CLOSED_MESSAGE });
+};
+export const liveGate = t.middleware(({ ctx, next }) => {
+  assertLiveOpen(ctx.env);
+  return next();
+});
 
 export const sectionRead = (section: Section) => businessProcedure.use(sectionPermission(section, "read"));
 export const sectionWrite = (section: Section) => writeProcedure.use(sectionPermission(section, "write"));

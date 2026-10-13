@@ -15,7 +15,24 @@ export interface MimeInput {
 
 const encodeHeader = (value: string): string => (/^[\x20-\x7e]*$/.test(value) ? value : `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`);
 
-export function buildMimeMessage(m: MimeInput): string {
+/** A header value that carries a line break would start a new header (a hidden Bcc, a forged From): never written. */
+const headerValue = (name: string, value: string): string => {
+  if (/[\r\n\0]/.test(value)) throw new Error(`Invalid ${name} header: it contains a line break`);
+  return value;
+};
+
+export function buildMimeMessage(input: MimeInput): string {
+  // Every header value is checked once, here, so no field (reply ids, addresses, ids) can smuggle another header in.
+  const m: MimeInput = {
+    ...input,
+    from: headerValue("From", input.from),
+    to: input.to.map((v) => headerValue("To", v)),
+    ...(input.cc ? { cc: input.cc.map((v) => headerValue("Cc", v)) } : {}),
+    ...(input.bcc ? { bcc: input.bcc.map((v) => headerValue("Bcc", v)) } : {}),
+    ...(input.messageId ? { messageId: headerValue("Message-ID", input.messageId) } : {}),
+    ...(input.inReplyTo ? { inReplyTo: headerValue("In-Reply-To", input.inReplyTo) } : {}),
+    ...(input.references ? { references: input.references.map((v) => headerValue("References", v)) } : {}),
+  };
   const lines: string[] = [];
   lines.push(`From: ${m.from}`);
   lines.push(`To: ${m.to.join(", ")}`);

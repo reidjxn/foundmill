@@ -254,6 +254,10 @@ describe("approvals a plan action or a channel launch waits on", () => {
 describe("who may answer", () => {
   it("a member walled from Finance cannot approve a Stripe call; the request stays open for someone who can", async () => {
     await repos.memberships.setSectionPermissions(hz.db, hz.A.businessId, hz.A.memberId, { finance: "read" });
+    // Team › Responsibilities names the member for spending, so the section wall is what stops them (not the approver rule).
+    const depts = await repos.departments.list(hz.db, hz.A.businessId);
+    const named = [{ decisionType: "spend_above_threshold", handler: { kind: "user", id: hz.A.memberId } }];
+    for (const d of depts) await repos.departments.update(hz.db, hz.A.businessId, d.id, { approvers: named });
     try {
       const g = await gatedCall({ connectorKey: "stripe", tool: "create_coupon", amountMinor: 1_000 });
       await expect(member().inbox.decide({ businessId: hz.A.businessId, itemId: g.itemId, chosenOption: APPROVAL_OPTIONS.approve })).rejects.toThrow(/write access to finance/);
@@ -266,11 +270,12 @@ describe("who may answer", () => {
       const listed = (await member().team.approvals.pending({ businessId: hz.A.businessId })).find((a) => a.id === g.approval.id);
       expect(listed).toMatchObject({ amountMinor: null, currency: null, amountHidden: true, args: {}, argsHidden: true, canAnswer: false, section: "finance" });
       expect(JSON.stringify(listed)).not.toContain("0019_idx.sql");
-      // The same member answers a GitHub call.
+      // A GitHub call nobody named the member for stays the founder's: owners and admins.
       const gh = await gatedCall();
-      await member().inbox.decide({ businessId: hz.A.businessId, itemId: gh.itemId, chosenOption: APPROVAL_OPTIONS.approve });
-      expect((await repos.approvals.get(hz.db, hz.A.businessId, gh.approval.id)).outcome).toBe("approved");
+      await expect(member().inbox.decide({ businessId: hz.A.businessId, itemId: gh.itemId, chosenOption: APPROVAL_OPTIONS.approve })).rejects.toThrow(/Only an owner or admin/);
+      expect((await repos.approvals.get(hz.db, hz.A.businessId, gh.approval.id)).outcome).toBeNull();
     } finally {
+      for (const d of depts) await repos.departments.update(hz.db, hz.A.businessId, d.id, { approvers: d.approvers as never });
       await repos.memberships.setSectionPermissions(hz.db, hz.A.businessId, hz.A.memberId, {});
     }
   });

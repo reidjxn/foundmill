@@ -38,6 +38,8 @@ export const STACK_ENV: Record<string, string> = {
   APP_ENV: "test",
   INTEGRATIONS_MODE: "mock",
   MODEL_MODE: "mock",
+  // The LIVE pages and Go live are closed unless a deployment opens them (FLAGS.liveMode, audit VLS2-X1); the stack opens them.
+  LIVE_MODE: "1",
   DATABASE_URL: E2E_DATABASE_URL,
   DEV_AUTH_USER_ID: process.env.DEV_AUTH_USER_ID ?? DEMO_OWNER_USER_ID,
   API_PORT: String(API_PORT),

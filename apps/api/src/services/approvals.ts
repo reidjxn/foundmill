@@ -22,6 +22,7 @@ import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { continueStateFor, cycleStatus } from "./cycle";
 import { maskFinance } from "./inbox-redaction";
+import { assertMayResolveApproval } from "./approver";
 import { SIGNALS, WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
 
 export type ApprovalOutcome = "approved" | "rejected";
@@ -74,6 +75,8 @@ const quoted = (title: string) => `“${title.length > 80 ? `${title.slice(0, 77
 const MOVED_ON: ReadonlySet<TaskStatus> = new Set<TaskStatus>(["running", "review", "merging", "done", "stopped"]);
 
 export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, approval: Approval, outcome: ApprovalOutcome, note: string | null): Promise<RecordedAnswer> {
+  // Owners and admins, or the member Team › Responsibilities names for this kind of decision (SEC-7).
+  await assertMayResolveApproval(tx, ctx.businessId, { userId: ctx.userId, role: ctx.role }, approval, ctx.connectors);
   const resolved = await repos.approvals.resolve(tx, ctx.businessId, approval.id, { outcome, byKind: "user", byId: ctx.userId });
   const [agent, session, stop] = await Promise.all([
     approval.agentId ? repos.agents.get(tx, ctx.businessId, approval.agentId).catch(() => null) : Promise.resolve(null),

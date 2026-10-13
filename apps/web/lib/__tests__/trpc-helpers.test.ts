@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { LIMITS } from "@foundmill/config";
 import { TRPCClientError } from "@trpc/client";
 import { apiTrpcUrl, appErrorCode, createApiLinks, createUntypedApiClient, errorMessage, fetchWithTimeout, fieldConflictOf, forbiddenMessage, isNotInvited, NO_ACCESS_PREFIX, isStreamingOperation, notInvitedReason, RATE_LIMITED_MESSAGE, REQUEST_TIMEOUT_MESSAGE, resolveBearer, STREAMING_PROCEDURES, tierLimitOf, trpcErrorCode, trpcPathPrefix, trpcQueryKey } from "../trpc";
 import { makeQueryClient } from "../query-client";
@@ -157,5 +158,18 @@ describe("trpc helpers", () => {
     expect(paths.filter((p) => p.includes("idea.draft") || p.includes("idea.logo.stream")).sort()).toEqual(["idea.draft", "idea.logo.stream"]);
     // Plain queries still share one batch.
     expect(paths).toContain("inbox.list,cycle.status");
+  });
+
+  it("never batches more calls than the API accepts in one request (LIMITS.trpcMaxBatchSize)", async () => {
+    const urls: string[] = [];
+    const fetchSpy = (async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      return new Response("{}", { status: 500, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const client = createUntypedApiClient({ getToken: () => "jwt", url: "http://api.test/trpc", fetch: fetchSpy });
+    await Promise.allSettled(Array.from({ length: LIMITS.trpcMaxBatchSize + 5 }, (_, i) => client.query("inbox.get", { businessId: "b", itemId: `i${i}` })));
+    const sizes = urls.map((u) => new URL(u).pathname.replace("/trpc/", "").split(",").length);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(LIMITS.trpcMaxBatchSize);
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(LIMITS.trpcMaxBatchSize + 5);
   });
 });

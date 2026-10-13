@@ -76,13 +76,15 @@ describe("calls outside any agent session (sessionId null: plan actions, imports
     expect(logged.filter((l) => l.level === "error")).toEqual([]);
   });
 
-  it("keep their untrusted-recipient register per token", async () => {
+  it("share the business-wide untrusted-recipient register", async () => {
     const first = await g.token({ sessionId: null });
     asAllow(await g.client.call(first, { connector: "test", tool: "read_inbox", args: { id: "m-1" } }));
     const blocked = asDeny(await g.client.call(first, { connector: "test", tool: "send_message", args: { to: "supplier@untrusted.example" } }));
     expect(blocked.policyIds).toEqual(["untrusted-recipient"]);
-    // Another token outside a session never read that content.
-    asAllow(await g.client.call(await g.token({ sessionId: null }), { connector: "test", tool: "send_message", args: { to: "supplier@untrusted.example" } }));
+    // The register is business-wide: another token outside a session is told the same, whoever read the content.
+    const other = asDeny(await g.client.call(await g.token({ sessionId: null }), { connector: "test", tool: "send_message", args: { to: "supplier@untrusted.example" } }));
+    expect(other.policyIds).toEqual(["untrusted-recipient"]);
+    await g.recipients.clear(g.businessId);
   });
 });
 

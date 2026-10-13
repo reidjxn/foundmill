@@ -7,7 +7,7 @@
  * founder.tableViews.get/save: the views a person saves on a data table (saved_table_views, 0041), for a business they
  * belong to or for the account-wide LIVE pages; RLS holds them to their own rows and their own businesses.
  */
-import { freeDisplayName } from "@foundmill/config";
+import { freeDisplayName, liveModeOpen } from "@foundmill/config";
 import { AccountPreferencesPatch, repos, withRls, FounderProfileInput, FounderProfilePatch, SaveTableViewsInput, TableViewsScope, type Db, type DbTx } from "@foundmill/db";
 import { protectedProcedure, router } from "../trpc";
 
@@ -21,7 +21,8 @@ export const founderRouter = router({
     get: protectedProcedure.query(async ({ ctx }) => {
       // Three independent reads: sent together, not one after another (each is a network round trip in production).
       const [profile, memberships, businesses] = await Promise.all([repos.founders.get(ctx.db, ctx.userId), repos.memberships.listForUser(ctx.db, ctx.userId), repos.businesses.listForUser(ctx.db, ctx.userId)]);
-      return { profile, complete: profile !== null, email: ctx.email, memberships, businesses };
+      // `features.liveMode`: whether LIVE is open here (the commit screen offers Live only then).
+      return { profile, complete: profile !== null, email: ctx.email, memberships, businesses, features: { liveMode: liveModeOpen(ctx.env) } };
     }),
     update: protectedProcedure.input(FounderProfilePatch).mutation(async ({ ctx, input }) => {
       const existing = await repos.founders.get(ctx.db, ctx.userId);

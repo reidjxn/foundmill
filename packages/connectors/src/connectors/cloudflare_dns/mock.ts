@@ -1,7 +1,7 @@
 import { buildMockConnector } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord, perBusiness } from "../../mock-utils";
 import { CF_RECORDS, CF_ZONES, recordId } from "./fixtures/zones";
-import { analyseEmailAuth, CLOUDFLARE_KEY, CLOUDFLARE_RATE_LIMITS, cloudflareTools, type DnsRecordT } from "./tools";
+import { analyseEmailAuth, assertRecordIs, CLOUDFLARE_KEY, CLOUDFLARE_RATE_LIMITS, cloudflareTools, type DnsRecordT } from "./tools";
 
 const notFound = (what: string) => Object.assign(new Error(`${what} not found`), { status: 404 });
 
@@ -40,20 +40,22 @@ export function createCloudflareMock() {
         world(ctx.businessId).set(id, rec);
         return rec;
       },
-      update_record: async ({ zoneId, recordId: id, ...patch }, ctx) => {
+      update_record: async ({ zoneId, recordId: id, type, recordName, ...patch }, ctx) => {
         zone(zoneId);
         const records = world(ctx.businessId);
         const rec = records.get(id);
         if (!rec || rec.zoneId !== zoneId) throw notFound(`record ${id}`);
+        assertRecordIs(rec, { type, recordName });
         const updated: DnsRecordT = { ...rec, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)), modifiedOn: MOCK_NOW.toISOString() };
         records.set(id, updated);
         return updated;
       },
-      delete_record: async ({ zoneId, recordId: id }, ctx) => {
+      delete_record: async ({ zoneId, recordId: id, type, recordName }, ctx) => {
         zone(zoneId);
         const records = world(ctx.businessId);
         const rec = records.get(id);
         if (!rec || rec.zoneId !== zoneId) throw notFound(`record ${id}`);
+        assertRecordIs(rec, { type, recordName });
         records.delete(id);
         return { deleted: true as const, recordId: id };
       },

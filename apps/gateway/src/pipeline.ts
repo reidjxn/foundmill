@@ -15,6 +15,7 @@
  * `/v1/call` and `/mcp/:connector` both run this function; nothing reaches a vendor any other way.
  */
 import { createHash } from "node:crypto";
+import { LIMITS } from "@foundmill/config";
 import { AppError, NotFoundError } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
 import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
@@ -40,8 +41,10 @@ import {
 } from "@foundmill/connectors";
 import { loadCredential, persistRefreshedCredential, toIntegrationRecord, type LoadedCredential } from "./credentials";
 import { writeGatewayEvent } from "./events";
+import { securitySettingsChange } from "./security-settings";
+import { grantsOutboundTools, READER_UNAVAILABLE, type UntrustedReader } from "./untrusted-reader";
 import { checkRateLimit, type RateLimitStore } from "./rate-limit";
-import { candidatesFromArgs, candidatesFromContent, hashRecipient, type RecipientCandidate, type UntrustedRecipientRegistry } from "./recipients";
+import { candidatesFromArgs, candidatesFromContent, hashRecipient, type RecipientCandidate, type UntrustedRegister } from "./recipients";
 import { checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
 import { sessionKey, toolAllowed, toolRef, type SessionToken } from "./tokens";
 import type { AllowResponse, AskResponse, CallRequestParsed, CallResponse, DenyResponse, RateLimitedResponse } from "./types";
@@ -59,7 +62,13 @@ export interface GatewayDeps {
   /** Connectors that run live while `mode` is mock (LIVE_CONNECTORS, e.g. GitHub before every other vendor). */
   liveConnectors?: readonly string[];
   rateLimits: RateLimitStore;
-  recipients: UntrustedRecipientRegistry;
+  /** Recipients first seen in untrusted content, shared by every session of a business (Redis in staging and production). */
+  recipients: UntrustedRegister;
+  /**
+   * Reads untrusted content for sessions that hold outbound tools (BUILD §9.8 step 2). Always set in a running gateway;
+   * tests that do not exercise the reader leave it out and get the content as before.
+   */
+  reader?: UntrustedReader;
   log: GatewayLogger;
   now?: () => Date;
   policyEngine?: PolicyEngine;
@@ -163,6 +172,8 @@ export class SessionStateDenied extends Error {
 
 export const SESSION_SCOPE_POLICY_ID = "session-scope";
 export const HARD_GATE_POLICY_ID = "hard-gate";
+/** The Cedar policy that forbids a call the gateway recognised as a security-settings change (security-settings.ts). */
+export const SECURITY_SETTINGS_POLICY_ID = "hard-gate-security-settings";
 export const AUDIT_ACTION_TOOL_CALL = "tool.call";
 export { AGENT_ARCHIVED_POLICY_ID, AGENT_PAUSED_POLICY_ID, AGENTS_STOPPED_POLICY_ID, BUSINESS_ARCHIVED_POLICY_ID, KEY_REVOKED_POLICY_ID } from "./state";
 
@@ -306,6 +317,17 @@ const rethrowNotFound =
     throw e;
   };
 
+/**
+ * The amount the spend policy sees: never less than what the connector says the call costs (a number it derives from the
+ * arguments, which the agent cannot lower) and never less than what the caller reported. A spending tool the connector
+ * cannot price is treated as above the approval threshold, so it asks (audit GPC-09, SECX-9).
+ */
+export function policyAmountMinor(input: { spendsMoney: boolean; declaredMinor: number | null; reportedMinor: number; thresholdMinor: number | undefined }): number {
+  const known = Math.max(input.declaredMinor ?? 0, input.reportedMinor);
+  if (!input.spendsMoney || input.declaredMinor !== null) return known;
+  return Math.max(known, (input.thresholdMinor ?? LIMITS.approvalThresholdMinorDefault) + 1);
+}
+
 async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, args: unknown): Promise<EvaluateInputInput> {
   const { connector, tool, business, agent } = loaded;
   const hints = connector.policyHints[tool.name] ?? {};
@@ -322,6 +344,8 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     hardGate: hints.hardGate ?? false,
     finance: attrs.finance,
     contract: attrs.contract,
+    // Decided here from the call's arguments (never reported by the agent): a DNS change that routes or authenticates email.
+    securitySettings: securitySettingsChange(connector.key, tool.name, args) !== null,
   };
 
   // Spend cap: the agent's own cap, tightened by a holiday budget ceiling while one is active (BUILD §9.6).
@@ -348,8 +372,8 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     recipient ??= candidates[0]?.value;
     suppressed = await anySuppressed(deps, session.businessId, candidates);
     // A seeded session whose seed this replica does not hold (restart, another replica) fails closed.
-    const seedMissing = session.untrustedSeeded && !deps.recipients.isSeeded(sessionKey(session));
-    recipientFirstSeenInUntrusted = candidates.length > 0 && (seedMissing || deps.recipients.firstSeenInUntrusted(sessionKey(session), candidates).length > 0);
+    const seedMissing = session.untrustedSeeded && !(await deps.recipients.isSeeded(sessionKey(session)));
+    recipientFirstSeenInUntrusted = candidates.length > 0 && (seedMissing || (await deps.recipients.firstSeenInUntrusted(session.businessId, sessionKey(session), candidates)).length > 0);
   }
 
   return {
@@ -357,14 +381,15 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     tool: toolCtx,
     business: { id: business.id, businessMode: business.businessMode, holidayActive: loaded.holidayActive },
     context: {
-      amountMinor: req.context.amountMinor ?? 0,
+      amountMinor: policyAmountMinor({ spendsMoney: toolCtx.spendsMoney ?? false, declaredMinor: connector.estimateCostMinor?.(tool.name, args) ?? null, reportedMinor: req.context.amountMinor ?? 0, thresholdMinor: principal.approvalThresholdMinor }),
       ...(recipient ? { recipient } : {}),
       recipientFirstSeenInUntrusted,
       ...(req.context.recipientCountry ? { recipientCountry: req.context.recipientCountry } : {}),
       ...(req.context.localTimeAtRecipient ? { localTimeAtRecipient: req.context.localTimeAtRecipient } : {}),
       suppressed,
       holidayActive: loaded.holidayActive,
-      kitMode: session.kitMode || (req.context.kitMode ?? false),
+      // The session's flag, minted by the orchestrator: a kit-mode channel is never unlocked by an argument of the call.
+      kitMode: session.kitMode,
     },
   };
 }
@@ -416,10 +441,15 @@ async function appendAudit(deps: GatewayDeps, session: SessionToken, req: CallRe
 }
 
 async function deny(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger): Promise<ToolCallResult> {
-  const hardGate = decision.policyIds.includes(HARD_GATE_POLICY_ID);
+  const securityChange = decision.policyIds.includes(SECURITY_SETTINGS_POLICY_ID) ? securitySettingsChange(loaded.connector.key, loaded.tool.name, args) : null;
+  const hardGate = decision.policyIds.includes(HARD_GATE_POLICY_ID) || securityChange !== null;
   let approvalId: string | undefined;
   let humanAction: HumanActionDescriptor | undefined;
-  if (hardGate) {
+  if (securityChange) {
+    // The tool itself is not hard-gated, so it is never called here: the founder's task is described from the change.
+    humanAction = { connector: loaded.connector.key, tool: loaded.tool.name, title: securityChange.title, instructions: securityChange.instructions, args, reason: "hard_gate" };
+    approvalId = await queueApproval(deps, session, req, loaded, decision, args, true, humanAction);
+  } else if (hardGate) {
     // The connector refuses hard-gated tools before any handler runs and answers with the founder's instructions.
     humanAction = await hardGateDescriptor(deps, session, loaded, args, log);
     approvalId = await queueApproval(deps, session, req, loaded, decision, args, true, humanAction);
@@ -588,9 +618,20 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   if (isUntrusted(result.data)) {
     const { content } = readForQuarantine(result.data);
     const found = candidatesFromContent(content);
-    const added = deps.recipients.record(sessionKey(session), found);
-    if (added > 0) log.debug({ added }, "recipients first seen in untrusted content recorded for this session");
+    const added = await deps.recipients.record(session.businessId, found);
+    if (added > 0) log.debug({ added }, "recipients first seen in untrusted content recorded for this business");
     data = toAgentEnvelope(result.data);
+    // An agent that can contact people, spend or do something irreversible never reads third-party text raw: a model with no
+    // tools reads it and the agent gets typed fields only (BUILD §9.8 step 2). If the reader fails, the agent gets nothing.
+    if (deps.reader && grantsOutboundTools(deps.registry, session.allowedTools)) {
+      try {
+        const digest = await deps.reader.digest({ content, businessId: session.businessId, agentId: session.agentId, sessionId: session.sessionId });
+        data = { ...toAgentEnvelope(result.data), content: digest, quarantined: true };
+      } catch (err) {
+        log.warn({ err: (err as Error).message }, "quarantined reader failed; the content is withheld");
+        data = { ...toAgentEnvelope(result.data), content: null, quarantined: true, unavailable: READER_UNAVAILABLE };
+      }
+    }
     untrusted = true;
   }
 

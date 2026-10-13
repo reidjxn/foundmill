@@ -159,7 +159,8 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     // Recipients found in what an earlier session left behind are untrusted here from the first call (§9.8 step 4); the
     // token records that a seed exists, so a replica without it fails closed.
     const minted = await mintSessionToken(secret, { ...claims, untrustedSeeded: claims.untrustedSeeded || !!untrusted }, ttl, now);
-    const seeded = untrusted ? deps.recipients.seed(sessionKey({ sessionId: claims.sessionId, jti: minted.jti }), toCandidates(untrusted), untrusted.all) : 0;
+    // Keyed by the session, or by the token when the call has none (an import, a plan action, a Source Watcher read).
+    const seeded = untrusted ? await deps.recipients.seed(claims.businessId, sessionKey({ sessionId: claims.sessionId, jti: minted.jti }), toCandidates(untrusted), untrusted.all) : 0;
     await repos.audit.append(deps.db, claims.businessId, {
       actorKind: "system",
       action: "gateway.session_token.minted",

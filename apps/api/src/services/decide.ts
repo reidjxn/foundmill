@@ -22,6 +22,7 @@ import { ValidationError, hasSectionAccess, type SectionMembership } from "@foun
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { assertApprovalAccess, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
+import { assertMayConfirmAsks } from "./approver";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
 import { startModelRetests } from "./agent-model";
 import { assertInstructionSectionAccess, assertPlanSectionAccess, choiceOf, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, planSectionRefusal, redispatchPlans, requiresConfirmation, syncChannelEngines, type ActionEvaluation, type ChannelToggle, type DecisionOption, type DispatchResult, type ModelRetests, type PlanContext } from "./plans";
@@ -248,6 +249,9 @@ export async function confirmPlan(ctx: BusinessContext, planId: string) {
     }
     // The confirmer needs write on every section the plan changes, whoever staged it (audit RUI-01).
     assertPlanSectionAccess(ctx.membership, plan.actions.filter((a) => a.status === "pending").map((a) => ({ type: a.type, params: a.params, denied: a.policyOutcome === "deny" })));
+    // An action that asked the founder first (a spend above the threshold, a message) is an owner's or admin's to
+    // confirm, or the person Team › Responsibilities names for it; any member with Inbox write is not enough (SEC-7).
+    await assertMayConfirmAsks(tx, ctx.businessId, { userId: ctx.userId, role: ctx.role }, plan.actions);
     const claimed = await repos.plans.claimConfirmation(tx, ctx.businessId, planId);
     if (!claimed) return { plan: await repos.plans.get(tx, ctx.businessId, planId), exec: NOTHING_RUN, item: null, alreadyConfirmed: true };
     const confirmed = await repos.plans.get(tx, ctx.businessId, planId);

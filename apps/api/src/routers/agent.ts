@@ -7,20 +7,28 @@ import { AgentInstructions, detectClubRuleViolation, deriveTraits, getSkillTests
 import { CREDITS_CURRENCY, LIMITS } from "@foundmill/config";
 import { UpdateAgentInput, repos, type Agent } from "@foundmill/db";
 import { MODELS, meter, resolveModel } from "@foundmill/models";
-import { MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
+import { ForbiddenError, MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
 import { z } from "zod";
 import { modelLimited } from "../services/model-limits";
 import { changeAgentModels, routeOf, startModelRetests } from "../services/agent-model";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds } from "../services/temporal";
-import { Id, audit, emit, router, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
+import { Id, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 
 const read = sectionRead("team");
 const write = sectionWrite("team");
+/**
+ * What widens what an agent may do on its own (autonomy, spend caps, negotiation, tool grants reaching the live version)
+ * is an owner's or admin's call, like the business's mode (SEC-7): a member trains and edits, but never raises caps.
+ */
+const admin = sectionAdmin("team");
+const isAdminRole = (ctx: Pick<BusinessContext, "role">) => ctx.role === "owner" || ctx.role === "admin";
 
 export const ApplyScope = z.enum(["agent", "type", "all"]);
 const Tools = z.array(z.object({ connectorKey: z.string().min(1), tools: z.array(z.string().min(1)).min(1) }));
-const Autonomy = z.object({ mode: z.enum(["inherit", "lower", "higher"]).default("inherit"), spendCapMinor: z.number().int().nonnegative().optional(), approvalThresholdMinor: z.number().int().nonnegative().optional() });
+/** Caps are bounded (`LIMITS.agentCapMaxMinor`): above it a spend is the founder's to approve, whatever the agent's cap. */
+const CapMinor = z.number().int().nonnegative().max(LIMITS.agentCapMaxMinor, "That is above the most an agent may be allowed on its own; approve larger spends yourself");
+const Autonomy = z.object({ mode: z.enum(["inherit", "lower", "higher"]).default("inherit"), spendCapMinor: CapMinor.optional(), approvalThresholdMinor: CapMinor.optional() });
 const Negotiation = z.object({ enabled: z.boolean(), priceMinMinor: z.number().int().nonnegative().optional(), priceMaxMinor: z.number().int().nonnegative().optional(), walkAwayMinor: z.number().int().nonnegative().optional(), maxConcessionPct: z.number().min(0).max(100).optional(), topics: z.array(z.string().min(1)).default([]) });
 
 async function scopedAgents(ctx: BusinessContext, agentId: string, scope: z.infer<typeof ApplyScope>): Promise<Agent[]> {
@@ -28,6 +36,27 @@ async function scopedAgents(ctx: BusinessContext, agentId: string, scope: z.infe
   if (scope === "agent") return [agent];
   const all = await repos.agents.list(ctx.db, ctx.businessId, { limit: 500 });
   return scope === "all" ? all.items : all.items.filter((a) => a.agentType === agent.agentType);
+}
+
+/** What agent.profile.update may change; every other field has its own procedure and checks (strict: unknown keys are a 400). */
+const ProfilePatch = UpdateAgentInput.pick({ name: true, role: true, descriptionMd: true, lineManagerId: true, wageCapMinor: true }).strict();
+
+/** A version's tool grants as a comparable set of `connector:tool` ids. */
+export function grantSet(tools: unknown): Set<string> {
+  const out = new Set<string>();
+  for (const g of Array.isArray(tools) ? tools : []) {
+    const grant = g as { connectorKey?: unknown; tools?: unknown };
+    if (typeof grant?.connectorKey !== "string" || !Array.isArray(grant.tools)) continue;
+    for (const t of grant.tools) if (typeof t === "string") out.add(`${grant.connectorKey}:${t}`);
+  }
+  return out;
+}
+
+/** True when `next` grants something `live` does not (a removal narrows and is anyone's with team write). */
+export function widensGrants(live: unknown, next: unknown): boolean {
+  const before = grantSet(live);
+  for (const g of grantSet(next)) if (!before.has(g) && !before.has(`${g.split(":")[0]}:*`) && !before.has("*:*")) return true;
+  return false;
 }
 
 
@@ -75,8 +104,14 @@ export const agentRouter = router({
         };
       }),
     ),
-    update: write.input(z.object({ agentId: Id, patch: UpdateAgentInput })).mutation(({ ctx, input }) =>
+    /**
+     * The profile's own fields (name, role, description, line manager, wage cap). Autonomy, negotiation, model, status
+     * and departments have their own procedures and checks, so a patch carrying them is a 400. The wage cap bounds what
+     * the agent may spend on models, so changing it is an owner's or admin's call.
+     */
+    update: write.input(z.object({ agentId: Id, patch: ProfilePatch })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
+        if (input.patch.wageCapMinor !== undefined && !isAdminRole(ctx)) throw new ForbiddenError("Only an owner or admin changes an agent's wage cap");
         const agent = await repos.agents.update(tx, ctx.businessId, input.agentId, input.patch);
         await audit(tx, ctx, { action: "agent.profile.update", target: { kind: "agent", id: agent.id }, details: { fields: Object.keys(input.patch) } });
         return agent;
@@ -91,6 +126,8 @@ export const agentRouter = router({
         const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
         const current = agent.currentVersionId ? await repos.agents.getVersion(tx, ctx.businessId, agent.currentVersionId) : null;
         const before = current ? AgentInstructions.safeParse(current.instructions) : null;
+        // New tool grants become the session token's allowedTools once promoted: only an owner or admin grants them.
+        if (input.tools && !isAdminRole(ctx) && widensGrants(current?.tools, input.tools)) throw new ForbiddenError("Only an owner or admin gives an agent new tools");
         const detection = detectClubRuleViolation(before?.success ? { before: before.data, after: input.instructions } : { before: input.instructions, after: input.instructions });
         const version = await repos.agents.createVersion(tx, ctx.businessId, agent.id, { instructions: input.instructions, tools: input.tools ?? (current?.tools as unknown[] | undefined) ?? [], modelKey: input.modelKey ?? agent.modelKey, state: "draft", createdByKind: "user", createdBy: ctx.userId });
         await audit(tx, ctx, { action: "agent.training.save_draft", target: { kind: "agent_version", id: version.id }, details: { agentId: agent.id, flagged: detection.flagged, violations: detection.violations.length, comment: input.comment ?? null } });
@@ -140,8 +177,15 @@ export const agentRouter = router({
       }),
     ),
 
+    /** Make a trained version live. A version that grants tools the live one does not is an owner's or admin's to promote. */
     promote: write.input(z.object({ runId: Id })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
+        if (!isAdminRole(ctx)) {
+          const pending = await repos.training.get(tx, ctx.businessId, input.runId);
+          const agent = await repos.agents.get(tx, ctx.businessId, pending.agentId);
+          const [to, live] = await Promise.all([pending.toVersionId ? repos.agents.getVersion(tx, ctx.businessId, pending.toVersionId) : null, agent.currentVersionId ? repos.agents.getVersion(tx, ctx.businessId, agent.currentVersionId) : null]);
+          if (to && widensGrants(live?.tools, to.tools)) throw new ForbiddenError("This version gives the agent new tools; an owner or admin promotes it");
+        }
         const watchUntil = new Date(Date.now() + LIMITS.rollbackWatchDays * 86_400_000);
         const run = await repos.training.decide(tx, ctx.businessId, input.runId, "promoted", { watchUntil });
         const version = await repos.agents.getVersion(tx, ctx.businessId, run.toVersionId!);
@@ -237,7 +281,7 @@ export const agentRouter = router({
   }),
 
   autonomy: router({
-    set: write.input(z.object({ agentId: Id, autonomy: Autonomy, applyScope: ApplyScope.default("agent") })).mutation(async ({ ctx, input }) => {
+    set: admin.input(z.object({ agentId: Id, autonomy: Autonomy, applyScope: ApplyScope.default("agent") })).mutation(async ({ ctx, input }) => {
       const targets = await scopedAgents(ctx, input.agentId, input.applyScope);
       return ctx.rls(async (tx) => {
         for (const a of targets) await repos.agents.setAutonomy(tx, ctx.businessId, a.id, { ...(a.autonomy as Record<string, unknown>), ...input.autonomy });
@@ -249,7 +293,7 @@ export const agentRouter = router({
 
   negotiation: router({
     /** Off by default; when on, limits are mandatory and final terms/signing/payment stay hard-gated (BUILD §9.6). */
-    set: write.input(z.object({ agentId: Id, negotiation: Negotiation, applyScope: ApplyScope.default("agent") })).mutation(async ({ ctx, input }) => {
+    set: admin.input(z.object({ agentId: Id, negotiation: Negotiation, applyScope: ApplyScope.default("agent") })).mutation(async ({ ctx, input }) => {
       if (input.negotiation.enabled && (input.negotiation.walkAwayMinor === undefined || (input.negotiation.priceMinMinor === undefined && input.negotiation.priceMaxMinor === undefined))) {
         throw new ValidationError("Set a walk-away and a price limit before enabling negotiation");
       }

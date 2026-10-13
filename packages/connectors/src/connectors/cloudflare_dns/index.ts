@@ -5,7 +5,7 @@ import { buildLiveConnector, healthResult } from "../../define";
 import { createHttp, type HttpClient } from "../../http";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { cloudflareDnsMock } from "./mock";
-import { analyseEmailAuth, CLOUDFLARE_BASE_URL, CLOUDFLARE_CONNECT_FIELDS, CLOUDFLARE_KEY, CLOUDFLARE_RATE_LIMITS, cloudflareTools, mapRecord, mapZone, type CfEnvelope, type CfRecord, type CfZone } from "./tools";
+import { analyseEmailAuth, assertRecordIs, CLOUDFLARE_BASE_URL, CLOUDFLARE_CONNECT_FIELDS, CLOUDFLARE_KEY, CLOUDFLARE_RATE_LIMITS, cloudflareTools, mapRecord, mapZone, type CfEnvelope, type CfRecord, type CfZone } from "./tools";
 
 export function createCloudflareDnsConnector(options: LiveConnectorOptions = {}): Connector {
   const { secrets, fetch, now } = resolveLiveOptions(options);
@@ -37,9 +37,15 @@ export function createCloudflareDnsConnector(options: LiveConnectorOptions = {})
         list_zones: async (_a, ctx) => ({ items: unwrap(await http(ctx).json<CfEnvelope<CfZone[]>>("GET", "/zones", { query: { per_page: 50 } })).map(mapZone) }),
         list_records: async ({ zoneId, type, name }, ctx) => ({ items: await listAll(http(ctx), zoneId, { type, name }) }),
         create_record: async ({ zoneId, ...fields }, ctx) => mapRecord(zoneId, unwrap(await http(ctx).json<CfEnvelope<CfRecord>>("POST", `/zones/${zoneId}/dns_records`, { body: fields }))),
-        update_record: async ({ zoneId, recordId, ...patch }, ctx) => mapRecord(zoneId, unwrap(await http(ctx).json<CfEnvelope<CfRecord>>("PATCH", `/zones/${zoneId}/dns_records/${recordId}`, { body: Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) }))),
-        delete_record: async ({ zoneId, recordId }, ctx) => {
-          unwrap(await http(ctx).json<CfEnvelope<{ id: string }>>("DELETE", `/zones/${zoneId}/dns_records/${recordId}`));
+        update_record: async ({ zoneId, recordId, type, recordName, ...patch }, ctx) => {
+          const h = http(ctx);
+          assertRecordIs(mapRecord(zoneId, unwrap(await h.json<CfEnvelope<CfRecord>>("GET", `/zones/${zoneId}/dns_records/${recordId}`))), { type, recordName });
+          return mapRecord(zoneId, unwrap(await h.json<CfEnvelope<CfRecord>>("PATCH", `/zones/${zoneId}/dns_records/${recordId}`, { body: Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) })));
+        },
+        delete_record: async ({ zoneId, recordId, type, recordName }, ctx) => {
+          const h = http(ctx);
+          assertRecordIs(mapRecord(zoneId, unwrap(await h.json<CfEnvelope<CfRecord>>("GET", `/zones/${zoneId}/dns_records/${recordId}`))), { type, recordName });
+          unwrap(await h.json<CfEnvelope<{ id: string }>>("DELETE", `/zones/${zoneId}/dns_records/${recordId}`));
           return { deleted: true as const, recordId };
         },
         check_email_auth: async ({ zoneId, domain, dkimSelectors }, ctx) => {

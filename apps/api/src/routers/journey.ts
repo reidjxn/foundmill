@@ -2,11 +2,15 @@
 import { JourneyListFilter, NO_DEPARTMENT_ID, repos } from "@foundmill/db";
 import { buildChapters, compareByTimeThenId, shouldPlayFullMatchDay } from "@foundmill/journey";
 import { dayKeyIn, dayRangeIn } from "@foundmill/shared";
+import { loadRedactionSource, redactValue } from "../services/inbox-redaction";
 import { attributionSummary, buildJourneyRecord } from "../services/journey";
+import { journeyWalls, wallConversion, wallJourneyDetail, wallRibbon } from "../services/journey-walls";
 import { z } from "zod";
-import { Id, businessProcedure, router } from "../trpc";
+import { Id, businessProcedure, router, sectionRead } from "../trpc";
 
 const DayKey = z.string().date();
+/** Customer Updates and their conversions are the Distribution section's; money and names follow the Finance and CRM walls. */
+const read = sectionRead("distribution");
 
 const DAY_MS = 86_400_000;
 /** How far the Ribbon reaches: ten years back for `from`, two years ahead for `to` (the forecast horizon is shorter). */
@@ -53,22 +57,34 @@ export const journeyRouter = router({
    * `@foundmill/journey` Journey record (channels, captain, standout agent, stats, nth of kind, consent / partial
    * journey, attribution model, xC model source) built server-side so the replay is deterministic (AC-11.4.3).
    */
-  get: businessProcedure.input(z.object({ journeyId: Id })).query(({ ctx, input }) =>
+  get: read.input(z.object({ journeyId: Id })).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const detail = await repos.journeys.get(tx, ctx.businessId, input.journeyId);
       const record = await buildJourneyRecord(tx, ctx.businessId, detail);
-      return { ...detail, agents: record.journey.agents, journey: record.journey, journeyTouches: record.touches, conversionCount: record.conversionCount, acquisitionCostLabel: record.acquisitionCostLabel, speedHint: record.journey.fullMatchDay ? ("full" as const) : ("highlights" as const) };
+      return wallJourneyDetail(tx, ctx.businessId, { ...detail, agents: record.journey.agents, journey: record.journey, journeyTouches: record.touches, conversionCount: record.conversionCount, acquisitionCostLabel: record.acquisitionCostLabel, speedHint: record.journey.fullMatchDay ? ("full" as const) : ("highlights" as const) }, journeyWalls(ctx.membership));
     }),
   ),
 
-  /** Customer Updates, newest first; each row says whether it is partial (`partialJourney`, the reading journey.get uses). */
-  list: businessProcedure.input(JourneyListFilter).query(({ ctx, input }) => ctx.rls((tx) => repos.journeys.list(tx, ctx.businessId, input ?? {}))),
+  list: read.input(JourneyListFilter).query(({ ctx, input }) =>
+    ctx.rls(async (tx) => {
+      const page = await repos.journeys.list(tx, ctx.businessId, input ?? {});
+      const walls = journeyWalls(ctx.membership);
+      if (!walls.finance && !walls.crm) return page;
+      // The commentary names the customer and quotes the money, so a list row is redacted like the detail (audit ARB-12).
+      const entityIds = page.items.flatMap((j) => (j.conversion.entityId ? [j.conversion.entityId] : []));
+      const source = await loadRedactionSource(tx, ctx.businessId, { finance: walls.finance, crm: walls.crm }, entityIds);
+      return {
+        ...page,
+        items: page.items.map((j) => ({ ...j, commentary: redactValue(j.commentary, source, { ids: j.conversion.entityId ? [j.conversion.entityId] : [], customer: true }), conversion: wallConversion(j.conversion, walls) })),
+      };
+    }),
+  ),
 
   /**
    * The journey of a conversion, or null when the win has none (yet): links that only know the conversion (Ribbon
    * markers, CRM activity, milestones) resolve through this, whatever the age of the win.
    */
-  forConversion: businessProcedure.input(z.object({ conversionId: Id })).query(({ ctx, input }) =>
+  forConversion: read.input(z.object({ conversionId: Id })).query(({ ctx, input }) =>
     ctx.rls(async (tx) => ({ journeyId: (await repos.journeys.forConversion(tx, ctx.businessId, input.conversionId))?.id ?? null })),
   ),
 
@@ -76,15 +92,15 @@ export const journeyRouter = router({
    * The Attribution screen's model in use (BUILD §11.4): labeled conversions over the whole history on the basis
    * `chooseModel` and the journey builder use, and every Customer Update with the partial ones (consent not granted).
    */
-  attribution: businessProcedure.query(({ ctx }) => ctx.rls((tx) => attributionSummary(tx, ctx.businessId))),
+  attribution: read.query(({ ctx }) => ctx.rls((tx) => attributionSummary(tx, ctx.businessId))),
 
-  markViewed: businessProcedure.input(z.object({ journeyId: Id })).mutation(({ ctx, input }) => ctx.rls((tx) => repos.journeys.markViewed(tx, ctx.businessId, input.journeyId))),
+  markViewed: read.input(z.object({ journeyId: Id })).mutation(({ ctx, input }) => ctx.rls((tx) => repos.journeys.markViewed(tx, ctx.businessId, input.journeyId))),
 
   /**
    * Ribbon data: per-department daily rows, conversions, milestones and chapters for a day range. `slim` leaves out the
    * per-conversion detail (`conversions` is empty) for readers that only need the daily rows, the milestones and how
    * many conversions there were (`conversionCount`): the Home status strip, department cards and day-one check share
-   * one slim query.
+   * one slim query. Home's for every member: what a section wall hides is taken out (services/journey-walls.ts).
    */
   ribbon: businessProcedure.input(RibbonInput).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
@@ -120,11 +136,11 @@ export const journeyRouter = router({
       // Ribbon and the revenue widgets read `departmentId: null` and numbers.
       const dailyRows = rows.map((r) => ({ ...r, departmentId: r.departmentId === NO_DEPARTMENT_ID ? null : r.departmentId, agentHours: Number(r.agentHours), spendMinor: Number(r.spendMinor), revenueMinor: Number(r.revenueMinor) }));
       const labelled = conversions.items.length ? await repos.journeys.labelConversions(tx, ctx.businessId, conversions.items) : [];
-      return { rows: dailyRows, conversions: labelled.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })), conversionCount, milestones: milestones.map((m) => ({ ...m, achievedAt: m.achievedAt.toISOString() })), chapters, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const };
+      return wallRibbon({ rows: dailyRows, conversions: labelled.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })), conversionCount, milestones: milestones.map((m) => ({ ...m, achievedAt: m.achievedAt.toISOString() })), chapters, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const }, journeyWalls(ctx.membership));
     }),
   ),
 
-  roundup: businessProcedure.input(z.object({ day: DayKey })).query(({ ctx, input }) =>
+  roundup: read.input(z.object({ day: DayKey })).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const { from, to } = dayRangeIn(input.day, input.day, ctx.business.timeZone);
       const conversions = await repos.journeys.listConversions(tx, ctx.businessId, { from, to, firstPayment: true, limit: 500 });
@@ -140,7 +156,8 @@ export const journeyRouter = router({
         counts[c.kind] += 1;
         if (!shouldPlayFullMatchDay(c.kind, counts[c.kind], c.amountMinor, c.kind === "payment" ? p75 : null, false)) rolledUp.push(c.id);
       }
-      return { day: input.day, conversions: named, rolledUp };
+      const walls = journeyWalls(ctx.membership);
+      return { day: input.day, conversions: named.map((c) => wallConversion(c, walls)), rolledUp };
     }),
   ),
 });

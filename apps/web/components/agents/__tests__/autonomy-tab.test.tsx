@@ -11,6 +11,7 @@ import { ToastProvider, TooltipProvider } from "@foundmill/dugout";
 
 const setAutonomy = vi.fn();
 const setNegotiation = vi.fn();
+const viewer = vi.hoisted(() => ({ isAdmin: true }));
 
 vi.mock("@/lib/trpc-react", () => ({
   useTRPC: () => ({
@@ -20,7 +21,7 @@ vi.mock("@/lib/trpc-react", () => ({
     },
   }),
 }));
-vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ businessId: "b1", data: { business: { gameMode: "sandbox", businessMode: "assisted" } }, departments: [] }) }));
+vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ businessId: "b1", isAdmin: viewer.isAdmin, data: { business: { gameMode: "sandbox", businessMode: "assisted" } }, departments: [] }) }));
 
 import { AutonomyTab } from "../AutonomyTab";
 
@@ -50,8 +51,17 @@ function type(el: HTMLInputElement, text: string) {
 
 describe("AutonomyTab money fields", () => {
   beforeEach(() => {
+    viewer.isAdmin = true;
     setAutonomy.mockReset().mockResolvedValue({ updated: [AGENT] });
     setNegotiation.mockReset().mockResolvedValue({ updated: [AGENT] });
+  });
+
+  it("a member sees autonomy, caps and negotiation as an owner's or admin's to change (audit SECX-10)", () => {
+    viewer.isAdmin = false;
+    renderTab();
+    expect((screen.getByTestId("save-autonomy") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("save-negotiation") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("autonomy-footer").textContent).toContain("Only an owner or admin changes autonomy and spend caps");
   });
 
   it("keeps what is typed in every money field and saves it in minor units", async () => {

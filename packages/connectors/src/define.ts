@@ -234,6 +234,16 @@ function assemble<S extends readonly AnyToolSpec[]>(spec: ConnectorSpec<S>, mode
   };
   if (spec.costModel) base.costModel = spec.costModel;
   if (spec.connectFields) base.connectFields = spec.connectFields;
+  const byName = new Map<string, AnyToolSpec>(spec.tools.map((t) => [t.name, t]));
+  base.estimateCostMinor = (name, args) => {
+    const tool = byName.get(name);
+    if (!tool) return null;
+    const parsed = tool.input.safeParse(args ?? {});
+    // Arguments the tool rejects spend nothing: the call fails validation before any handler runs.
+    if (!parsed.success) return 0;
+    if (tool.costMinor) return tool.costMinor(parsed.data);
+    return spec.costModel ? spec.costModel(name, parsed.data) : null;
+  };
   if (spec.webhooks) base.webhooks = spec.webhooks;
   return base;
 }

@@ -95,11 +95,15 @@ export function ModeTab() {
           </StatusPill>
           <p className="text-body text-secondary">{b.gameMode === "live" ? "Visible on the network and eligible for leaderboards." : "Private: only members of this business can see it."}</p>
         </div>
-        <div>
-          <Button variant="default" onClick={() => setReviewTarget(b.gameMode === "live" ? "personal" : "live")} data-testid="switch-game-mode">
-            {b.gameMode === "live" ? "Switch to Personal" : "Go live"}
-          </Button>
-        </div>
+        {data.liveOpen ? (
+          <div>
+            <Button variant="default" onClick={() => setReviewTarget(b.gameMode === "live" ? "personal" : "live")} data-testid="switch-game-mode">
+              {b.gameMode === "live" ? "Switch to Personal" : "Go live"}
+            </Button>
+          </div>
+        ) : (
+          <p className="text-body text-secondary" data-testid="live-closed-note">Live is not open yet. When it opens, you can list this business on the network from here.</p>
+        )}
         <Dialog open={reviewTarget !== null} onOpenChange={(o) => !o && closeReview()}>
           <DialogContent size="md">
             <DialogHeader>

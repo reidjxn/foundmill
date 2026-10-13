@@ -23,7 +23,8 @@ export function AutonomyTab({ businessId, profile, currency, typeCount, allCount
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { data } = useBusiness();
+  // Autonomy, caps and negotiation widen what the agent does on its own: owners and admins change them (the api refuses anyone else).
+  const { data, isAdmin } = useBusiness();
   const agent = profile.agent;
   const live = data.business.gameMode === "live";
 
@@ -82,8 +83,8 @@ export function AutonomyTab({ businessId, profile, currency, typeCount, allCount
         actions={<Chip tone="neutral">Business mode: {MODE_WORD[data.business.businessMode] ?? data.business.businessMode}</Chip>}
         footer={
           <span className="flex w-full items-center gap-2">
-            <span>Hard gates (money, signing, identity, deletion, security) never lift, whatever the override.</span>
-            <Button size="sm" variant="primary" className="ml-auto" disabled={!!autonomyError} loading={setAutonomyM.isPending} onClick={() => setScope("autonomy")} data-testid="save-autonomy">
+            <span data-testid="autonomy-footer">{isAdmin ? "Hard gates (money, signing, identity, deletion, security) never lift, whatever the override." : "Only an owner or admin changes autonomy and spend caps. Hard gates never lift, whatever the override."}</span>
+            <Button size="sm" variant="primary" className="ml-auto" disabled={!isAdmin || !!autonomyError} loading={setAutonomyM.isPending} onClick={() => setScope("autonomy")} data-testid="save-autonomy">
               Save autonomy
             </Button>
           </span>
@@ -126,7 +127,7 @@ export function AutonomyTab({ businessId, profile, currency, typeCount, allCount
         footer={
           <span className="flex w-full items-center gap-2">
             <span>Within these limits the agent negotiates without per-message approval. Final terms, signing and payment stay hard-gated; transcripts go on the counterparty's CRM profile; the other side always knows it is an agent.</span>
-            <Button size="sm" variant="primary" className="ml-auto shrink-0" disabled={!!negotiationError} loading={setNegotiationM.isPending} onClick={() => setScope("negotiation")} data-testid="save-negotiation">
+            <Button size="sm" variant="primary" className="ml-auto shrink-0" disabled={!isAdmin || !!negotiationError} loading={setNegotiationM.isPending} onClick={() => setScope("negotiation")} data-testid="save-negotiation">
               Save negotiation
             </Button>
           </span>

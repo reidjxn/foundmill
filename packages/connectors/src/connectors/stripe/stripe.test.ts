@@ -143,6 +143,31 @@ describe("stripe live (canned responses)", () => {
     expect(account).toBe(MOCK_STRIPE_ACCOUNT_ID);
     expect(isUntrusted(r.data) && r.data.content).toMatchObject({ items: [{ id: "cus_MockAnnaLind01", currency: "EUR" }], hasMore: false });
   });
+  it("connect: an account id is not proof; the account must be tagged for this business, or the founder brings its own key (audit VGPC-X1)", async () => {
+    const VICTIM = "acct_1VictimAccount0001";
+    const account = (over: Record<string, unknown> = {}) => jsonResponse({ object: "account", id: VICTIM, country: "GB", default_currency: "gbp", charges_enabled: true, payouts_enabled: true, business_profile: { name: "Northwind Skincare Ltd" }, ...over });
+    const connector = createStripeConnector({
+      secrets: { stripeSecretKey: "sk_test_platform" },
+      fetch: routedFetch({
+        [`GET https://api.stripe.com/v1/accounts/${VICTIM}`]: () => account({ metadata: { foundmill_business_id: TEST_BUSINESS_ID } }),
+        "GET https://api.stripe.com/v1/accounts/acct_1OtherBusiness0002": () => account({ id: "acct_1OtherBusiness0002", metadata: { foundmill_business_id: "00000000-0000-4000-8000-0000000000aa" } }),
+        "GET https://api.stripe.com/v1/accounts/acct_1Untagged00000003": () => account({ id: "acct_1Untagged00000003" }),
+        "GET https://api.stripe.com/v1/account": () => account({ id: "acct_1OwnKeyAccount004" }),
+      }),
+    });
+    // Another business's account, and an account nobody tagged: refused, and nothing about the account is returned.
+    for (const accountId of ["acct_1OtherBusiness0002", "acct_1Untagged00000003"]) {
+      const err = await connector.connect(TEST_BUSINESS_ID, { accountId }).then(() => null, (e: unknown) => e as Error & { code?: string });
+      expect(err?.code, accountId).toBe("account_not_proven");
+      expect(err?.message).not.toMatch(/Northwind|GB|GBP/);
+    }
+    // The platform tagged this account for this business: connected.
+    const tagged = await connector.connect(TEST_BUSINESS_ID, { accountId: VICTIM });
+    expect(tagged).toMatchObject({ status: "connected", externalAccountId: VICTIM, config: { kind: "connect" } });
+    // A key issued by the account itself proves control: the key's own account is bound, whatever id was pasted next to it.
+    const own = await connector.connect(TEST_BUSINESS_ID, { apiKey: "rk_test_business", accountId: VICTIM });
+    expect(own).toMatchObject({ externalAccountId: "acct_1OwnKeyAccount004", config: { kind: "own" }, credentialToStore: { kind: "api_key", secret: "rk_test_business" } });
+  });
   it("prefers the business's own key and verifies webhooks with the per-business secret", async () => {
     let auth = "";
     const connector = createStripeConnector({

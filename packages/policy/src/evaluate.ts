@@ -56,6 +56,7 @@ export function toEntities(input: EvaluateInput): Entities {
       hardGate: tool.hardGate,
       finance: tool.finance,
       contract: tool.contract,
+      securitySettings: tool.securitySettings,
     },
     parents: [],
   };

@@ -2,8 +2,9 @@
  * business.get/update/setGameMode/setBusinessMode/setSpendCap/continue/pauseCycle/resumeCycle/startHoliday/endHoliday/
  * stopAllAgents/resumeAgents/export/archive/restore/listArchived/requestDeletion/cancelDeletion (BUILD §9.4, §9.6, §11.15, §14).
  */
-import { LIMITS } from "@foundmill/config";
+import { LIMITS, liveModeOpen } from "@foundmill/config";
 import { HolidayRunningError, repos, UpdateBusinessInput } from "@foundmill/db";
+import { demoBusinessIdForSlug } from "@foundmill/db/seed/constants";
 import { BUSINESS_SETTINGS_FIELDS } from "@foundmill/events";
 import { PRICING_CURRENCY } from "@foundmill/models";
 import { BUSINESS_MODES, ConflictError, DECISION_TYPES, EVENT_TYPES, GAME_MODES, isValidTimeZone } from "@foundmill/shared";
@@ -15,7 +16,7 @@ import { archiveBusiness, cancelDeletion, deletionState, exportBusiness, request
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { modelLimited } from "../services/model-limits";
 import { noteAsSeenBy } from "../services/inbox-redaction";
-import { adminArchivedProcedure, adminProcedure, archivedBusinessProcedure, audit, businessProcedure, emit, ownerArchivedProcedure, ownerProcedure, protectedProcedure, router, writeProcedure } from "../trpc";
+import { adminArchivedProcedure, adminProcedure, archivedBusinessProcedure, assertLiveOpen, audit, businessProcedure, emit, ownerArchivedProcedure, ownerProcedure, protectedProcedure, router, writeProcedure } from "../trpc";
 import { businessLogoRouter } from "./logo";
 
 /**
@@ -53,8 +54,12 @@ export const businessRouter = router({
     const [holiday, blocking, departments, agents, deletion, logo, foundations] = await ctx.rls(async (tx) =>
       Promise.all([repos.holidays.current(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId), repos.departments.list(tx, ctx.businessId), repos.agents.countByStatus(tx, ctx.businessId), deletionState({ db: tx, businessId: ctx.businessId }), repos.logos.getMeta(tx, ctx.businessId), repos.foundations.get(tx, ctx.businessId)]),
     );
+    // While LIVE is closed on this deployment a stored "live" reads as Personal everywhere (sidebar, widgets, Settings),
+    // and `liveOpen` tells Settings not to offer Go live.
+    const liveOpen = liveModeOpen(ctx.env);
     return {
-      business: ctx.business,
+      business: liveOpen ? ctx.business : { ...ctx.business, gameMode: "personal" as const },
+      liveOpen,
       /**
        * The logo's metadata only (a few hundred bytes); the image itself comes from `business.logo.get`, keyed by
        * `sha256`, so this payload stays small. Null: draw the initials mark.
@@ -98,6 +103,9 @@ export const businessRouter = router({
   update: adminProcedure.input(BusinessSettingsInput.extend({ expected: ExpectedBusinessFields.optional() })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const { expected, ...changes } = input;
+      // The demo businesses' slugs are reserved for them (boot-time seeding finds them by id, and nobody else holds those addresses).
+      const reservedFor = changes.slug ? demoBusinessIdForSlug(changes.slug) : null;
+      if (reservedFor && reservedFor !== ctx.businessId) throw new ConflictError("That address is taken; choose another", { slug: changes.slug });
       if (expected) {
         const current = await repos.businesses.get(tx, ctx.businessId);
         const stale = staleBusinessFields(current, expected);
@@ -117,6 +125,8 @@ export const businessRouter = router({
   setGameMode: adminProcedure.input(z.object({ gameMode: z.enum(GAME_MODES), reason: z.string().max(500).optional(), confirmAdult: z.boolean().optional() })).mutation(async ({ ctx, input }) => {
     // Going LIVE puts the business on the network, which is for adults (BUILD §11.14): the founder confirms once that
     // they are 18 or older (0027; the Go live dialog asks), or has already.
+    // Going live is refused while LIVE is closed; switching back to Personal always works.
+    if (input.gameMode === "live") assertLiveOpen(ctx.env);
     if (input.gameMode === "live" && ctx.business.gameMode !== "live") await requireAdultToGoLive(ctx.db, ctx.userId, input.confirmAdult);
     const business = await ctx.rls(async (tx) => {
       const from = ctx.business.gameMode;

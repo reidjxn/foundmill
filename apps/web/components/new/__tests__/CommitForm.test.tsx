@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CONCEPT_ATTRIBUTE_KEYS, TooltipProvider } from "@foundmill/dugout";
 import { TRPCClientError } from "@trpc/client";
@@ -67,6 +67,16 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("250");
     expect(screen.getByTestId("trademark-caveat").textContent).toMatch(/Screen, not legal clearance/);
     expect(screen.getByTestId("kit-contrast").dataset.passes).toBe("true");
+  });
+
+  it("offers Live only where LIVE is open (audit VLS2-X1)", () => {
+    renderForm();
+    expect(document.querySelector('[data-option="live"]')).not.toBeNull();
+    cleanup();
+    renderForm(vi.fn(), { liveOpen: false });
+    expect(document.querySelector('[data-option="live"]')).toBeNull();
+    expect(document.querySelector('[data-option="personal"]')?.getAttribute("data-selected")).toBe("true");
+    expect(screen.getByTestId("live-closed-note").textContent).toContain("Live is not open yet");
   });
 
   it("screens domains and trademarks after the name settles", async () => {

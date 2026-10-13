@@ -71,7 +71,7 @@ export function createTestConnector(options: TestConnectorOptions = {}, seen: Se
       hints: { contactsThirdParty: true },
       costMinor: () => 7,
     }),
-    defineTool({ name: "spend", description: "Spends money.", input: z.object({ amountMinor: z.number().int().nonnegative() }), output: z.object({ charged: z.number() }), hints: { spendsMoney: true } }),
+    defineTool({ name: "spend", description: "Spends money.", input: z.object({ amountMinor: z.number().int().nonnegative() }), output: z.object({ charged: z.number() }), hints: { spendsMoney: true }, costMinor: (a) => a.amountMinor }),
     defineTool({ name: "delete_everything", description: "Irreversible.", input: z.object({}), output: z.object({ deleted: z.literal(true) }), hints: { irreversible: true } }),
     defineTool({
       name: "pay_out",

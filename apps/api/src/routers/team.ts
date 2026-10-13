@@ -8,10 +8,12 @@ import { pendingApprovals, resolveApproval } from "../services/approvals";
 import { modelLimited } from "../services/model-limits";
 import { archivePlaybook, compilePlaybookText, createPlaybook, setPlaybookEnabled, toPlaybookView, updatePlaybook } from "../services/playbooks";
 import { hireFromTemplate } from "../services/squad";
-import { Id, adminProcedure, audit, emit, router, sectionRead, sectionWrite, writeProcedure } from "../trpc";
+import { Id, adminProcedure, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, writeProcedure } from "../trpc";
 
 const read = sectionRead("team");
 const write = sectionWrite("team");
+/** Staff and their permissions: owners and admins who may write to the Team section (a wall on Team holds for admins too). */
+const staffAdmin = sectionAdmin("team");
 
 const Handler = z.object({ kind: z.enum(["founder", "user", "agent"]), id: Id.nullable().default(null) });
 const Responsibility = z.object({ decisionType: z.enum(DECISION_TYPES), handler: Handler });
@@ -108,7 +110,7 @@ export const teamRouter = router({
      * Invite by user id (Supabase auth user); e-mail invitations are sent by the web app's auth flow. Adds a new member
      * only: an existing member (the owner included) is never overwritten (409; use `role`).
      */
-    invite: adminProcedure.input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).default("member"), sectionPermissions: SectionPermissions.default({}), email: z.string().email().optional() })).mutation(({ ctx, input }) =>
+    invite: staffAdmin.input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).default("member"), sectionPermissions: SectionPermissions.default({}), email: z.string().email().optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         if (input.role === "owner") throw new ValidationError("Ownership is granted by an owner from Role and permissions, not by invitation");
         if (await repos.memberships.get(tx, ctx.businessId, input.userId)) throw new ConflictError("That person is already a member of this business; change their role instead", { userId: input.userId });
@@ -125,7 +127,7 @@ export const teamRouter = router({
      * Role and section permissions of another member. Nobody edits their own; only an owner changes an owner's row or
      * grants ownership; the last owner keeps the role (the same rules hold in RLS, 0026_membership_guards).
      */
-    role: adminProcedure.input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).optional(), sectionPermissions: SectionPermissions.optional() })).mutation(({ ctx, input }) =>
+    role: staffAdmin.input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).optional(), sectionPermissions: SectionPermissions.optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         if (input.userId === ctx.userId) throw new ValidationError("You cannot change your own role or section permissions; another owner or admin can");
         let membership = await repos.memberships.get(tx, ctx.businessId, input.userId);
@@ -140,7 +142,7 @@ export const teamRouter = router({
         return membership;
       }),
     ),
-    remove: adminProcedure.input(z.object({ userId: Id })).mutation(({ ctx, input }) =>
+    remove: staffAdmin.input(z.object({ userId: Id })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         if (input.userId === ctx.userId) throw new ValidationError("Leave the business from Settings instead of removing yourself");
         const target = await repos.memberships.get(tx, ctx.businessId, input.userId);

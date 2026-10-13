@@ -94,7 +94,8 @@ export function createApiLinks(opts: { getToken: TokenGetter; url?: string; fetc
   };
   // One stream per request (`maxItems: 1`): a batched request is only aborted once every operation in it is, so Stop on
   // a draft that shared a request with another stream would leave the API drafting.
-  return [splitLink({ condition: isStreamingOperation, true: httpBatchStreamLink({ ...common, maxItems: 1 }), false: httpBatchLink({ ...common, fetch: fetchWithTimeout(opts.fetch) }) })];
+  // A batch carries at most `LIMITS.trpcMaxBatchSize` calls: the api refuses a longer one (400).
+  return [splitLink({ condition: isStreamingOperation, true: httpBatchStreamLink({ ...common, maxItems: 1 }), false: httpBatchLink({ ...common, fetch: fetchWithTimeout(opts.fetch), maxItems: LIMITS.trpcMaxBatchSize }) })];
 }
 
 export function createApiClient(opts: { getToken: TokenGetter; url?: string; fetch?: typeof fetch }) {

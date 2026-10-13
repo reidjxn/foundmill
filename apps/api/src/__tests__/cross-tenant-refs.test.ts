@@ -31,7 +31,7 @@ describe("reference fields name rows of the business", () => {
 
   it("agent.profile.update: a line manager or department of another business is refused, and the profile still reads", async () => {
     expect(await codeOf(owner().agent.profile.update({ businessId: businessId(), agentId: hz.A.agentId, patch: { lineManagerId: hz.B.agentId } }))).toBe("BAD_REQUEST");
-    expect(await codeOf(owner().agent.profile.update({ businessId: businessId(), agentId: hz.A.agentId, patch: { departmentIds: [hz.B.departmentId] } }))).toBe("BAD_REQUEST");
+    expect(await codeOf(owner().agent.profile.update({ businessId: businessId(), agentId: hz.A.agentId, patch: { departmentIds: [hz.B.departmentId] } as never }))).toBe("BAD_REQUEST"); // the profile no longer takes departments at all (strict patch)
     expect(await codeOf(owner().agent.profile.get({ businessId: businessId(), agentId: hz.A.agentId }))).toBe("OK");
     expect(await codeOf(owner().agent.profile.update({ businessId: businessId(), agentId: hz.A.agentId, patch: { lineManagerId: hz.A.agent2Id } }))).toBe("OK");
   });

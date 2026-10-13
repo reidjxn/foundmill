@@ -18,7 +18,13 @@ import { ForbiddenError, NotFoundError, ValidationError, VISIBILITY, WRITE_ROLES
 import { z } from "zod";
 import type { Context } from "../context";
 import { deliverConnectionRequest, deliverMessage, screenText, signalPeople, takeLive } from "../services/live";
-import { Id, businessProcedure, effectivePermission, pgErrorCode, protectedProcedure, router, sectionWrite } from "../trpc";
+import { takeConnectionRequest, takeMessage, takePost } from "../services/live-limits";
+import { Id, businessProcedure as anyBusinessProcedure, effectivePermission, liveGate, pgErrorCode, protectedProcedure as anyProtectedProcedure, router, sectionWrite as anySectionWrite, type Section } from "../trpc";
+
+// Every LIVE procedure is closed while LIVE is (FLAGS.liveMode / LIVE_MODE, audit VLS2-X1).
+const protectedProcedure = anyProtectedProcedure.use(liveGate);
+const businessProcedure = anyBusinessProcedure.use(liveGate);
+const sectionWrite = (section: Section) => anySectionWrite(section).use(liveGate);
 
 const Page = z.object({ limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() }).optional();
 
@@ -169,6 +175,7 @@ export const liveRouter = router({
         if (toUserId === ctx.userId) throw new ValidationError(input.toBusinessId ? "That is your own business" : "Cannot connect to yourself");
         await requireAdult(ctx);
         takeLive(ctx.userId, "requests");
+        await takeConnectionRequest(ctx.limits, ctx.userId, toUserId);
         const fromBusinessId = isListed(ctx.business) ? ctx.businessId : null;
         let created = false;
         const connection = await repos.social.requestConnection(ctx.db, ctx.userId, toUserId, input.message || null, {
@@ -248,6 +255,8 @@ export const liveRouter = router({
       if (!input.threadId && !input.toUserIds) throw new ValidationError("Give a thread or recipients");
       await requireAdult(ctx);
       takeLive(ctx.userId, "messages");
+      // Throttled before anything is written: per person, and per thread (or per set of recipients for a first message).
+      await takeMessage(ctx.limits, ctx.userId, input.threadId ?? [...input.toUserIds!].sort().join(","));
       let recipients: string[] = [];
       const message = await ctx.db.transaction(async (tx) => {
         const threadId = input.threadId ?? (await repos.social.startThread(tx, ctx.userId, input.toUserIds!, input.subject ?? null)).id;
@@ -395,6 +404,7 @@ export const liveRouter = router({
       const businessId = await speakingAs(ctx, input.businessId);
       await requireAdult(ctx);
       takeLive(ctx.userId, "posts");
+      await takePost(ctx.limits, ctx.userId);
       const screening = await screenText(ctx, { text: input.bodyMd, kind: "community_post", communityName: community.name, businessId });
       const post = await repos.social.createPost(ctx.db, { ...input, businessId, authorUserId: ctx.userId, screening });
       if (post.status === "pending_review") await signalPeople(ctx, await moderatorsOf(ctx.db, input.communityId), "moderation", { communityId: input.communityId });
@@ -440,6 +450,7 @@ export const liveRouter = router({
       await speakingAs(ctx, post.businessId);
       await requireAdult(ctx);
       takeLive(ctx.userId, "posts");
+      await takePost(ctx.limits, ctx.userId);
       const screening = await screenText(ctx, { text: input.bodyMd, kind: "community_post", communityName: community.name, businessId: post.businessId });
       const edited = await repos.social.editPost(ctx.db, ctx.userId, input.postId, input.bodyMd, screening);
       if (edited.status === "pending_review") await signalPeople(ctx, await moderatorsOf(ctx.db, post.communityId), "moderation", { communityId: post.communityId });

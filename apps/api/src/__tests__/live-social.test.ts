@@ -20,7 +20,7 @@ let hz: ApiHarness;
 let redis: MemoryRedis;
 beforeAll(async () => {
   redis = new MemoryRedis();
-  hz = await createApiHarness({ prefix: "live-social", redis });
+  hz = await createApiHarness({ prefix: "live-social", redis, env: { LIVE_MODE: "1" } });
 }, 120_000);
 afterAll(() => hz.close());
 beforeEach(() => liveLimiter.reset());

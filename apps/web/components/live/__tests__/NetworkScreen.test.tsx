@@ -85,6 +85,26 @@ describe("/network", () => {
     expect(within(panel).getByText(/only your own Send sends it/)).toBeTruthy();
   });
 
+  it("reads a thread a page at a time and loads earlier messages on request (audit GLS2F-05)", async () => {
+    const all = Array.from({ length: 120 }, (_, i) => message(`m${i}`, ids.ana, `message ${i}`, i + 1));
+    seed({
+      "live.messages.list": (v) => {
+        const { limit, cursor } = v as { limit: number; cursor?: string | null };
+        const start = cursor ? Number(cursor) : 0;
+        const end = start + limit;
+        return { items: all.slice(start, end), nextCursor: end < all.length ? String(end) : null };
+      },
+    });
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: /Fintech ops intro/ }));
+    expect(callsTo(api, "live.messages.list")[0]).toMatchObject({ threadId: "t-ana", limit: 50 });
+    fireEvent.click(await screen.findByRole("button", { name: "Load earlier messages" }));
+    await waitFor(() => expect(callsTo(api, "live.messages.list").at(-1)).toMatchObject({ threadId: "t-ana", limit: 50, cursor: "50" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Load earlier messages" }));
+    await waitFor(() => expect(callsTo(api, "live.messages.list").at(-1)).toMatchObject({ cursor: "100" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Load earlier messages" })).toBeNull());
+  });
+
   it("opens a thread: messages oldest first, the counts refreshed once it is read, and Send replies in that thread", async () => {
     mount();
     fireEvent.click(await screen.findByRole("button", { name: /Ana Ruiz/ }));
