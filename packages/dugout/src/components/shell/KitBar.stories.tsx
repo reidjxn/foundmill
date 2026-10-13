@@ -40,6 +40,25 @@ export const LightBrandColour: Story = {
 export const Ledgerly: Story = { args: { kit: LEDGERLY_KIT, businessName: "Ledgerly", logoSrc: SAMPLE_LOGOS.orbit, screenTitle: "Finance · Runway", runwayMonths: null, runwayWords: { value: "No limit", caption: "Cash-flow positive, so no limit yet" } } };
 /** No logo yet: the initials mark in the primary, separated from the bar by its hairline. */
 export const WithoutLogo: Story = { name: "No logo yet → initials mark", args: { logoSrc: null } };
+
+export const BusinessMenu: Story = {
+  name: "Business menu",
+  args: {
+    businessMenu: {
+      businesses: [{ id: "nw", name: "Northwind Skincare", current: true }, { id: "lg", name: "Ledgerly" }, { id: "tl", name: "Tutorlane" }],
+      onOpenBusiness: () => {},
+      onNewBusiness: () => {},
+      onProfile: () => {},
+    },
+  },
+  parameters: { docs: { description: { story: "The logo and name open a menu: Home, every business the founder can open (the current one ticked), Start another business and Your profile." } } },
+};
+
+export const ConnectionDown: Story = {
+  name: "Live connection down",
+  args: { connection: { state: "reconnecting" } },
+  parameters: { docs: { description: { story: "After a few seconds without the live connection, a glass chip in an amber ring says so before the date: “Reconnecting…”, or “Live updates paused” when it is not coming back by itself. It leaves as soon as the connection is live again." } } },
+};
 /** The minimum window: the search keeps only what fits; the title is never cut. */
 export const At1280: Story = {
   name: "1280 px window",

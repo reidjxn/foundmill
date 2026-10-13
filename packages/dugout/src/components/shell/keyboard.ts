@@ -254,7 +254,11 @@ export function useKeyboardMap(ctx: KeyboardMapContext): KeyboardMapResult {
   );
   useHotkeys(
     "escape",
-    () => {
+    (e) => {
+      // An open dialog, sheet, menu or popover took this Esc to close itself (Radix handles it on the capture phase and
+      // marks it handled): the page underneath must not also react, e.g. Home leaving Edit mode when Esc closed the
+      // Add widget drawer (audit OL-15).
+      if (e.defaultPrevented) return;
       if (pendingRef.current) {
         cancelChord();
         return;

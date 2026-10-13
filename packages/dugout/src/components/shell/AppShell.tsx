@@ -9,7 +9,8 @@ import { Breadcrumbs } from "./Breadcrumbs";
 import { CommandPalette, type CommandPaletteProps } from "./CommandPalette";
 import { continueButtonAction, type ContinueHandlers } from "./ContinueButton";
 import { KeyboardHelp } from "./KeyboardHelp";
-import { KitBar, kitStyle, type KitBarNav } from "./KitBar";
+import type { ConnectionChipProps } from "./ConnectionChip";
+import { KitBar, kitStyle, type KitBarBusinessMenu, type KitBarNav } from "./KitBar";
 import { NeedsLargerWindow } from "./NeedsLargerWindow";
 import { ProcessingStrip } from "./ProcessingStrip";
 import { RightRail } from "./RightRail";
@@ -101,6 +102,10 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   runwayEstimate?: boolean;
   onRunwayClick?: () => void;
   onModeClick?: () => void;
+  /** The business name's menu: Home, the founder's other businesses, Start another business, the profile. */
+  businessMenu?: KitBarBusinessMenu;
+  /** The live connection is down: the kit bar says so (ConnectionChip). */
+  connection?: ConnectionChipProps | null;
   /** BUILD §5.5 callbacks. Space, G chords, / and ⌘K, ? and Esc are wired by the shell itself. */
   keyboard?: AppShellKeyboard;
   /** Measured width; defaults to the window's. Below 1280 px only NeedsLargerWindow renders. */
@@ -192,6 +197,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     runwayEstimate,
     onRunwayClick,
     onModeClick,
+    businessMenu,
+    connection,
     keyboard,
     viewportWidth,
     minViewportWidth = MIN_VIEWPORT_WIDTH,
@@ -312,6 +319,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             continueButton={{ state, pulseKey, disabled: continueDisabled, ...continueHandlers }}
             stopAll={stopAll}
             onHome={homeItem && onNavigate ? () => onNavigate(homeItem) : undefined}
+            businessMenu={businessMenu}
+            connection={connection}
           />
           <ProcessingStrip segments={processing.segments} active={processing.active} />
           {tabs ? <TabBar {...tabs} /> : null}

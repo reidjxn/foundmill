@@ -37,6 +37,11 @@ export interface ModuleEnv {
   collabUrl: string;
   collabToken?: string;
   SpecEditor?: ComponentType<SpecEditorProps>;
+  /**
+   * Why this person cannot change anything here (a viewer or advisor), absent when they can. Screens disable their
+   * change controls (Hire, New record, Train) and show it as the reason instead of offering what the API refuses.
+   */
+  readOnly?: string;
 }
 
 const DEFAULT_ENV: ModuleEnv = { collabUrl: DEFAULT_COLLAB_URL };

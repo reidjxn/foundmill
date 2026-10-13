@@ -23,7 +23,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "banned-terms": "node scripts/banned-terms.mjs",
-    "us-english": "node scripts/us-english.mjs"
+    "us-english": "node scripts/us-english.mjs",
+    "focus-visible": "node scripts/focus-visible.mjs"
   },
   "devDependencies": {
     "@eslint/js": "catalog:",

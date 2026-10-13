@@ -152,6 +152,7 @@ export function EntityText({
           onCreateDraft,
           onOpen,
           resolveKind: (id) => ctx.resolve?.(id)?.kind,
+          exists: (id) => ctx.exists?.(id),
         }),
       )}
     </Tag>
@@ -166,12 +167,15 @@ function renderNode(
     onCreateDraft?: EntityTextProps["onCreateDraft"];
     onOpen?: EntityTextProps["onOpen"];
     resolveKind: (id: string) => EntityKind | undefined;
+    exists: (id: string) => boolean | undefined;
   },
 ): ReactNode {
   switch (node.type) {
     case "text":
       return <span key={key}>{node.text}</span>;
     case "entity": {
+      // An id that is not an entity here is not a link: it reads as the name it was written with.
+      if (h.exists(node.id) === false) return <span key={key}>{node.display}</span>;
       const known = node.kind ?? h.resolveKind(node.id);
       return (
         <EntityLink

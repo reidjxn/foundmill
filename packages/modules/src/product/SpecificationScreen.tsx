@@ -69,7 +69,7 @@ function Outline({ groups, selectedId, onSelect }: { groups: SectionGroup[]; sel
                     onClick={() => onSelect(b.id)}
                     title={blockTitle(b)}
                     className={cn(
-                      "flex min-h-row-comfortable w-full items-start gap-2 px-panel-pad py-1.5 text-left text-body outline-none transition-colors duration-micro ease-dugout hover:bg-white/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
+                      "flex min-h-row-comfortable w-full items-start gap-2 px-panel-pad py-1.5 text-left text-body transition-colors duration-micro ease-dugout hover:bg-white/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
                       active ? "row-selected text-primary" : "text-primary",
                     )}
                   >
@@ -233,7 +233,7 @@ function HistoryPanel({ versions, onRestored, onPublished }: { versions: ReturnT
           const selected = v.version === from || v.version === to;
           return (
             <li key={v.id} className={cn("flex items-start gap-2 px-panel-pad py-2", selected && "bg-panel-alt")} data-version={v.version}>
-              <button type="button" onClick={() => pick(v.version)} aria-pressed={selected} aria-label={`Select version ${v.version} for comparison`} className={cn("mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-full border outline-none focus-visible:outline-2 focus-visible:outline-link", selected ? "border-kit-primary bg-kit-primary" : "border-secondary")}>
+              <button type="button" onClick={() => pick(v.version)} aria-pressed={selected} aria-label={`Select version ${v.version} for comparison`} className={cn("mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-full border focus-visible:outline-2 focus-visible:outline-link", selected ? "border-kit-primary bg-kit-primary" : "border-secondary")}>
                 {selected ? <span className="size-1.5 rounded-full bg-kit-on-primary" /> : null}
               </button>
               <div className="min-w-0 flex-1">

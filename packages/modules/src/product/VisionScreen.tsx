@@ -111,7 +111,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
         <ul className="flex flex-col divide-y divide-subtle/50" aria-label="Pinned blocks">
           {pinned.map((b) => (
             <li key={b.id}>
-              <button type="button" onClick={() => openBlock(b.id)} className="flex w-full flex-col gap-1 px-panel-pad py-2.5 text-left outline-none hover:bg-white/4 focus-visible:outline-2 focus-visible:outline-link" data-pinned-block={b.id}>
+              <button type="button" onClick={() => openBlock(b.id)} className="flex w-full flex-col gap-1 px-panel-pad py-2.5 text-left hover:bg-white/4 focus-visible:outline-2 focus-visible:outline-link" data-pinned-block={b.id}>
                 <span className="text-pretty break-words text-body-strong text-primary">{b.section}</span>
                 {/* The block's own words, so the panel says what is pinned rather than a cut-off title. */}
                 <span className="line-clamp-3 text-small text-secondary">{pmExcerpt(b.content, 220) || blockTitle(b)}</span>
@@ -153,7 +153,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
             <ol className="grid grid-cols-2 gap-x-3 gap-y-0.5">
               {groups.map((g) => (
                 <li key={g.section} className="min-w-0">
-                  <button type="button" onClick={() => openBlock(g.blocks[0]!.id)} className="flex w-full items-baseline gap-1.5 rounded-xs py-0.5 text-left text-small text-secondary outline-none hover:text-primary focus-visible:outline-2 focus-visible:outline-link" data-outline-section={g.section}>
+                  <button type="button" onClick={() => openBlock(g.blocks[0]!.id)} className="flex w-full items-baseline gap-1.5 rounded-xs py-0.5 text-left text-small text-secondary hover:text-primary focus-visible:outline-2 focus-visible:outline-link" data-outline-section={g.section}>
                     <span className="min-w-0 break-words">{g.section}</span>
                     {g.blocks.length > 1 ? <span className="tabular-nums text-tertiary">{g.blocks.length}</span> : null}
                   </button>

@@ -55,7 +55,7 @@ export function Timeline({ items, today = new Date(), onOpen }: { items: readonl
           const after = span ? span.left + span.width < 0.8 : true;
           return (
             <div key={item.id} className="contents">
-              <button type="button" onClick={() => onOpen(item)} title={item.title} className="flex min-h-row-comfortable min-w-0 items-center gap-2 border-b border-subtle/50 py-1 pr-2 text-left outline-none hover:bg-white/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link">
+              <button type="button" onClick={() => onOpen(item)} title={item.title} className="flex min-h-row-comfortable min-w-0 items-center gap-2 border-b border-subtle/50 py-1 pr-2 text-left hover:bg-white/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link">
                 <span className="line-clamp-2 min-w-0 flex-1 break-words text-body-strong text-primary">{item.title}</span>
                 <Chip tone="neutral" className="shrink-0">{HORIZON_LABEL[item.horizon]}</Chip>
               </button>

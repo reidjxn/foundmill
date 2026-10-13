@@ -12,6 +12,7 @@ import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/d
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 import type { ModuleKey } from "@foundmill/shared/constants";
+import { useModuleEnv } from "../env";
 import { fitColumns, fitToGrow, humanise, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { CloneDialog, HireDialog, LoanDialog, ReleaseDialog } from "./dialogs";
@@ -82,6 +83,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
   const team = useMemo(() => (agentsQuery.data?.agents ?? []).filter((a) => !a.archivedAt), [agentsQuery.data]);
   const [catalogueViews, setCatalogueViews] = useState<SavedView[]>(CATALOGUE_VIEWS);
   const [movesViews, setMovesViews] = useState<SavedView[]>(MOVES_VIEWS);
+  const { readOnly } = useModuleEnv();
   const [hire, setHire] = useState<{ template: TemplateRow; name?: string } | null>(null);
   const [release, setRelease] = useState<AgentRow | null>(null);
   const [clone, setClone] = useState<AgentRow | null>(null);
@@ -92,7 +94,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
   const best = suggestions[0]?.template ?? null;
   const open = (agentId: string) => navigate(agentHref(businessId, agentId));
   const refetch = () => agentsQuery.refetch();
-  const draft = () => best && setHire({ template: best });
+  const draft = () => best && !readOnly && setHire({ template: best });
   // Each column at its minimum; the tables share their spare width by the specs' weights themselves (`meta.grow`).
   const catalogueSizes = useMemo(() => fitColumns(null, CATALOGUE_FIT, []), []);
   const movesSizes = useMemo(() => fitColumns(null, MOVES_FIT, []), []);
@@ -151,7 +153,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
     ], CATALOGUE_FIT),
     [currency, catalogueSizes, departments.data],
   );
-  const catalogueActions = (row: CatalogueRow): RowAction<CatalogueRow>[] => [{ id: "hire", label: "Hire…", icon: UserRoundPlus, onSelect: () => setHire({ template: row }) }];
+  const catalogueActions = (row: CatalogueRow): RowAction<CatalogueRow>[] => readOnly ? [] : [{ id: "hire", label: "Hire…", icon: UserRoundPlus, onSelect: () => setHire({ template: row }) }];
 
   const movesColumns = useMemo<DataTableColumn<AgentRow>[]>(
     () => fitToGrow<AgentRow>([
@@ -247,7 +249,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
                       <Chip key={w}>{w}</Chip>
                     ))}
                   </span>
-                  <Button size="sm" icon={UserRoundPlus} onClick={() => setHire({ template: s.template })} className="mt-auto self-start">
+                  <Button size="sm" icon={UserRoundPlus} onClick={() => setHire({ template: s.template })} disabled={Boolean(readOnly)} title={readOnly} className="mt-auto self-start">
                     Hire from this template
                   </Button>
                 </li>
@@ -275,7 +277,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         footer={notice ? <span data-testid="recruitment-notice" className="text-secondary">{notice}</span> : "Double-click or right-click a template to hire it into a department. Wage caps are estimates."}
       >
         <div className="min-w-0">
-          <DataTable<CatalogueRow> aria-label="Catalog" data={rows} columns={catalogueColumns} views={catalogueViews} onViewsChange={setCatalogueViews} defaultViewId="all" rowActions={catalogueActions} onRowOpen={(row) => setHire({ template: row })} height={Math.min(480, Math.max(240, rows.length * 34 + 44))} density="comfortable" exportFileName="catalogue" className="border-0" />
+          <DataTable<CatalogueRow> aria-label="Catalog" data={rows} columns={catalogueColumns} views={catalogueViews} onViewsChange={setCatalogueViews} defaultViewId="all" rowActions={catalogueActions} onRowOpen={(row) => !readOnly && setHire({ template: row })} height={Math.min(480, Math.max(240, rows.length * 34 + 44))} density="comfortable" exportFileName="catalogue" className="border-0" />
         </div>
       </Panel>
 

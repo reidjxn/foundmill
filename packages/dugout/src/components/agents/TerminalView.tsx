@@ -37,7 +37,7 @@ export function TerminalEmpty({ agentName, live, brief, compact }: { agentName?:
   return (
     <div className={cn("pointer-events-none absolute inset-0 flex flex-col justify-end font-mono text-mono", compact ? "p-2" : "gap-3 p-3")} data-terminal-empty={live ? "live" : "idle"}>
       <div className="flex flex-col gap-1 text-tertiary">
-        {compact ? null : <span className="opacity-60">{live ? "session attached · streaming" : "session idle · no output yet"}</span>}
+        {compact ? null : <span>{live ? "session attached · streaming" : "session idle · no output yet"}</span>}
         <span>
           <span className="text-kit-lift">❯</span> <span className="text-secondary">{live ? `waiting for ${who}'s first output` : `${who} has not written anything yet`}</span>{" "}
           {live ? <span aria-hidden className="prompt-caret" /> : null}

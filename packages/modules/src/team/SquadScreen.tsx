@@ -12,6 +12,7 @@ import { AGENT_STATUSES } from "@foundmill/shared/constants";
 import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData } from "@foundmill/widgets/data";
+import { useModuleEnv } from "../env";
 import { fitToGrow, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { CloneDialog, LoanDialog, ReleaseDialog } from "./dialogs";
@@ -54,6 +55,7 @@ export function squadSummary(agents: readonly Pick<AgentRow, "status">[]): strin
 
 export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
   const { navigate, currency = "EUR" } = useWidgetData();
+  const { readOnly } = useModuleEnv();
   const { liveRefetchMs } = useTeamOptions();
   const now = useNow();
   const agentsQuery = useAgents();
@@ -152,7 +154,7 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
         empty={agentsQuery.data && agents.length === 0 ? { icon: Users, title: "No agents yet", children: "The team table lists every agent with its status, form, rating, model and wage once the first one is hired. Hire from the catalog on the Recruitment tab.", action: { label: "Go to Recruitment", icon: UserRoundPlus, onClick: () => navigate(recruitHref) } } : undefined}
         meta={agents.length ? <span data-testid="squad-summary">{squadSummary(agents)}</span> : undefined}
         actions={
-          <Button size="sm" icon={UserRoundPlus} onClick={() => navigate(recruitHref)}>
+          <Button size="sm" icon={UserRoundPlus} onClick={() => navigate(recruitHref)} disabled={Boolean(readOnly)} title={readOnly}>
             Hire
           </Button>
         }

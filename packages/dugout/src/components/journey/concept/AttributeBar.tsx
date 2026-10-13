@@ -52,7 +52,7 @@ export function AttributeBar({ label, value, evidence, hideLabel, ghost, classNa
   return (
     <HoverCard>
       <HoverCardTrigger asChild>
-        <div tabIndex={0} className="rounded-chip outline-none focus-visible:outline-2 focus-visible:outline-link" data-evidence-trigger>
+        <div tabIndex={0} className="rounded-chip focus-visible:outline-2 focus-visible:outline-link" data-evidence-trigger>
           {bar}
         </div>
       </HoverCardTrigger>

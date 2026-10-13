@@ -141,6 +141,21 @@ describe("useKeyboardMap", () => {
     expect(handlers.onRefreshInbox).toHaveBeenCalledTimes(1);
   });
 
+  it("leaves an Esc that an open dialog already handled to that dialog (audit OL-15)", async () => {
+    const user = userEvent.setup();
+    const { handlers } = setup();
+    // Radix's DismissableLayer closes the top layer on the capture phase and marks the event handled.
+    const closeDialog = (e: KeyboardEvent) => {
+      if (e.key === "Escape") e.preventDefault();
+    };
+    document.addEventListener("keydown", closeDialog, { capture: true });
+    await user.keyboard("{Escape}");
+    expect(handlers.onEscape).not.toHaveBeenCalled();
+    document.removeEventListener("keydown", closeDialog, { capture: true });
+    await user.keyboard("{Escape}");
+    expect(handlers.onEscape).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores single keys typed into a text field, but Esc still closes overlays", async () => {
     const user = userEvent.setup();
     const { handlers } = setup();
