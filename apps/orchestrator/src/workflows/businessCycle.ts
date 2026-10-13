@@ -83,7 +83,7 @@ async function endUnplanned(input: BusinessCycleInput, brief: BusinessBrief, err
   const failure = planFailureOf(err);
   const empty: CyclePlan = { summary: failure.message, timeBoxHours: 0.25, starts: [], deferred: [], approvalsNeeded: [], modelKey: "opus", warning: null, costMinor: 0 };
   const { cycleId } = await acts.startCycle({ businessId: input.businessId, cycleNumber: input.cycleNumber, workflowId: info.workflowId, trigger: input.trigger, plan: empty, brief });
-  let inboxItemIds: string[] = [];
+  let inboxItemIds: string[];
   try {
     inboxItemIds = (await acts.notePlanFailure({ businessId: input.businessId, cycleNumber: input.cycleNumber, message: failure.message, details: failure.details })).inboxItemIds;
   } catch {

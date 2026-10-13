@@ -824,6 +824,7 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     await repos.agents.endSession(t.db, t.businessId, earlier, { outcome: "stopped", costMinor: 120 });
     const { input, launch } = await start(task.id);
     script = async function* () {
+      yield { type: "system", subtype: "init", session_id: "never-started" };
       throw new Error("the SDK must not start");
     };
     calls.length = 0;
