@@ -10,7 +10,9 @@ import { useQuery } from "@tanstack/react-query";
 import { Play, ScrollText } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AGENT_SESSION_EVENT_KINDS, AgentTile, Chip, DataTable, EmptyState, ModelChip, Panel, SessionScrubber, StatusPill, eventsUntil, formatDuration, formatMoney, formatTokens, reduceSessionEvents, useFormatters, type AgentSessionEvent, type DataTableColumn, type SavedView, type ScrubberSpeed, type SessionSeed } from "@foundmill/dugout";
+import Link from "next/link";
 import { routes } from "@foundmill/widgets/shared/routes";
+import { useBusiness } from "@/components/shell/business-context";
 import { useStreamSubscription } from "@/lib/stream-client";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -65,8 +67,18 @@ function safeParse(s: string): unknown {
   }
 }
 
+/**
+ * The Plan link for a session's task: the department over the development module (departments are labels, so its slug
+ * is looked up, never assumed), with the task selected.
+ */
+export function taskPlanHref(businessId: string, departments: readonly { slug: string; moduleKeys: readonly string[]; position: number }[], taskId: string): string {
+  const dept = departments.slice().sort((a, b) => a.position - b.position).find((d) => d.moduleKeys.includes("development"));
+  return `${routes.department(businessId, dept?.slug ?? "development", "plan")}?task=${taskId}`;
+}
+
 export function LogsTab({ businessId, profile }: TabProps) {
   const { formatDateTime } = useFormatters();
+  const { departments } = useBusiness();
   const rows = useMemo(() => sessionRows(profile.sessions), [profile.sessions]);
   const [selectedId, setSelectedId] = useState<string | null>(rows[0]?.id ?? null);
   const selected = rows.find((r) => r.id === selectedId) ?? null;
@@ -81,9 +93,22 @@ export function LogsTab({ businessId, profile }: TabProps) {
       { id: "tokens", accessorKey: "tokens", header: "Tokens", size: 100, cell: ({ getValue }) => <span className="tabular-nums">{formatTokens(getValue() as number).replace(/\s*tokens?$/i, "")}</span>, meta: { numeric: true } },
       { id: "cost", accessorKey: "costMinor", header: "Cost", size: 100, cell: ({ row }) => <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: row.original.costMinor, currency: row.original.currency })}</span>, meta: { numeric: true, csv: (r) => r.costMinor / 100 } },
       { id: "outcome", accessorKey: "outcome", header: "Outcome", size: 130, cell: ({ row }) => <StatusPill tone={OUTCOME_TONE[row.original.outcome] ?? "neutral"} pulse={row.original.live}>{row.original.live ? "Running" : outcomeWord(row.original.outcome)}</StatusPill>, meta: { filter: "select", filterOptions: Object.keys(OUTCOME_TONE).map((v) => ({ value: v, label: outcomeWord(v) })) } },
-      { id: "task", accessorKey: "taskId", header: "Task", size: 140, cell: ({ getValue }) => (getValue() ? <span className="font-mono text-mono text-secondary">{String(getValue()).slice(0, 8)}</span> : <span className="text-secondary">—</span>) },
+      {
+        id: "task",
+        accessorFn: (r) => r.taskTitle ?? "",
+        header: "Task",
+        size: 220,
+        cell: ({ row }) =>
+          row.original.taskId && row.original.taskTitle ? (
+            <Link href={taskPlanHref(businessId, departments, row.original.taskId)} className="entity-link block min-w-0 truncate" title={row.original.taskTitle} onClick={(e) => e.stopPropagation()}>
+              {row.original.taskTitle}
+            </Link>
+          ) : (
+            <span className="text-secondary">{row.original.taskId ? "Task removed" : "No task"}</span>
+          ),
+      },
     ],
-    [formatDateTime],
+    [formatDateTime, businessId, departments],
   );
 
   return (
@@ -91,12 +116,12 @@ export function LogsTab({ businessId, profile }: TabProps) {
       <Panel title="Sessions" span={12} flush empty={rows.length === 0 ? { icon: ScrollText, children: "Every session this agent runs is listed here with its replay. Sessions start when Continue dispatches a task to it." } : undefined} footer="Click a session to replay it below. Live sessions stream as they run.">
         <DataTable<SessionRow> aria-label="Sessions" data={rows} columns={columns} views={views} onViewsChange={setViews} defaultViewId="recent" onRowClick={(r) => setSelectedId(r.id)} onRowOpen={(r) => setSelectedId(r.id)} selectedIds={selectedId ? [selectedId] : []} height={Math.min(360, Math.max(160, rows.length * 28 + 48))} exportFileName={`${profile.agent.name}-sessions`} className="border-0" />
       </Panel>
-      {selected ? <ReplayPanel businessId={businessId} profile={profile} session={selected} /> : null}
+      {selected ? <ReplayPanel businessId={businessId} profile={profile} session={selected} taskHref={selected.taskId ? taskPlanHref(businessId, departments, selected.taskId) : undefined} /> : null}
     </div>
   );
 }
 
-function ReplayPanel({ businessId, profile, session }: { businessId: string; profile: TabProps["profile"]; session: SessionRow }) {
+function ReplayPanel({ businessId, profile, session, taskHref }: { businessId: string; profile: TabProps["profile"]; session: SessionRow; taskHref?: string }) {
   const { formatDateTime } = useFormatters();
   const trpc = useTRPC();
   const replayQ = useQuery(trpc.dev.sessions.replay.queryOptions({ businessId, sessionId: session.id }, { staleTime: 30_000, retry: false }));
@@ -130,11 +155,11 @@ function ReplayPanel({ businessId, profile, session }: { businessId: string; pro
     () => ({
       id: session.id,
       agent: { id: profile.agent.id, name: profile.agent.name, seed: profile.agent.avatarSeed || profile.agent.id, dept: departmentColour(profile), status: profile.agent.status, model: session.model, role: profile.agent.role },
-      task: { id: session.taskId ?? session.id, title: session.taskId ? `Task ${session.taskId.slice(0, 8)}` : "Session without a task", href: session.taskId ? routes.agent(businessId, profile.agent.id, "logs") : undefined },
+      task: { id: session.taskId ?? session.id, title: session.taskTitle ?? (session.taskId ? "Task removed" : "Session without a task"), href: session.taskTitle ? taskHref : undefined },
       startedAt: session.startedAt,
       tokens: session.tokens,
     }),
-    [session, profile, businessId],
+    [session, profile, taskHref],
   );
   // Live sessions follow the newest event; recorded replays obey the scrubber.
   const effectivePosition = session.live && !playing && position === 0 ? Number.MAX_SAFE_INTEGER : position;

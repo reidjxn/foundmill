@@ -14,6 +14,8 @@ import { formatNumber } from "@/lib/format";
 export type FounderProfileGet = RouterOutputs["founder"]["profile"]["get"];
 
 export interface StudioViewer {
+  /** The account ID a co-founder adds this person by. */
+  userId: string | null;
   email: string | null;
   profile: FounderProfileGet["profile"];
   complete: boolean;
@@ -29,7 +31,7 @@ export async function loadStudioViewer(): Promise<StudioViewerResult> {
     const data = await server.api.founder.profile.get.query();
     return {
       kind: "ok",
-      viewer: { email: data.email ?? server.auth.email, profile: data.profile, complete: data.complete, businesses: data.businesses },
+      viewer: { userId: data.userId ?? null, email: data.email ?? server.auth.email, profile: data.profile, complete: data.complete, businesses: data.businesses },
     };
   } catch (err) {
     return { kind: "unreachable", message: errorMessage(err, "The API did not answer."), error: err, email: server.auth.email };

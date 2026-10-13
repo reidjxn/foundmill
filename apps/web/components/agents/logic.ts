@@ -276,11 +276,16 @@ export interface TrainingFlow {
   failed: TrainingRunRecord | null;
 }
 
-export function trainingFlow(runs: readonly TrainingRunRecord[], now: Date = new Date()): TrainingFlow {
+/**
+ * Where the agent's training stands. The seven-day watch belongs to the version a promotion made live: given the
+ * agent's live version (`liveVersionId`), a promoted run whose version is no longer live (rolled back since) has no
+ * watch, so no banner offers a rollback the agent has already had.
+ */
+export function trainingFlow(runs: readonly TrainingRunRecord[], now: Date = new Date(), liveVersionId?: string | null): TrainingFlow {
   const byRecency = runs.slice().sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
   const active = byRecency.find((r) => (ACTIVE_RUN_STATUSES as readonly string[]).includes(r.status)) ?? null;
   const awaiting = byRecency.find((r) => r.decision === null && (r.status === "awaiting_decision" || r.status === "done")) ?? null;
-  const promoted = byRecency.find((r) => r.decision === "promoted" && r.watchUntil && toMillis(r.watchUntil) > now.getTime()) ?? null;
+  const promoted = byRecency.find((r) => r.decision === "promoted" && r.watchUntil && toMillis(r.watchUntil) > now.getTime() && (liveVersionId === undefined || r.toVersionId === liveVersionId)) ?? null;
   const watch = promoted ? { run: promoted, until: toIso(promoted.watchUntil)!, daysLeft: Math.max(0, Math.ceil((toMillis(promoted.watchUntil) - now.getTime()) / 86_400_000)) } : null;
   const failed = byRecency[0]?.status === "failed" ? byRecency[0] : null;
   const phase: TrainingPhase = active ? "active" : awaiting ? "awaiting" : failed ? "failed" : watch ? "watch" : "idle";
@@ -418,8 +423,8 @@ export function modelOptions(compare: ModelCompare, currency: string): ModelOpti
     key: o.modelKey,
     label: MODEL_LABELS[o.modelKey],
     description: MODEL_DESCRIPTIONS[o.modelKey],
-    skillDelta: o.predictedSkillDelta ?? 0,
-    wageDelta: { amountMinor: o.predictedWageMinor - base, currency },
+    skillDelta: o.predictedSkillDelta ?? null,
+    wageDelta: { amountMinor: o.predictedWageMinor - base, currency: compare.currency ?? currency },
     lockedReason: o.allowed ? undefined : (o.warning ?? "Locked for this agent's route."),
     warning: o.allowed && o.warning ? o.warning : undefined,
   }));
@@ -645,6 +650,8 @@ export interface SessionRow {
   currency: string;
   outcome: string;
   taskId: string | null;
+  /** The task's title, when the session worked on one that still exists. */
+  taskTitle: string | null;
   live: boolean;
   recordingRef: string | null;
 }
@@ -665,6 +672,7 @@ export function sessionRows(sessions: readonly SessionRecord[], now: Date = new 
         currency: s.currency ?? "EUR",
         outcome: s.outcome ?? (endedAt ? "ended" : "running"),
         taskId: s.taskId ?? null,
+        taskTitle: s.task?.title ?? null,
         live: !endedAt,
         recordingRef: s.recordingRef ?? null,
       };
@@ -801,6 +809,49 @@ export function profileChips(agent: Pick<AgentRow, "role" | "agentType" | "layer
   add(agent.layer === "assistant" ? "Chief of Staff" : humaniseKey(agent.layer));
   for (const d of departments) add(d.name, d.colourToken);
   return out;
+}
+
+/**
+ * The month the viewer is in, as a period (YYYY-MM), from their own clock and time zone: the profile asks for this
+ * month's wage, so it never shows next month's empty figure before the viewer's month has ended (billing months are
+ * UTC calendar months).
+ */
+export function localPeriod(now: Date = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** An agent of the team as the line-manager picker needs it (`team.agents.list` rows). */
+export interface LineManagerCandidate {
+  id: string;
+  name: string;
+  role?: string | null;
+  lineManagerId?: string | null;
+  archivedAt?: string | Date | null;
+}
+
+/**
+ * The agents `agentId` may report to: still on the team, not itself, and not one that reports to it at any depth (the
+ * hierarchy stays a tree), by name.
+ */
+export function lineManagerOptions(agentId: string, agents: readonly LineManagerCandidate[]): { value: string; label: string }[] {
+  const byId = new Map(agents.map((a) => [a.id, a]));
+  const reportsTo = (candidate: LineManagerCandidate): boolean => {
+    const seen = new Set<string>();
+    for (let up = candidate.lineManagerId ?? null; up && !seen.has(up); up = byId.get(up)?.lineManagerId ?? null) {
+      if (up === agentId) return true;
+      seen.add(up);
+    }
+    return false;
+  };
+  return agents
+    .filter((a) => a.id !== agentId && !a.archivedAt && !reportsTo(a))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((a) => ({ value: a.id, label: a.role ? `${a.name} · ${a.role}` : a.name }));
+}
+
+/** Who an agent reports to when it has no agent line manager: the business's founder ("You" for the founder). */
+export function ownerManagerLabel(profile: Pick<AgentProfile, "reportsToOwner">): string {
+  return profile.reportsToOwner?.isViewer ? "You" : "Founder";
 }
 
 /** "2026-10" → "Wage this month" in October 2026, else "Wage in September 2026" ("Wage in 2026-09" for ISO `prefs`). */

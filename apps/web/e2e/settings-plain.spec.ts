@@ -22,6 +22,32 @@ test.describe("settings, plain words", () => {
     await expect(list.getByRole("combobox").first()).toContainText(/^(Owner|Admin|Member|Viewer|Advisor)$/);
     // The founder's own row reads as a name with a "You" chip, never "You You".
     await expect(list).not.toContainText(/\bYou\s*You\b/);
+    // A co-founder is added by account ID or sign-in email; Add member waits for one of them (WEB-12).
+    await expect(page.getByTestId("add-member")).toBeDisabled();
+  });
+
+  test("Members: removing someone asks first (MLSL-40)", async ({ page }) => {
+    await page.goto(`${B}/settings/members`);
+    const list = page.getByTestId("member-list");
+    await expect(list).toBeVisible({ timeout: LONG });
+    const remove = list.getByRole("button", { name: /^Remove (?!yourself)/, disabled: false }).first();
+    test.skip((await remove.count()) === 0, "no removable member on the seeded business");
+    await remove.click();
+    const dialog = page.getByTestId("remove-member-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: /^Remove / })).toBeVisible();
+    await dialog.getByRole("button", { name: "Keep" }).click();
+    await expect(dialog).toBeHidden();
+    // Nothing was removed: the member is still listed.
+    await expect(remove).toBeVisible();
+  });
+
+  test("Preferences: your account ID is shown with a copy button (WEB-12)", async ({ page }) => {
+    await page.goto(`${B}/settings/preferences`);
+    const accountId = page.getByTestId("account-id");
+    await expect(accountId).toBeVisible({ timeout: LONG });
+    await expect(accountId).toContainText(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/);
+    await expect(page.getByTestId("account-id-copy")).toBeVisible();
   });
 
   test("Mode: the choice is named in words, with no notes about what comes later", async ({ page }) => {

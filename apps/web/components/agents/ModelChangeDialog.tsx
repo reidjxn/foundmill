@@ -12,7 +12,7 @@ import { ApplyScopeDialog, Button, Dialog, DialogBody, DialogContent, DialogDesc
 import type { ModelKey } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { agentTypeNoun, describeModelSet, modelChangeWarnings, modelOptions, type AgentProfile } from "./logic";
+import { agentTypeNoun, describeModelSet, localPeriod, modelChangeWarnings, modelOptions, type AgentProfile } from "./logic";
 
 export interface ModelChangeDialogProps {
   businessId: string;
@@ -34,7 +34,7 @@ export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typ
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const agent = profile.agent;
-  const compareQ = useQuery(trpc.agent.model.compare.queryOptions({ businessId, agentId: agent.id }, { enabled: open, staleTime: 60_000 }));
+  const compareQ = useQuery(trpc.agent.model.compare.queryOptions({ businessId, agentId: agent.id, period: localPeriod() }, { enabled: open, staleTime: 60_000 }));
   const [candidate, setCandidate] = useState<ModelKey | null>(null);
   const [step, setStep] = useState<Step>("pick");
   useEffect(() => {

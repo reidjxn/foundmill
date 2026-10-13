@@ -16,6 +16,7 @@ import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { formatDayMonth } from "@/lib/format";
 import type { TabProps } from "./AgentProfileScreen";
+import { CustomSkillsPanel } from "./CustomSkillsPanel";
 import { ModelChangeDialog } from "./ModelChangeDialog";
 import { ToolGrantsEditor } from "./ToolsTab";
 import {
@@ -28,6 +29,7 @@ import {
   instructionVersions,
   isRetestVersion,
   latestDraft,
+  localPeriod,
   modelOptions,
   parseInstructions,
   parseToolGrants,
@@ -85,9 +87,11 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
   const liveInstructions = useMemo(() => parseInstructions(live?.instructions ?? {}), [live]);
   const dirtySinceSave = savedSnapshot ? !instructionsEqual(instructions, savedSnapshot) : !instructionsEqual(instructions, liveInstructions);
   const trainable = savedVersionId !== null && !dirtySinceSave;
+  // A released agent keeps its training history as a record; it is not trained again (the API refuses it too).
+  const released = !!agent.archivedAt;
   const versions = useMemo(() => instructionVersions(profile.versions), [profile.versions]);
   const skills = useMemo(() => toSkillRows(profile.skills, profile.trainingRuns), [profile.skills, profile.trainingRuns]);
-  const flow = useMemo(() => trainingFlow(profile.trainingRuns), [profile.trainingRuns]);
+  const flow = useMemo(() => trainingFlow(profile.trainingRuns, new Date(), profile.agent.currentVersionId), [profile.trainingRuns, profile.agent.currentVersionId]);
   const proposals = useMemo(() => coachProposals(focus, skills), [focus, skills]);
 
   // --- mutations and queries ----------------------------------------------------------------------------------------
@@ -164,7 +168,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
       onError: (err) => setNotice({ tone: "bad", text: errorMessage(err) }),
     }),
   );
-  const compareQ = useQuery(trpc.agent.model.compare.queryOptions({ businessId, agentId: agent.id }, { enabled: sub === "model", staleTime: 60_000 }));
+  const compareQ = useQuery(trpc.agent.model.compare.queryOptions({ businessId, agentId: agent.id, period: localPeriod() }, { enabled: sub === "model", staleTime: 60_000 }));
   const [applyModel, setApplyModel] = useState<ModelKey | null>(null);
 
   const doSave = (modelKey?: ModelKey) => saveDraft.mutate({ businessId, agentId: agent.id, instructions, tools: tools.length ? tools : undefined, modelKey: modelKey ?? draftModel, comment: comments[comments.length - 1]?.text });
@@ -260,10 +264,10 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
           <span className="inline-flex items-center gap-2">
             {live ? <Chip tone="neutral">Live v{live.version}</Chip> : <Chip tone="warn">No live version</Chip>}
             {savedVersionId ? <Chip tone={dirtySinceSave ? "info" : "good"}>{dirtySinceSave ? "Draft edited" : `Draft v${profile.versions.find((v) => v.id === savedVersionId)?.version ?? "?"} saved`}</Chip> : dirtySinceSave ? <Chip tone="info">Unsaved edits</Chip> : null}
-            <Button size="sm" icon={Save} onClick={() => doSave()} loading={saveDraft.isPending} disabled={!dirtySinceSave && !!savedVersionId} data-testid="save-draft">
+            <Button size="sm" icon={Save} onClick={() => doSave()} loading={saveDraft.isPending} disabled={released || (!dirtySinceSave && !!savedVersionId)} data-testid="save-draft">
               Save draft
             </Button>
-            <Button size="sm" variant="primary" icon={Dumbbell} onClick={() => setTrainOpen(true)} disabled={busy || !!flow.active || (!dirtySinceSave && !savedVersionId)} data-testid="train">
+            <Button size="sm" variant="primary" icon={Dumbbell} onClick={() => setTrainOpen(true)} disabled={released || busy || !!flow.active || (!dirtySinceSave && !savedVersionId)} data-testid="train">
               Train
             </Button>
           </span>
@@ -413,6 +417,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
       </Dialog>
 
       <ModelChangeDialog businessId={businessId} profile={profile} open={!!applyModel} onOpenChange={(o) => !o && setApplyModel(null)} preselect={applyModel} currency={currency} />
+      <CustomSkillsPanel businessId={businessId} profile={profile} onChanged={refetch} />
     </div>
   );
 }

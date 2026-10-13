@@ -106,6 +106,16 @@ describe("AutonomyTab money fields", () => {
     await act(async () => {
       fireEvent.click(await screen.findByTestId("apply-scope-confirm"));
     });
-    expect(setNegotiation.mock.calls[0]![0]).toMatchObject({ negotiation: { enabled: true, priceMinMinor: 12_000, priceMaxMinor: 150_025, walkAwayMinor: 9_550, maxConcessionPct: 12.5, topics: ["price"] } });
+    // No negotiation runtime exists yet (GLS2F-07): the limits are kept, always switched off, whatever was stored.
+    expect(setNegotiation.mock.calls[0]![0]).toMatchObject({ negotiation: { enabled: false, priceMinMinor: 12_000, priceMaxMinor: 150_025, walkAwayMinor: 9_550, maxConcessionPct: 12.5, topics: ["price"] } });
+  });
+
+  it("negotiation cannot be switched on and says why (GLS2F-07)", () => {
+    renderTab(undefined, { enabled: true, priceMinMinor: 10_000, topics: [] });
+    const toggle = document.getElementById("negotiation-enabled") as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(toggle.disabled).toBe(true);
+    expect(screen.getByTestId("negotiation-footer").textContent).toContain("not available yet");
+    expect(screen.getByTestId("save-negotiation").textContent).toContain("Save limits");
   });
 });

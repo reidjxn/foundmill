@@ -77,6 +77,9 @@ for (const width of [1280, 1440]) {
 
       await openTab(page, team, "staff", "team/staff");
       await expect(page.getByRole("grid", { name: "Staff" })).toBeVisible({ timeout: LONG });
+      // A member walled off a section says so ("Finance · no access"), never "Role default" (RUI-04).
+      const walled = page.getByRole("grid", { name: "Staff" }).getByText(/· no access/);
+      if (await walled.count()) await expect(walled.first()).toBeVisible();
       // Nobody edits their own role or permissions (team.humans.role refuses it): the founder's own row offers neither.
       await page.getByRole("grid", { name: "Staff" }).getByRole("row").filter({ hasText: "You" }).first().click({ button: "right" });
       await expect(page.getByRole("menuitem", { name: "Role and permissions…" })).toHaveAttribute("aria-disabled", "true");
@@ -109,6 +112,9 @@ for (const width of [1280, 1440]) {
       const draft = page.getByTestId("draft-agent");
       await expect(draft).toBeVisible({ timeout: LONG });
       await expect(draft).toBeDisabled();
+      // The builder puts the template the sentence names first (TPD-26).
+      await page.getByRole("textbox", { name: "Describe the agent" }).fill("an agent who writes our product documentation and help center articles");
+      await expect(page.getByRole("list", { name: "Suggested templates" }).getByRole("listitem").first()).toHaveAttribute("data-suggestion", "docs_writer");
       await page.getByRole("textbox", { name: "Describe the agent" }).fill("an agent who writes our weekly customer newsletter");
       await expect(page.getByRole("list", { name: "Suggested templates" })).toBeVisible();
       await expect(draft).toBeEnabled();
@@ -116,6 +122,8 @@ for (const width of [1280, 1440]) {
       const dialog = page.getByTestId("hire-dialog");
       await expect(dialog).toBeVisible();
       await expect(dialog.getByRole("heading", { name: /^Hire / })).toBeVisible();
+      // No promise of a first training run that never happens (TPD-11).
+      await expect(dialog).not.toContainText(/First training run/);
       await dialog.getByRole("button", { name: "Cancel" }).click();
       await expect(dialog).toBeHidden();
       const catalogue = page.getByRole("grid", { name: "Catalog" });

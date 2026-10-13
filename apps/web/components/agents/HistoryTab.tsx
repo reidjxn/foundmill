@@ -2,7 +2,8 @@
 /**
  * History tab (BUILD §11.10 "History and logs"): one Timeline of everything that changed this agent — versions
  * (drafted, promoted, retired), training runs (queued → results → promoted / discarded / rolled back) and the
- * sessions it ran — plus a metrics strip over the last 30 days from `agent_metrics`.
+ * sessions it ran — plus a metrics strip over the last 30 days, computed by `agent.profile.get` from the agent's own
+ * sessions, usage and approvals (`recent`), so it agrees with the sessions listed and with the wage.
  */
 import { Dumbbell, FileClock, Play, Undo2 } from "lucide-react";
 import { useMemo } from "react";
@@ -58,23 +59,17 @@ export function historyEvents(profile: TabProps["profile"], currency: string): T
 
 export function HistoryTab({ profile, currency }: TabProps) {
   const events = useMemo(() => historyEvents(profile, currency), [profile, currency]);
-  const metrics = profile.metrics;
-  const tasks = metrics.reduce((s, m) => s + m.tasksDone, 0);
-  const findings = metrics.reduce((s, m) => s + m.reviewFindings, 0);
-  const rejected = metrics.reduce((s, m) => s + m.approvalsRejected, 0);
-  const rates = metrics.map((m) => Number(m.successRate)).filter((n) => Number.isFinite(n));
-  const success = rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : null;
-  const cost = metrics.reduce((s, m) => s + Number(m.costMinor ?? 0), 0);
+  const { metrics, recent } = profile;
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="agent-history">
       <div className="col-span-12">
         <StatusStrip
           tiles={[
-            { label: "Tasks done · 30 d", value: tasks, format: "integer", spark: metrics.map((m) => m.tasksDone) },
-            { label: "Success rate", value: success, format: "percent" },
-            { label: "Review findings", value: findings, format: "integer", delta: findings ? { value: findings, goodWhen: "down", label: "open" } : undefined },
-            { label: "Approvals rejected", value: rejected, format: "integer" },
-            { label: "Cost · 30 d", value: { amountMinor: cost, currency }, estimate: "estimate", provenance: { source: "Model and tool usage, last 30 days" } },
+            { label: "Tasks done · 30 d", value: recent.tasksDone, format: "integer", spark: metrics.map((m) => m.tasksDone) },
+            { label: "Success rate", value: recent.successRate, format: "percent", caption: recent.sessions ? `${recent.tasksDone} of ${recent.sessions} sessions` : undefined },
+            { label: "Review findings", value: recent.reviewFindings, format: "integer", delta: recent.reviewFindings ? { value: recent.reviewFindings, goodWhen: "down", label: "open" } : undefined },
+            { label: "Approvals rejected", value: recent.approvalsRejected, format: "integer" },
+            { label: "Cost · 30 d", value: { amountMinor: recent.costMinor, currency: recent.currency }, estimate: "estimate", provenance: { source: "Model and tool usage, last 30 days (the usage ledger, as the wage)" } },
           ] satisfies MetricTileProps[]}
         />
       </div>

@@ -2,8 +2,8 @@
 /**
  * Team › Recruitment (BUILD §6.3, §11.9, §11.13): the catalogue of agent templates (team.agents.catalogue) with a
  * saved view per family and "Hire…" into a department (team.agents.hire); the agent builder entry (a sentence →
- * the closest templates, hired under a custom name; Opus drafting of instructions and skills runs on the first
- * training run); and team moves: release, clone, loan between departments.
+ * the closest templates, hired under a custom name with the template's instructions, tools and skills; training from
+ * the profile tunes them); and team moves: release, clone, loan between departments.
  */
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, Copy, ExternalLink, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
@@ -15,7 +15,7 @@ import type { ModuleKey } from "@foundmill/shared/constants";
 import { fitColumns, fitToGrow, humanise, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { CloneDialog, HireDialog, LoanDialog, ReleaseDialog } from "./dialogs";
-import { AgentCell, AgentStatusWordPill, FAMILY_LABELS, Screen, agentDept, agentEntity, agentHref, suggestTemplates, useAgents, useNow } from "./shared";
+import { AgentCell, AgentStatusWordPill, FAMILY_LABELS, Screen, agentDept, agentEntity, agentHref, isChiefOfStaff, isChiefOfStaffType, suggestTemplates, useAgents, useNow } from "./shared";
 import type { AgentRow, TemplateRow } from "./types";
 
 export interface CatalogueRow extends TemplateRow {
@@ -56,10 +56,31 @@ export const MOVES_FIT: Record<string, ColumnFit> = {
   status: { min: 200, grow: 1 },
 };
 
-/** The department a template works in: the department over its module (departments are labels over modules). */
-export function moduleLabel(module: string | null | undefined, departments: readonly DepartmentRow[] | undefined): string {
-  if (!module) return "Any";
-  return departmentForModule(departments, module as ModuleKey)?.name ?? humanise(module);
+/**
+ * The department a template is hired into by default: the department over its module (departments are labels over
+ * modules). Specialists and the Operations Lead share the development module with the engineers, but in a physical
+ * business they work in Operations (the department its Operations Lead leads, over the development module's
+ * Specialists tab), so that department wins for them when the business has one.
+ */
+export function departmentForTemplate(template: Pick<TemplateRow, "module" | "family" | "key">, departments: readonly DepartmentRow[] | undefined, agents: readonly Pick<AgentRow, "id" | "agentType">[] | undefined): DepartmentRow | undefined {
+  if (!template.module) return undefined;
+  const moduleKey = template.module as ModuleKey;
+  if (template.family === "specialist" || template.key === OPERATIONS_LEAD) {
+    const operations = (departments ?? [])
+      .filter((d) => !d.hidden && d.moduleKeys.includes(moduleKey))
+      .sort((a, b) => a.position - b.position)
+      .find((d) => (agents ?? []).some((a) => a.id === (d.leadAgentId ?? d.lead?.id) && a.agentType === OPERATIONS_LEAD));
+    if (operations) return operations;
+  }
+  return departmentForModule(departments, moduleKey);
+}
+
+const OPERATIONS_LEAD = "operations_lead";
+
+/** The department a template works in, by name, for the catalog's Department column. */
+export function moduleLabel(template: Pick<TemplateRow, "module" | "family" | "key">, departments: readonly DepartmentRow[] | undefined, agents?: readonly Pick<AgentRow, "id" | "agentType">[]): string {
+  if (!template.module) return "Any";
+  return departmentForTemplate(template, departments, agents)?.name ?? humanise(template.module);
 }
 
 const FAMILY_ORDER: Record<TemplateRow["family"], number> = { assistant: 0, lead: 1, worker: 2, channel: 3, specialist: 4, utility: 5 };
@@ -113,7 +134,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         ),
       },
       { id: "family", accessorKey: "family", header: "Family", size: catalogueSizes.family, cell: ({ row }) => <Chip>{row.original.familyLabel}</Chip>, meta: { filter: "select", filterOptions: (Object.keys(FAMILY_LABELS) as TemplateRow["family"][]).map((f) => ({ value: f, label: FAMILY_LABELS[f] })) }, sortingFn: (a, b) => FAMILY_ORDER[a.original.family] - FAMILY_ORDER[b.original.family] },
-      { id: "module", accessorFn: (r) => moduleLabel(r.module, departments.data), header: "Department", size: catalogueSizes.module, meta: { label: "Department" }, cell: ({ row }) => <span className={row.original.module ? "text-primary" : "text-secondary"}>{moduleLabel(row.original.module, departments.data)}</span> },
+      { id: "module", accessorFn: (r) => moduleLabel(r, departments.data, agentsQuery.data?.agents), header: "Department", size: catalogueSizes.module, meta: { label: "Department" }, cell: ({ row }) => <span className={row.original.module ? "text-primary" : "text-secondary"}>{moduleLabel(row.original, departments.data, agentsQuery.data?.agents)}</span> },
       { id: "model", accessorKey: "modelKey", header: "Model", size: catalogueSizes.model, cell: ({ row }) => <ModelChip model={row.original.modelKey} /> },
       {
         id: "skills",
@@ -149,7 +170,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
       },
       { id: "hired", accessorKey: "hired", header: "In team", size: catalogueSizes.hired, meta: { numeric: true }, cell: ({ row }) => (row.original.hired ? row.original.hired : <span className="text-tertiary">—</span>) },
     ], CATALOGUE_FIT),
-    [currency, catalogueSizes, departments.data],
+    [currency, catalogueSizes, departments.data, agentsQuery.data],
   );
   const catalogueActions = (row: CatalogueRow): RowAction<CatalogueRow>[] => [{ id: "hire", label: "Hire…", icon: UserRoundPlus, onSelect: () => setHire({ template: row }) }];
 
@@ -189,14 +210,15 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
   );
   const movesActions = (agent: AgentRow): RowAction<AgentRow>[] => [
     { id: "open", label: "Open profile", icon: ExternalLink, onSelect: () => open(agent.id) },
-    { id: "clone", label: "Clone…", icon: Copy, separatorBefore: true, onSelect: () => setClone(agent) },
+    // One Chief of Staff per business: it is never cloned, and the designated one is never released.
+    { id: "clone", label: "Clone…", icon: Copy, separatorBefore: true, disabled: isChiefOfStaffType(agent), onSelect: () => setClone(agent) },
     { id: "loan", label: "Loan to department…", icon: ArrowLeftRight, onSelect: () => setLoan(agent) },
-    { id: "release", label: "Release", icon: UserRoundMinus, variant: "danger", separatorBefore: true, disabled: agent.agentType === "chief_of_staff", onSelect: () => setRelease(agent) },
+    { id: "release", label: "Release", icon: UserRoundMinus, variant: "danger", separatorBefore: true, disabled: isChiefOfStaff(agent), onSelect: () => setRelease(agent) },
   ];
 
   return (
     <Screen name="team/recruitment">
-      <Panel span={12} title="Agent builder" glow="brand" footer="The closest template gives the new agent a head start; its first training run drafts the description, instructions, skills and tools. Hiring needs no approval; the wage cap is an estimate until the first month closes.">
+      <Panel span={12} title="Agent builder" glow="brand" footer="The closest template gives the new agent its description, instructions, skills and tools; train it from its profile to tune them. Hiring needs no approval; the wage cap is an estimate until the first month closes.">
         <div className="flex flex-col gap-3">
           <Textarea
             value={sentence}
@@ -300,9 +322,10 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         onOpenChange={(o) => !o && setHire(null)}
         departments={departments.data}
         defaultDepartmentId={departmentId}
+        preferredDepartmentId={hire ? departmentForTemplate(hire.template, departments.data, agentsQuery.data?.agents)?.id : undefined}
         currency={currency}
         onHired={(agent, template) => {
-          setNotice(`${agent.name ?? template.name} hired. First training run queued.`);
+          setNotice(`${agent.name ?? template.name} hired. Train it from its profile to tune its skills.`);
           setSentence("");
           refetch();
         }}

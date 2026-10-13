@@ -22,6 +22,8 @@ export interface StaffRow {
   roleLabel: string;
   writes: string[];
   reads: string[];
+  /** Sections walled off from this member ("No access"), by label. */
+  none: string[];
   approves: string[];
   joinedAt: string | null;
   isMe: boolean;
@@ -63,12 +65,20 @@ const PERMISSION_OPTIONS: { value: SectionPermission; label: string }[] = [
   { value: "write", label: "Write" },
 ];
 
+/**
+ * A member's per-section overrides in the words the Sections cell shows: "Finance · no access" first (a wall is what
+ * the owner most needs to see), then writes and reads. Empty when the role's defaults apply everywhere.
+ */
+export function sectionOverrides(row: Pick<StaffRow, "writes" | "reads" | "none">): { section: string; level: "none" | "write" | "read"; word: string }[] {
+  return [...row.none.map((section) => ({ section, level: "none" as const, word: "no access" })), ...row.writes.map((section) => ({ section, level: "write" as const, word: "write" })), ...row.reads.map((section) => ({ section, level: "read" as const, word: "read" }))];
+}
+
 export function toStaffRows(members: readonly MembershipRow[] | undefined, responsibilities: ResponsibilitiesResponse | undefined, me: Me): StaffRow[] {
   return (members ?? [])
     .map((m) => {
       const perms = permissionSummary(m.sectionPermissions);
       const approves = (responsibilities?.matrix ?? []).filter((r) => r.handler.kind === "user" && r.handler.id === m.userId).map((r) => DECISION_LABELS[r.decisionType]);
-      return { id: m.userId, userId: m.userId, name: memberName(m, me), role: m.role, roleLabel: ROLE_LABELS[m.role], writes: perms.write, reads: perms.read, approves, joinedAt: m.createdAt ? new Date(m.createdAt).toISOString() : null, isMe: me.userId === m.userId, membership: m };
+      return { id: m.userId, userId: m.userId, name: memberName(m, me), role: m.role, roleLabel: ROLE_LABELS[m.role], writes: perms.write, reads: perms.read, none: perms.none, approves, joinedAt: m.createdAt ? new Date(m.createdAt).toISOString() : null, isMe: me.userId === m.userId, membership: m };
     })
     .sort((a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || a.name.localeCompare(b.name));
 }
@@ -327,21 +337,20 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
       { id: "role", accessorKey: "role", header: "Role", size: sizes.role, cell: ({ row }) => <Chip tone={row.original.role === "owner" ? "kit" : row.original.role === "admin" ? "info" : "neutral"}>{row.original.roleLabel}</Chip>, meta: { filter: "select", filterOptions: MEMBERSHIP_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] })) }, sortingFn: (a, b) => ROLE_ORDER[a.original.role] - ROLE_ORDER[b.original.role] },
       {
         id: "sections",
-        accessorFn: (r) => [...r.writes.map((s) => `${s}: write`), ...r.reads.map((s) => `${s}: read`)].join(", "),
+        accessorFn: (r) => sectionOverrides(r).map((a) => `${a.section} · ${a.word}`).join(", "),
         header: "Sections",
         size: sizes.sections,
         cell: ({ row }) => {
-          const { writes, reads } = row.original;
-          if (!writes.length && !reads.length) return <span className="text-secondary">Role default</span>;
-          // One line of plain words (writes first, in the primary colour), so a long list ends in an ellipsis with the
-          // whole list in the tooltip instead of chips cut at the cell edge.
-          const all = [...writes.map((s) => ({ s, level: "write" })), ...reads.map((s) => ({ s, level: "read" }))];
+          const all = sectionOverrides(row.original);
+          if (!all.length) return <span className="text-secondary">Role default</span>;
+          // One line of plain words (walls first, in the warning colour; then writes in the primary colour), so a long
+          // list ends in an ellipsis with the whole list in the tooltip instead of chips cut at the cell edge.
           return (
-            <span className="block min-w-0 truncate" title={all.map((a) => `${a.s} · ${a.level}`).join(", ")}>
+            <span className="block min-w-0 truncate" title={all.map((a) => `${a.section} · ${a.word}`).join(", ")}>
               {all.map((a, i) => (
-                <span key={`${a.level}-${a.s}`}>
+                <span key={`${a.level}-${a.section}`}>
                   {i > 0 ? <span className="text-tertiary">, </span> : null}
-                  <span className={a.level === "write" ? "text-primary" : "text-secondary"}>{`${a.s} · ${a.level}`}</span>
+                  <span className={a.level === "none" ? "text-status-warn" : a.level === "write" ? "text-primary" : "text-secondary"}>{`${a.section} · ${a.word}`}</span>
                 </span>
               ))}
             </span>

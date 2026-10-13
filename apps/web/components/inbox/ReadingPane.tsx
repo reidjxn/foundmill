@@ -52,6 +52,7 @@ import {
   agentIndex,
   answeredFrom,
   confirmationLines,
+  decisionAttribution,
   decisionDeadline,
   decisionExpired,
   followUpLinks,
@@ -112,7 +113,7 @@ interface BodyProps {
 
 function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps) {
   const { item, decisions, plan: storedPlan, fromAgent, entities } = data;
-  const { businessId } = useBusiness();
+  const { businessId, data: business } = useBusiness();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -164,6 +165,17 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
     return answeredFrom(decisions);
   }, [result, decisions]);
   const isAnswered = !!answered || item.state === "answered" || item.state === "archived";
+  // Who answered, for whoever reads it: "Your answer" only for the viewer's own; a co-founder sees who decided.
+  const viewerId = business.membership.userId;
+  const otherDecider = !result && decisions.some((d) => d.decidedBy && d.decidedBy !== viewerId);
+  const staffQ = useQuery(trpc.team.humans.list.queryOptions({ businessId }, { enabled: otherDecider, staleTime: 5 * 60_000, retry: false }));
+  const attribution = useMemo(() => {
+    if (result) return { label: "Your answer", by: "You", mine: true, decidedAt: result.decision.decidedAt ?? null };
+    return decisionAttribution(decisions, viewerId, (userId) => {
+      const m = staffQ.data?.find((s) => s.userId === userId) as ({ role: string; displayName?: string | null; email?: string | null } | undefined);
+      return m ? (m.displayName || m.email || `the ${m.role}`) : null;
+    });
+  }, [result, decisions, viewerId, staffQ.data]);
 
   // A decision recorded here (an option) or in the conversation ("Go with: …", an instruction typed to the agent).
   const onDecided = useCallback(
@@ -249,7 +261,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
 
   const lines: ConfirmationLine[] = useMemo(() => (result ? confirmationLines(result.evaluations, currency) : []), [result, currency]);
   const links = useMemo(() => (plan ? followUpLinks(plan.actions, businessId, departments) : []), [plan, businessId, departments]);
-  const planLine = planStatusLine(plan);
+  const planLine = planStatusLine(plan, attribution && !attribution.mine ? attribution.by : "You");
   const pendingConfirmation = plan?.status === "pending_confirmation";
   const roleLine = roleBesideName(fromAgent?.name ?? persona?.name, persona?.role);
   const relatedEntities = entities.map((e) => ({ id: e.id, kind: e.kind as EntityKind, name: e.displayName, href: routes.crm(businessId, e.id) }));
@@ -345,7 +357,8 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
             <div className="flex flex-col gap-3">
               <KeyValueList
                 items={[
-                  { label: "Your answer", value: answered?.optionId ? options.find((o) => o.id === answered.optionId)?.label ?? answered.optionId : answered?.text ? <q>{answered.text}</q> : "Recorded" },
+                  { label: attribution?.label ?? "Your answer", value: answered?.optionId ? options.find((o) => o.id === answered.optionId)?.label ?? answered.optionId : answered?.text ? <q>{answered.text}</q> : "Recorded" },
+                  ...(attribution && !attribution.mine ? [{ label: "Decided by", value: <span data-testid="decided-by">{attribution.by}{attribution.decidedAt && hydrated ? ` · ${formatDateTime(attribution.decidedAt)}` : ""}</span> }] : []),
                   ...(plan ? [{ label: "Plan", value: <Markdown variant="body">{plan.summaryMd || "No actions"}</Markdown> }] : []),
                 ]}
               />

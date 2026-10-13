@@ -26,6 +26,8 @@ export function AutonomyTab({ businessId, profile, currency, typeCount, allCount
   const { data } = useBusiness();
   const agent = profile.agent;
   const live = data.business.gameMode === "live";
+  // A released agent's settings stay as a record; they are not changed any more (the API refuses it too).
+  const released = !!agent.archivedAt;
 
   const [autonomy, setAutonomy] = useState<AutonomyDraft>(() => autonomyDraft(autonomyFromAgent(agent.autonomy)));
   const [negotiation, setNegotiation] = useState<NegotiationDraft>(() => negotiationDraft(negotiationFromAgent(agent.negotiation)));
@@ -51,7 +53,7 @@ export function AutonomyTab({ businessId, profile, currency, typeCount, allCount
   const setNegotiationM = useMutation(
     trpc.agent.negotiation.set.mutationOptions({
       onSuccess: (r) => {
-        toast({ title: negotiation.enabled ? "Negotiation on" : "Negotiation off", description: `${r.updated.length} ${r.updated.length === 1 ? "agent" : "agents"} changed.`, tone: "good" });
+        toast({ title: "Negotiation limits saved", description: `${r.updated.length} ${r.updated.length === 1 ? "agent" : "agents"} changed. Negotiation stays off until it is available.`, tone: "good" });
         void invalidate();
         refetch();
       },
@@ -71,7 +73,8 @@ export function AutonomyTab({ businessId, profile, currency, typeCount, allCount
 
   const apply = async (s: ApplyScope) => {
     if (scope === "autonomy") await setAutonomyM.mutateAsync({ businessId, agentId: agent.id, autonomy: autonomyToInput(autonomyForm), applyScope: s });
-    else if (scope === "negotiation") await setNegotiationM.mutateAsync({ businessId, agentId: agent.id, negotiation: negotiationToInput(negotiationForm), applyScope: s });
+    // No negotiation runtime exists yet (AC-11.14.3): the limits are kept, switched off.
+    else if (scope === "negotiation") await setNegotiationM.mutateAsync({ businessId, agentId: agent.id, negotiation: { ...negotiationToInput(negotiationForm), enabled: false }, applyScope: s });
   };
 
   return (
@@ -83,7 +86,7 @@ export function AutonomyTab({ businessId, profile, currency, typeCount, allCount
         footer={
           <span className="flex w-full items-center gap-2">
             <span>Hard gates (money, signing, identity, deletion, security) never lift, whatever the override.</span>
-            <Button size="sm" variant="primary" className="ml-auto" disabled={!!autonomyError} loading={setAutonomyM.isPending} onClick={() => setScope("autonomy")} data-testid="save-autonomy">
+            <Button size="sm" variant="primary" className="ml-auto" disabled={released || !!autonomyError} loading={setAutonomyM.isPending} onClick={() => setScope("autonomy")} data-testid="save-autonomy">
               Save autonomy
             </Button>
           </span>
@@ -118,24 +121,28 @@ export function AutonomyTab({ businessId, profile, currency, typeCount, allCount
         actions={
           <span className="inline-flex items-center gap-2">
             {live ? <Chip tone="info">LIVE</Chip> : <Chip tone="neutral">Applies on LIVE</Chip>}
-            <Chip tone={negotiation.enabled ? "good" : "neutral"} icon={Handshake}>
-              {negotiation.enabled ? "On" : "Off"}
+            <Chip tone="neutral" icon={Handshake} data-testid="negotiation-state">
+              Not available yet
             </Chip>
           </span>
         }
         footer={
           <span className="flex w-full items-center gap-2">
-            <span>Within these limits the agent negotiates without per-message approval. Final terms, signing and payment stay hard-gated; transcripts go on the counterparty's CRM profile; the other side always knows it is an agent.</span>
-            <Button size="sm" variant="primary" className="ml-auto shrink-0" disabled={!!negotiationError} loading={setNegotiationM.isPending} onClick={() => setScope("negotiation")} data-testid="save-negotiation">
-              Save negotiation
+            <span data-testid="negotiation-footer">Negotiation arrives with LIVE business-to-business deals and is not available yet. Limits saved here stay off until then; final terms, signing and payment will always stay with you.</span>
+            <Button size="sm" variant="primary" className="ml-auto shrink-0" disabled={released || !!negotiationError} loading={setNegotiationM.isPending} onClick={() => setScope("negotiation")} data-testid="save-negotiation">
+              Save limits
             </Button>
           </span>
         }
       >
         <form className="flex flex-col gap-4" onSubmit={(e) => e.preventDefault()}>
-          <label className="flex items-center gap-3 text-body text-primary" htmlFor="negotiation-enabled">
-            <Switch id="negotiation-enabled" checked={negotiation.enabled} onCheckedChange={(v) => setNegotiation((n) => ({ ...n, enabled: v }))} />
+          <label className="flex items-center gap-3 text-body text-secondary" htmlFor="negotiation-enabled">
+            {/* No negotiation runtime yet (AC-11.14.3): the switch stays off and cannot be turned on. */}
+            <Switch id="negotiation-enabled" checked={false} disabled aria-describedby="negotiation-unavailable" />
             Let {agent.name} negotiate with other businesses' agents and people
+            <span id="negotiation-unavailable" className="sr-only">
+              Not available yet
+            </span>
           </label>
           <div className="grid grid-cols-2 gap-3">
             {money("Price floor", "price-min", negotiation.priceMin, (v) => setNegotiation((n) => ({ ...n, priceMin: v })))}
@@ -178,13 +185,13 @@ export function AutonomyTab({ businessId, profile, currency, typeCount, allCount
             </p>
           ) : (
             <p className="flex items-center gap-1 text-small text-secondary">
-              <Icon icon={ShieldCheck} size="inline" /> Accepting final terms always creates a hard-gate task for you.
+              <Icon icon={ShieldCheck} size="inline" /> Nothing is negotiated on your behalf until negotiation is available.
             </p>
           )}
         </form>
       </Panel>
 
-      <ApplyScopeDialog open={scope !== null} onOpenChange={(o) => !o && setScope(null)} agentName={agent.name} agentType={agentTypeNoun(agent)} typeCount={typeCount} allCount={allCount} settingLabel={scope === "autonomy" ? `Autonomy: ${AUTONOMY_MODE_COPY[autonomy.mode].label}` : `Negotiation: ${negotiation.enabled ? "on" : "off"}`} onApply={apply} />
+      <ApplyScopeDialog open={scope !== null} onOpenChange={(o) => !o && setScope(null)} agentName={agent.name} agentType={agentTypeNoun(agent)} typeCount={typeCount} allCount={allCount} settingLabel={scope === "autonomy" ? `Autonomy: ${AUTONOMY_MODE_COPY[autonomy.mode].label}` : "Negotiation limits (off until available)"} onApply={apply} />
     </div>
   );
 }
