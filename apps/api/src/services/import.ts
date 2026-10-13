@@ -468,15 +468,16 @@ export function reportSources(configs: readonly SourceConfig[], job?: ImportJob)
 }
 
 /**
- * What a source makes possible, worded by what is true of it: read ("Stripe is connected read only: …"), or still to be
- * read ("Once Stripe is connected, …"). A source that was not read adds nothing here; it is listed under what is missing.
+ * What a source makes possible, worded by what is true of it: read (exactly what the one read returned, and what it
+ * did not bring in: an account answering is not its revenue history), or still to be read ("Once Stripe is connected,
+ * …"). A source that was not read adds nothing here; it is listed under what is missing.
  */
 const STRENGTH: Record<"code" | "revenue" | "bank" | "tracking" | "registry", { read: (label: string) => string; planned: (label: string) => string }> = {
-  code: { read: (l) => `${l} is readable through the gateway: agents can start from your real code, not a blank repository.`, planned: (l) => `Once ${l} is read after you take charge, agents start from your real code, not a blank repository.` },
-  revenue: { read: (l) => `${l} is connected read only: forecasts can start from real revenue history rather than archetype priors.`, planned: (l) => `Once ${l} is connected, forecasts can start from real revenue history rather than archetype priors.` },
-  bank: { read: (l) => `${l} is connected read only: cash and runway can be measured instead of estimated.`, planned: (l) => `Once ${l} is connected, cash and runway can be measured instead of estimated.` },
-  tracking: { read: (l) => `${l} is connected read only: your open issues can seed the first roadmap.`, planned: (l) => `Once ${l} is connected, your open issues can seed the first roadmap.` },
-  registry: { read: (l) => `The ${l.toLowerCase()} answered for this number: the legal entity and its filings can be put on record.`, planned: (l) => `Once the ${l.toLowerCase()} is read, the legal entity and its filing deadlines can be put on record.` },
+  code: { read: (l) => `${l} was read through the gateway (its file tree, read only): agents start from your real code, not a blank repository.`, planned: (l) => `Once ${l} is read after you take charge, agents start from your real code, not a blank repository.` },
+  revenue: { read: (l) => `${l} is connected read only and its account answered. Its revenue history was not imported, so forecasts still start from archetype priors.`, planned: (l) => `Once ${l} is connected, forecasts can start from real revenue history rather than archetype priors.` },
+  bank: { read: (l) => `${l} is connected read only and its accounts were listed. Transactions were not imported, so cash and runway stay estimates.`, planned: (l) => `Once ${l} is connected, cash and runway can be measured instead of estimated.` },
+  tracking: { read: (l) => `${l} is connected read only: the pages it shares were listed for the team to read.`, planned: (l) => `Once ${l} is connected, the team can read the pages it shares: specs, roadmaps and notes.` },
+  registry: { read: (l) => `The ${l.toLowerCase()} answered a search for this number (read only); the entity goes on record once Legal confirms the match with you.`, planned: (l) => `Once the ${l.toLowerCase()} is read, the legal entity and its filing deadlines can be put on record.` },
 };
 
 /**

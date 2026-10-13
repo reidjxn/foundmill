@@ -34,9 +34,19 @@ describe("0031_settings_lifecycle", () => {
       relevance: { import: { key: "github", value: "acme/ledgerly", connector: "github", readOnly: true, status: "done", summary: "read", provenance: "Estimate" }, summary: "read" },
     });
     const manual = await repos.product.createSource(r.db, b, { kind: "doc", uri: "https://example.com/notes", title: "Notes", relevance: { summary: "A note the founder wrote" } });
+    // An earlier import.start on a business stored its rows without a status; this one was never read (no worker, or
+    // the gateway threw), the next one the old orchestrator recorded, and the last is a read queued after the fix.
+    const legacy = await repos.product.createSource(r.db, b, { kind: "finance", uri: "https://admin.shopify.com/", title: "Shopify import", relevance: { import: { key: "shopify", value: "", connector: "shopify", readOnly: true } } });
+    const legacyRecorded = await repos.product.createSource(r.db, b, { kind: "issue", uri: "https://linear.app/", title: "Linear import", relevance: { import: { key: "linear", value: "", connector: "linear", readOnly: true }, imported: false, reason: "no connector for this uri" } });
+    const queued = await repos.product.createSource(r.db, b, { kind: "doc", uri: "https://www.notion.so/", title: "Notion import", relevance: { import: { key: "notion", value: "", connector: "notion", readOnly: true, status: "pending" } } });
 
     const migration = readMigrations().find((m) => m.tag === "0031_settings_lifecycle")!;
     for (const statement of migration.statements) await r.db.execute(sql.raw(statement));
+
+    const legacyAfter = (await repos.product.getSource(r.db, b, legacy.id)).relevance as Record<string, unknown>;
+    expect(legacyAfter).toEqual({ import: { key: "shopify", value: "", connector: "shopify", readOnly: true, status: "failed", note: "Not read: the earlier import never recorded a read." }, imported: false, reason: "the earlier import never recorded a read" });
+    expect((await repos.product.getSource(r.db, b, legacyRecorded.id)).relevance).toEqual(legacyRecorded.relevance);
+    expect((await repos.product.getSource(r.db, b, queued.id)).relevance).toEqual(queued.relevance);
 
     const after = (await repos.product.getSource(r.db, b, simulated.id)).relevance as Record<string, unknown>;
     expect(after.summary).toBeUndefined();

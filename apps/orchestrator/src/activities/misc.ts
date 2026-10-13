@@ -131,21 +131,22 @@ export function createMiscActivities(deps: OrchestratorDeps) {
      * itself failed) is marked not read here, so no row stays "not read yet" after the workflow has finished.
      */
     async finishImport(input: { businessId: string; results: ImportSourceResult[] }): Promise<{ inboxItemId: string | null }> {
+      const results: ImportSourceResult[] = [];
       for (const r of input.results) {
-        if (r.ok) continue;
-        const row = await repos.product.getSource(deps.db, input.businessId, r.sourceId).catch(() => null);
+        const row = r.ok ? null : await repos.product.getSource(deps.db, input.businessId, r.sourceId).catch(() => null);
         const status = ((row?.relevance ?? {}) as { import?: { status?: unknown } }).import?.status;
-        if (row && status === "pending") await recordImportRead(deps.db, input.businessId, row, { ok: false, reason: `the read did not finish (${r.summary.replace(/^failed: /, "").slice(0, 160)})` });
+        // The note then names the source and the reason, like every other line.
+        results.push(row && status === "pending" ? await recordImportRead(deps.db, input.businessId, row, { ok: false, reason: `the read did not finish (${r.summary.replace(/^failed: /, "").slice(0, 160)})` }) : r);
       }
       const chief = await repos.agents.chiefOfStaff(deps.db, input.businessId);
-      const ok = input.results.filter((r) => r.ok).length;
-      await repos.audit.append(deps.db, input.businessId, { actorKind: "system", action: "import.finish", target: {}, details: { sources: input.results.length, ok } });
+      const ok = results.filter((r) => r.ok).length;
+      await repos.audit.append(deps.db, input.businessId, { actorKind: "system", action: "import.finish", target: {}, details: { sources: results.length, ok } });
       if (!chief) return { inboxItemId: null };
-      const notRead = input.results.length - ok;
-      const body = input.results.length
-        ? `${input.results.map((r) => `- ${r.summary}`).join("\n")}\n\n${notRead ? "A source that was not read adds nothing to the business yet. Connect it in Settings › Integrations, then choose Read now on it in Product › Sources; the Import report lists it as missing until then." : "Every source was read through the gateway, read only."}`
+      const notRead = results.length - ok;
+      const body = results.length
+        ? `${results.map((r) => `- ${r.summary}`).join("\n")}\n\n${notRead ? "A source that was not read adds nothing to the business yet. Connect it in Settings › Integrations, then choose Read now on it in Product › Sources; the Import report lists it as missing until then." : "Every source was read through the gateway, read only."}`
         : "No sources to import.";
-      const item = await repos.inbox.createItem(deps.db, input.businessId, { type: "update", from_agent_id: chief.id, subject: `Import finished: ${ok} of ${input.results.length} sources read`, body_md: body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] });
+      const item = await repos.inbox.createItem(deps.db, input.businessId, { type: "update", from_agent_id: chief.id, subject: `Import finished: ${ok} of ${results.length} sources read`, body_md: body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] });
       return { inboxItemId: item.id };
     },
 

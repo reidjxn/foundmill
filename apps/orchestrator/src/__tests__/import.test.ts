@@ -97,6 +97,9 @@ describe("importSource", () => {
     expect(item.bodyMd).toContain("Settings › Integrations");
     expect(item.bodyMd).toContain("Read now");
     expect(await relevanceOf(stuck.id)).toMatchObject({ imported: false, reason: "the read did not finish (activity timed out)", import: { status: "failed" } });
+    // The closed read is named in the note like every other source, never as a bare "failed: …".
+    expect(item.bodyMd).toContain("- notion import: not read, the read did not finish (activity timed out)");
+    expect(item.bodyMd).not.toContain("failed: activity timed out");
   });
 
   it("importCall falls back to the URI for rows stored before the key was, and refuses what it cannot read", () => {

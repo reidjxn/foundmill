@@ -210,6 +210,17 @@ export type IncorporationRoute = (typeof INCORPORATION_ROUTES)[number];
 export const SECURITY_KINDS = ["common", "preferred", "option", "warrant", "safe", "note"] as const;
 export type SecurityKind = (typeof SECURITY_KINDS)[number];
 
+/**
+ * Bank transaction category keys that are not operating cash flow (BUILD §11.8: net burn is "operating outflows −
+ * operating inflows, financing excluded"), normalized (lower case, `_` and `-` read as spaces). One list for both
+ * readers: packages/db `netBurn` leaves these out of burn, and the finance module's chart of accounts files exactly
+ * these under Financing and Transfers, so the burn tiles and the P&L agree on what a raise is.
+ */
+export const NON_OPERATING_CATEGORY_KEYS = {
+  financing: ["financing", "funding", "investment", "equity", "safe", "loan", "loan repayment", "grant", "founder loan", "director loan", "share capital"],
+  transfers: ["transfer", "transfers", "internal transfer", "between accounts"],
+} as const satisfies Record<string, readonly string[]>;
+
 export const USAGE_KINDS = ["tokens", "sandbox", "tool", "training"] as const;
 export type UsageKind = (typeof USAGE_KINDS)[number];
 

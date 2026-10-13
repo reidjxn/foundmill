@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { NON_OPERATING_CATEGORY_KEYS } from "@foundmill/shared/constants";
 import {
+  CHART_OF_ACCOUNTS,
   acquisitionCost,
   aktiebokRows,
   buildPnl,
@@ -66,6 +68,17 @@ describe("chart of accounts", () => {
     expect(sectionOf("Loan repayment")).toBe("financing");
     expect(sectionOf(null)).toBe("uncategorised");
     expect(sectionOf("Something new")).toBe("opex");
+  });
+
+  it("files exactly the keys net burn leaves out under Financing and Transfers, so the P&L and burn agree (BUILD §11.8)", () => {
+    // A director loan used to fall through to operating expenses here while net burn already left it out.
+    expect(chartEntry("Director_Loan")?.category).toBe("Financing");
+    for (const key of NON_OPERATING_CATEGORY_KEYS.financing) expect(sectionOf(key), key).toBe("financing");
+    for (const key of NON_OPERATING_CATEGORY_KEYS.transfers) expect(chartEntry(key)?.category, key).toBe("Transfers");
+    const nonOperating = new Set<string>([...NON_OPERATING_CATEGORY_KEYS.financing, ...NON_OPERATING_CATEGORY_KEYS.transfers]);
+    for (const line of CHART_OF_ACCOUNTS.filter((c) => c.category === "Financing" || c.category === "Transfers")) {
+      for (const alias of line.aliases) expect(nonOperating.has(alias), alias).toBe(true);
+    }
   });
 });
 

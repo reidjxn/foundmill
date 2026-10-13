@@ -167,6 +167,14 @@ describe("journeys", () => {
     await customer("Ended mid-June", "2026-02-01", { stage: "churned", endedAt: "2026-06-15" });
     const back = await customer("Churned, then back", "2026-01-05", { stage: "churned", endedAt: "2026-02-01" });
     await repos.entities.addRole(r.db, b, back, { role: "customer", stage: "customer", startedAt: day("2026-05-01") });
+    // Churned, came back in April and left again mid-June: a customer for part of the window, so still in.
+    const backAndGone = await customer("Back in April, gone mid-June", "2026-01-08", { stage: "churned", endedAt: "2026-02-01" });
+    await r.db.insert(s.entityRoles).values({ businessId: b, entityId: backAndGone, role: "customer", stage: "churned", startedAt: day("2026-04-01"), endedAt: day("2026-06-15") });
+    // The CRM says churned before the window, but they paid again in June: paying, so in.
+    const paidAgain = await customer("Ended in March, paid in June", "2026-01-12", { stage: "churned", endedAt: "2026-03-01" });
+    await repos.journeys.recordConversion(r.db, b, { entityId: paidAgain, kind: "payment", amountMinor: 4900, occurredAt: day("2026-06-09") });
+    // An open customer role with no stage recorded is a customer.
+    await r.db.insert(s.entityRoles).values({ businessId: b, entityId: await customer("Open role, no stage", "2026-02-20"), role: "customer", stage: null, startedAt: day("2026-02-20") });
     // Won in June, paying three times: one customer. A June payment with no linked customer counts once; one from May
     // without a customer cannot be told apart from a repeat, so it stays out. July is after the window.
     const fresh = await customer("Won in June", "2026-06-02", { stage: "customer" });
@@ -175,8 +183,9 @@ describe("journeys", () => {
     await repos.journeys.recordConversion(r.db, b, { entityId: null, kind: "payment", amountMinor: 4900, occurredAt: day("2026-05-06") });
     await customer("Won in July", "2026-07-03", { stage: "customer" });
     await repos.journeys.recordConversion(r.db, b, { entityId: r.A.entityId, kind: "signup", occurredAt: day("2026-06-07") });
-    // Since January, No CRM role, Ended mid-June, Churned then back, Won in June, the June payment without a customer.
-    expect(await repos.journeys.countPayingCustomers(r.db, b, june)).toBe(6);
+    // Since January, No CRM role, Ended mid-June, Churned then back, Back in April and gone mid-June, Ended in March and
+    // paid in June, Open role with no stage, Won in June, the June payment without a customer.
+    expect(await repos.journeys.countPayingCustomers(r.db, b, june)).toBe(9);
     expect(await repos.journeys.countPayingCustomers(r.db, r.B.businessId, june)).toBe(0);
     // Under RLS a stranger counts nobody in A.
     expect(await r.as(r.B.ownerId, (tx) => repos.journeys.countPayingCustomers(tx, b, june))).toBe(0);

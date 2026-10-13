@@ -283,20 +283,24 @@ export const journeysRepo = {
    * The paying customer base over a revenue window [from, to) (BUILD §11.8: payback divides the window's monthly gross
    * profit by it): distinct customers who had paid by the window's end and had not churned before it began. A payment
    * conversion is a customer's win (the first payment; renewals are not always recorded), so counting only the payers
-   * inside the window would count the newly acquired customers again. Churn comes from the CRM: a `customer` role that
-   * ended before the window, or is marked `churned` and last changed before it, with no open customer role since. A
-   * payment with no linked customer counts once, and only inside the window (nothing says whether it repeats).
+   * inside the window would count the newly acquired customers again. Churn comes from the CRM: a customer whose every
+   * `customer` role ended before the window (or is marked `churned` and was last changed before it) is out, unless they
+   * paid again inside the window. A payment with no linked customer counts once, and only inside the window (nothing
+   * says whether it repeats).
    */
   async countPayingCustomers(db: Executor, businessId: string, range: DateRange = {}): Promise<number> {
     const r = parseInput(DateRange, range, "date range");
     const to = r.to ?? new Date();
     const from = r.from ?? to;
     const role = (cond: SQL) => sql`exists (select 1 from entity_roles r where r.business_id = ${conversions.businessId} and r.entity_id = ${conversions.entityId} and r.role = 'customer' and ${cond})`;
-    const churnedBefore = sql`(${role(sql`((r.ended_at is not null and r.ended_at < ${from.toISOString()}) or (r.ended_at is null and r.stage = 'churned' and r.updated_at < ${from.toISOString()}))`)} and not ${role(sql`r.ended_at is null and r.stage is distinct from 'churned'`)})`;
+    // A role that was over before the window began; churned before = has such a role and no role that reached the window.
+    const overBefore = sql`coalesce((r.ended_at is not null and r.ended_at < ${from.toISOString()}) or (r.ended_at is null and r.stage = 'churned' and r.updated_at < ${from.toISOString()}), false)`;
+    const churnedBefore = sql`(${role(overBefore)} and not ${role(sql`not ${overBefore}`)})`;
+    const inWindow = sql`${conversions.occurredAt} >= ${from.toISOString()}`;
     const rows = await db
-      .select({ n: sql<number>`count(distinct case when ${conversions.entityId} is not null then ${conversions.entityId}::text when ${conversions.occurredAt} >= ${from.toISOString()} then ${conversions.id}::text end)::int` })
+      .select({ n: sql<number>`count(distinct case when ${conversions.entityId} is not null then ${conversions.entityId}::text when ${inWindow} then ${conversions.id}::text end)::int` })
       .from(conversions)
-      .where(and(eq(conversions.businessId, businessId), eq(conversions.kind, "payment"), timeRange(conversions.occurredAt, { to }), sql`(${conversions.entityId} is null or not ${churnedBefore})`));
+      .where(and(eq(conversions.businessId, businessId), eq(conversions.kind, "payment"), timeRange(conversions.occurredAt, { to }), sql`(${conversions.entityId} is null or ${inWindow} or not ${churnedBefore})`));
     return Number(rows[0]?.n ?? 0);
   },
 

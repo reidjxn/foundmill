@@ -6,6 +6,7 @@
  */
 import { formatDate } from "@foundmill/dugout/lib/format";
 import type { DateFormatPrefs } from "@foundmill/dugout/lib/date-preferences";
+import { NON_OPERATING_CATEGORY_KEYS } from "@foundmill/shared/constants";
 import { usSpelling } from "@foundmill/shared/us-spelling";
 import type { CapTableEntryRow, CapTableSummary, CategoryTotal, ForecastDrivers, ForecastPoint, ForecastScenario, MonthlyTotal, SecurityRow } from "./types";
 
@@ -74,9 +75,11 @@ export const CHART_OF_ACCOUNTS: readonly { category: string; section: PnlSection
   { category: "Insurance", section: "opex", aliases: ["insurance"] },
   { category: "Bank charges", section: "opex", aliases: ["bank charges", "bank fees", "fx fees", "bank fees and interest", "interest"] },
   { category: "Other operating", section: "opex", aliases: ["other operating", "other", "misc", "miscellaneous", "equipment", "hardware"] },
-  { category: "Financing", section: "financing", aliases: ["financing", "investment", "equity", "safe", "loan", "loan repayment", "grant", "funding", "founder loan", "share capital"] },
+  // Financing and Transfers file exactly the keys net burn leaves out (packages/db `netBurn`), so the P&L and the burn
+  // tiles agree on what a raise is.
+  { category: "Financing", section: "financing", aliases: NON_OPERATING_CATEGORY_KEYS.financing },
   { category: "Taxes", section: "tax", aliases: ["taxes", "tax", "vat", "corporation tax", "income tax", "payroll tax", "taxes and government"] },
-  { category: "Transfers", section: "other", aliases: ["transfers", "transfer", "internal transfer", "between accounts"] },
+  { category: "Transfers", section: "other", aliases: NON_OPERATING_CATEGORY_KEYS.transfers },
 ];
 
 export const PNL_CATEGORY_OPTIONS: readonly string[] = CHART_OF_ACCOUNTS.map((c) => c.category);

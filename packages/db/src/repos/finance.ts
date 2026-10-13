@@ -8,7 +8,7 @@
  * number (`cashPosition`, `monthlyTotals`, `categoryTotals`) is a cash-basis aggregate the UI labels
  * "Estimate" unless a ledger snapshot exists.
  */
-import { ValidationError } from "@foundmill/shared";
+import { NON_OPERATING_CATEGORY_KEYS, ValidationError } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -104,22 +104,20 @@ export interface CategoryTotal {
 /**
  * Category keys that are not operating cash flow (BUILD §11.8: net burn is "operating outflows − operating inflows,
  * financing excluded"): raising or repaying money, and moving it between the business's own accounts. Matched on the
- * normalized key (lower case, `_` and `-` read as spaces), the same words the finance module's chart of accounts files
- * under Financing and Transfers, so the burn tiles and the P&L agree on what a raise is.
+ * normalized key (lower case, `_` and `-` read as spaces). The list lives in packages/shared, where the finance module's
+ * chart of accounts files exactly these under Financing and Transfers, so the burn tiles and the P&L agree on what a
+ * raise is.
  */
-export const NON_OPERATING_CATEGORY_KEYS: readonly string[] = [
-  "financing", "funding", "investment", "equity", "safe", "loan", "loan repayment", "grant", "founder loan", "director loan", "share capital",
-  "transfer", "transfers", "internal transfer", "between accounts",
-];
+const NON_OPERATING_KEYS: readonly string[] = [...NON_OPERATING_CATEGORY_KEYS.financing, ...NON_OPERATING_CATEGORY_KEYS.transfers];
 
 /** True for a category that is not operating cash flow (null and unknown categories are operating). */
 export function isNonOperatingCategory(category: string | null | undefined): boolean {
   if (!category) return false;
-  return NON_OPERATING_CATEGORY_KEYS.includes(category.trim().toLowerCase().replace(/[_\s-]+/g, " "));
+  return NON_OPERATING_KEYS.includes(category.trim().toLowerCase().replace(/[_\s-]+/g, " "));
 }
 
 /** SQL twin of `isNonOperatingCategory` over `transactions.category`. */
-const nonOperating = sql`coalesce(regexp_replace(lower(trim(${transactions.category})), '[_[:space:]-]+', ' ', 'g') in (${sql.join(NON_OPERATING_CATEGORY_KEYS.map((k) => sql`${k}`), sql`, `)}), false)`;
+const nonOperating = sql`coalesce(regexp_replace(lower(trim(${transactions.category})), '[_[:space:]-]+', ' ', 'g') in (${sql.join(NON_OPERATING_KEYS.map((k) => sql`${k}`), sql`, `)}), false)`;
 
 const scopedAccount = (businessId: string, accountId: string) => and(eq(accounts.businessId, businessId), eq(accounts.id, accountId));
 const scopedTx = (businessId: string, txId: string) => and(eq(transactions.businessId, businessId), eq(transactions.id, txId));

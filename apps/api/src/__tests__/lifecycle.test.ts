@@ -1,4 +1,5 @@
 import { EXPORT_TABLES, repos, transactions } from "@foundmill/db";
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DELETION_DELAY_DAYS, EXPORT_FORMAT, REAUTH_WINDOW_MS, exportFileName } from "../services/lifecycle";
 import { createApiHarness, type ApiHarness } from "./harness";
@@ -49,6 +50,19 @@ describe("Settings › Danger zone (BUILD §11.15): export, deletion request, ar
     await expect(hz.caller({ userId: hz.B.ownerId }).business.export({ businessId: hz.A.businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     // Nothing from B leaked into A's archive.
     expect(text).not.toContain(hz.B.businessId);
+  });
+
+  it("the owner's export holds every row the business has in each exported table: row security hides nothing", async () => {
+    const { businessId } = hz.A;
+    // Counted as the service (no row security) before the export writes its own audit row and Inbox note.
+    const stored: Record<string, number> = {};
+    for (const name of Object.keys(EXPORT_TABLES)) {
+      const res = (await hz.db.execute(sql`select count(*)::int as n from ${sql.identifier(name)} where business_id = ${businessId}::uuid`)) as unknown as { rows: { n: number }[] };
+      stored[name] = Number(res.rows[0]!.n);
+    }
+    const result = await hz.caller({ userId: hz.A.ownerId }).business.export({ businessId });
+    expect(result.counts).toEqual(stored);
+    expect(Object.values(stored).filter((n) => n > 0).length).toBeGreaterThan(20);
   });
 
   it("business.export reads past the old 5,000-row stop: every transaction is in the file", async () => {

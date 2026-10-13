@@ -142,10 +142,27 @@ describe("import.start / import.status — Door B (BUILD §11.1, AC-11.1.5)", ()
     expect(report.whatIsMissing).toEqual(expect.arrayContaining(["Shopify: Not read: no connector for this uri.", "Bank (open banking): Not read: gateway deny.", "No revenue source: Finance starts with a management P&L and labeled estimates."]));
     // No revenue or cash claim from the failed Shopify and bank; the archetype ignores the failed Shopify.
     expect(report.strengths.join(" ")).not.toMatch(/revenue|runway|cash/i);
-    expect(report.strengths).toEqual(expect.arrayContaining([expect.stringMatching(/^GitHub is readable/), expect.stringMatching(/^The company registry answered/)]));
+    expect(report.strengths).toEqual(expect.arrayContaining([expect.stringMatching(/^GitHub was read through the gateway/), expect.stringMatching(/^The company registry answered/)]));
     expect(report.archetypeHint).toBe("b2b_saas");
     expect(report.firstDecisions.find((d) => d.id === "finance")?.label).toBe("Connect a revenue or bank source later");
     expect(report.summary).toMatch(/2 sources of 4 read, 2 not read/);
+  });
+
+  it("a source that was read is credited with what its one read returned, never with history it did not import", () => {
+    const configs = [
+      { key: "stripe" as const, value: "" },
+      { key: "bank" as const, value: "" },
+      { key: "registry" as const, value: "12345678" },
+      { key: "notion" as const, value: "" },
+    ];
+    const read = (key: (typeof configs)[number]["key"], value: string) => ({ key, value, sourceId: null, status: "done" as const, steps: [], summary: "Read through the gateway, read only." });
+    const job: ImportJob = { id: "job", mode: "temporal", businessId: "b", workflowId: "import:b:2", status: "done", startedAt: new Date(0).toISOString(), finishedAt: new Date(0).toISOString(), stepMs: 1, sources: configs.map((c) => read(c.key, c.value)) };
+    const strengths = buildScoutingReport(configs, job).strengths.join(" ");
+    // Stripe's account and the bank's account list answered; neither read brings in revenue or transactions.
+    expect(strengths).not.toMatch(/forecasts can start from real revenue|measured instead of estimated|is on record|filings can be put on record|open issues/);
+    expect(strengths).toMatch(/Stripe is connected read only and its account answered\. Its revenue history was not imported/);
+    expect(strengths).toMatch(/Transactions were not imported, so cash and runway stay estimates/);
+    expect(strengths).toMatch(/the entity goes on record once Legal confirms the match with you/);
   });
 
   it("with a business: sources rows are written and importBusiness starts on Temporal; status follows the orchestrator's updates", async () => {
