@@ -1,5 +1,6 @@
 /** founder_profiles — account-scoped (userId first), routers founder.profile.get/update. */
-import { VISIBILITY } from "@foundmill/shared";
+import { RESERVED_NAME_MESSAGE, isReservedName } from "@foundmill/config";
+import { VISIBILITY, ValidationError } from "@foundmill/shared";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { founderProfiles, type FounderProfile } from "../schema";
@@ -8,7 +9,8 @@ import { Currency, defined, maybeOne, MinorAmount, one, parseInput, type Executo
 const SkillRatings = z.record(z.string(), z.number().int().min(1).max(20));
 
 export const FounderProfileInput = z.object({
-  displayName: z.string().trim().min(1).max(120),
+  // Not a name that poses as the platform or its staff ("Foundmill Support"): other founders read it as who wrote to them.
+  displayName: z.string().trim().min(1).max(120).refine((n) => !isReservedName(n), RESERVED_NAME_MESSAGE),
   experience: z.string().max(4000).nullable().optional(),
   skills: SkillRatings.default({}),
   timeCommitment: z.string().max(120).nullable().optional(),
@@ -26,6 +28,11 @@ export type FounderProfileInput = z.input<typeof FounderProfileInput>;
 export const FounderProfilePatch = patchSchema(FounderProfileInput);
 export type FounderProfilePatch = z.input<typeof FounderProfilePatch>;
 
+/** Says why in the person's words (parseInput would only say "Invalid founder profile"); the schema holds the same rule. */
+function assertNameFree(displayName: string | undefined): void {
+  if (displayName !== undefined && isReservedName(displayName)) throw new ValidationError(RESERVED_NAME_MESSAGE);
+}
+
 export const foundersRepo = {
   async get(db: Executor, userId: string): Promise<FounderProfile | null> {
     return maybeOne(await db.select().from(founderProfiles).where(and(eq(founderProfiles.userId, userId), isNull(founderProfiles.archivedAt))).limit(1));
@@ -33,6 +40,7 @@ export const foundersRepo = {
 
   /** Creates or replaces the profile for the user (one profile per account). */
   async upsert(db: Executor, userId: string, input: FounderProfileInput): Promise<FounderProfile> {
+    assertNameFree(input.displayName);
     const v = parseInput(FounderProfileInput, input, "founder profile");
     const values = {
       userId,
@@ -58,6 +66,7 @@ export const foundersRepo = {
   },
 
   async update(db: Executor, userId: string, patch: FounderProfilePatch): Promise<FounderProfile> {
+    assertNameFree(patch.displayName);
     const v = parseInput(FounderProfilePatch, patch, "founder profile update");
     return one(await db.update(founderProfiles).set(defined(v)).where(eq(founderProfiles.userId, userId)).returning(), "founder profile", userId);
   },

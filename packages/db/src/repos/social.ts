@@ -7,6 +7,7 @@
  * business-facing. Personal businesses never appear in `publicProfiles`/`searchPublic`: the `public_profiles`
  * view only selects LIVE businesses (0012), so the visibility rule is enforced in SQL, not here.
  */
+import { RESERVED_NAME_MESSAGE, isReservedName } from "@foundmill/config";
 import { AppError, ARCHETYPES, DATA_REGIONS, ForbiddenError, NotFoundError, ValidationError, VISIBILITY } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
@@ -73,6 +74,8 @@ const sortPair = (a: string, b: string): [string, string] => (a < b ? [a, b] : [
 
 /** What a sender is told when a Send cannot go: not connected and blocked read the same, so a block is never announced. */
 const CANNOT_MESSAGE = "You cannot message this person";
+/** A thread subject is the sender's own words: it may not pose as the platform or its staff (audit GLS2F-06). */
+const ThreadSubject = z.string().trim().max(200).refine((s) => !isReservedName(s, "subject"), RESERVED_NAME_MESSAGE);
 
 /** One call may write to at most this many people (a thread is a conversation, not a mailing list). */
 export const MAX_MESSAGE_RECIPIENTS = 20;
@@ -241,7 +244,7 @@ export const socialRepo = {
 
   /** The thread between exactly these participants (created if missing). Low level: no checks on who may write to whom. */
   async findOrCreateThread(db: Executor, userId: string, participantIds: readonly string[], subject?: string | null): Promise<MessageThread> {
-    const v = parseInput(z.object({ participantIds: z.array(Id).min(1), subject: z.string().max(200).nullable().optional() }), { participantIds, subject }, "thread");
+    const v = parseInput(z.object({ participantIds: z.array(Id).min(1), subject: ThreadSubject.nullable().optional() }), { participantIds, subject }, "thread");
     const members = [...new Set([userId, ...v.participantIds])].sort();
     return db.transaction(async (tx) => {
       const existing = await tx
@@ -263,6 +266,7 @@ export const socialRepo = {
     const v = parseInput(z.object({ recipientIds: z.array(Id).min(1).max(MAX_MESSAGE_RECIPIENTS) }), { recipientIds }, "recipients");
     const others = [...new Set(v.recipientIds)].filter((id) => id !== userId);
     if (!others.length) throw new ValidationError("Choose someone other than yourself to write to");
+    if (subject && isReservedName(subject, "subject")) throw new ValidationError(RESERVED_NAME_MESSAGE);
     return db.transaction(async (tx) => {
       const known = await socialRepo.existingUsers(tx, others);
       if (others.some((id) => !known.has(id))) throw new NotFoundError("recipient");
@@ -353,8 +357,9 @@ export const socialRepo = {
   /**
    * Names for the people and businesses a page is about to show. A user's display name follows their profile
    * visibility (BUILD §11.14): yourself and Public always; Connections to accepted connections; Community also to
-   * people who share a community with you; Private to nobody. Whoever has written to you (a pending request, a message
-   * in a thread you are in) is named as well, since they chose to make contact. Businesses come from `public_profiles`
+   * people who share a community with you; Private to nobody. Whoever has contacted you (a request to connect, pending
+   * or accepted, or a message in a thread you are in) is named as well, since they chose to make contact: a private
+   * profile is shown only to the people it wrote to or asked to connect with. Businesses come from `public_profiles`
    * (LIVE and committed) plus every business the viewer belongs to, in any game mode.
    */
   async lookupPeople(db: Executor, viewerId: string, input: { userIds?: readonly string[]; businessIds?: readonly string[] }): Promise<{ users: PersonCard[]; businesses: BusinessCard[] }> {
@@ -380,7 +385,9 @@ export const socialRepo = {
         for (const l of links) {
           const other = l.fromUser === viewerId ? l.toUser : l.fromUser;
           if (l.status === "accepted") accepted.add(other);
-          else if (l.status === "requested" && l.toUser === viewerId) contacted.add(other);
+          // Whoever asked the viewer to connect made contact, and stays named after the viewer accepts: the row is no
+          // longer "requested", but accepting must never make the person just accepted anonymous.
+          if ((l.status === "requested" || l.status === "accepted") && l.fromUser === other && l.toUser === viewerId) contacted.add(other);
         }
         const writers = await db
           .selectDistinct({ userId: messages.fromUser })

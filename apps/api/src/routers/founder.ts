@@ -5,6 +5,7 @@
  * user under RLS, so a row is only ever their own. No event: preferences belong to the account, not to a business
  * (events and the audit log are business-scoped), and nothing reacts to them but the person's own screens.
  */
+import { freeDisplayName } from "@foundmill/config";
 import { AccountPreferencesPatch, repos, withRls, FounderProfileInput, FounderProfilePatch, type Db, type DbTx } from "@foundmill/db";
 import { protectedProcedure, router } from "../trpc";
 
@@ -23,7 +24,7 @@ export const founderRouter = router({
     update: protectedProcedure.input(FounderProfilePatch).mutation(async ({ ctx, input }) => {
       const existing = await repos.founders.get(ctx.db, ctx.userId);
       if (existing) return repos.founders.update(ctx.db, ctx.userId, input);
-      const created = FounderProfileInput.parse({ displayName: input.displayName ?? ctx.email?.split("@")[0] ?? "Founder", ...input });
+      const created = FounderProfileInput.parse({ displayName: input.displayName ?? freeDisplayName(ctx.email?.split("@")[0]), ...input });
       return repos.founders.upsert(ctx.db, ctx.userId, created);
     }),
   }),

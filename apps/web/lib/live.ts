@@ -14,9 +14,9 @@ import { formatNumber } from "@/lib/format";
 
 export const VISIBILITY_OPTIONS: readonly { value: Visibility; label: string; description: string }[] = [
   { value: "public", label: "Public", description: `Anyone on ${APP_NAME} can see your name.` },
-  { value: "connections", label: "Connections", description: "Only people you have connected with." },
-  { value: "community", label: "Community", description: "Your connections and people in the same communities." },
-  { value: "private", label: "Private", description: "Nobody, until you write to them or they write to you." },
+  { value: "connections", label: "Connections", description: "People you have connected with, and anyone you write to or ask to connect." },
+  { value: "community", label: "Community", description: "Your connections, people in your communities, and anyone you write to or ask to connect." },
+  { value: "private", label: "Private", description: "Nobody, except people you write to or ask to connect." },
 ];
 
 export function visibilityLabel(value: string): string {
@@ -39,14 +39,17 @@ export function personName(card: PersonCardLike | undefined | null): string {
   return card?.displayName?.trim() || UNNAMED_PERSON;
 }
 
-/** "Ana", "Ana and Ben", "Ana, Ben and 2 others". Unnamed people collapse into "A founder" / "3 founders". */
-export function joinNames(cards: readonly (PersonCardLike | undefined | null)[]): string {
+/**
+ * "Ana", "Ana and Ben", "Ana, Ben and 2 others". Unnamed people collapse into "A founder" / "3 founders". `all` names
+ * everyone ("Ana, Ben, Cal and Dee"), for a header that must say who is in the conversation.
+ */
+export function joinNames(cards: readonly (PersonCardLike | undefined | null)[], options: { all?: boolean } = {}): string {
   const named = cards.flatMap((c) => (c?.displayName?.trim() ? [c.displayName.trim()] : []));
   const unnamed = cards.length - named.length;
   const parts = [...named, ...(unnamed === 1 ? [UNNAMED_PERSON] : unnamed > 1 ? [`${unnamed} founders`] : [])];
   if (parts.length === 0) return UNNAMED_PERSON;
   if (parts.length === 1) return parts[0]!;
-  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+  if (parts.length === 2 || options.all) return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
   return `${parts.slice(0, 2).join(", ")} and ${parts.length - 2} ${parts.length - 2 === 1 ? "other" : "others"}`;
 }
 
@@ -96,11 +99,23 @@ export function otherParticipants(thread: Pick<ThreadLike, "participantIds">, vi
   return thread.participantIds.filter((id) => id !== viewerId);
 }
 
-/** The subject, or who the thread is with. */
+/**
+ * Who the thread is with: the other participants' names, never the subject. The subject is whatever the first sender
+ * typed, so it cannot stand in for who wrote ("Foundmill Support: verify your account"); it is shown beside the names
+ * (`threadSubject`).
+ */
 export function threadTitle(thread: ThreadLike, viewerId: string, nameOf: (userId: string) => PersonCardLike | undefined): string {
-  const subject = thread.subject?.trim();
-  if (subject) return subject;
   return joinNames(otherParticipants(thread, viewerId).map(nameOf));
+}
+
+/** Every other participant, by name, for the open conversation's header ("Ana, Ben and Cal"). */
+export function threadParticipants(thread: Pick<ThreadLike, "participantIds">, viewerId: string, nameOf: (userId: string) => PersonCardLike | undefined): string {
+  return joinNames(otherParticipants(thread, viewerId).map(nameOf), { all: true });
+}
+
+/** The sender's subject line, trimmed; null when there is none. Secondary text only. */
+export function threadSubject(thread: Pick<ThreadLike, "subject">): string | null {
+  return thread.subject?.trim() || null;
 }
 
 /** The one-to-one thread between the viewer and another person, if there is one. */

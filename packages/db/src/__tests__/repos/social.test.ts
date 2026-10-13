@@ -114,6 +114,10 @@ describe("connections and messages", () => {
     const link = await repos.social.requestConnection(r.db, me, friend);
     await expect(repos.social.startThread(r.db, me, [friend])).rejects.toThrow(/cannot message/); // a request is not a connection
     await repos.social.respondConnection(r.db, friend, link.id, "accepted");
+    // A subject cannot pose as the platform or its staff (audit GLS2F-06); an honest one is kept as written.
+    for (const subject of ["Foundmill Support: verify your account", "F0undmi11 notice", "Support: your account", "Fo\u200bundmill"]) {
+      await expect(repos.social.startThread(r.db, me, [friend], subject), subject).rejects.toThrow(/reserved/);
+    }
     const thread = await repos.social.startThread(r.db, me, [friend, friend], "Hello");
     expect(thread.participantIds.sort()).toEqual([me, friend].sort());
     expect((await repos.social.startThread(r.db, friend, [me])).id).toBe(thread.id);
@@ -281,6 +285,14 @@ describe("people lookup, unread per thread, community visibility", () => {
     const request = await repos.social.requestConnection(r.db, priv, viewer, "Hello");
     expect(request.status).toBe("requested");
     expect((await names())[priv]).toBe("Pat Private");
+    // Accepting the request must not make the person who asked anonymous again (audit VGLS2F3-X1): they made contact.
+    await repos.social.respondConnection(r.db, viewer, request.id, "accepted");
+    expect((await names())[priv]).toBe("Pat Private");
+    // The other way round: the viewer asked, the private founder only accepted. They have not made contact with the viewer.
+    await repos.founders.upsert(r.db, conn, profile("Cal Connection", "private"));
+    expect((await names())[conn]).toBeNull();
+    await repos.founders.upsert(r.db, conn, profile("Cal Connection", "connections"));
+    expect((await names())[conn]).toBe("Cal Connection");
     const thread = await repos.social.findOrCreateThread(r.db, viewer, [stranger]);
     expect((await names())[stranger]).toBeNull();
     await repos.founders.upsert(r.db, stranger, profile("Sam Stranger", "private"));
