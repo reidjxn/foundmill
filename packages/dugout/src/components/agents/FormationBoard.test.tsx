@@ -227,4 +227,25 @@ describe("ChannelProfileCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open channel" }));
     expect(onOpenChannel).toHaveBeenCalledWith("paid_ads");
   });
+
+  it("a channel the Strategist has not scored shows no fit, potential or cost range, and an empty range is never shown", () => {
+    const paid = channels.find((c) => c.key === "paid_ads")!;
+    const { unmount } = render(<ChannelProfileCard channel={{ ...paid, scored: false, cpaRange: undefined }} />);
+    expect(screen.getByText("Not scored")).toBeTruthy();
+    expect(screen.queryByText("Potential")).toBeNull();
+    unmount();
+    render(<ChannelProfileCard channel={{ ...paid, cpaRange: { low: { amountMinor: 0, currency: "EUR" }, high: { amountMinor: 0, currency: "EUR" } } }} />);
+    expect(screen.queryByText("Cost per customer")).toBeNull();
+  });
+});
+
+describe("ChannelToken fit badge", () => {
+  it("reads 'not scored yet' and shows a dash instead of a fit for an unscored channel", () => {
+    const seo = channels.find((c) => c.key === "seo")!;
+    render(<FormationBoard channels={channels.map((c) => (c.key === "seo" ? { ...seo, scored: false } : c))} onToggle={() => undefined} animateEntrance={false} />);
+    const token = screen.getByRole("button", { name: /^SEO,/ });
+    expect(token.getAttribute("aria-label")).toMatch(/not scored yet/);
+    expect(token.getAttribute("aria-label")).not.toMatch(/fit \d+ of 20/);
+    expect(token.parentElement!.querySelector("[data-unscored]")!.textContent).toBe("–");
+  });
 });

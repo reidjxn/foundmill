@@ -64,7 +64,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   const tokens = useMemo(() => views.map((v) => toChannelToken(v, { agents: agents.data, totalBudgetMinor: budget, departmentId })), [views, agents.data, budget, departmentId]);
   const selectedView = selected ? (views.find((v) => v.channelKey === selected) ?? null) : null;
   const selectedToken = selected ? (tokens.find((t) => t.key === selected) ?? null) : null;
-  const scored = views.filter((v) => v.persisted).length;
+  const scored = views.filter((v) => v.scored).length;
   const starters = views.filter((v) => v.enabled).length;
 
   const rescore = useCallback(async () => {
@@ -149,7 +149,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
         >
           {hasData && scored === 0 ? (
             <p className="mb-2 text-small text-secondary" role="status">
-              All 15 channels are off the board. The Distribution Strategist scores each one 1–20 for fit and puts 3 to 6 starters on the Board.
+              {starters > 0 ? "No channel has been scored yet." : "All 15 channels are off the board."} The Distribution Strategist scores each one 1–20 for fit and puts 3 to 6 starters on the Board.
             </p>
           ) : null}
           <InlineError error={action.error} className="mb-2" />

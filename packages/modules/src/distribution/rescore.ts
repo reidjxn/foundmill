@@ -18,7 +18,7 @@ export const RESCORE_DEBOUNCE_MS = 2_000;
 export const MIN_STARTERS = 3;
 export const MAX_STARTERS = 6;
 
-type Scored = Pick<ChannelView, "channelKey" | "enabled" | "fit" | "recommended" | "persisted">;
+type Scored = Pick<ChannelView, "channelKey" | "enabled" | "fit" | "recommended" | "scored">;
 
 /**
  * The starters right after a toggle, without a model call: every scored channel keeps its fit and potential, and the
@@ -26,12 +26,12 @@ type Scored = Pick<ChannelView, "channelKey" | "enabled" | "fit" | "recommended"
  * at most six. Channels never scored are left as they are. Deterministic in its input.
  */
 export function localScores<V extends Scored>(views: readonly V[]): V[] {
-  const ranked = views.filter((v) => v.persisted).sort((a, b) => Number(b.enabled) - Number(a.enabled) || b.fit - a.fit || a.channelKey.localeCompare(b.channelKey));
+  const ranked = views.filter((v) => v.scored).sort((a, b) => Number(b.enabled) - Number(a.enabled) || b.fit - a.fit || a.channelKey.localeCompare(b.channelKey));
   if (ranked.length === 0) return [...views];
   const onBoard = ranked.filter((v) => v.enabled).length;
   const starters = Math.max(MIN_STARTERS, Math.min(MAX_STARTERS, onBoard));
   const picked = new Set(ranked.slice(0, starters).map((v) => v.channelKey));
-  return views.map((v) => (v.persisted ? { ...v, recommended: picked.has(v.channelKey) } : v));
+  return views.map((v) => (v.scored ? { ...v, recommended: picked.has(v.channelKey) } : v));
 }
 
 export interface DebouncedRun {

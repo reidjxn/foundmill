@@ -37,6 +37,7 @@ const channel = (id: string, channelKey: ChannelKey, line: ChannelRow["line"], e
   potential: 60,
   recommended: false,
   whyMd: "",
+  scoredAt: "2026-10-01T09:00:00.000Z",
   budgetMinor: 0,
   currency: "EUR",
   kitMode: false,

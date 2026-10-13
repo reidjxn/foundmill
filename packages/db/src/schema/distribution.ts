@@ -6,6 +6,9 @@ import { businessId, businessIdNullable } from "./_refs";
 import { agents } from "./agents";
 
 export const SUPPRESSION_SCOPES = ["business", "platform"] as const;
+/** 0046 — where a channel_metrics row's numbers came from; `estimate` rows (the mock engine's simulated week) are labeled Estimate. */
+export const CHANNEL_METRIC_SOURCES = ["measured", "estimate"] as const;
+export type ChannelMetricSource = (typeof CHANNEL_METRIC_SOURCES)[number];
 
 export const channels = pgTable(
   "channels",
@@ -19,6 +22,8 @@ export const channels = pgTable(
     potential: numeric("potential", { precision: 5, scale: 2 }).notNull().default("0"),
     recommended: boolean("recommended").notNull().default(false),
     whyMd: text("why_md").notNull().default(""),
+    /** 0046 — when the Distribution Strategist last scored this channel; null: never scored (fit and potential are column defaults). */
+    scoredAt: tstz("scored_at"),
     budgetMinor: minor("budget_minor").notNull().default(0),
     currency: currency(),
     kitMode: boolean("kit_mode").notNull().default(false),
@@ -100,6 +105,8 @@ export const channelMetrics = pgTable(
     activations: integer("activations").notNull().default(0),
     customers: integer("customers").notNull().default(0),
     cpaMinor: minor("cpa_minor"),
+    /** 0046 — `measured` (a connector reported it) or `estimate` (the mock engine's simulated week). */
+    source: text("source", { enum: CHANNEL_METRIC_SOURCES }).notNull().default("measured"),
     ...timestamps(),
   },
   (t) => [

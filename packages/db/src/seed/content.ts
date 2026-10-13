@@ -38,11 +38,13 @@ export async function seedChannels(ctx: SeedCtx, businessId: string, squad: Squa
         recommended,
         fit,
         potential: Math.min(100, fit * 4 + rng.int(0, 15)),
-        whyMd: plan.why?.[channelKey] ?? `${CHANNEL_META[channelKey].label}: fit ${fit}/20 for this club (Estimate). ${recommended ? "Recommended starter." : enabled ? "Running." : "Available on request."}`,
+        whyMd: plan.why?.[channelKey] ?? `${CHANNEL_META[channelKey].label}: fit ${fit}/20 for this business (Estimate). ${recommended ? "Recommended starter." : enabled ? "Running." : "Available on request."}`,
         budgetMinor: plan.budgetMinor?.[channelKey] ?? (enabled ? rng.int(4, 24) * 2_500 : 0),
         currency,
         kitMode: plan.kitMode?.[channelKey] ?? CHANNEL_META[channelKey].kitModeByDefault,
         ownerAgentId: squad.byTemplate.get(`channel_${channelKey}`)?.agent.id ?? null,
+        // The demo's channels were scored by its Distribution Strategist (0046 scored_at).
+        scoredAt: ctx.today,
       };
     }),
   );

@@ -29,6 +29,8 @@ export interface ChannelSummaryRow {
   /** spend ÷ customers, minor units; null without customers. Labelled Estimate. */
   cpaMinor: number | null;
   days: number;
+  /** True when any folded day is simulated (the mock engine's week): every figure is then an Estimate. */
+  estimate?: boolean;
 }
 
 export type BlendedSummary = Omit<ChannelSummaryRow, "channelId" | "channelKey" | "line">;
@@ -44,6 +46,8 @@ export interface ChannelRow {
   potential: number | string;
   recommended: boolean;
   whyMd?: string;
+  /** When the Distribution Strategist last scored the channel; null until it has (fit and potential mean nothing then). */
+  scoredAt?: Iso | null;
   budgetMinor: number;
   currency: string;
   /** Offline tracking: the engine prepares materials and a founder task instead of calling a booking API. */
@@ -77,6 +81,8 @@ export interface ChannelMetricRow {
   activations?: number;
   customers: number;
   cpaMinor?: number | null;
+  /** `estimate` for the mock engine's simulated week (labeled Estimate). */
+  source?: "measured" | "estimate";
 }
 
 /* ---------- distribution.recommend ---------- */
@@ -87,7 +93,8 @@ export interface RecommendationRow {
   /** 1–5 stars. */
   potential: number;
   recommended: boolean;
-  cpa_range_minor: { low: number; high: number };
+  /** low ≤ high; null when the Strategist gave no usable range. */
+  cpa_range_minor: { low: number; high: number } | null;
   why: string;
 }
 

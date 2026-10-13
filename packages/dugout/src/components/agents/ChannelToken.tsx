@@ -65,9 +65,10 @@ export interface ChannelTokenProps extends Omit<ButtonHTMLAttributes<HTMLButtonE
  */
 export const ChannelToken = forwardRef<HTMLButtonElement, ChannelTokenProps>(function ChannelToken({ channel, dragging, hideLabel, hintId, accent, fullLabel, labelPlate, className, style, ...rest }, ref) {
   const fit = clampRating(channel.fit);
+  const scored = channel.scored !== false;
   const tone = ratingTone(fit);
   const label = channelLabel(channel.key);
-  const name = `${label}, fit ${fit} of 20 (${ratingBandLabel(fit)})${channel.recommended ? ", recommended" : ""}, ${channel.enabled ? "on the board" : "off the board"}${channel.paused ? ", paused" : ""}`;
+  const name = `${label}, ${scored ? `fit ${fit} of 20 (${ratingBandLabel(fit)})` : "not scored yet"}${channel.recommended ? ", recommended" : ""}, ${channel.enabled ? "on the board" : "off the board"}${channel.paused ? ", paused" : ""}`;
   return (
     <span className={cn("flex w-18 flex-col items-center gap-1", className)} data-channel={channel.key} data-enabled={channel.enabled} data-recommended={channel.recommended || undefined}>
       <span className="relative inline-flex">
@@ -97,8 +98,8 @@ export const ChannelToken = forwardRef<HTMLButtonElement, ChannelTokenProps>(fun
         </button>
         {/* The fit badge and the recommendation mark sit on the token's rim, outside the button's box, so the button
             never spills past its own edge (they move with it: same wrapper). */}
-        <span aria-hidden className={cn("pointer-events-none absolute -bottom-0.5 -right-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-surface-1 px-1 font-display text-micro leading-none tabular-nums", RATING_BG[tone], dragging && "scale-105")}>
-          {fit}
+        <span aria-hidden data-unscored={scored ? undefined : ""} className={cn("pointer-events-none absolute -bottom-0.5 -right-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-surface-1 px-1 font-display text-micro leading-none tabular-nums", scored ? RATING_BG[tone] : "bg-panel text-secondary", dragging && "scale-105")}>
+          {scored ? fit : "–"}
         </span>
         {channel.recommended ? (
           <span aria-hidden className="pointer-events-none absolute -left-1 -top-0.5 inline-flex size-5 items-center justify-center rounded-full border-2 border-surface-1 bg-kit-primary text-kit-on-primary">

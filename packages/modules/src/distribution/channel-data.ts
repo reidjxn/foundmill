@@ -14,6 +14,8 @@ import type { AgentRow, AssetRow, BlendedSummary, CampaignRow, ChannelMetricRow,
 export interface ChannelView extends ChannelRow {
   /** False when the API has no row for the channel yet (never scored, never enabled). */
   persisted: boolean;
+  /** The Distribution Strategist has scored it (a stored score or this session's answer); else fit and stars are blank. */
+  scored: boolean;
   /** 0–5 in halves. */
   stars: number;
   cpaRange: { low: number; high: number } | null;
@@ -45,6 +47,7 @@ const defaultRow = (key: ChannelKey, currency: string): ChannelRow => ({
   potential: 0,
   recommended: false,
   whyMd: "",
+  scoredAt: null,
   budgetMinor: 0,
   currency,
   kitMode: CHANNEL_META[key].kitModeByDefault,
@@ -70,13 +73,16 @@ export function buildChannelViews({ channels, campaigns = [], metrics = [], reco
     const row: ChannelRow = stored ? { ...defaultRow(key, currency), ...stored } : defaultRow(key, currency);
     const rec = recByKey.get(key);
     const mine = campaigns.filter((c) => c.channelId === row.id && row.id);
-    const cpaRange = rec ? rec.cpa_range_minor : null;
+    // A range only when it is one (high above zero, low at most high); an empty or unscored range shows nothing.
+    const range = rec?.cpa_range_minor ?? null;
+    const cpaRange = range && range.high > 0 ? { low: Math.min(range.low, range.high), high: Math.max(range.low, range.high) } : null;
     const cap = cpaRange?.high ?? row.form?.cpaMinor ?? null;
     return {
       ...row,
       fit: clampFit(rec?.fit ?? row.fit),
       recommended: rec ? rec.recommended : row.recommended,
       persisted: !!stored,
+      scored: !!rec || !!stored?.scoredAt,
       stars: rec ? potentialStars(rec.potential) : potentialStars(row.potential),
       cpaRange,
       why: (rec?.why ?? row.whyMd ?? "").trim(),
@@ -167,6 +173,7 @@ export function toChannelToken(view: ChannelView, opts: TokenOptions = {}): Chan
   return {
     key: view.channelKey,
     fit: view.fit,
+    scored: view.scored,
     recommended: view.recommended,
     enabled: view.enabled,
     form: view.form5,
@@ -180,13 +187,15 @@ export function toChannelToken(view: ChannelView, opts: TokenOptions = {}): Chan
   };
 }
 
+/** The 35-day results on the channel profile; simulated weeks (the mock engine) label every figure Estimate. */
 export function summaryResults(form: ChannelSummaryRow, currency: string): Array<{ label: string; value: string }> {
   const money = (minor: number) => formatMoney({ amountMinor: minor, currency }, { compact: Math.abs(minor) >= 1_000_000 });
+  const est = form.estimate ? " (Estimate)" : "";
   return [
-    { label: "Leads (35 days)", value: String(form.leads) },
-    { label: "Signups", value: String(form.signups) },
-    { label: "Customers", value: String(form.customers) },
-    { label: "Spend", value: money(form.spendMinor) },
+    { label: `Leads (35 days${form.estimate ? ", Estimate" : ""})`, value: String(form.leads) },
+    { label: `Signups${est}`, value: String(form.signups) },
+    { label: `Customers${est}`, value: String(form.customers) },
+    { label: `Spend${est}`, value: money(form.spendMinor) },
     { label: "Cost per customer (Estimate)", value: form.cpaMinor === null ? "No customers yet" : money(form.cpaMinor) },
   ];
 }
@@ -199,10 +208,10 @@ export function totalBudget(views: readonly Pick<ChannelView, "enabled" | "budge
 
 export type ChannelStatusWord = "Running" | "Paused" | "Off the board" | "Not scored";
 
-export function channelStatus(view: Pick<ChannelView, "enabled" | "paused" | "persisted">): { tone: "good" | "warn" | "neutral"; word: ChannelStatusWord } {
+export function channelStatus(view: Pick<ChannelView, "enabled" | "paused" | "scored">): { tone: "good" | "warn" | "neutral"; word: ChannelStatusWord } {
   if (view.enabled && view.paused) return { tone: "warn", word: "Paused" };
   if (view.enabled) return { tone: "good", word: "Running" };
-  if (!view.persisted) return { tone: "neutral", word: "Not scored" };
+  if (!view.scored) return { tone: "neutral", word: "Not scored" };
   return { tone: "neutral", word: "Off the board" };
 }
 
