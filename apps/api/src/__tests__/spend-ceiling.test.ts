@@ -16,6 +16,8 @@ import { createApp } from "../app";
 import { createAuthVerifier, emailConfirmedFromPayload } from "../auth";
 import { createCaller } from "../router";
 import { EMAIL_UNCONFIRMED_MESSAGE } from "../services/access";
+import { createComposerClient } from "../services/composer";
+import { noteModelCall, withModelCallScope } from "../services/model-calls";
 import { MODEL_LIMITS } from "../services/model-limits";
 import { apiCreditsGate } from "../services/models";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
@@ -143,6 +145,36 @@ function paidAdsPlanner(): ModelClient & { compiles: number } {
 }
 
 describe("allowances are given back only when no model was called (S3)", () => {
+  it("a call counts for its request's scope and every scope around it; outside a scope nothing is counted", async () => {
+    noteModelCall();
+    const { result, scope: outer } = await withModelCallScope(async () => {
+      const { scope: inner } = await withModelCallScope(async () => {
+        noteModelCall();
+        await Promise.resolve();
+        noteModelCall();
+      });
+      // A sibling request running at the same time has its own count.
+      const [{ scope: sibling }] = await Promise.all([withModelCallScope(async () => undefined), Promise.resolve().then(noteModelCall)]);
+      return { inner: inner.calls, sibling: sibling.calls };
+    });
+    expect(result).toEqual({ inner: 2, sibling: 0 });
+    expect(outer.calls).toBe(3);
+  });
+
+  it("Refresh: the composer's credits refusal gives the hit back; a composer failure that may follow a model call keeps it", async () => {
+    const B = hz.B.businessId;
+    const answer = (status: number, body: Record<string, unknown>) => async () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    const withComposer = (fetch: typeof globalThis.fetch) => createCaller({ ...hz.deps, composer: createComposerClient({ url: "http://composer.test", db: hz.db, models: hz.deps.models, log: hz.deps.log, allowFallback: false, fetch }) }, { userId: hz.B.ownerId });
+    const refused = withComposer(answer(402, { error: "credits_exhausted", message: "This month's credits are used up.", details: { reason: "exhausted" } }));
+    const limit = MODEL_LIMITS.refresh.user[0]!.limit;
+    for (let i = 0; i < limit + 2; i++) expect(await refusal(refused.inbox.refresh({ businessId: B }))).toMatchObject({ code: "PAYMENT_REQUIRED", appCode: "credits_exhausted" });
+    // Any other refusal from the composer spends the hit, even one whose code is given back before a model call in
+    // the api (409): the api cannot tell whether the composer called a model first.
+    const failing = withComposer(answer(409, { error: "no_agents", message: "The business has no agents to write from" }));
+    for (let i = 0; i < limit; i++) expect((await refusal(failing.inbox.refresh({ businessId: B })))?.code).toBe("CONFLICT");
+    expect((await refusal(failing.inbox.refresh({ businessId: B })))?.code).toBe("TOO_MANY_REQUESTS");
+  });
+
   it("a walled member looping free-text decisions the compiled plan is refused for spends the planning allowance", async () => {
     const A = hz.A.businessId;
     await repos.memberships.setSectionPermissions(hz.db, A, hz.A.memberId, { distribution: "read" });
@@ -180,18 +212,19 @@ describe("the allow-list trusts a confirmed address only (S11)", () => {
   const sign = (claims: Record<string, unknown>, sub: string) => new SignJWT(claims).setProtectedHeader({ alg: "HS256" }).setSubject(sub).setAudience("authenticated").setIssuedAt().setExpirationTime("10m").sign(secret);
   const now = () => Math.floor(Date.now() / 1000);
 
-  it("reads confirmation from the token: a verified address or an inbox-proving sign-in; never an anonymous one", () => {
-    expect(emailConfirmedFromPayload({ email: "a@x.test", user_metadata: { email_verified: true } })).toBe(true);
+  it("reads confirmation from the token: an inbox-proving sign-in only; never an anonymous one, never the user-writable user_metadata", () => {
+    expect(emailConfirmedFromPayload({ email: "a@x.test", user_metadata: { email_verified: true } })).toBe(false);
+    expect(emailConfirmedFromPayload({ email: "a@x.test", amr: [{ method: "password", timestamp: now() }], user_metadata: { email_verified: true } })).toBe(false);
     expect(emailConfirmedFromPayload({ email: "a@x.test", amr: [{ method: "magiclink", timestamp: now() }] })).toBe(true);
     expect(emailConfirmedFromPayload({ email: "a@x.test", amr: [{ method: "otp", timestamp: now() }] })).toBe(true);
     expect(emailConfirmedFromPayload({ email: "a@x.test", amr: [{ method: "password", timestamp: now() }] })).toBe(false);
     expect(emailConfirmedFromPayload({ email: "a@x.test", amr: [{ method: "oauth", timestamp: now() }], user_metadata: { email_verified: false } })).toBe(false);
-    expect(emailConfirmedFromPayload({ email: "a@x.test", is_anonymous: true, user_metadata: { email_verified: true } })).toBe(false);
+    expect(emailConfirmedFromPayload({ email: "a@x.test", is_anonymous: true, amr: [{ method: "otp", timestamp: now() }] })).toBe(false);
     expect(emailConfirmedFromPayload({ amr: [{ method: "otp", timestamp: now() }] })).toBe(false);
-    expect(emailConfirmedFromPayload({ email: "", user_metadata: { email_verified: true } })).toBe(false);
+    expect(emailConfirmedFromPayload({ email: "", amr: [{ method: "otp", timestamp: now() }] })).toBe(false);
   });
 
-  it("over HTTP: a listed address is refused until the token shows it confirmed, and an anonymous sign-in never passes", async () => {
+  it("over HTTP: a listed address is refused until the token shows it confirmed; an anonymous sign-in and a self-written user_metadata never pass", async () => {
     const auth = createAuthVerifier({ appEnv: "production", hsKey: secret });
     const deps = { ...hz.deps, auth, env: { ...hz.deps.env, SIGNUP_ALLOWLIST: "owner@ceiling.test" } };
     const app = createApp(deps);
@@ -202,12 +235,14 @@ describe("the allow-list trusts a confirmed address only (S11)", () => {
     };
     const unconfirmed = await call(await sign({ email: "owner@ceiling.test", amr: [{ method: "password", timestamp: now() }] }, hz.A.ownerId));
     expect(unconfirmed).toEqual({ status: 403, message: EMAIL_UNCONFIRMED_MESSAGE, appCode: "not_invited", reason: "email_unconfirmed" });
-    const anonymous = await call(await sign({ email: "owner@ceiling.test", is_anonymous: true, user_metadata: { email_verified: true } }, hz.A.ownerId));
+    const anonymous = await call(await sign({ email: "owner@ceiling.test", is_anonymous: true, amr: [{ method: "anonymous", timestamp: now() }], user_metadata: { email_verified: true } }, hz.A.ownerId));
     expect(anonymous).toMatchObject({ status: 403, appCode: "not_invited", reason: "email_unconfirmed" });
-    const stranger = await call(await sign({ email: "someone@else.test", user_metadata: { email_verified: true } }, hz.A.ownerId));
+    const forged = await call(await sign({ email: "owner@ceiling.test", amr: [{ method: "password", timestamp: now() }], user_metadata: { email_verified: true } }, hz.A.ownerId));
+    expect(forged).toMatchObject({ status: 403, appCode: "not_invited", reason: "email_unconfirmed" });
+    const stranger = await call(await sign({ email: "someone@else.test", amr: [{ method: "magiclink", timestamp: now() }] }, hz.A.ownerId));
     expect(stranger).toMatchObject({ status: 403, appCode: "not_invited", reason: "not_listed" });
     expect((await call(await sign({ email: "owner@ceiling.test", amr: [{ method: "magiclink", timestamp: now() }] }, hz.A.ownerId))).status).toBe(200);
-    expect((await call(await sign({ email: "owner@ceiling.test", user_metadata: { email_verified: true } }, hz.A.ownerId))).status).toBe(200);
+    expect((await call(await sign({ email: "owner@ceiling.test", amr: [{ method: "otp", timestamp: now() }] }, hz.A.ownerId))).status).toBe(200);
     // Without a list nothing about the address is checked.
     const open = createApp({ ...deps, env: { ...deps.env, SIGNUP_ALLOWLIST: undefined } });
     const res = await open.request("/trpc/founder.preferences.get", { headers: { authorization: `Bearer ${await sign({ email: "owner@ceiling.test", amr: [{ method: "password", timestamp: now() }] }, hz.A.ownerId)}` } });

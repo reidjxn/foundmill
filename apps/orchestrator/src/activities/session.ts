@@ -1033,6 +1033,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   /** Why this session's code is not pushed: stays set unless the session finishes (or waits on an approval). */
   let holdBack: string | null = "the session did not finish";
   let sdkSessionId: string | null = null;
+  /** The agent is done and its input closed: the SDK is only winding down, so used-up credits no longer end the run. */
+  let inputDone = false;
   const openCalls = new Map<string, { tool: string; connectorKey: string | null; startedAt: number }>();
   const usageNow = () => {
     const u = recorder.usage.totals();
@@ -1110,7 +1112,10 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         pauseCut = false;
         held = [];
         if (turns.length > 0) send(turns.join("\n\n"));
-        else if (!turnOpen && !recorder.pendingApprovalId) queue.close();
+        else if (!turnOpen && !recorder.pendingApprovalId) {
+          inputDone = true;
+          queue.close();
+        }
         break;
       }
       case "stop":
@@ -1137,7 +1142,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       await end("park");
     }
     // Mid-turn too, the session books what it spent and stops once the credits are used up (SEC2 S2).
-    if (!ending && credits?.due() && (await credits.settle(recorder.usage.totals())) === "exhausted") await endForCredits();
+    if (!ending && !inputDone && credits?.due() && (await credits.settle(recorder.usage.totals())) === "exhausted") await endForCredits();
   };
 
   const loop = controlLoop(deps, input.sessionId, tick, () => ({ sessionId: input.sessionId, paused }));
@@ -1232,8 +1237,9 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         if (message.type === "result") {
           // Cumulative across turns: the latest result replaces the totals so far (SessionUsage).
           recorder.usage.onResult(message.modelUsage);
-          // Every finished turn on the platform key is booked; used-up credits end the session here (SEC2 S2).
-          if (credits && !ending && (await credits.settle(recorder.usage.totals())) === "exhausted") await endForCredits();
+          // Every finished turn on the platform key is booked (SEC2 S2). Used-up credits end the session before it
+          // starts another turn (below); a turn that finished the task stays done, so the task is not run again.
+          const creditsOut = credits !== null && !ending && (await credits.settle(recorder.usage.totals())) === "exhausted";
           const cut = interrupted || paused || ending !== null;
           interrupted = false;
           turnOpen = queue.pending > 0 || ((message as { queued_turn_count?: number }).queued_turn_count ?? 0) > 0;
@@ -1248,8 +1254,13 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
             }
           }
           apiError = null;
-          // More input may come: Resume, the founder's decision, or a nudge already queued.
-          if (ending || paused || recorder.pendingApprovalId || turnOpen) continue;
+          // More input may come: Resume, the founder's decision, or a nudge already queued. Not once the credits are
+          // used up: the session ends `budget` and the task runs again after a top-up.
+          if (ending || paused || recorder.pendingApprovalId || turnOpen) {
+            if (creditsOut) await endForCredits();
+            continue;
+          }
+          inputDone = true;
           queue.close();
         }
       }

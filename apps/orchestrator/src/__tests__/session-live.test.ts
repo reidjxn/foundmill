@@ -22,7 +22,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { ACCEPTANCE_EGRESS, classifyTurnEnd, createSessionActivities, SANDBOX_TTL_MINUTES } from "../activities/session";
-import { CREDITS_USED_UP_SUMMARY } from "../activities/session-credits";
+import { CREDITS_USED_UP_SUMMARY, SESSION_CREDIT_CHECK_MS } from "../activities/session-credits";
 import { createOfflineGatewayClient } from "../gateway-client";
 import { FILE_TOOLS, SDK_MODEL_KEY_NAME, SDK_SESSION_TOKEN_NAME } from "../activities/sdk-isolation";
 import { openSessionRow, setupOrchestratorHarness, wait, type OrchestratorTestHarness } from "./harness";
@@ -700,17 +700,23 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     await repos.usage.chargeCredits(t.db, t.businessId, period, 10_000_000, { includedMinor: 500 });
     await repos.usage.grantCredits(t.db, t.businessId, period, 50);
     const { sessionId, input, launch } = await start();
+    let nudgeSent: boolean | null = null;
     script = async function* (call) {
       const prompts = promptsOf(call);
       await prompts.next();
       yield { type: "system", subtype: "init", session_id: "sdk-credits" };
       yield { type: "assistant", message: { id: "m1", content: [{ type: "text", text: "Comparing suppliers." }], usage: { input_tokens: 100, output_tokens: 50 } } };
+      // The founder nudges mid-turn: there is another turn to run when this one has used the last credit.
+      await t.control.post(sessionId, { kind: "shout", message: "Add a fourth supplier" });
+      await wait(600);
       yield resultOf(modelUsage(100, 50, 0.6));
-      await prompts.next();
+      nudgeSent = (await prompts.next()).done !== true;
     };
     try {
       const result = await acts.runAgentSession(input, launch);
       expect(calls.at(-1)!.options.maxBudgetUsd).toBe(0.5);
+      // The nudge's turn never ran: the session ended before it, with the turn that spent the credits booked.
+      expect(nudgeSent).toBe(false);
       expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", summary: CREDITS_USED_UP_SUMMARY, tokensIn: 100, tokensOut: 50, costMinor: 60 });
       // Booked as it ran, so the charge that used the last credit stopped the team then, not at the session's end.
       expect(await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).toEqual({ quantity: 150, costMinor: 60 });
@@ -728,6 +734,66 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
       expect(refused).toMatchObject({ outcome: "blocked", blockedReason: "budget", reason: expect.stringMatching(/credits are used up/), tokensIn: 0, costMinor: 0 });
       expect(calls).toHaveLength(before);
       await acts.finishSession(next.input, next.launch, refused);
+    } finally {
+      await resumeBusinessAgents(t.db, t.businessId);
+      await repos.usage.grantCredits(t.db, t.businessId, period, 100_000);
+      await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+    }
+  });
+
+  it("a turn that finished the task stays done when it used the last credit: the team stops, the task is not run again (SEC2 S2)", async () => {
+    const period = periodOf(t.clock.now());
+    await repos.usage.chargeCredits(t.db, t.businessId, period, 10_000_000, { includedMinor: 500 });
+    await repos.usage.grantCredits(t.db, t.businessId, period, 50);
+    const { sessionId, input, launch } = await start();
+    let inputEnded = false;
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: "sdk-last-credit" };
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "text", text: "Here are three suppliers." }], usage: { input_tokens: 100, output_tokens: 50 } } };
+      yield resultOf(modelUsage(100, 50, 0.6));
+      inputEnded = (await prompts.next()).done === true;
+    };
+    try {
+      const result = await acts.runAgentSession(input, launch);
+      expect(inputEnded).toBe(true);
+      expect(result).toMatchObject({ outcome: "done", tokensIn: 100, tokensOut: 50, costMinor: 60 });
+      expect(interrupts).toHaveLength(0);
+      expect(await repos.businesses.stopState(t.db, t.businessId)).toMatchObject({ stopped: true, reason: "credits_exhausted" });
+      expect((await acts.finishSession(input, launch, result)).taskStatus).toBe("done");
+      expect(await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).toEqual({ quantity: 150, costMinor: 60 });
+    } finally {
+      await resumeBusinessAgents(t.db, t.businessId);
+      await repos.usage.grantCredits(t.db, t.businessId, period, 100_000);
+      await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+    }
+  });
+
+  it("mid-turn, a session books what it spent every SESSION_CREDIT_CHECK_MS and stops once the credits run out elsewhere (SEC2 S2)", async () => {
+    const period = periodOf(t.clock.now());
+    const { sessionId, input, launch } = await start();
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: "sdk-mid-turn" };
+      yield { type: "assistant", message: { id: "m1", model: launch.modelId, content: [{ type: "text", text: "Reading supplier sites." }], usage: { input_tokens: 2_000, output_tokens: 500 } } };
+      // Meanwhile the api spends the month's last credit on a conversation.
+      await repos.usage.chargeCredits(t.db, t.businessId, period, 10_000_000, { includedMinor: 500 });
+      await t.clock.advance(SESSION_CREDIT_CHECK_MS + 1_000);
+      await until(() => interrupts.length > 0, "the interrupt");
+      yield { type: "result", subtype: "error_during_execution", is_error: true, errors: ["[Request interrupted by user]"], modelUsage: modelUsage(2_000, 500, 0.04) };
+    };
+    try {
+      const result = await acts.runAgentSession(input, launch);
+      expect(interrupts).toHaveLength(1);
+      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", summary: CREDITS_USED_UP_SUMMARY, tokensIn: 2_000, tokensOut: 500 });
+      expect((await notesOf(sessionId)).some((n) => n.source === "system" && /credits are used up, so the session stops here/.test(n.text))).toBe(true);
+      // The open turn was booked by the check (an Estimate at list price); the finish books only what is left.
+      const estimated = Math.round(meter({ inputTokens: 2_000, outputTokens: 500, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, launch.modelId as ModelId).costMinor);
+      expect(await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).toEqual({ quantity: 2_500, costMinor: estimated });
+      await acts.finishSession(input, launch, result);
+      expect((await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).quantity).toBe(2_500);
     } finally {
       await resumeBusinessAgents(t.db, t.businessId);
       await repos.usage.grantCredits(t.db, t.businessId, period, 100_000);

@@ -119,10 +119,12 @@ describe("when a send fails (adversarial: api down, model error, limits, stale c
     expect(deskFailureOf(trpcError("INTERNAL_SERVER_ERROR", "boom")).kind).toBe("failed");
     expect(deskFailureOf(trpcError("BAD_REQUEST", "That quick reply is no longer available")).kind).toBe("stale");
     expect(deskFailureOf(trpcError("FORBIDDEN", "You do not have write access to inbox")).kind).toBe("refused");
+    // The business's credits for the month are used up (SEC2): not a model failure, and a retry is refused the same way.
+    expect(deskFailureOf(trpcError("PAYMENT_REQUIRED", "This month's credits are used up")).kind).toBe("credits");
   });
 
   it("answers in the agent's own voice, keeps the founder's words, and never claims to be human", () => {
-    for (const [kind, message] of [["offline", ""], ["limited", "Conversation limit reached. Try again in 2 minutes."], ["failed", ""], ["stale", "This one is already decided, so there is nothing left to choose"], ["refused", "You do not have write access to inbox"]] as const) {
+    for (const [kind, message] of [["offline", ""], ["limited", "Conversation limit reached. Try again in 2 minutes."], ["failed", ""], ["stale", "This one is already decided, so there is nothing left to choose"], ["refused", "You do not have write access to inbox"], ["credits", "This month's credits are used up"]] as const) {
       const r = failureReply(kind, message);
       expect(r.bubbles.length).toBeGreaterThanOrEqual(1);
       expect(r.bubbles.length).toBeLessThanOrEqual(3);
@@ -133,6 +135,9 @@ describe("when a send fails (adversarial: api down, model error, limits, stale c
     }
     expect(failureReply("limited", "Conversation limit reached. Try again in 2 minutes.").bubbles[1]).toBe("Try again in 2 minutes; your message is kept here.");
     expect(failureReply("stale", "This one is already decided, so there is nothing left to choose").bubbles).toEqual(["This one is already decided, so there is nothing left to choose.", "Here's what's open now."]);
+    // Used-up credits: the API's own sentence (how to lift it), and no "Try again" that would be refused again.
+    const credits = "This month's credits are used up, so Foundmill makes no more model calls for this business. Top up in Settings › Billing, or wait for next month's credits on Nov 1, 2026.";
+    expect(failureReply("credits", credits)).toEqual({ bubbles: [credits, "Your message is kept here."], retry: false });
     expect(openFailureLine(new TypeError("Failed to fetch"))).toBe("The conversation couldn't be opened: the connection dropped.");
   });
 
