@@ -21,6 +21,7 @@ export * from "./voice";
 export * from "./nudges";
 export * from "./conversation";
 export * from "./source-watcher";
+export * from "./custom-skills";
 export * as prompts from "./prompts";
 export {
   type PromptTemplate,

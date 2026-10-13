@@ -2,7 +2,7 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { playbooks, type Playbook } from "../schema";
-import { defined, Id, one, parseInput, type Executor, patchSchema } from "./_shared";
+import { changes, Id, one, parseInput, type Executor, patchSchema } from "./_shared";
 
 export const CompiledPlaybook = z.object({
   trigger: z.record(z.string(), z.unknown()),
@@ -60,7 +60,7 @@ export const playbooksRepo = {
 
   async update(db: Executor, businessId: string, playbookId: string, input: UpdatePlaybookInput): Promise<Playbook> {
     const v = parseInput(UpdatePlaybookInput, input, "playbook update");
-    return one(await db.update(playbooks).set(defined(v)).where(scoped(businessId, playbookId)).returning(), "playbook", playbookId);
+    return one(await db.update(playbooks).set(changes(v, "playbook")).where(scoped(businessId, playbookId)).returning(), "playbook", playbookId);
   },
 
   async setEnabled(db: Executor, businessId: string, playbookId: string, enabled: boolean): Promise<Playbook> {

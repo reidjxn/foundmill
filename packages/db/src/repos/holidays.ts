@@ -3,7 +3,7 @@ import { ValidationError } from "@foundmill/shared";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { holidayPeriods, type HolidayPeriod } from "../schema";
-import { Currency, defined, Id, JsonObject, MinorAmount, one, parseInput, type Executor } from "./_shared";
+import { Currency, changes, Id, JsonObject, MinorAmount, one, parseInput, type Executor } from "./_shared";
 
 export const StartHolidayInput = z
   .object({
@@ -78,7 +78,7 @@ export const holidaysRepo = {
 
   async update(db: Executor, businessId: string, holidayId: string, input: UpdateHolidayInput): Promise<HolidayPeriod> {
     const v = parseInput(UpdateHolidayInput, input, "vacation update");
-    return one(await db.update(holidayPeriods).set(defined(v)).where(scoped(businessId, holidayId)).returning(), "vacation", holidayId);
+    return one(await db.update(holidayPeriods).set(changes(v, "vacation")).where(scoped(businessId, holidayId)).returning(), "vacation", holidayId);
   },
 
   /** Ends the holiday, optionally linking the "while you were away" report. */

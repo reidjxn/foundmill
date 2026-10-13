@@ -9,7 +9,7 @@ import {
   AUTHOR_KINDS, changeProposals, proposalHunks, roadmapDependencies, roadmapItems, sources, specBlocks, specVersions,
   type ChangeProposal, type ProposalHunk, type RoadmapDependency, type RoadmapItem, type Source, type SpecBlock, type SpecVersion,
 } from "../schema";
-import { defined, Id, JsonObject, maybeOne, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page, patchSchema } from "./_shared";
+import { changes, defined, Id, JsonObject, maybeOne, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page, patchSchema } from "./_shared";
 import { docText, mergeBlockContent, sameContent, textDoc } from "./spec-merge";
 
 const OwnerRef = z.object({ kind: z.enum(["agent", "user", "department"]), id: Id });
@@ -516,7 +516,7 @@ export const productRepo = {
 
   async updateSource(db: Executor, businessId: string, sourceId: string, input: Partial<CreateSourceInput>): Promise<Source> {
     const v = parseInput(patchSchema(CreateSourceInput), input, "source update");
-    return one(await db.update(sources).set(defined(v)).where(and(eq(sources.businessId, businessId), eq(sources.id, sourceId))).returning(), "source", sourceId);
+    return one(await db.update(sources).set(changes(v, "source")).where(and(eq(sources.businessId, businessId), eq(sources.id, sourceId))).returning(), "source", sourceId);
   },
 
   async archiveSource(db: Executor, businessId: string, sourceId: string): Promise<Source> {

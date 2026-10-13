@@ -3,7 +3,7 @@ import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, GAME_MODE
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { businesses, memberships, type Business } from "../schema";
-import { defined, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, type Executor } from "./_shared";
+import { changes, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, type Executor } from "./_shared";
 
 const HexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/, "brand colors are #RRGGBB");
 
@@ -142,7 +142,7 @@ export const businessesRepo = {
 
   async update(db: Executor, businessId: string, input: UpdateBusinessInput): Promise<Business> {
     const v = parseInput(UpdateBusinessInput, input, "business update");
-    const rows = await db.update(businesses).set(defined(v)).where(and(eq(businesses.id, businessId), notArchived)).returning();
+    const rows = await db.update(businesses).set(changes(v, "business")).where(and(eq(businesses.id, businessId), notArchived)).returning();
     return one(rows, "business", businessId);
   },
 

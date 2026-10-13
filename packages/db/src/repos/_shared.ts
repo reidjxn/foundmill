@@ -227,6 +227,16 @@ export function defined<T extends Record<string, unknown>>(patch: T): { [K in ke
   return out as { [K in keyof T]?: Exclude<T[K], undefined> };
 }
 
+/**
+ * The `set` of an UPDATE from a parsed patch: `defined(patch)`, refused with a ValidationError (400) when nothing is
+ * left to change (an empty patch, or one whose keys the schema stripped), instead of the driver's "No values to set".
+ */
+export function changes<T extends Record<string, unknown>>(patch: T, what: string): { [K in keyof T]?: Exclude<T[K], undefined> } {
+  const out = defined(patch);
+  if (Object.keys(out).length === 0) throw new ValidationError(`Nothing to update on the ${what}: name at least one field that can change`);
+  return out;
+}
+
 /** True when the current Postgres role bypasses RLS (service_role or a superuser) — some reads pick a different relation. */
 export async function bypassesRls(db: Executor): Promise<boolean> {
   const rows = rowsOf<{ bypass: boolean }>(

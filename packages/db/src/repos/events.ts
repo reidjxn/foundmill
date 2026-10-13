@@ -177,6 +177,22 @@ export const eventsRepo = {
     return rows[0] ?? null;
   },
 
+  /**
+   * The latest event of a type for each agent its payload names (`payload.agentId`), in one statement: the last
+   * `agent.health_changed` per agent gives the Team screens the reason, signals and expected return behind a status.
+   */
+  async latestPerAgent(db: Executor, businessId: string, type: EventType, agentIds: readonly string[]): Promise<Map<string, Event>> {
+    const t = parseInput(z.enum(EVENT_TYPES), type, "event type");
+    const ids = parseInput(z.array(Id), [...agentIds], "agent ids");
+    if (ids.length === 0) return new Map();
+    const rows = await db
+      .selectDistinctOn([sql`${events.payload}->>'agentId'`])
+      .from(events)
+      .where(and(eq(events.businessId, businessId), eq(events.type, t), inArray(sql<string>`${events.payload}->>'agentId'`, ids)))
+      .orderBy(sql`${events.payload}->>'agentId'`, desc(events.occurredAt), desc(events.id));
+    return new Map(rows.map((r) => [String((r.payload as { agentId?: unknown }).agentId), r] as const));
+  },
+
   // outbox (the relay in @foundmill/events owns publishing; these are for observability and tests) -------------
   async outboxPending(db: Executor, businessId: string, limit = 100): Promise<(OutboxRow & { event: Event })[]> {
     const rows = await db

@@ -5,7 +5,7 @@
  * existing member, and neither `setRole` nor `remove` may leave a business without an owner.
  */
 import { ConflictError, MEMBERSHIP_ROLES, ValidationError, type MembershipRole } from "@foundmill/shared";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { businesses, memberships, type Business, type Membership } from "../schema";
 import { Id, maybeOne, one, parseInput, type Executor } from "./_shared";
@@ -27,6 +27,23 @@ export const membershipsRepo = {
       .from(memberships)
       .where(and(eq(memberships.businessId, businessId), filter.role ? eq(memberships.role, filter.role) : undefined))
       .orderBy(asc(memberships.createdAt));
+  },
+
+  /**
+   * The business's founder as the screens show it: the owner who created the business while they still own it, else
+   * the longest-standing owner. The org chart is rooted at this person and agents with no line manager report to them.
+   */
+  async owner(db: Executor, businessId: string): Promise<Membership | null> {
+    return maybeOne(
+      await db
+        .select({ m: memberships })
+        .from(memberships)
+        .innerJoin(businesses, eq(businesses.id, memberships.businessId))
+        .where(and(eq(memberships.businessId, businessId), eq(memberships.role, "owner")))
+        .orderBy(sql`(${memberships.userId} = ${businesses.createdBy}) desc`, asc(memberships.createdAt), asc(memberships.id))
+        .limit(1)
+        .then((rows) => rows.map((r) => r.m)),
+    );
   },
 
   async get(db: Executor, businessId: string, userId: string): Promise<Membership | null> {

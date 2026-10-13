@@ -23,7 +23,7 @@ import {
   ACTOR_BY_KINDS, entities, entityRoles, fieldProvenance, interactions, INTERACTION_DIRECTIONS, mentions, mergeLog, relationships,
   type Entity, type EntityRole, type FieldProvenance, type Interaction, type Mention, type MergeLogEntry, type Relationship,
 } from "../schema";
-import { DateRange, defined, Id, IsoDateInput, numericText, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page, patchSchema } from "./_shared";
+import { DateRange, changes, defined, Id, IsoDateInput, numericText, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page, patchSchema } from "./_shared";
 
 export const STRONG_IDENTIFIERS = ["email", "domain", "linkedin", "reg_no", "stripe_id"] as const;
 export type StrongIdentifier = (typeof STRONG_IDENTIFIERS)[number];
@@ -588,7 +588,7 @@ export const entitiesRepo = {
 
   async updateRole(db: Executor, businessId: string, roleId: string, patch: { stage?: string | null; ownerRef?: { kind: "agent" | "user" | "department"; id: string } | null }): Promise<EntityRole> {
     const v = parseInput(AddRoleInput.pick({ stage: true, ownerRef: true }), patch, "entity role update");
-    return one(await db.update(entityRoles).set(defined(v)).where(and(eq(entityRoles.businessId, businessId), eq(entityRoles.id, roleId))).returning(), "entity role", roleId);
+    return one(await db.update(entityRoles).set(changes(v, "entity role")).where(and(eq(entityRoles.businessId, businessId), eq(entityRoles.id, roleId))).returning(), "entity role", roleId);
   },
 
   async endRole(db: Executor, businessId: string, roleId: string, endedAt = new Date()): Promise<EntityRole> {

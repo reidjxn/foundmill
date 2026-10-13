@@ -1,10 +1,10 @@
 /** training_runs — the Training screen lifecycle (BUILD §11.10; routers agent.training.*). */
-import { MODEL_KEYS, ValidationError } from "@foundmill/shared";
+import { ConflictError, MODEL_KEYS, ValidationError } from "@foundmill/shared";
 import { and, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { TRAINING_DECISIONS, TRAINING_STATUSES, agentVersions, trainingRuns, type AgentVersion, type TrainingRun } from "../schema";
 import { agentsRepo, type CreateAgentVersionInput } from "./agents";
-import { Currency, defined, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
+import { Currency, changes, defined, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
 
 export const CreateTrainingRunInput = z.object({
   agentId: Id,
@@ -91,7 +91,7 @@ export const trainingRepo = {
 
   async update(db: Executor, businessId: string, runId: string, input: UpdateTrainingRunInput): Promise<TrainingRun> {
     const v = parseInput(UpdateTrainingRunInput, input, "training run update");
-    return one(await db.update(trainingRuns).set(defined(v)).where(scoped(businessId, runId)).returning(), "training run", runId);
+    return one(await db.update(trainingRuns).set(changes(v, "training run")).where(scoped(businessId, runId)).returning(), "training run", runId);
   },
 
   /**
@@ -165,19 +165,55 @@ export const trainingRepo = {
       const run = await trainingRepo.get(tx, businessId, runId);
       if (run.decision) throw new ValidationError("Training run already decided", { runId, decision: run.decision });
       if (run.status !== "awaiting_decision" && run.status !== "done") throw new ValidationError(`Training run is ${run.status}, not awaiting a decision`, { runId });
-      if (d === "promoted") {
-        if (!run.toVersionId) throw new ValidationError("Training run produced no candidate version", { runId });
-        await agentsRepo.promoteVersion(tx, businessId, run.agentId, run.toVersionId);
-      }
-      return one(
-        await tx
-          .update(trainingRuns)
-          .set({ decision: d, status: "done", endedAt: run.endedAt ?? new Date(), watchUntil: d === "promoted" ? (options.watchUntil ?? run.watchUntil) : null })
-          .where(scoped(businessId, runId))
-          .returning(),
-        "training run",
-        runId,
-      );
+      if (d === "promoted" && !run.toVersionId) throw new ValidationError("Training run produced no candidate version", { runId });
+      // The decision is claimed with one conditional update before anything else changes: of two at once (a double
+      // click, two tabs) the second waits on the row, then finds it decided and is refused, so a run is promoted once.
+      const claimed = await tx
+        .update(trainingRuns)
+        .set({ decision: d, status: "done", endedAt: run.endedAt ?? new Date(), watchUntil: d === "promoted" ? (options.watchUntil ?? run.watchUntil) : null })
+        .where(and(scoped(businessId, runId), isNull(trainingRuns.decision), inArray(trainingRuns.status, ["awaiting_decision", "done"])))
+        .returning();
+      const decided = claimed[0];
+      if (!decided) throw new ValidationError("Training run already decided", { runId });
+      if (d === "promoted") await agentsRepo.promoteVersion(tx, businessId, run.agentId, run.toVersionId!);
+      return decided;
     });
+  },
+
+  /**
+   * Ends the seven-day watch of the agent's promoted runs (a rollback moved the agent off the version they made
+   * live): their `watch_until` becomes now, so no banner offers a rollback the agent has already had.
+   */
+  async closeWatch(db: Executor, businessId: string, agentId: string): Promise<TrainingRun[]> {
+    const now = new Date();
+    return db
+      .update(trainingRuns)
+      .set({ watchUntil: now })
+      .where(and(eq(trainingRuns.businessId, businessId), eq(trainingRuns.agentId, agentId), eq(trainingRuns.decision, "promoted"), gt(trainingRuns.watchUntil, now)))
+      .returning();
+  },
+
+  /**
+   * The founder's run of a draft (agent.training.run): refused (409) while another run of the same draft is queued,
+   * running or grading, so a double click never pays for two runs. The draft's row is locked before the check, so two
+   * requests at once cannot both pass it.
+   */
+  async createForDraft(db: Executor, businessId: string, input: CreateTrainingRunInput & { toVersionId: string }): Promise<TrainingRun> {
+    return db.transaction(async (tx) => {
+      await tx.select({ id: agentVersions.id }).from(agentVersions).where(and(eq(agentVersions.businessId, businessId), eq(agentVersions.id, input.toVersionId))).for("update");
+      const active = await trainingRepo.activeForVersion(tx, businessId, input.toVersionId);
+      if (active) throw new ConflictError("This draft is already being trained; wait for its results or cancel the run", { runId: active.id });
+      return trainingRepo.create(tx, businessId, input);
+    });
+  },
+
+  /** A run of this candidate version still queued, running or grading (one run per draft at a time), or null. */
+  async activeForVersion(db: Executor, businessId: string, versionId: string): Promise<TrainingRun | null> {
+    const rows = await db
+      .select()
+      .from(trainingRuns)
+      .where(and(eq(trainingRuns.businessId, businessId), eq(trainingRuns.toVersionId, versionId), inArray(trainingRuns.status, [...ACTIVE_TRAINING_STATUSES])))
+      .limit(1);
+    return rows[0] ?? null;
   },
 };

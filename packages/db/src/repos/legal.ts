@@ -14,7 +14,7 @@ import {
   complianceEvents, CONTRACT_STATUSES, contracts, entities, FILING_STATUSES, filings, INCORPORATION_STATUSES, incorporations, LEGAL_ENTITY_STATUSES, legalEntities,
   type ComplianceEvent, type Contract, type Filing, type Incorporation, type LegalEntity,
 } from "../schema";
-import { Currency, DateRange, defined, Id, IsoDateInput, JsonArray, MinorAmount, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page, patchSchema } from "./_shared";
+import { Currency, DateRange, changes, defined, Id, IsoDateInput, JsonArray, MinorAmount, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page, patchSchema } from "./_shared";
 
 export const CreateLegalEntityInput = z.object({
   jurisdiction: z.string().trim().min(2).max(40),
@@ -173,7 +173,7 @@ export const legalRepo = {
 
   async updateEntity(db: Executor, businessId: string, legalEntityId: string, input: UpdateLegalEntityInput): Promise<LegalEntity> {
     const v = parseInput(UpdateLegalEntityInput, input, "legal entity update");
-    return one(await db.update(legalEntities).set(defined(v)).where(scopedLe(businessId, legalEntityId)).returning(), "legal entity", legalEntityId);
+    return one(await db.update(legalEntities).set(changes(v, "legal entity")).where(scopedLe(businessId, legalEntityId)).returning(), "legal entity", legalEntityId);
   },
 
   /** Import confirm (router legal.import.confirm): a registry lookup becomes the operating entity. */
@@ -364,7 +364,7 @@ export const legalRepo = {
 
   async updateContract(db: Executor, businessId: string, contractId: string, input: UpdateContractInput): Promise<Contract> {
     const v = parseInput(UpdateContractInput, input, "contract update");
-    return one(await db.update(contracts).set(defined(v)).where(scopedContract(businessId, contractId)).returning(), "contract", contractId);
+    return one(await db.update(contracts).set(changes(v, "contract")).where(scopedContract(businessId, contractId)).returning(), "contract", contractId);
   },
 
   /** Moves a contract along its lifecycle; `signed` stamps signed_at (the signature itself happened outside the platform). */

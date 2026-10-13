@@ -193,6 +193,8 @@ export const skillTests = pgTable(
     rubric: jsonb("rubric").$type<Record<string, unknown>>().notNull().default(emptyObject),
     heldOut: boolean("held_out").notNull().default(false),
     fixturesRef: text("fixtures_ref"),
+    /** 0054: when the founder reviewed the test (null = drafted, awaiting review; only reviewed tests are scored). */
+    reviewedAt: tstz("reviewed_at"),
     ...timestampsWithArchive(),
   },
   (t) => [index("skill_tests_skill_definition_id_idx").on(t.skillDefinitionId), index("skill_tests_business_id_idx").on(t.businessId)],

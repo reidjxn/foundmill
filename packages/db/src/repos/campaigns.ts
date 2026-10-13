@@ -6,7 +6,7 @@ import { APPROVAL_STATES, ASSET_KINDS, CAMPAIGN_STATUSES, ValidationError, type 
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { assets, campaigns, channels, type Asset, type Campaign } from "../schema";
-import { Currency, defined, Id, IsoDateInput, JsonObject, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page, patchSchema } from "./_shared";
+import { Currency, changes, Id, IsoDateInput, JsonObject, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page, patchSchema } from "./_shared";
 
 export const CreateCampaignInput = z.object({
   channelId: Id,
@@ -124,7 +124,7 @@ export const campaignsRepo = {
 
   async update(db: Executor, businessId: string, campaignId: string, input: UpdateCampaignInput): Promise<Campaign> {
     const v = parseInput(UpdateCampaignInput, input, "campaign update");
-    return one(await db.update(campaigns).set(defined(v)).where(scoped(businessId, campaignId)).returning(), "campaign", campaignId);
+    return one(await db.update(campaigns).set(changes(v, "campaign")).where(scoped(businessId, campaignId)).returning(), "campaign", campaignId);
   },
 
   async setStatus(db: Executor, businessId: string, campaignId: string, status: CampaignStatus, options: { force?: boolean } = {}): Promise<Campaign> {
@@ -200,7 +200,7 @@ export const campaignsRepo = {
 
   async updateAsset(db: Executor, businessId: string, assetId: string, input: { title?: string; contentRef?: string | null }): Promise<Asset> {
     const v = parseInput(z.object({ title: z.string().max(200).optional(), contentRef: z.string().max(2048).nullable().optional() }), input, "asset update");
-    return one(await db.update(assets).set(defined(v)).where(scopedAsset(businessId, assetId)).returning(), "asset", assetId);
+    return one(await db.update(assets).set(changes(v, "asset")).where(scopedAsset(businessId, assetId)).returning(), "asset", assetId);
   },
 
   /** draft → pending → approved | rejected (router distribution.assets.approve/reject). */

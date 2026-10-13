@@ -1,5 +1,5 @@
 /** Template registry: look templates up by key, type, module, family or channel. */
-import { type ChannelKey, type ModuleKey } from "@foundmill/shared";
+import { ValidationError, type ChannelKey, type ModuleKey } from "@foundmill/shared";
 import { ALL_TEMPLATES } from "./templates";
 import { type AgentTemplate, type TemplateFamily } from "./types";
 
@@ -8,9 +8,10 @@ const BY_TYPE: ReadonlyMap<string, AgentTemplate> = new Map(ALL_TEMPLATES.map((t
 
 export const TEMPLATE_KEYS: readonly string[] = Object.freeze(ALL_TEMPLATES.map((t) => t.key));
 
-export class UnknownTemplateError extends Error {
+/** An input error (400): a template key outside the catalog, from a crafted call or a catalog that changed meanwhile. */
+export class UnknownTemplateError extends ValidationError {
   constructor(readonly key: string) {
-    super(`Unknown agent template "${key}"`);
+    super(`Unknown agent template "${key}"`, { key });
     this.name = "UnknownTemplateError";
   }
 }

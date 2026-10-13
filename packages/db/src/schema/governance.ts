@@ -1,5 +1,5 @@
 /** 0011 — integrations, credentials, webhooks, policies, approvals, audit log, events, outbox. */
-import { ACTOR_KINDS, CONNECTOR_AUTH_KINDS, INTEGRATION_STATUSES } from "@foundmill/shared";
+import { ACTOR_KINDS, CONNECTOR_AUTH_KINDS, DECISION_TYPES, INTEGRATION_STATUSES } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { bigint, boolean, index, integer, jsonb, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { bytea, createdAt, emptyArray, emptyObject, id, timestamps, timestampsWithArchive, tstz } from "./_common";
@@ -9,7 +9,9 @@ import { inboxItems, planActions } from "./inbox";
 
 export const POLICY_SCOPES = ["business", "department", "agent"] as const;
 export const APPROVAL_OUTCOMES = ["approved", "rejected", "expired"] as const;
-export const APPROVAL_BY_KINDS = ["user", "chief_of_staff", "system"] as const;
+export const APPROVAL_BY_KINDS = ["user", "chief_of_staff", "system", "agent"] as const;
+/** 0054: who handles an approval by the Responsibilities matrix (null = the founder: owners and admins). */
+export const APPROVAL_HANDLER_KINDS = ["user", "agent"] as const;
 export const WEBHOOK_STATUSES = ["active", "paused", "failed"] as const;
 
 export const integrations = pgTable(
@@ -145,10 +147,15 @@ export const approvals = pgTable(
     outcome: text("outcome", { enum: APPROVAL_OUTCOMES }),
     byKind: text("by_kind", { enum: APPROVAL_BY_KINDS }),
     byId: uuid("by_id"),
+    /** 0054: the Responsibilities decision type, and who handles it (null handler = the founder: owners and admins). */
+    decisionType: text("decision_type", { enum: DECISION_TYPES }),
+    handlerKind: text("handler_kind", { enum: APPROVAL_HANDLER_KINDS }),
+    handlerId: uuid("handler_id"),
     ...timestamps(),
   },
   (t) => [
     index("approvals_business_id_idx").on(t.businessId, t.requestedAt),
+    index("approvals_handler_idx").on(t.businessId, t.handlerKind, t.handlerId).where(sql`${t.resolvedAt} is null`),
     index("approvals_pending_idx").on(t.businessId).where(sql`${t.resolvedAt} is null`),
     index("approvals_plan_action_id_idx").on(t.planActionId),
     index("approvals_agent_id_idx").on(t.agentId),
