@@ -69,6 +69,9 @@ export const EVENT_WALLS = {
   "negotiation.message": { sections: ["live"], hide: { finance: ["proposal.price", "proposal.terms"] } },
   "cycle.started": { sections: [], hide: { finance: ["budget"] } },
   "cycle.completed": { sections: [], hide: { finance: ["cost"] } },
+  // Autopilot (0055): the chip is Home's; the day's spend ceiling is a money figure, hidden from a reader walled off Finance.
+  "autopilot.changed": { sections: [], hide: { finance: ["spendCeiling"] } },
+  "autopilot.cycle_started": { sections: [] },
   "inbox.item_created": { sections: ["inbox"], hide: { finance: ["subject", "cost"], crm: ["subject"] } },
   // Ids and the kind of change only (no subject): a member allowed the Inbox learns nothing beyond the change itself.
   "inbox.item_updated": { sections: ["inbox"] },

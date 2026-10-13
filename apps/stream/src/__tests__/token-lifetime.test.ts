@@ -59,7 +59,7 @@ describe("the token travels in a subprotocol, never in the URL (SEC-12)", () => 
     expect(headers["sec-websocket-protocol"]).toBe(STREAM_SUBPROTOCOL);
     expect(JSON.stringify(headers)).not.toContain(tok);
     expect(headers["cache-control"]).toBe("no-store");
-    expect(t.server.subscriptions()).toEqual([{ userId: USER_A, channels: [] }]);
+    expect(t.server.subscriptions()).toEqual([{ userId: USER_A, channels: [], focused: [] }]);
   });
 
   it("refuses a token in the URL with 400, even a valid one, and counts no socket", async () => {
