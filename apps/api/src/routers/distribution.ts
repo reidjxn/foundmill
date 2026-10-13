@@ -112,6 +112,11 @@ export const distributionRouter = router({
     ),
     update: write.input(z.object({ campaignId: Id, patch: UpdateCampaignInput })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
+        // A campaign's budget stays in its channel's currency after the edit as at creation (audit #345).
+        if (input.patch.currency) {
+          const channel = await repos.channels.get(tx, ctx.businessId, (await repos.campaigns.get(tx, ctx.businessId, input.campaignId)).channelId);
+          if (input.patch.currency.toUpperCase() !== channel.currency) throw new TRPCError({ code: "BAD_REQUEST", message: `The budget is in ${channel.currency}, the ${CHANNEL_META[channel.channelKey].label} channel's currency.` });
+        }
         const campaign = await repos.campaigns.update(tx, ctx.businessId, input.campaignId, input.patch);
         await audit(tx, ctx, { action: "distribution.campaigns.update", target: { kind: "campaign", id: campaign.id }, details: { fields: Object.keys(input.patch) } });
         return campaign;

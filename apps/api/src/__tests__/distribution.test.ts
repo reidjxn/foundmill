@@ -85,6 +85,10 @@ describe("distribution campaigns", () => {
     await expect(owner().distribution.campaigns.update({ businessId, campaignId: created.id, patch: { endsAt: "2026-01-01T00:00:00.000Z" } })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(owner().distribution.campaigns.update({ businessId, campaignId: created.id, patch: { startsAt: "2026-12-01T00:00:00.000Z", endsAt: "2026-01-01T00:00:00.000Z" } })).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
+    // The currency cannot be switched to a foreign one by an edit either.
+    await expect(owner().distribution.campaigns.update({ businessId, campaignId: created.id, patch: { currency: "JPY" } })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await owner().distribution.campaigns.update({ businessId, campaignId: created.id, patch: { currency: "GBP", budgetMinor: 6_000 } });
+
     await expect(owner().distribution.campaigns.setStatus({ businessId, campaignId: created.id, status: "scheduled" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/on the board/) });
     await repos.channels.setEnabled(hz.db, businessId, channel.id, true);
     await owner().distribution.campaigns.setStatus({ businessId, campaignId: created.id, status: "scheduled" });
