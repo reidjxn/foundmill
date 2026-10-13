@@ -7,7 +7,7 @@
  * the routes exist, are documented and cannot be mistaken for silent 404s. Nothing here touches the database
  * except through `repos.social`.
  */
-import { APP_NAME, FLAGS } from "@foundmill/config";
+import { APP_NAME, liveModeOpen } from "@foundmill/config";
 import { repos, type Db } from "@foundmill/db";
 import { AppError } from "@foundmill/shared";
 import { Hono } from "hono";
@@ -41,7 +41,7 @@ export interface SocialLogger {
 }
 
 export interface AppOptions {
-  env?: { APP_ENV: string; INTEGRATIONS_MODE: string; MODEL_MODE: string };
+  env?: { APP_ENV: string; INTEGRATIONS_MODE: string; MODEL_MODE: string; LIVE_MODE?: string | undefined };
   log?: SocialLogger;
   now?: () => Date;
   /** For `/health`: whether the database answered at boot (see db-boot.ts). Defaults to true. */
@@ -74,7 +74,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       db,
       app: APP_NAME,
       service: SOCIAL_SERVICE,
-      liveMode: FLAGS.liveMode,
+      liveMode: liveModeOpen(options.env ?? {}),
       env: options.env?.APP_ENV ?? null,
       modes: { integrations: options.env?.INTEGRATIONS_MODE ?? null, models: options.env?.MODEL_MODE ?? null },
       time: now().toISOString(),

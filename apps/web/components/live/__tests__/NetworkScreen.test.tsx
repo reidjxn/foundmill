@@ -70,6 +70,25 @@ describe("/network", () => {
     expect(within(panel).getByText(/only your own Send sends it/)).toBeTruthy();
   });
 
+  it("reads a thread a page at a time and loads earlier messages on request (audit GLS2F-05)", async () => {
+    seed({
+      "live.messages.list": (v) => {
+        const { limit } = v as { limit: number };
+        const all = Array.from({ length: 120 }, (_, i) => message(`m${i}`, ids.ana, `message ${i}`, i + 1));
+        return { items: all.slice(0, limit), nextCursor: limit < all.length ? "more" : null };
+      },
+    });
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: /Fintech ops intro/ }));
+    expect(callsTo(api, "live.messages.list")[0]).toMatchObject({ threadId: "t-ana", limit: 50 });
+    const more = await screen.findByTestId("load-earlier-messages");
+    fireEvent.click(more);
+    await waitFor(() => expect(callsTo(api, "live.messages.list").at(-1)).toMatchObject({ threadId: "t-ana", limit: 100 }));
+    fireEvent.click(await screen.findByTestId("load-earlier-messages"));
+    await waitFor(() => expect(callsTo(api, "live.messages.list").at(-1)).toMatchObject({ limit: 150 }));
+    await waitFor(() => expect(screen.queryByTestId("load-earlier-messages")).toBeNull());
+  });
+
   it("opens a thread: messages oldest first, the counts refreshed once it is read, and Send replies in that thread", async () => {
     mount();
     fireEvent.click(await screen.findByRole("button", { name: /Fintech ops intro/ }));

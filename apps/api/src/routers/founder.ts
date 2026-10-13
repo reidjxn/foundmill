@@ -5,6 +5,7 @@
  * user under RLS, so a row is only ever their own. No event: preferences belong to the account, not to a business
  * (events and the audit log are business-scoped), and nothing reacts to them but the person's own screens.
  */
+import { liveModeOpen } from "@foundmill/config";
 import { AccountPreferencesPatch, repos, withRls, FounderProfileInput, FounderProfilePatch, type Db, type DbTx } from "@foundmill/db";
 import { protectedProcedure, router } from "../trpc";
 
@@ -18,7 +19,8 @@ export const founderRouter = router({
     get: protectedProcedure.query(async ({ ctx }) => {
       // Three independent reads: sent together, not one after another (each is a network round trip in production).
       const [profile, memberships, businesses] = await Promise.all([repos.founders.get(ctx.db, ctx.userId), repos.memberships.listForUser(ctx.db, ctx.userId), repos.businesses.listForUser(ctx.db, ctx.userId)]);
-      return { profile, complete: profile !== null, email: ctx.email, memberships, businesses };
+      // `features.liveMode`: whether LIVE is open here (the commit screen offers Live only then).
+      return { profile, complete: profile !== null, email: ctx.email, memberships, businesses, features: { liveMode: liveModeOpen(ctx.env) } };
     }),
     update: protectedProcedure.input(FounderProfilePatch).mutation(async ({ ctx, input }) => {
       const existing = await repos.founders.get(ctx.db, ctx.userId);

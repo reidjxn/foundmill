@@ -124,6 +124,14 @@ export const socialRepo = {
    * requests racing for the same pair meet the unique index (23505) and get the winner's answer.
    */
   async requestConnection(db: Executor, fromUser: string, toUser: string, message?: string | null): Promise<Connection> {
+    return (await socialRepo.requestConnectionOutcome(db, fromUser, toUser, message)).connection;
+  },
+
+  /**
+   * `requestConnection`, saying whether this call inserted the row (`created`) or returned the one that already existed
+   * (a repeat, or the other person's request): callers announce a request only when it is new.
+   */
+  async requestConnectionOutcome(db: Executor, fromUser: string, toUser: string, message?: string | null): Promise<{ connection: Connection; created: boolean }> {
     const v = parseInput(z.object({ fromUser: Id, toUser: Id, message: z.string().max(1000).nullable().optional() }), { fromUser, toUser, message }, "connection request");
     if (v.fromUser === v.toUser) throw new ValidationError("Cannot connect to yourself", { fromUser });
     const answerFor = async (tx: Executor): Promise<Connection | null> => {
@@ -145,11 +153,15 @@ export const socialRepo = {
       return null;
     };
     try {
-      return await db.transaction(async (tx) => (await answerFor(tx)) ?? one(await tx.insert(connections).values({ fromUser: v.fromUser, toUser: v.toUser, message: v.message ?? null }).returning(), "connection"));
+      return await db.transaction(async (tx) => {
+        const existing = await answerFor(tx);
+        if (existing) return { connection: existing, created: false };
+        return { connection: one(await tx.insert(connections).values({ fromUser: v.fromUser, toUser: v.toUser, message: v.message ?? null }).returning(), "connection"), created: true };
+      });
     } catch (err) {
       if (sqlState(err) !== "23505") throw err;
       const winner = await db.transaction((tx) => answerFor(tx));
-      if (winner) return winner;
+      if (winner) return { connection: winner, created: false };
       throw new AppError("conflict", "This request clashed with another; try again", 409);
     }
   },
@@ -165,7 +177,8 @@ export const socialRepo = {
       const isParty = current.fromUser === userId || current.toUser === userId;
       if (!isParty) throw new ValidationError("Not a party to this connection", { connectionId });
       if (current.status === "blocked") {
-        if (current.blockedBy !== userId) throw new ValidationError("This connection cannot be changed", { connectionId });
+        // A block is never announced: to anyone but its blocker the row reads exactly like one that does not exist.
+        if (current.blockedBy !== userId) throw new NotFoundError("connection", connectionId);
         if (s === "blocked") return current;
         throw new ValidationError("Unblock this person before connecting again", { connectionId });
       }
@@ -190,7 +203,8 @@ export const socialRepo = {
     const rows = await db.select().from(connections).where(eq(connections.id, connectionId)).limit(1);
     const current = rows[0];
     if (!current || (current.fromUser !== userId && current.toUser !== userId)) return;
-    if (current.status === "blocked" && current.blockedBy !== userId) throw new ValidationError("This connection cannot be removed", { connectionId });
+    // Someone else's block is invisible to you: removing it is the same quiet no-op as removing a row that is not there.
+    if (current.status === "blocked" && current.blockedBy !== userId) return;
     await db
       .delete(connections)
       .where(and(eq(connections.id, connectionId), or(eq(connections.fromUser, userId), eq(connections.toUser, userId)), or(sql`${connections.status} <> 'blocked'`, eq(connections.blockedBy, userId))));
@@ -198,18 +212,18 @@ export const socialRepo = {
 
   async listConnections(db: Executor, userId: string, filter: { status?: (typeof CONNECTION_STATUSES)[number]; direction?: "incoming" | "outgoing" } = {}): Promise<Connection[]> {
     const f = parseInput(z.object({ status: z.enum(CONNECTION_STATUSES).optional(), direction: z.enum(["incoming", "outgoing"]).optional() }), filter, "connection filter");
-    return db
+    const rows = await db
       .select()
       .from(connections)
-      .where(
-        and(
-          f.direction === "incoming" ? eq(connections.toUser, userId) : f.direction === "outgoing" ? eq(connections.fromUser, userId) : or(eq(connections.fromUser, userId), eq(connections.toUser, userId)),
-          f.status ? eq(connections.status, f.status) : undefined,
-          // A block is never announced: the person who was blocked does not see the row, only the blocker does.
-          or(sql`${connections.status} <> 'blocked'`, eq(connections.blockedBy, userId)),
-        ),
-      )
+      .where(f.direction === "incoming" ? eq(connections.toUser, userId) : f.direction === "outgoing" ? eq(connections.fromUser, userId) : or(eq(connections.fromUser, userId), eq(connections.toUser, userId)))
       .orderBy(desc(connections.createdAt));
+    // A block is never announced. Its blocker sees it; the person who asked and was blocked keeps seeing their request as
+    // still waiting (a request that vanished would say it was blocked); the person who was asked simply no longer has it.
+    const seen = rows.flatMap((c): Connection[] => {
+      if (c.status !== "blocked" || c.blockedBy === userId) return [c];
+      return c.fromUser === userId ? [{ ...c, status: "requested", respondedAt: null, blockedBy: null }] : [];
+    });
+    return f.status ? seen.filter((c) => c.status === f.status) : seen;
   },
 
   async areConnected(db: Executor, userA: string, userB: string): Promise<boolean> {

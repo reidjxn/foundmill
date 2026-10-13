@@ -59,11 +59,15 @@ export function PersonalNotice({ className }: { className?: string }) {
         Personal
       </StatusPill>
       <p className="min-w-0 flex-1 text-body text-secondary">
-        {data.business.name} is a Personal business, so it is not listed on the network or on leaderboards. Your own connections, messages and communities stay available.
+        {data.liveOpen
+          ? `${data.business.name} is a Personal business, so it is not listed on the network or on leaderboards. Your own connections, messages and communities stay available.`
+          : `Live is not open yet, so ${data.business.name} stays Personal and is not listed on the network or on leaderboards.`}
       </p>
-      <ShellLinkButton href={routes.settings(businessId, "mode")} size="sm">
-        Open Settings › Mode
-      </ShellLinkButton>
+      {data.liveOpen ? (
+        <ShellLinkButton href={routes.settings(businessId, "mode")} size="sm">
+          Open Settings › Mode
+        </ShellLinkButton>
+      ) : null}
     </div>
   );
 }

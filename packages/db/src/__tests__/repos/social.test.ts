@@ -50,18 +50,26 @@ describe("connections and messages", () => {
     const blocker = r.B.adminId;
     const c = await repos.social.requestConnection(r.db, asker, blocker, "Hi");
     expect((await repos.social.respondConnection(r.db, blocker, c.id, "blocked")).blockedBy).toBe(blocker);
-    // The blocked party cannot accept, re-block (which would take the row over) or delete the row.
-    await expect(repos.social.respondConnection(r.db, asker, c.id, "accepted")).rejects.toThrow(/cannot be changed/);
-    await expect(repos.social.respondConnection(r.db, asker, c.id, "blocked")).rejects.toThrow(/cannot be changed/);
-    await expect(repos.social.removeConnection(r.db, asker, c.id)).rejects.toThrow(/cannot be removed/);
+    // The blocked party cannot accept, re-block (which would take the row over) or delete the row; the row reads to them
+    // exactly like one that does not exist (respond: not found; remove: the same quiet no-op as a missing id), so the
+    // error never confirms the block (audit GLS2F-04).
+    await expect(repos.social.respondConnection(r.db, asker, c.id, "accepted")).rejects.toThrow(/not found/i);
+    await expect(repos.social.respondConnection(r.db, asker, c.id, "blocked")).rejects.toThrow(/not found/i);
+    await expect(repos.social.respondConnection(r.db, asker, "00000000-0000-4000-8000-0000000000ff", "accepted")).rejects.toThrow(/not found/i);
+    await expect(repos.social.removeConnection(r.db, asker, c.id)).resolves.toBeUndefined();
+    expect((await repos.social.listConnections(r.db, blocker, { status: "blocked" })).map((x) => x.id), "the no-op removed nothing").toContain(c.id);
     await expect(repos.social.requestConnection(r.db, asker, blocker)).rejects.toThrow(/could not be sent/);
     // Not even the blocker can write `accepted` over it; they unblock (delete), and a fresh request starts clean.
     await expect(repos.social.respondConnection(r.db, blocker, c.id, "accepted")).rejects.toThrow(/Unblock/);
     expect((await repos.social.respondConnection(r.db, blocker, c.id, "blocked")).id).toBe(c.id); // idempotent
     // A block is never announced: only the blocker sees the row in their lists.
     expect((await repos.social.listConnections(r.db, blocker, { status: "blocked" })).map((x) => x.id)).toContain(c.id);
-    expect((await repos.social.listConnections(r.db, asker)).map((x) => x.id)).not.toContain(c.id);
+    // The person who asked keeps seeing their request as still waiting (a request that vanished would say it was blocked).
+    expect((await repos.social.listConnections(r.db, asker, { direction: "outgoing" })).find((x) => x.id === c.id)).toMatchObject({ status: "requested", blockedBy: null, respondedAt: null });
+    expect((await repos.social.listConnections(r.db, asker, { status: "requested" })).map((x) => x.id)).toContain(c.id);
     expect(await repos.social.listConnections(r.db, asker, { status: "blocked" })).toEqual([]);
+    // The person who was asked no longer has the request at all.
+    expect((await repos.social.listConnections(r.db, blocker, { direction: "incoming" })).find((x) => x.id === c.id)).toMatchObject({ status: "blocked", blockedBy: blocker });
     await repos.social.removeConnection(r.db, blocker, c.id);
     expect((await repos.social.listConnections(r.db, asker)).map((x) => x.id)).not.toContain(c.id);
     const again = await repos.social.requestConnection(r.db, asker, blocker);
@@ -69,7 +77,8 @@ describe("connections and messages", () => {
     // A requester who blocks after the recipient accepted owns the block too.
     await repos.social.respondConnection(r.db, blocker, again.id, "accepted");
     expect((await repos.social.respondConnection(r.db, asker, again.id, "blocked")).blockedBy).toBe(asker);
-    await expect(repos.social.removeConnection(r.db, blocker, again.id)).rejects.toThrow(/cannot be removed/);
+    await repos.social.removeConnection(r.db, blocker, again.id); // quiet no-op: the block is not theirs
+    expect((await repos.social.listConnections(r.db, asker, { status: "blocked" })).map((x) => x.id)).toContain(again.id);
     await repos.social.removeConnection(r.db, asker, again.id);
     // Someone who is not a party removes nothing and learns nothing.
     const third = await repos.social.requestConnection(r.db, asker, blocker);

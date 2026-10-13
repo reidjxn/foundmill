@@ -16,7 +16,7 @@ import { LogoChoice, takeLogoCheck } from "../services/logo";
 import { modelLimited } from "../services/model-limits";
 import { ideaLogoRouter } from "./logo";
 import type { Context } from "../context";
-import { Id, internalErrorMessage, protectedProcedure, router, toTRPCError } from "../trpc";
+import { Id, assertLiveOpen, internalErrorMessage, protectedProcedure, router, toTRPCError } from "../trpc";
 
 export { readMeta, withMeta } from "../services/ideation";
 export type { DraftEvent } from "../services/ideation";
@@ -245,6 +245,8 @@ export const ideaRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // A business starts LIVE only where LIVE is open (audit VLS2-X1); Personal always.
+      if (input.gameMode === "live") assertLiveOpen(ctx.env);
       const profile = await repos.founders.get(ctx.db, ctx.userId);
       if (!profile) throw new ValidationError("Complete your founder profile before taking charge of a business");
       // A logo is an upload check like any other (the SVG check is CPU work).

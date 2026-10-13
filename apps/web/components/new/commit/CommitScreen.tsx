@@ -70,6 +70,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
   const params = useSearchParams();
   const { toast } = useToast();
   const ideaQ = useQuery(trpc.idea.get.queryOptions({ ideaId }));
+  const featuresQ = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
   const [archetype, setArchetype] = useState<Archetype | null>(null);
   const previewQ = useQuery(trpc.idea.preview.queryOptions({ archetype: archetype ?? "b2b_saas" }, { enabled: archetype !== null, staleTime: 60_000 }));
   const client = useTRPCClient();
@@ -154,6 +155,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
       committing={commit.isPending || commit.isSuccess}
       error={commit.error ? errorMessage(commit.error) : null}
       upgradeHref={upgradeHrefOf(commit.error)}
+      liveOpen={featuresQ.data?.features.liveMode ?? false}
       onCommit={onCommit}
       logoApi={logoApi}
       back={back}
@@ -178,6 +180,8 @@ export interface CommitFormProps {
   error?: string | null;
   /** Where the plan changes when the commit was refused by the plan's business limit (an upgrade prompt). */
   upgradeHref?: string | null;
+  /** Whether LIVE is open on this deployment (`founder.profile.get` features); while it is not, only Personal is offered. */
+  liveOpen?: boolean;
   onCommit: (input: ReturnType<typeof commitInput>) => void;
   /** Upload checks and logo generation (idea.logo.*). */
   logoApi: CommitLogoApi;
@@ -192,7 +196,7 @@ export function upgradeHrefOf(err: unknown): string | null {
 
 const DEBOUNCE_MS = 350;
 
-export function CommitForm({ idea, viewer, currency, initialName, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, onCommit, logoApi, back }: CommitFormProps) {
+export function CommitForm({ idea, viewer, currency, initialName, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, liveOpen = true, onCommit, logoApi, back }: CommitFormProps) {
   const concept = useMemo(() => toConcept(idea), [idea]);
   // The idea's seed only picks the starting brand colours now; the logo is uploaded or generated.
   const ideaSeed = String(readMeta(idea.current?.research).crest_seed ?? idea.id);
@@ -327,10 +331,11 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
 
           <Panel title="Personal or live">
             <RadioGroup value={form.gameMode} onValueChange={(v) => set("gameMode", v as GameMode)} className="grid-cols-2" aria-label="Personal or live">
-              {GAME_MODE_CARDS.map((m) => (
+              {GAME_MODE_CARDS.filter((m) => liveOpen || m.value !== "live").map((m) => (
                 <ModeCardOption key={m.value} id={`game-${m.value}`} value={m.value} label={m.label} tagline={m.tagline} details={m.details} selected={form.gameMode === m.value} icon={m.value === "live" ? Globe : Lock} />
               ))}
             </RadioGroup>
+            {liveOpen ? null : <p className="mt-2 text-small text-secondary" data-testid="live-closed-note">Live is not open yet. Your business starts Personal.</p>}
           </Panel>
 
           <Panel title="Archetype" data-testid="archetype-panel">

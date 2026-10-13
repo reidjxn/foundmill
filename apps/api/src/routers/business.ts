@@ -2,16 +2,17 @@
  * business.get/update/setGameMode/setBusinessMode/setSpendCap/continue/pauseCycle/resumeCycle/startHoliday/endHoliday/
  * stopAllAgents/resumeAgents/export/archive/requestDeletion/cancelDeletion (BUILD §9.4, §9.6, §11.15, §14).
  */
-import { LIMITS } from "@foundmill/config";
+import { LIMITS, liveModeOpen } from "@foundmill/config";
 import { repos, UpdateBusinessInput } from "@foundmill/db";
-import { BUSINESS_MODES, DECISION_TYPES, EVENT_TYPES, GAME_MODES } from "@foundmill/shared";
+import { demoBusinessIdForSlug } from "@foundmill/db/seed/constants";
+import { BUSINESS_MODES, ConflictError, DECISION_TYPES, EVENT_TYPES, GAME_MODES } from "@foundmill/shared";
 import { z } from "zod";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
 import { assertAgentsRunning, resumeAgents, stopAllAgents } from "../services/killswitch";
 import { archiveBusiness, cancelDeletion, deletionState, exportBusiness, requestDeletion } from "../services/lifecycle";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { modelLimited } from "../services/model-limits";
-import { adminProcedure, audit, businessProcedure, emit, ownerProcedure, router, writeProcedure } from "../trpc";
+import { adminProcedure, assertLiveOpen, audit, businessProcedure, emit, ownerProcedure, router, writeProcedure } from "../trpc";
 import { businessLogoRouter } from "./logo";
 
 /** What an admin may change on the business record (Settings › Business and Glossary send these). */
@@ -30,8 +31,12 @@ export const businessRouter = router({
     const [holiday, blocking, departments, agents, deletion, logo, foundations] = await ctx.rls(async (tx) =>
       Promise.all([repos.holidays.current(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId), repos.departments.list(tx, ctx.businessId), repos.agents.countByStatus(tx, ctx.businessId), deletionState({ db: tx, businessId: ctx.businessId }), repos.logos.getMeta(tx, ctx.businessId), repos.foundations.get(tx, ctx.businessId)]),
     );
+    // While LIVE is closed on this deployment a stored "live" reads as Personal everywhere (sidebar, widgets, Settings),
+    // and `liveOpen` tells Settings not to offer Go live.
+    const liveOpen = liveModeOpen(ctx.env);
     return {
-      business: ctx.business,
+      business: liveOpen ? ctx.business : { ...ctx.business, gameMode: "personal" as const },
+      liveOpen,
       /**
        * The logo's metadata only (a few hundred bytes); the image itself comes from `business.logo.get`, keyed by
        * `sha256`, so this payload stays small. Null: draw the initials mark.
@@ -69,6 +74,9 @@ export const businessRouter = router({
   // `business.logo.*` (crest_url is retired, 0017). Other keys are stripped by the schema.
   update: adminProcedure.input(BusinessSettingsInput).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
+      // The demo businesses' slugs are reserved for them (boot-time seeding finds them by id, and nobody else holds those addresses).
+      const reservedFor = input.slug ? demoBusinessIdForSlug(input.slug) : null;
+      if (reservedFor && reservedFor !== ctx.businessId) throw new ConflictError("That address is taken; choose another", { slug: input.slug });
       const business = await repos.businesses.update(tx, ctx.businessId, input);
       await audit(tx, ctx, { action: "business.update", target: { kind: "business", id: ctx.businessId }, details: { fields: Object.keys(input) } });
       return business;
@@ -76,6 +84,8 @@ export const businessRouter = router({
   ),
 
   setGameMode: adminProcedure.input(z.object({ gameMode: z.enum(GAME_MODES), reason: z.string().max(500).optional() })).mutation(async ({ ctx, input }) => {
+    // Going live is refused while LIVE is closed; switching back to Personal always works.
+    if (input.gameMode === "live") assertLiveOpen(ctx.env);
     const business = await ctx.rls(async (tx) => {
       const from = ctx.business.gameMode;
       const changed = await repos.businesses.setGameMode(tx, ctx.businessId, input.gameMode);

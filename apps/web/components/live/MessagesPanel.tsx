@@ -6,8 +6,9 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mail, MailCheck, MessageSquare, SquarePen } from "lucide-react";
-import { useEffect, useMemo, useRef, type KeyboardEvent } from "react";
-import { Avatar, Chip, Conversation, EmptyState, Icon, Panel, cn, formatRelative, useToast, type ConversationMessage } from "@foundmill/dugout";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { LIMITS } from "@foundmill/config";
+import { Avatar, Button, Chip, Conversation, EmptyState, Icon, Panel, cn, formatRelative, useToast, type ConversationMessage } from "@foundmill/dugout";
 import { otherParticipants, threadTitle } from "@/lib/live";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -40,7 +41,10 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
 
   const thread = selection?.kind === "thread" ? threads.find((t) => t.id === selection.threadId) : undefined;
   const threadId = selection?.kind === "thread" ? selection.threadId : NIL_THREAD;
-  const messagesQ = useQuery(trpc.live.messages.list.queryOptions({ threadId, limit: 200 }, { enabled: selection?.kind === "thread", staleTime: 5_000, refetchInterval: 15_000, retry: false }));
+  // The newest page of the thread; "Load earlier" asks for one page more. The 15 s refresh only ever re-reads what is shown.
+  const [shown, setShown] = useState<{ threadId: string; limit: number }>({ threadId, limit: LIMITS.liveMessagePageSize });
+  const limit = shown.threadId === threadId ? shown.limit : LIMITS.liveMessagePageSize;
+  const messagesQ = useQuery(trpc.live.messages.list.queryOptions({ threadId, limit }, { enabled: selection?.kind === "thread", staleTime: 5_000, refetchInterval: 15_000, retry: false }));
 
   const refresh = (paths: readonly string[]) => Promise.all(paths.map((p) => qc.invalidateQueries({ queryKey: trpcPathPrefix(p) as unknown[] })));
 
@@ -150,6 +154,13 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
                 <span className="t-body-strong min-w-0 truncate text-primary">{withName}</span>
                 {thread?.subject && thread.subject.trim() && thread.subject !== withName ? <span className="truncate text-small text-secondary">{thread.subject}</span> : null}
               </div>
+              {messagesQ.data?.nextCursor ? (
+                <div className="flex shrink-0 justify-center border-b border-subtle py-1">
+                  <Button size="sm" variant="ghost" loading={messagesQ.isFetching} onClick={() => setShown({ threadId, limit: limit + LIMITS.liveMessagePageSize })} data-testid="load-earlier-messages">
+                    Load earlier messages
+                  </Button>
+                </div>
+              ) : null}
               <Conversation
                 className="flex-1"
                 label={selection.kind === "new" ? `New message to ${withName}` : `Conversation with ${withName}`}

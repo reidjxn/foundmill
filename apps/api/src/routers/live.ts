@@ -5,7 +5,13 @@
 import { MAX_MESSAGE_RECIPIENTS, repos, type Business, type Executor } from "@foundmill/db";
 import { ForbiddenError, NotFoundError, ValidationError, VISIBILITY, WRITE_ROLES } from "@foundmill/shared";
 import { z } from "zod";
-import { Id, businessProcedure, effectivePermission, emit, protectedProcedure, router, sectionWrite } from "../trpc";
+import { takeConnectionRequest, takeMessage, takePost } from "../services/live-limits";
+import { Id, businessProcedure as anyBusinessProcedure, effectivePermission, emit, liveGate, protectedProcedure as anyProtectedProcedure, router, sectionWrite as anySectionWrite, type Section } from "../trpc";
+
+// Every LIVE procedure is closed while LIVE is (FLAGS.liveMode / LIVE_MODE, audit VLS2-X1).
+const protectedProcedure = anyProtectedProcedure.use(liveGate);
+const businessProcedure = anyBusinessProcedure.use(liveGate);
+const sectionWrite = (section: Section) => anySectionWrite(section).use(liveGate);
 
 const Page = z.object({ limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() }).optional();
 
@@ -62,9 +68,11 @@ export const liveRouter = router({
     /** A LIVE business's writer asks a person to connect. One transaction: the request and its event commit together or not at all. */
     request: sectionWrite("live").input(z.object({ toUserId: Id, message: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
       if (ctx.business.gameMode !== "live") throw new ValidationError("Connections are a LIVE feature; this business is Personal");
+      await takeConnectionRequest(ctx.limits, ctx.userId, input.toUserId);
       return ctx.rls(async (tx) => {
-        const connection = await repos.social.requestConnection(tx, ctx.userId, input.toUserId, input.message ?? null);
-        await emit(tx, ctx, { type: "connection.requested", payload: { connectionId: connection.id, fromUserId: ctx.userId, toUserId: input.toUserId, fromBusinessId: ctx.businessId, fromEntityId: null, message: input.message ?? null } });
+        const { connection, created } = await repos.social.requestConnectionOutcome(tx, ctx.userId, input.toUserId, input.message ?? null);
+        // Announced once, when the request is new; a repeat (or the other person's own request) returns the row and writes nothing.
+        if (created) await emit(tx, ctx, { type: "connection.requested", payload: { connectionId: connection.id, fromUserId: ctx.userId, toUserId: input.toUserId, fromBusinessId: ctx.businessId, fromEntityId: null, message: input.message ?? null } });
         return connection;
       });
     }),
@@ -90,8 +98,10 @@ export const liveRouter = router({
      * MAX_MESSAGE_RECIPIENTS people who exist, are not blocked either way, and are connections (or already share a thread).
      */
     send: protectedProcedure.input(z.object({ threadId: Id.optional(), toUserIds: z.array(Id).min(1).max(MAX_MESSAGE_RECIPIENTS).optional(), subject: z.string().max(200).optional(), body: z.string().min(1).max(20_000) })).mutation(async ({ ctx, input }) => {
-      const threadId = input.threadId ?? (input.toUserIds ? (await repos.social.startThread(ctx.db, ctx.userId, input.toUserIds, input.subject ?? null)).id : null);
-      if (!threadId) throw new ValidationError("Give a thread or recipients");
+      if (!input.threadId && !input.toUserIds) throw new ValidationError("Give a thread or recipients");
+      // Throttled before anything is written: per person, and per thread (or per set of recipients for a first message).
+      await takeMessage(ctx.limits, ctx.userId, input.threadId ?? [...input.toUserIds!].sort().join(","));
+      const threadId = input.threadId ?? (await repos.social.startThread(ctx.db, ctx.userId, input.toUserIds!, input.subject ?? null)).id;
       return repos.social.sendMessage(ctx.db, ctx.userId, threadId, input.body);
     }),
     unread: protectedProcedure.query(({ ctx }) => repos.social.unreadCount(ctx.db, ctx.userId)),
@@ -143,6 +153,7 @@ export const liveRouter = router({
     post: protectedProcedure.input(z.object({ communityId: Id, bodyMd: z.string().min(1).max(20_000), parentPostId: Id.nullable().optional(), businessId: Id.nullable().optional() })).mutation(async ({ ctx, input }) => {
       const { isMember } = await visibleCommunity(ctx, input.communityId);
       if (!isMember) throw new ValidationError("Join the community before posting");
+      await takePost(ctx.limits, ctx.userId);
       return repos.social.createPost(ctx.db, { ...input, businessId: await speakingAs(ctx, input.businessId), authorUserId: ctx.userId });
     }),
   }),

@@ -9,7 +9,7 @@ import { format } from "date-fns";
 import { DateFormatProvider } from "@foundmill/dugout";
 
 const api = vi.hoisted(() => ({ handlers: {}, calls: [] }) as FakeApi);
-const ctx = vi.hoisted(() => ({ gameMode: "live" as "live" | "personal", role: "owner", sectionPermissions: {} as Record<string, string>, committed: true, push: vi.fn() }));
+const ctx = vi.hoisted(() => ({ liveOpen: true, gameMode: "live" as "live" | "personal", role: "owner", sectionPermissions: {} as Record<string, string>, committed: true, push: vi.fn() }));
 vi.mock("@/lib/trpc-react", async () => {
   const { fakeTrpc } = await import("./fake-trpc");
   return { useTRPC: () => fakeTrpc(api) };
@@ -17,7 +17,7 @@ vi.mock("@/lib/trpc-react", async () => {
 vi.mock("@/components/shell/business-context", () => ({
   useBusiness: () => ({
     businessId: "b1",
-    data: { business: { name: "Ledgerly", gameMode: ctx.gameMode, committedAt: ctx.committed ? new Date() : null, archivedAt: null }, membership: { role: ctx.role, sectionPermissions: ctx.sectionPermissions } },
+    data: { liveOpen: ctx.liveOpen, business: { name: "Ledgerly", gameMode: ctx.gameMode, committedAt: ctx.committed ? new Date() : null, archivedAt: null }, membership: { role: ctx.role, sectionPermissions: ctx.sectionPermissions } },
   }),
 }));
 vi.mock("@/components/shell/chrome", () => ({ useShellChrome: () => undefined }));
@@ -87,6 +87,20 @@ describe("/communities", () => {
     fireEvent.contextMenu(within(grid).getAllByRole("row")[2]!);
     expect(screen.getByRole("menuitem", { name: /Open feed/ })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /Join/ })).toBeTruthy();
+  });
+
+  it("while LIVE is closed the page says so, and does not point at Settings", async () => {
+    ctx.gameMode = "personal";
+    ctx.liveOpen = false;
+    try {
+      api.handlers["live.communities.list"] = () => [];
+      mount(<CommunitiesScreen />);
+      const notice = await screen.findByTestId("personal-notice");
+      expect(notice.textContent).toContain("Live is not open yet");
+      expect(notice.textContent).not.toContain("Open Settings");
+    } finally {
+      ctx.liveOpen = true;
+    }
   });
 
   it("a Personal business joins the same way and the page says why it is not listed", async () => {
