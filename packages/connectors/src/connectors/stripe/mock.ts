@@ -36,7 +36,7 @@ export function createStripeMock() {
     key: STRIPE_KEY,
     displayName: "Stripe",
     phase: 2,
-    auth: { kind: "oauth", scopes: ["read_write"] },
+    auth: { kind: "oauth", scopes: ["read_write"], platformKey: true },
     tools: stripeTools,
     rateLimits: STRIPE_RATE_LIMITS,
     now: () => MOCK_NOW,

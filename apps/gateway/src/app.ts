@@ -22,10 +22,11 @@ import { repos } from "@foundmill/db";
 import { cedarVersion, getPolicyEngine } from "@foundmill/policy";
 import { bearerToken, mintSessionToken, sessionKey, verifyServiceToken, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
 import { toIntegrationRecord } from "./credentials";
-import { appInstallationVerified, executeToolCall, GatewayError, modeFor, safeError, type GatewayDeps } from "./pipeline";
+import { appInstallationVerified, GatewayError, modeFor, safeError, type GatewayDeps } from "./pipeline";
 import { CreateCheckoutRequest, createPlatformCheckout } from "./billing";
 import { CheckDomainsRequest, checkDomains } from "./domains";
 import { handleMcpRequest } from "./mcp";
+import { callerTrace, tracedToolCall } from "./tracing";
 import { toCandidates } from "./recipients";
 import { STATE_ERROR_CODES, stateDenial } from "./state";
 import { CallRequest, ConnectIntegrationRequest, IntegrationHealthRequest, MintSessionTokenRequest, type GatewayErrorBody, type HealthResponse, type MintSessionTokenResponse } from "./types";
@@ -35,8 +36,8 @@ export interface GatewayAppOptions {
   sessionTokenSecret: string;
   sessionTokenTtlSeconds?: number;
   sessionTokenMaxTtlSeconds?: number;
-  /** For `/health`. */
-  rateLimitStoreKind?: "memory" | "redis";
+  /** For `/health`: the rate-limit store in use (a function reads it per request; memory while a Redis store falls back). */
+  rateLimitStoreKind?: "memory" | "redis" | (() => "memory" | "redis");
   /** For `/health`: whether the database answered at boot (see db-boot.ts). Defaults to true. */
   dbReady?: () => boolean;
 }
@@ -94,7 +95,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
       connectors: deps.registry.keys().length,
       policy: { cedar: cedarVersion(), policies: Object.keys(engine.policySet.byId).length },
       vault: deps.vault?.kind ?? "none",
-      rateLimitStore: options.rateLimitStoreKind ?? "memory",
+      rateLimitStore: typeof options.rateLimitStoreKind === "function" ? options.rateLimitStoreKind() : (options.rateLimitStoreKind ?? "memory"),
       time: now().toISOString(),
     };
     // Readiness for Railway's healthcheck (railway/gateway.toml): 503 while the database is unavailable.
@@ -247,10 +248,12 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   };
   app.use("/v1/call", requireSession);
   app.use("/mcp/*", requireSession);
+  app.use("/v1/call", callerTrace);
+  app.use("/mcp/*", callerTrace);
 
   app.post("/v1/call", async (c) => {
     const req = CallRequest.parse(await c.req.json());
-    const { status, body } = await executeToolCall(deps, c.var.session, req);
+    const { status, body } = await tracedToolCall(deps, c.var.session, req);
     if (status === 429 && body.outcome === "rate_limited") c.header("Retry-After", String(body.retryAfterSeconds));
     return c.json(body, status);
   });

@@ -5,7 +5,7 @@
 import { LIMITS, liveModeOpen } from "@foundmill/config";
 import { HolidayRunningError, repos, UpdateBusinessInput } from "@foundmill/db";
 import { demoBusinessIdForSlug } from "@foundmill/db/seed/constants";
-import { BUSINESS_SETTINGS_FIELDS } from "@foundmill/events";
+import { BUSINESS_SETTINGS_FIELDS, businessStreamKey } from "@foundmill/events";
 import { PRICING_CURRENCY } from "@foundmill/models";
 import { BUSINESS_MODES, ConflictError, CurrencyCode, DECISION_TYPES, EVENT_TYPES, GAME_MODES, isValidTimeZone } from "@foundmill/shared";
 import { z } from "zod";
@@ -323,6 +323,8 @@ export const businessRouter = router({
   archive: adminProcedure.input(z.object({ reason: z.string().max(200).default("archived") })).mutation(async ({ ctx, input }) => {
     const archived = await archiveBusiness(ctx, input.reason);
     await repos.social.removeBusinessFromLeaderboards(ctx.db, ctx.businessId);
+    // Its events stay in Postgres; the live stream goes now instead of when its 30-day TTL runs out (#233).
+    await ctx.redis?.del(businessStreamKey(ctx.businessId)).catch((err: unknown) => ctx.log.warn({ err: (err as Error).message }, "business stream not removed on archive; it expires on its TTL"));
     return archived;
   }),
   /** Owner-only: bring an archived business back (idempotent). Its agents stay stopped until resumed. */

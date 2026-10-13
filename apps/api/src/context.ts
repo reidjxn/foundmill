@@ -20,6 +20,7 @@ import { createComposerClient, type ComposerClient } from "./services/composer";
 import { createApiModelClient } from "./services/models";
 import { createRateLimitStore, type RateLimitStore, type RedisLimitClient } from "./services/rate-limit";
 import { createRedis } from "./services/redis";
+import type { RelaySupervisor } from "./services/relay";
 import { createSandboxRecordingResolver, type RecordingResolver } from "./services/replay";
 import { createApiGatewayClient, type ApiGatewayClient } from "./services/gateway";
 import { createIngestClient, type IngestClient } from "./services/simulate";
@@ -57,6 +58,8 @@ export interface ApiDeps {
     redis(): Promise<boolean>;
     temporal(): Promise<boolean>;
   };
+  /** The outbox relay's supervisor (index.ts); absent in tests and the in-process caller. /health reports its state. */
+  relay?: RelaySupervisor | null;
 }
 
 export interface Context extends ApiDeps {
@@ -136,8 +139,7 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
   const gateway = createApiGatewayClient({ url: env.GATEWAY_URL, secret: env.SESSION_TOKEN_SECRET ?? null });
   const auth = createAuthVerifier({
     supabaseUrl: env.SUPABASE_URL ?? null,
-    // SUPABASE_JWT_SECRET is not in the shared env schema yet (packages/shared/src/env.ts); read here only.
-    jwtSecret: process.env.SUPABASE_JWT_SECRET ?? null,
+    jwtSecret: env.SUPABASE_JWT_SECRET ?? null,
     devUserId: env.DEV_AUTH_USER_ID ?? null,
     appEnv: env.APP_ENV,
   });

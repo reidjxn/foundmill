@@ -12,7 +12,7 @@ import type { Db } from "../../client";
 import { repos } from "../../repos";
 import * as s from "../../schema";
 import { createTestDb, type TestHarness } from "../../testing/pglite";
-import { BOOTSTRAPPED_COMMUNITY_SLUG, LEDGERLY_BUSINESS_ID, LEDGERLY_COMMUNITY_SLUG, NORTHWIND_BUSINESS_ID, SEED_COMMUNITY_SLUGS, seedDemo, type SeedDemoResult } from "../index";
+import { BOOTSTRAPPED_COMMUNITY_SLUG, deleteDemoBusinesses, demoSeedState, LEDGERLY_BUSINESS_ID, LEDGERLY_COMMUNITY_SLUG, NORTHWIND_BUSINESS_ID, SEED_COMMUNITY_SLUGS, seedDemo, type SeedDemoResult } from "../index";
 
 const TODAY = new Date("2026-10-07T12:00:00.000Z");
 const SEED_OPTS = { today: TODAY, days: 730, volumeScale: 0.3 };
@@ -362,14 +362,47 @@ describe("seedDemo on PGlite", () => {
     const beforeProposals = await count(s.changeProposals, NORTHWIND_BUSINESS_ID);
     expect(beforeProposals).toBe(1);
     expect(await repos.founders.get(db, result.owner.userId)).not.toBeNull();
+
+    // Real founders use the public seed communities, and a real business keeps its own audit chain (#232).
+    const fintech = (await repos.social.getCommunityBySlug(db, LEDGERLY_COMMUNITY_SLUG))!;
+    const bootstrapped = (await repos.social.getCommunityBySlug(db, BOOTSTRAPPED_COMMUNITY_SLUG))!;
+    const real = await h.createUser("real-founder@test.local");
+    await repos.social.joinCommunity(db, real, bootstrapped.id);
+    await repos.social.joinCommunity(db, real, fintech.id);
+    const realPost = await repos.social.createPost(db, { communityId: bootstrapped.id, authorUserId: real, bodyMd: "We bootstrapped to our first 40 customers on founder-led sales." });
+    const demoPost = (await repos.social.listPosts(db, fintech.id)).items.find((p) => p.authorUserId === result.owner.userId && /first-touch to outbound/.test(p.bodyMd))!;
+    const realReply = await repos.social.createPost(db, { communityId: fintech.id, authorUserId: real, parentPostId: demoPost.id, bodyMd: "Same for us in the Nordics." });
+    const [realBusiness] = await db.insert(s.businesses).values({ name: "Real Co", slug: "real-co", createdBy: real, archetype: "b2b_saas" }).returning({ id: s.businesses.id });
+    await repos.audit.append(db, realBusiness!.id, { actorKind: "user", actorId: real, action: "business.create" });
+
     // ownerProfile: false (SEED_OWNER_PROFILE=0) leaves the demo owner without a profile, even one an earlier seed created.
     const again = await seedDemo(db, { ...SEED_OPTS, refreshDaily: false, ownerProfile: false });
+
+    // The communities, the real founder's memberships, post and reply survive; the demo founder's posts are the same
+    // rows again (re-attached to the rebuilt Ledgerly), not copies.
+    expect((await repos.social.getCommunityBySlug(db, LEDGERLY_COMMUNITY_SLUG))?.id).toBe(fintech.id);
+    expect((await repos.social.getCommunityBySlug(db, BOOTSTRAPPED_COMMUNITY_SLUG))).toMatchObject({ id: bootstrapped.id, memberCount: 1 });
+    expect((await repos.social.getCommunityBySlug(db, LEDGERLY_COMMUNITY_SLUG))?.memberCount).toBe(2);
+    expect(await repos.social.isMember(db, real, bootstrapped.id)).toBe(true);
+    expect(await repos.social.isMember(db, real, fintech.id)).toBe(true);
+    expect(await repos.social.isMember(db, again.owner.userId, fintech.id)).toBe(true);
+    const survivors = await db.select({ id: s.posts.id }).from(s.posts).where(eq(s.posts.authorUserId, real));
+    expect(survivors.map((p) => p.id).sort()).toEqual([realPost.id, realReply.id].sort());
+    const demoPosts = await db.select({ id: s.posts.id, businessId: s.posts.businessId }).from(s.posts).where(eq(s.posts.authorUserId, again.owner.userId));
+    expect(demoPosts).toHaveLength(3);
+    expect(demoPosts.map((p) => p.id)).toContain(demoPost.id);
+    expect(demoPosts.every((p) => p.businessId === LEDGERLY_BUSINESS_ID)).toBe(true);
+    expect((await repos.audit.list(db, realBusiness!.id)).items.map((e) => e.action)).toEqual(["business.create"]);
+    // The rebuild named each demo business to the audit trigger; it never disabled the trigger for everyone.
+    const trigger = await db.execute(sql`select tgenabled from pg_trigger where tgname = 'audit_log_immutable'`);
+    expect((trigger as unknown as { rows: { tgenabled: string }[] }).rows[0]?.tgenabled).toBe("O");
+    expect(await demoSeedState(db)).toEqual({ present: ["northwind-skincare", "ledgerly"], complete: true });
     expect(again.owner.userId).toBe(result.owner.userId);
     expect(await repos.founders.get(db, result.owner.userId)).toBeNull();
     expect(await count(s.changeProposals, NORTHWIND_BUSINESS_ID)).toBe(beforeProposals);
     expect(await count(s.proposalHunks, NORTHWIND_BUSINESS_ID)).toBe(3);
     const all = await db.select({ slug: s.businesses.slug, id: s.businesses.id }).from(s.businesses);
-    expect(all).toHaveLength(2);
+    expect(all.map((b) => b.slug).sort()).toEqual(["ledgerly", "northwind-skincare", "real-co"]);
     expect(all.find((b) => b.slug === "ledgerly")?.id).toBe(LEDGERLY_BUSINESS_ID);
     const after = await db.select({ id: s.conversions.id, amountMinor: s.conversions.amountMinor }).from(s.conversions).where(eq(s.conversions.businessId, NORTHWIND_BUSINESS_ID)).orderBy(s.conversions.id);
     expect(after).toEqual(before);
@@ -399,6 +432,19 @@ describe("seedDemo on PGlite", () => {
     const after = await counts(LEDGERLY_BUSINESS_ID);
     expect(Object.entries(after).filter(([, n]) => n > 0)).toEqual([]);
     expect(await counts(NORTHWIND_BUSINESS_ID)).toEqual(northwind);
-    expect((await db.select({ id: s.businesses.id }).from(s.businesses)).map((b) => b.id)).toEqual([NORTHWIND_BUSINESS_ID]);
+    // The real business an earlier test made is not Ledgerly's and stays too.
+    expect((await db.select({ slug: s.businesses.slug }).from(s.businesses)).map((b) => b.slug).sort()).toEqual(["northwind-skincare", "real-co"]);
+  });
+
+  it("never builds over a real business that took a demo slug while the demo was absent (#232)", async () => {
+    // The purge test above removed Ledgerly: build the pair again, then delete it, as a demo that was absent.
+    await seedDemo(db, { ...SEED_OPTS, days: 30, refreshDaily: false });
+    expect(await deleteDemoBusinesses(db)).toBe(2);
+    expect(await demoSeedState(db)).toEqual({ present: [], complete: false });
+    const squatter = await h.createUser("squatter@test.local");
+    const [taken] = await db.insert(s.businesses).values({ name: "Ledgerly Accounting", slug: "ledgerly", createdBy: squatter, archetype: "b2b_saas" }).returning({ id: s.businesses.id });
+    await expect(seedDemo(db, { ...SEED_OPTS, days: 30, refreshDaily: false })).rejects.toThrow(/"ledgerly" belongs to a real business/);
+    expect(await deleteDemoBusinesses(db)).toBe(0);
+    expect((await db.select({ id: s.businesses.id }).from(s.businesses).where(eq(s.businesses.slug, "ledgerly")))[0]?.id).toBe(taken!.id);
   }, 120_000);
 });

@@ -15,6 +15,7 @@ import { bookUsage } from "@foundmill/db";
 import { createBusinessModelClient } from "./models";
 import { systemClock, type Clock } from "./clock";
 import { createComposerClient, createOfflineComposerClient, type ComposerClient } from "./composer-client";
+import { SessionDrain } from "./drain";
 import { MemoryControlBus, RedisControlBus, type SessionControlBus } from "./control-bus";
 import { loadOrchestratorEnv, type OrchestratorEnv } from "./env";
 import { createGatewayClient, createOfflineGatewayClient, type GatewayClient } from "./gateway-client";
@@ -34,6 +35,8 @@ export interface OrchestratorDeps {
   vault: Vault | null;
   clock: Clock;
   log: Logger;
+  /** Worker shutdown: running sessions hand their work to the next worker (./drain). */
+  drain: SessionDrain;
   /** Stop everything this process opened. */
   close(): Promise<void>;
 }
@@ -50,6 +53,7 @@ export interface CreateDepsOptions {
   vault?: Vault | null;
   clock?: Clock;
   log?: Logger;
+  drain?: SessionDrain;
 }
 
 /**
@@ -180,6 +184,7 @@ export function createDeps(options: CreateDepsOptions = {}): OrchestratorDeps {
     vault,
     clock: options.clock ?? systemClock,
     log,
+    drain: options.drain ?? new SessionDrain(),
     async close() {
       for (const c of closers.reverse()) {
         try {

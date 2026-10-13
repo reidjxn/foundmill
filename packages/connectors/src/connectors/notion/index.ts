@@ -4,8 +4,12 @@ import { ConfigError, type Connector, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { basicAuth, createHttp, type HttpClient } from "../../http";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
+import { authorizeUrl, consentRecord, consentStartOf, hasAuthorizationCode } from "../_shared/oauth-consent";
 import { notionMock } from "./mock";
 import { mapBlock, mapPage, NOTION_BASE_URL, NOTION_KEY, NOTION_RATE_LIMITS, NOTION_VERSION, notionTools, paragraphBlock, type NotionBlock, type NotionList, type NotionPage } from "./tools";
+
+/** Notion's OAuth consent page for public integrations. */
+export const NOTION_AUTHORIZE_URL = "https://api.notion.com/v1/oauth/authorize";
 
 export function createNotionConnector(options: LiveConnectorOptions = {}): Connector {
   const { secrets, fetch, now } = resolveLiveOptions(options);
@@ -20,7 +24,7 @@ export function createNotionConnector(options: LiveConnectorOptions = {}): Conne
       key: NOTION_KEY,
       displayName: "Notion",
       phase: 1,
-      auth: { kind: "oauth", scopes: ["read_content", "insert_content", "update_content"] },
+      auth: { kind: "oauth", scopes: ["read_content", "insert_content", "update_content"], authorizationCode: true },
       tools: notionTools,
       rateLimits: NOTION_RATE_LIMITS,
       now,
@@ -51,9 +55,14 @@ export function createNotionConnector(options: LiveConnectorOptions = {}): Conne
         },
       },
       connect: async (businessId, input) => {
+        // First step: Notion's consent page, where the founder picks the pages the integration may use.
+        if (!hasAuthorizationCode(input)) {
+          const start = consentStartOf(input, "Notion");
+          if (!secrets.notionClientId) throw new ConfigError(NOTION_KEY, "NOTION_CLIENT_ID / NOTION_CLIENT_SECRET", "create a public integration at notion.so/my-integrations");
+          return consentRecord(NOTION_KEY, businessId, authorizeUrl(NOTION_AUTHORIZE_URL, { client_id: secrets.notionClientId, response_type: "code", owner: "user", redirect_uri: start.redirectUri, state: start.state }), { now, newId: uuid });
+        }
         // OAuth code exchange (public integration): POST /oauth/token with Basic client credentials.
-        const code = typeof input === "object" && input && typeof (input as { code?: unknown }).code === "string" ? (input as { code: string; redirectUri?: string }) : null;
-        if (!code) throw new ConfigError(NOTION_KEY, "OAuth authorization code", "connect() expects { code, redirectUri } from the Notion OAuth redirect");
+        const code = input as { code: string; redirectUri?: string };
         if (!secrets.notionClientId || !secrets.notionClientSecret) throw new ConfigError(NOTION_KEY, "NOTION_CLIENT_ID / NOTION_CLIENT_SECRET");
         const res = await createHttp({ connectorKey: NOTION_KEY, baseUrl: NOTION_BASE_URL, fetch, headers: { authorization: basicAuth(secrets.notionClientId, secrets.notionClientSecret), "notion-version": NOTION_VERSION } }).json<{ access_token: string; workspace_name?: string; workspace_id?: string; bot_id?: string }>("POST", "/oauth/token", { body: { grant_type: "authorization_code", code: code.code, redirect_uri: code.redirectUri } });
         const createdAt = now().toISOString();

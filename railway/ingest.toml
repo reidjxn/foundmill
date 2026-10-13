@@ -1,14 +1,18 @@
 # Railway config-as-code for ingest (Settings → Config-as-code → Railway config file: /railway/ingest.toml).
-# The same build and teardown as /railway.toml (scripts/railway-config.test.mjs keeps them equal) plus a healthcheck:
+# The same build (plus its own watch patterns) and teardown as /railway.toml (scripts/railway-config.test.mjs keeps
+# them equal) plus a healthcheck:
 # traffic moves to a new deployment only once GET /health answers 2xx (503 while its database is unavailable).
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
+# Redeploy only when something this service runs changed (#222): its app, the shared packages, the image and the
+# lockfile. A docs-only push, or one that touches only apps/web or another service, leaves it running.
+watchPatterns = ["/apps/ingest/**", "/packages/**", "/patches/**", "/Dockerfile", "/railway/ingest.toml", "/package.json", "/pnpm-lock.yaml", "/pnpm-workspace.yaml", "/.npmrc"]
 
 [deploy]
 healthcheckPath = "/health"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 5
+restartPolicyMaxRetries = 10
 overlapSeconds = 15
 drainingSeconds = 60

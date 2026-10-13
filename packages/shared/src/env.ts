@@ -14,7 +14,6 @@ const Env = z.object({
   /** Mock model client only: simulated writing time per streamed element, in ms (0 = instant, the default). */
   MOCK_MODEL_STREAM_MS: z.coerce.number().int().min(0).max(600_000).catch(0).default(0),
   APP_URL: z.string().default("http://localhost:3000"),
-  DATA_REGION: z.enum(["eu", "us"]).default("eu"),
   LOG_LEVEL: z.string().default("info"),
   PORT: z.coerce.number().optional(),
   API_PORT: z.coerce.number().default(4000),
@@ -32,6 +31,8 @@ const Env = z.object({
   SUPABASE_URL: z.string().optional(),
   SUPABASE_ANON_KEY: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  /** apps/api, apps/stream, apps/collab: verifies legacy HS256 Supabase tokens without JWKS (optional; JWKS is used otherwise). */
+  SUPABASE_JWT_SECRET: z.string().optional(),
   DATABASE_URL: z.string().optional(),
   /** apps/api: longest wait at boot for the migration lock (and for table locks a migration needs) before exiting 1 (docs/DEPLOY.md §3). */
   MIGRATION_LOCK_TIMEOUT_MS: z.coerce.number().int().min(100).max(600_000).catch(60_000).default(60_000),
@@ -66,7 +67,50 @@ const Env = z.object({
   /** The App's OAuth client: connecting exchanges the code GitHub sends after installing to check who installed it. */
   GITHUB_APP_CLIENT_ID: z.string().optional(),
   GITHUB_APP_CLIENT_SECRET: z.string().optional(),
+  /*
+   * Platform keys of the other live connectors (packages/connectors `platformSecretsFromEnv`; docs/DEPLOY.md §5.6). Set
+   * them on the gateway (every agent tool call), on ingest when the connector's webhook goes live, and on the api for
+   * what it calls directly (registry lookups, OAuth consent links and code exchanges).
+   */
+  /** Stripe Connect platform client id (`ca_…`), for Connect onboarding links. */
+  STRIPE_CONNECT_CLIENT_ID: z.string().optional(),
+  /** apps/ingest: the token SendGrid Inbound Parse carries as `?token=` (Inbound Parse has no signature). */
+  SENDGRID_INBOUND_TOKEN: z.string().optional(),
+  /** Shopify public app (OAuth): its API key and secret key. */
+  SHOPIFY_CLIENT_ID: z.string().optional(),
+  SHOPIFY_CLIENT_SECRET: z.string().optional(),
+  /** Tink open banking: the app's client credentials from the Tink console. */
+  TINK_CLIENT_ID: z.string().optional(),
+  TINK_CLIENT_SECRET: z.string().optional(),
+  /** Plaid: client id and secret from the Plaid dashboard, and which Plaid environment they belong to. */
+  PLAID_CLIENT_ID: z.string().optional(),
+  PLAID_SECRET: z.string().optional(),
+  PLAID_ENV: z.enum(["sandbox", "production"]).optional(),
+  /** UK Companies House public data API key (platform key; every business's lookups use it). */
+  COMPANIES_HOUSE_API_KEY: z.string().optional(),
+  /** Bolagsverket (Swedish companies registry) client credentials from portal.api.bolagsverket.se. */
+  BOLAGSVERKET_CLIENT_ID: z.string().optional(),
+  BOLAGSVERKET_CLIENT_SECRET: z.string().optional(),
+  /** OpenCorporates API token (platform key). */
+  OPENCORPORATES_API_TOKEN: z.string().optional(),
+  /** Cloudflare API token (Zone:Read, DNS:Edit); a business's own token takes precedence. */
+  CLOUDFLARE_API_TOKEN: z.string().optional(),
+  /** Google OAuth client (Gmail, Calendar, Drive): consent links, code exchange and token refresh. */
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  /** Notion public integration (OAuth) client. */
+  NOTION_CLIENT_ID: z.string().optional(),
+  NOTION_CLIENT_SECRET: z.string().optional(),
+  /** Dropbox Sign API key; a business's own key takes precedence. */
+  DROPBOX_SIGN_API_KEY: z.string().optional(),
+  /**
+   * Every Node service: OTLP/HTTP base URL traces (and the orchestrator's Temporal metrics) are sent to, e.g. Grafana
+   * Cloud's `https://otlp-gateway-<zone>.grafana.net/otlp` (packages/shared telemetry.ts). Unset: no traces.
+   */
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
+  /** Headers for that endpoint, `key=value,…` (percent-encoded values), e.g. `Authorization=Basic%20<base64>`. */
+  OTEL_EXPORTER_OTLP_HEADERS: z.string().optional(),
+  /** Every Node service: Sentry project DSN that error-level log lines and uncaught exceptions are reported to. Unset: none. */
   SENTRY_DSN: z.string().optional(),
   SEED_OWNER_EMAILS: z.string().optional(),
   /**
@@ -96,6 +140,8 @@ const Env = z.object({
   DEV_AUTH_USER_ID: z.string().optional(),
 });
 export type Env = z.infer<typeof Env>;
+/** Every variable the shared schema reads (scripts/env-example.test.mjs keeps .env.example equal to it). */
+export const ENV_KEYS = Object.keys(Env.shape) as (keyof Env)[];
 
 let cached: Env | undefined;
 export function loadEnv(overrides: Partial<NodeJS.ProcessEnv> = {}): Env {

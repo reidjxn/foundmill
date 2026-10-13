@@ -1,20 +1,22 @@
 /**
  * `seedDemo(db, opts)` — builds Northwind Skincare and Ledgerly (BUILD §17.2) deterministically from a seeded PRNG.
- * Idempotent: the two demo businesses are deleted by slug (every business-scoped table cascades) and rebuilt;
- * owners, platform skill definitions and the community are upserted. Usage:
+ * Idempotent: the two demo businesses are deleted by their fixed ids (every business-scoped table cascades) and
+ * rebuilt; owners, platform skill definitions and the communities are upserted (real founders' members and posts stay).
+ * Usage:
  *
  *   const result = await seedDemo(db, { today: new Date("2026-10-07T12:00:00Z"), volumeScale: 0.3 });
  *
  * `pnpm --filter @foundmill/db seed` runs it against DATABASE_URL (or a local PGlite directory, see src/seed.ts).
  */
 import { freeDisplayName } from "@foundmill/config";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { Db } from "../client";
 import { repos } from "../repos";
 import { rowsOf } from "../repos/_shared";
-import { businesses, communities, founderProfiles, leaderboardEntries } from "../schema";
+import { auditLog, businesses, founderProfiles, leaderboardEntries } from "../schema";
 import { parseOwnerEmails, stubAuthProvisioner, type AuthProvisioner } from "./auth";
-import { DEFAULT_SEED_DAYS, DEMO_BUSINESS_IDS, DEMO_OWNER_DISPLAY_NAME, DEMO_OWNER_EMAIL, DEMO_OWNER_USER_ID, DEMO_SEED, LEDGERLY_BUSINESS_ID, NORTHWIND_BUSINESS_ID, SEED_COMMUNITY_SLUGS } from "./constants";
+import { detachDemoPosts } from "./community";
+import { DEFAULT_SEED_DAYS, DEMO_BUSINESS_IDS, DEMO_BUSINESS_SLUGS, DEMO_OWNER_DISPLAY_NAME, DEMO_OWNER_EMAIL, DEMO_OWNER_USER_ID, DEMO_SEED, DEMO_SEED_AUDIT_ACTION, LEDGERLY_BUSINESS_ID, NORTHWIND_BUSINESS_ID } from "./constants";
 import { createSeedCtx, type SeedOwner } from "./context";
 import { seedLedgerly } from "./ledgerly";
 import { seedNorthwind } from "./northwind";
@@ -31,24 +33,32 @@ export async function findDemoBusinesses(db: Db): Promise<{ id: string; slug: st
   return db.select({ id: businesses.id, slug: businesses.slug }).from(businesses).where(inArray(businesses.id, [...DEMO_BUSINESS_IDS]));
 }
 
-/** True when both demo businesses exist (what `SEED_ON_BOOT` checks before seeding). */
+/** True when both demo businesses exist (by their fixed ids). */
 export async function demoBusinessesPresent(db: Db): Promise<boolean> {
   const rows = await db.select({ id: businesses.id }).from(businesses).where(inArray(businesses.id, [...DEMO_BUSINESS_IDS]));
   return rows.length === DEMO_BUSINESS_IDS.length;
 }
 
+export interface DemoSeedState {
+  /** The demo businesses that exist, by fixed id (their current slugs). */
+  present: string[];
+  /** Both exist and both builds wrote their last entry (`seed.demo` on the audit log); Ledgerly is built second. */
+  complete: boolean;
+}
+
 /**
- * The slugs of the demo businesses (found by their fixed ids) whose seed ran to its end. A seed writes its business row first and about seventy
- * awaits later (not in one transaction) its `seed.demo` audit entry as the very last write, so the entry is the
- * completion marker: a business that exists without it was interrupted and is missing parts (audit verify-api-services-x2).
+ * Whether an earlier seed finished. A business row is written first and about seventy writes follow it, so the rows
+ * alone cannot tell a finished demo from one whose seed stopped half-way; each build's last write, its `seed.demo`
+ * audit entry, can (a rebuild deletes it with the business).
  */
-export async function completedDemoBusinesses(db: Db): Promise<string[]> {
-  const rows = await findDemoBusinesses(db);
-  const done: string[] = [];
-  for (const row of rows) {
-    if ((await repos.audit.list(db, row.id, { action: "seed.demo", limit: 1 })).items.length > 0) done.push(row.slug);
-  }
-  return done;
+export async function demoSeedState(db: Db): Promise<DemoSeedState> {
+  const rows = await db.select({ id: businesses.id, slug: businesses.slug }).from(businesses).where(inArray(businesses.id, [...DEMO_BUSINESS_IDS]));
+  const finished = await db
+    .selectDistinct({ businessId: auditLog.businessId })
+    .from(auditLog)
+    .where(and(inArray(auditLog.businessId, [...DEMO_BUSINESS_IDS]), eq(auditLog.action, DEMO_SEED_AUDIT_ACTION)));
+  const done = new Set(finished.map((r) => r.businessId));
+  return { present: DEMO_BUSINESS_IDS.flatMap((id) => rows.filter((r) => r.id === id).map((r) => r.slug)), complete: rows.length === DEMO_BUSINESS_IDS.length && DEMO_BUSINESS_IDS.every((id) => done.has(id)) };
 }
 
 /**
@@ -58,34 +68,45 @@ export async function completedDemoBusinesses(db: Db): Promise<string[]> {
  */
 export async function putNorthwindFirst(db: Db): Promise<boolean> {
   const result = await db.execute(
-    sql`update businesses n set created_at = l.created_at + interval '1 second' from businesses l where n.id = ${NORTHWIND_BUSINESS_ID} and l.id = ${LEDGERLY_BUSINESS_ID} and n.created_at <= l.created_at returning n.id`,
+    sql`update businesses n set created_at = l.created_at + interval '1 second' from businesses l where n.id = ${NORTHWIND_BUSINESS_ID}::uuid and l.id = ${LEDGERLY_BUSINESS_ID}::uuid and n.created_at <= l.created_at returning n.id`,
   );
   return rowsOf(result).length > 0;
 }
 
 /**
- * Deletes the demo businesses (cascades through every business-scoped table) and the demo community.
- * The audit log is append-only by trigger (BUILD §7.2), so the cascade would be refused; a rebuild of the demo
- * businesses discards their audit chains deliberately (docs/DECISIONS.md "Seed re-runs replace the demo
- * businesses"), which needs the table owner (PGlite superuser, the service connection on Supabase).
+ * Deletes the demo businesses, found by their fixed ids (every business-scoped table cascades, their audit chains
+ * included). A rebuild of the demo discards the demo's audit chains deliberately (docs/DECISIONS.md "Seed re-runs
+ * replace the demo businesses"): the audit trigger lets this transaction delete the chain of the one business it names
+ * in `fm.purge_business` (0053), so no `alter table` lock stops every audited write while the cascade runs.
+ *
+ * The seed communities are public and real founders use them: they stay, with their members and posts. The demo
+ * businesses' posts are detached first so they and the replies under them survive; the rebuild re-attaches them.
+ * A real business that took a demo slug is never touched (`seedDemo` refuses to build over it).
  */
 export async function deleteDemoBusinesses(db: Db): Promise<number> {
   const rows = await db.select({ id: businesses.id }).from(businesses).where(inArray(businesses.id, [...DEMO_BUSINESS_IDS]));
-  if (rows.length) {
-    const ids = rows.map((r) => r.id);
-    await db.transaction(async (tx) => {
-      try {
-        await tx.execute(sql`alter table audit_log disable trigger audit_log_immutable`);
-      } catch (err) {
-        throw new Error(`seed: cannot rebuild the demo businesses because the connection may not disable the audit_log trigger (run the seed as the database owner): ${(err as Error).message}`, { cause: err });
-      }
-      await tx.delete(leaderboardEntries).where(inArray(leaderboardEntries.businessId, ids));
-      await tx.delete(businesses).where(inArray(businesses.id, ids));
-      await tx.execute(sql`alter table audit_log enable trigger audit_log_immutable`);
-    });
-  }
-  await db.delete(communities).where(inArray(communities.slug, [...SEED_COMMUNITY_SLUGS]));
+  if (!rows.length) return 0;
+  await db.transaction(async (tx) => {
+    await detachDemoPosts(tx, rows.map((r) => r.id));
+    for (const { id } of rows) {
+      await tx.execute(sql`select set_config('fm.purge_business', ${id}, true)`);
+      await tx.delete(leaderboardEntries).where(eq(leaderboardEntries.businessId, id));
+      await tx.delete(businesses).where(eq(businesses.id, id));
+    }
+    await tx.execute(sql`select set_config('fm.purge_business', '', true)`);
+  });
   return rows.length;
+}
+
+/** Refuses to build over a real business that holds a demo slug (renamed into it while the demo was absent). */
+async function assertDemoSlugsFree(db: Db): Promise<void> {
+  const taken = await db
+    .select({ id: businesses.id, slug: businesses.slug })
+    .from(businesses)
+    .where(and(inArray(businesses.slug, [...DEMO_BUSINESS_SLUGS]), notInArray(businesses.id, [...DEMO_BUSINESS_IDS])));
+  if (taken.length) {
+    throw new Error(`seed: the demo slug${taken.length > 1 ? "s" : ""} ${taken.map((t) => `"${t.slug}"`).join(" and ")} belong${taken.length > 1 ? "" : "s"} to a real business (${taken.map((t) => t.id).join(", ")}); the demo is not built over it. Rename that business first.`);
+  }
 }
 
 export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<SeedDemoResult> {
@@ -106,6 +127,7 @@ export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<Seed
   }
   log(`owners: ${owners.map((o) => `${o.email} (${o.userId})`).join(", ")} via ${auth.kind} auth`);
 
+  await assertDemoSlugsFree(db);
   const removed = await deleteDemoBusinesses(db);
   if (removed) log(`removed ${removed} existing demo business(es)`);
   const platformSkillDefinitionsAdded = await ensurePlatformSkillDefinitions(db);

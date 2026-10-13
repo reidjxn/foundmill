@@ -9,7 +9,7 @@
  */
 import { sql } from "drizzle-orm";
 import { safeParseEvent, serializeEvent, type PlatformEvent } from "../catalogue";
-import { businessStreamKey, DEFAULT_STREAM_MAXLEN, RELAY_DEAD_LETTER_KEY } from "../keys";
+import { BUSINESS_STREAM_RETENTION_MS, businessStreamKey, DEFAULT_STREAM_MAXLEN, minIdFor, RELAY_DEAD_LETTER_KEY } from "../keys";
 import type { StreamRedis } from "../redis";
 import { EVENTS_TABLE, OUTBOX_TABLE, type Queryable, type TransactionalQueryable } from "./writer";
 
@@ -22,6 +22,13 @@ export interface OutboxRelayOptions {
   intervalMs?: number;
   /** XADD MAXLEN ~ (default 100 000). */
   maxLen?: number;
+  /**
+   * Time retention per business stream (default 30 days, keys.ts): after each batch the relay trims the streams it
+   * wrote to entries newer than this (XTRIM MINID ~, measured from the id Redis just gave the newest entry, so the
+   * window follows Redis's clock) and sets the same TTL, so a business that stops producing events loses its stream
+   * too. 0 turns it off. Events stay in Postgres either way.
+   */
+  retentionMs?: number;
   /** Backoff after a failed tick (default 1 000 ms, doubling up to 30 s). */
   errorBackoffMs?: number;
   /** Override the stream key per business (tests). */
@@ -146,6 +153,7 @@ export function createOutboxRelay(
   const batch = Math.max(1, opts.batch ?? 100);
   const intervalMs = Math.max(0, opts.intervalMs ?? 250);
   const maxLen = Math.max(1, opts.maxLen ?? DEFAULT_STREAM_MAXLEN);
+  const retentionMs = Math.max(0, opts.retentionMs ?? BUSINESS_STREAM_RETENTION_MS);
   const errorBackoffMs = Math.max(1, opts.errorBackoffMs ?? 1000);
   const streamKey = opts.streamKey ?? businessStreamKey;
   const onError =
@@ -160,12 +168,15 @@ export function createOutboxRelay(
     if (rows.length === 0) return 0;
     const published: PlatformEvent[] = [];
     const ids: string[] = [];
+    /** Stream key → the id Redis gave its newest entry in this batch. */
+    const newest = new Map<string, string>();
     for (const row of rows) {
       const parsed = safeParseEvent(rowToEventInput(row));
       if (parsed.ok) {
         const event = parsed.value;
-        await redis.xadd(
-          streamKey(event.businessId),
+        const key = streamKey(event.businessId);
+        const entryId = await redis.xadd(
+          key,
           "MAXLEN",
           "~",
           maxLen,
@@ -177,6 +188,7 @@ export function createOutboxRelay(
           "json",
           serializeEvent(event),
         );
+        if (entryId) newest.set(key, entryId);
         published.push(event);
       } else {
         // A row that cannot be parsed would otherwise stall the relay forever: park it and move on.
@@ -201,7 +213,22 @@ export function createOutboxRelay(
     }
     await q.execute(markPublishedSql(ids));
     if (published.length > 0) opts.onPublished?.(published);
+    await applyRetention(newest);
     return ids.length;
+  }
+
+  /** After the batch is marked published: a failure here only delays trimming, it never re-publishes the batch. */
+  async function applyRetention(newest: Map<string, string>): Promise<void> {
+    if (retentionMs === 0 || newest.size === 0) return;
+    const ttl = Math.ceil(retentionMs / 1000);
+    for (const [key, entryId] of newest) {
+      try {
+        await redis.xtrim?.(key, "MINID", "~", minIdFor(Number(entryId.split("-")[0]), retentionMs));
+        await redis.expire?.(key, ttl);
+      } catch (err) {
+        onError(err);
+      }
+    }
   }
 
   async function tickOnce(): Promise<number> {

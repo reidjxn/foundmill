@@ -14,7 +14,8 @@ import { APP_NAME } from "@foundmill/config";
 import { AppError, NotFoundError } from "@foundmill/shared";
 import type { Connector, McpToolDefinition } from "@foundmill/connectors";
 import { CallRequest } from "./types";
-import { executeToolCall, GatewayError, modeFor, safeError, type GatewayDeps } from "./pipeline";
+import { GatewayError, modeFor, safeError, type GatewayDeps } from "./pipeline";
+import { tracedToolCall } from "./tracing";
 import { toolAllowed, type SessionToken } from "./tokens";
 
 export const MCP_SERVER_VERSION = "0.1.0";
@@ -47,7 +48,7 @@ export function createMcpServer(deps: GatewayDeps, session: SessionToken, connec
   server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
     const req = CallRequest.parse({ connector: connector.key, tool: request.params.name, args: request.params.arguments ?? {} });
     try {
-      const { status, body } = await executeToolCall(deps, session, req);
+      const { status, body } = await tracedToolCall(deps, session, req);
       return {
         content: [{ type: "text", text: JSON.stringify(body) }],
         structuredContent: body as unknown as Record<string, unknown>,

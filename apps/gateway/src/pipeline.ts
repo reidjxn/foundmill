@@ -114,6 +114,14 @@ export function appInstallationVerified(row: Pick<Integration, "status" | "archi
   return typeof externalAccountId === "string" && externalAccountId === verified.installationId;
 }
 
+/**
+ * An integration a platform-key connector may run for (`auth.platformKey`): connected (or degraded) and not archived.
+ * A disconnected, expired, mock or archived row does not count, so disconnecting stops the platform key too.
+ */
+export function platformKeyConnected(row: Pick<Integration, "status" | "archivedAt">): boolean {
+  return row.archivedAt === null && (row.status === "connected" || row.status === "degraded");
+}
+
 /** Policy id on a call refused by the founder's GitHub push settings (audited like any deny). */
 export const GITHUB_PUSH_SETTINGS_POLICY_ID = "github-push-settings";
 /** GitHub tools that change a repository: held to the founder's push settings. */
@@ -573,11 +581,14 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   // An App connector (GitHub) authenticates with the platform's App keys for the business's installation: it needs an
   // integration row the live connector verified (who installed it, checked with GitHub), not a stored secret.
   const appInstalled = connector.auth.kind === "app" && loaded.integrationRow !== null && appInstallationVerified(loaded.integrationRow, await repos.integrations.verifiedInstallation(deps.db, session.businessId, connector.key));
+  // A platform-key connector (registries, Voyage, E2B, Anthropic on credits, Stripe Connect) runs on the platform's own
+  // secret once the business connected it: its connect() stores no credential, so a stored one is not required.
+  const onPlatformKey = connector.auth.platformKey === true && loaded.integrationRow !== null && platformKeyConnected(loaded.integrationRow);
   if (loaded.integrationRow) {
     if (deps.vault) credential = await loadCredential(deps.db, deps.vault, session.businessId, loaded.integrationRow.id);
-    else if (mode === "live" && connector.auth.kind !== "none" && !appInstalled) throw new GatewayError("vault_unavailable", "No vault is configured; credentials cannot be decrypted", 503);
+    else if (mode === "live" && connector.auth.kind !== "none" && !appInstalled && !onPlatformKey) throw new GatewayError("vault_unavailable", "No vault is configured; credentials cannot be decrypted", 503);
   }
-  if (mode === "live" && connector.auth.kind !== "none" && !credential && !appInstalled) {
+  if (mode === "live" && connector.auth.kind !== "none" && !credential && !appInstalled && !onPlatformKey) {
     throw new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business`, 409, { connector: connector.key });
   }
   const integration: IntegrationRecord = loaded.integrationRow ? toIntegrationRecord(loaded.integrationRow, credential) : mockIntegrationRecord(connector.key, session.businessId, mode === "mock" ? {} : { status: "connected" });

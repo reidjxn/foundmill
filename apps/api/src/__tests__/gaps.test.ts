@@ -191,4 +191,30 @@ describe("consumer procedure gaps", () => {
     expect(none.reason).toMatch(/not bundled/);
     await expect(hz.caller({ userId: hz.B.ownerId }).dev.sessions.replay({ businessId: hz.B.businessId, sessionId: recorded.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
+
+  it("dev.sessions.replay of a finished session reads its saved recording once the stream has expired (#233)", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const { businessId, agent2Id, taskId } = hz.A;
+    const startedAt = new Date("2026-10-02T09:00:00.000Z");
+    const session = await repos.agents.createSession(hz.db, businessId, { agentId: agent2Id, taskId, modelKey: "sonnet", startedAt });
+    await repos.agents.endSession(hz.db, businessId, session.id, { endedAt: new Date(startedAt.getTime() + 60_000), outcome: "done" });
+    const at = startedAt.toISOString();
+    await repos.recordings.save(hz.db, businessId, session.id, {
+      events: [
+        { id: "1759395600000-0", event: { kind: "phase_changed", at, from: null, to: "planning", reason: null } },
+        { id: "1759395600001-0", event: { kind: "note", at, level: "info", source: "agent", text: "Plan written" } },
+        { id: "1759395600002-0", event: { kind: "nonsense", at } },
+        { id: "1759395600003-0", event: { kind: "note", at, level: "info", source: "agent", text: "Tests pass" } },
+      ],
+      truncated: true,
+    });
+    // Nothing on the stream any more: the saved copy answers.
+    const saved = await owner.dev.sessions.replay({ businessId, sessionId: session.id });
+    expect(saved).toMatchObject({ source: "saved", total: 4, live: false });
+    expect(saved.events.map((e) => e.kind)).toEqual(["phase_changed", "note", "note"]);
+    expect(saved.reason).toMatch(/cut when the session was saved/);
+    const after = await owner.dev.sessions.replay({ businessId, sessionId: session.id, after: "1759395600001-0", kinds: ["note"], limit: 5 });
+    expect(after.events.map((e) => (e.kind === "note" ? e.text : e.kind))).toEqual(["Tests pass"]);
+    await expect(hz.caller({ userId: hz.B.ownerId }).dev.sessions.replay({ businessId: hz.B.businessId, sessionId: session.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
 });

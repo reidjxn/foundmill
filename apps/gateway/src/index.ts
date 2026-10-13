@@ -10,6 +10,7 @@ import { loadEnv, type Env } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
+import { installTelemetry } from "@foundmill/shared/telemetry";
 import { closeDb, createServiceDb, repos, type Db } from "@foundmill/db";
 import { createDefaultRegistry, platformSecretsFromEnv, type ConnectorRegistry } from "@foundmill/connectors";
 import { createModelClient, effectiveModelMode, type ModelClient } from "@foundmill/models";
@@ -105,14 +106,21 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
   if (options.rateLimits) {
     rateLimits = options.rateLimits;
   } else if (config.redisUrl && config.appEnv !== "test" && config.appEnv !== "development") {
-    const redis = new Redis(config.redisUrl, { lazyConnect: true, maxRetriesPerRequest: 1, enableOfflineQueue: false });
+    // Connected in prepare(), before the gateway listens: with the offline queue off, a command sent while the lazy
+    // client is still connecting is refused, and the first tool call used to land there.
+    const redis = new Redis(config.redisUrl, { lazyConnect: true, maxRetriesPerRequest: 1, enableOfflineQueue: false, connectTimeout: 2_000 });
     redisClient = redis;
-    redis.on("error", (e) => log.warn({ err: e }, "redis error (rate limiting falls back to memory)"));
-    rateLimits = new RedisRateLimitStore(redis, { onFallback: (e) => log.warn({ err: e }, "rate limiting fell back to the in-memory store") });
+    redis.on("error", (e) => log.debug({ err: e.message }, "redis error"));
+    rateLimits = new RedisRateLimitStore(redis, {
+      onFallback: (e) => log.warn({ err: e instanceof Error ? e.message : String(e) }, "rate limiting fell back to the in-memory store; retrying Redis in 30 s"),
+      onRecover: () => log.info({}, "rate limiting is back on Redis"),
+    });
     rateLimitStoreKind = "redis";
   } else {
     rateLimits = new MemoryRateLimitStore();
   }
+  // What /health reports: the store in use right now (memory while a Redis store is falling back).
+  const rateLimitStoreInUse = (): "memory" | "redis" => (rateLimits instanceof RedisRateLimitStore && rateLimits.isDegraded ? "memory" : rateLimitStoreKind);
 
   // Recipients first seen in untrusted content are one register per business, shared by every session and replica (Redis).
   const recipients: UntrustedRegister = options.recipients ?? (redisClient ? new RedisUntrustedRegister(redisClient, { onFallback: (e) => log.warn({ err: e }, "the untrusted-recipient register fell back to this process's memory") }) : new UntrustedRecipientRegistry());
@@ -124,10 +132,11 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
     sessionTokenSecret: config.sessionTokenSecret,
     sessionTokenTtlSeconds: config.sessionTokenTtlSeconds,
     sessionTokenMaxTtlSeconds: config.sessionTokenMaxTtlSeconds,
-    rateLimitStoreKind,
+    rateLimitStoreKind: rateLimitStoreInUse,
     dbReady: () => readiness?.ok ?? true,
   });
   const prepare = async () => {
+    if (redisClient) await connectRedis(redisClient, log);
     readiness = await prepareDb(db, log, { service: "gateway" });
     return readiness;
   };
@@ -136,6 +145,24 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
     if (redis && redis.status !== "end") await redis.quit().catch(() => redis.disconnect());
   };
   return { app, deps, config, rateLimitStoreKind, prepare, close };
+}
+
+/**
+ * Opens the rate-limit Redis connection before the first call. A Redis that does not answer is logged and left to
+ * ioredis's reconnects; the store counts in memory meanwhile and tries Redis again every 30 s.
+ */
+export async function connectRedis(redis: Pick<Redis, "status" | "connect">, log: Pick<GatewayLogger, "info" | "warn">, timeoutMs = 3_000): Promise<boolean> {
+  if (redis.status === "ready") return true;
+  try {
+    if (redis.status === "wait" || redis.status === "end") {
+      await Promise.race([redis.connect(), new Promise((_, reject) => setTimeout(() => reject(new Error(`no answer within ${timeoutMs} ms`)), timeoutMs).unref?.())]);
+    }
+    log.info({}, "rate limits are counted in Redis");
+    return true;
+  } catch (e) {
+    log.warn({ err: e instanceof Error ? e.message : String(e) }, "redis did not answer at boot; rate limits are counted in memory until it does");
+    return false;
+  }
 }
 
 /** Hosts tried in order: `::` (Railway's IPv6-only private network, ARCHITECTURE §17) then `0.0.0.0` where IPv6 is unavailable. */
@@ -212,6 +239,8 @@ export async function startGateway(options: BuildDepsOptions = {}): Promise<Runn
 const isMain = typeof process !== "undefined" && process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   const env = loadEnv();
+  // Traces to OTEL_EXPORTER_OTLP_ENDPOINT and error reports to SENTRY_DSN, when set (packages/shared telemetry.ts).
+  const telemetry = installTelemetry("gateway", env);
   const log = createLogger("gateway", env.LOG_LEVEL) as unknown as GatewayLogger;
   let gateway: (RunningGateway & BuiltGateway) | null = null;
   onShutdown({
@@ -229,6 +258,7 @@ if (isMain) {
       },
       { name: "close redis", run: () => gateway?.close() },
       { name: "close database", run: () => gateway && closeDb(gateway.deps.db) },
+      { name: "flush telemetry", run: () => telemetry.shutdown() },
     ],
   });
   startGateway({ env, log })

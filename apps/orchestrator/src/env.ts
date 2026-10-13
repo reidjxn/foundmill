@@ -31,6 +31,8 @@ const Extra = z.object({
   TEMPORAL_RETRY_SECONDS: z.coerce.number().min(10).default(10),
   /** Register the periodic jobs' Temporal Schedules at boot (src/schedules.ts); "off" for a worker that must not. */
   ORCHESTRATOR_SCHEDULES: z.enum(["on", "off"]).default("on"),
+  /** Port of the orchestrator's `/health` when PORT is unset (./health-server.ts). */
+  ORCHESTRATOR_PORT: z.coerce.number().int().min(0).max(65_535).default(4007),
 });
 
 export interface OrchestratorEnv extends Env {
@@ -46,6 +48,7 @@ export interface OrchestratorEnv extends Env {
   ORCHESTRATOR_WORKSPACE_DIR: string;
   TEMPORAL_RETRY_SECONDS: number;
   ORCHESTRATOR_SCHEDULES: "on" | "off";
+  ORCHESTRATOR_PORT: number;
 }
 
 let cached: OrchestratorEnv | undefined;
@@ -69,6 +72,7 @@ export function loadOrchestratorEnv(overrides: Partial<NodeJS.ProcessEnv> = {}):
     ORCHESTRATOR_WORKSPACE_DIR: extra.ORCHESTRATOR_WORKSPACE_DIR,
     TEMPORAL_RETRY_SECONDS: extra.TEMPORAL_RETRY_SECONDS,
     ORCHESTRATOR_SCHEDULES: extra.ORCHESTRATOR_SCHEDULES,
+    ORCHESTRATOR_PORT: extra.ORCHESTRATOR_PORT,
   };
   if (Object.keys(overrides).length === 0) cached = env;
   return env;

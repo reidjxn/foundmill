@@ -4,7 +4,7 @@ import { MOCK_NOW } from "../../mock-utils";
 import { isUntrusted } from "../../quarantine";
 import { describeConnectorContract, envKeysPresent, makeToolContext, TEST_BUSINESS_ID } from "../../testing/contract-suite";
 import { MOCK_NOW_UNIX, MOCK_STRIPE_ACCOUNT_ID, ST_CHECKOUT_PAID, ST_CUSTOMERS, ST_INVOICES, ST_TRIAL_SUBSCRIPTION } from "./fixtures/stripe";
-import { createStripeConnector } from "./index";
+import { createStripeConnector, PLATFORM_BILLING_INTEGRATION_ID } from "./index";
 import { createStripeMock, signedStripeRequest, stripeEvent, stripeMock } from "./mock";
 import { parseStripeSignature, verifyStripeSignature } from "./webhooks";
 
@@ -182,6 +182,29 @@ describe("stripe live (canned responses)", () => {
     const webhook = connector.webhooks![0]!;
     expect(await webhook.verify(signedStripeRequest(TEST_BUSINESS_ID, evt("invoice.paid", ST_INVOICES[0]!), { secret: "whsec_business" }))).toBe(true);
     expect(await webhook.verify(signedStripeRequest(TEST_BUSINESS_ID, evt("invoice.paid", ST_INVOICES[0]!), { secret: "whsec_platform" }))).toBe(false);
+  });
+  it("never uses the platform key outside a Connect account: the platform's own Stripe account is no business's", async () => {
+    let called = false;
+    const connector = createStripeConnector({ secrets: { stripeSecretKey: "sk_test_platform" }, fetch: async () => ((called = true), jsonResponse({ object: "balance", available: [], pending: [] })) });
+    const ctx = makeToolContext(connector, { mode: "live" });
+    ctx.integration = { ...ctx.integration, externalAccountId: "acct_business123", config: { kind: "own" } };
+    await expect(connector.callTool("get_balance", {}, ctx)).rejects.toMatchObject({ code: "connector_unconfigured" });
+    expect(called).toBe(false);
+  });
+  it("Foundmill's own billing may open a checkout on the platform account, and do nothing else there", async () => {
+    const seen: string[] = [];
+    const connector = createStripeConnector({
+      secrets: { stripeSecretKey: "sk_test_platform" },
+      fetch: async (url) => (seen.push(String(url)), jsonResponse(String(url).includes("checkout") ? { id: "cs_test_1", object: "checkout.session", url: "https://checkout.stripe.com/c/pay/cs_test_1", amount_total: 5000, currency: "usd", expires_at: null, status: "open", payment_status: "unpaid", mode: "payment", metadata: {} } : { object: "balance", available: [], pending: [] })),
+    });
+    const platform = { ...makeToolContext(connector, { mode: "live" }).integration, id: PLATFORM_BILLING_INTEGRATION_ID, credentialRef: null, externalAccountId: null, config: { kind: "platform" } };
+    const ctx = { ...makeToolContext(connector, { mode: "live" }), integration: platform };
+    const args = { mode: "payment", lines: [{ description: "Credits", amountMinor: 5000, quantity: 1, currency: "USD" }], successUrl: "https://foundmill.com/ok", cancelUrl: "https://foundmill.com/cancel" };
+    expect(await connector.callTool("create_checkout_session", args, ctx)).toMatchObject({ ok: true });
+    await expect(connector.callTool("get_balance", {}, ctx)).rejects.toMatchObject({ code: "connector_unconfigured" });
+    // A stored row is never the platform's: any other id, or a credential reference, is refused.
+    await expect(connector.callTool("create_checkout_session", args, { ...ctx, integration: { ...platform, id: crypto.randomUUID() } })).rejects.toMatchObject({ code: "connector_unconfigured" });
+    expect(seen).toHaveLength(1);
   });
   it("throws ConfigError without any key", async () => {
     const c = createStripeConnector({ secrets: {} });

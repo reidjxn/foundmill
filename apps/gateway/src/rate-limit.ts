@@ -3,8 +3,9 @@
  *
  * Fixed windows keyed `rl:{businessId}:{connector}:{minute|day}:{windowStart}`; the limits come from
  * `connector.rateLimits` (BUILD §13.1) with a default when a connector declares none. The store is Redis in
- * staging/production and an in-memory map in development and tests; the Redis store degrades to memory when
- * Redis is unreachable so a Redis outage slows nothing down (the limit still applies per process).
+ * staging/production and an in-memory map in development and tests; the Redis store degrades to memory while
+ * Redis is unreachable so a Redis outage slows nothing down (the limit still applies per process), and goes back to
+ * Redis once it answers. /health reports the store actually in use.
  */
 
 export interface RateLimitHit {
@@ -52,34 +53,50 @@ export interface RedisCounter {
 }
 
 export interface RedisRateLimitStoreOptions {
-  /** Called once when Redis fails and the store falls back to memory. */
+  /** Called when Redis fails and the store falls back to memory (once per outage, not per call). */
   onFallback?: (error: unknown) => void;
+  /** Called when Redis answers again after a fallback. */
+  onRecover?: () => void;
+  /** How long the store stays on memory after a Redis failure before it tries Redis again (default 30 s). */
+  retryAfterMs?: number;
 }
 
+/**
+ * Counters in Redis (shared by every replica, kept across redeploys). A Redis failure moves the store to memory for
+ * `retryAfterMs`, so an outage slows no call down, and then Redis is tried again: until 2026-10-12 one failure (the very
+ * first call, issued while the lazily connecting client was still connecting) moved it to memory for good.
+ */
 export class RedisRateLimitStore implements RateLimitStore {
   private readonly fallback = new MemoryRateLimitStore();
   private degraded = false;
+  private retryAt = 0;
 
   constructor(
     private readonly redis: RedisCounter,
     private readonly options: RedisRateLimitStoreOptions = {},
   ) {}
 
+  /** True from a Redis failure until Redis answers again. */
   get isDegraded(): boolean {
     return this.degraded;
   }
 
   async hit(key: string, windowMs: number, now: number): Promise<RateLimitHit> {
-    if (this.degraded) return this.fallback.hit(key, windowMs, now);
+    if (this.degraded && now < this.retryAt) return this.fallback.hit(key, windowMs, now);
     const start = windowStart(now, windowMs);
     const windowKey = `${key}:${start}`;
     try {
       const count = await this.redis.incr(windowKey);
       if (count === 1) await this.redis.pexpire(windowKey, windowMs + 1000);
+      if (this.degraded) {
+        this.degraded = false;
+        this.options.onRecover?.();
+      }
       return { count, resetAt: start + windowMs };
     } catch (e) {
+      if (!this.degraded) this.options.onFallback?.(e);
       this.degraded = true;
-      this.options.onFallback?.(e);
+      this.retryAt = now + (this.options.retryAfterMs ?? 30_000);
       return this.fallback.hit(key, windowMs, now);
     }
   }

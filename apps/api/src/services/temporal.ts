@@ -82,14 +82,42 @@ export interface SignalManyResult {
   reason?: string;
 }
 
+/** A Temporal int64 (protobuf Long) or a plain number. */
+type LongLike = number | { toString(): string } | null | undefined;
+
+/** The part of `DescribeTaskQueue` the worker health check reads (`report_stats` on). */
+export interface DescribeTaskQueueAnswer {
+  pollers?: unknown[] | null;
+  stats?: { approximateBacklogCount?: LongLike; approximateBacklogAge?: { seconds?: LongLike; nanos?: number | null } | null } | null;
+}
+
 /** The slice of `@temporalio/client`'s `Client` the API uses; tests pass a fake. */
 export interface TemporalClientLike {
   workflow: {
     start(workflowType: string, options: { workflowId: string; taskQueue: string; args?: unknown[] }): Promise<unknown>;
     getHandle(workflowId: string): { signal(signalName: string, ...args: unknown[]): Promise<void>; describe?(): Promise<{ status: { name: string } }> };
   };
+  /** Raw WorkflowService (the worker health check describes the task queues). */
+  workflowService?: { describeTaskQueue(request: { namespace: string; taskQueue: { name: string; kind?: number }; taskQueueType?: number; reportStats?: boolean }): Promise<DescribeTaskQueueAnswer> };
   connection?: { close(): Promise<void> };
 }
+
+/** How one task queue's activities are being served (Temporal `DescribeTaskQueue`, activity type). */
+export interface TaskQueueHealth {
+  taskQueue: string;
+  /** Workers that polled the queue for activities recently. A worker whose slots are all taken stops polling. */
+  activityPollers: number;
+  /** Activity tasks waiting for a worker; null when the server reports no stats. */
+  backlogCount: number | null;
+  /** How long the oldest waiting activity task has waited, in seconds; null when the server reports no stats. */
+  backlogAgeSeconds: number | null;
+}
+
+const toNumber = (v: LongLike): number | null => {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === "number" ? v : Number(v.toString());
+  return Number.isFinite(n) ? n : null;
+};
 
 export interface TemporalService {
   reachable(): Promise<boolean>;
@@ -99,8 +127,16 @@ export interface TemporalService {
   describe(workflowId: string): Promise<WorkflowState>;
   /** Signal many workflows within a time budget (kill switch). */
   signalMany(workflowIds: readonly string[], signal: SignalName, args?: unknown[], budgetMs?: number): Promise<SignalManyResult>;
+  /**
+   * The activity side of the orchestrator's task queues (the main queue and `${taskQueue}-sessions`): pollers and
+   * backlog. Null when Temporal is unreachable or the client cannot describe queues.
+   */
+  taskQueues?(): Promise<TaskQueueHealth[] | null>;
   close(): Promise<void>;
 }
+
+/** The orchestrator's queues: the main one and the agent sessions' own (`${taskQueue}-sessions`, apps/orchestrator session-contract.ts). */
+export const orchestratorTaskQueues = (taskQueue: string): string[] => [taskQueue, `${taskQueue}-sessions`];
 
 export interface CreateTemporalServiceOptions {
   address: string;
@@ -222,6 +258,29 @@ export function createTemporalService(opts: CreateTemporalServiceOptions): Tempo
         else failed.push({ workflowId, reason: describe(r.reason) });
       });
       return { queued: true, signalled, failed };
+    },
+    async taskQueues() {
+      const c = await getClient();
+      if (!c?.workflowService) return null;
+      const service = c.workflowService;
+      try {
+        return await Promise.all(
+          orchestratorTaskQueues(opts.taskQueue).map(async (name): Promise<TaskQueueHealth> => {
+            // TASK_QUEUE_KIND_NORMAL = 1, TASK_QUEUE_TYPE_ACTIVITY = 2.
+            const r = await service.describeTaskQueue({ namespace: opts.namespace, taskQueue: { name, kind: 1 }, taskQueueType: 2, reportStats: true });
+            const age = r.stats?.approximateBacklogAge;
+            return {
+              taskQueue: name,
+              activityPollers: r.pollers?.length ?? 0,
+              backlogCount: toNumber(r.stats?.approximateBacklogCount),
+              backlogAgeSeconds: r.stats ? (toNumber(age?.seconds) ?? 0) + (age?.nanos ?? 0) / 1e9 : null,
+            };
+          }),
+        );
+      } catch (err) {
+        opts.log.warn({ err: describe(err) }, "temporal task queues could not be described");
+        return null;
+      }
     },
     async close() {
       const c = client;

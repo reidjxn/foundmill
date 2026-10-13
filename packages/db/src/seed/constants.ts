@@ -27,11 +27,13 @@ export const DEMO_BUSINESS_SLUGS = [NORTHWIND_SLUG, LEDGERLY_SLUG] as const;
 export const DEMO_BUSINESS_IDS = [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID] as const;
 /** The id of the demo business a slug is reserved for, or null for any other slug (no one else may take a demo slug). */
 export const demoBusinessIdForSlug = (slug: string): string | null => (slug === NORTHWIND_SLUG ? NORTHWIND_BUSINESS_ID : slug === LEDGERLY_SLUG ? LEDGERLY_BUSINESS_ID : null);
+/** The audit entry each demo business's build writes last; Ledgerly's (built second) marks the whole seed complete. */
+export const DEMO_SEED_AUDIT_ACTION = "seed.demo";
 
 export const LEDGERLY_COMMUNITY_SLUG = "fintech-ops-founders";
 /** A public community with no members yet, so the demo founder sees Join on offer. */
 export const BOOTSTRAPPED_COMMUNITY_SLUG = "bootstrapped-founders";
-/** Every community the demo seed creates; a rebuild deletes them all (posts and members cascade). */
+/** Every community the demo seed creates. They are public, so real founders join and post: a rebuild keeps them and their members and posts, and re-attaches the demo founder's own posts (seed/community.ts). */
 export const SEED_COMMUNITY_SLUGS = [LEDGERLY_COMMUNITY_SLUG, BOOTSTRAPPED_COMMUNITY_SLUG] as const;
 export const LEDGERLY_GITHUB_REPO = "foundmill-demo/ledgerly";
 

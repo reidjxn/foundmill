@@ -127,6 +127,7 @@ export const EXPORT_EXCLUDED_TABLES: Readonly<Record<string, string>> = {
   composer_buffer: "Inbox notes waiting to be written (internal queue).",
   workspace_blobs: "Sandbox file snapshots; the code reaches your repository through pushes.",
   workspace_snapshots: "Sandbox file snapshots; the code reaches your repository through pushes.",
+  session_recordings: "Replay copies of agent session streams (kept so a session can be replayed after its stream expires); the sessions themselves are exported.",
   posts: "LIVE network posts belong to the network, not to the business.",
   community_members: "LIVE network memberships belong to the network, not to the business.",
   leaderboard_entries: "LIVE leaderboard rows belong to the network, not to the business.",

@@ -126,6 +126,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("credit_balances", s.creditBalances, "service", () => ({ period: uniq("2026-02"), balanceMinor: 10000 })),
   // 0033 credit top-ups through Stripe Checkout (written by the api and the ingest webhook with the service role)
   spec("billing_checkouts", s.billingCheckouts, "service", () => ({ mode: "mock", amountMinor: 5000, currency: "USD" })),
+  // 0053 saved session recordings (the orchestrator writes them with the service role when a session finishes)
+  spec("session_recordings", s.sessionRecordings, "service", (f) => ({ sessionId: f.sessionId, events: [{ id: "1-0", event: { kind: "note", at: "2026-10-12T09:00:00.000Z", level: "info", source: "agent", text: "Started" } }], eventCount: 1, bytes: 90 })),
   // 0010 legal
   spec("legal_entities", s.legalEntities, "admin", () => ({ jurisdiction: "GB", entityType: "ltd", legalName: uniq("Legal") })),
   spec("incorporations", s.incorporations, "admin", (f) => ({ legalEntityId: f.legalEntityId, route: "kit" })),

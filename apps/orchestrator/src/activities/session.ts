@@ -8,7 +8,8 @@
  * `SessionEvent`s to `as:{sessionId}`, heartbeat on every event, persist progress, create approval rows when a tool
  * call waits for the founder, write the usage ledger and fail the session when the same tool call repeats three times.
  * On the platform's key a live session is capped at the business's credits and books as it runs (./session-credits).
- * `finishSession` settles the task, the agent and the events.
+ * `finishSession` settles the task, the agent and the events, and saves the session's recording to Postgres so its
+ * stream can expire (./recording).
  *
  * Waiting for the founder never holds a worker slot for long (`runAgentSession` runs on the sessions task queue, see
  * ../session-contract): a gated call left undecided for APPROVAL_WAIT_MINUTES ends the session `blocked` (the approval
@@ -36,6 +37,7 @@ import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
 import { assertNoLongLivedCredentials, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
 import { type AgentStatus, type ModelKey, type TaskStatus } from "@foundmill/shared";
+import { currentTraceparent } from "@foundmill/shared/telemetry";
 import { Context } from "@temporalio/activity";
 import { ApplicationFailure } from "@temporalio/common";
 import { z } from "zod";
@@ -49,6 +51,7 @@ import { openApprovalNote } from "./approvals";
 import { LoopDetector } from "./loop";
 import { CREDITS_USED_UP_SUMMARY, SessionCredits, unbookedTokens } from "./session-credits";
 import { budgetSummary, sessionBudget, type SessionBudget } from "./session-budget";
+import { archiveSessionRecording } from "./recording";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
 import { describePush, pushWorkspace, type PushContext } from "./workspace-push";
 import { restoreWorkspace, saveWorkspace, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
@@ -90,6 +93,45 @@ function cancellation(): AbortSignal | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The activity was cancelled because this worker is shutting down (its grace ran out before the drain reached the
+ * session), not by the workflow or a timeout: the run hands off instead of stopping (../drain.ts).
+ */
+export function cancelledForShutdown(signal: AbortSignal | null): boolean {
+  try {
+    if (Context.current().cancellationDetails?.workerShutdown) return true;
+  } catch {
+    /* not inside an activity */
+  }
+  const reason = signal?.reason as { message?: unknown } | string | undefined;
+  return (typeof reason === "string" ? reason : String(reason?.message ?? "")) === "WORKER_SHUTDOWN";
+}
+
+/**
+ * A retry after this run's worker died without handing it off (a crash, or the shutdown's force deadline): the run
+ * carries on from the replay position and progress its last heartbeat recorded, like a resumed run. Null on a first
+ * attempt or outside Temporal.
+ */
+export function retriedFrom(): { cursor: string | null; progress: ProgressState | null } | null {
+  let info: { attempt: number; heartbeatDetails?: unknown };
+  try {
+    info = Context.current().info;
+  } catch {
+    return null;
+  }
+  if (info.attempt <= 1) return null;
+  const d = (info.heartbeatDetails ?? {}) as { cursor?: unknown; ring?: unknown };
+  const ring = d.ring && typeof d.ring === "object" && typeof (d.ring as { progress?: unknown }).progress === "number" ? (d.ring as ProgressState) : null;
+  return { cursor: typeof d.cursor === "string" ? d.cursor : null, progress: ring };
+}
+
+const handoffNote = "This worker is shutting down for a deploy: the session saves its work and continues on the next worker.";
+
+/** How a run that hands off ends: the agentSession workflow starts the next run at once, from `cursor`, with `carry`. */
+function handoffOutcome(cursor: string | null, carry: readonly SessionCommand[]): Pick<RunOutcome, "outcome" | "reason" | "blockedReason" | "approvalId" | "summary" | "providerSessionId" | "parked"> {
+  return { outcome: "stopped", reason: "worker shutting down", blockedReason: "stopped", approvalId: null, summary: "Moved to another worker; the session continues there.", providerSessionId: null, parked: { cursor, carry: carriedOver(carry), handoff: true } };
 }
 
 /** The environment a sandbox receives. Short-lived, non-secret identifiers only; asserted before every launch (AC-11.6.6). */
@@ -364,6 +406,8 @@ class SessionRecorder {
   sandboxMs = 0;
   lastPersisted = -1;
   lastPhase: string | null = null;
+  /** Where a replay would pick up (mock runs): carried on every heartbeat so a retried run continues from there. */
+  cursorOf: (() => string | null) | null = null;
   /** Model usage so far; read by every exit path, a thrown error included. */
   readonly usage: SessionUsage;
   private seq = 0;
@@ -383,13 +427,14 @@ class SessionRecorder {
   }
 
   /**
-   * What every heartbeat carries. The usage so far is among it: when the run dies without returning (its worker lost,
-   * a heartbeat timeout), the workflow books the spend from the last heartbeat (`usageFromHeartbeat`).
+   * What every heartbeat of this run carries: enough for a retry to continue where this run stood (the progress ring and
+   * the replay cursor), and the usage so far: when the run dies without returning (its worker lost, a heartbeat
+   * timeout), the workflow books the spend from the last heartbeat (`usageFromHeartbeat`).
    */
-  heartbeatDetails(extra: Record<string, unknown> = {}): Record<string, unknown> {
+  beatDetails(extra: Record<string, unknown> = {}): Record<string, unknown> {
     const u = this.usage.totals();
     const usage: RunUsage = { tokensIn: u.tokensIn, tokensOut: u.tokensOut, costMinor: Math.round(u.costMinor) };
-    return { sessionId: this.ctx.input.sessionId, events: this.eventsEmitted, progress: this.progress.progress, usage, ...extra };
+    return { sessionId: this.ctx.input.sessionId, events: this.eventsEmitted, progress: this.progress.progress, ring: this.progress, cursor: this.cursorOf?.() ?? null, usage, ...extra };
   }
 
   /** Publish one event to the session stream and fold it into progress / loop detection / approvals. */
@@ -403,7 +448,7 @@ class SessionRecorder {
       deps.log.warn({ err: (err as Error).message, sessionId: ctx.input.sessionId }, "session stream publish failed");
     }
     this.eventsEmitted += 1;
-    heartbeat(this.heartbeatDetails());
+    heartbeat(this.beatDetails());
 
     if (full.kind === "tool_call") {
       if (full.status === "started") this.toolCalls += 1;
@@ -661,7 +706,9 @@ export function createSessionActivities(deps: OrchestratorDeps) {
      * pick up; workflows started before runs existed pass nothing.
      */
     async runAgentSession(input: AgentSessionInput, launch: SessionLaunch, briefText: string | null = null, runOptions: SessionRunOptions | null = null): Promise<SessionResult> {
-      const run: SessionRunOptions = runOptions ?? { fromSeq: 0, resume: null };
+      let run: SessionRunOptions = runOptions ?? { fromSeq: 0, resume: null };
+      const retried = retriedFrom();
+      if (retried) run = { ...run, resume: { cursor: retried.cursor ?? run.resume?.cursor ?? null, progress: retried.progress ?? run.resume?.progress ?? initialProgress({ planSteps: launch.planSteps, acceptanceTests: launch.acceptanceTests }), reason: "retry" } };
       const { agent, task, business, version, template } = await loadContext(input);
       const startedAtMs = deps.clock.nowMs();
       const recorder = new SessionRecorder(deps, { input, launch, task, agent, startedAtMs, run });
@@ -720,7 +767,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           await sandbox.start();
         }
         const where = launch.sandboxMode === "mock" ? "mock sandbox" : acceptanceCommandFor(task) ? `${launch.sandboxMode} sandbox for the acceptance tests` : "no sandbox needed";
-        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Session ${run.resume ? "resumed" : "started"} for ${agent.name} on "${task.title}" (${where}${launch.fellBackFrom ? `, fell back from ${launch.fellBackFrom}` : ""}, ${launch.modelKey}).` });
+        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Session ${run.resume ? (run.resume.reason === "retry" ? "resumed after its worker stopped" : run.resume.reason === "handoff" ? "continued on a new worker" : "resumed") : "started"} for ${agent.name} on "${task.title}" (${where}${launch.fellBackFrom ? `, fell back from ${launch.fellBackFrom}` : ""}, ${launch.modelKey}).` });
 
         const pull = withStopWatch(deps, input.businessId, withPrefetched(waiting, feed.pull));
         // A parked run says which command it read last: the workflow also hands the next run the nudges and decisions
@@ -736,6 +783,14 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       } catch (err) {
         // `base()` carries the usage recorded so far: tokens already spent are booked whatever went wrong.
         const message = (err as Error).message ?? String(err);
+        if (deps.drain.requested || cancelledForShutdown(signal)) {
+          // The error came from this worker shutting down (a step it cut short, the SDK's abort): not the session's
+          // failure. It hands off like a drained run, so the next worker continues and the agent is not marked failing.
+          deps.log.warn({ err: message.slice(0, 300), sessionId: input.sessionId }, "session interrupted by the worker shutdown; handing it off");
+          await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: handoffNote });
+          const handedOff = handoffOutcome(recorder.cursorOf?.() ?? run.resume?.cursor ?? null, []);
+          return { ...base(), ...handedOff, parked: { ...handedOff.parked!, lastSeq: run.fromSeq - 1 } };
+        }
         await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "error", text: `Session failed: ${message.slice(0, 500)}` });
         return { ...base(), outcome: "failed", reason: message.slice(0, 500), blockedReason: "error", approvalId: null, summary: `Failed: ${message.slice(0, 200)}`, providerSessionId: null };
       } finally {
@@ -782,6 +837,8 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       const teamStopped = agentPaused || (await repos.businesses.agentsStopped(db, input.businessId));
       const outcome = teamStopped && result.outcome === "failed" ? "stopped" : result.outcome;
       await repos.agents.endSession(db, input.businessId, input.sessionId, { endedAt, tokensIn: result.tokensIn, tokensOut: result.tokensOut, costMinor: Math.round(result.costMinor), outcome, recordingRef: launch.recordingKey });
+      // The session's stream is its recording until now: save it to Postgres and let the stream expire (#233).
+      await archiveSessionRecording({ db, redis: deps.redis, log: deps.log }, input);
 
       let taskStatus: TaskStatus;
       const cost = { amountMinor: Math.round(result.costMinor), currency: CREDITS_CURRENCY }; // model cost: US cents (DECISIONS 2026-10-12)
@@ -894,6 +951,7 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   /** Why the run frees its slot early: the founder left an approval undecided, or a pause outlasted the hold. */
   let ending: MockEnding | null = null;
 
+  recorder.cursorOf = () => `${sandbox.recording.key}@${replay.position.index}`;
   const unsubscribe = replay.subscribe(async (event) => {
     const { loop } = await recorder.publish(event);
     if (loop && !loopTripped) {
@@ -969,12 +1027,21 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     }
   };
 
+  // The worker is shutting down: save the place and return, so the next worker replays on from the same event.
+  const handoff = () => {
+    if (ending || stoppedBy || loopTripped || replay.status === "finished" || replay.status === "stopped") return;
+    ending = { kind: "park", cursor: `${sandbox.recording.key}@${replay.position.index}`, carry: [], handoff: true };
+    replay.stop("handoff");
+    void recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: handoffNote });
+  };
   const onCancel = () => {
+    if (cancelledForShutdown(signal)) return handoff();
     stoppedBy = { reason: CANCELLED_REASON, by: null };
     replay.stop(CANCELLED_REASON);
   };
   signal?.addEventListener("abort", onCancel, { once: true });
-  const loop = controlLoop(deps, input.sessionId, tick, () => recorder.heartbeatDetails({ status: replay.status, paused }));
+  const offDrain = deps.drain.onBegin(handoff);
+  const loop = controlLoop(deps, input.sessionId, tick, () => recorder.beatDetails({ status: replay.status, paused }));
 
   try {
     const summary = await replay.play();
@@ -983,6 +1050,7 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     const end = ending as MockEnding | null;
     if (loopTripped) return { outcome: "failed", reason: "loop detected: the same call repeated three times in a row", blockedReason: "loop_detected", approvalId: null, summary: `Stopped after a detected loop (${recorder.loop.loopDetected?.signature.slice(0, 120) ?? "repeated call"}).`, providerSessionId: summary.recordingKey };
     if (stop) return { outcome: "stopped", reason: stop.reason, blockedReason: "stopped", approvalId: null, summary: `Stopped: ${stop.reason}.`, providerSessionId: summary.recordingKey };
+    if (end?.kind === "park" && end.handoff) return { ...handoffOutcome(end.cursor, end.carry), providerSessionId: summary.recordingKey };
     if (end?.kind === "park") return { outcome: "stopped", reason: "paused", blockedReason: "stopped", approvalId: null, summary: "Paused; the session continues on Resume.", providerSessionId: summary.recordingKey, parked: { cursor: end.cursor, carry: carriedOver(end.carry) } };
     if (end?.kind === "approval_timeout") return { outcome: "blocked", reason: `no decision on the approval within ${minutesText(waits.approvalMs)}`, blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: `Blocked after ${summary.emitted} events: waiting for the founder's approval.`, providerSessionId: summary.recordingKey };
     if (summary.outcome === "blocked") return { outcome: "blocked", reason: recorder.pendingApprovalId ? "waiting for the founder's approval" : "blocked by a dependency or approval", blockedReason: recorder.pendingApprovalId ? "awaiting_approval" : "dependency", approvalId: recorder.pendingApprovalId, summary: `Blocked after ${summary.emitted} events.`, providerSessionId: summary.recordingKey };
@@ -993,6 +1061,7 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${sandbox.recording.title}: ${sandbox.recording.summary}`.slice(0, 1800), providerSessionId: summary.recordingKey };
   } finally {
     await loop.stop();
+    offDrain();
     signal?.removeEventListener("abort", onCancel);
     unsubscribe();
   }
@@ -1050,8 +1119,8 @@ class PromptQueue {
   }
 }
 
-/** Why a live run ends before the agent is done: Stop or a cancel, a detected loop, a park, an undecided approval, or used-up credits. */
-type LiveEnding = "stop" | "loop" | "park" | "approval_timeout" | "budget";
+/** Why a live run ends before the agent is done: Stop or a cancel, a detected loop, a park, an undecided approval, used-up credits, or a hand-off to the next worker. */
+type LiveEnding = "stop" | "loop" | "park" | "approval_timeout" | "budget" | "handoff";
 
 const PAUSE_CUT_TURN = "The founder paused the session mid-step and has now resumed it. Continue the task from where you stopped.";
 
@@ -1178,10 +1247,12 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     throw err;
   }
   // One server per connector the gateway serves for these grants; a connector of a later phase gets none (it would 404).
-  const mcpServers = Object.fromEntries(grants.servers.map((key) => [key, { type: "http" as const, url: deps.gateway.mcpUrl(key), headers: deps.gateway.sessionHeaders(token.token) }]));
+  // The run's trace span (../tracing.ts) is the parent of every tool call the gateway serves for this session.
+  const traceparent = currentTraceparent();
+  const mcpServers = Object.fromEntries(grants.servers.map((key) => [key, { type: "http" as const, url: deps.gateway.mcpUrl(key), headers: { ...deps.gateway.sessionHeaders(token.token), ...(traceparent ? { traceparent } : {}) } }]));
 
   const continuing = restored && restored.files > 0 ? restoredWorkspaceNote(restored.files) : "";
-  const resumed = ctx.run.resume ? "This session was paused for a while and has been resumed. Continue the task from where the work stands." : "";
+  const resumed = !ctx.run.resume ? "" : ctx.run.resume.reason === "handoff" || ctx.run.resume.reason === "retry" ? "This session moved to another worker mid-task and has been resumed. Continue the task from where the work stands, and check what is already done before you repeat any external action." : "This session was paused for a while and has been resumed. Continue the task from where the work stands.";
   const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? `Work on branch ${launch.branch} inside your working directory; it is the only place you can read or write files.` : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");
 
   const waits = founderWaits(deps);
@@ -1293,7 +1364,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         }
         if (c.kind === "shout") await recorder.publishRaw({ kind: "note", at, source: "shout", text: c.message.slice(0, 4000) });
         else await recorder.markApprovalResolved(c.approvalId, c.outcome, c.by ?? null);
-        if (ending === "park") carry.push(c);
+        if (ending === "park" || ending === "handoff") carry.push(c);
         else if (paused) held.push(c);
         else if (!ending) send(turnFor(c));
         break;
@@ -1356,13 +1427,32 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     if (!ending && !inputDone && credits?.due() && (await credits.settle(recorder.usage.totals())) === "exhausted") await endForCredits();
   };
 
-  const loop = controlLoop(deps, input.sessionId, tick, () => recorder.heartbeatDetails({ paused }));
+  const loop = controlLoop(deps, input.sessionId, tick, () => recorder.beatDetails({ paused }));
+  /** Stops the acceptance run's sandbox at once when the run ends early (a hand-off or a cancel). */
+  const acceptanceAbort = new AbortController();
+  // The worker is shutting down: end the turn, save the work (not pushed: the session has not finished) and return,
+  // so the next worker continues from the saved workspace.
+  const handoff = async () => {
+    if (ending) return;
+    carry.push(...held);
+    held = [];
+    acceptanceAbort.abort();
+    await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: handoffNote });
+    await end("handoff");
+  };
   const cancel = cancellation();
   const onCancel = () => {
+    if (cancelledForShutdown(cancel)) return void handoff();
     stoppedBy = { reason: CANCELLED_REASON };
+    acceptanceAbort.abort();
     void end("stop");
   };
   cancel?.addEventListener("abort", onCancel, { once: true });
+  const offDrain = deps.drain.onBegin(() => void handoff());
+  const handedOff = (): RunOutcome => {
+    holdBack = "the session moved to another worker";
+    return { ...handoffOutcome(null, carry), providerSessionId: sdkSessionId, ...usageNow() };
+  };
 
   try {
     send(taskPrompt);
@@ -1497,6 +1587,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       holdBack = "the session was stopped";
       return { outcome: "stopped", reason: stop.reason, blockedReason: "stopped", approvalId: null, summary: `Stopped: ${stop.reason}.`, providerSessionId: sdkSessionId, ...usageNow() };
     }
+    if (how === "handoff") return handedOff();
     if (how === "park") {
       holdBack = "the session is paused";
       // A poll still in flight applies what it read first: the carry and the last command number read must agree, or
@@ -1508,11 +1599,14 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     if (how === "approval_timeout") return { outcome: "blocked", reason: `no decision on the approval within ${minutesText(waits.approvalMs)}`, blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: "Blocked on an approval.", providerSessionId: sdkSessionId, ...usageNow() };
     // Acceptance tests run inside a sandbox, never on the orchestrator host, on a copy of the agent's workspace.
     const acceptanceCommand = acceptanceCommandFor(task);
-    if (acceptanceCommand) recorder.sandboxMs += await runAcceptance(deps, recorder, live.acquireSandbox, cwd, acceptanceCommand);
+    if (acceptanceCommand) recorder.sandboxMs += await runAcceptance(deps, recorder, live.acquireSandbox, cwd, acceptanceCommand, acceptanceAbort.signal);
+    // A hand-off during the acceptance run: its sandbox is already stopped, and the next worker runs the tests again.
+    if ((ending as LiveEnding | null) === "handoff") return handedOff();
     if (recorder.pendingApprovalId) return { outcome: "blocked", reason: "waiting for the founder's approval", blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: "Blocked on an approval.", providerSessionId: sdkSessionId, ...usageNow() };
     return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${agent.name} finished "${task.title}" with ${recorder.toolCalls} tool calls.`, providerSessionId: sdkSessionId, ...usageNow() };
   } finally {
     await loop.stop();
+    offDrain();
     if (abortTimer) clearTimeout(abortTimer);
     cancel?.removeEventListener("abort", onCancel);
     openGate();
@@ -1625,8 +1719,9 @@ function sandboxOutputForNote(output: string, max = 1500): string {
  * offline and publish the `test_result`. Every failure ends as a failed acceptance result with its reason; none of them
  * fails the session.
  */
-async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, acquireSandbox: () => Promise<Sandbox>, cwd: string, command: string): Promise<number> {
+async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, acquireSandbox: () => Promise<Sandbox>, cwd: string, command: string, abort: AbortSignal | null = null): Promise<number> {
   const at = () => deps.clock.now().toISOString();
+  if (abort?.aborted) return 0;
   const failed = async (reason: string, durationMs = 0) => {
     await recorder.publish({ kind: "test_result", at: at(), suite: "acceptance", command, passed: 0, failed: 1, skipped: 0, durationMs, acceptance: true, failures: [reason.slice(0, 300)] });
   };
@@ -1642,9 +1737,14 @@ async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, 
     await failed("Sandbox could not be started");
     return 0;
   }
+  // A run that ends early (a hand-off on a worker shutdown, a cancel) stops the sandbox at once: a worker that exits
+  // with it running would leave it billed until its TTL.
+  const stopNow = () => void sandbox.stop().catch(() => undefined);
+  abort?.addEventListener("abort", stopNow, { once: true });
   try {
     await runAcceptanceIn(deps, recorder, sandbox, cwd, command, failed);
   } finally {
+    abort?.removeEventListener("abort", stopNow);
     await sandbox.stop().catch(() => undefined);
   }
   return Math.max(0, deps.clock.nowMs() - startedAtMs);

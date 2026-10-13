@@ -4,11 +4,12 @@
  * client id/secret); the shop domain lives in `integration.externalAccountId`. Webhooks verify with the app
  * client secret, or a per-shop secret (`shopify_webhook_secret`) when the founder uses a custom app.
  */
-import { uuid } from "@foundmill/shared";
+import { uuid, ValidationError } from "@foundmill/shared";
 import { ConfigError, type Connector, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { createHttp, type HttpClient } from "../../http";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
+import { authorizeUrl, consentRecord, consentStartOf, hasAuthorizationCode } from "../_shared/oauth-consent";
 import { shopifyMock } from "./mock";
 import { mapCustomer, mapDraftOrder, mapOrder, mapProduct, mapShop, shopBaseUrl, ShopDomain, SHOPIFY_KEY, SHOPIFY_RATE_LIMITS, SHOPIFY_SCOPES, shopifyTools, type ShCustomer, type ShDraftOrder, type ShOrder, type ShProduct, type ShShop } from "./tools";
 import { createShopifyWebhook } from "./webhooks";
@@ -34,7 +35,7 @@ export function createShopifyConnector(options: LiveConnectorOptions = {}): Conn
       key: SHOPIFY_KEY,
       displayName: "Shopify",
       phase: 2,
-      auth: { kind: "oauth", scopes: SHOPIFY_SCOPES },
+      auth: { kind: "oauth", scopes: SHOPIFY_SCOPES, authorizationCode: true },
       tools: shopifyTools,
       rateLimits: SHOPIFY_RATE_LIMITS,
       now,
@@ -70,9 +71,16 @@ export function createShopifyConnector(options: LiveConnectorOptions = {}): Conn
       connect: async (businessId, input) => {
         const i = typeof input === "object" && input ? (input as { shop?: unknown; code?: unknown; accessToken?: unknown }) : {};
         const shop = ShopDomain.safeParse(i.shop);
-        if (!shop.success) throw new ConfigError(SHOPIFY_KEY, "shop domain", "connect() expects { shop: 'x.myshopify.com', code } from the OAuth redirect (or { shop, accessToken } for a custom app)");
+        // The founder's own input: a 400 they can fix, not a missing platform setting.
+        if (!shop.success) throw new ValidationError("Enter your store's address (your-store.myshopify.com) to connect Shopify", { field: "shop" });
         let accessToken = typeof i.accessToken === "string" ? i.accessToken : undefined;
         let scope = SHOPIFY_SCOPES.join(",");
+        if (!accessToken && !hasAuthorizationCode(input)) {
+          // First step: the shop's own consent page for the platform app (the founder installs it on their store).
+          const start = consentStartOf(input, "Shopify");
+          if (!secrets.shopifyClientId) throw new ConfigError(SHOPIFY_KEY, "SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET", "create a public app in the Shopify Partner dashboard");
+          return consentRecord(SHOPIFY_KEY, businessId, authorizeUrl(`https://${shop.data}/admin/oauth/authorize`, { client_id: secrets.shopifyClientId, scope: SHOPIFY_SCOPES.join(","), redirect_uri: start.redirectUri, state: start.state }), { now, newId: uuid });
+        }
         if (!accessToken) {
           if (typeof i.code !== "string") throw new ConfigError(SHOPIFY_KEY, "OAuth code", "connect() expects { shop, code } from the OAuth redirect");
           if (!secrets.shopifyClientId || !secrets.shopifyClientSecret) throw new ConfigError(SHOPIFY_KEY, "SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET");

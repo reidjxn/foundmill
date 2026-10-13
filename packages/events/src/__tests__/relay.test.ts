@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseEvent } from "../catalogue";
-import { RELAY_DEAD_LETTER_KEY, businessStreamKey } from "../keys";
+import { BUSINESS_STREAM_RETENTION_MS, RELAY_DEAD_LETTER_KEY, businessStreamKey } from "../keys";
 import { createOutboxRelay, rowToEventInput, rowsOf, runOutboxRelay } from "../outbox/relay";
 import { writeEvent } from "../outbox/writer";
 import { FakeDb } from "../testing/fake-db";
@@ -106,6 +106,42 @@ describe("outbox relay", () => {
       );
     await createOutboxRelay(db, redis, { maxLen: 4 }).tick();
     expect(await redis.xlen(businessStreamKey(FIXTURE_BUSINESS_ID))).toBe(4);
+  });
+
+  it("keeps 30 days per business stream and lets an idle business's stream expire (#233)", async () => {
+    let now = Date.parse("2026-10-12T09:00:00.000Z");
+    const day = 86_400_000;
+    const db = new FakeDb();
+    const redis = new MemoryRedis({ now: () => now });
+    const key = businessStreamKey(FIXTURE_BUSINESS_ID);
+    // Two entries from long ago, one from last week (written before retention existed).
+    await redis.xadd(key, `${now - 45 * day}-0`, "id", "old-1", "type", "x", "json", "{}");
+    await redis.xadd(key, `${now - 31 * day}-0`, "id", "old-2", "type", "x", "json", "{}");
+    await redis.xadd(key, `${now - 7 * day}-0`, "id", "recent", "type", "x", "json", "{}");
+    await writeEvent(db, fixtureInput("cycle.started"));
+    await createOutboxRelay(db, redis).tick();
+    expect(redis.dump(key).map((e) => e.fields.id)).toEqual(["recent", expect.any(String)]);
+    expect(await redis.ttl(key)).toBe(BUSINESS_STREAM_RETENTION_MS / 1000);
+    // Archived, deleted or dormant: nothing writes to the stream any more, and it goes after the same 30 days.
+    now += BUSINESS_STREAM_RETENTION_MS;
+    expect(await redis.exists(key)).toBe(0);
+
+    const off = new MemoryRedis();
+    const db2 = new FakeDb();
+    await writeEvent(db2, fixtureInput("cycle.started"));
+    await createOutboxRelay(db2, off, { retentionMs: 0 }).tick();
+    expect(await off.ttl(key)).toBe(-1);
+  });
+
+  it("a failed trim never re-publishes the batch", async () => {
+    const db = new FakeDb();
+    const redis = new MemoryRedis();
+    redis.xtrim = () => Promise.reject(new Error("READONLY"));
+    const errors: unknown[] = [];
+    await writeEvent(db, fixtureInput("cycle.started"));
+    expect(await createOutboxRelay(db, redis, { onError: (e) => errors.push(e) }).tick()).toBe(1);
+    expect(db.unpublished()).toHaveLength(0);
+    expect(errors).toHaveLength(1);
   });
 
   it("is at-least-once: a failure after XADD leaves rows unpublished and the next tick republishes them", async () => {

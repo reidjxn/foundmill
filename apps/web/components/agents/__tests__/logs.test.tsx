@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeSessionEvents, readSessionEvent } from "../LogsTab";
+import { mergeSessionEvents, readSessionEvent, replaySourceLabel } from "../LogsTab";
 import { historyEvents } from "../HistoryTab";
 
 describe("readSessionEvent", () => {
@@ -9,6 +9,17 @@ describe("readSessionEvent", () => {
     expect(readSessionEvent({ type: "inbox.item_created" })).toBeNull();
     expect(readSessionEvent({ json: "{not json" })).toBeNull();
     expect(readSessionEvent("x")).toBeNull();
+  });
+});
+
+describe("replaySourceLabel", () => {
+  it("names a finished session's saved recording, the live stream and a demo recording (#233)", () => {
+    expect(replaySourceLabel({ source: "saved", reason: null })).toBe("Saved recording");
+    expect(replaySourceLabel({ source: "saved", reason: "long terminal output and diffs were cut when the session was saved" })).toBe("Saved recording · long output shortened");
+    expect(replaySourceLabel({ source: "stream", reason: null })).toBe("From the stream");
+    expect(replaySourceLabel({ source: "recording", recording: { title: "Retry failed webhooks" } })).toBe("Recording · Retry failed webhooks");
+    expect(replaySourceLabel({ source: "none", reason: "no stream" })).toBeNull();
+    expect(replaySourceLabel(undefined)).toBeNull();
   });
 });
 

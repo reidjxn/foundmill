@@ -131,7 +131,8 @@ describe("shopify live (canned responses)", () => {
   it("throws ConfigError without a token or shop", async () => {
     const c = createShopifyConnector({ secrets: {} });
     await expect(c.callTool("get_shop", {}, makeToolContext(c, { mode: "live" }))).rejects.toMatchObject({ code: "connector_unconfigured" });
-    await expect(c.connect(TEST_BUSINESS_ID, { shop: "not a shop" })).rejects.toMatchObject({ code: "connector_unconfigured" });
+    // A bad shop domain is the founder's input to fix (400), not a platform setting.
+    await expect(c.connect(TEST_BUSINESS_ID, { shop: "not a shop" })).rejects.toMatchObject({ code: "validation", status: 400 });
     expect(await c.webhooks![0]!.verify(signedShopifyRequest(TEST_BUSINESS_ID, "orders/create", SH_ORDERS[0]))).toBe(false);
   });
 });
