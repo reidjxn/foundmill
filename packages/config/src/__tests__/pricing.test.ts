@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CREDITS_CURRENCY, higherTier, includedCreditsMinor, initialModelBilling, TIER_ORDER, TIERS, tierBusinessLimit } from "../pricing";
+import { CREDITS_CURRENCY, higherTier, includedCreditsMinor, initialModelBilling, sandboxCostMicroMinor, SANDBOX_MICRO_MINOR_PER_SECOND, TIER_ORDER, TIERS, tierBusinessLimit } from "../pricing";
 
 describe("pricing tiers (BUILD §10.5)", () => {
   it("keeps credits in US dollars and includes a bounded platform credit on every tier", () => {
@@ -28,5 +28,21 @@ describe("pricing tiers (BUILD §10.5)", () => {
     expect(higherTier("free", "pro")).toBe("pro");
     expect(higherTier("scale", "pro")).toBe("scale");
     expect(higherTier("free", "free")).toBe("free");
+  });
+});
+
+describe("sandbox time (audit BILL-11, O-32)", () => {
+  it("an E2B sandbox is priced per second at its list prices: 2 vCPU and 512 MiB, about $0.11 an hour (Estimate)", () => {
+    // $0.000014 per vCPU-second x 2 + $0.0000045 per GiB-second x 0.5 = $0.00003025 a second = 3,025 millionths of a cent.
+    expect(SANDBOX_MICRO_MINOR_PER_SECOND.e2b).toBe(3_025);
+    expect(sandboxCostMicroMinor("e2b", 3_600_000)).toBe(10_890_000);
+    expect(Math.round(sandboxCostMicroMinor("e2b", 3_600_000) / 1_000_000)).toBe(11);
+    expect(sandboxCostMicroMinor("e2b", 150_000)).toBe(453_750);
+  });
+
+  it("a Docker sandbox runs on the platform's own host and a replay runs nowhere: both cost nothing; time never goes negative", () => {
+    expect(sandboxCostMicroMinor("docker", 3_600_000)).toBe(0);
+    expect(sandboxCostMicroMinor("mock", 3_600_000)).toBe(0);
+    expect(sandboxCostMicroMinor("e2b", -5)).toBe(0);
   });
 });

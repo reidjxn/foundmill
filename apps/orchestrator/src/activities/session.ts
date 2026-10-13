@@ -24,8 +24,8 @@
  */
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, buildSystemPrompt, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentTemplate } from "@foundmill/agents";
-import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
-import { bookUsage, loadByokApiKey, repos, type Agent, type AgentVersion, type Task } from "@foundmill/db";
+import { APP_NAME, CREDITS_CURRENCY, sandboxCostMicroMinor } from "@foundmill/config";
+import { bookUsage, loadByokApiKey, MICRO_PER_MINOR, repos, type Agent, type AgentVersion, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
 import { assertNoLongLivedCredentials, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
@@ -39,6 +39,7 @@ import { emitEvent, systemActor } from "../events";
 import { applySessionEvent, initialProgress, type ProgressState } from "../progress";
 import { AGENT_PAUSED_FAILURE } from "../session-contract";
 import { LoopDetector } from "./loop";
+import { budgetSummary, sessionBudget, type SessionBudget } from "./session-budget";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
 import { describePush, pushWorkspace, type PushContext } from "./workspace-push";
 import { restoreWorkspace, saveWorkspace, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
@@ -293,6 +294,8 @@ class SessionRecorder {
   /** When the pending approval opened (clock ms); the wait for the founder is capped at APPROVAL_WAIT_MINUTES. */
   pendingSince: number | null = null;
   prNumber: number | null = null;
+  /** Milliseconds this run kept a sandbox running (the acceptance run of a live code task); priced at the session's end. */
+  sandboxMs = 0;
   lastPersisted = -1;
   lastPhase: string | null = null;
   /** Model usage so far; read by every exit path, a thrown error included. */
@@ -552,7 +555,9 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           tokensIn: usage.tokensIn,
           tokensOut: usage.tokensOut,
           costMinor: Math.round(usage.costMinor),
+          costMicroMinor: Math.round(usage.costMinor * MICRO_PER_MINOR),
           durationMs: deps.clock.nowMs() - startedAtMs,
+          sandboxMs: recorder.sandboxMs,
           prNumber: recorder.prNumber,
         };
       };
@@ -622,12 +627,20 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       const eventIds: string[] = [];
       const endedAt = deps.clock.now();
       await repos.agents.endSession(db, input.businessId, input.sessionId, { endedAt, tokensIn: result.tokensIn, tokensOut: result.tokensOut, costMinor: Math.round(result.costMinor), outcome: result.outcome, recordingRef: launch.recordingKey });
-      const minutes = Math.max(1, Math.round(result.durationMs / 60_000));
-      await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "sandbox", quantity: minutes, unit: "minutes", costMinor: 0, billedTo: launch.modelBilling, occurredAt: endedAt, details: { sandboxMode: launch.sandboxMode, label: "Estimate", recording: launch.recordingKey } });
+      // Sandbox time (Estimate, audit BILL-11). A replay runs nowhere: its row keeps the session's minutes at no cost. A live
+      // session holds a sandbox only for a code task's acceptance run, so only that time is booked, at the sandbox's list
+      // price; the platform pays E2B, so the row is billed to credits whatever pays for the model (a business on its own
+      // key is never charged credits, `bookUsage`). A Docker sandbox runs on the platform's own host and costs nothing.
+      if (launch.sandboxMode === "mock") {
+        await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "sandbox", quantity: Math.max(1, Math.round(result.durationMs / 60_000)), unit: "minutes", costMinor: 0, billedTo: launch.modelBilling, occurredAt: endedAt, details: { sandboxMode: launch.sandboxMode, label: "Estimate", recording: launch.recordingKey } });
+      } else if ((result.sandboxMs ?? 0) > 0) {
+        const sandboxMs = result.sandboxMs ?? 0;
+        await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "sandbox", quantity: Math.max(1, Math.ceil(sandboxMs / 60_000)), unit: "minutes", costMicroMinor: sandboxCostMicroMinor(launch.sandboxMode, sandboxMs), currency: CREDITS_CURRENCY, billedTo: "credits", occurredAt: endedAt, details: { sandboxMode: launch.sandboxMode, label: "Estimate", sandboxMs } });
+      }
       if (result.tokensIn + result.tokensOut > 0 && launch.sandboxMode !== "mock") {
         // The SDK prices in USD (an Estimate). Settled against credits when the platform key ran the session
-        // (`bookUsage` pauses the team on the last credit).
-        await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "tokens", modelKey: launch.modelKey, quantity: result.tokensIn + result.tokensOut, unit: "tokens", costMinor: Math.round(result.costMinor), currency: "USD", billedTo: launch.modelBilling, occurredAt: endedAt, details: { source: "claude-agent-sdk", label: "Estimate" } });
+        // (`bookUsage` pauses the team on the last credit). The exact cost is booked (0039), not its rounding.
+        await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "tokens", modelKey: launch.modelKey, quantity: result.tokensIn + result.tokensOut, unit: "tokens", costMicroMinor: result.costMicroMinor ?? Math.round(result.costMinor) * MICRO_PER_MINOR, currency: "USD", billedTo: launch.modelBilling, occurredAt: endedAt, details: { source: "claude-agent-sdk", label: "Estimate" } });
       }
       // Read the agent after booking: the last credit may just have paused the team, and the founder's pause or Stop
       // all agents may have landed while the session ran. Nothing a session does un-pauses an agent.
@@ -721,7 +734,7 @@ export type SessionActivities = ReturnType<typeof createSessionActivities>;
 // Mock runner (packages/sandbox replay)
 // ---------------------------------------------------------------------------------------------------------------------
 
-type RunOutcome = Pick<SessionResult, "outcome" | "reason" | "blockedReason" | "approvalId" | "summary" | "providerSessionId"> & Partial<Pick<SessionResult, "tokensIn" | "tokensOut" | "costMinor" | "parked">>;
+type RunOutcome = Pick<SessionResult, "outcome" | "reason" | "blockedReason" | "approvalId" | "summary" | "providerSessionId"> & Partial<Pick<SessionResult, "tokensIn" | "tokensOut" | "costMinor" | "costMicroMinor" | "parked">>;
 
 /** Why a replay frees its slot early: the founder left an approval undecided, or a pause outlasted the hold. */
 type MockEnding = { kind: "approval_timeout" } | ({ kind: "park" } & SessionParked);
@@ -834,7 +847,7 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
 // ---------------------------------------------------------------------------------------------------------------------
 
 interface LiveContext {
-  business: { id: string; name: string; glossary: Record<string, string>; modelBilling: "byok" | "credits" };
+  business: { id: string; name: string; glossary: Record<string, string>; modelBilling: "byok" | "credits"; planTier: Business["planTier"] };
   version: AgentVersion | null;
   template: AgentTemplate;
   briefText: string | null;
@@ -914,7 +927,13 @@ export interface TurnFailure {
  * for "Credit balance is too low"), so `subtype` alone would book a session where no model call succeeded as done.
  * Billing, key and rate-limit refusals block the task (it stays open and runs again once fixed); anything else fails it.
  */
-export function classifyTurnEnd(result: SdkTurnResult, apiError: { kind: string | null; text: string } | null, keySource: "byok" | "platform" | "none"): TurnFailure | null {
+export function classifyTurnEnd(result: SdkTurnResult, apiError: { kind: string | null; text: string } | null, keySource: "byok" | "platform" | "none", budget: Pick<SessionBudget, "limit" | "taskBudgetMinor" | "taskSpentMinor"> | null = null): TurnFailure | null {
+  // The SDK stopped at the `maxBudgetUsd` the session was given: the budget is spent, which is not the agent failing. The
+  // task is blocked (it keeps what was done) and says whose budget it was.
+  if (result.subtype === "error_max_budget_usd") {
+    const limit = budget?.limit ?? "task";
+    return { outcome: "blocked", blockedReason: "budget", reason: `model budget exhausted: the session spent ${limit === "credits" ? "the credits it was given" : "the task's budget"}`, summary: budgetSummary(limit, budget ?? { taskBudgetMinor: 0, taskSpentMinor: 0 }) };
+  }
   if (result.subtype !== "success") {
     const errors = (result.errors?.length ? result.errors : [result.subtype]).join("; ");
     return { outcome: "failed", blockedReason: "error", reason: `${result.subtype}: ${errors}`.slice(0, 500), summary: "The agent run ended with an error." };
@@ -956,6 +975,10 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   }
 
   const grants = parseGrants(live.version, live.template);
+  // What the session may spend (./session-budget): the task's budget less its earlier sessions, and the credits left when
+  // the platform key pays. A task with nothing left does not start.
+  const budget = await sessionBudget(deps, { business: live.business, task, sessionId: input.sessionId });
+  if (budget.remainingMinor <= 0) return { outcome: "blocked", reason: `model budget exhausted: ${budget.limit === "credits" ? "this month's credits are used up" : "the task's budget is spent"}`, blockedReason: "budget", approvalId: null, summary: budgetSummary(budget.limit, budget), providerSessionId: null };
   // Everything that can fail without a workspace runs before one exists (no restored code left on disk, no token).
   const systemPrompt = buildSystemPrompt({ businessName: live.business.name, appName: APP_NAME, template: { instructions: instructionsFor(live.version, live.template), description: live.template.description }, brief: live.briefText ?? undefined, glossary: live.business.glossary });
   if (!hasClubRulesPrefix(systemPrompt)) throw new Error("house rules missing from the system prompt");
@@ -1022,7 +1045,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   const openCalls = new Map<string, { tool: string; connectorKey: string | null; startedAt: number }>();
   const usageNow = () => {
     const u = recorder.usage.totals();
-    return { tokensIn: u.tokensIn, tokensOut: u.tokensOut, costMinor: Math.round(u.costMinor) };
+    return { tokensIn: u.tokensIn, tokensOut: u.tokensOut, costMinor: Math.round(u.costMinor), costMicroMinor: Math.round(u.costMinor * MICRO_PER_MINOR) };
   };
 
   const send = (text: string) => {
@@ -1141,6 +1164,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         disallowedTools: policy.disallowedTools,
         maxTurns: launch.maxTurns,
         cwd,
+        // The SDK itself stops past this (its result is `error_max_budget_usd`, see classifyTurnEnd).
+        maxBudgetUsd: budget.maxUsd,
         env,
         // No host settings, CLAUDE.md, hooks or permission rules from the orchestrator's file system, and no MCP server
         // but the gateway's (a `.mcp.json` in the workspace is ignored).
@@ -1213,7 +1238,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
           interrupted = false;
           turnOpen = queue.pending > 0 || ((message as { queued_turn_count?: number }).queued_turn_count ?? 0) > 0;
           if (!cut) {
-            const failure = classifyTurnEnd(message, apiError, key.source);
+            const failure = classifyTurnEnd(message, apiError, key.source, budget);
             if (failure) {
               queue.close(true);
               if (message.subtype === "success") holdBack = "the model call failed";
@@ -1252,7 +1277,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     if (how === "approval_timeout") return { outcome: "blocked", reason: `no decision on the approval within ${minutesText(waits.approvalMs)}`, blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: "Blocked on an approval.", providerSessionId: sdkSessionId, ...usageNow() };
     // Acceptance tests run inside a sandbox, never on the orchestrator host, on a copy of the agent's workspace.
     const acceptanceCommand = acceptanceCommandFor(task);
-    if (acceptanceCommand) await runAcceptance(deps, recorder, live.acquireSandbox, cwd, acceptanceCommand);
+    if (acceptanceCommand) recorder.sandboxMs += await runAcceptance(deps, recorder, live.acquireSandbox, cwd, acceptanceCommand);
     if (recorder.pendingApprovalId) return { outcome: "blocked", reason: "waiting for the founder's approval", blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: "Blocked on an approval.", providerSessionId: sdkSessionId, ...usageNow() };
     return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${agent.name} finished "${task.title}" with ${recorder.toolCalls} tool calls.`, providerSessionId: sdkSessionId, ...usageNow() };
   } finally {
@@ -1369,7 +1394,7 @@ function sandboxOutputForNote(output: string, max = 1500): string {
  * offline and publish the `test_result`. Every failure ends as a failed acceptance result with its reason; none of them
  * fails the session.
  */
-async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, acquireSandbox: () => Promise<Sandbox>, cwd: string, command: string): Promise<void> {
+async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, acquireSandbox: () => Promise<Sandbox>, cwd: string, command: string): Promise<number> {
   const at = () => deps.clock.now().toISOString();
   const failed = async (reason: string, durationMs = 0) => {
     await recorder.publish({ kind: "test_result", at: at(), suite: "acceptance", command, passed: 0, failed: 1, skipped: 0, durationMs, acceptance: true, failures: [reason.slice(0, 300)] });
@@ -1377,17 +1402,21 @@ async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, 
 
   // The sandbox exists for this run only (SANDBOX_TTL_MINUTES), so a long session never outlives its sandbox.
   let sandbox: Sandbox;
+  // The sandbox is billed from the moment it exists until it is stopped (audit BILL-11): the session books this time.
+  const startedAtMs = deps.clock.nowMs();
   try {
     sandbox = await acquireSandbox();
   } catch (err) {
     await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: `Acceptance tests not run: the sandbox could not be started (${redactCredentialValues(String((err as Error).message ?? err)).slice(0, 300)}).` });
-    return failed("Sandbox could not be started");
+    await failed("Sandbox could not be started");
+    return 0;
   }
   try {
     await runAcceptanceIn(deps, recorder, sandbox, cwd, command, failed);
   } finally {
     await sandbox.stop().catch(() => undefined);
   }
+  return Math.max(0, deps.clock.nowMs() - startedAtMs);
 }
 
 async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder, sandbox: Sandbox, cwd: string, command: string, failed: (reason: string, durationMs?: number) => Promise<void>): Promise<void> {

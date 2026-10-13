@@ -780,4 +780,64 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     expect(tests.at(-1)?.event).toMatchObject({ kind: "test_result", acceptance: true, passed: 0, failed: 1, failures: ["Sandbox could not be started"] });
     expect((await notesOf(sessionId)).some((n) => /^Acceptance tests not run: the sandbox could not be started \(E2B sandbox creation failed/.test(n.text))).toBe(true);
   });
+
+  it("the SDK is given a budget: the task's own, or the cycle's default, less what the task's earlier sessions cost (O-29, BF-11)", async () => {
+    const { sessionId, input, launch } = await start();
+    script = success(sessionId);
+    calls.length = 0;
+    await acts.runAgentSession(input, launch);
+    // The default reserve is 2,000 US cents; the credits left this month (the tier's included credits) are smaller here.
+    const max = calls[0]!.options.maxBudgetUsd as number;
+    expect(max).toBeGreaterThan(0);
+    expect(max).toBeLessThanOrEqual(20);
+    await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+  });
+
+  // A task budget below the credits left (the free tier's $5), so it is the task's budget that binds.
+  const budgeted = (budgetMinor: number) => repos.tasks.create(t.db, t.businessId, { kind: "research", title: `Budgeted ${budgetMinor}`, goalMd: "Find suppliers.", assigneeAgentId: t.workerId, status: "ready", budgetMinor, currency: "USD" });
+
+  it("a session that reaches its budget ends blocked on the budget, not failed (the SDK's error_max_budget_usd)", async () => {
+    const task = await budgeted(300);
+    const { sessionId, input, launch } = await start(task.id);
+    calls.length = 0;
+    script = async function* (call) {
+      await promptsOf(call).next();
+      yield { type: "system", subtype: "init", session_id: "sdk-budget" };
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "text", text: "Reading everything." }], usage: { input_tokens: 900, output_tokens: 300 } } };
+      yield { type: "result", subtype: "error_max_budget_usd", is_error: true, errors: [], modelUsage: modelUsage(900, 300, 0.4) };
+    };
+    const result = await acts.runAgentSession(input, launch);
+    expect(calls[0]!.options.maxBudgetUsd).toBe(3);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", tokensIn: 900, tokensOut: 300, costMinor: 40 });
+    expect(result.summary).toMatch(/used its budget \(\$0\.00 of \$3\.00/);
+    const finish = await acts.finishSession(input, launch, result);
+    expect(finish.taskStatus).toBe("blocked");
+    // What it spent is booked.
+    const tokens = (await repos.usage.list(t.db, t.businessId, { sessionId, limit: 10 })).items.find((u) => u.kind === "tokens");
+    expect(Number(tokens!.costMicroMinor)).toBe(40_000_000);
+  });
+
+  it("a task that has used its budget does not start another session; one that has some left gets only the rest", async () => {
+    const task = await budgeted(100);
+    // An earlier session on the task cost 120 US cents against a budget of 100.
+    const earlier = await openSessionRow(t, t.workerId, task.id);
+    await repos.agents.endSession(t.db, t.businessId, earlier, { outcome: "stopped", costMinor: 120 });
+    const { input, launch } = await start(task.id);
+    script = async function* () {
+      throw new Error("the SDK must not start");
+    };
+    calls.length = 0;
+    const result = await acts.runAgentSession(input, launch);
+    expect(calls).toHaveLength(0);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget" });
+    expect(result.summary).toMatch(/used its budget \(\$1\.00 of \$1\.00/);
+
+    const partly = await budgeted(300);
+    const first = await openSessionRow(t, t.workerId, partly.id);
+    await repos.agents.endSession(t.db, t.businessId, first, { outcome: "stopped", costMinor: 120 });
+    const next = await start(partly.id);
+    script = success(next.sessionId);
+    await acts.runAgentSession(next.input, next.launch);
+    expect(calls[0]!.options.maxBudgetUsd).toBe(1.8);
+  });
 });

@@ -29,6 +29,8 @@ export function createUsageSink(db: Db, log: ModelLogger, options: UsageSinkOpti
         quantity,
         unit: "tokens",
         costMinor: event.cost.costMinorInt,
+        // The exact cost (0039): sums and credits add these, so a call under half a cent is not booked at 0.
+        costMicroMinor: event.cost.costMicroMinor,
         currency: event.cost.currency,
         billedTo: event.billedTo,
         occurredAt: new Date(event.occurredAt),

@@ -50,7 +50,9 @@ export function combineRuns(a: SessionResult, b: SessionResult): SessionResult {
     tokensIn: a.tokensIn + b.tokensIn,
     tokensOut: a.tokensOut + b.tokensOut,
     costMinor: a.costMinor + b.costMinor,
+    costMicroMinor: (a.costMicroMinor ?? a.costMinor * 1_000_000) + (b.costMicroMinor ?? b.costMinor * 1_000_000),
     durationMs: a.durationMs + b.durationMs,
+    sandboxMs: (a.sandboxMs ?? 0) + (b.sandboxMs ?? 0),
     prNumber: b.prNumber ?? a.prNumber,
   };
 }

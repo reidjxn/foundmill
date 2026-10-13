@@ -176,3 +176,44 @@ describe("usage", () => {
     expect((await repos.usage.creditBalance(r.db, A, "2026-10"))).toMatchObject({ balanceMinor: 300, currency: "USD" });
   });
 });
+
+describe("usage, calls under half a cent (0039)", () => {
+  // A Haiku utility call is about 0.2 cents: stored per call as 0, thousands of them were free (audit BILL-09, CML-11).
+  it("keeps each call's exact cost, adds the exact costs and rounds once in totals, wages and agent spend", async () => {
+    const A = r.A.businessId;
+    const at = day("2027-05-03");
+    for (let i = 0; i < 10; i++) await repos.usage.record(r.db, A, { agentId: r.A.agent2Id, kind: "tokens", modelKey: "haiku", quantity: 1150, costMicroMinor: 175_000, occurredAt: at });
+    const rows = (await repos.usage.list(r.db, A, { agentId: r.A.agent2Id, kind: "tokens" })).items.filter((u) => u.occurredAt.getUTCFullYear() === 2027);
+    expect(rows).toHaveLength(10);
+    expect(rows.every((u) => u.costMinor === 0 && Number(u.costMicroMinor) === 175_000)).toBe(true);
+    // Ten 0.175-cent calls are 1.75 cents, not 0 (and not 10 × 1 after rounding up).
+    const range = { from: day("2027-05-01"), to: day("2027-06-01") };
+    const totals = await repos.usage.totals(r.db, A, range);
+    expect(totals.costMinor).toBe(2);
+    expect(totals.byKind.tokens.costMinor).toBe(2);
+    expect(totals.byBilledTo.credits).toBe(2);
+    expect((await repos.usage.daily(r.db, A, range)).map((d) => d.costMinor)).toEqual([2]);
+    expect((await repos.usage.wages(r.db, A, "2027-05")).find((w) => w.agentId === r.A.agent2Id)?.costMinor).toBe(2);
+    expect((await repos.usage.agentSpend(r.db, A, r.A.agent2Id, "2027-05")).costMinor).toBe(2);
+  });
+
+  it("a row written with only a rounded cost counts as that many cents; a micro-only row rounds for display", async () => {
+    const A = r.A.businessId;
+    const old = await repos.usage.record(r.db, A, { agentId: r.A.agentId, kind: "tokens", quantity: 1, costMinor: 3, occurredAt: day("2027-06-03") });
+    expect(Number(old.costMicroMinor)).toBe(3_000_000);
+    const micro = await repos.usage.record(r.db, A, { agentId: r.A.agentId, kind: "tokens", quantity: 1, costMicroMinor: 600_000, occurredAt: day("2027-06-03") });
+    expect(micro.costMinor).toBe(1);
+    expect((await repos.usage.totals(r.db, A, { from: day("2027-06-01"), to: day("2027-07-01") })).costMinor).toBe(4);
+  });
+
+  it("credits are charged what the calls cost: the sub-cent remainder is carried to the next charge", async () => {
+    const B = r.B.businessId;
+    await repos.usage.grantCredits(r.db, B, "2027-07", 100);
+    const first = await repos.usage.chargeCreditsMicro(r.db, B, "2027-07", 400_000);
+    expect(first).toMatchObject({ chargedMinor: 0, balance: { balanceMinor: 100, spentMinor: 0, carryMicroMinor: 400_000 } });
+    const second = await repos.usage.chargeCreditsMicro(r.db, B, "2027-07", 700_000);
+    expect(second).toMatchObject({ chargedMinor: 1, balance: { balanceMinor: 99, spentMinor: 1, carryMicroMinor: 100_000 } });
+    // A whole-cent charge still works as before and keeps the carry.
+    expect(await repos.usage.chargeCredits(r.db, B, "2027-07", 5)).toMatchObject({ balance: { balanceMinor: 94, spentMinor: 6, carryMicroMinor: 100_000 } });
+  });
+});

@@ -12,7 +12,7 @@
  */
 import { AgentInstructions, buildSystemPrompt, detectClubRuleViolation, getPrompt, getSkillDefinition, getSkillTests, ratingFromTested, runDeterministicChecks, type AgentTemplate, type SkillTest } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
-import { ACTIVE_TRAINING_STATUSES, repos } from "@foundmill/db";
+import { ACTIVE_TRAINING_STATUSES, MICRO_PER_MINOR, microToMinor, repos } from "@foundmill/db";
 import { SkillGradeOutput, resolveModel } from "@foundmill/models";
 import { MockSandboxProvider, RECORDINGS, type MockSandbox } from "@foundmill/sandbox";
 import { NotFoundError, type ModelKey } from "@foundmill/shared";
@@ -148,7 +148,7 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       const previousTested = previous?.tested === null || previous?.tested === undefined ? null : Number(previous.tested);
       if (tests.length === 0) {
         // Custom skills without a reviewed test set do not count yet (BUILD §11.10 "founder reviews before it counts").
-        return { skillKey: input.skillKey, group, testsRun: 0, meanScore: 0, tested: previousTested ?? template.baselineRating, previousTested, costMinor: 0, checksFailed: 0 };
+        return { skillKey: input.skillKey, group, testsRun: 0, meanScore: 0, tested: previousTested ?? template.baselineRating, previousTested, costMinor: 0, costMicroMinor: 0, checksFailed: 0 };
       }
       const instructions = AgentInstructions.safeParse(draft.instructions);
       const system = buildSystemPrompt({ businessName: business.name, appName: APP_NAME, template: { instructions: instructions.success ? instructions.data : template.instructions, description: template.description }, glossary: business.glossary });
@@ -156,7 +156,8 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       const sandboxes = new MockSandboxProvider({ speed: Infinity, autoplay: false, holds: { autoResolveAfterMs: 1 } });
       const recording = RECORDINGS.find((r) => r.taskKind === (template.taskKinds[0] ?? "code")) ?? RECORDINGS[0]!;
 
-      let costMinor = 0;
+      // Exact costs (millionths of a cent) are summed and rounded once, so the run's total is not the sum of roundings.
+      let costMicroMinor = 0;
       let checksFailed = 0;
       const scores: number[] = [];
       const attribution = { businessId: input.businessId, agentId: agent.id, kind: "training" };
@@ -172,10 +173,12 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
             system: [system, `## Training\nYou are being tested on "${definition?.name ?? input.skillKey}". Available mock tools: ${test.task.mockTools.join(", ") || "none"}. Answer the task directly.`],
             messages: [{ role: "user", content: `${test.task.prompt}\n\n\`\`\`json\n${JSON.stringify({ task: { id: test.id, title: test.task.title, kind: template.taskKinds[0] ?? "ops" }, fixtures: test.task.fixtures })}\n\`\`\`` }],
             modelOverride: route.modelKey,
+            // The agent's whole system prompt (about 3k tokens) is the same on every test: written once, then read (audit BF-15).
+            cacheSystem: true,
             scope: `training:${agent.id}`,
             attribution,
           });
-          costMinor += answer.cost.costMinorInt;
+          costMicroMinor += answer.cost.costMicroMinor;
           // 2. the sandbox runs the task's tests when the skill has any (mock: canned results per recording)
           let testsPassed: boolean | undefined;
           if (test.checks.some((c) => c.kind === "tests_pass")) {
@@ -196,7 +199,7 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
           checksFailed += checks.filter((c) => !c.passed).length;
           // 4. the grader scores the rubric
           const graded = await graderFor(input.skillKey, test, answer.text, checks, { businessId: input.businessId, agentId: agent.id });
-          costMinor += graded.cost.costMinorInt;
+          costMicroMinor += graded.cost.costMicroMinor;
           scores.push(scoreTest(graded.json.score, checks));
           try {
             const { Context } = await import("@temporalio/activity");
@@ -209,8 +212,11 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tests.length) }, worker));
       const meanScore = scores.reduce((a, b) => a + b, 0) / Math.max(1, scores.length);
       const tested = ratingFromTested(meanScore);
-      await repos.usage.record(db, input.businessId, { agentId: agent.id, kind: "training", quantity: tests.length, unit: "tests", costMinor: Math.max(0, costMinor), occurredAt: deps.clock.now(), details: { trainingRunId: input.trainingRunId, skillKey: input.skillKey, label: "Estimate" } });
-      return { skillKey: input.skillKey, group, testsRun: tests.length, meanScore: Math.round(meanScore * 1000) / 1000, tested, previousTested, costMinor, checksFailed };
+      // Every answer and every grader call was booked when it ran (`usageSink`, kind `tokens`): this row only says how many
+      // tests the skill had, so it carries no cost (the run's total lives on `training_runs.cost_minor`, audit O-19).
+      // Booked to the business's billing and the price list's currency like every other row.
+      await repos.usage.record(db, input.businessId, { agentId: agent.id, kind: "training", quantity: tests.length, unit: "tests", costMinor: 0, currency: CREDITS_CURRENCY, billedTo: business.modelBilling, occurredAt: deps.clock.now(), details: { trainingRunId: input.trainingRunId, skillKey: input.skillKey, label: "Estimate", costBookedPerCall: true } });
+      return { skillKey: input.skillKey, group, testsRun: tests.length, meanScore: Math.round(meanScore * 1000) / 1000, tested, previousTested, costMinor: microToMinor(costMicroMinor), costMicroMinor, checksFailed };
     },
 
     /** Persist results on the run (never on the live version) and narrate through `training.completed`. */
@@ -219,7 +225,7 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       const run = await repos.training.get(db, input.businessId, input.trainingRunId);
       const results: Record<string, { old: number; new: number }> = {};
       const skillDeltas: TrainingRunResult["skillDeltas"] = [];
-      const costMinor = Math.max(0, Math.round(input.outcomes.reduce((a, o) => a + o.costMinor, 0)));
+      const costMinor = Math.max(0, microToMinor(input.outcomes.reduce((a, o) => a + (o.costMicroMinor ?? o.costMinor * MICRO_PER_MINOR), 0)));
       for (const o of input.outcomes) {
         const before = Math.max(1, Math.min(20, Math.round(o.previousTested ?? o.tested)));
         results[o.skillKey] = { old: before, new: o.tested };

@@ -25,6 +25,20 @@ export const PRICE_TBA_LABEL = "Price to be announced" as const;
 export const CREDITS_CURRENCY = "USD" as const;
 
 /**
+ * What a second of a sandbox costs the platform, in millionths of a US cent (an Estimate, audit BILL-11 / O-32). E2B
+ * bills per second of vCPU and memory at its list prices ($0.000014 per vCPU-second, $0.0000045 per GiB-second); the
+ * default template is 2 vCPU and 512 MiB, so $0.00003025 a second (about $0.11 an hour). A Docker sandbox runs on the
+ * platform's own host and a mock replay runs nowhere: both are booked at 0.
+ */
+export const SANDBOX_MICRO_MINOR_PER_SECOND = { e2b: 3_025, docker: 0, mock: 0 } as const satisfies Record<string, number>;
+export type SandboxPricingMode = keyof typeof SANDBOX_MICRO_MINOR_PER_SECOND;
+
+/** The Estimate for `ms` of a sandbox in `mode`, in millionths of a US cent (sum these, round once). */
+export function sandboxCostMicroMinor(mode: SandboxPricingMode, ms: number): number {
+  return Math.round((Math.max(0, ms) / 1000) * SANDBOX_MICRO_MINOR_PER_SECOND[mode]);
+}
+
+/**
  * The platform credit (USD cents) a business on `tier` is granted each month. A paid tier whose size is still "TBD"
  * gets the free tier's allowance, so moving up a tier never lowers what is included.
  */

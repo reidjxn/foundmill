@@ -9,7 +9,10 @@
  * business on credits can never run on the platform's key without a ceiling. The charge that uses the last credit
  * stops the team (the business's stop flag, reason `credits_exhausted`: nothing starts work until a top-up, a stored key
  * or an owner or admin lifts it) and posts one Inbox warning from the Chief of Staff; later charges on an empty balance
- * are recorded (the ledger is the truth, overrun included) without repeating the pause or the note.
+ * are recorded (the ledger is the truth, overrun included) without repeating the pause or the note. The pause and the
+ * note go through the outbox in the same transaction (`agent.health_changed` per agent, `inbox.item_created`), so open
+ * screens (the Inbox, its badge, Continue, the agents' pills) change at once; `buildEvent` (packages/events) accepts
+ * these exact payloads, which apps/orchestrator's billing tests check.
  *
  * What is charged: only platform costs in the credits currency (USD) for a business on credits. A business on its own
  * key never touches credits, not even for the api's and composer's platform-key calls (they are metered, labeled
@@ -20,10 +23,13 @@ import { CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
 import { stopBusinessAgents } from "./controls";
 import { repos } from "./repos";
 import type { Executor } from "./repos/_shared";
-import { periodOf, type RecordUsageInput } from "./repos/usage";
+import { MICRO_PER_MINOR, periodOf, type RecordUsageInput } from "./repos/usage";
 import type { Business, CreditBalance, UsageEntry } from "./schema";
 
 export const CREDITS_EXHAUSTED_SUBJECT = "Credits used up: team paused";
+
+/** Why `agent.health_changed` says the team stopped (the agent's pill and Activity read it). */
+export const CREDITS_EXHAUSTED_HEALTH_REASON = "Credits used up";
 
 export interface CreditsOutcome {
   /** Always true since 2026-10-12 (every business on credits holds a balance); kept for callers that read it. */
@@ -53,7 +59,8 @@ export async function bookUsage(db: Executor, businessId: string, input: RecordU
   const business = await repos.businesses.get(db, businessId, { includeArchived: true });
   if (business.modelBilling === "byok") return { entry, credits: null };
   const period = periodOf(entry.occurredAt);
-  const charged = await repos.usage.chargeCredits(db, businessId, period, Number(entry.costMinor), { includedMinor: includedCreditsMinor(business.planTier) });
+  // The exact cost (0039): a call under half a cent is carried until the period's charges complete a cent.
+  const charged = await repos.usage.chargeCreditsMicro(db, businessId, period, Number(entry.costMicroMinor ?? Number(entry.costMinor) * MICRO_PER_MINOR), { includedMinor: includedCreditsMinor(business.planTier) });
   if (!charged) return { entry, credits: { enforced: false, balance: null, exhausted: null, pausedAgents: 0, noteId: null } };
   if (charged.exhausted !== "now") return { entry, credits: { enforced: true, balance: charged.balance, exhausted: charged.exhausted, pausedAgents: 0, noteId: null } };
   const { pausedAgents, noteId } = await pauseForCredits(db, business, period);
@@ -82,7 +89,17 @@ const usd = (minor: number) => `$${(minor / 100).toLocaleString("en-US", { minim
  */
 async function pauseForCredits(db: Executor, business: Business, period: string): Promise<{ pausedAgents: number; noteId: string | null }> {
   const businessId = business.id;
-  const pausedAgents = (await stopBusinessAgents(db, businessId, { reason: "credits_exhausted" })).paused.length;
+  const stop = await stopBusinessAgents(db, businessId, { reason: "credits_exhausted" });
+  const pausedAgents = stop.paused.length;
+  // Every agent the stop paused tells the open screens (audit BILL-21), as the kill switch does.
+  for (const a of stop.paused) {
+    await repos.events.write(db, businessId, {
+      type: "agent.health_changed",
+      actor: { kind: "system", id: "billing" },
+      entityIds: [a.id],
+      payload: { agentId: a.id, from: a.from, to: "paused", reason: CREDITS_EXHAUSTED_HEALTH_REASON, signals: {}, expectedReturnAt: null, sessionId: null },
+    });
+  }
   const chief = await repos.agents.chiefOfStaff(db, businessId);
   let noteId: string | null = null;
   if (chief) {
@@ -103,6 +120,12 @@ async function pauseForCredits(db: Executor, business: Business, period: string)
       entity_ids: [],
     });
     noteId = note.id;
+    await repos.events.write(db, businessId, {
+      type: "inbox.item_created",
+      actor: { kind: "agent", id: chief.id },
+      entityIds: [note.id],
+      payload: { inboxItemId: note.id, type: note.type, fromAgentId: chief.id, subject: note.subject, blocksContinue: note.blocksContinue, sourceEventIds: [], cost: null },
+    });
   }
   await repos.audit.append(db, businessId, { actorKind: "system", action: "billing.credits_exhausted", target: { kind: "business", id: businessId }, details: { period, pausedAgents, noteId, planTier: business.planTier } });
   return { pausedAgents, noteId };
