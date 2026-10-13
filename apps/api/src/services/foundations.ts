@@ -32,7 +32,7 @@ import {
 } from "@foundmill/agents";
 import { FoundationsSupersededError, draftFoundationsStaged } from "@foundmill/agents/foundations-steps";
 import { repos, type BusinessFoundationsRow, type Db, type DbTx, type Source } from "@foundmill/db";
-import type { ModelClient } from "@foundmill/models";
+import { PRICING_CURRENCY, type ModelClient } from "@foundmill/models";
 import type { FoundationsDoor, FoundationsRunner, FoundationsStatus } from "@foundmill/shared";
 import { writeEventRow } from "./events";
 import { decodeJobId, importSourceRow, importStatus, localJobAt, validateConfigs, type ImportStatus, type ScoutingReport } from "./import";
@@ -250,7 +250,7 @@ export async function runFoundationsLocally(deps: FoundationsDeps, businessId: s
           businessId,
           type: "inbox.item_created",
           actor: { kind: "agent", id: item.fromAgentId! },
-          payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: { amountMinor: usage.costMinor, currency: "EUR" } },
+          payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: { amountMinor: usage.costMinor, currency: PRICING_CURRENCY } },
         }),
       // Open tabs refetch on it and turn ready at once (the last progress event came before the apply).
       onApplied: (tx) => writeEventRow(tx, { businessId, type: "foundations.progressed", actor: inputs.authorAgentId ? { kind: "agent", id: inputs.authorAgentId } : { kind: "system", id: "api" }, payload: readyEventPayload(attempt, draft) }),

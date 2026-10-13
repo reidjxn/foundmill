@@ -64,7 +64,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
       const failedIds = tasksPage.items.filter((t) => t.status === "failed").map((t) => t.id);
       const [recent, holds] = await Promise.all([repos.agents.recentOutcomes(db, businessId, { taskIds: failedIds, limit: 20 * failedIds.length }), repos.approvals.holds(db, businessId, tasksPage.items.map((t) => t.id))]);
       const spentBy = new Map(wages.map((w) => [w.agentId, w.costMinor]));
-      const currency = (await repos.channels.enabledBudget(db, businessId)).currencies[0] ?? "EUR";
+      const currency = business.currency;
       const edges = await repos.tasks.listEdges(db, businessId, tasksPage.items.map((t) => t.id));
       const openIds = new Set(tasksPage.items.map((t) => t.id));
       const dependsOn = new Map<string, string[]>();

@@ -79,6 +79,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     planTier: "scale",
     modelBilling: "byok",
     glossary: { customer: "account", win: "closed-won" },
+    currency: CURRENCY,
     createdBy: ctx.owner.userId,
   });
   for (const owner of ctx.owners) await repos.memberships.add(db, businessId, { userId: owner.userId, role: "owner" });

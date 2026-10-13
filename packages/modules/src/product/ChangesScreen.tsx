@@ -106,7 +106,7 @@ export function ChangesScreen({ businessId }: ModuleScreenProps) {
     setSelectedId(rows.find((r) => r.status === "open")?.id ?? rows[0]?.id ?? null);
   }, [list.data, rows, selectedId]);
 
-  const columns = useMemo(() => proposalColumns(currency ?? "EUR"), [currency]);
+  const columns = useMemo(() => proposalColumns(currency), [currency]);
   const href = (moduleKey: "product", tab: string, query?: string) => `${moduleHref(businessId, departments.data, moduleKey, tab) ?? routes.department(businessId, moduleKey, tab)}${query ?? ""}`;
   const openBlock = (blockId: string) => navigate(href("product", "specification", `?block=${blockId}`));
   const openRoadmapItem = (itemId: string) => navigate(href("product", "roadmap", `?item=${itemId}`));
@@ -171,7 +171,7 @@ export function ChangesScreen({ businessId }: ModuleScreenProps) {
             roadmapItems={roadmap.data?.items ?? []}
             sources={sources.data?.items ?? []}
             latestVersion={versions.data?.[0] ?? spec.data?.latestVersion ?? null}
-            currency={currency ?? "EUR"}
+            currency={currency}
             onChanged={refetchAll}
             onOpenBlock={openBlock}
             onOpenRoadmapItem={openRoadmapItem}

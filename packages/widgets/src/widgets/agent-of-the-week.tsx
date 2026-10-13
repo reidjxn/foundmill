@@ -48,7 +48,7 @@ export function agentRows(data: TeamAgentsListResponse | undefined): TeamAgentRo
 const PICK_WORD = { rating: "Highest rating", form: "Best form", value: "Best value" } as const;
 
 function AgentOfTheWeekWidget({ settings }: WidgetProps<AgentOfTheWeekSettings>) {
-  const { businessId, navigate, currency = "EUR" } = useWidgetData();
+  const { businessId, navigate, currency } = useWidgetData();
   const team = useWidgetQuery<TeamAgentsListResponse>("team.agents.list", {});
   useBusinessEvents(() => team.refetch(), ["task.completed", "training.completed", "agent.promoted", "cycle.completed"]);
   const agent = useMemo(() => pickAgent(agentRows(team.data), settings), [team.data, settings]);

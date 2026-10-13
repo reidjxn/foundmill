@@ -20,6 +20,19 @@ export type ModelBilling = (typeof MODEL_BILLING)[number];
 export const DATA_REGIONS = ["eu", "us"] as const;
 export type DataRegion = (typeof DATA_REGIONS)[number];
 
+/**
+ * The currencies a founder picks from (ISO 4217): their profile's, and the one a business keeps its money in (chosen at
+ * commit, changed in Settings › Business; `businesses.currency`, 0025). Model and credit costs are always in USD.
+ */
+export const CURRENCIES = ["EUR", "USD", "GBP", "SEK", "NOK", "DKK", "CHF", "CAD", "AUD"] as const;
+/** A business created without a currency (no founder profile to take it from) keeps its money in US dollars (0025). */
+export const DEFAULT_BUSINESS_CURRENCY = "USD";
+/**
+ * Model costs (a session, a training run, an Inbox note) are not business money: they are metered in the model price
+ * list's currency (packages/models `PRICING_CURRENCY`), whatever currency the business keeps its money in.
+ */
+export const MODEL_COST_CURRENCY = "USD";
+
 export const ARCHETYPES = ["b2b_saas", "consumer_app", "marketplace", "dtc_physical", "hardware", "services", "content_media"] as const;
 export type Archetype = (typeof ARCHETYPES)[number];
 export const ARCHETYPE_LABELS: Record<Archetype, string> = {

@@ -24,7 +24,7 @@ import { AgentDesk, Button, EntityText, Markdown, Skeleton, useToast, type Agent
 import type { DeptColourToken } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { useBusiness } from "@/components/shell/business-context";
+import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import { provideAgentConversation } from "./DeskHost";
 import { ConfirmPlanDialog } from "@/components/inbox/ConfirmPlanDialog";
 import { confirmationLines } from "@/components/inbox/confirmation";
@@ -150,8 +150,8 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
   { subject, variant = "inline", open = true, onOpenChange, keyModifier = "none", hotkeys = true, inboxReply = false, onDecision, decided = false, fallbackDept = "dept-1", subjectLine, initialText, onInitialTextSent, personaHint, opener, className },
   ref,
 ) {
-  const { businessId, data: biz } = useBusiness();
-  const currency = biz.business.glossary?.currency ?? "EUR";
+  const { businessId } = useBusiness();
+  const currency = useBusinessCurrency();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -441,7 +441,7 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
   const lines = useMemo(() => (preview ? confirmationLines(preview.evaluations, currency) : []), [preview, currency]);
 
   const label = persona ? `Conversation with ${persona.name}` : "Conversation";
-  const dialog = <ConfirmPlanDialog open={confirmOpen} onOpenChange={setConfirmOpen} lines={lines} summary={preview?.summary ?? ""} currency={currency} loading={confirmM.isPending} onConfirm={() => preview && confirmM.mutate({ businessId, planId: preview.planId })} />;
+  const dialog = <ConfirmPlanDialog open={confirmOpen} onOpenChange={setConfirmOpen} lines={lines} summary={preview?.summary ?? ""} loading={confirmM.isPending} onConfirm={() => preview && confirmM.mutate({ businessId, planId: preview.planId })} />;
 
   if (!view || !persona) {
     if (variant === "sheet") {

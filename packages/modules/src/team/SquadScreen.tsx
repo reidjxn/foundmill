@@ -53,7 +53,7 @@ export function squadSummary(agents: readonly Pick<AgentRow, "status">[]): strin
 }
 
 export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
-  const { navigate, currency = "EUR" } = useWidgetData();
+  const { navigate, currency } = useWidgetData();
   const { liveRefetchMs } = useTeamOptions();
   const now = useNow();
   const agentsQuery = useAgents();

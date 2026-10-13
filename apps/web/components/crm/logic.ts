@@ -330,16 +330,21 @@ export interface CommercialSummary {
   activatedAt: string | null;
 }
 
-export function commercialSummary(conversions: readonly ConversionRecord[], fallbackCurrency = "EUR"): CommercialSummary {
+/**
+ * `businessCurrency` labels a history without payments. Payments in several currencies are never added together: the
+ * total (and the monthly average) counts those in the business's currency when there are any, else the first payment's.
+ */
+export function commercialSummary(conversions: readonly ConversionRecord[], businessCurrency: string): CommercialSummary {
   const payments = conversions.filter((c) => c.kind === "payment").sort((a, b) => ms(a.occurredAt) - ms(b.occurredAt));
-  const total = payments.reduce((s, p) => s + Number(p.amountMinor), 0);
+  const currency = payments.some((p) => p.currency === businessCurrency) ? businessCurrency : (payments[0]?.currency ?? businessCurrency);
+  const total = payments.filter((p) => p.currency === currency).reduce((s, p) => s + Number(p.amountMinor), 0);
   const first = payments[0] ? toIso(payments[0].occurredAt) : null;
   const last = payments.length ? toIso(payments[payments.length - 1]!.occurredAt) : null;
   const months = first && last ? Math.max(1, Math.round((Date.parse(last) - Date.parse(first)) / (30 * 86_400_000)) + 1) : null;
   return {
     payments: payments.length,
     totalMinor: total,
-    currency: payments[0]?.currency ?? fallbackCurrency,
+    currency,
     firstPaymentAt: first,
     lastPaymentAt: last,
     monthlyMinor: months ? Math.round(total / months) : null,

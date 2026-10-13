@@ -1,11 +1,13 @@
 /** businesses — the business record (BUILD §7.2 "Accounts and businesses", routers business.*). */
-import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, GAME_MODES, MODEL_BILLING, PLAN_TIERS, slugify, uuid, type AgentStopReason } from "@foundmill/shared";
+import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, DEFAULT_BUSINESS_CURRENCY, GAME_MODES, MODEL_BILLING, PLAN_TIERS, slugify, uuid, type AgentStopReason } from "@foundmill/shared";
 import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { businesses, memberships, type Business } from "../schema";
-import { defined, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, type Executor } from "./_shared";
+import { Currency, defined, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, type Executor } from "./_shared";
 
 const HexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/, "brand colors are #RRGGBB");
+/** ISO 4217: three letters (0025 holds the column to the same shape). */
+const BusinessCurrency = Currency.regex(/^[A-Z]{3}$/, "a currency is a 3-letter ISO 4217 code");
 
 export const CreateBusinessInput = z.object({
   /** Supply the id when the caller must know it before RETURNING is possible (RLS bootstrap, seeds). */
@@ -23,6 +25,8 @@ export const CreateBusinessInput = z.object({
   /** "Spend cap per action" (Commit, Settings › Mode) in minor units of the business currency; null: no business cap. */
   spendCapMinor: MinorAmount.nonnegative().nullable().default(null),
   glossary: z.record(z.string(), z.string()).default({}),
+  /** The business's own currency (0025); commit passes the founder's choice. Mirrors the column default. */
+  currency: BusinessCurrency.default(DEFAULT_BUSINESS_CURRENCY),
   createdBy: Id.nullable().optional(),
 });
 export type CreateBusinessInput = z.input<typeof CreateBusinessInput>;
@@ -37,6 +41,7 @@ export const UpdateBusinessInput = z.object({
   planTier: z.enum(PLAN_TIERS).optional(),
   modelBilling: z.enum(MODEL_BILLING).optional(),
   glossary: z.record(z.string(), z.string()).optional(),
+  currency: BusinessCurrency.optional(),
 });
 export type UpdateBusinessInput = z.input<typeof UpdateBusinessInput>;
 
@@ -105,6 +110,7 @@ export const businessesRepo = {
       modelBilling: v.modelBilling,
       spendCapMinor: v.spendCapMinor,
       glossary: v.glossary,
+      currency: v.currency,
       createdBy: v.createdBy ?? null,
     });
     return {
@@ -124,6 +130,7 @@ export const businessesRepo = {
       modelBilling: v.modelBilling,
       spendCapMinor: v.spendCapMinor,
       glossary: v.glossary,
+      currency: v.currency,
       createdBy: v.createdBy ?? null,
       agentsStoppedAt: null,
       agentsStoppedReason: null,

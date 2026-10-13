@@ -294,7 +294,7 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
   }
 
   const input = {
-    business: { id: business.id, name: business.name, archetype: business.archetype, business_mode: business.businessMode, glossary: business.glossary },
+    business: { id: business.id, name: business.name, archetype: business.archetype, business_mode: business.businessMode, glossary: business.glossary, currency: business.currency },
     business_name: business.name,
     app_name: APP_NAME,
     from_agent: { id: chief.id, name: chief.name, role: chief.role || "Chief of Staff" },

@@ -132,6 +132,10 @@ describe("Stripe invoice.paid", () => {
     const converted = await hz.events(hz.B.businessId, "customer.converted");
     expect(converted).toHaveLength(1);
     expect(converted[0]!.payload).toMatchObject({ kind: "signup", matchdayLevel: "friendly", nthOfKind: 1, amount: null });
+    // No money changed hands: the conversion row is in the business's own currency (0025), never a fixed EUR.
+    const business = await repos.businesses.get(hz.db, hz.B.businessId);
+    const conversion = await repos.journeys.getConversion(hz.db, hz.B.businessId, (converted[0]!.payload as { conversionId: string }).conversionId);
+    expect(conversion.currency).toBe(business.currency);
   });
 
   it("answers 404 for a business that does not exist and releases the nonce so a retry is not a replay", async () => {

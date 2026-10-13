@@ -2,7 +2,7 @@
 import { CHANNEL_KEYS, CONVERSION_KINDS, MATCHDAY_LEVELS, MILESTONE_KINDS, VISIBILITY } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { bigint, boolean, date, index, integer, jsonb, numeric, pgMaterializedView, pgTable, pgView, text, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
-import { currency, emptyArray, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
+import { businessCurrency, emptyArray, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
 import { businessId } from "./_refs";
 import { entities } from "./crm";
 import { campaigns } from "./distribution";
@@ -63,7 +63,7 @@ export const conversions = pgTable(
     entityId: uuid("entity_id").references((): AnyPgColumn => entities.id, { onDelete: "set null" }),
     kind: text("kind", { enum: CONVERSION_KINDS }).notNull(),
     amountMinor: minor("amount_minor").notNull().default(0),
-    currency: currency(),
+    currency: businessCurrency(),
     occurredAt: tstz("occurred_at").notNull().defaultNow(),
     sourceEventId: uuid("source_event_id").references((): AnyPgColumn => events.id, { onDelete: "set null" }),
     /** 0034: false for a renewal or a repeat order (revenue, not a new customer); true for every other conversion. */

@@ -64,8 +64,10 @@ export function MatchdayRoundupTable({ rows, day, onOpenReplay, onOpenEntity, en
   // First click: newest first, biggest first, payments first.
   const toggle = (key: SortKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "kind" ? "asc" : "desc" }));
   const totals = rows.reduce((acc, r) => ((acc[r.kind] = (acc[r.kind] ?? 0) + 1), acc), {} as Record<ConversionKind, number>);
-  const currency = rows[0]?.currency ?? "EUR";
-  const revenue = rows.filter((r) => r.kind === "payment").reduce((s, r) => s + r.amountMinor, 0);
+  // The day's revenue in the first payment's currency; a payment in another currency is not added to it.
+  const payments = rows.filter((r) => r.kind === "payment");
+  const currency = payments[0]?.currency;
+  const revenue = payments.filter((r) => r.currency === currency).reduce((s, r) => s + r.amountMinor, 0);
   if (rows.length === 0) {
     return (
       <EmptyState icon={Trophy} className={className}>
@@ -88,7 +90,7 @@ export function MatchdayRoundupTable({ rows, day, onOpenReplay, onOpenEntity, en
         <span className="tabular-nums">
           {totals.payment ?? 0} payments · {totals.activation ?? 0} activations · {totals.signup ?? 0} signups
         </span>
-        {revenue > 0 ? <span className="ml-auto tabular-nums">{formatMoney({ amountMinor: revenue, currency })}</span> : null}
+        {revenue > 0 && currency ? <span className="ml-auto tabular-nums">{formatMoney({ amountMinor: revenue, currency })}</span> : null}
       </div>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-body">

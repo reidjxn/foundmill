@@ -41,7 +41,8 @@ export const financeRouter = router({
       const runwayMonths = burn.netBurnMinor > 0 ? Math.round((cashMinor / burn.netBurnMinor) * 10) / 10 : null;
       const warnings = runwayMonths === null ? [] : LIMITS.runwayWarnMonths.filter((m) => runwayMonths < m);
       return {
-        cash: { amountMinor: cashMinor, currency: base?.currency ?? "EUR", accounts: cash.accounts.length, asOf: base?.oldestBalanceAt ?? null, label: "Cash in bank" },
+        // Before a bank is connected the (zero) cash reads in the business's own currency (0025), never a fixed one.
+        cash: { amountMinor: cashMinor, currency: base?.currency ?? ctx.business.currency, accounts: cash.accounts.length, asOf: base?.oldestBalanceAt ?? null, label: "Cash in bank" },
         burn: { ...burn, label: "Estimate" as const, definition: "Operating outflows minus operating inflows, trailing 3-month average, financing excluded" },
         runway: { months: runwayMonths, label: "Estimate" as const, warnings, blocksContinue: runwayMonths !== null && runwayMonths < LIMITS.runwayBlockMonths },
         revenue: { monthly, basis: "cash" as const, label: "Management P&L, unaudited, cash basis" },
@@ -97,7 +98,7 @@ export const financeRouter = router({
           const crossed = [...LIMITS.runwayWarnMonths, LIMITS.runwayBlockMonths].filter((m) => runway < m).sort((a, b) => a - b)[0];
           if (crossed) {
             const [cash, burn] = await Promise.all([repos.finance.cashPosition(tx, ctx.businessId), repos.finance.netBurn(tx, ctx.businessId, { months: 3 })]);
-            const currency = cash.byCurrency[0]?.currency ?? input.currency ?? "EUR";
+            const currency = cash.byCurrency[0]?.currency ?? input.currency ?? ctx.business.currency;
             await emit(tx, ctx, {
               type: "runway.threshold_crossed",
               payload: { runwayMonths: runway, thresholdMonths: crossed, direction: "below", cash: { amountMinor: cash.byCurrency[0]?.balanceMinor ?? 0, currency }, netBurnMonthly: { amountMinor: burn.netBurnMinor, currency }, scenario: input.scenario, blocksContinue: runway < LIMITS.runwayBlockMonths },

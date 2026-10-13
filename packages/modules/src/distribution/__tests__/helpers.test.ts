@@ -35,7 +35,7 @@ describe("potentialStars", () => {
 
 describe("buildChannelViews", () => {
   it("returns all 15 channels in line order with stored rows merged and the rest unscored", () => {
-    const views = buildChannelViews({ channels, campaigns, metrics, today: TODAY });
+    const views = buildChannelViews({ channels, campaigns, metrics, today: TODAY , currency: "EUR" });
     expect(views).toHaveLength(15);
     expect(new Set(views.map((v) => v.channelKey))).toEqual(new Set(CHANNEL_KEYS));
     expect(views.map((v) => v.line)).toEqual([...views].sort((a, b) => ["attack", "midfield", "defence", "wings"].indexOf(a.line) - ["attack", "midfield", "defence", "wings"].indexOf(b.line)).map((v) => v.line));
@@ -52,7 +52,7 @@ describe("buildChannelViews", () => {
   });
 
   it("prefers the fresh recommendation for fit, stars, cost range and why", () => {
-    const views = buildChannelViews({ channels, recommendation: recommendResponse.recommendation });
+    const views = buildChannelViews({ channels, recommendation: recommendResponse.recommendation , currency: "EUR" });
     const paid = views.find((v) => v.channelKey === "paid_ads")!;
     expect(paid.fit).toBe(18);
     expect(paid.stars).toBe(4);
@@ -64,7 +64,7 @@ describe("buildChannelViews", () => {
   });
 
   it("marks a running channel paused when its only running campaign is paused", () => {
-    const views = buildChannelViews({ channels, campaigns });
+    const views = buildChannelViews({ channels, campaigns , currency: "EUR" });
     expect(views.find((v) => v.channelKey === "social")!.paused).toBe(true);
     expect(views.find((v) => v.channelKey === "paid_ads")!.paused).toBe(false);
     expect(channelPaused({ enabled: false }, [{ ...campaigns[1]! }])).toBe(false);
@@ -83,7 +83,7 @@ describe("weeklyForm", () => {
 });
 
 describe("tokens and status", () => {
-  const views = buildChannelViews({ channels, campaigns, metrics, recommendation: recommendResponse.recommendation, today: TODAY });
+  const views = buildChannelViews({ channels, campaigns, metrics, recommendation: recommendResponse.recommendation, today: TODAY , currency: "EUR" });
 
   it("builds a ChannelTokenData with agents, budget share, results and the cost range in the business currency", () => {
     const paid = views.find((v) => v.channelKey === "paid_ads")!;
@@ -144,7 +144,7 @@ describe("attribution", () => {
   });
 
   it("builds channel rows with share of measured customers and partial labels for offline channels", () => {
-    const rows = attributionRows(buildChannelViews({ channels }), channelsList.blended);
+    const rows = attributionRows(buildChannelViews({ channels , currency: "EUR" }), channelsList.blended);
     expect(rows.map((r) => r.channelKey)).toEqual(["paid_ads", "social", "email_automation", "print"]);
     const paid = rows[0]!;
     expect(paid.share).toBeCloseTo(30 / 50, 5);

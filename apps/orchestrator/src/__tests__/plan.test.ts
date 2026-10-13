@@ -82,6 +82,25 @@ describe("executePlanAction on PGlite", () => {
     expect((await acts.finishPlan({ businessId: t.businessId, planId: plan.id })).status).toBe("done");
   });
 
+  it("a budget the plan gives without a currency is in the business's own; a training run is priced in USD (0025)", async () => {
+    await repos.businesses.update(t.db, t.businessId, { currency: "GBP" });
+    try {
+      const plan = await repos.plans.create(t.db, t.businessId, {
+        origin: "free_text",
+        actions: [
+          { type: "create_task", params: { title: "Draft the price page", kind: "ops", budget_minor: 4_000 }, agentId: t.workerId },
+          { type: "train_agent", params: { agent_id: t.workerId } },
+        ],
+      });
+      const task = await acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId: plan.actions[0]!.id, workflowId: "plan:test" });
+      expect(await repos.tasks.get(t.db, t.businessId, (task.result as { taskId: string }).taskId)).toMatchObject({ budgetMinor: 4_000, currency: "GBP" });
+      const training = await acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId: plan.actions[1]!.id, workflowId: "plan:test" });
+      expect((await repos.training.get(t.db, t.businessId, (training.result as { trainingRunId: string }).trainingRunId)).currency).toBe("USD");
+    } finally {
+      await repos.businesses.update(t.db, t.businessId, { currency: "USD" });
+    }
+  });
+
   it("ask: in augmented mode an external action opens an approval and waits; approval then executes through the gateway", async () => {
     await repos.businesses.setBusinessMode(t.db, t.businessId, "augmented");
     try {

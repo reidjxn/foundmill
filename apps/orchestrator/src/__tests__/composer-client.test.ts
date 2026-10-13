@@ -5,7 +5,6 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { repos } from "@foundmill/db";
-import { ApplicationFailure } from "@temporalio/common";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createCycleActivities } from "../activities/cycle";
 import { createJourneyActivities } from "../activities/journey";
@@ -60,13 +59,13 @@ describe("narrateCycle and the journey commentary", () => {
   const failing = (err: Error): ComposerClient => ({ baseUrl: "http://composer.test", narrate: () => Promise.reject(err), commentary: () => Promise.reject(err), chapterTitle: () => Promise.reject(err) });
   const input = () => ({ businessId: t.businessId, eventIds: [t.fixture.eventIds[0]!], summary: "Cycle 1: done." });
 
-  it("in staging a 4xx is a non-retryable failure, while an outage is rethrown for the activity retry", async () => {
+  it("in staging a 4xx is not retried and still ends in the plain cycle update, while an outage is rethrown for the activity retry", async () => {
     const staging = { ...t.deps, env: { ...t.deps.env, APP_ENV: "staging" as const } };
-    const rejected = await createCycleActivities({ ...staging, composer: failing(new ComposerRequestError("composer_rejected", "rejected after the re-ask", 422)) })
-      .narrateCycle(input())
-      .catch((e: unknown) => e);
-    expect(rejected).toBeInstanceOf(ApplicationFailure);
-    expect(rejected).toMatchObject({ type: "ComposerRequestError", nonRetryable: true });
+    const before = (await repos.inbox.list(t.db, t.businessId, { limit: 500 })).items.length;
+    const rejected = await createCycleActivities({ ...staging, composer: failing(new ComposerRequestError("composer_rejected", "rejected after the re-ask", 422)) }).narrateCycle(input());
+    expect(rejected.viaComposer).toBe(false);
+    expect(rejected.inboxItemIds).toHaveLength(1);
+    expect((await repos.inbox.list(t.db, t.businessId, { limit: 500 })).items.length).toBe(before + 1);
     const outage = await createCycleActivities({ ...staging, composer: failing(new ComposerUnavailableError("Composer /v1/narrate did not answer within 180 s")) })
       .narrateCycle(input())
       .catch((e: unknown) => e);

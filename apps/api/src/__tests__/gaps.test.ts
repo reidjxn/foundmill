@@ -2,7 +2,7 @@
 import { repos } from "@foundmill/db";
 import { MemoryRedis, publishSessionEvent } from "@foundmill/events";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { METRIC_IDS, matchMetric } from "../services/metrics";
+import { METRIC_IDS, matchMetric, totalInOneCurrency } from "../services/metrics";
 import type { RecordingLike } from "../services/replay";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -75,7 +75,8 @@ describe("consumer procedure gaps", () => {
   it("finance.accounts.list returns the connected accounts (read-only)", async () => {
     const accounts = await hz.caller({ userId: hz.A.ownerId }).finance.accounts.list({ businessId: hz.A.businessId });
     expect(accounts.map((a) => a.id)).toEqual([hz.A.accountId]);
-    expect(accounts[0]).toMatchObject({ provider: "mock_bank", name: "Main", currency: "EUR" });
+    // The fixture writes the account without a currency: it takes the business's own (0025; USD by default).
+    expect(accounts[0]).toMatchObject({ provider: "mock_bank", name: "Main", currency: "USD" });
     await expect(hz.caller({ userId: hz.B.ownerId }).finance.accounts.list({ businessId: hz.A.businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
@@ -88,10 +89,19 @@ describe("consumer procedure gaps", () => {
     // The fixture recorded two payments moments ago.
     expect(customers).toMatchObject({ value: 2, format: "integer", label: "Customers won, last 30 days", estimate: null });
     const cash = await owner.dashboard.customMetric.get({ businessId, queryId: "cash" });
-    expect(cash).toMatchObject({ value: 0, currency: "EUR", format: "money" });
+    expect(cash).toMatchObject({ value: 0, currency: "USD", format: "money" });
+    // Model spend is metered in the pricing currency, whatever the business uses.
+    expect(await owner.dashboard.customMetric.get({ businessId, queryId: "spend_30d" })).toMatchObject({ currency: "USD", estimate: "estimate" });
     const runway = await owner.dashboard.customMetric.get({ businessId, queryId: "runway_months" });
     expect(runway.value).toBeNull();
     expect(runway.estimate).toBe("estimate");
+
+    // Amounts in several currencies are never added together (revenue used to sum GBP and EUR under one label).
+    expect(totalInOneCurrency([{ amountMinor: 500, currency: "GBP" }, { amountMinor: 700, currency: "EUR" }, { amountMinor: 300, currency: "GBP" }], "GBP")).toEqual({ value: 800, currency: "GBP", leftOut: true });
+    expect(totalInOneCurrency([{ amountMinor: 700, currency: "EUR" }, { amountMinor: 100, currency: "EUR" }], "GBP")).toEqual({ value: 800, currency: "EUR", leftOut: false });
+    expect(totalInOneCurrency([], "USD")).toEqual({ value: 0, currency: "USD", leftOut: false });
+    const revenue = await owner.dashboard.customMetric.get({ businessId, queryId: "revenue_30d" });
+    expect(revenue).toMatchObject({ format: "money", currency: expect.stringMatching(/^[A-Z]{3}$/) });
 
     expect(matchMetric("How much cash do we have in the bank?")?.queryId).toBe("cash");
     expect(matchMetric("customers won in the last 30 days")?.queryId).toBe("customers_30d");

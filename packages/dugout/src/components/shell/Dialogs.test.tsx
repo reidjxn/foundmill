@@ -65,7 +65,7 @@ describe("HolidayDialog", () => {
   it("accepts a condition", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
-    render(<HolidayDialog open onOpenChange={() => {}} onSubmit={onSubmit} today={today} />);
+    render(<HolidayDialog open onOpenChange={() => {}} onSubmit={onSubmit} today={today} currency="EUR" />);
     await user.click(screen.getByRole("radio", { name: /A condition/ }));
     await user.type(screen.getByTestId("holiday-condition"), "when the launch ships");
     await user.click(screen.getByTestId("holiday-submit"));

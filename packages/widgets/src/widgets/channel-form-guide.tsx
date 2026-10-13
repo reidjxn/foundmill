@@ -91,7 +91,7 @@ export function buildFormRows(channels: readonly ChannelRow[], metrics: readonly
 }
 
 function ChannelFormGuideWidget({ settings }: WidgetProps<ChannelFormGuideSettings>) {
-  const { businessId, navigate, currency = "EUR" } = useWidgetData();
+  const { businessId, navigate, currency } = useWidgetData();
   const today = dayKey();
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
   const metrics = useWidgetQuery<ChannelMetricRow[]>("distribution.channels.metrics", { from: addDays(today, -7 * FORM_WEEKS), to: today });

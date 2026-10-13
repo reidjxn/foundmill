@@ -74,7 +74,7 @@ export function createHealthActivities(deps: OrchestratorDeps) {
           businessId: input.businessId,
           type: "agent.health_changed",
           actor: systemActor,
-          payload: { agentId: agent.id, from: agent.status, to: verdict.status, reason: verdict.reason, signals: { heartbeatAgeMs: signals.heartbeatAgeMs === null ? null : Math.round(signals.heartbeatAgeMs), errorRate: signals.errorRate, loopDetected: signals.loopDetected, credentialExpired: signals.credentialExpired, rateLimited: signals.rateLimited, budgetRemaining: signals.budgetRemainingMinor === null ? null : { amountMinor: Math.max(0, Math.round(signals.budgetRemainingMinor)), currency: agent.currency ?? "EUR" } }, expectedReturnAt: verdict.expectedReturnAt, sessionId: open.items[0]?.id ?? null },
+          payload: { agentId: agent.id, from: agent.status, to: verdict.status, reason: verdict.reason, signals: { heartbeatAgeMs: signals.heartbeatAgeMs === null ? null : Math.round(signals.heartbeatAgeMs), errorRate: signals.errorRate, loopDetected: signals.loopDetected, credentialExpired: signals.credentialExpired, rateLimited: signals.rateLimited, budgetRemaining: signals.budgetRemainingMinor === null ? null : { amountMinor: Math.max(0, Math.round(signals.budgetRemainingMinor)), currency: agent.currency } }, expectedReturnAt: verdict.expectedReturnAt, sessionId: open.items[0]?.id ?? null },
         });
         changed.push({ agentId: agent.id, from: agent.status, to: verdict.status, reason: verdict.reason });
         eventIds.push(ev.id);

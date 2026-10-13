@@ -78,8 +78,9 @@ export const legalRouter = router({
     const result = await ctx.models.complete({
       route: "departmentLead",
       schema: JurisdictionRecommendation,
-      system: `You are the Legal agent. Recommend two jurisdictions for this founder and business with up to six cards. Information only, never legal or tax advice. ${HOUSE_STYLE}`,
-      messages: [{ role: "user", content: "```json\n" + JSON.stringify({ founder: profile ? { citizenship: profile.citizenship, residence: profile.residence, target_markets: profile.targetMarkets, budget_minor: profile.budgetMinor } : null, business: { archetype: ctx.business.archetype, name: ctx.business.name }, fundraising: input.fundraising, co_founders: input.coFounders }) + "\n```" }],
+      // The cards' costs are shown in the business's own currency (0025), so they are asked for in it.
+      system: `You are the Legal agent. Recommend two jurisdictions for this founder and business with up to six cards. Give every cost and the minimum capital in minor units of the business's currency (business.currency), converted where the register charges in another. Information only, never legal or tax advice. ${HOUSE_STYLE}`,
+      messages: [{ role: "user", content: "```json\n" + JSON.stringify({ founder: profile ? { citizenship: profile.citizenship, residence: profile.residence, target_markets: profile.targetMarkets, budget_minor: profile.budgetMinor, budget_currency: profile.currency } : null, business: { archetype: ctx.business.archetype, name: ctx.business.name, currency: ctx.business.currency }, fundraising: input.fundraising, co_founders: input.coFounders }) + "\n```" }],
       attribution: { businessId: ctx.businessId, kind: "jurisdiction_recommender" },
     });
     await ctx.rls((tx) => audit(tx, ctx, { action: "legal.recommend", target: { kind: "business", id: ctx.businessId }, details: { headline: result.json.headline, costMinor: result.cost.costMinorInt } }));
@@ -171,7 +172,8 @@ export const legalRouter = router({
           registeredAddress: z.record(z.string(), z.string()).default({}),
           officers: z.array(z.object({ name: z.string().min(1), role: z.string().min(1), appointedOn: z.string().nullable().default(null) })).default([]),
           shareCapitalMinor: z.number().int().nonnegative().nullable().default(null),
-          currency: z.string().length(3).default("EUR"),
+          /** The register's own currency for the share capital; absent: the business's currency (0025). */
+          currency: z.string().length(3).optional(),
           deadlines: z.array(z.object({ kind: z.string().min(1), dueAt: z.string() })).default([]),
         }),
       )

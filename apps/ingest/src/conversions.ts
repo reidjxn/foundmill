@@ -42,7 +42,8 @@ export interface ConversionFacts {
   /** The connector's deterministic entity id (`payload.entityId`); ingest links it to a CRM record. */
   entityId: string;
   amountMinor: number;
-  currency: string;
+  /** A payment's own currency; null (a sign-up or an activation, no money) takes the business's own (0025). */
+  currency: string | null;
   conversionRef: string;
   provider: string;
   /** Payments: the connector's view of whether this is the customer's first payment (renewals and repeat orders are not). */
@@ -75,12 +76,12 @@ export function conversionFactsFor(event: PlatformEvent): ConversionFacts | null
     case "signup.created": {
       const p = event.payload;
       return {
-        kind: "signup", entityId: p.entityId, amountMinor: 0, currency: "EUR", conversionRef: p.conversionId, provider: p.provider, firstPayment: true, customer: p.customer ?? null,
+        kind: "signup", entityId: p.entityId, amountMinor: 0, currency: null, conversionRef: p.conversionId, provider: p.provider, firstPayment: true, customer: p.customer ?? null,
         touch: touchFrom(p.source, { visitorId: p.visitorId, channelKey: p.channelKey, campaignId: p.campaignId }), consent: p.consentState,
       };
     }
     case "activation.reached":
-      return { kind: "activation", entityId: event.payload.entityId, amountMinor: 0, currency: "EUR", conversionRef: event.payload.conversionId, provider: event.payload.provider, firstPayment: true, customer: null, touch: null, consent: null };
+      return { kind: "activation", entityId: event.payload.entityId, amountMinor: 0, currency: null, conversionRef: event.payload.conversionId, provider: event.payload.provider, firstPayment: true, customer: null, touch: null, consent: null };
     case "payment.received": {
       const p = event.payload;
       return {
@@ -186,7 +187,7 @@ export async function recordConversionForEvent(
     entityId,
     kind: facts.kind,
     amountMinor: Math.max(0, facts.amountMinor),
-    currency: facts.currency,
+    ...(facts.currency ? { currency: facts.currency } : {}),
     occurredAt: event.occurredAt,
     sourceEventId: event.id,
     firstPayment,
@@ -218,7 +219,7 @@ export async function recordConversionForEvent(
   }
   const touches = journeyTouchesFrom(touchRows, businessId);
   const record = buildJourney({
-    conversion: { id: conversion.id, businessId, entityId, kind: facts.kind, amountMinor: Math.max(0, facts.amountMinor), currency: facts.currency, occurredAt: event.occurredAt.toISOString(), sourceEventId: event.id, firstPayment: true },
+    conversion: { id: conversion.id, businessId, entityId, kind: facts.kind, amountMinor: Math.max(0, facts.amountMinor), currency: conversion.currency, occurredAt: event.occurredAt.toISOString(), sourceEventId: event.id, firstPayment: true },
     touches,
     consent,
     counts: { conversions: Object.values(counts).reduce((a, b) => a + b, 0), nthOfKind, valuePercentile75Minor: p75 },
@@ -252,7 +253,7 @@ export async function recordConversionForEvent(
       journeyId: journey.id,
       kind: facts.kind,
       matchdayLevel,
-      amount: facts.amountMinor > 0 ? { amountMinor: facts.amountMinor, currency: facts.currency } : null,
+      amount: facts.amountMinor > 0 ? { amountMinor: facts.amountMinor, currency: conversion.currency } : null,
       nthOfKind,
       fullMatchDay,
       captainChannelKey: record.captain?.channelKey ?? null,

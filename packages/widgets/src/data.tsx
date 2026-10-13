@@ -30,8 +30,11 @@ export type WidgetDataSource = {
   glossary: Record<string, string>;
   /** LIVE or Personal (BUILD §7.3). LIVE-only widgets render an explanation in Personal mode. Default "personal". */
   gameMode?: GameMode;
-  /** Business currency for money the API returns without one. Default "EUR". */
-  currency?: string;
+  /**
+   * The business's own currency (`businesses.currency`, 0025) for business money the API returns without one. Every
+   * host passes it: there is no fixed fallback currency. Model and credit costs carry their own (USD).
+   */
+  currency: string;
   /**
    * Whether the host's event stream is live for this business (a hook, called in render). While it is, the host
    * refetches what each event changes, so a screen can poll slowly or not at all; hosts without a stream leave it out

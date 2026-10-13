@@ -14,7 +14,7 @@ import { Avatar, Button, EntityLink, HealthBadge, ModelChip, ProfileHeader, form
 import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { useBusiness } from "@/components/shell/business-context";
+import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
@@ -44,11 +44,11 @@ export interface TabProps {
 
 export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
   const datePrefs = useDateFormat();
-  const { businessId, data, departments } = useBusiness();
+  const { businessId, departments } = useBusiness();
   const trpc = useTRPC();
   const router = useRouter();
   const [modelOpen, setModelOpen] = useState(false);
-  const currency = data.business.glossary?.currency ?? "EUR";
+  const currency = useBusinessCurrency();
   const desk = useAgentDesk();
 
   const profileQ = useQuery(

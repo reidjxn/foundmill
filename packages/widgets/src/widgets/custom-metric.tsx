@@ -59,7 +59,8 @@ export function metricQueryInput(s: CustomMetricSettings): Record<string, unknow
   return s.compiled ? { sql: s.compiled.sql, queryId: s.compiled.queryId ?? undefined } : null;
 }
 
-export function formatMetric(value: number | null | undefined, format: CustomMetricFormat | null | undefined, currency = "EUR"): MetricTileProps["value"] {
+/** `currency`: the figure's own (the API names it), else the business's. */
+export function formatMetric(value: number | null | undefined, format: CustomMetricFormat | null | undefined, currency: string): MetricTileProps["value"] {
   if (value === null || value === undefined) return "—";
   switch (format) {
     case "money":
@@ -89,7 +90,7 @@ function tileFor(result: CustomMetricResult | undefined, settings: Pick<CustomMe
 }
 
 function CustomMetricWidget({ settings }: WidgetProps<CustomMetricSettings>) {
-  const { currency = "EUR" } = useWidgetData();
+  const { currency } = useWidgetData();
   const input = metricQueryInput(settings);
   const metric = useWidgetQuery<CustomMetricResult>("dashboard.customMetric.get", input ?? undefined, { enabled: !!input, refetchIntervalMs: 60_000 });
   return (
@@ -108,7 +109,7 @@ function CustomMetricWidget({ settings }: WidgetProps<CustomMetricSettings>) {
 
 /** Settings editor: named query OR sentence → compile → preview → "Use this metric" (BUILD §11.2 preview before save). */
 export function CustomMetricSettingsEditor({ value, onChange }: WidgetSettingsProps<CustomMetricSettings>) {
-  const { mutate, currency = "EUR" } = useWidgetData();
+  const { mutate, currency } = useWidgetData();
   const id = useId();
   const [sentence, setSentence] = useState(value.sentence ?? "");
   const [previewQueryId, setPreviewQueryId] = useState<string | null>(null);

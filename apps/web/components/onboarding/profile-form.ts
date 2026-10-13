@@ -42,7 +42,8 @@ export const RISK_OPTIONS: Option[] = [
   { value: "high", label: "High", description: "Move fast, accept bigger swings for bigger outcomes." },
 ];
 
-export const CURRENCIES = ["EUR", "USD", "GBP", "SEK", "NOK", "DKK", "CHF", "CAD", "AUD"] as const;
+/** The currencies a profile (and a business, Settings › Business) can use: one list, in @foundmill/shared. */
+export { CURRENCIES } from "@foundmill/shared/constants";
 
 export const MARKET_SUGGESTIONS = ["EU", "UK", "US", "Nordics", "DACH", "France", "Benelux", "Canada", "Australia", "Global"] as const;
 

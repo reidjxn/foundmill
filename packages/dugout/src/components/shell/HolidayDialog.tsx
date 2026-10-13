@@ -56,7 +56,7 @@ export interface HolidayDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Currency for the budget ceiling (the business's currency). */
-  currency?: string;
+  currency: string;
   /** Today, for the earliest allowed date. */
   today?: Date;
   initial?: Partial<HolidaySettings>;
@@ -108,7 +108,7 @@ function toDateInput(d: Date): string {
  * HolidayDialog (BUILD §5.4, §9.6): until (date / condition / until I return), the Chief of Staff's authority as a
  * checklist of decision types (hard gates locked), a budget ceiling, and the events that wake the founder.
  */
-export function HolidayDialog({ open, onOpenChange, currency = "EUR", today = new Date(), initial, onSubmit }: HolidayDialogProps) {
+export function HolidayDialog({ open, onOpenChange, currency, today = new Date(), initial, onSubmit }: HolidayDialogProps) {
   const id = useId();
   const [untilKind, setUntilKind] = useState<HolidayUntil["kind"]>(initial?.until?.kind ?? "date");
   const [date, setDate] = useState(initial?.until?.kind === "date" ? initial.until.date : "");

@@ -6,7 +6,7 @@
  * not present in the inputs (numbers are only ever copied from metric values, event payloads and option costs; every
  * template sentence is digit-free).
  */
-import { CHANNEL_KEYS, EXHIBIT_KINDS, INBOX_ITEM_TYPES, type ChannelKey, type ExhibitKind, type InboxItemType } from "@foundmill/shared";
+import { CHANNEL_KEYS, DEFAULT_BUSINESS_CURRENCY, EXHIBIT_KINDS, INBOX_ITEM_TYPES, type ChannelKey, type ExhibitKind, type InboxItemType } from "@foundmill/shared";
 import type { ComposerOption, ComposerOutput } from "../schemas";
 import { type ManifestEntry, type MockContext, asUuid, channelLabel, ent, formatMoneyMinor, humaniseKey, isRecord, sentenceCase, truncate, wordCount } from "./inputs";
 
@@ -57,7 +57,9 @@ export function generateInboxComposer(ctx: MockContext): ComposerOutput {
   const subjectEntity = primary ? entityFor(ctx, primary) : undefined;
   const channel = primary ? channelFor(primary) : undefined;
   const taskTitle = primary ? stringField(primary.payload, ["title", "task_title", "pr_title", "name", "subject"]) : undefined;
-  const amount = primary ? moneyField(primary.payload) : undefined;
+  // An amount the event does not price is in the business's own currency (the composer input carries it, 0025).
+  const businessCurrency = (readNested(ctx, ["business"], ["currency"]) ?? DEFAULT_BUSINESS_CURRENCY).toUpperCase();
+  const amount = primary ? moneyField(primary.payload, businessCurrency) : undefined;
 
   const who = subjectEntity ? ent(subjectEntity) : (primary && stringField(primary.payload, ["customer_name", "customer", "entity_name", "supplier", "contact"])) || undefined;
 
@@ -236,9 +238,9 @@ const numberField = (payload: Record<string, unknown>, keys: string[]): number |
   return undefined;
 };
 
-function moneyField(payload: Record<string, unknown>): string | undefined {
+function moneyField(payload: Record<string, unknown>, businessCurrency: string): string | undefined {
   const minor = numberField(payload, ["amount_minor", "amountMinor", "value_minor", "total_minor"]);
-  const currency = stringField(payload, ["currency"]) ?? "EUR";
+  const currency = stringField(payload, ["currency"]) ?? businessCurrency;
   if (minor !== undefined) return formatMoneyMinor(minor, currency);
   const amountRaw = payload.amount ?? payload.total ?? payload.value;
   if (isRecord(amountRaw) && typeof amountRaw.amountMinor === "number") return formatMoneyMinor(amountRaw.amountMinor, typeof amountRaw.currency === "string" ? amountRaw.currency : currency);

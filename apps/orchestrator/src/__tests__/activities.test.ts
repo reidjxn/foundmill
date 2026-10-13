@@ -7,6 +7,8 @@ import { getSkillTests } from "@foundmill/agents";
 import { openApprovalItem, repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
+import { createCycleActivities } from "../activities/cycle";
+import { ComposerRequestError, ComposerUnavailableError, createComposerClient } from "../composer-client";
 import { createHealthActivities } from "../activities/health";
 import { classifyDecision, createHolidayActivities } from "../activities/holiday";
 import { createJourneyActivities } from "../activities/journey";
@@ -63,6 +65,11 @@ describe("training run (BUILD §11.10)", () => {
     expect(events.items.some((e) => (e.payload as { trainingRunId: string }).trainingRunId === run.id)).toBe(true);
     const usage = await repos.usage.list(t.db, t.businessId, { agentId: agent.id, kind: "training", limit: 5 });
     expect(usage.items.length).toBeGreaterThan(0);
+    // The calls are booked once by the model client; the training row counts tests and never books their cost again
+    // (nor in a currency of its own).
+    for (const u of usage.items) expect({ cost: Number(u.costMinor), currency: u.currency }).toEqual({ cost: 0, currency: "USD" });
+    const completed = events.items.find((e) => (e.payload as { trainingRunId: string }).trainingRunId === run.id)!;
+    expect((completed.payload as { cost: { currency: string } }).cost.currency).toBe("USD");
   });
 
   it("refuses to train against the live version and caps scores when a deterministic check failed", async () => {
@@ -186,6 +193,59 @@ describe("training honours the team-wide stop (SEC3)", () => {
   });
 });
 
+describe("cycle narration", () => {
+  it("a cycle in which nothing finished still ends with a Chief of Staff note, in staging too, without asking the composer", async () => {
+    const narrated: string[][] = [];
+    const composer = { ...t.deps.composer, narrate: async (input: { eventIds: string[] }) => {
+      narrated.push(input.eventIds);
+      throw new ComposerUnavailableError("Composer /v1/narrate returned 503");
+    } } as typeof t.deps.composer;
+    const acts = createCycleActivities({ ...t.deps, composer, env: { ...t.deps.env, APP_ENV: "staging" } });
+    const summary = "Plan: ship the pricing page.\n\nCycle 3: 0 sessions dispatched, 0 finished, 0 blocked; 2 tasks deferred.";
+    const out = await acts.narrateCycle({ businessId: t.businessId, eventIds: [], summary, fallbackSubject: "Cycle 3 completed" });
+    expect(narrated).toEqual([]);
+    expect(out.viaComposer).toBe(false);
+    expect(out.inboxItemIds).toHaveLength(1);
+    const item = await repos.inbox.get(t.db, t.businessId, out.inboxItemIds[0]!);
+    expect(item).toMatchObject({ type: "update", subject: "Cycle 3 completed", fromAgentId: t.chiefId });
+    expect(item.bodyMd).toContain("2 tasks deferred");
+    expect(item.bodyMd).not.toMatch(/service unavailable/);
+    // With events to narrate, staging still surfaces a composer outage (the workflow retries it).
+    await expect(acts.narrateCycle({ businessId: t.businessId, eventIds: ["00000000-0000-0000-0000-000000000001"], summary })).rejects.toThrow(ComposerUnavailableError);
+  });
+
+  it("a request the composer refuses (4xx) is not retried: the plain note goes out in staging too and the events count as narrated", async () => {
+    const ev = await repos.events.write(t.db, t.businessId, { type: "task.completed", actor: { kind: "system", id: "test" }, payload: { probe: "narrate-refused" } });
+    const composer = { ...t.deps.composer, narrate: async () => {
+      throw new ComposerRequestError("validation", "Composer /v1/narrate returned 400", 400);
+    } } as typeof t.deps.composer;
+    const acts = createCycleActivities({ ...t.deps, composer, env: { ...t.deps.env, APP_ENV: "staging" } });
+    const out = await acts.narrateCycle({ businessId: t.businessId, eventIds: [ev.id], summary: "Cycle 4: 1 session dispatched, 1 finished, 0 blocked.", fallbackSubject: "Cycle 4 completed" });
+    expect(out).toMatchObject({ viaComposer: false, inboxItemIds: [expect.any(String)] });
+    const item = await repos.inbox.get(t.db, t.businessId, out.inboxItemIds[0]!);
+    expect(item).toMatchObject({ subject: "Cycle 4 completed", sourceEventIds: [ev.id] });
+    expect(item.bodyMd).toMatch(/without the Inbox Composer/);
+    expect((await repos.events.get(t.db, t.businessId, ev.id)).narrated).toBe(true);
+  });
+
+  it("the composer client tells a refusal (4xx) from an outage (5xx, timeouts, rate limits)", async () => {
+    const answering = (status: number) => createComposerClient({ baseUrl: "http://composer.test", fetch: (async () => new Response(JSON.stringify({ error: "x" }), { status })) as typeof fetch });
+    await expect(answering(400).narrate({ businessId: t.businessId, eventIds: [] })).rejects.toBeInstanceOf(ComposerRequestError);
+    await expect(answering(404).narrate({ businessId: t.businessId, eventIds: [] })).rejects.toMatchObject({ status: 404 });
+    for (const status of [409, 429, 503]) {
+      const err = await answering(status).narrate({ businessId: t.businessId, eventIds: [] }).catch((e: unknown) => e);
+      expect(err, String(status)).toBeInstanceOf(ComposerUnavailableError);
+      expect(err, String(status)).not.toBeInstanceOf(ComposerRequestError);
+    }
+    // A body that is not JSON (a proxy's HTML page) does not change the verdict: a 4xx is still a refusal, a 5xx an outage.
+    const html = (status: number) => createComposerClient({ baseUrl: "http://composer.test", fetch: (async () => new Response("<html>nope</html>", { status })) as typeof fetch });
+    await expect(html(404).narrate({ businessId: t.businessId, eventIds: [] })).rejects.toBeInstanceOf(ComposerRequestError);
+    const outage = await html(502).narrate({ businessId: t.businessId, eventIds: [] }).catch((e: unknown) => e);
+    expect(outage).toBeInstanceOf(ComposerUnavailableError);
+    expect(outage).not.toBeInstanceOf(ComposerRequestError);
+  });
+});
+
 describe("holiday activities (BUILD §9.6)", () => {
   it("classifies decisions by the authority they need", () => {
     const item = (subject: string, body = "", cost = 0) => ({ subject, bodyMd: body, decision: { options: [{ id: "a", recommended: true, cost_minor: cost }] } });
@@ -200,8 +260,12 @@ describe("holiday activities (BUILD §9.6)", () => {
   it("auto-decides blocking items within authority, queues gated ones, then builds the report", async () => {
     const acts = createHolidayActivities(t.deps);
     const started = t.clock.now();
-    const h = await repos.holidays.start(t.db, t.businessId, { untilAt: new Date(started.getTime() + 3 * 86_400_000), authority: { decisionTypes: ["publish_content", "spend_above_threshold", "sign_contracts"] }, wakeEvents: ["credential.expiring"], startedAt: started, currency: "EUR" });
+    // A vacation without a budget ceiling is in the business's own currency (0025), never a fixed one.
+    await repos.businesses.update(t.db, t.businessId, { currency: "GBP" });
+    const h = await repos.holidays.start(t.db, t.businessId, { untilAt: new Date(started.getTime() + 3 * 86_400_000), authority: { decisionTypes: ["publish_content", "spend_above_threshold", "sign_contracts"] }, wakeEvents: ["credential.expiring"], startedAt: started });
+    await repos.businesses.update(t.db, t.businessId, { currency: "USD" });
     const loaded = await acts.loadHoliday({ businessId: t.businessId, holidayId: h.id });
+    expect(loaded.currency).toBe("GBP");
     expect(loaded.authority).toEqual(["publish_content", "spend_above_threshold"]); // signing is never delegated
     const mk = (subject: string, body: string) =>
       repos.inbox.createItem(t.db, t.businessId, { type: "decision", from_agent_id: t.chiefId, subject, body_md: body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options: [{ id: "go", label: "Go", recommended: true, consequence: "It happens", cost_minor: 0, reversible: true }, { id: "wait", label: "Wait", recommended: false, consequence: "Nothing", cost_minor: 0, reversible: true }], free_text: true, expires_at: null }, blocks_continue: true, source_event_ids: [], entity_ids: [] });
@@ -228,6 +292,10 @@ describe("holiday activities (BUILD §9.6)", () => {
     expect(report.subject).toBe("While you were away");
     expect(report.bodyMd).toMatch(/Decisions I took/);
     expect(report.bodyMd).toMatch(/Customer Updates \(\d+\)/);
+    // Money in reads in the vacation's currency with its symbol; team spend is model cost, in the pricing currency.
+    expect(report.bodyMd).toMatch(/\*\*Money\*\* — in: £[\d,]+\.\d{2} across/);
+    expect(report.bodyMd).toMatch(/team spend: \$[\d,]+\.\d{2} \(Estimate\)/);
+    expect(report.bodyMd).not.toMatch(/ EUR| GBP/);
     expect(report.bodyMd).not.toMatch(/match/i);
     expect(report.bodyMd).toMatch(/Waiting for you/);
     expect(report.bodyMd).toMatch(/Estimate/);

@@ -13,7 +13,7 @@ describe("finance", () => {
   let accountId: string;
 
   it("upserts accounts idempotently and reports the cash position per currency", async () => {
-    const a1 = await repos.finance.upsertAccount(r.db, r.A.businessId, { provider: "tink", externalId: "acc-1", name: "Operating", balanceMinor: 1_000_000, balanceAt: day("2026-10-01"), consentExpiresAt: day("2026-10-10") });
+    const a1 = await repos.finance.upsertAccount(r.db, r.A.businessId, { provider: "tink", externalId: "acc-1", name: "Operating", currency: "EUR", balanceMinor: 1_000_000, balanceAt: day("2026-10-01"), consentExpiresAt: day("2026-10-10") });
     const a1b = await repos.finance.upsertAccount(r.db, r.A.businessId, { provider: "tink", externalId: "acc-1", name: "Operating EUR", balanceMinor: 1_200_000 });
     expect(a1b.id).toBe(a1.id);
     expect(a1b.name).toBe("Operating EUR");
@@ -180,10 +180,15 @@ describe("usage", () => {
       [r.A.agentId, 120],
       [r.A.agent2Id, 45],
     ]);
-    expect(wages.find((w) => w.agentId === r.A.agent2Id)).toMatchObject({ tokens: 120000, sandboxMinutes: 45 });
+    expect(wages.find((w) => w.agentId === r.A.agent2Id)).toMatchObject({ tokens: 120000, sandboxMinutes: 45, trainingMinor: 0 });
     expect(wages.find((w) => w.agentId === r.A.agentId)).toMatchObject({ costMinor: 120, toolCalls: 1 });
     await repos.agents.update(r.db, A, r.A.agent2Id, { wageCapMinor: 100 });
     expect(await repos.usage.agentSpend(r.db, A, r.A.agent2Id, "2026-10")).toEqual({ costMinor: 45, wageCapMinor: 100, remainingMinor: 55 });
+    // A training run books its model calls once, as tokens attributed to it; the Training column still shows them.
+    await repos.usage.record(r.db, A, { agentId: r.A.agent2Id, kind: "tokens", quantity: 900, costMinor: 7, occurredAt: day("2026-10-05"), details: { kind: "training" } });
+    await repos.usage.record(r.db, A, { agentId: r.A.agent2Id, kind: "tokens", quantity: 300, costMinor: 2, occurredAt: day("2026-10-05"), details: { kind: "skill_grader" } });
+    await repos.usage.record(r.db, A, { agentId: r.A.agent2Id, kind: "training", quantity: 3, unit: "tests", costMinor: 0, occurredAt: day("2026-10-05") });
+    expect((await repos.usage.wages(r.db, A, "2026-10")).find((w) => w.agentId === r.A.agent2Id)).toMatchObject({ costMinor: 54, tokens: 121200, trainingMinor: 9 });
     expect((await repos.usage.list(r.db, A, { agentId: r.A.agentId, kind: "tokens" })).items).toHaveLength(2);
     expect((await r.svc((tx) => repos.usage.list(tx, r.B.businessId))).items).toHaveLength(0);
 

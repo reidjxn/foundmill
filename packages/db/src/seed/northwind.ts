@@ -88,6 +88,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     planTier: "pro",
     modelBilling: "credits",
     glossary: { customer: "customer", squad: "lab team" },
+    currency: CURRENCY,
     createdBy: ctx.owner.userId,
   });
   for (const owner of ctx.owners) await repos.memberships.add(db, businessId, { userId: owner.userId, role: "owner" });

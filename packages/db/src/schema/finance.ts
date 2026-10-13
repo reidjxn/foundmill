@@ -1,7 +1,7 @@
 /** 0009 — finance: bank accounts, transactions, ledger, forecasts, cap table, usage, credits. */
 import { MODEL_BILLING, MODEL_KEYS, SECURITY_KINDS, USAGE_KINDS } from "@foundmill/shared";
 import { date, index, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
-import { currency, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz, usdCurrency } from "./_common";
+import { businessCurrency, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz, usdCurrency } from "./_common";
 import { businessId } from "./_refs";
 import { agentSessions, agents } from "./agents";
 import { entities } from "./crm";
@@ -19,7 +19,7 @@ export const accounts = pgTable(
     provider: text("provider").notNull(),
     externalId: text("external_id").notNull(),
     name: text("name").notNull(),
-    currency: currency(),
+    currency: businessCurrency(),
     balanceMinor: minor("balance_minor").notNull().default(0),
     balanceAt: tstz("balance_at"),
     consentExpiresAt: tstz("consent_expires_at"),
@@ -44,7 +44,7 @@ export const transactions = pgTable(
     externalId: text("external_id"),
     bookedAt: tstz("booked_at").notNull(),
     amountMinor: minor("amount_minor").notNull(),
-    currency: currency(),
+    currency: businessCurrency(),
     counterparty: text("counterparty"),
     counterpartyEntityId: uuid("counterparty_entity_id").references((): AnyPgColumn => entities.id, { onDelete: "set null" }),
     description: text("description").notNull().default(""),
@@ -70,7 +70,7 @@ export const ledgerSnapshots = pgTable(
     businessId: businessId(),
     period: text("period").notNull(),
     basis: text("basis", { enum: LEDGER_BASES }).notNull().default("cash"),
-    currency: currency(),
+    currency: businessCurrency(),
     pnl: jsonb("pnl").$type<Record<string, unknown>>().notNull().default(emptyObject),
     source: text("source"),
     ...timestamps(),
@@ -86,7 +86,7 @@ export const forecasts = pgTable(
     id: id(),
     businessId: businessId(),
     scenario: text("scenario", { enum: FORECAST_SCENARIOS }).notNull(),
-    currency: currency(),
+    currency: businessCurrency(),
     drivers: jsonb("drivers").$type<Record<string, unknown>>().notNull().default(emptyObject),
     series: jsonb("series").$type<unknown[]>().notNull().default(emptyList),
     generatedByAgentId: uuid("generated_by_agent_id").references((): AnyPgColumn => agents.id, { onDelete: "set null" }),
@@ -106,7 +106,7 @@ export const securities = pgTable(
     kind: text("kind", { enum: SECURITY_KINDS }).notNull(),
     terms: jsonb("terms").$type<Record<string, unknown>>().notNull().default(emptyObject),
     authorisedQuantity: minor("authorised_quantity"),
-    currency: currency(),
+    currency: businessCurrency(),
     ...timestampsWithArchive(),
   },
   (t) => [uniqueIndex("securities_business_id_class_key").on(t.businessId, t.class), index("securities_business_id_idx").on(t.businessId)],
@@ -123,7 +123,7 @@ export const capTableEntries = pgTable(
     securityId: uuid("security_id").notNull().references(() => securities.id, { onDelete: "cascade" }),
     quantity: numeric("quantity", { precision: 20, scale: 4 }).notNull(),
     priceMinor: minor("price_minor"),
-    currency: currency(),
+    currency: businessCurrency(),
     vesting: jsonb("vesting").$type<Record<string, unknown>>(),
     issuedAt: date("issued_at", { mode: "string" }),
     ...timestampsWithArchive(),

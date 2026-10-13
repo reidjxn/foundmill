@@ -76,7 +76,8 @@ function plural(n: number, word: string): string {
 }
 
 /** The impact jsonb as label + value lines; unknown keys are ignored, missing ones omitted. */
-export function impactLines(impact: ProposalImpact | null | undefined, currency = "EUR"): ImpactLine[] {
+/** `currency`: the business's own (a proposal's cost impact is business money). */
+export function impactLines(impact: ProposalImpact | null | undefined, currency: string): ImpactLine[] {
   const out: ImpactLine[] = [];
   if (!impact) return out;
   const { dates, tasks, costMinor } = impact;

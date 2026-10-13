@@ -31,6 +31,23 @@ describe("foundations mock (BUILD §11.1 first open, §11.5)", () => {
     expect(pricing).toMatch(/\(Estimate\)/);
   });
 
+  it("prices in the business's own currency (a dollar business never reads '€49')", async () => {
+    const draft = async (currency?: string) =>
+      (
+        await client.complete({
+          route: "foundations",
+          schema: FoundationsOutput,
+          messages: promptWith({ business: { name: "Ledgerly", archetype: "b2b_saas", ...(currency ? { currency } : {}) }, door: "ideation", outline: [{ section: "Pricing", pinned: false }], idea: { title: "Ledgerly", pitch: "Ledgerly helps accountants close the month." } }),
+        })
+      ).json;
+    const usd = await draft("USD");
+    expect(JSON.stringify(usd.sections.find((s) => s.section === "Pricing"))).toContain("$49 per team per month (Estimate)");
+    expect(usd.roadmap.find((i) => i.title === "Pricing experiment")?.description).toContain("Test $49 per team per month (Estimate)");
+    expect(JSON.stringify(usd)).not.toContain("€");
+    expect(JSON.stringify((await draft("GBP")).sections)).toContain("£49 per team per month");
+    expect(JSON.stringify((await draft()).sections)).toContain("$49 per team per month");
+  });
+
   it("reads the Import report inside the untrusted wrapper: every roadmap seed becomes an item with its reference", async () => {
     const seeds = [
       { title: "Export to CSV", source: "acme/ledgerly issue #42" },

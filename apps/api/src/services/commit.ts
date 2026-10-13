@@ -20,7 +20,7 @@ import { getArchetypeSeed, getTemplate } from "@foundmill/agents";
 import { initialModelBilling } from "@foundmill/config";
 import { assertBusinessAllowance, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
-import { CHANNEL_KEYS, CHANNEL_META, DEFAULT_BUSINESS_MODE, MODULE_TABS, ValidationError, slugify, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, MODULE_TABS, ValidationError, slugify, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
 import { PRESET_LAYOUTS } from "../presets";
 import { checkLogoChoice, type LogoChoice } from "./logo";
 import { hireMany, type PlannedHire } from "./squad";
@@ -38,6 +38,7 @@ export interface CommitIdeaInput {
   kit?: { primary: string; secondary: string };
   /** The chosen logo; checked before the transaction starts, stored inside it (service role, `business_logos`). */
   logo?: LogoChoice | null;
+  /** The business's currency (ISO 4217), chosen on the Commit screen; absent: the founder's profile currency. */
   currency?: string;
   spendCapMinor?: number | null;
 }
@@ -93,7 +94,7 @@ export function importBoardDecision(name: string, link: ImportLink): { subject: 
 }
 
 function uniqueSlug(name: string): string {
-  const base = slugify(name) || "club";
+  const base = slugify(name) || "business";
   return `${base}-${crypto.randomUUID().slice(0, 6)}`;
 }
 
@@ -110,7 +111,9 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   const importLink = importJobId ? await resolveImportLink(db, importKey(), importJobId, userId) : null;
   const seed = getArchetypeSeed(input.archetype);
   const businessMode = input.businessMode ?? DEFAULT_BUSINESS_MODE;
-  const currency = (input.currency ?? "EUR").toUpperCase();
+  // The business keeps its money in the currency the founder chose (their profile's unless they changed it): stored on
+  // the business itself (0025), which every business amount and every screen reads, and on the rows created here.
+  const currency = (input.currency ?? (await repos.founders.get(db, userId))?.currency ?? DEFAULT_BUSINESS_CURRENCY).toUpperCase();
   // A logo that does not pass the check fails the commit before anything is created. Checked once: storage recognises
   // the result and does not run the sanitiser again.
   const checkedLogo = input.logo ? checkLogoChoice(input.logo) : null;
@@ -138,6 +141,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
       spendCapMinor: input.spendCapMinor ?? null,
       createdBy: userId,
       glossary: {},
+      currency,
     });
     const businessId = business.id;
     await repos.memberships.add(tx, businessId, { userId, role: "owner" });
@@ -194,7 +198,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
       planned.get(seed.assistantTemplateKey)!.departmentIds = [deptId];
       members.push({ departmentId: deptId, memberKind: "agent", memberId: chiefId });
     }
-    const hired = await hireMany(tx, businessId, [...planned.values()], { createdBy: userId, currency });
+    const hired = await hireMany(tx, businessId, [...planned.values()], { createdBy: userId });
     const chief = hired[0]!;
     const agentIdByTemplate = new Map(hired.map((h) => [h.template.key, h.agent.id] as const));
     const agentIds = hired.map((h) => h.agent.id);

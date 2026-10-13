@@ -1,7 +1,7 @@
-/** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses); 0022 — account preferences. */
+/** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses); 0022 — account preferences; 0025 — the business currency. */
 import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, GAME_MODES, MODEL_BILLING, PLAN_TIERS, TIME_FORMAT_PREFERENCES, VISIBILITY } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
-import { index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { char, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { archivedAt, currency, emptyArray, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
 
@@ -66,6 +66,11 @@ export const businesses = pgTable(
      */
     spendCapMinor: minor("spend_cap_minor"),
     glossary: jsonb("glossary").$type<Record<string, string>>().notNull().default(emptyObject),
+    /**
+     * 0025 — the currency of the business's money (ISO 4217): set at commit from the founder's choice, changed in
+     * Settings › Business. Business amounts written without a currency take it; model and credit costs stay in USD.
+     */
+    currency: char("currency", { length: 3 }).notNull().default("USD"),
     createdBy: uuid("created_by").references(() => authUsers.id, { onDelete: "set null" }),
     /**
      * 0023 — the team-wide stop (Stop all agents, a revoked key, used-up credits): set with its reason, cleared only by

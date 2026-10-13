@@ -47,4 +47,5 @@ export function formatMoney(m: Money, opts: { compact?: boolean; locale?: string
     style: "currency", currency: m.currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: opts.compact ? 0 : 2,
   }).format(major);
 }
-export const money = (amountMinor: number, currency = "EUR"): Money => ({ amountMinor, currency });
+/** Money in a named currency: there is no default one (a business amount is in the business's own, `businesses.currency`). */
+export const money = (amountMinor: number, currency: string): Money => ({ amountMinor, currency });

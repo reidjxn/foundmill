@@ -24,14 +24,15 @@ export interface StartHolidayInput {
   wakeEvents: EventType[];
 }
 
-export function toStartHolidayInput(settings: HolidaySettings, fallbackCurrency = "EUR"): StartHolidayInput {
+/** `businessCurrency`: the vacation's currency when no budget ceiling names one (the business's own, 0025). */
+export function toStartHolidayInput(settings: HolidaySettings, businessCurrency: string): StartHolidayInput {
   const until: StartHolidayInput["until"] = settings.until.kind === "date" ? { kind: "date", date: new Date(settings.until.date) } : settings.until.kind === "condition" ? { kind: "condition", condition: settings.until.condition } : { kind: "return" };
   const wakeEvents = [...new Set(settings.wakeEvents.map((w) => WAKE_EVENT_TO_EVENT_TYPE[w]).filter((e): e is EventType => e !== null))];
   return {
     until,
     authority: settings.authority.filter((d) => d !== "sign_contracts"),
     budgetCeilingMinor: settings.budgetCeiling?.amountMinor ?? null,
-    currency: settings.budgetCeiling?.currency ?? fallbackCurrency,
+    currency: settings.budgetCeiling?.currency ?? businessCurrency,
     wakeEvents,
   };
 }

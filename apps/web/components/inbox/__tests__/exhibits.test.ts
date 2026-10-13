@@ -55,13 +55,16 @@ describe("transforms", () => {
   });
   it("cash position is a table of estimates; the runway forecast only draws scenarios with points", () => {
     const finance = { cash: { amountMinor: 1, currency: "GBP" }, burn: { netBurnMinor: 2, grossBurnMinor: 3 }, runway: { months: 4 }, forecasts: { base: { scenario: "base", currency: "GBP", series: [{ month: "2026-11", cashMinor: 100 }] }, upside: { scenario: "upside", currency: "GBP", series: [] }, downside: null } };
-    expect(cashPosition(finance).rows).toHaveLength(4);
-    expect(cashPosition(undefined).rows).toEqual([]);
-    const f = runwayForecast(finance);
+    expect(cashPosition(finance, "USD").rows).toHaveLength(4);
+    expect(cashPosition(undefined, "USD").rows).toEqual([]);
+    // Before finance answers the exhibit reads in the business's currency, never a fixed one.
+    expect(cashPosition(undefined, "USD").currency).toBe("USD");
+    expect(cashPosition(finance, "USD").currency).toBe("GBP");
+    const f = runwayForecast(finance, "USD");
     expect(f.label).toBe("Forecast");
     expect(f.series?.map((s) => s.key)).toEqual(["base"]);
     expect(chartShape("chart", f)).toBe("empty");
-    expect(chartShape("chart", runwayForecast({ ...finance, forecasts: { base: { scenario: "base", currency: "GBP", series: [{ month: "2026-11", cashMinor: 100 }, { month: "2026-12", cashMinor: 90 }] } } }))).toBe("line");
+    expect(chartShape("chart", runwayForecast({ ...finance, forecasts: { base: { scenario: "base", currency: "GBP", series: [{ month: "2026-11", cashMinor: 100 }, { month: "2026-12", cashMinor: 90 }] } } }, "USD"))).toBe("line");
   });
   it("roadmap status per horizon and the generic transform entry point", () => {
     const d = roadmapStatus({ items: [{ horizon: "now", status: "done", tasks: [{ status: "done" }, { status: "running" }] }, { horizon: "later", status: "planned", tasks: [] }] });

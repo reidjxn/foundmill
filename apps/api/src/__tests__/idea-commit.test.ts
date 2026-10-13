@@ -211,3 +211,64 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(preview.defaultChannels.length).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe("the business currency (0025)", () => {
+  it("is the founder's at commit, stored on the business, read by every business amount, and changed in Settings by owners and admins", async () => {
+    const userId = await hz.h.createUser("dollars@test.local");
+    const caller = hz.caller({ userId, email: "dollars@test.local" });
+    await caller.founder.profile.update({ displayName: "Dana", experience: "operator", currency: "USD", targetMarkets: ["US"], riskAppetite: "medium" });
+    const generated = await caller.idea.generate({ prompt: "invoicing for contractors in the US" });
+    // The Commit screen sends no currency here: the founder's profile currency is the business's.
+    const result = await caller.idea.commit({ ideaId: generated.ideas[0]!.id, name: "Dollar Books", archetype: "b2b_saas", gameMode: "personal" });
+    const bid = result.business.id;
+    expect(result.business.currency).toBe("USD");
+    expect((await caller.business.get({ businessId: bid })).business.currency).toBe("USD");
+    const departments = await repos.departments.list(hz.db, bid);
+    expect(new Set(departments.map((d) => d.currency))).toEqual(new Set(["USD"]));
+
+    // No bank connected: cash reads in the business's currency (it used to fall back to EUR for every business).
+    expect((await caller.finance.overview({ businessId: bid })).cash).toMatchObject({ amountMinor: 0, currency: "USD", accounts: 0 });
+    expect(await caller.dashboard.customMetric.get({ businessId: bid, queryId: "cash" })).toMatchObject({ value: 0, currency: "USD" });
+
+    // Settings › Business: an admin changes it (audited); a member cannot; a code must be three letters.
+    const memberId = await hz.h.createUser("dollars-member@test.local");
+    await repos.memberships.add(hz.db, bid, { userId: memberId, role: "member" });
+    await expect(hz.caller({ userId: memberId }).business.update({ businessId: bid, currency: "EUR" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.business.update({ businessId: bid, currency: "E1R" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const updated = await caller.business.update({ businessId: bid, currency: "gbp" });
+    expect(updated.currency).toBe("GBP");
+    const audit = await repos.audit.list(hz.db, bid, { action: "business.update" });
+    expect(audit.items[0]!.details).toMatchObject({ currency: { from: "USD", to: "GBP" } });
+
+    // New business amounts follow it: a vacation without a budget ceiling; a hire's wage cap caps metered model cost, so
+    // it stays in US dollars (the pricing currency).
+    const dept = departments.find((d) => d.moduleKeys.includes("development")) ?? departments[0]!;
+    const hired = await caller.team.agents.hire({ businessId: bid, templateKey: "backend_engineer", departmentId: dept.id, name: "Second Engineer" });
+    expect(hired.currency).toBe("USD");
+    const vacation = await caller.business.startHoliday({ businessId: bid, until: { kind: "return" } });
+    expect(vacation.holiday.currency).toBe("GBP");
+    // Model spend stays in the pricing currency.
+    expect(await caller.dashboard.customMetric.get({ businessId: bid, queryId: "spend_30d" })).toMatchObject({ currency: "USD" });
+  });
+
+  it("is not the column default: a pound founder gets pounds, and a currency chosen on the Commit screen wins over the profile's", async () => {
+    const userId = await hz.h.createUser("pounds@test.local");
+    const caller = hz.caller({ userId, email: "pounds@test.local" });
+    await caller.founder.profile.update({ displayName: "Priya", experience: "operator", currency: "GBP", targetMarkets: ["UK"], riskAppetite: "medium" });
+    const generated = await caller.idea.generate({ prompt: "payroll for small UK shops" });
+    const fromProfile = await caller.idea.commit({ ideaId: generated.ideas[0]!.id, name: "Pound Books", archetype: "b2b_saas", gameMode: "personal" });
+    expect(fromProfile.business.currency).toBe("GBP");
+    expect((await caller.business.get({ businessId: fromProfile.business.id })).business.currency).toBe("GBP");
+    expect((await caller.finance.overview({ businessId: fromProfile.business.id })).cash.currency).toBe("GBP");
+    expect(new Set((await repos.departments.list(hz.db, fromProfile.business.id)).map((d) => d.currency))).toEqual(new Set(["GBP"]));
+
+    // Another founder (the free plan holds one business each) picks the currency on the Commit screen.
+    const otherId = await hz.h.createUser("kronor@test.local");
+    const other = hz.caller({ userId: otherId, email: "kronor@test.local" });
+    await other.founder.profile.update({ displayName: "Sven", experience: "operator", currency: "GBP", targetMarkets: ["SE"], riskAppetite: "medium" });
+    const otherIdeas = await other.idea.generate({ prompt: "payroll for small Swedish shops" });
+    const chosen = await other.idea.commit({ ideaId: otherIdeas.ideas[0]!.id, name: "Krona Books", archetype: "b2b_saas", gameMode: "personal", currency: "sek" });
+    expect(chosen.business.currency).toBe("SEK");
+    expect((await repos.businesses.get(hz.db, chosen.business.id)).currency).toBe("SEK");
+  });
+});

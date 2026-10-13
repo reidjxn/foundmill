@@ -16,7 +16,7 @@ import { APP_NAME } from "@foundmill/config";
 import { Button, Chip, Field, Input, Kbd, MoneyInput, Panel, RadioCard, RadioGroup, RatingBandPill, SimpleSelect, SkillSlider, StatusPill, cn, ratingClass, useToast } from "@foundmill/dugout";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { DISPLAY_LOCALE } from "@/lib/format";
+import { currencyName, DISPLAY_LOCALE } from "@/lib/format";
 import { StudioFrame } from "@/components/new/StudioFrame";
 import {
   CONSTRAINT_SUGGESTIONS,
@@ -296,15 +296,6 @@ function useSectionInView(): ProfileSectionId | null {
 /** A radio option drawn as a selectable card (DESIGN §8 radio cards): the whole card is the radio. */
 export function OptionCard({ id, value, label, description, selected }: { id: string; value: string; label: string; description?: string; selected: boolean }) {
   return <RadioCard id={id} value={value} label={label} description={description} data-option={value} data-selected={selected || undefined} />;
-}
-
-/** "GBP" → "British Pound" for the currency select (the code sits on its own chip before the name). */
-function currencyName(code: string): string {
-  try {
-    return new Intl.DisplayNames([DISPLAY_LOCALE], { type: "currency" }).of(code) ?? code;
-  } catch {
-    return code;
-  }
 }
 
 /** The country's name for a two-letter code ("GB" → "United Kingdom"), so a stored code never reads as a bare id. */

@@ -82,7 +82,7 @@ export function toGraphNodes(tasks: readonly TaskRow[], edges: readonly { fromTa
 const GRID_HEIGHT = "calc(100vh - 232px)";
 
 export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps) {
-  const { navigate, currency } = useWidgetData();
+  const { navigate } = useWidgetData();
   const options = useDevScreenOptions();
   const tasks = useWidgetQuery<TasksListResponse>("dev.tasks.list", { status: [...LIVE_TASK_STATUSES], limit: 200 });
   const sessions = useWidgetQuery<SessionsListResponse>("dev.sessions.list", { openOnly: true, limit: 200 });
@@ -109,10 +109,9 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
       live.map((task) => {
         const session = openByTask.get(task.id) ?? null;
         const agent = toTileAgent(agentIndex.get(task.assigneeAgentId ?? ""), task.assigneeAgentId);
-        // Costs in the business's currency (sessions carry none of their own), never a stray €.
-        return { seed: seedFromRows({ task, session, agent, taskHref: taskHref(businessId, deptSlug, task.id), currency }), task, session };
+        return { seed: seedFromRows({ task, session, agent, taskHref: taskHref(businessId, deptSlug, task.id) }), task, session };
       }),
-    [live, openByTask, agentIndex, businessId, deptSlug, currency],
+    [live, openByTask, agentIndex, businessId, deptSlug],
   );
 
   const [focusedId, setFocusedId] = useState<string | null>(null);

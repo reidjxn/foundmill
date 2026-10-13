@@ -3,7 +3,8 @@
  * item; `POST /v1/commentary { journeyId }`; `POST /v1/chapter-title`. Transport failures, timeouts and 5xx answers
  * surface as `ComposerUnavailableError` (worth retrying: narrate is idempotent per event set, so a retry returns the
  * note a slow first attempt wrote instead of writing another); a 4xx answer is the composer's verdict on the request
- * and surfaces as `ComposerRequestError`, which retrying cannot change (audit CML-05).
+ * and surfaces as `ComposerRequestError`, which retrying cannot change (audit CML-05); a 4xx about timing (408, 409, 425,
+ * 429) is an outage like a 5xx.
  */
 import { LIMITS } from "@foundmill/config";
 import { AppError } from "@foundmill/shared";
@@ -48,6 +49,9 @@ export class ComposerRequestError extends AppError {
   }
 }
 
+/** A 4xx a later attempt may still pass (timeout, conflict, too early, rate limit) is not a refusal. */
+const RETRYABLE_4XX = new Set([408, 409, 425, 429]);
+
 export interface ComposerClientOptions {
   baseUrl: string;
   fetch?: typeof fetch;
@@ -82,15 +86,19 @@ export function createComposerClient(options: ComposerClientOptions): ComposerCl
     }
     const text = await res.text();
     let json: unknown;
+    let parsed = true;
     try {
       json = text ? JSON.parse(text) : null;
     } catch {
-      throw new ComposerUnavailableError(`Composer ${path} returned non-JSON (${res.status})`, text.slice(0, 300));
+      parsed = false;
     }
-    if (res.status >= 400 && res.status < 500) {
-      const body = (json ?? {}) as { error?: unknown; message?: unknown; details?: unknown };
-      throw new ComposerRequestError(typeof body.error === "string" ? body.error : "composer_rejected", typeof body.message === "string" ? body.message : `Composer ${path} returned ${res.status}`, res.status, body.details ?? undefined);
+    // A refusal is a refusal whatever its body says (a proxy's HTML 404 included): sending it again cannot pass. A 4xx a
+    // later attempt may still pass (timeout, conflict, too early, rate limit) is an outage like a 5xx.
+    if (res.status >= 400 && res.status < 500 && !RETRYABLE_4XX.has(res.status)) {
+      const body = (parsed && json && typeof json === "object" ? json : {}) as { error?: unknown; message?: unknown; details?: unknown };
+      throw new ComposerRequestError(typeof body.error === "string" ? body.error : "composer_rejected", typeof body.message === "string" ? body.message : `Composer ${path} returned ${res.status}`, res.status, body.details ?? (parsed ? undefined : text.slice(0, 300)));
     }
+    if (!parsed) throw new ComposerUnavailableError(`Composer ${path} returned non-JSON (${res.status})`, text.slice(0, 300));
     if (!res.ok) throw new ComposerUnavailableError(`Composer ${path} returned ${res.status}`, json);
     return json as T;
   }

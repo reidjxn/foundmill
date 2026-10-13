@@ -245,8 +245,21 @@ describe("plans", () => {
     expect(lines[1]).toMatchObject({ outcome: "ask", cost: { amountMinor: 50_000, currency: "EUR" }, reasons: ["above threshold"] });
     expect(lines[2]!.hardGate).toBe(true);
     expect(lines[0]!.hardGate).toBe(false);
-    expect(totalCost(lines, "EUR")).toEqual({ amountMinor: 50_000, currency: "EUR" });
-    expect(totalCost([], "EUR")).toBeNull();
+    expect(totalCost(lines)).toEqual([{ amountMinor: 50_000, currency: "EUR" }]);
+    expect(totalCost([])).toEqual([]);
+  });
+  it("an amount the plan priced in another currency keeps it, and the total never adds two currencies (OL-20)", () => {
+    // A dollar business; the founder typed "£300" for ads and the plan also sets a $200 budget without a currency.
+    const lines = confirmationLines(
+      [
+        { action: { type: "set_budget", params: { channel: "paid_ads", amount_minor: 30_000, currency: "GBP" } }, outcome: "ask" },
+        { action: { type: "set_budget", params: { channel: "seo", amount_minor: 20_000 } }, outcome: "allow" },
+        { action: { type: "approve_spend", params: { purpose: "Ads", amount_minor: 10_000, currency: "GBP" } }, outcome: "ask" },
+      ],
+      "USD",
+    );
+    expect(lines.map((l) => l.cost)).toEqual([{ amountMinor: 30_000, currency: "GBP" }, { amountMinor: 20_000, currency: "USD" }, { amountMinor: 10_000, currency: "GBP" }]);
+    expect(totalCost(lines)).toEqual([{ amountMinor: 40_000, currency: "GBP" }, { amountMinor: 20_000, currency: "USD" }]);
   });
   it("follow-up links point at the screens that hold the artefacts, de-duplicated", () => {
     const departments = [
@@ -282,8 +295,9 @@ describe("plans", () => {
     expect(askedActionChip({ status: "executing" }, { ...ask, status: "awaiting_approval" })).toBe("Needs your go-ahead");
     expect(askedActionChip({ status: "executing" }, { ...ask, status: "pending" })).toBe("Confirmed by you");
     expect(askedActionChip({ status: "done" }, { ...ask, status: "done" })).toBe("Confirmed by you");
-    // Turned down, or never left to the founder: no chip.
+    // Turned down or skipped (it never ran), or never left to the founder: no chip.
     expect(askedActionChip({ status: "done" }, { ...ask, status: "denied" })).toBeNull();
+    expect(askedActionChip({ status: "done" }, { ...ask, status: "skipped" })).toBeNull();
     expect(askedActionChip({ status: "pending_confirmation" }, { ...ask, policyOutcome: "allow", status: "pending" })).toBeNull();
   });
 });

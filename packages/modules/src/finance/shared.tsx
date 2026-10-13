@@ -49,7 +49,7 @@ export function Fact({ label, children, numeric, className }: { label: ReactNode
 /* ---------- Money ---------- */
 
 export function useCurrency(): string {
-  return useWidgetData().currency ?? "EUR";
+  return useWidgetData().currency;
 }
 
 export const money = (amountMinor: number, currency: string): Money => ({ amountMinor: Math.round(amountMinor), currency });

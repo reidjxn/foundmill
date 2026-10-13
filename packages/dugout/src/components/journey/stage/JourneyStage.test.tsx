@@ -19,7 +19,7 @@ describe("JourneyStage", () => {
   it("starts on Who was involved with the captain starred and steps through every stage", async () => {
     const user = userEvent.setup();
     const onOpenEntity = vi.fn();
-    const { container } = render(<JourneyStage journey={fx.journey} touches={fx.touches} customer={fx.customer} agents={fx.agents} kit={NORTHWIND_KIT} autoplay={false} overlay="none" onOpenEntity={onOpenEntity} />);
+    const { container } = render(<JourneyStage currency="EUR" journey={fx.journey} touches={fx.touches} customer={fx.customer} agents={fx.agents} kit={NORTHWIND_KIT} autoplay={false} overlay="none" onOpenEntity={onOpenEntity} />);
     const root = container.querySelector("[data-journey-stage]")!;
     expect(root.getAttribute("data-stage")).toBe("team_sheet");
     expect(root.getAttribute("data-schedule-hash")).toBe(buildReplaySchedule(fx.journey, fx.touches, "full").hash);
@@ -53,7 +53,7 @@ describe("JourneyStage", () => {
   it("Instant speed lands on the debrief at once and speed changes are reported", async () => {
     const user = userEvent.setup();
     const onSpeedChange = vi.fn();
-    const { container } = render(<JourneyStage journey={fx.journey} touches={fx.touches} customer={fx.customer} kit={NORTHWIND_KIT} defaultSpeed="instant" onSpeedChange={onSpeedChange} overlay="none" />);
+    const { container } = render(<JourneyStage currency="EUR" journey={fx.journey} touches={fx.touches} customer={fx.customer} kit={NORTHWIND_KIT} defaultSpeed="instant" onSpeedChange={onSpeedChange} overlay="none" />);
     const root = container.querySelector("[data-journey-stage]")!;
     expect(root.getAttribute("data-stage")).toBe("full_time");
     expect(screen.queryByRole("button", { name: "Play" })).toBeNull();
@@ -67,7 +67,7 @@ describe("JourneyStage", () => {
   it("plays the clock from the Play control and pauses", async () => {
     vi.useFakeTimers();
     try {
-      const { container } = render(<JourneyStage journey={fx.journey} touches={fx.touches} customer={fx.customer} kit={NORTHWIND_KIT} defaultSpeed="highlights" autoplay={false} overlay="none" />);
+      const { container } = render(<JourneyStage currency="EUR" journey={fx.journey} touches={fx.touches} customer={fx.customer} kit={NORTHWIND_KIT} defaultSpeed="highlights" autoplay={false} overlay="none" />);
       const root = container.querySelector("[data-journey-stage]")!;
       fireEvent.click(screen.getByRole("button", { name: "Play" }));
       await vi.advanceTimersByTimeAsync(2600);
@@ -84,7 +84,7 @@ describe("JourneyStage", () => {
 
   it("reduced motion renders the static summary with every fact (AC-11.4.5)", () => {
     setReducedMotion(true);
-    const { container } = render(<JourneyStage journey={fx.journey} touches={fx.touches} customer={fx.customer} kit={NORTHWIND_KIT} overlay="none" />);
+    const { container } = render(<JourneyStage currency="EUR" journey={fx.journey} touches={fx.touches} customer={fx.customer} kit={NORTHWIND_KIT} overlay="none" />);
     expect(container.querySelector("[data-journey-stage='static']")).toBeTruthy();
     expect(container.querySelector("[data-stage-panel='goal'][data-static]")).toBeTruthy();
     expect(container.querySelector("[data-stage-panel='full_time']")).toBeTruthy();
@@ -118,6 +118,18 @@ describe("MatchdayRoundupTable", () => {
     expect((screen.getByRole("button", { name: "Replay activation" }) as HTMLButtonElement).disabled).toBe(true);
     expect(sortRoundupRows(roundupRows, "value", "desc")[0]?.conversionId).toBe("c2");
     expect(screen.getByText("Anonymous")).toBeTruthy();
+  });
+  it("totals the day's revenue in the payments' currency, never adding two currencies (a sign-up row names no money)", () => {
+    const rows: RoundupRow[] = [
+      { ...roundupRows[0]!, currency: "USD", occurredAt: "2026-10-07T07:00:00.000Z" },
+      { ...roundupRows[1]!, currency: "GBP" },
+      { ...roundupRows[1]!, conversionId: "c4", amountMinor: 4100, currency: "GBP", occurredAt: "2026-10-07T12:00:00.000Z" },
+      { ...roundupRows[1]!, conversionId: "c5", amountMinor: 99_900, currency: "SEK", occurredAt: "2026-10-07T13:00:00.000Z" },
+    ];
+    render(<MatchdayRoundupTable rows={rows} day="2026-10-07" onOpenReplay={() => {}} />);
+    expect(screen.getByText("£100.00")).toBeTruthy();
+    expect(screen.queryByText("£1,099.00")).toBeNull();
+    expect(screen.queryByText(/\$/)).toBeNull();
   });
   it("shows an empty state", () => {
     render(<MatchdayRoundupTable rows={[]} onOpenReplay={() => {}} />);

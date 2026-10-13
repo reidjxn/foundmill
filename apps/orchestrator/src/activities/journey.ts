@@ -86,7 +86,7 @@ export function createJourneyActivities(deps: OrchestratorDeps) {
       const cpaByChannelMinor: Partial<Record<ChannelKey, number>> = {};
       for (const c of metrics?.channels ?? []) if (c.cpaMinor !== null) cpaByChannelMinor[c.channelKey] = c.cpaMinor;
       const journey = buildJourney({
-        conversion: { id: conversion.id, businessId, entityId: conversion.entityId, kind: conversion.kind, amountMinor: Number(conversion.amountMinor), currency: conversion.currency ?? "EUR", occurredAt: new Date(conversion.occurredAt).toISOString(), sourceEventId: conversion.sourceEventId, firstPayment: conversion.firstPayment },
+        conversion: { id: conversion.id, businessId, entityId: conversion.entityId, kind: conversion.kind, amountMinor: Number(conversion.amountMinor), currency: conversion.currency, occurredAt: new Date(conversion.occurredAt).toISOString(), sourceEventId: conversion.sourceEventId, firstPayment: conversion.firstPayment },
         touches,
         agents: agentsPage.items.map((a) => ({ agentId: a.id, name: a.name, role: a.role, departmentId: a.departmentIds[0] ?? null, channelKeys: channels.filter((c) => c.ownerAgentId === a.id).map((c) => c.channelKey as ChannelKey) })),
         consent,
@@ -138,7 +138,7 @@ export function createJourneyActivities(deps: OrchestratorDeps) {
             journeyId: row.id,
             kind: conversion.kind,
             matchdayLevel: journey.matchdayLevel,
-            amount: Number(conversion.amountMinor) > 0 ? { amountMinor: Number(conversion.amountMinor), currency: conversion.currency ?? "EUR" } : null,
+            amount: Number(conversion.amountMinor) > 0 ? { amountMinor: Number(conversion.amountMinor), currency: conversion.currency } : null,
             nthOfKind,
             fullMatchDay,
             captainChannelKey: journey.captain?.channelKey ?? null,

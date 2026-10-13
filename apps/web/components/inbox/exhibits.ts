@@ -200,8 +200,9 @@ export interface FinanceLike {
   forecasts?: Partial<Record<string, { scenario: string; currency: string; series: unknown[] } | null>>;
 }
 
-export function cashPosition(input: FinanceLike | undefined): ExhibitData {
-  const currency = input?.cash.currency ?? "EUR";
+/** `businessCurrency` labels the exhibit until finance answers (finance then reads in the business's own anyway). */
+export function cashPosition(input: FinanceLike | undefined, businessCurrency: string): ExhibitData {
+  const currency = input?.cash.currency ?? businessCurrency;
   return {
     id: "cash_position",
     title: EXHIBIT_TITLES.cash_position,
@@ -235,8 +236,8 @@ function forecastPoints(series: unknown[] | undefined): { x: string; y: number |
     .filter((p): p is { x: string; y: number | null } => p !== null);
 }
 
-export function runwayForecast(input: FinanceLike | undefined): ExhibitData {
-  const currency = input?.cash.currency ?? "EUR";
+export function runwayForecast(input: FinanceLike | undefined, businessCurrency: string): ExhibitData {
+  const currency = input?.cash.currency ?? businessCurrency;
   const scenarios = ["base", "upside", "downside"] as const;
   const series: ExhibitSeries[] = [];
   for (const s of scenarios) {
@@ -287,9 +288,9 @@ export function transform(id: NamedQueryId, raw: unknown, ctx: { currency: strin
     case "channel_cpa":
       return channelCpa(raw as ChannelsLike | undefined, ctx.currency);
     case "cash_position":
-      return cashPosition(raw as FinanceLike | undefined);
+      return cashPosition(raw as FinanceLike | undefined, ctx.currency);
     case "runway_forecast":
-      return runwayForecast(raw as FinanceLike | undefined);
+      return runwayForecast(raw as FinanceLike | undefined, ctx.currency);
     case "roadmap_status":
       return roadmapStatus(raw as RoadmapLike | undefined);
   }

@@ -81,7 +81,7 @@ export const Milestones: Story = {
 const digestView = () => {
   const day = data.conversions.filter((c) => c.kind === "payment").slice(-1)[0]!.occurredAt.slice(0, 10);
   const summary = summariseDay(day, { index, departments: RIBBON_DEPARTMENTS, conversions: data.conversions, milestones: data.milestones, chapters: data.chapters, today: data.today });
-  return <DayDigest summary={summary} highlights={["Scout sent the wholesale sheet to [[ent:0f7c2d1e-4b1a-4c8e-9a3b-2d5f6e7a8b9c|Nordic Beauty AB]] after the call", "Pixel merged the bundle picker; checkout tests green", "Ledger flagged the Tink consent expiring in 9 days"]} entityKinds={ENTITY_KINDS} onOpenJourney={() => {}} onOpenEntity={() => {}} onPrevDay={() => {}} onNextDay={() => {}} onClose={() => {}} />;
+  return <DayDigest summary={summary} currency="EUR" highlights={["Scout sent the wholesale sheet to [[ent:0f7c2d1e-4b1a-4c8e-9a3b-2d5f6e7a8b9c|Nordic Beauty AB]] after the call", "Pixel merged the bundle picker; checkout tests green", "Ledger flagged the Tink consent expiring in 9 days"]} entityKinds={ENTITY_KINDS} onOpenJourney={() => {}} onOpenEntity={() => {}} onPrevDay={() => {}} onNextDay={() => {}} onClose={() => {}} />;
 };
 
 export const Digest: Story = {

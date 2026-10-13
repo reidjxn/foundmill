@@ -4,6 +4,7 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { repos, UpdateBusinessInput } from "@foundmill/db";
+import { PRICING_CURRENCY } from "@foundmill/models";
 import { BUSINESS_MODES, DECISION_TYPES, EVENT_TYPES, GAME_MODES } from "@foundmill/shared";
 import { z } from "zod";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
@@ -16,8 +17,12 @@ import { noteAsSeenBy } from "../services/inbox-redaction";
 import { adminArchivedProcedure, adminProcedure, archivedBusinessProcedure, audit, businessProcedure, emit, ownerArchivedProcedure, ownerProcedure, protectedProcedure, router, writeProcedure } from "../trpc";
 import { businessLogoRouter } from "./logo";
 
-/** What an admin may change on the business record (Settings › Business and Glossary send these). */
-const BusinessSettingsInput = UpdateBusinessInput.pick({ name: true, slug: true, archetype: true, kitPrimary: true, kitSecondary: true, glossary: true });
+/**
+ * What an admin may change on the business record (Settings › Business and Glossary send these). The currency (0025) is
+ * the one new business amounts are written in and every screen formats the business's money with; amounts already
+ * stored keep their own currency (nothing is converted).
+ */
+const BusinessSettingsInput = UpdateBusinessInput.pick({ name: true, slug: true, archetype: true, kitPrimary: true, kitSecondary: true, glossary: true, currency: true });
 
 const HolidayUntil = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("date"), date: z.coerce.date() }),
@@ -77,7 +82,8 @@ export const businessRouter = router({
   update: adminProcedure.input(BusinessSettingsInput).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const business = await repos.businesses.update(tx, ctx.businessId, input);
-      await audit(tx, ctx, { action: "business.update", target: { kind: "business", id: ctx.businessId }, details: { fields: Object.keys(input) } });
+      const currency = business.currency !== ctx.business.currency ? { from: ctx.business.currency, to: business.currency } : null;
+      await audit(tx, ctx, { action: "business.update", target: { kind: "business", id: ctx.businessId }, details: { fields: Object.keys(input), ...(currency ? { currency } : {}) } });
       return business;
     }),
   ),
@@ -135,13 +141,15 @@ export const businessRouter = router({
         until: HolidayUntil,
         authority: z.array(z.enum(DECISION_TYPES)).default(DECISION_TYPES.filter((d) => d !== "sign_contracts")),
         budgetCeilingMinor: z.number().int().nonnegative().nullable().default(null),
-        currency: z.string().length(3).default("EUR"),
+        /** The ceiling's currency; absent: the business's own (0025). */
+        currency: z.string().trim().regex(/^[A-Za-z]{3}$/, "a currency is a 3-letter ISO 4217 code").optional(),
         wakeEvents: z.array(z.enum(EVENT_TYPES)).default(["credential.expiring", "filing.due", "runway.threshold_crossed"]),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       // Signing is a hard gate: never part of the Chief of Staff's authority, whatever the dialog sent.
       const authority = input.authority.filter((d) => d !== "sign_contracts");
+      const currency = (input.currency ?? ctx.business.currency).toUpperCase();
       const existing = await repos.holidays.current(ctx.db, ctx.businessId);
       if (existing) return { holiday: existing, workflow: { queued: false, workflowId: workflowIds.holiday(existing.id), reason: "a vacation is already running" } };
       // A vacation runs cycles: none starts while the team is stopped.
@@ -152,7 +160,7 @@ export const businessRouter = router({
           untilCondition: input.until.kind === "condition" ? { text: input.until.condition } : input.until.kind === "return" ? { text: "until I return" } : null,
           authority: { decisionTypes: authority },
           budgetCeilingMinor: input.budgetCeilingMinor,
-          currency: input.currency,
+          currency,
           wakeEvents: input.wakeEvents,
           startedBy: ctx.userId,
         });
@@ -164,7 +172,7 @@ export const businessRouter = router({
             workflowId,
             untilAt: input.until.kind === "date" ? input.until.date.toISOString() : null,
             untilCondition: input.until.kind === "condition" ? input.until.condition : input.until.kind === "return" ? "until I return" : null,
-            budgetCeiling: input.budgetCeilingMinor === null ? null : { amountMinor: input.budgetCeilingMinor, currency: input.currency },
+            budgetCeiling: input.budgetCeilingMinor === null ? null : { amountMinor: input.budgetCeilingMinor, currency },
             authority,
             wakeEvents: input.wakeEvents,
             cadenceAgentHours: LIMITS.cycleTimeBoxAgentHours,
@@ -197,7 +205,8 @@ export const businessRouter = router({
           cyclesRun: counts["cycle.completed"] ?? 0,
           decisionsMade: counts["decision.made"] ?? 0,
           customersWon: counts["customer.converted"] ?? 0,
-          spent: { amountMinor: usage.costMinor, currency: current.currency ?? "EUR" },
+          // Team spend is model cost, metered in the pricing currency (USD), not the business's.
+          spent: { amountMinor: usage.costMinor, currency: PRICING_CURRENCY },
           gatedItemsQueued: await repos.approvals.countPending(tx, ctx.businessId),
           reportInboxItemId: null,
         },

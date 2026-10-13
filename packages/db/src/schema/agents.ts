@@ -5,7 +5,7 @@ import {
 import { sql } from "drizzle-orm";
 import { boolean, date, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
-import { currency, emptyArray, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz, usdCurrency } from "./_common";
+import { businessCurrency, emptyArray, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz, usdCurrency } from "./_common";
 import { businessId, businessIdNullable } from "./_refs";
 import { inboxItems, planActions } from "./inbox";
 import { roadmapItems } from "./product";
@@ -36,7 +36,8 @@ export const agents = pgTable(
     negotiation: jsonb("negotiation").$type<Record<string, unknown>>().notNull().default(emptyObject),
     schedule: jsonb("schedule").$type<Record<string, unknown>>().notNull().default(emptyObject),
     wageCapMinor: minor("wage_cap_minor"),
-    currency: currency(),
+    /** The wage cap caps metered model cost: US dollars (0024, 0025), never the business's currency. */
+    currency: usdCurrency(),
     avatarSeed: text("avatar_seed").notNull().default(""),
     ...timestampsWithArchive(),
   },
@@ -87,7 +88,7 @@ export const departments = pgTable(
     leadAgentId: uuid("lead_agent_id").references(() => agents.id, { onDelete: "set null" }),
     moduleKeys: text("module_keys").array().notNull().default(emptyArray),
     budgetMinor: minor("budget_minor"),
-    currency: currency(),
+    currency: businessCurrency(),
     approvers: jsonb("approvers").$type<unknown[]>().notNull().default(emptyList),
     hidden: boolean("hidden").notNull().default(false),
     ...timestampsWithArchive(),
@@ -275,7 +276,7 @@ export const tasks = pgTable(
     eta: tstz("eta"),
     priority: integer("priority").notNull().default(0),
     budgetMinor: minor("budget_minor"),
-    currency: currency(),
+    currency: businessCurrency(),
     startedAt: tstz("started_at"),
     endedAt: tstz("ended_at"),
     /** When an owner or admin forgot the task's saved code (0013); sessions that started earlier cannot save it again. */
@@ -394,7 +395,7 @@ export const holidayPeriods = pgTable(
     untilCondition: jsonb("until_condition").$type<Record<string, unknown>>(),
     authority: jsonb("authority").$type<Record<string, unknown>>().notNull().default(emptyObject),
     budgetCeilingMinor: minor("budget_ceiling_minor"),
-    currency: currency(),
+    currency: businessCurrency(),
     wakeEvents: text("wake_events").array().notNull().default(emptyArray),
     startedAt: tstz("started_at"),
     endedAt: tstz("ended_at"),

@@ -40,7 +40,7 @@ export function customersPerWeek(ribbon: RibbonResponse | undefined): { week: st
 }
 
 function RevenueCustomersWidget({ settings }: WidgetProps<RevenueCustomersSettings>) {
-  const { businessId, navigate, currency = "EUR" } = useWidgetData();
+  const { businessId, navigate, currency } = useWidgetData();
   const today = dayKey();
   const finance = useWidgetQuery<FinanceOverview>("finance.overview", {}, { enabled: settings.view !== "customers" });
   const ribbon = useWidgetQuery<RibbonResponse>("journey.ribbon", { from: addDays(today, -settings.months * 30), to: today }, { enabled: settings.view !== "revenue" });

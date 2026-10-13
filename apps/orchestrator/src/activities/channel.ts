@@ -42,11 +42,11 @@ export function createChannelActivities(deps: OrchestratorDeps) {
         case "plan": {
           const budgetMinor = channel.budgetMinor === null ? 0 : Number(channel.budgetMinor);
           state.learnings = state.learnings.slice(-8);
-          return done(`Plan for ${meta.label}: core metric ${meta.coreMetric}; weekly budget ${(budgetMinor / 100).toFixed(2)} ${channel.currency ?? "EUR"} (Estimate); ${template.name} owns the work.`);
+          return done(`Plan for ${meta.label}: core metric ${meta.coreMetric}; weekly budget ${(budgetMinor / 100).toFixed(2)} ${channel.currency} (Estimate); ${template.name} owns the work.`);
         }
         case "create": {
           const budgetMinor = channel.budgetMinor === null ? 0 : Number(channel.budgetMinor);
-          const campaign = await repos.campaigns.create(db, businessId, { channelId: channel.id, name: `${meta.label} — ${weekLabel}`, goal: `Improve ${meta.coreMetric}`, status: "draft", budgetMinor: Math.max(0, budgetMinor), currency: channel.currency ?? "EUR", config: { weekIndex: input.weekIndex, learnings: state.learnings, kitMode: channel.kitMode } });
+          const campaign = await repos.campaigns.create(db, businessId, { channelId: channel.id, name: `${meta.label} — ${weekLabel}`, goal: `Improve ${meta.coreMetric}`, status: "draft", budgetMinor: Math.max(0, budgetMinor), currency: channel.currency, config: { weekIndex: input.weekIndex, learnings: state.learnings, kitMode: channel.kitMode } });
           state.campaignId = campaign.id;
           return done(`Campaign drafted (${campaign.id}).`);
         }
@@ -63,7 +63,7 @@ export function createChannelActivities(deps: OrchestratorDeps) {
             return done("Founder approved; scheduled.");
           }
           await repos.campaigns.setStatus(db, businessId, state.campaignId, "pending_approval");
-          const budget = channel.budgetMinor === null || Number(channel.budgetMinor) <= 0 ? null : { amountMinor: Number(channel.budgetMinor), currency: channel.currency ?? "EUR" };
+          const budget = channel.budgetMinor === null || Number(channel.budgetMinor) <= 0 ? null : { amountMinor: Number(channel.budgetMinor), currency: channel.currency };
           const approval = await repos.approvals.create(db, businessId, { agentId: owner?.id ?? null, connectorKey: "platform", tool: "launch_campaign", args: { campaignId: state.campaignId, channelKey: key }, reasons: [business.businessMode === "augmented" ? "augmented mode: every external action asks" : "offline tracking: the agent prepares, the founder submits"], ...(budget ?? {}) });
           state.approvalId = approval.id;
           const requested = owner ? await emitEvent(db, { businessId, type: "approval.requested", actor: { kind: "agent", id: owner.id }, payload: { approvalId: approval.id, agentId: owner.id, connectorKey: "platform", tool: "launch_campaign", amount: budget, reasons: ["campaign launch needs your approval"], policyIds: [], decisionType: "publish_content", hardGate: false, summary: `${owner.name} wants to launch "${meta.label} — ${weekLabel}"` } }) : null;
@@ -76,7 +76,7 @@ export function createChannelActivities(deps: OrchestratorDeps) {
           const campaign = await repos.campaigns.get(db, businessId, state.campaignId);
           if (campaign.status === "pending_approval" || campaign.status === "draft") return done("campaign not approved; skipping launch");
           if (campaign.status !== "live") await repos.campaigns.setStatus(db, businessId, campaign.id, "live");
-          await emitEvent(db, { businessId, type: "campaign.launched", actor: owner ? { kind: "agent", id: owner.id } : systemActor, payload: { campaignId: campaign.id, channelId: channel.id, channelKey: key, name: campaign.name.slice(0, 200), goal: campaign.goal.slice(0, 500), budget: { amountMinor: Number(campaign.budgetMinor), currency: campaign.currency ?? "EUR" }, startsAt: clock.now().toISOString(), endsAt: null, kitMode: channel.kitMode, assetIds: [], approvalId: state.approvalId } });
+          await emitEvent(db, { businessId, type: "campaign.launched", actor: owner ? { kind: "agent", id: owner.id } : systemActor, payload: { campaignId: campaign.id, channelId: channel.id, channelKey: key, name: campaign.name.slice(0, 200), goal: campaign.goal.slice(0, 500), budget: { amountMinor: Number(campaign.budgetMinor), currency: campaign.currency }, startsAt: clock.now().toISOString(), endsAt: null, kitMode: channel.kitMode, assetIds: [], approvalId: state.approvalId } });
           return done("Live.");
         }
         case "measure": {
@@ -89,7 +89,7 @@ export function createChannelActivities(deps: OrchestratorDeps) {
             const impressions = 400 + (seed % 3000);
             const leads = Math.max(1, Math.round(impressions * (0.01 + (seed % 7) / 1000)));
             const signups = Math.round(leads * 0.3);
-            await repos.channels.upsertMetric(db, businessId, { channelId: channel.id, campaignId: state.campaignId, day, spendMinor: Math.round(budget * 0.9), currency: channel.currency ?? "EUR", impressions, leads, signups, activations: Math.round(signups * 0.5), customers: Math.round(signups * 0.2) });
+            await repos.channels.upsertMetric(db, businessId, { channelId: channel.id, campaignId: state.campaignId, day, spendMinor: Math.round(budget * 0.9), currency: channel.currency, impressions, leads, signups, activations: Math.round(signups * 0.5), customers: Math.round(signups * 0.2) });
             return done(`Measured (mock, Estimate): ${impressions} impressions, ${leads} leads, ${signups} signups.`);
           }
           return done("Metrics arrive through the connector webhooks (ingest); nothing to pull here.");
@@ -98,7 +98,7 @@ export function createChannelActivities(deps: OrchestratorDeps) {
           const summary = await repos.channels.metricsSummary(db, businessId, {});
           const mine = summary.channels.find((c) => c.channelId === channel.id);
           const cpa = mine?.cpaMinor ?? null;
-          const learning = cpa === null ? `w${input.weekIndex + 1}: not enough data for a CPA yet` : `w${input.weekIndex + 1}: CPA ${(cpa / 100).toFixed(2)} ${channel.currency ?? "EUR"} (Estimate) vs blended ${summary.blended.cpaMinor === null ? "n/a" : (summary.blended.cpaMinor / 100).toFixed(2)}`;
+          const learning = cpa === null ? `w${input.weekIndex + 1}: not enough data for a CPA yet` : `w${input.weekIndex + 1}: CPA ${(cpa / 100).toFixed(2)} ${channel.currency} (Estimate) vs blended ${summary.blended.cpaMinor === null ? "n/a" : (summary.blended.cpaMinor / 100).toFixed(2)}`;
           state.learnings.push(learning);
           if (cpa !== null && summary.blended.cpaMinor !== null && cpa > summary.blended.cpaMinor * 1.2) {
             await emitEvent(db, { businessId, type: "channel.threshold_breached", actor: systemActor, payload: { channelId: channel.id, channelKey: key, campaignId: state.campaignId, metric: "cpa", value: cpa, threshold: Math.round(summary.blended.cpaMinor * 1.2), direction: "above", windowHours: 24 * 7, action: "alerted" } });

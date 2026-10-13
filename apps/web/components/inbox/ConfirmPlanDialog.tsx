@@ -13,7 +13,6 @@ export interface ConfirmPlanDialogProps {
   onOpenChange: (open: boolean) => void;
   lines: readonly ConfirmationLine[];
   summary: string;
-  currency: string;
   loading?: boolean;
   onConfirm: () => void;
 }
@@ -29,8 +28,9 @@ export function confirmPlanDescription(lines: readonly ConfirmationLine[]): stri
   return [head, denied ? `${denied} ${denied === 1 ? "is" : "are"} denied and will be skipped.` : "", gates ? `${gates} ${gates === 1 ? "is" : "are"} hard-gated: the team prepares everything and you act.` : ""].filter(Boolean).join(" ");
 }
 
-export function ConfirmPlanDialog({ open, onOpenChange, lines, summary, currency, loading, onConfirm }: ConfirmPlanDialogProps) {
-  const total = totalCost(lines, currency);
+export function ConfirmPlanDialog({ open, onOpenChange, lines, summary, loading, onConfirm }: ConfirmPlanDialogProps) {
+  // Each line keeps its own currency; the total never adds two currencies together.
+  const totals = totalCost(lines);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="md" data-testid="confirm-plan">
@@ -51,8 +51,8 @@ export function ConfirmPlanDialog({ open, onOpenChange, lines, summary, currency
                 </li>
               ))}
             </ol>
-            <KeyValueList items={[{ label: "Total cost", value: total ? <span className="inline-flex items-center gap-1.5">{formatMoney(total)} <ProvenanceChip kind="estimate" /></span> : "No cost", numeric: true }]} />
-            {total ? <p className="text-small text-tertiary text-pretty">Budgets and caps as planned, not spend to date.</p> : null}
+            <KeyValueList items={[{ label: "Total cost", value: totals.length ? <span className="inline-flex items-center gap-1.5" data-testid="confirm-plan-total">{totals.map((t) => formatMoney(t)).join(" + ")} <ProvenanceChip kind="estimate" /></span> : "No cost", numeric: true }]} />
+            {totals.length ? <p className="text-small text-tertiary text-pretty">Budgets and caps as planned, not spend to date.{totals.length > 1 ? " Amounts in different currencies are listed side by side, not converted." : ""}</p> : null}
           </div>
         </DialogBody>
         <DialogFooter>
