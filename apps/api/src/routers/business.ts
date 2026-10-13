@@ -159,7 +159,7 @@ export const businessRouter = router({
       // Signing is a hard gate: never part of the Chief of Staff's authority, whatever the dialog sent.
       const authority = input.authority.filter((d) => d !== "sign_contracts");
       const currency = (input.currency ?? ctx.business.currency).toUpperCase();
-      const alreadyRunning = (existing: { id: string }) => ({ holiday: existing, workflow: { queued: false, workflowId: workflowIds.holiday(existing.id), reason: "a vacation is already running" } });
+      const alreadyRunning = <T extends { id: string }>(existing: T) => ({ holiday: existing, workflow: { queued: false, workflowId: workflowIds.holiday(existing.id), reason: "a vacation is already running" } });
       const existing = await repos.holidays.current(ctx.db, ctx.businessId);
       if (existing) return alreadyRunning(existing);
       // A vacation runs cycles: none starts while the team is stopped.

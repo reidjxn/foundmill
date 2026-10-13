@@ -83,12 +83,6 @@ const PLAYBOOK_PROMPT = [
 /** A pre-written option that means "do nothing for now" (only consulted when the rules found no action in it). */
 const NO_ACTION_OPTION_RE = /^(?:not now|not yet|no thanks|skip(?: (?:it|this))?|dismiss|ignore(?: it| this)?|decline|hold off|wait(?: and see)?|do nothing|no change|stay the course|park (?:it|this)|leave (?:it|things) as (?:it is|they are)|keep (?:it|things) as (?:it is|they are))(?=$|[\s.,;:!?–—-])(?!\s+(?:on|with|to|for)\s)/i;
 
-export interface DecisionOption {
-  id: string;
-  label: string;
-  consequence?: string;
-}
-
 /**
  * An option click (BUILD §11.3: "option click or free text → (free text) Opus compiles a Plan"): the deterministic rule
  * engine in-process, with no model call on the click path (`compileOptionPlan` in @foundmill/models, which the Chief of
