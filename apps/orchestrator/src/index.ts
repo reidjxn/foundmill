@@ -13,23 +13,33 @@
  * every session on this worker).
  *
  * SIGTERM/SIGINT, handled from the first line (a signal while connecting also closes Redis and the pool): stop
- * connecting, stop polling, give running activities `shutdownGraceTime` to finish (then cancel them; an activity that
- * accepts the cancellation is reported failed, so the server retries it on another worker at once), close the Temporal
- * connection, Redis and the database pool, exit 0, all within SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3). The Temporal
- * Runtime listens for the same signals and stops its workers too; `worker.shutdown()` is only called while RUNNING.
+ * connecting, stop polling, hand every running agent session off (./drain.ts: the run saves its work and returns, and
+ * its workflow starts the next run at once on the next worker, where this one stopped), give the other running
+ * activities `shutdownGraceTime` to finish (then cancel them; one that throws on the cancellation is retried by the
+ * server on another worker, one that returns has completed), close the Temporal connection, Redis and the database
+ * pool, exit 0, all within SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3). The Temporal Runtime is installed without signal
+ * handlers of its own and logs through pino (./temporal-logger.ts); `worker.shutdown()` is only called while RUNNING.
+ *
+ * `GET /health` (./health-server.ts) reports the workers, their free activity slots and each task queue's backlog, and
+ * answers 503 while the work is not being done; `GET /ready`, the deploy healthcheck, only while the workers are not
+ * running or the database is down.
  */
 import { fileURLToPath } from "node:url";
 import { NativeConnection, Worker, type NativeConnection as NativeConnectionType } from "@temporalio/worker";
 import { APP_NAME } from "@foundmill/config";
 import { MemoryRedis } from "@foundmill/events";
 import { onShutdown } from "@foundmill/shared/shutdown";
+import { installTelemetry, parseOtlpHeaders } from "@foundmill/shared/telemetry";
 import { createActivities } from "./activities";
 import { MemoryControlBus } from "./control-bus";
 import { prepareDb } from "./db-boot";
 import { createDeps, type OrchestratorDeps } from "./deps";
 import { loadOrchestratorEnv } from "./env";
+import { orchestratorHealth, startHealthServer, type HealthServer, type QueueBacklog, type WorkerSlots } from "./health-server";
 import { chooseRedisBackend, probeRedis } from "./redis";
 import { sessionTaskQueue } from "./session-contract";
+import { installTemporalRuntime } from "./temporal-logger";
+import { activitySpans } from "./tracing";
 
 export { createActivities } from "./activities";
 export type { Activities } from "./activities";
@@ -46,6 +56,9 @@ export { LoopDetector, LOOP_THRESHOLD } from "./activities/loop";
 export { probeRedis, chooseRedisBackend, createRedisClient, type RedisProbe, type RedisBackendChoice } from "./redis";
 export { prepareDb, type DbReadiness } from "./db-boot";
 export { sessionTaskQueue } from "./session-contract";
+export { SessionDrain } from "./drain";
+export { orchestratorHealth, startHealthServer, BACKLOG_LIMIT_SECONDS, type OrchestratorHealth } from "./health-server";
+export { installTemporalRuntime, temporalLogger } from "./temporal-logger";
 
 /** Absolute path of the workflow bundle entry (a TypeScript file; the worker bundles it with swc). */
 export const WORKFLOWS_PATH = fileURLToPath(new URL("./workflows/index.ts", import.meta.url));
@@ -105,6 +118,7 @@ export async function createWorker(options: CreateWorkerOptions = {}): Promise<{
     maxConcurrentWorkflowTaskExecutions: options.maxConcurrentWorkflowTaskExecutions ?? env.ORCHESTRATOR_MAX_WORKFLOWS,
     shutdownGraceTime,
     shutdownForceTime,
+    interceptors: { activity: [activitySpans] },
   });
   const sessionWorker = await Worker.create({
     connection,
@@ -114,6 +128,7 @@ export async function createWorker(options: CreateWorkerOptions = {}): Promise<{
     maxConcurrentActivityTaskExecutions: options.maxConcurrentSessions ?? env.ORCHESTRATOR_MAX_SESSIONS,
     shutdownGraceTime,
     shutdownForceTime,
+    interceptors: { activity: [activitySpans] },
   });
   return { worker, sessionWorker, deps, connection };
 }
@@ -178,17 +193,49 @@ export async function connectWithRetry(deps: OrchestratorDeps, signal?: AbortSig
   }
 }
 
+/** Activity backlog and pollers of the given task queues, as Temporal sees them; null when it cannot be asked. */
+export async function describeQueues(connection: Pick<NativeConnectionType, "workflowService">, namespace: string, taskQueues: readonly string[]): Promise<QueueBacklog[] | null> {
+  try {
+    return await Promise.all(
+      taskQueues.map(async (name) => {
+        // TASK_QUEUE_KIND_NORMAL = 1, TASK_QUEUE_TYPE_ACTIVITY = 2.
+        const r = await connection.workflowService.describeTaskQueue({ namespace, taskQueue: { name, kind: 1 }, taskQueueType: 2, reportStats: true });
+        const age = r.stats?.approximateBacklogAge;
+        return {
+          taskQueue: name,
+          activityPollers: r.pollers?.length ?? 0,
+          backlogCount: r.stats?.approximateBacklogCount === undefined || r.stats?.approximateBacklogCount === null ? null : Number(r.stats.approximateBacklogCount.toString()),
+          backlogAgeSeconds: r.stats ? Number(age?.seconds?.toString() ?? 0) + (age?.nanos ?? 0) / 1e9 : null,
+        };
+      }),
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** One worker's state and activity slots for /health. */
+export function workerSlots(worker: Pick<Worker, "getState" | "getStatus">, taskQueue: string, kind: WorkerSlots["kind"], maxActivities: number): WorkerSlots {
+  return { taskQueue, kind, state: worker.getState(), maxActivities, inFlightActivities: worker.getStatus().numInFlightActivities };
+}
+
 export async function main(): Promise<void> {
   const env = loadOrchestratorEnv();
+  // Traces to OTEL_EXPORTER_OTLP_ENDPOINT and error reports to SENTRY_DSN, when set (packages/shared telemetry.ts).
+  const telemetry = installTelemetry("orchestrator", env);
   // Redis first (one bounded probe): unreachable in development means the in-memory stream + control bus, never a retry storm.
   const backend = chooseRedisBackend(env, await probeRedis(env.REDIS_URL));
   const deps = createDeps({ env, ...(backend.kind === "memory" ? { redis: new MemoryRedis(), control: new MemoryControlBus() } : {}) });
   deps.log[backend.level]({ redis: backend.kind }, backend.message);
   installRejectionLogger(deps.log);
+  installTemporalRuntime(deps.log, { otlpEndpoint: env.OTEL_EXPORTER_OTLP_ENDPOINT ?? null, otlpHeaders: parseOtlpHeaders(env.OTEL_EXPORTER_OTLP_HEADERS), serviceName: "orchestrator" });
   const abort = new AbortController();
   let connection: NativeConnectionType | null = null;
   let workers: Worker[] = [];
+  let slots: () => WorkerSlots[] = () => [];
   let running: Promise<void> | null = null;
+  let health: HealthServer | null = null;
+  let dbOk = false;
   const lifecycle = onShutdown({
     service: "orchestrator",
     log: deps.log,
@@ -198,22 +245,36 @@ export async function main(): Promise<void> {
         name: "stop worker",
         run: async () => {
           abort.abort();
-          // The Temporal Runtime's own handler may have started this already; shutdown() throws unless RUNNING.
+          // Stop polling first, so the runs that hand off below are picked up by the next worker, not by this one.
           for (const w of workers) if (w.getState() === "RUNNING") w.shutdown();
+          deps.drain.begin();
           await running;
         },
       },
+      { name: "close health server", run: () => health?.close() },
       { name: "close temporal connection", run: () => connection?.close() },
       { name: "close redis and database", run: () => deps.close() },
+      { name: "flush telemetry", run: () => telemetry.shutdown() },
     ],
   });
   // Database: PGlite boots + migrates here; a locked directory or an unreachable Postgres is one clear line, activities then fail per call.
   const readiness = await prepareDb(deps.db, deps.log, { service: "orchestrator" });
+  dbOk = readiness.ok;
+  const queues = [env.TEMPORAL_TASK_QUEUE, sessionTaskQueue(env.TEMPORAL_TASK_QUEUE)];
+  health = await startHealthServer({
+    port: env.PORT ?? env.ORCHESTRATOR_PORT,
+    log: deps.log,
+    status: async () => orchestratorHealth({ db: dbOk, draining: deps.drain.requested, workers: slots(), queues: connection ? await describeQueues(connection, env.TEMPORAL_NAMESPACE, queues) : null, now: new Date() }),
+  }).catch((err: unknown) => {
+    deps.log.warn({ err: (err as Error).message }, "orchestrator health server could not listen; /health is unavailable");
+    return null;
+  });
   deps.log.info({ app: APP_NAME, taskQueue: env.TEMPORAL_TASK_QUEUE, sessionTaskQueue: sessionTaskQueue(env.TEMPORAL_TASK_QUEUE), maxActivities: env.ORCHESTRATOR_MAX_ACTIVITIES, maxSessions: env.ORCHESTRATOR_MAX_SESSIONS, address: env.TEMPORAL_ADDRESS, integrations: env.INTEGRATIONS_MODE, models: env.MODEL_MODE, db: readiness.ok, driver: readiness.driver, redis: backend.kind }, "orchestrator starting");
   connection = await connectWithRetry(deps, abort.signal);
   if (!connection || lifecycle.stopping) return;
   const created = await createWorker({ deps, connection });
   workers = [created.worker, created.sessionWorker];
+  slots = () => [workerSlots(created.worker, env.TEMPORAL_TASK_QUEUE, "main", env.ORCHESTRATOR_MAX_ACTIVITIES), workerSlots(created.sessionWorker, sessionTaskQueue(env.TEMPORAL_TASK_QUEUE), "sessions", env.ORCHESTRATOR_MAX_SESSIONS)];
   if (lifecycle.stopping) return;
   running = runWorkers(workers);
   try {

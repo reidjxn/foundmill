@@ -184,8 +184,9 @@ export interface SessionResult {
   /** Last SDK/replay session id for resume. */
   providerSessionId: string | null;
   /**
-   * Set when the run handed its slot back because the session stayed paused past SESSION_PAUSE_HOLD_MINUTES: the
-   * workflow waits for Resume without holding a slot, then starts another run. Never set on a finished session.
+   * Set when the run handed its slot back because the session stayed paused past SESSION_PAUSE_HOLD_MINUTES (the
+   * workflow waits for Resume without holding a slot, then starts another run) or because its worker shut down
+   * (`handoff`: the workflow starts the next run at once). Never set on a finished session.
    */
   parked?: SessionParked | null;
 }
@@ -195,14 +196,22 @@ export interface SessionParked {
   cursor: string | null;
   /** Nudges and decisions that reached the run after its last poll; the workflow hands them to the next run. */
   carry: SessionCommand[];
+  /**
+   * The worker is shutting down (a deploy, ../drain.ts): the run saved its work and returned, and the workflow starts
+   * the next run at once, on the next worker, instead of waiting for Resume. Absent on a park.
+   */
+  handoff?: boolean;
 }
 
 /** How one run of a session starts (agentSession may run several when a paused session parks and resumes). */
 export interface SessionRunOptions {
   /** Control commands numbered below this were meant for an earlier run and are ignored. */
   fromSeq: number;
-  /** Set when this run continues a parked session. */
-  resume: { cursor: string | null; progress: ProgressState } | null;
+  /**
+   * Set when this run continues an earlier one: after a park (Resume), a hand-off from a worker that shut down, or a
+   * retry after a worker that died (absent reason = a park, as in histories from before hand-offs).
+   */
+  resume: { cursor: string | null; progress: ProgressState; reason?: "park" | "handoff" | "retry" } | null;
 }
 
 export interface SessionFinish {

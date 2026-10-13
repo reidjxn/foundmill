@@ -9,6 +9,10 @@
  * bounded in the runner: a gated call left undecided for APPROVAL_WAIT_MINUTES ends the session `blocked` (the approval
  * stays open), and a session paused for SESSION_PAUSE_HOLD_MINUTES "parks": the run saves its work and returns, this
  * workflow waits for Resume or Stop without any slot, then starts the next run where the last one stopped.
+ *
+ * Deploys: a worker that shuts down hands its sessions off (../drain.ts): the run saves its work and returns a
+ * hand-off, and the next run starts at once, on the next worker, where the last one stopped. A run whose worker died
+ * without handing off (no heartbeat for three minutes) is tried again and continues from its last heartbeat.
  */
 import { ActivityCancellationType, ActivityFailure, ApplicationFailure, CancellationScope, allHandlersFinished, condition, isCancellation, patched, proxyActivities, setHandler, workflowInfo, type ActivityOptions } from "@temporalio/workflow";
 import type { Activities, AgentSessionInput, ProgressSnapshot, SessionCommand, SessionFinish, SessionLaunch, SessionResult, SessionRunOptions } from "../activities";
@@ -25,6 +29,13 @@ const RUNNER: ActivityOptions = {
 };
 /** A parked session nobody resumes ends `stopped` after this long. */
 const PARK_LIMIT = "7 days";
+/**
+ * Since 2026-10-12 a run is tried again when its worker died without handing it off (a crash, or the shutdown's force
+ * deadline): the retry continues from the last heartbeat (activities/session.ts `retriedFrom`). A patch, so histories
+ * recorded with a single attempt replay unchanged.
+ */
+export const RUNNER_RETRY_PATCH = "session-runner-retry";
+const RUNNER_RETRY = { maximumAttempts: 3, initialInterval: "5 seconds" } as const;
 
 export interface AgentSessionOutcome {
   result: SessionResult;
@@ -58,7 +69,8 @@ export function combineRuns(a: SessionResult, b: SessionResult): SessionResult {
 export async function agentSession(input: AgentSessionWorkflowInput): Promise<AgentSessionOutcome> {
   const snapshot: ProgressSnapshot = { state: "pending", progress: 0, phase: null, planStepsDone: 0, planSteps: 0, acceptanceTestsPassing: 0, acceptanceTests: 0, reviewPassed: false, merged: false, etaAt: null, updatedAt: null, detail: null };
   // Histories from before the sessions queue keep scheduling the run on the workflow's own queue.
-  const runner = proxyActivities<Activities>(patched(SESSION_QUEUE_PATCH) ? { ...RUNNER, taskQueue: sessionTaskQueue(workflowInfo().taskQueue) } : RUNNER);
+  const onQueue: ActivityOptions = patched(SESSION_QUEUE_PATCH) ? { ...RUNNER, taskQueue: sessionTaskQueue(workflowInfo().taskQueue) } : RUNNER;
+  const runner = proxyActivities<Activities>(patched(RUNNER_RETRY_PATCH) ? { ...onQueue, retry: RUNNER_RETRY } : onQueue);
   const queued: SessionCommand[] = [];
   let running = false;
   let parked = false;
@@ -163,6 +175,13 @@ export async function agentSession(input: AgentSessionWorkflowInput): Promise<Ag
       await flushing;
       total = total ? combineRuns(total, r) : r;
       if (!r.parked) break;
+      if (r.parked.handoff && !pausedByFounder && stopRequested === null) {
+        // The run's worker shut down (a deploy): the work is saved, and the next run starts at once on whichever worker
+        // takes it, from where this one stopped. Nudges and decisions it did not act on go with it.
+        queued.unshift(...r.parked.carry);
+        resume = { cursor: r.parked.cursor, progress: r.progress, reason: "handoff" };
+        continue;
+      }
 
       // Parked: the run saved its work and freed its slot while the founder keeps the session paused. Wait here for
       // Resume or Stop; nudges and decisions that reach a parked session go to the next run.

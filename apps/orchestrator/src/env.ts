@@ -27,6 +27,8 @@ const Extra = z.object({
   ORCHESTRATOR_WORKSPACE_DIR: z.string().default("/tmp/foundmill-workspaces"),
   /** Seconds between connection attempts when Temporal is unreachable (never faster than 10 s). */
   TEMPORAL_RETRY_SECONDS: z.coerce.number().min(10).default(10),
+  /** Port of the orchestrator's `/health` when PORT is unset (./health-server.ts). */
+  ORCHESTRATOR_PORT: z.coerce.number().int().min(0).max(65_535).default(4007),
 });
 
 export interface OrchestratorEnv extends Env {
@@ -40,6 +42,7 @@ export interface OrchestratorEnv extends Env {
   mockSessionSpeed: number;
   ORCHESTRATOR_WORKSPACE_DIR: string;
   TEMPORAL_RETRY_SECONDS: number;
+  ORCHESTRATOR_PORT: number;
 }
 
 let cached: OrchestratorEnv | undefined;
@@ -61,6 +64,7 @@ export function loadOrchestratorEnv(overrides: Partial<NodeJS.ProcessEnv> = {}):
     mockSessionSpeed: Number.isFinite(speed) && speed > 0 ? speed : speed === Infinity ? Infinity : 4,
     ORCHESTRATOR_WORKSPACE_DIR: extra.ORCHESTRATOR_WORKSPACE_DIR,
     TEMPORAL_RETRY_SECONDS: extra.TEMPORAL_RETRY_SECONDS,
+    ORCHESTRATOR_PORT: extra.ORCHESTRATOR_PORT,
   };
   if (Object.keys(overrides).length === 0) cached = env;
   return env;
