@@ -1,6 +1,7 @@
 /** journey.get/list/markViewed + daily rows and milestones for the Ribbon (BUILD §11.2, §11.4). */
 import { JourneyListFilter, NO_DEPARTMENT_ID, repos } from "@foundmill/db";
 import { buildChapters } from "@foundmill/journey";
+import { loadRedactionSource, redactValue } from "../services/inbox-redaction";
 import { buildJourneyRecord } from "../services/journey";
 import { journeyWalls, wallConversion, wallJourneyDetail, wallRibbon } from "../services/journey-walls";
 import { z } from "zod";
@@ -28,7 +29,14 @@ export const journeyRouter = router({
     ctx.rls(async (tx) => {
       const page = await repos.journeys.list(tx, ctx.businessId, input ?? {});
       const walls = journeyWalls(ctx.membership);
-      return walls.finance ? { ...page, items: page.items.map((j) => ({ ...j, conversion: wallConversion(j.conversion, walls) })) } : page;
+      if (!walls.finance && !walls.crm) return page;
+      // The commentary names the customer and quotes the money, so a list row is redacted like the detail (audit ARB-12).
+      const entityIds = page.items.flatMap((j) => (j.conversion.entityId ? [j.conversion.entityId] : []));
+      const source = await loadRedactionSource(tx, ctx.businessId, { finance: walls.finance, crm: walls.crm }, entityIds);
+      return {
+        ...page,
+        items: page.items.map((j) => ({ ...j, commentary: redactValue(j.commentary, source, { ids: j.conversion.entityId ? [j.conversion.entityId] : [], customer: true }), conversion: wallConversion(j.conversion, walls) })),
+      };
     }),
   ),
 

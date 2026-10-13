@@ -224,6 +224,8 @@ describe("#100 journey data follows the section walls", () => {
       expect(got.redacted).toEqual(["finance", "crm"]);
       const list = await member.journey.list({ businessId });
       expect(list.items.every((j) => j.conversion.amountMinor === 0)).toBe(true);
+      expect(list.items.some((j) => j.id === journey.id)).toBe(true);
+      expect(JSON.stringify(list.items)).not.toMatch(/Acme Buyer|49\.00/);
       const ribbon = await member.journey.ribbon({ businessId });
       expect(ribbon.rows.every((r) => r.spendMinor === 0 && r.revenueMinor === 0)).toBe(true);
       expect(ribbon.conversions.every((c) => c.amountMinor === 0 && c.entityName === null)).toBe(true);
