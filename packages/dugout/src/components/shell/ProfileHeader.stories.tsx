@@ -23,7 +23,7 @@ const meta = {
       { label: "Tasks", value: "42" },
       { label: "Wage / month", value: "€120", provenance: "estimate" },
     ],
-    model: "claude-sonnet-5-5",
+    model: "sonnet",
     stars: { current: 3, potential: 4.5 },
     actions: (
       <>

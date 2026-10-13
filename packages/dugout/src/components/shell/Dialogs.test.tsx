@@ -120,7 +120,7 @@ describe("ProfileHeader", () => {
           { label: "Cost / month", value: "€120", provenance: "estimate" },
           { label: "Hidden", value: "no" },
         ]}
-        model="claude-sonnet-5-5"
+        model="sonnet"
         stars={{ current: 3, potential: 4.5 }}
       />,
     );
@@ -129,7 +129,7 @@ describe("ProfileHeader", () => {
     expect(screen.getByTestId("profile-facts").querySelectorAll("dt").length).toBe(3);
     expect(screen.queryByText("Hidden")).toBeNull();
     expect(screen.getByText("Estimate")).toBeTruthy();
-    expect(screen.getByText("claude-sonnet-5-5")).toBeTruthy();
+    expect(screen.getByText("sonnet")).toBeTruthy();
     expect(screen.getByRole("img", { name: "Ability: 3 of 5, potential 4.5" })).toBeTruthy();
   });
 });
