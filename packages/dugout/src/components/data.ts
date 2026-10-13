@@ -20,6 +20,7 @@ export * from "./data/WidgetGrid";
 export * from "./data/MetricTile";
 export * from "./data/Figure";
 export * from "./data/Lists";
+export * from "./data/VirtualList";
 export * from "./data/Composer";
 export * from "./data/Conversation";
 export * from "./data/FeedPost";

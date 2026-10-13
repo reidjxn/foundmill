@@ -13,7 +13,7 @@ export type { PlanExecutionInput, PlanExecutionResult } from "./planExecution";
 export { channelEngine, WEEK_MS, MEASURE_DELAY_MS } from "./channelEngine";
 export type { ChannelEngineResult } from "./channelEngine";
 export { trainingRun, TRAINING_PARALLELISM, TRAINING_START_FAILED, TRAINING_FINISH_FAILED } from "./trainingRun";
-export { holiday, MAX_HOLIDAY_CYCLES } from "./holiday";
+export { holiday, holidayStopReason, MAX_HOLIDAY_CYCLES } from "./holiday";
 export type { HolidayResult } from "./holiday";
 export { autopilot, AUTOPILOT_CYCLES_PER_RUN, AUTOPILOT_CHAINED_CYCLES } from "./autopilot";
 export type { AutopilotResult } from "./autopilot";

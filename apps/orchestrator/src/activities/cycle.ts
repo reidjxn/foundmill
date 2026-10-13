@@ -115,6 +115,26 @@ function pickAssignee(task: BriefTask, brief: BusinessBrief, requested: string |
 }
 
 export function createCycleActivities(deps: OrchestratorDeps) {
+  /** The cycle's update from the Chief of Staff: the summary as written (and a notice under it). Marks its events narrated. */
+  async function plainCycleUpdate(input: { businessId: string; summary: string; fallbackSubject?: string }, eventIds: string[], notice: string | null): Promise<string[]> {
+    const chief = await repos.agents.chiefOfStaff(deps.db, input.businessId);
+    if (!chief) return [];
+    const item = await repos.inbox.createItem(deps.db, input.businessId, {
+      type: "update",
+      from_agent_id: chief.id,
+      subject: (input.fallbackSubject ?? "Cycle finished").slice(0, 80),
+      body_md: notice ? `${input.summary.trim()}\n\n${notice}` : input.summary.trim(),
+      status_strip: [],
+      exhibit: { kind: "none", spec_ref: null },
+      decision: null,
+      blocks_continue: false,
+      source_event_ids: eventIds,
+      entity_ids: [],
+    });
+    if (eventIds.length) await repos.events.markNarrated(deps.db, input.businessId, eventIds);
+    return [item.id];
+  }
+
   return {
     /** Chief of Staff plan for one cycle (BUILD §12.4). Ids in the model's answer are validated against the brief. */
     async planCycle(input: { businessId: string; cycleNumber: number; trigger: CycleTrigger; brief: BusinessBrief }): Promise<CyclePlan> {
@@ -368,29 +388,37 @@ export function createCycleActivities(deps: OrchestratorDeps) {
     },
 
     /**
-     * Hand the cycle's events to the composer (one inbox item). When the composer is unreachable in development or
-     * test, a plain update from the Chief of Staff is written instead so the founder still sees the cycle end. In
-     * staging and production an outage or a timeout is retried (narrate is idempotent per event set, so a retry gets the
-     * note a slow attempt wrote); a 4xx answer is not, since the same request gets the same answer (audit CML-05).
+     * Hand the cycle's events to the composer. One note takes at most `LIMITS.narrateMaxEvents` events, so a cycle with
+     * more is narrated in several calls. A cycle that finished no session has no event to narrate (the composer refuses
+     * an empty list): its update is the Chief of Staff's own summary. A 4xx answer is the composer turning down what was
+     * sent, a bug and not an outage: it is logged as one and never retried (the same request gets the same answer,
+     * audit CML-05), and the founder gets the plain summary as the cycle's update, with no outage notice. When the
+     * composer is unreachable in development or test, the plain update says it was written without the composer; in
+     * staging and production an outage or a timeout is retried (narrate is idempotent per event set, so a retry gets
+     * the notes the attempts before it wrote).
      */
     async narrateCycle(input: NarrateCycleInput): Promise<{ inboxItemIds: string[]; viaComposer: boolean }> {
-      // No session finished, so there is no event to narrate (the composer refuses an empty list, and in staging that
-      // refusal used to end the cycle without any note): the Chief of Staff says what happened in plain words instead.
-      if (input.eventIds.length === 0) return plainCycleUpdate(deps, input, "Nothing finished this cycle, so there is nothing new to narrate yet.");
+      const ids = [...new Set(input.eventIds)];
+      if (ids.length === 0) return { inboxItemIds: await plainCycleUpdate(input, [], null), viaComposer: false };
+      const inboxItemIds: string[] = [];
+      let narrated = 0;
       try {
-        const out = await deps.composer.narrate({ businessId: input.businessId, eventIds: input.eventIds });
-        return { inboxItemIds: out.inboxItemId ? [out.inboxItemId] : [], viaComposer: true };
+        for (; narrated < ids.length; narrated += LIMITS.narrateMaxEvents) {
+          const out = await deps.composer.narrate({ businessId: input.businessId, eventIds: ids.slice(narrated, narrated + LIMITS.narrateMaxEvents) });
+          if (out.inboxItemId && !inboxItemIds.includes(out.inboxItemId)) inboxItemIds.push(out.inboxItemId);
+        }
+        return { inboxItemIds, viaComposer: true };
       } catch (err) {
         if (!(err instanceof ComposerUnavailableError) && !(err instanceof ComposerRequestError)) throw err;
-        // A refusal (4xx) fails the same way on every retry, and the workflow would then end the cycle with no note: it is
-        // not retried, and the plain update goes out in every environment. An outage in staging or production is retried.
+        const rest = ids.slice(narrated);
         if (err instanceof ComposerRequestError) {
-          deps.log.warn({ err: err.message, status: err.status }, "composer refused the cycle's events; writing a plain cycle update");
-          return plainCycleUpdate(deps, input, "This update was written without the Inbox Composer, so it has no links or exhibits.");
+          deps.log.error({ err: err.message, code: err.code, status: err.status, details: err.details, events: rest.length }, "composer refused the cycle narration; writing the plain cycle update");
+          return { inboxItemIds: [...inboxItemIds, ...(await plainCycleUpdate(input, rest, null))], viaComposer: inboxItemIds.length > 0 };
         }
         if (deps.env.APP_ENV === "production" || deps.env.APP_ENV === "staging") throw err;
         deps.log.warn({ err: err.message }, "composer unavailable; writing a plain cycle update");
-        return plainCycleUpdate(deps, input, "This update was written without the Inbox Composer (service unavailable); links and exhibits will appear once it is back.");
+        const notice = "This update was written without the Inbox Composer (service unavailable); links and exhibits will appear once it is back.";
+        return { inboxItemIds: [...inboxItemIds, ...(await plainCycleUpdate(input, rest, notice))], viaComposer: inboxItemIds.length > 0 };
       }
     },
   };
@@ -401,26 +429,6 @@ interface NarrateCycleInput {
   eventIds: string[];
   summary: string;
   fallbackSubject?: string;
-}
-
-/** The Chief of Staff's plain cycle update: the cycle's summary (what ran, finished, was blocked or deferred) and a closing line. */
-async function plainCycleUpdate(deps: OrchestratorDeps, input: NarrateCycleInput, footer: string): Promise<{ inboxItemIds: string[]; viaComposer: boolean }> {
-  const chief = await repos.agents.chiefOfStaff(deps.db, input.businessId);
-  if (!chief) return { inboxItemIds: [], viaComposer: false };
-  const item = await repos.inbox.createItem(deps.db, input.businessId, {
-    type: "update",
-    from_agent_id: chief.id,
-    subject: (input.fallbackSubject ?? "Cycle finished").slice(0, 80),
-    body_md: `${input.summary.trim()}\n\n${footer}`,
-    status_strip: [],
-    exhibit: { kind: "none", spec_ref: null },
-    decision: null,
-    blocks_continue: false,
-    source_event_ids: input.eventIds,
-    entity_ids: [],
-  });
-  if (input.eventIds.length) await repos.events.markNarrated(deps.db, input.businessId, input.eventIds);
-  return { inboxItemIds: [item.id], viaComposer: false };
 }
 
 export type CycleActivities = ReturnType<typeof createCycleActivities>;

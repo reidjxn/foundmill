@@ -59,10 +59,9 @@ describe("Stop all agents cannot be undone by a member; resume is an owner's or 
     const draft = await repos.agents.createVersion(hz.db, A(), hz.A.agentId, { state: "draft" });
     await expect(member().agent.training.run({ businessId: A(), agentId: hz.A.agentId, versionId: draft.id })).rejects.toMatchObject({ code: "CONFLICT" });
 
-    // Campaigns the stop paused stay paused: no member sets one (or creates one) live before the agents resume.
+    // Campaigns the stop paused stay paused: no member sets one live before the agents resume (a new campaign is only ever a draft).
     expect((await repos.campaigns.get(hz.db, A(), hz.A.campaignId)).status).toBe("paused");
     await expect(member().distribution.campaigns.setStatus({ businessId: A(), campaignId: hz.A.campaignId, status: "live" })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/live campaign cannot start/) });
-    await expect(member().distribution.campaigns.create({ businessId: A(), channelId: hz.A.channelId, name: "Launched while stopped", status: "live" })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await repos.campaigns.get(hz.db, A(), hz.A.campaignId)).status).toBe("paused");
     // Pausing, ending or drafting stays allowed.
     const drafted = await member().distribution.campaigns.create({ businessId: A(), channelId: hz.A.channelId, name: "Drafted while stopped" });

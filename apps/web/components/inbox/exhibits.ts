@@ -300,18 +300,24 @@ export function transform(id: NamedQueryId, raw: unknown, ctx: { currency: strin
 
 export type ChartShape = "line" | "bar" | "funnel" | "table" | "empty";
 
-/** Pick how a chart/diagram exhibit draws from the data it has (the model never chooses chart numbers). */
+/**
+ * Pick how a chart/diagram exhibit draws from the data it has (the model never chooses chart numbers). A bar or funnel
+ * needs a figure to draw: rows whose numeric column is all empty (a channel with no customers has no cost per customer)
+ * or all zero are "empty", never a chart with an axis from £0.00 to £0.01 and no bars (audit OL-31).
+ */
 export function chartShape(kind: ExhibitKind, data: ExhibitData): ChartShape {
   const hasSeries = !!data.series?.some((s) => s.points.length > 1);
   const numericCols = (data.columns ?? []).filter((c) => c.unit === "minor" || c.unit === "count" || c.unit === "months" || c.unit === "percent");
   const hasRows = !!data.rows?.length;
+  const col = barColumn(data);
+  const hasFigure = !!col && !!data.rows?.some((r) => typeof r[col.key] === "number" && r[col.key] !== 0);
   if (kind === "table") return hasRows ? "table" : "empty";
   if (kind === "diagram") {
-    if (hasRows && numericCols.length >= 1 && (data.rows?.length ?? 0) >= 2 && (data.rows?.length ?? 0) <= 6) return "funnel";
+    if (hasRows && numericCols.length >= 1 && (data.rows?.length ?? 0) >= 2 && (data.rows?.length ?? 0) <= 6) return hasFigure ? "funnel" : hasSeries ? "line" : "empty";
     return hasSeries ? "line" : hasRows ? "table" : "empty";
   }
   if (hasSeries) return "line";
-  if (hasRows && numericCols.length >= 1) return "bar";
+  if (hasRows && numericCols.length >= 1) return hasFigure ? "bar" : "empty";
   return hasRows ? "table" : "empty";
 }
 

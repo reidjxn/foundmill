@@ -5,9 +5,10 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Activities, HolidayCheck, HolidayDecisions, LoadedHoliday, PlanActionResult, PlanActionView } from "../../activities";
+import { describeAway } from "../../activities/holiday";
 import { FakeClock } from "../../clock";
 import { HOLIDAY_CYCLES_PER_RUN, MAX_HOLIDAY_CYCLES } from "../../holiday-contract";
-import { holiday, stopSignal, wakeSignal } from "../../workflows";
+import { holiday, holidayStopReason, stopSignal, wakeSignal } from "../../workflows";
 import { createTemporalRig, type TemporalRig } from "./temporal";
 
 let rig: TemporalRig;
@@ -196,5 +197,37 @@ describe("holiday workflow", () => {
       return handle.result();
     });
     expect(result.reason).toBe("kill_switch");
+  });
+
+  it("Come back (stop with founder_returned) ends it as founder_returned, and the report says so (audit OL-07, DB-15a, EX-3)", async () => {
+    const clock = new FakeClock("2026-10-05T08:00:00.000Z");
+    const m = mockActivities(clock, null);
+    const result = await rig.run(m.acts, async (client, taskQueue) => {
+      const handle = await client.workflow.start(holiday, { workflowId: `holiday:${H}-back`, taskQueue, args: [{ businessId: B, holidayId: H }] });
+      for (let i = 0; i < 400 && m.calls.cycles < 1; i++) await new Promise((r) => setTimeout(r, 25));
+      await handle.signal(stopSignal, { reason: "founder_returned", by: "founder" });
+      return handle.result();
+    });
+    expect(result.reason).toBe("founder_returned");
+    expect(m.calls.end).toMatchObject({ reason: "founder_returned" });
+  });
+});
+
+describe("holidayStopReason and describeAway", () => {
+  it("maps the stop signal's reason: founder_returned stays, anything else is the kill switch", () => {
+    expect(holidayStopReason("founder_returned")).toBe("founder_returned");
+    expect(holidayStopReason("kill_switch")).toBe("kill_switch");
+    expect(holidayStopReason("agents_stopped")).toBe("kill_switch");
+    expect(holidayStopReason(undefined)).toBe("kill_switch");
+  });
+
+  it("says minutes and hours for a short vacation instead of rounding it up to a day", () => {
+    expect(describeAway(5_000)).toBe("1 minute");
+    expect(describeAway(2 * 60_000)).toBe("2 minutes");
+    expect(describeAway(59 * 60_000 + 50_000)).toBe("59 minutes");
+    expect(describeAway(3 * 3_600_000)).toBe("3 hours");
+    expect(describeAway(23 * 3_600_000 + 50 * 60_000)).toBe("23 hours");
+    expect(describeAway(86_400_000)).toBe("1 day");
+    expect(describeAway(4.4 * 86_400_000)).toBe("4 days");
   });
 });

@@ -224,7 +224,7 @@ export function createChannelActivities(deps: OrchestratorDeps) {
             // Lead channels count the leads they record; the others measure signups from their reach.
             const recorded = leadChannel ? await recordMockLeads(businessId, channel.id, key, state.campaignId, owner?.id ?? null, 1 + (seed % leadChannel.maxPerWeek), leadChannel.basis, `${state.campaignId}:${input.weekIndex}`) : 0;
             const signups = leadChannel ? Math.round(recorded * 0.3) : Math.round(impressions * (0.002 + (seed % 5) / 1000));
-            await repos.channels.upsertMetric(db, businessId, { channelId: channel.id, campaignId: state.campaignId, day, spendMinor: Math.round(Number(campaign.budgetMinor) * 0.9), currency: campaign.impressions, leads: recorded, signups, activations: Math.round(signups * 0.5), customers: Math.round(signups * 0.2), source: "estimate" });
+            await repos.channels.upsertMetric(db, businessId, { channelId: channel.id, campaignId: state.campaignId, day, spendMinor: Math.round(Number(campaign.budgetMinor) * 0.9), currency: campaign.currency, impressions, leads: recorded, signups, activations: Math.round(signups * 0.5), customers: Math.round(signups * 0.2), source: "estimate" });
             requestJourneyDailyRefresh(deps);
             return done(`Measured (mock, Estimate): ${impressions} impressions, ${recorded} leads, ${signups} signups.`);
           }

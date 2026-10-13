@@ -3,7 +3,7 @@
  * nothing here touches the database directly. `createApp(service)` is pure so tests boot it on an ephemeral port.
  */
 import { modelBillingFacts, modelBillingMessage } from "@foundmill/agents";
-import { APP_NAME } from "@foundmill/config";
+import { APP_NAME, LIMITS } from "@foundmill/config";
 import { isModelBillingError, platformBillingRefusal, type ModelLogger } from "@foundmill/models";
 import { AppError } from "@foundmill/shared";
 import { Hono } from "hono";
@@ -13,7 +13,7 @@ import type { ComposerService } from "./service";
 
 const Id = z.guid();
 
-export const NarrateBody = z.object({ businessId: Id, eventIds: z.array(Id).min(1).max(50) });
+export const NarrateBody = z.object({ businessId: Id, eventIds: z.array(Id).min(1).max(LIMITS.narrateMaxEvents) });
 export const RefreshBody = z.object({ businessId: Id });
 export const CommentaryBody = z.object({ businessId: Id, journeyId: Id });
 export const ChapterTitleBody = z

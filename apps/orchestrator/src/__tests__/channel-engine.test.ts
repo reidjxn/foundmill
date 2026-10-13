@@ -82,7 +82,7 @@ describe("approve and launch", () => {
     const created = await steps(channel.id, "paid_ads", ["plan", "create"]);
     const approve = await steps(channel.id, "paid_ads", ["approve"], created.state);
     expect(approve.awaitingApprovalId).toBeTruthy();
-    expect((await repos.approvals.get(t.db, t.businessId, approve.awaitingApprovalId!)).reasons).toContain("assisted mode: a channel's first campaign asks");
+    expect((await repos.approvals.get(t.db, t.businessId, approve.awaitingApprovalId!)).reasons).toContain("assisted mode: a new campaign needs your approval");
     const approved = await acts.channelStep({ businessId: t.businessId, channelId: channel.id, channelKey: "paid_ads", step: "approve", weekIndex: 0, state: approve.state, approvedApprovalId: approve.awaitingApprovalId });
     const assets = await repos.campaigns.listAssets(t.db, t.businessId, { campaignId: created.state.campaignId! });
     expect(assets.every((a) => a.approvalState === "approved")).toBe(true);

@@ -10,6 +10,7 @@
  * Exported as a pure function so apps can also use it as a deterministic fallback or pre-check in live mode.
  */
 import { CHANNEL_META, DEFAULT_BUSINESS_CURRENCY, PLAN_ACTION_TYPES, type ChannelKey, type PlanActionType, type TaskKind } from "@foundmill/shared";
+import { matchRoadmapItem, type UpdateRoadmapParams } from "../planParams";
 import type { PlanAction, PlanOutput } from "../schemas";
 import { type AgentLike, type ManifestEntry, type MockContext, agentsFrom, sentenceCase, truncate } from "./inputs";
 import { compilePlaybookRuleBased, isPlaybookClause } from "./playbookCompiler";
@@ -23,6 +24,8 @@ export interface PlanCompilerContext {
   actionTypes?: readonly PlanActionType[];
   /** Compiling one step of a playbook: a standing rule inside it is not read as another playbook. */
   insidePlaybook?: boolean;
+  /** The business's roadmap, so a roadmap change names the item it changes (`roadmap_item_id`). */
+  roadmap?: readonly { id: string; title: string }[];
 }
 
 export type HardGate =
@@ -350,7 +353,8 @@ export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}
     if (INTENT.setModel.test(clause)) {
       const model = /\b(opus|sonnet|haiku)\b/i.exec(clause)?.[1]?.toLowerCase() ?? (/\bupgrade\b/i.test(clause) ? "opus" : /\bdowngrade\b/i.test(clause) ? "sonnet" : null);
       const agentId = pickAgentByName(agents, clause);
-      add("set_agent_model", { model_key: model, agent_id: agentId, scope: /\ball\b/i.test(clause) ? "all" : "agent" }, agentId, `Set the model to ${model ?? "the requested tier"}${agentId ? "" : " for the named agents"}.`);
+      const applyScope = /\b(?:all|every|everyone|whole\s+team)\b/i.test(clause) ? "all" : "agent";
+      add("set_agent_model", { model_key: model, agent_id: agentId, apply_scope: applyScope }, agentId, `Set the model to ${model ?? "the requested tier"}${applyScope === "all" ? " for every agent" : agentId ? "" : " for the named agents"}.`);
       handled = true;
     }
     if (INTENT.train.test(clause) && !handled) {
@@ -364,7 +368,8 @@ export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}
       handled = true;
     }
     if (INTENT.updateRoadmap.test(clause)) {
-      add("update_roadmap", { change: sentenceCase(clause) }, null, `Update the roadmap: ${truncate(clause, 60)}.`);
+      const item = matchRoadmapItem(clause, ctx.roadmap ?? []);
+      add("update_roadmap", { roadmap_item_id: item?.id ?? null, change: sentenceCase(clause) } satisfies UpdateRoadmapParams, null, `Update the roadmap${item ? ` item "${truncate(item.title, 40)}"` : ""}: ${truncate(clause, 60)}.`);
       handled = true;
     }
     if (isSendMessage) {
@@ -455,10 +460,12 @@ export function generatePlanCompiler(ctx: MockContext): PlanOutput {
   const defaultCurrency = ctx.getString("currency", "default_currency") ?? (business && typeof business.currency === "string" ? business.currency : undefined);
   const actionTypesRaw = ctx.getArray<string>("action_types", "actionTypes");
   const actionTypes = actionTypesRaw.filter((t): t is PlanActionType => (PLAN_ACTION_TYPES as readonly string[]).includes(t));
+  const roadmap = ctx.getArray<Record<string, unknown>>("roadmap").flatMap((r) => (r && typeof r.id === "string" && typeof r.title === "string" ? [{ id: r.id, title: r.title }] : []));
   return compilePlanRuleBased(text, {
     manifest: ctx.manifest,
     agents: agentsFrom(ctx),
     defaultCurrency,
     actionTypes: actionTypes.length > 0 ? actionTypes : undefined,
+    roadmap,
   });
 }

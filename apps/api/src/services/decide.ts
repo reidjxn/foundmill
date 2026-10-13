@@ -19,7 +19,7 @@ import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { assertApprovalAccess, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
-import { assertInstructionSectionAccess, assertPlanSectionAccess, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, planSectionRefusal, requiresConfirmation, syncChannelEngines, type ActionEvaluation, type ChannelToggle, type PlanContext } from "./plans";
+import { assertInstructionSectionAccess, assertPlanSectionAccess, choiceOf, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, planSectionRefusal, requiresConfirmation, syncChannelEngines, type ActionEvaluation, type ChannelToggle, type DecisionOption, type PlanContext } from "./plans";
 
 export interface DecideItemInput {
   itemId: string;
@@ -42,16 +42,12 @@ export interface DecideItemResult {
   approval?: ApprovalAnswer | null;
 }
 
-interface ItemOption {
-  id: string;
-  label: string;
-  consequence?: string;
-}
+type ItemOption = DecisionOption;
 
 export async function planContextFor(ctx: BusinessContext): Promise<PlanContext> {
-  const [agents, holiday] = await Promise.all([repos.agents.list(ctx.db, ctx.businessId, { limit: 200 }), repos.holidays.current(ctx.db, ctx.businessId)]);
+  const [agents, holiday, roadmap] = await Promise.all([repos.agents.list(ctx.db, ctx.businessId, { limit: 200 }), repos.holidays.current(ctx.db, ctx.businessId), repos.product.listRoadmap(ctx.db, ctx.businessId)]);
   // Amounts the founder writes without a symbol ("spend up to 300 on ads") are in the business's own currency (0025).
-  return { business: ctx.business, agents: agents.items, holidayActive: holiday !== null, currency: ctx.business.currency };
+  return { business: ctx.business, agents: agents.items, holidayActive: holiday !== null, currency: ctx.business.currency, roadmap };
 }
 
 export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInput): Promise<DecideItemResult> {
@@ -81,7 +77,7 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   const approval = await ctx.rls((tx) => repos.approvals.forInboxItem(tx, ctx.businessId, item.id));
   if (approval) return decideApprovalItem(ctx, item, approval, { chosenOption, freeText });
 
-  const planCtx = await planContextFor(ctx);
+  const planCtx = { ...(await planContextFor(ctx)), ...(option ? { choice: choiceOf(option) } : {}) };
   // Section walls hold in the Inbox too (audit RUI-01): a plan that changes a section the decider cannot write to is
   // refused before anything is written, and the item stays open for someone who can. Free text is read by the rule
   // engine first, so what it already shows is refused before the plan compiler (Opus) is paid for (SEC2 S3).

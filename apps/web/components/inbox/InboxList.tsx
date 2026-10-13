@@ -8,7 +8,7 @@ import { Inbox } from "lucide-react";
 import { NETWORK_SENDER, NOTE_TAG_ICONS } from "@foundmill/widgets/shared/note-tags";
 import { useEffect, useRef } from "react";
 import { APP_NAME } from "@foundmill/config";
-import { Avatar, Button, Chip, EmptyState, Skeleton, formatRelative, useFormatters, type ChipTone, type IconComponent } from "@foundmill/dugout";
+import { Avatar, Button, Chip, EmptyState, Skeleton, VirtualList, formatRelative, useFormatters, type ChipTone, type IconComponent, type VirtualListHandle } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { useHydrated } from "@/lib/today";
 import type { InboxRowModel, NoteTag, TagIcon } from "./logic";
@@ -58,14 +58,16 @@ export interface InboxListProps {
 }
 
 export function InboxList({ rows, selectedId, onSelect, loading, hasMore, loadingMore, onLoadMore, emptyText, founderName }: InboxListProps) {
-  const listRef = useRef<HTMLUListElement>(null);
+  const listRef = useRef<VirtualListHandle>(null);
   // The row time stays relative ("3 min ago"); its tooltip is the moment in the person's own date format, printed only
   // once the browser knows the reader's time zone (the server renders in UTC).
   const { formatDateTime } = useFormatters();
   const hydrated = useHydrated();
+  // J/K and a click keep the selected row in view, drawn or not (a long list only draws the rows near the viewport).
   useEffect(() => {
     if (!selectedId) return;
-    listRef.current?.querySelector<HTMLElement>(`[data-inbox-row="${CSS.escape(selectedId)}"]`)?.scrollIntoView({ block: "nearest" });
+    listRef.current?.scrollToIndex(rows.findIndex((r) => r.id === selectedId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- follow the selection, not every new page of rows
   }, [selectedId]);
 
   if (loading) {
@@ -92,52 +94,61 @@ export function InboxList({ rows, selectedId, onSelect, loading, hasMore, loadin
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <ul ref={listRef} role="listbox" aria-label="Inbox items" className="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="inbox-list">
-        {rows.map((row) => {
+      <VirtualList
+        ref={listRef}
+        role="listbox"
+        aria-label="Inbox items"
+        className="flex min-h-0 flex-1 flex-col"
+        items={rows}
+        getKey={(row) => row.id}
+        rowClassName="border-b hairline-50 last:border-b-0"
+        estimateSize={76}
+        data-testid="inbox-list"
+        renderItem={(row, index, setSize) => {
           const selected = row.id === selectedId;
           return (
-            <li key={row.id} role="presentation" className="border-b hairline-50 last:border-b-0">
-              <button
-                type="button"
-                role="option"
-                aria-selected={selected}
-                onClick={() => onSelect(row.id)}
-                data-inbox-row={row.id}
-                data-type={row.typeWord}
-                data-unread={row.unread || undefined}
-                data-needs-answer={row.needsAnswer || undefined}
-                className={[
-                  "flex w-full items-start gap-3 px-panel-pad py-2.5 text-left transition-colors duration-micro ease-dugout hover:bg-white/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
-                  row.won ? "row-edge-gold" : "",
-                  selected ? (row.won ? "bg-panel-alt" : "row-selected") : "",
-                ].join(" ")}
-                aria-label={`${row.subject}. ${row.tag.word}${row.needsAnswer && row.tag.word !== "Respond" ? ", needs an answer" : ""}${row.won ? ", customer won" : ""}`}
-              >
-                <span className="shrink-0 pt-0.5">
-                  {row.agent ? <Avatar size={32} name={row.agent.name} agent={{ seed: row.agent.seed, dept: row.agent.dept }} /> : <Avatar size={32} name={row.fromUser ? (founderName ?? "You") : row.fromPerson ? NETWORK_SENDER : APP_NAME} />}
-                </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="flex items-start gap-2">
-                    <span className={`min-w-0 flex-1 text-pretty break-words text-body-strong ${row.unread ? "text-primary" : "text-secondary"}`} data-testid="row-subject">
-                      {row.subject}
-                    </span>
-                    <time className="shrink-0 pt-px text-small text-secondary tabular-nums" dateTime={new Date(row.createdAt).toISOString()} title={hydrated ? formatDateTime(row.createdAt) : undefined} data-testid="row-time">
-                      {formatRelative(row.createdAt)}
-                    </time>
+            <button
+              type="button"
+              role="option"
+              aria-selected={selected}
+              aria-posinset={index + 1}
+              aria-setsize={setSize}
+              onClick={() => onSelect(row.id)}
+              data-inbox-row={row.id}
+              data-type={row.typeWord}
+              data-unread={row.unread || undefined}
+              data-needs-answer={row.needsAnswer || undefined}
+              className={[
+                "flex w-full items-start gap-3 px-panel-pad py-2.5 text-left transition-colors duration-micro ease-dugout hover:bg-white/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
+                row.won ? "row-edge-gold" : "",
+                selected ? (row.won ? "bg-panel-alt" : "row-selected") : "",
+              ].join(" ")}
+              aria-label={`${row.subject}. ${row.tag.word}${row.needsAnswer && row.tag.word !== "Respond" ? ", needs an answer" : ""}${row.won ? ", customer won" : ""}`}
+            >
+              <span className="shrink-0 pt-0.5">
+                {row.agent ? <Avatar size={32} name={row.agent.name} agent={{ seed: row.agent.seed, dept: row.agent.dept }} /> : <Avatar size={32} name={row.fromUser ? (founderName ?? "You") : row.fromPerson ? NETWORK_SENDER : APP_NAME} />}
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col gap-1">
+                <span className="flex items-start gap-2">
+                  <span className={`min-w-0 flex-1 text-pretty break-words text-body-strong ${row.unread ? "text-primary" : "text-secondary"}`} data-testid="row-subject">
+                    {row.subject}
                   </span>
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <NoteTagChip tag={row.tag} testId="row-tag" />
-                    {/* A note preview may end in "…" (a list convention, no-clip.spec.ts); the full line is the title. */}
-                    <span className="line-clamp-1 min-w-0 flex-1 break-all text-small text-secondary" title={row.preview}>
-                      {row.preview}
-                    </span>
+                  <time className="shrink-0 pt-px text-small text-secondary tabular-nums" dateTime={new Date(row.createdAt).toISOString()} title={hydrated ? formatDateTime(row.createdAt) : undefined} data-testid="row-time">
+                    {formatRelative(row.createdAt)}
+                  </time>
+                </span>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <NoteTagChip tag={row.tag} testId="row-tag" />
+                  {/* A note preview may end in "…" (a list convention, no-clip.spec.ts); the full line is the title. */}
+                  <span className="line-clamp-1 min-w-0 flex-1 break-all text-small text-secondary" title={row.preview}>
+                    {row.preview}
                   </span>
                 </span>
-              </button>
-            </li>
+              </span>
+            </button>
           );
-        })}
-      </ul>
+        }}
+      />
       {hasMore ? (
         <div className="border-t border-subtle p-2">
           <Button size="sm" variant="ghost" className="w-full" onClick={onLoadMore} loading={loadingMore} data-testid="inbox-load-more">

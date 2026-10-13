@@ -129,6 +129,15 @@ export async function cycleStatus(ctx: CycleScope): Promise<CycleStatus> {
   };
 }
 
+/**
+ * What a vacation lasts until, as words that follow "until" ("you return", "MRR hits 10k"): the button and the top bar
+ * put "until" in front, so a stored "until I return" or a typed "until the launch ships" must not say it twice.
+ */
+export function untilWords(text: string | null | undefined): string {
+  const t = (text ?? "").trim().replace(/^until\s+/i, "");
+  return !t || /^i return$/i.test(t) ? "you return" : t;
+}
+
 /** The Continue button state (BUILD §5.4, AC-11.3.3): holiday › blocked › win waiting for its Customer Update › processing › idle. */
 export async function continueStateFor(ctx: CycleScope, status?: CycleStatus): Promise<ContinueState> {
   const { db, businessId } = ctx;

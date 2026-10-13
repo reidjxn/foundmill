@@ -22,13 +22,23 @@ export const inboxRouter = router({
   /**
    * Notes follow the reader's Finance and CRM walls (services/inbox-redaction.ts; audit RUI-02). `awaitingConfirmation`
    * marks an answered note whose plan still waits for "Here is what will happen" (it stays in Respond; audit OL-01).
+   * The tab counts and the blocking count describe the whole inbox, not a page, so only the first page (no cursor)
+   * carries them: a reader who has paged deep pays for them once, not once per page (audit SOAK-09).
    */
   list: inboxRead.input(InboxListFilter).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
-      const [page, counts, blocking, waiting] = await Promise.all([repos.inbox.list(tx, ctx.businessId, input ?? {}), repos.inbox.countByTab(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId), repos.plans.awaitingConfirmation(tx, ctx.businessId)]);
+      const firstPage = !input?.cursor;
+      const [page, tally, waiting] = await Promise.all([
+        repos.inbox.list(tx, ctx.businessId, input ?? {}),
+        firstPage ? Promise.all([repos.inbox.countByTab(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId)]) : null,
+        repos.plans.awaitingConfirmation(tx, ctx.businessId),
+      ]);
       const walls = inboxWalls(ctx.membership);
       const source = await loadRedactionSource(tx, ctx.businessId, walls, page.items.flatMap(idsOfItem));
       const items = page.items.map((i) => ({ ...redactInboxItem(i, source), awaitingConfirmation: i.state === "answered" && waiting.has(i.id) }));
+      // The fields are present on every page so the output has one shape; later pages leave them empty.
+      if (!tally) return { ...page, items, counts: undefined, blocking: undefined, continueState: undefined };
+      const [counts, blocking] = tally;
       return { ...page, items, counts, blocking, continueState: blocking > 0 ? ({ kind: "blocked", count: blocking } as const) : ({ kind: "idle" } as const) };
     }),
   ),

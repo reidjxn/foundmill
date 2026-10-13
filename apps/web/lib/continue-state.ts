@@ -47,6 +47,15 @@ export function respondHref(businessId: string, items: readonly ContinueInboxIte
   return first ? routes.inbox(businessId, first.id) : `${routes.inbox(businessId)}?tab=respond`;
 }
 
+/**
+ * What a vacation lasts until, as words that follow "until" ("you return", "MRR hits 10k"): the top bar puts "until" in
+ * front, so a stored "until I return" or a typed "until the launch ships" must not say it twice (audit VOL-X2).
+ */
+export function untilWords(text: string | null | undefined): string {
+  const t = (text ?? "").trim().replace(/^until\s+/i, "");
+  return !t || /^i return$/i.test(t) ? "you return" : t;
+}
+
 function holidayUntilLabel(h: NonNullable<ContinueInputs["holiday"]>): string | undefined {
   if (h.untilAt) return undefined;
   // The bar adds "until" itself, so the founder's sentence loses its own ("Until until I return", audit VOL-X2).

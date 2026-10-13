@@ -588,7 +588,9 @@ export function buildRibbonGeometry(input: RibbonGeometryInput): RibbonGeometry 
   const forecastPoints = (input.forecast ?? []).filter((f) => f.day > today && f.day <= horizon);
   let revPeak = index.maxRevenue7;
   for (const f of forecastPoints) if (f.upsideMinor > revPeak) revPeak = f.upsideMinor;
-  const ticks = niceTicks(Math.max(1, revPeak));
+  // Gridlines sit on whole minor units: with no revenue there is no scale at all, and a first cent is one gridline, not
+  // 0.5 and 1 both labeled "€0.01/day" (audit OL-31).
+  const ticks = revPeak > 0 ? [...new Set(niceTicks(revPeak).map((t) => Math.round(t)))] : [0];
   const revMax = Math.max(1, ticks[ticks.length - 1] ?? 1);
   const revY = (v: number) => layout.revenueBottom - (Math.max(0, v) / revMax) * (layout.revenueBottom - layout.revenueTop);
   const revLine = line<DayPoint>()

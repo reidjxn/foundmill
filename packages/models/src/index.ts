@@ -11,6 +11,7 @@ export { streamStructured, runStructuredStream, StreamInterruptedError, elementI
 export * from "./rate-limit";
 export { gateModelClient, type ModelCallGate } from "./gate";
 export * from "./schemas";
+export * from "./planParams";
 export {
   createModelClient,
   effectiveModelMode,

@@ -23,18 +23,54 @@ import type { HolidayCheck, HolidayDecisions, HolidayEnd, HolidayInput, LoadedHo
 
 const GATED: ReadonlySet<DecisionType> = new Set<DecisionType>(["sign_contracts"]);
 
-/** Classify an inbox decision by the kind of authority it needs (BUILD §19 keeps the list configurable). */
-export function classifyDecision(item: Pick<InboxItem, "subject" | "bodyMd" | "decision">): DecisionType | null {
+type HolidayItem = Pick<InboxItem, "subject" | "bodyMd" | "decision">;
+interface HolidayOption {
+  id: string;
+  recommended?: boolean;
+  reversible?: boolean;
+  cost_minor?: number;
+}
+
+const TOPICS: readonly [RegExp, DecisionType][] = [
+  [/\b(sign|signature|contract|agreement|terms)\b/, "sign_contracts"],
+  [/\b(merge|pull request|pr|main branch)\b/, "merge_to_main"],
+  [/\b(hire|recruit|new agent|add an agent)\b/, "hire_agents"],
+  [/\b(model|opus|sonnet|haiku)\b/, "change_models"],
+  [/\b(publish|post|campaign|newsletter|launch|ad|ads)\b/, "publish_content"],
+  [/\b(email|message|reply|outreach|customers?)\b/, "message_customers"],
+];
+const SPEND_WORDS = /\b(spend\w*|budget\w*|invoic\w*|pay|paying|payment|paid|purchase|buy|cost\w*|price\w*)\b|[€$£]\s?\d/;
+
+const optionsOf = (item: Pick<InboxItem, "decision">): HolidayOption[] => (item.decision as { options?: HolidayOption[] } | null)?.options ?? [];
+const costOf = (option: HolidayOption | undefined): number => Math.max(0, Math.round(Number(option?.cost_minor ?? 0)) || 0);
+
+/**
+ * Every kind of authority deciding an inbox item with one option needs (BUILD §19 keeps the list configurable): each
+ * topic its wording touches, and "Spend above the approval threshold" when that option costs more than the threshold,
+ * or when it talks about spending without saying what it costs. Every one must be granted, so a costed customer
+ * decision needs the spend authority as well as the messaging one (audit VO-E1).
+ */
+export function decisionAuthorities(item: HolidayItem, opts: { optionId?: string; thresholdMinor?: number } = {}): DecisionType[] {
   const text = `${item.subject}\n${item.bodyMd}`.toLowerCase();
-  const options = (item.decision as { options?: { cost_minor?: number; recommended?: boolean; reversible?: boolean }[] } | null)?.options ?? [];
-  if (/\b(sign|signature|contract|agreement|terms)\b/.test(text)) return "sign_contracts";
-  if (/\b(merge|pull request|\bpr\b|main branch)\b/.test(text)) return "merge_to_main";
-  if (/\b(hire|recruit|new agent|add an agent)\b/.test(text)) return "hire_agents";
-  if (/\b(model|opus|sonnet|haiku)\b/.test(text)) return "change_models";
-  if (/\b(publish|post|campaign|newsletter|launch|ad|ads)\b/.test(text)) return "publish_content";
-  if (/\b(email|message|reply|outreach|customers?)\b/.test(text)) return "message_customers";
-  if (options.some((o) => (o.cost_minor ?? 0) > 0) || /\b(spend|budget|invoice|pay|€|\$|£)\b/.test(text)) return "spend_above_threshold";
-  return null;
+  const options = optionsOf(item);
+  const option = options.find((o) => o.id === opts.optionId) ?? options.find((o) => o.recommended) ?? options[0];
+  const kinds = TOPICS.filter(([re]) => re.test(text)).map(([, kind]) => kind);
+  const cost = costOf(option);
+  const unpriced = !options.some((o) => costOf(o) > 0) && SPEND_WORDS.test(text);
+  if (cost > (opts.thresholdMinor ?? LIMITS.approvalThresholdMinorDefault) || unpriced) kinds.push("spend_above_threshold");
+  return kinds;
+}
+
+/** The one authority an audit line names for a decision: a hard gate first, then spending, then the first topic. */
+export function classifyDecision(item: HolidayItem, opts: { optionId?: string; thresholdMinor?: number } = {}): DecisionType | null {
+  const kinds = decisionAuthorities(item, opts);
+  return kinds.find((k) => GATED.has(k)) ?? (kinds.includes("spend_above_threshold") ? "spend_above_threshold" : (kinds[0] ?? null));
+}
+
+/** What an option may cost before it needs the spend authority: the Chief of Staff's own approval threshold (the policy default when it has none), lowered to the business's spend cap per action, as the gateway does. */
+function holidayThresholdMinor(chiefThresholdMinor: unknown, businessCapMinor: number | null): number {
+  const own = typeof chiefThresholdMinor === "number" && Number.isInteger(chiefThresholdMinor) && chiefThresholdMinor >= 0 ? chiefThresholdMinor : LIMITS.approvalThresholdMinorDefault;
+  return businessCapMinor === null ? own : Math.min(own, businessCapMinor);
 }
 
 interface HolidayOption {
@@ -60,6 +96,8 @@ export interface VacationContext {
   /** The membership of the person who handed over (the vacation's starter; the owner's walls, none, when unknown). */
   actsFor: SectionMembership;
   currency: string;
+  /** What an option may cost before it needs the spend authority (`holidayThresholdMinor`); the policy default when absent. */
+  thresholdMinor?: number;
 }
 
 /**
@@ -90,10 +128,14 @@ export function vacationVerdict(item: Pick<InboxItem, "subject" | "bodyMd" | "de
   if (!recommended) return { kind: "wait", reason: "it has no option to choose" };
   if (isApprovalItem(item)) return { kind: "wait", reason: "an agent's call waits for your approval" };
   if (!ctx.chiefOfStaffId) return { kind: "wait", reason: "there is no Chief of Staff to decide it" };
-  const decisionType = classifyDecision(item);
-  const safeUnknown = decisionType === null && recommended.reversible === true && (recommended.cost_minor ?? 0) === 0;
-  const allowed = decisionType === null ? safeUnknown : !GATED.has(decisionType) && ctx.authority.has(decisionType);
-  if (!allowed) return { kind: "wait", reason: decisionType === "sign_contracts" ? "signing is always yours" : decisionType ? "it is outside the authority you gave" : "the recommended option is not free and reversible" };
+  // Every authority the recommended option needs must be granted: a costed customer decision needs the spend authority as
+  // well as the messaging one (audit VO-E1).
+  const needs = { optionId: recommended.id, thresholdMinor: ctx.thresholdMinor };
+  const kinds = decisionAuthorities(item, needs);
+  const decisionType = classifyDecision(item, needs);
+  const safeUnknown = kinds.length === 0 && recommended.reversible === true && (recommended.cost_minor ?? 0) === 0;
+  const allowed = kinds.length === 0 ? safeUnknown : kinds.every((k) => !GATED.has(k) && ctx.authority.has(k));
+  if (!allowed) return { kind: "wait", reason: kinds.some((k) => GATED.has(k)) ? "signing is always yours" : kinds.length > 0 ? "it is outside the authority you gave" : "the recommended option is not free and reversible" };
   // Money is the founder's (CLAUDE.md "Never"): an option that costs anything waits, whatever authority was given.
   if ((recommended.cost_minor ?? 0) > 0) return { kind: "wait", reason: `it costs money (${formatMoney({ amountMinor: recommended.cost_minor ?? 0, currency: ctx.currency })})` };
 
@@ -208,9 +250,11 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
     const { db } = deps;
     const [business, agents, row] = await Promise.all([repos.businesses.get(db, businessId), repos.agents.list(db, businessId, { limit: 200 }), repos.holidays.get(db, businessId, holiday.holidayId)]);
     const starter = row.startedBy ? await repos.memberships.get(db, businessId, row.startedBy) : null;
+    const chief = agents.items.find((a) => a.id === holiday.chiefOfStaffId);
     return {
       business,
       agents: agents.items,
+      thresholdMinor: holidayThresholdMinor(chief?.autonomy["approvalThresholdMinor"], business.spendCapMinor ?? null),
       chiefOfStaffId: holiday.chiefOfStaffId,
       authority: new Set(holiday.authority.filter((d): d is DecisionType => (DECISION_TYPES as readonly string[]).includes(d))),
       actsFor: starter ? { role: starter.role, sectionPermissions: starter.sectionPermissions } : OWNER,
@@ -396,9 +440,7 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
       const fmt = (minor: number, inCurrency = currency) => formatMoney({ amountMinor: Math.round(minor), currency: inCurrency });
       const gatedItemsQueued = pendingApprovals + founderTasks.length + decisionsWaiting;
       const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-      const awayMs = now.getTime() - since.getTime();
-      const days = Math.round(awayMs / 86_400_000);
-      const awayFor = days < 1 ? "less than a day" : `${days} day${days === 1 ? "" : "s"}`;
+      const awayFor = describeAway(now.getTime() - since.getTime());
 
       const lines = [
         `You were away ${awayFor}; the team ran ${input.cyclesRun} cycle${input.cyclesRun === 1 ? "" : "s"} and the vacation ended because ${describeReason(input.reason, input.wakeEventType)}.`,
@@ -443,6 +485,14 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
       return { reportInboxItemId, eventId: ev.id, cyclesRun: input.cyclesRun, decisionsMade: chiefDecisions.length, customersWon: conversions.items.length, spentMinor: usage.costMinor, gatedItemsQueued };
     },
   };
+}
+
+/** How long the founder was away, in the largest whole unit that fits: minutes under an hour, hours under a day, then days. */
+export function describeAway(ms: number): string {
+  const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
+  if (ms < 3_600_000) return plural(Math.min(59, Math.max(1, Math.round(ms / 60_000))), "minute");
+  if (ms < 86_400_000) return plural(Math.min(23, Math.max(1, Math.round(ms / 3_600_000))), "hour");
+  return plural(Math.max(1, Math.round(ms / 86_400_000)), "day");
 }
 
 function describeReason(reason: NonNullable<HolidayCheck["reason"]>, wake: string | null): string {

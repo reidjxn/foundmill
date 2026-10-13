@@ -400,6 +400,64 @@ test.describe("inbox", () => {
     await expect(page.locator(`[data-inbox-row="${itemId}"]`)).toHaveCount(0, { timeout: LONG });
   });
 
+  // The seeded Northwind decision with a spend option, a deadline five days after the seed and "Blocks Continue".
+  const NORTHWIND_DECISION = "fec0c6b1-b5ba-4b4a-b9e8-22919aae40e3";
+
+  test("the list and the reading pane scroll on their own; the page behind them never moves (audit OL-03)", async ({ page }) => {
+    await openBusiness(page, `inbox/${NORTHWIND_DECISION}`);
+    await expect(page.getByTestId("inbox-item")).toBeVisible({ timeout: LONG });
+    const main = page.getByTestId("shell-content");
+    const size = await main.evaluate((el) => ({ scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }));
+    expect(size.scrollHeight).toBeLessThanOrEqual(size.clientHeight + 1);
+    const before = (await page.getByTestId("inbox-pane").boundingBox())!.y;
+    await page.getByTestId("reading-pane").hover();
+    await page.mouse.wheel(0, 600);
+    expect(await main.evaluate((el) => el.scrollTop)).toBe(0);
+    expect((await page.getByTestId("inbox-pane").boundingBox())!.y).toBe(before);
+  });
+
+  test("a decision past its deadline stays open and keeps blocking Continue; the page does not claim the team moved on (audit VCML-X2)", async ({ page }) => {
+    await signIn(page);
+    await page.clock.setFixedTime(new Date("2027-01-15T12:00:00Z"));
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/inbox/${NORTHWIND_DECISION}`);
+    await expect(page.getByTestId("inbox-item")).toBeVisible({ timeout: LONG });
+    const bar = page.getByTestId("decision-bar");
+    await expect(bar.getByTestId("past-deadline")).toContainText("past its deadline");
+    await expect(page.getByText("the team moved on")).toHaveCount(0);
+    const options = bar.getByRole("group", { name: "Options" }).getByRole("button");
+    expect(await options.count()).toBeGreaterThanOrEqual(2);
+    for (let i = 0; i < (await options.count()); i += 1) await expect(options.nth(i)).toBeEnabled();
+    await expect(page.getByRole("button", { name: /^Respond to \d+ items?$/ })).toBeVisible();
+  });
+
+  test("a double click on an option sends one decision and shows one outcome (audit RES-10)", async ({ page }) => {
+    await signIn(page);
+    await commitFreshBusiness(page, `Playwright Double ${Date.now().toString(36)}`);
+    let sent = 0;
+    await page.route("**/trpc/**", async (route) => {
+      sent += (route.request().url().match(/inbox\.decide/g) ?? []).length;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await route.continue();
+    });
+    await page.getByTestId("decision-bar").getByRole("group", { name: "Options" }).getByRole("button").first().dblclick();
+    await expect(page.getByTestId("confirm-plan").or(page.getByTestId("answered-panel")).first()).toBeVisible({ timeout: LONG });
+    expect(sent).toBe(1);
+    await expect(page.getByText("Could not record the decision")).toHaveCount(0);
+  });
+
+  test("status-strip captions never show a raw ISO month, and the founder's own note carries the founder's initials (audit OL-17, OL-28)", async ({ page }) => {
+    await openInbox(page);
+    const rows = rowsOf(page);
+    const total = Math.min(await rows.count(), 12);
+    for (let i = 0; i < total; i += 1) {
+      await rows.nth(i).click();
+      await expect(page.getByTestId("inbox-item-header")).toBeVisible({ timeout: LONG });
+      const strip = page.getByTestId("status-strip");
+      if (await strip.count()) await expect(strip).not.toContainText(/\b\d{4}-\d{2}\b/);
+      if ((await page.getByTestId("inbox-item").getAttribute("data-type")) === "human_message") await expect(page.getByTestId("inbox-item-header")).not.toContainText(/\bYO\b/);
+    }
+  });
+
   test("a won customer opens its Customer Update", async ({ page }) => {
     await openInbox(page, "customers");
     const won = rowsOf(page).first();

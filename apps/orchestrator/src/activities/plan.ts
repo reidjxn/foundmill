@@ -16,7 +16,7 @@
 import { LIMITS } from "@foundmill/config";
 import { getTemplate, getTemplateByAgentType, initialVersionFromTemplate, type AgentTemplate } from "@foundmill/agents";
 import { repos, type Agent, type Business, type Entity, type PlanAction as PlanActionRow } from "@foundmill/db";
-import { PRICING_CURRENCY } from "@foundmill/models";
+import { PRICING_CURRENCY, resolveRoadmapItem, roadmapPatchFrom, SetAgentModelParams, UpdateRoadmapParams } from "@foundmill/models";
 import { evaluate, type ToolCtxInput } from "@foundmill/policy";
 import { CHANNEL_KEYS, CHANNEL_META, CreatePlaybookParams, MODEL_KEYS, TASK_KINDS, uuid, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
@@ -402,8 +402,26 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         return { result: { specBlockId: block.id, created: true }, spawn: [] };
       }
       case "update_roadmap": {
-        const item = await repos.product.upsertRoadmapItem(db, businessId, { ...(typeof p.roadmap_item_id === "string" ? { id: p.roadmap_item_id } : {}), title: str(p.title, "Roadmap item").slice(0, 200), descriptionMd: str(p.description, str(p.goal)), horizon: p.horizon === "now" || p.horizon === "next" || p.horizon === "later" ? p.horizon : "next", status: str(p.status, "planned") });
-        return { result: { roadmapItemId: item.id }, spawn: [] };
+        // A change targets one existing item (its id, else the one item its words name) and patches only the fields it
+        // asks for; a new item needs `create` and a title. Nothing matched or nothing to change fails the action and
+        // says why, never a placeholder item reported as done (audit VRB-X1).
+        const params = UpdateRoadmapParams.parse(p);
+        const items = await repos.product.listRoadmap(db, businessId);
+        if (params.create) {
+          if (!params.title) throw new Error("A new roadmap item needs a title");
+          const created = await repos.product.upsertRoadmapItem(db, businessId, { title: params.title, descriptionMd: params.description ?? params.change ?? "", horizon: params.horizon ?? "next", targetStart: params.target_start ?? null, targetEnd: params.target_end ?? null, ...(params.confidence ? { confidence: params.confidence } : {}) });
+          return { result: { roadmapItemId: created.id, created: true }, spawn: [] };
+        }
+        const target = resolveRoadmapItem(params, items);
+        const asked = str(params.change, str(params.item, str(params.title, "the change")));
+        if (!target) throw new Error(items.length ? `No roadmap item matches "${asked.slice(0, 120)}"; name the item as it reads on the Roadmap.` : "The roadmap has no items to change yet.");
+        const patch = roadmapPatchFrom(params, target, deps.clock.now());
+        if (Object.keys(patch).length === 0) throw new Error(`Could not tell what to change on "${target.title}" from "${asked.slice(0, 120)}": say the horizon (now, next, later) or the quarter.`);
+        const changed = (Object.keys(patch) as (keyof typeof patch)[]).filter((k) => patch[k] !== target[k]);
+        if (changed.length === 0) return { result: { roadmapItemId: target.id, changed: [], unchanged: true }, spawn: [] };
+        // Every field the patch leaves alone is written back as it is (the upsert is a full-row write).
+        const updated = await repos.product.upsertRoadmapItem(db, businessId, { id: target.id, title: patch.title ?? target.title, descriptionMd: patch.descriptionMd ?? target.descriptionMd, horizon: patch.horizon ?? target.horizon, targetStart: patch.targetStart !== undefined ? patch.targetStart : target.targetStart, targetEnd: patch.targetEnd !== undefined ? patch.targetEnd : target.targetEnd, confidence: patch.confidence ?? target.confidence, ownerRef: target.ownerRef, specBlockIds: target.specBlockIds, status: target.status, position: target.position });
+        return { result: { roadmapItemId: updated.id, changed }, spawn: [] };
       }
       case "send_message": {
         const agent = await actingAgent(businessId, action.agentId, ctx.agents);
@@ -480,18 +498,23 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         return { result: { trainingRunId: run.id, draftVersionId: draft.id }, spawn: [{ workflow: "trainingRun", workflowId: `training:${run.id}`, args: { businessId, trainingRunId: run.id } }] };
       }
       case "set_agent_model": {
-        if (!isModelKey(p.model_key)) throw new Error("model_key is required");
-        const scope = p.apply_scope === "type" || p.apply_scope === "all" ? p.apply_scope : "agent";
-        const targetId = str(p.agent_id, action.agentId ?? "");
+        // Params through the shared schema (`apply_scope`; a plan's older `scope` reads the same), so "all agents" is
+        // every agent; an action that reaches no agent fails rather than reporting done (audit verify-api-services-x1).
+        const parsed = SetAgentModelParams.safeParse(p);
+        if (!parsed.success) throw new Error("model_key is required");
+        const { model_key: modelKey, apply_scope: scope } = parsed.data;
+        const targetId = parsed.data.agent_id ?? action.agentId ?? "";
         const target = targetId ? await repos.agents.get(db, businessId, targetId) : null;
-        const targets = scope === "agent" ? (target ? [target] : []) : ctx.agents.filter((a) => (scope === "all" ? true : a.agentType === target?.agentType));
+        if (scope !== "all" && !target) throw new Error(`Name the agent whose model should change${scope === "type" ? " (its type is the one changed)" : ""}`);
+        const targets = scope === "agent" ? [target!] : ctx.agents.filter((a) => (scope === "all" ? true : a.agentType === target?.agentType));
+        if (targets.length === 0) throw new Error("No agent to change the model of");
         const updated: string[] = [];
         for (const a of targets) {
-          if (a.agentType === "chief_of_staff" && p.model_key !== "opus") deps.log.warn({ agentId: a.id }, "Chief of Staff downgraded from Opus (BUILD §11.10 warning)");
-          await repos.agents.setModel(db, businessId, a.id, p.model_key);
+          if (a.agentType === "chief_of_staff" && modelKey !== "opus") deps.log.warn({ agentId: a.id }, "Chief of Staff downgraded from Opus (BUILD §11.10 warning)");
+          await repos.agents.setModel(db, businessId, a.id, modelKey);
           updated.push(a.id);
         }
-        return { result: { modelKey: p.model_key, applyScope: scope, updated }, spawn: [] };
+        return { result: { modelKey, applyScope: scope, updated }, spawn: [] };
       }
       case "create_playbook": {
         // One contract (packages/shared): a plan whose playbook is incomplete fails here, loudly, instead of creating a rule

@@ -42,6 +42,7 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { readOnlyReason } from "@/lib/access";
 import { entityHref } from "@/lib/entity-links";
 import { isGuid } from "@/lib/ids";
+import { monthStart, pnlTotals } from "@foundmill/modules/finance/metrics";
 import { usePageShortcuts } from "@/lib/keys";
 import { useHydrated } from "@/lib/today";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
@@ -64,7 +65,7 @@ import {
   askChip,
   confirmationLines,
   decisionDeadline,
-  decisionExpired,
+  decisionPastDeadline,
   followUpLinks,
   freeTextAllowed,
   goAheadState,
@@ -73,12 +74,15 @@ import {
   noteOpener,
   headerTag,
   hiddenNotice,
+  isAlreadyDecidedMessage,
   journeyForItem,
   planConfirmationLines,
+  metricKey,
   planStatusLine,
   statusStripTiles,
   stripSources,
   toDecisionOptions,
+  TRAILING_MONTHS,
   type ConfirmationLine,
 } from "./logic";
 
@@ -156,12 +160,20 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const dates = headerDates(item, decisions[0]?.decidedAt ?? null);
   const { formatDate, formatDateTime } = useFormatters();
   const hydrated = useHydrated();
+  // The founder's own notes carry the founder's initials, as they do in the list ("AD"), never the letters of "You".
+  const founderQ = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
+  const founderName = founderQ.data?.profile?.displayName?.trim() || undefined;
 
   // --- status strip sources (only what the note needs) ---------------------------------------------------------------
   const needs = useMemo(() => stripSources(item.statusStrip), [item.statusStrip]);
   const today = dayKey(new Date());
   const from30 = dayKey(new Date(Date.now() - 30 * DAY_MS));
   const financeQ = useQuery(trpc.finance.overview.queryOptions({ businessId }, { enabled: needs.has("finance"), staleTime: 60_000, retry: false }));
+  // MRR and Revenue are the P&L revenue of the trailing three full months, as on Finance (audit OL-17).
+  const wantsRevenue = useMemo(() => (Array.isArray(item.statusStrip) ? item.statusStrip : []).some((m) => ["mrr", "revenue"].includes(metricKey(String((m as { metric?: unknown } | null)?.metric ?? "")) ?? "")), [item.statusStrip]);
+  const pnlRange = useMemo(() => ({ from: monthStart(new Date(), -TRAILING_MONTHS).toISOString(), to: monthStart(new Date(), 0).toISOString() }), []);
+  const pnlQ = useQuery(trpc.finance.pnl.queryOptions({ businessId, ...pnlRange }, { enabled: needs.has("finance") && wantsRevenue, staleTime: 60_000, retry: false }));
+  const trailingRevenue = pnlQ.data ? pnlTotals(pnlQ.data.categories).revenueMinor : null;
   const ribbonQ = useQuery(trpc.journey.ribbon.queryOptions({ businessId, from: from30, to: today }, { enabled: needs.has("conversions"), staleTime: 60_000, retry: false }));
   const tasksQ = useQuery(trpc.dev.tasks.list.queryOptions({ businessId, limit: 500 }, { enabled: needs.has("tasks"), staleTime: 30_000, retry: false }));
   const channelsQ = useQuery(trpc.distribution.channels.list.queryOptions({ businessId }, { enabled: needs.has("channels"), staleTime: 60_000, retry: false }));
@@ -169,12 +181,13 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
     () =>
       statusStripTiles(item.statusStrip, {
         finance: financeQ.data ?? null,
+        trailingRevenueMinor: trailingRevenue,
         conversions: ribbonQ.data?.conversions ?? null,
         tasks: tasksQ.data?.items ?? null,
         channelsEnabled: channelsQ.data ? channelsQ.data.channels.filter((c) => c.enabled).length : null,
         glossary,
-      }).map((t) => ({ ...t, loading: (needs.has("finance") && financeQ.isLoading) || (needs.has("conversions") && ribbonQ.isLoading) || (needs.has("tasks") && tasksQ.isLoading) || (needs.has("channels") && channelsQ.isLoading) })),
-    [item.statusStrip, financeQ.data, financeQ.isLoading, ribbonQ.data, ribbonQ.isLoading, tasksQ.data, tasksQ.isLoading, channelsQ.data, channelsQ.isLoading, needs, glossary],
+      }).map((t) => ({ ...t, loading: (needs.has("finance") && (financeQ.isLoading || (wantsRevenue && pnlQ.isLoading))) || (needs.has("conversions") && ribbonQ.isLoading) || (needs.has("tasks") && tasksQ.isLoading) || (needs.has("channels") && channelsQ.isLoading) })),
+    [item.statusStrip, financeQ.data, financeQ.isLoading, trailingRevenue, wantsRevenue, pnlQ.isLoading, ribbonQ.data, ribbonQ.isLoading, tasksQ.data, tasksQ.isLoading, channelsQ.data, channelsQ.isLoading, needs, glossary],
   );
 
   // --- won customer → replay ----------------------------------------------------------------------------------------
@@ -187,7 +200,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
 
   // --- decision ------------------------------------------------------------------------------------------------------
   const options = useMemo(() => toDecisionOptions(item.decision, currency), [item.decision, currency]);
-  const expired = decisionExpired(item.decision);
+  const pastDeadline = decisionPastDeadline(item.decision);
   // An agent's request: the founder's optional reason goes with Approve or Reject.
   const [reason, setReason] = useState("");
   const cannotAnswer = approval ? !approval.canAnswer : false;
@@ -223,9 +236,12 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
     trpc.inbox.decide.mutationOptions({
       onSuccess: onDecided,
       onError: (err) => {
-        // Often a view that fell behind (another member decided or archived it): show what the server has now.
+        // Often a view that fell behind (another tab or member decided or archived it): show what the server has now,
+        // and say so as news rather than as a failure.
         void invalidate(["inbox", "plan"]);
-        toast({ title: "Could not record the decision", description: errorMessage(err), tone: "bad" });
+        const message = errorMessage(err);
+        if (isAlreadyDecidedMessage(message)) toast({ id: "inbox-already-decided", title: "Already decided in another tab", description: "The note now shows the answer that was recorded.", tone: "info" });
+        else toast({ title: "Could not record the decision", description: message, tone: "bad" });
       },
     }),
   );
@@ -266,9 +282,16 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
 
   // Viewers and advisors follow the note; deciding it is for owners, admins and members (the API refuses the rest).
   const readOnly = !access.canChange;
-  const locked = isAnswered || expired || readOnly || decide.isPending || confirm.isPending || cannotAnswer;
+  // Past its deadline a decision stays open: nothing on the server answers it for the founder (audit VCML-X2).
+  const locked = isAnswered || readOnly || decide.isPending || confirm.isPending || cannotAnswer;
+  // A second click can land before `isPending` reaches React, so one answer in flight is held in a ref.
+  const deciding = useRef(false);
   const onChoose = useCallback(
-    (o: DecisionOption) => decide.mutate({ businessId, itemId: item.id, chosenOption: o.id, ...(approval && reason.trim() ? { freeText: reason.trim() } : {}) }),
+    (o: DecisionOption) => {
+      if (deciding.current) return;
+      deciding.current = true;
+      decide.mutate({ businessId, itemId: item.id, chosenOption: o.id, ...(approval && reason.trim() ? { freeText: reason.trim() } : {}) }, { onSettled: () => { deciding.current = false; } });
+    },
     [decide, businessId, item.id, approval, reason],
   );
   // The conversation under the note (DIRECTION #6): Alt+1–4 answer the agent (1–4 stay on the options), T talks.
@@ -458,12 +481,12 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
             variant="inline"
             keyModifier="alt"
             // Typed words decide only an open decision that allows free text; otherwise they stay a conversation.
-            inboxReply={freeTextAllowed(item.decision) && !isAnswered && !expired && !readOnly}
+            inboxReply={freeTextAllowed(item.decision) && !isAnswered && !readOnly}
             onDecision={onDecided}
             // Decided here, from the DecisionBar or in another tab: no more "Go with: …".
-            decided={isAnswered || expired}
+            decided={isAnswered}
             fallbackDept={(department?.colourToken as DeptColourToken | undefined) ?? "dept-1"}
-            opener={noteOpener(item.type, options, isAnswered || expired)}
+            opener={noteOpener(item.type, options, isAnswered)}
           />
         ) : null}
       </div>
@@ -477,7 +500,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           askLabel={`Ask ${agentName}`}
           askDescription="Talk it through first"
           deadline={decisionDeadline(item.decision) ?? undefined}
-          disabled={expired || item.state === "archived" || readOnly || cannotAnswer}
+          disabled={item.state === "archived" || readOnly || cannotAnswer}
           executing={decide.isPending || confirm.isPending}
           answered={answered}
           hotkeys={false}
@@ -486,8 +509,10 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
               <span className="inline-flex items-center gap-1 text-small text-secondary" data-testid="decision-read-only">
                 {readOnlyReason(access)}
               </span>
-            ) : expired && !isAnswered ? (
-              <span className="inline-flex items-center gap-1 text-small text-status-warn">This decision expired; the team moved on with the recommended option.</span>
+            ) : pastDeadline && !isAnswered ? (
+              <span className="inline-flex items-center gap-1 text-small text-status-warn" data-testid="past-deadline">
+                This decision is past its deadline. The team is still waiting for your call, and Continue waits too.
+              </span>
             ) : undefined
           }
           data-testid="decision-bar"
