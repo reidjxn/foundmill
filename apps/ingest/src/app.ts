@@ -57,7 +57,9 @@ export function createIngestApp(deps: IngestDeps): CreatedIngestApp {
         db,
         env: deps.env.APP_ENV,
         mode: deps.mode,
-        nonceStore: deps.nonces.kind,
+        // The store answering now ("memory" while a Redis store falls back), and the one configured.
+        nonceStore: deps.nonces.inUse ?? deps.nonces.kind,
+        nonceStoreConfigured: deps.nonces.kind,
         replayWindowSeconds: deps.replayWindowSeconds,
         simulate: deps.simulateEnabled,
         webhooks: mounted.map((m) => ({ connector: m.connector, path: m.path, mode: m.mode })),

@@ -1,6 +1,9 @@
 /** Nonce stores (memory TTL/eviction, Redis SET NX PX with memory fallback) and delivery identification per vendor. */
 import { describe, expect, it } from "vitest";
+import type { Env } from "@foundmill/shared";
+import { createNonceStore } from "../index";
 import { MemoryNonceStore, nonceKey, RedisNonceStore, type RedisNonceClient } from "../nonce-store";
+import type { IngestLogger } from "../types";
 import { identifyDelivery, splitConnectorSegment, stripeSignatureTimestamp, withinReplayWindow } from "../replay";
 
 describe("MemoryNonceStore", () => {
@@ -86,6 +89,49 @@ describe("RedisNonceStore", () => {
     expect(await store.has("k")).toBe(false);
     expect(fallbacks).toHaveLength(1);
     expect(store.kind).toBe("redis");
+  });
+
+  it("goes back to Redis after the cooldown (the first delivery after boot used to latch memory for good)", async () => {
+    let now = 0;
+    const redis = new FakeRedis(() => now);
+    const recovered: number[] = [];
+    const store = new RedisNonceStore(redis, { now: () => now, retryAfterMs: 30_000, onRecover: () => recovered.push(now) });
+    redis.failing = true;
+    expect(await store.has("github:d1")).toBe(false);
+    expect(store.inUse).toBe("memory");
+    redis.failing = false;
+    // Within the cooldown Redis is not asked: a claim lands in memory and is still honoured afterwards.
+    now = 10_000;
+    expect(await store.claim("github:d1", 300_000)).toBe(true);
+    expect(redis.keys.size).toBe(0);
+    now = 31_000;
+    expect(await store.has("github:d1")).toBe(true);
+    expect(store.inUse).toBe("redis");
+    expect(recovered).toEqual([31_000]);
+    expect(await store.claim("github:d2", 300_000)).toBe(true);
+    expect(redis.keys.has("ingest:nonce:github:d2")).toBe(true);
+  });
+});
+
+describe("createNonceStore", () => {
+  const env = (APP_ENV: "staging" | "development") => ({ APP_ENV, REDIS_URL: "redis://redis.railway.internal:6379" }) as Env;
+  const log = { debug: () => undefined, info: () => undefined, warn: () => undefined, error: () => undefined } as unknown as IngestLogger;
+
+  it("connects Redis before the first delivery in staging and production", async () => {
+    const connected: string[] = [];
+    const store = await createNonceStore(env("staging"), log, async (url) => (connected.push(url), new FakeRedis(() => 0)));
+    expect(connected).toEqual(["redis://redis.railway.internal:6379"]);
+    expect(store).toMatchObject({ kind: "redis", inUse: "redis" });
+    expect(await store.claim("stripe:evt_1", 1000)).toBe(true);
+  });
+
+  it("keeps memory in development", async () => {
+    expect((await createNonceStore(env("development"), log, async () => new FakeRedis(() => 0))).kind).toBe("memory");
+  });
+
+  it("can load ioredis: it is a declared dependency of the app", async () => {
+    const mod = await import("ioredis");
+    expect(typeof mod.Redis).toBe("function");
   });
 });
 

@@ -33,8 +33,7 @@ export async function main(): Promise<void> {
   const auth = createCollabAuthenticator({
     appEnv: env.APP_ENV,
     supabaseUrl: env.SUPABASE_URL,
-    // Not in the shared env schema yet (same exception as apps/api and apps/stream); legacy HS256 projects only.
-    jwtSecret: process.env.SUPABASE_JWT_SECRET ?? null,
+    jwtSecret: env.SUPABASE_JWT_SECRET ?? null,
     serviceSecret: env.SESSION_TOKEN_SECRET ?? null,
     devUserId: env.DEV_AUTH_USER_ID ?? null,
   });

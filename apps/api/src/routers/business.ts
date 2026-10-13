@@ -4,6 +4,7 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { repos, UpdateBusinessInput } from "@foundmill/db";
+import { businessStreamKey } from "@foundmill/events";
 import { BUSINESS_MODES, DECISION_TYPES, EVENT_TYPES, GAME_MODES } from "@foundmill/shared";
 import { z } from "zod";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
@@ -217,6 +218,8 @@ export const businessRouter = router({
   archive: adminProcedure.input(z.object({ reason: z.string().max(200).default("archived") })).mutation(async ({ ctx, input }) => {
     const archived = await archiveBusiness(ctx, input.reason);
     await repos.social.removeBusinessFromLeaderboards(ctx.db, ctx.businessId);
+    // Its events stay in Postgres; the live stream goes now instead of when its 30-day TTL runs out (#233).
+    await ctx.redis?.del(businessStreamKey(ctx.businessId)).catch((err: unknown) => ctx.log.warn({ err: (err as Error).message }, "business stream not removed on archive; it expires on its TTL"));
     return archived;
   }),
   /** Owner-only, fresh authentication required (PRECONDITION_FAILED `reauth_required` otherwise); deletion runs 7 days later unless cancelled. */

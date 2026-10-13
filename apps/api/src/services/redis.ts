@@ -1,6 +1,7 @@
 /**
  * Redis connection for the outbox relay and health. ioredis is created lazily-connecting so an unreachable Redis
- * never blocks boot; the relay only starts once a PING succeeds (see index.ts).
+ * never blocks boot; the relay starts once a PING succeeds, and its supervisor keeps asking until one does
+ * (services/relay.ts).
  */
 import { Redis } from "ioredis";
 import type { StreamRedis } from "@foundmill/events";

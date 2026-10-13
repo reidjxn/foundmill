@@ -5,7 +5,7 @@
   "description": "Foundmill: the agent platform where any founder builds a real business end to end with a squad of AI agents.",
   "packageManager": "pnpm@12.9.1",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.23.3"
   },
   "scripts": {
     "dev": "turbo run dev",
@@ -21,7 +21,6 @@
     "storybook": "pnpm --filter @foundmill/dugout storybook",
     "storybook:build": "pnpm --filter @foundmill/dugout storybook:build",
     "format": "prettier --write .",
-    "format:check": "prettier --check .",
     "banned-terms": "node scripts/banned-terms.mjs",
     "us-english": "node scripts/us-english.mjs"
   },

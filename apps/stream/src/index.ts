@@ -13,6 +13,7 @@ import { createServiceDb, closeDb } from "@foundmill/db";
 import { loadEnv, servicePort } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { onShutdown } from "@foundmill/shared/shutdown";
+import { installTelemetry } from "@foundmill/shared/telemetry";
 import { createTokenVerifier } from "./auth";
 import { createCachedAuthorizer, createRepoAuthorizer } from "./authorize";
 import { prepareDb } from "./db-boot";
@@ -32,6 +33,8 @@ export { prepareDb, type DbReadiness } from "./db-boot";
 
 export async function main(): Promise<void> {
   const env = loadEnv();
+  // Traces to OTEL_EXPORTER_OTLP_ENDPOINT and error reports to SENTRY_DSN, when set (packages/shared telemetry.ts).
+  const telemetry = installTelemetry("stream", env);
   const log = createLogger("stream", env.LOG_LEVEL);
   if (!env.DATABASE_URL) {
     log.error({}, "DATABASE_URL is not set; the stream server cannot check memberships");
@@ -49,6 +52,7 @@ export async function main(): Promise<void> {
       { name: "close sockets", run: () => server?.close() },
       { name: "close redis", run: () => redis?.quit().catch(() => redis?.disconnect()) },
       { name: "close database", run: () => closeDb(db) },
+      { name: "flush telemetry", run: () => telemetry.shutdown() },
     ],
   });
   const readiness = await prepareDb(db, log, { service: "stream" });
@@ -62,7 +66,7 @@ export async function main(): Promise<void> {
 
   const auth = createTokenVerifier({
     supabaseUrl: env.SUPABASE_URL,
-    jwtSecret: process.env.SUPABASE_JWT_SECRET ?? null,
+    jwtSecret: env.SUPABASE_JWT_SECRET ?? null,
     devUserId: env.DEV_AUTH_USER_ID ?? null,
     appEnv: env.APP_ENV,
   });

@@ -881,6 +881,9 @@ importers:
       hono:
         specifier: 'catalog:'
         version: 4.13.13
+      ioredis:
+        specifier: 'catalog:'
+        version: 6.0.0(supports-color@8.1.1)
       pino:
         specifier: 'catalog:'
         version: 10.4.0

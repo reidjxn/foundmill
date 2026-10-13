@@ -1,0 +1,21 @@
+# Railway config-as-code for the orchestrator (Settings → Config-as-code → Railway config file: /railway/orchestrator.toml).
+# The same build (plus its own watch patterns) and teardown as /railway.toml (scripts/railway-config.test.mjs keeps them
+# equal) plus a healthcheck: the orchestrator serves GET /ready on PORT (apps/orchestrator/src/health-server.ts), 200
+# once both workers run and the database answers, 503 before (Temporal not reachable yet). A new deployment takes over
+# only once it answers, so a deploy that cannot reach Temporal leaves the old one running. Not /health: that one also
+# fails on an old task-queue backlog, which a new deployment coming to clear a wedged queue must not be held back by.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+# Redeploy only when something this service runs changed (#222): its app, the shared packages, the image and the
+# lockfile. A docs-only push, or one that touches only apps/web or another service, leaves it running.
+watchPatterns = ["/apps/orchestrator/**", "/packages/**", "/patches/**", "/Dockerfile", "/railway/orchestrator.toml", "/package.json", "/pnpm-lock.yaml", "/pnpm-workspace.yaml", "/.npmrc"]
+
+[deploy]
+healthcheckPath = "/ready"
+# Boot: bundling the workflows (about 20 s under tsx) and connecting to Temporal, with room to spare.
+healthcheckTimeout = 180
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+overlapSeconds = 15
+drainingSeconds = 60

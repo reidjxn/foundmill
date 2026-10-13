@@ -13,6 +13,7 @@ import { createModelClient, effectiveModelMode } from "@foundmill/models";
 import { loadEnv, servicePort } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
+import { installTelemetry } from "@foundmill/shared/telemetry";
 import { createApp } from "./app";
 import { prepareDb } from "./db-boot";
 import { createComposerService } from "./service";
@@ -35,6 +36,8 @@ export { prepareDb, type DbReadiness } from "./db-boot";
 
 export async function main(): Promise<void> {
   const env = loadEnv();
+  // Traces to OTEL_EXPORTER_OTLP_ENDPOINT and error reports to SENTRY_DSN, when set (packages/shared telemetry.ts).
+  const telemetry = installTelemetry("composer", env);
   const log = createLogger("composer", env.LOG_LEVEL);
   if (!env.DATABASE_URL) {
     log.error({}, "DATABASE_URL is not set; the composer cannot start");
@@ -58,6 +61,7 @@ export async function main(): Promise<void> {
       },
       { name: "drain buffer refills", run: () => service?.drain() },
       { name: "close database", run: () => closeDb(db) },
+      { name: "flush telemetry", run: () => telemetry.shutdown() },
     ],
   });
   // PGlite boots + migrates here; a locked directory or an unreachable Postgres is one clear line and /health says db:false.

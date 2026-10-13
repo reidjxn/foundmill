@@ -36,6 +36,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { loadEnv } from "@foundmill/shared";
+import { getTracer } from "@foundmill/shared/telemetry";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { ModelAbortedError, ModelOutputError, ModelRateLimitError, ModelRequestError, ModelUnavailableError } from "./errors";
@@ -116,6 +117,37 @@ export interface CreateModelClientOptions extends Partial<Omit<LiveModelClientOp
 /** sha256 fingerprint of an API key for bucket keys and logs. */
 export function keyFingerprint(apiKey: string): string {
   return `key:${createHash("sha256").update(apiKey).digest("hex").slice(0, 12)}`;
+}
+
+/**
+ * One trace span per model call (BUILD §15 "LLM spans with tokens and cost per business/agent"), a child of whatever
+ * span the caller runs in (a tRPC request, an activity, an agent session). A no-op until the service installed
+ * telemetry with an OTLP endpoint. Cost is an Estimate, in minor units of `llm.cost.currency`.
+ */
+export function recordModelSpan(event: UsageEvent): void {
+  const tracer = getTracer();
+  if (!tracer.enabled) return;
+  const endMs = Date.parse(event.occurredAt) || Date.now();
+  const a = event.attribution;
+  tracer.recordSpan(`llm ${event.route}`, {
+    startMs: endMs - Math.max(0, event.durationMs),
+    endMs,
+    attributes: {
+      "llm.route": event.route,
+      "llm.model": event.model,
+      "llm.mode": event.mode,
+      "llm.billed_to": event.billedTo,
+      "llm.tokens.in": event.usage.inputTokens,
+      "llm.tokens.out": event.usage.outputTokens,
+      "llm.cost.minor": event.cost.costMinorInt,
+      "llm.cost.currency": event.cost.currency,
+      "llm.cost.label": "Estimate",
+      "llm.attempt": event.attempt,
+      "foundmill.business_id": a?.businessId ?? null,
+      "foundmill.agent_id": a?.agentId ?? null,
+      "foundmill.session_id": a?.sessionId ?? null,
+    },
+  });
 }
 
 /**
@@ -524,8 +556,9 @@ export class LiveModelClient implements ModelClient {
   }
 
   private async emit(partial: Omit<UsageEvent, "billedTo">): Promise<void> {
-    if (!this.opts.onUsage) return;
     const event: UsageEvent = { ...partial, billedTo: this.opts.billedTo ?? "credits" };
+    recordModelSpan(event);
+    if (!this.opts.onUsage) return;
     try {
       await this.opts.onUsage(event);
     } catch (error) {

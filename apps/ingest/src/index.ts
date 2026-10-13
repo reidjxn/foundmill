@@ -11,6 +11,7 @@
  * Temporal, the nonce store and the database pool, exit 0, within SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3).
  */
 import { serve, type ServerType } from "@hono/node-server";
+import { Redis } from "ioredis";
 import { APP_NAME, FLAGS } from "@foundmill/config";
 import { createDefaultRegistry, mockWebhooksAllowed, platformSecretsFromEnv, type BusinessResolver, type ConnectorRegistry } from "@foundmill/connectors";
 import { closeDb, createServiceDb, type Db } from "@foundmill/db";
@@ -18,6 +19,7 @@ import { liveConnectorKeys, loadEnv, servicePort, type Env } from "@foundmill/sh
 import { createLogger } from "@foundmill/shared/logger";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
+import { installTelemetry } from "@foundmill/shared/telemetry";
 import { createIngestApp, type CreatedIngestApp, type IngestApp } from "./app";
 import { createComposerNarrator, type ComposerNarrator } from "./composer-client";
 import { prepareDb } from "./db-boot";
@@ -155,29 +157,39 @@ function unresolvedBusiness(log: IngestLogger): BusinessResolver {
   };
 }
 
-/** Redis-backed nonce store when `REDIS_URL` is set in staging/production and `ioredis` is resolvable; memory otherwise. */
-export async function createNonceStore(env: Env, log: IngestLogger): Promise<NonceStore> {
+/** Redis-backed nonce store when `REDIS_URL` is set in staging/production; memory otherwise. */
+export async function createNonceStore(env: Env, log: IngestLogger, connect: (url: string, log: IngestLogger) => Promise<RedisNonceClient | null> = connectRedis): Promise<NonceStore> {
   const wantsRedis = Boolean(env.REDIS_URL) && (env.APP_ENV === "staging" || env.APP_ENV === "production");
   if (!wantsRedis) return new MemoryNonceStore();
-  const client = await loadRedis(env.REDIS_URL, log);
+  const client = await connect(env.REDIS_URL, log);
   if (!client) return new MemoryNonceStore();
-  return new RedisNonceStore(client, { onFallback: (e) => log.warn({ err: (e as Error)?.message }, "nonce store fell back to memory") });
+  return new RedisNonceStore(client, {
+    onFallback: (e) => log.warn({ err: (e as Error)?.message }, "nonce store fell back to memory; retrying Redis in 30 s"),
+    onRecover: () => log.info({}, "nonce store is back on Redis"),
+  });
 }
 
-async function loadRedis(url: string, log: IngestLogger): Promise<RedisNonceClient | null> {
-  // `ioredis` is not a declared dependency of this app (docs/NEEDED_DEPS.md); resolve it dynamically so the
-  // service still boots (memory store) where the module is absent.
-  const specifier = "ioredis";
+/**
+ * The nonce store's Redis connection, opened before the first delivery: with the offline queue off, ioredis refuses a
+ * command sent while a lazy client is still connecting, and the first webhook after every boot used to be that command.
+ * A Redis that does not answer at boot is logged; the store counts in memory and tries Redis again every 30 s while
+ * ioredis keeps reconnecting.
+ */
+export async function connectRedis(url: string, log: IngestLogger, timeoutMs = 3_000): Promise<RedisNonceClient | null> {
+  let redis: Redis;
   try {
-    const mod = (await import(/* @vite-ignore */ specifier)) as { Redis?: new (url: string, opts: Record<string, unknown>) => RedisNonceClient & { on(event: "error", fn: (e: Error) => void): unknown } };
-    if (!mod.Redis) return null;
-    const redis = new mod.Redis(url, { lazyConnect: true, maxRetriesPerRequest: 1, enableOfflineQueue: false });
-    redis.on("error", (e) => log.warn({ err: e.message }, "redis error (nonce store falls back to memory)"));
-    return redis;
+    redis = new Redis(url, { lazyConnect: true, maxRetriesPerRequest: 1, enableOfflineQueue: false, connectTimeout: 2_000 });
   } catch (e) {
-    log.warn({ reason: (e as Error).message }, "ioredis unavailable; nonce store uses memory");
+    log.warn({ reason: (e as Error).message }, "could not create the Redis client; nonce store uses memory");
     return null;
   }
+  redis.on("error", (e) => log.debug({ err: e.message }, "redis error"));
+  try {
+    await Promise.race([redis.connect(), new Promise((_, reject) => setTimeout(() => reject(new Error(`no answer within ${timeoutMs} ms`)), timeoutMs).unref?.())]);
+  } catch (e) {
+    log.warn({ err: (e as Error).message }, "redis did not answer at boot; nonces are kept in memory until it does");
+  }
+  return redis as unknown as RedisNonceClient;
 }
 
 export interface RunningIngest {
@@ -215,6 +227,8 @@ export function listenIngest(app: IngestApp, port: number, log: IngestLogger = s
 
 export async function main(): Promise<void> {
   const env = loadEnv();
+  // Traces to OTEL_EXPORTER_OTLP_ENDPOINT and error reports to SENTRY_DSN, when set (packages/shared telemetry.ts).
+  const telemetry = installTelemetry("ingest", env);
   const log = createLogger("ingest", env.LOG_LEVEL) as unknown as IngestLogger;
   if (!env.DATABASE_URL) {
     log.error({}, "DATABASE_URL is not set; ingest cannot start");
@@ -248,6 +262,7 @@ export async function main(): Promise<void> {
       { name: "close temporal", run: () => built?.workflows?.close() },
       { name: "close nonce store", run: () => nonces?.close?.() },
       { name: "close database", run: () => closeDb(db) },
+      { name: "flush telemetry", run: () => telemetry.shutdown() },
     ],
   });
   // PGlite boots + migrates here; a locked directory or an unreachable Postgres is one clear line and /health says db:false.

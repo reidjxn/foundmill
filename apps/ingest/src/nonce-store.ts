@@ -8,11 +8,15 @@
  * with ids of deliveries that were never genuine.
  *
  * Two implementations: in-memory (per process; development, tests, and the fallback) and Redis (`SET NX PX`,
- * shared across replicas). The Redis store degrades to memory on the first error and says so once.
+ * shared across replicas). The Redis store degrades to memory on an error, says so once per outage, and tries Redis
+ * again after a cooldown (until 2026-10-12 one error, typically the first delivery after boot, kept it on memory for
+ * the life of the process). `inUse` is what /health reports.
  */
 
 export interface NonceStore {
   readonly kind: "memory" | "redis";
+  /** The store answering right now: "memory" while a Redis store falls back. Defaults to `kind`. */
+  readonly inUse?: "memory" | "redis";
   /** True when the nonce was recorded earlier and has not expired. */
   has(key: string): Promise<boolean>;
   /** Records the nonce for `ttlMs`. Returns true the first time, false when it was already present. */
@@ -91,8 +95,13 @@ export interface RedisNonceClient {
 export interface RedisNonceStoreOptions {
   /** Key prefix; one namespace per deployment. */
   prefix?: string;
-  /** Called once when Redis fails and the store falls back to memory. */
+  /** Called when Redis fails and the store falls back to memory (once per outage). */
   onFallback?: (error: unknown) => void;
+  /** Called when Redis answers again after a fallback. */
+  onRecover?: () => void;
+  /** How long the store stays on memory after a Redis error before it tries Redis again (default 30 s). */
+  retryAfterMs?: number;
+  now?: () => number;
   memory?: MemoryNonceStore;
 }
 
@@ -100,7 +109,9 @@ export class RedisNonceStore implements NonceStore {
   readonly kind = "redis" as const;
   private readonly fallback: MemoryNonceStore;
   private readonly prefix: string;
+  private readonly nowFn: () => number;
   private degraded = false;
+  private retryAt = 0;
 
   constructor(
     private readonly redis: RedisNonceClient,
@@ -108,16 +119,25 @@ export class RedisNonceStore implements NonceStore {
   ) {
     this.fallback = options.memory ?? new MemoryNonceStore();
     this.prefix = options.prefix ?? "ingest:nonce:";
+    this.nowFn = options.now ?? Date.now;
   }
 
+  /** True from a Redis error until Redis answers again. */
   get isDegraded(): boolean {
     return this.degraded;
   }
 
+  get inUse(): "memory" | "redis" {
+    return this.degraded ? "memory" : "redis";
+  }
+
   async has(key: string): Promise<boolean> {
-    if (this.degraded) return this.fallback.has(key);
+    if (this.onMemory()) return this.fallback.has(key);
     try {
-      return (await this.redis.exists(this.prefix + key)) > 0;
+      const found = (await this.redis.exists(this.prefix + key)) > 0;
+      this.recovered();
+      // A nonce claimed in memory during an outage is still honoured.
+      return found || (await this.fallback.has(key));
     } catch (e) {
       this.degrade(e);
       return this.fallback.has(key);
@@ -125,9 +145,10 @@ export class RedisNonceStore implements NonceStore {
   }
 
   async claim(key: string, ttlMs: number): Promise<boolean> {
-    if (this.degraded) return this.fallback.claim(key, ttlMs);
+    if (this.onMemory()) return this.fallback.claim(key, ttlMs);
     try {
       const reply = await this.redis.set(this.prefix + key, "1", "PX", Math.max(1, ttlMs), "NX");
+      this.recovered();
       return reply === "OK";
     } catch (e) {
       this.degrade(e);
@@ -136,12 +157,13 @@ export class RedisNonceStore implements NonceStore {
   }
 
   async release(key: string): Promise<void> {
-    if (this.degraded) return this.fallback.release(key);
+    await this.fallback.release(key);
+    if (this.onMemory()) return;
     try {
       await this.redis.del(this.prefix + key);
+      this.recovered();
     } catch (e) {
       this.degrade(e);
-      await this.fallback.release(key);
     }
   }
 
@@ -150,7 +172,19 @@ export class RedisNonceStore implements NonceStore {
     await this.redis.quit().catch(() => this.redis.disconnect?.());
   }
 
+  /** On memory while degraded and the cooldown has not passed; afterwards the next call tries Redis again. */
+  private onMemory(): boolean {
+    return this.degraded && this.nowFn() < this.retryAt;
+  }
+
+  private recovered(): void {
+    if (!this.degraded) return;
+    this.degraded = false;
+    this.options.onRecover?.();
+  }
+
   private degrade(error: unknown): void {
+    this.retryAt = this.nowFn() + (this.options.retryAfterMs ?? 30_000);
     if (this.degraded) return;
     this.degraded = true;
     this.options.onFallback?.(error);
