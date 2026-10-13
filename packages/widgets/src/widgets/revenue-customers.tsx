@@ -4,6 +4,7 @@
  * daily rows; two headline tiles on top.
  */
 import { useMemo } from "react";
+import { minorToMajor } from "@foundmill/shared";
 import { z } from "zod";
 import { TrendingUp } from "lucide-react";
 import { BarChart, LineChart, MetricTile, formatNumber, type BarDatum, type LineSeries } from "@foundmill/dugout";
@@ -20,8 +21,8 @@ export const RevenueCustomersSettings = z.object({
 });
 export type RevenueCustomersSettings = z.infer<typeof RevenueCustomersSettings>;
 
-export function revenueBars(finance: FinanceOverview | undefined, months: number): BarDatum[] {
-  return (finance?.revenue.monthly ?? []).slice(-months).map((m) => ({ label: m.month.slice(5), value: m.inflowMinor / 100 }));
+export function revenueBars(finance: FinanceOverview | undefined, months: number, currency: string = finance?.cash.currency ?? "USD"): BarDatum[] {
+  return (finance?.revenue.monthly ?? []).slice(-months).map((m) => ({ label: m.month.slice(5), value: minorToMajor(m.inflowMinor, currency) }));
 }
 
 /** Customers (payments) per ISO week from the business-wide daily rows, oldest first. */

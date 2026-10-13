@@ -16,6 +16,7 @@ import { CREDITS_CURRENCY, includedCreditsMinor, PRICE_TBA_LABEL, TIERS } from "
 import { creditsState, MOCK_TOP_UP_LABEL, periodRange, repos, settleCreditCheckout } from "@foundmill/db";
 import { AppError, PLAN_TIERS, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
+import { costByDepartment } from "../services/billing-usage";
 import { emitResumed, restartEngines } from "../services/killswitch";
 import { modelLimited } from "../services/model-limits";
 import { assertTierAvailable, checkoutView, MOCK_PAYMENTS_OFF_MESSAGE, mockPaymentsAllowed, startCreditCheckout, tierAvailability, TOP_UP_MAX_MINOR, TOP_UP_MIN_MINOR, TOP_UP_OPTIONS_MINOR, topUpAvailability } from "../services/payments";
@@ -120,7 +121,8 @@ export const billingRouter = router({
       const period = input?.period ?? currentPeriod();
       const range = periodRange(period);
       const [totals, daily, wages, departments, agents] = await Promise.all([repos.usage.totals(tx, ctx.businessId, range), repos.usage.daily(tx, ctx.businessId, range), repos.usage.wages(tx, ctx.businessId, period), repos.departments.list(tx, ctx.businessId), repos.agents.list(tx, ctx.businessId, { limit: 500 })]);
-      const byDepartment = departments.map((d) => ({ departmentId: d.id, name: d.name, costMinor: wages.filter((w) => w.agentId && agents.items.find((a) => a.id === w.agentId)?.departmentIds.includes(d.id)).reduce((s, w) => s + w.costMinor, 0) }));
+      // Each agent's cost counts once, in its primary department, so the departments add up to the agents' total.
+      const byDepartment = costByDepartment(departments, agents.items, wages);
       return { period, label: "Estimate" as const, currency: CREDITS_CURRENCY, totals, daily, byAgent: wages, byDepartment };
     }),
   ),

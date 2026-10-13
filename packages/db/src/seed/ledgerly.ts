@@ -76,7 +76,9 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     kitSecondary: "#f5c400",
     region: "eu",
     planTier: "scale",
-    modelBilling: "byok",
+    // On the platform's credits like Northwind: a seeded business on its own key would need a stored key, and none is
+    // seeded (the demo must work out of the box and every Settings tab must tell the same story; audit BILL-05, MLSL-23).
+    modelBilling: "credits",
     glossary: { customer: "account", win: "closed-won" },
     createdBy: ctx.owner.userId,
   });
@@ -263,7 +265,6 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     { connectorKey: "stripe", authKind: "api_key", accountLabel: "acct_ledgerly_test", scopes: ["customers:read", "invoices:read", "subscriptions:read"], settings: { livemode: false } },
     { connectorKey: "sendgrid", authKind: "api_key", accountLabel: "mail.ledgerly.example", scopes: ["mail.send", "marketing.campaigns"], settings: { sendingDomain: "mail.ledgerly.example", dmarc: "p=reject" } },
     { connectorKey: "tink", authKind: "oauth", accountLabel: "Ledgerly Ltd current account", scopes: ["accounts:read", "transactions:read"] },
-    { connectorKey: "anthropic", authKind: "api_key", accountLabel: "Bring-your-own key (workspace: ledgerly)", scopes: ["messages"], settings: { byok: true } },
     { connectorKey: "notion", authKind: "oauth", accountLabel: "Ledgerly workspace", scopes: ["read"], status: "degraded" },
   ]);
   const finance = await seedFinance(ctx, {
@@ -295,7 +296,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     ],
     financeLeadAgentId: squad.byTemplate.get("finance_lead")?.agent.id ?? null,
     recentSessions: journey.recentSessions,
-    modelBilling: "byok",
+    modelBilling: "credits",
     mrrMinorNow: journey.mrrMinorNow,
   });
   const legal = await seedLegal(ctx, businessId, {

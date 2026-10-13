@@ -15,7 +15,7 @@ import type { BuildJourneyInput, JourneyAgentInput } from "./builder";
 import { buildChapters } from "./chapters";
 import { createSeededRng, clamp, type SeededRng } from "./rng";
 import { addDaysKey, dayKeyToDate, dayKeyUtc, isoWeekdayUtc, toDate, compareByTimeThenId, DAY_MS, HOUR_MS } from "./time";
-import { detectTrophies, isEnterpriseContract, type TrophyCounters } from "./trophies";
+import { detectTrophies, enterpriseContractMinMinor, isEnterpriseContract, type TrophyCounters } from "./trophies";
 import {
   type Chapter, type ConsentState, type Conversion, type DayKey, type JourneyDailyRow, type Milestone, type Touch, type TouchKind, type TouchSource,
   type TrophyKey,
@@ -849,7 +849,7 @@ export function generateSyntheticJourneyData(options: GenerateSyntheticJourneyDa
     // Customer / enterprise trophies fire on the exact payment that crosses the threshold.
     for (const p of todays) {
       customersSoFar += 1;
-      if (p.enterprise && isEnterpriseContract(p.amountMinor)) enterpriseSoFar += 1;
+      if (p.enterprise && isEnterpriseContract(p.amountMinor, enterpriseContractMinMinor(currency))) enterpriseSoFar += 1;
       const stepBefore: TrophyCounters = { customers: customersSoFar - 1, mrrMinor: before.mrrMinor, enterpriseContracts: p.enterprise ? enterpriseSoFar - 1 : enterpriseSoFar };
       const stepAfter: TrophyCounters = { customers: customersSoFar, mrrMinor: before.mrrMinor, enterpriseContracts: enterpriseSoFar };
       for (const m of detectTrophies({ before: stepBefore, after: stepAfter, at: new Date(p.at), currency, awarded, ref: { conversionId: p.conversionId, entityId: p.entityId }, businessId: options.businessId })) {

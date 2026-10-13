@@ -7,6 +7,7 @@ import { useMemo } from "react";
 import { z } from "zod";
 import { Landmark } from "lucide-react";
 import { LineChart, MetricTile, StatusPill, formatNumber, type LineSeries } from "@foundmill/dugout";
+import { minorToMajor } from "@foundmill/shared";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { moduleHref, useDepartments } from "../shared/departments";
@@ -35,7 +36,7 @@ function num(v: unknown): number | null {
 }
 
 /** Forecast cash per scenario as dashed series (one point per month or day the forecast carries). */
-export function forecastSeries(forecasts: FinanceOverview["forecasts"] | undefined): LineSeries[] {
+export function forecastSeries(forecasts: FinanceOverview["forecasts"] | undefined, currency = "USD"): LineSeries[] {
   const out: LineSeries[] = [];
   const tones = { base: "kit", upside: "good", downside: "warn" } as const;
   for (const scenario of ["downside", "base", "upside"] as const) {
@@ -45,7 +46,7 @@ export function forecastSeries(forecasts: FinanceOverview["forecasts"] | undefin
         if (!p || typeof p !== "object") return null;
         const day = typeof p.day === "string" ? p.day : typeof p.month === "string" ? `${p.month}-01` : null;
         const y = num(p.cashMinor) ?? num(p.baseMinor) ?? num(p.revenueMinor);
-        return day && y !== null ? { x: new Date(`${day}T00:00:00.000Z`), y: y / 100 } : null;
+        return day && y !== null ? { x: new Date(`${day}T00:00:00.000Z`), y: minorToMajor(y, currency) } : null;
       })
       .filter((p): p is { x: Date; y: number } => !!p);
     if (points.length > 1) out.push({ id: scenario, label: scenario[0]!.toUpperCase() + scenario.slice(1), tone: tones[scenario], data: points, dashed: true, area: scenario === "base" });
@@ -54,10 +55,10 @@ export function forecastSeries(forecasts: FinanceOverview["forecasts"] | undefin
 }
 
 /** Monthly net cash flow (inflow − outflow) as one solid series. */
-export function monthlySeries(finance: FinanceOverview | undefined, months: number): LineSeries[] {
+export function monthlySeries(finance: FinanceOverview | undefined, months: number, currency: string = finance?.cash.currency ?? "USD"): LineSeries[] {
   const rows = (finance?.revenue.monthly ?? []).slice(-months);
   if (rows.length < 2) return [];
-  return [{ id: "net", label: "Net cash flow", tone: "kit", data: rows.map((m) => ({ x: new Date(`${m.month}-01T00:00:00.000Z`), y: m.netMinor / 100 })), area: true }];
+  return [{ id: "net", label: "Net cash flow", tone: "kit", data: rows.map((m) => ({ x: new Date(`${m.month}-01T00:00:00.000Z`), y: minorToMajor(m.netMinor, currency) })), area: true }];
 }
 
 function CashRunwayWidget({ settings }: WidgetProps<CashRunwaySettings>) {
@@ -67,7 +68,7 @@ function CashRunwayWidget({ settings }: WidgetProps<CashRunwaySettings>) {
   useBusinessEvents(() => finance.refetch(), ["bank.balance_updated", "payment.received", "runway.threshold_crossed"]);
   const f = finance.data;
   const cur = f?.cash.currency ?? currency;
-  const series = useMemo(() => (settings.chart === "forecast" ? forecastSeries(f?.forecasts) : monthlySeries(f, settings.months)), [settings.chart, settings.months, f]);
+  const series = useMemo(() => (settings.chart === "forecast" ? forecastSeries(f?.forecasts, cur) : monthlySeries(f, settings.months, cur)), [settings.chart, settings.months, f, cur]);
   const forecastShown = settings.chart === "forecast" && series.length > 0;
   const runway = f?.runway.months ?? null;
   const tone = runwayTone(runway);
@@ -86,7 +87,7 @@ function CashRunwayWidget({ settings }: WidgetProps<CashRunwaySettings>) {
         <div className="flex h-full min-h-0 flex-col">
           <div className="grid grid-cols-3 gap-px border-b border-subtle bg-subtle">
             <MetricTile label="Cash" value={{ amountMinor: f.cash.amountMinor, currency: cur }} caption={f.cash.accounts ? `${f.cash.accounts} account${f.cash.accounts === 1 ? "" : "s"}` : "No bank connected"} provenance={{ source: "Bank balances", asOf: f.cash.asOf ?? undefined }} onClick={open} />
-            <MetricTile label="Net burn / month" value={{ amountMinor: f.burn.netBurnMinor, currency: cur }} estimate="estimate" caption={`Gross ${formatNumber(f.burn.grossBurnMinor / 100, { maxDigits: 0 })} ${cur}`} provenance={{ source: "Operating outflows − inflows", note: f.burn.definition }} onClick={open} />
+            <MetricTile label="Net burn / month" value={{ amountMinor: f.burn.netBurnMinor, currency: cur }} estimate="estimate" caption={`Gross ${formatNumber(minorToMajor(f.burn.grossBurnMinor, cur), { maxDigits: 0 })} ${cur}`} provenance={{ source: "Operating outflows − inflows", note: f.burn.definition }} onClick={open} />
             <MetricTile label="Runway" value={runway === null ? "—" : formatNumber(runway, { maxDigits: 1 })} unit={runway === null ? undefined : "mo"} estimate="estimate" caption={f.runway.blocksContinue ? "Under 3 months: blocks Continue until acknowledged" : runway === null ? "Needs net burn above zero" : "Cash ÷ net burn"} provenance={{ source: "Cash ÷ net burn", note: "Plus the forecast-based runway on the Finance tab" }} onClick={open} />
           </div>
           <div className="min-h-0 flex-1 p-panel-pad">

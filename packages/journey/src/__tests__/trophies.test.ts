@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { customerTrophyFor, detectTrophies, ENTERPRISE_CONTRACT_MIN_MINOR, formatThreshold, isEnterpriseContract, isTrophyKey, TROPHIES, TROPHY_BY_KEY, type TrophyCounters } from "../trophies";
+import { customerTrophyFor, detectTrophies, ENTERPRISE_CONTRACT_MIN_MINOR, enterpriseContractMinMinor, formatThreshold, isEnterpriseContract, isTrophyKey, thresholdFor, TROPHIES, TROPHY_BY_KEY, type TrophyCounters } from "../trophies";
 import { Milestone, TROPHY_KEYS } from "../types";
 
 const at = "2025-04-01T10:00:00.000Z";
@@ -61,6 +61,31 @@ describe("trophy cabinet", () => {
     expect(m!.ref).toEqual({ trophyKey: "mrr_1k", metric: "mrrMinor", threshold: 100_000, value: 100_000, conversionId: "abc" });
     expect(m!.businessId).toBe("b0000000-0000-0000-0000-000000000001");
     expect(formatThreshold(10_000_000, "GBP")).toBe("£100K");
+  });
+
+  it("revenue thresholds scale from major units of the business's currency, so the label and the award agree (JM-14)", () => {
+    // 100,000 yen of MRR is not "First 1K MRR" in disguise: 1K of yen is 1,000 yen, 1K of dinars is 1,000.000 dinars.
+    expect(detectTrophies({ before: counters(), after: counters({ mrrMinor: 999 }), at, currency: "JPY" })).toEqual([]);
+    const yen = detectTrophies({ before: counters(), after: counters({ mrrMinor: 1_000 }), at, currency: "JPY" });
+    expect(yen.map((m) => [m.trophyKey, m.label])).toEqual([["mrr_1k", "First ¥1K MRR"]]);
+    expect(yen[0]!.ref).toMatchObject({ threshold: 1_000, value: 1_000 });
+    expect(detectTrophies({ before: counters(), after: counters({ mrrMinor: 100_000 }), at, currency: "KWD" })).toEqual([]);
+    const dinar = detectTrophies({ before: counters(), after: counters({ mrrMinor: 1_000_000 }), at, currency: "KWD" });
+    expect(dinar.map((m) => m.trophyKey)).toEqual(["mrr_1k"]);
+    expect(dinar[0]!.label).toMatch(/1K MRR$/);
+    expect(thresholdFor(TROPHY_BY_KEY.mrr_10k, "KWD")).toBe(10_000_000);
+    expect(thresholdFor(TROPHY_BY_KEY.mrr_10k, "GBP")).toBe(1_000_000);
+    expect(thresholdFor(TROPHY_BY_KEY.customer_10, "KWD")).toBe(10);
+    expect(formatThreshold(10_000_000, "KWD")).toMatch(/10K$/);
+    expect(formatThreshold(1_000, "JPY")).toBe("¥1K");
+  });
+
+  it("the enterprise minimum is 10,000 of the business's currency", () => {
+    expect(enterpriseContractMinMinor("EUR")).toBe(1_000_000);
+    expect(enterpriseContractMinMinor("JPY")).toBe(10_000);
+    expect(enterpriseContractMinMinor("KWD")).toBe(10_000_000);
+    expect(isEnterpriseContract(10_000, enterpriseContractMinMinor("JPY"))).toBe(true);
+    expect(isEnterpriseContract(9_999, enterpriseContractMinMinor("JPY"))).toBe(false);
   });
 
   it("enterprise contracts count from the configured minimum", () => {
