@@ -48,7 +48,7 @@ jobs:
       - name: Focus ring self-test
         if: ${{ !cancelled() }}
         run: node --test scripts/focus-visible.test.mjs
-      - name: Focus rings (no outline-none beside a focus outline width or color: Tailwind v4 would draw nothing)
+      - name: Focus rings (no outline-none beside a focus outline width or color, which Tailwind v4 would draw as nothing)
         if: ${{ !cancelled() }}
         run: node scripts/focus-visible.mjs
       - name: Upload the vocabulary sweep

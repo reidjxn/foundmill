@@ -113,7 +113,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
             // The block opens from its own button; the author's link sits beside it, never inside it (a link inside a
             // button is unreachable for assistive tech, and its click would open the block instead of the agent).
             <li key={b.id} className="flex flex-col gap-1 px-panel-pad py-2.5 hover:bg-white/4">
-              <button type="button" onClick={() => openBlock(b.id)} className="flex w-full flex-col gap-1 text-left outline-none focus-visible:outline-2 focus-visible:outline-link" data-pinned-block={b.id}>
+              <button type="button" onClick={() => openBlock(b.id)} className="flex w-full flex-col gap-1 text-left outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-link" data-pinned-block={b.id}>
                 <span className="text-pretty break-words text-body-strong text-primary">{b.section}</span>
                 {/* The block's own words, so the panel says what is pinned rather than a cut-off title. */}
                 <span className="line-clamp-3 text-small text-secondary">{pmExcerpt(b.content, 220) || blockTitle(b)}</span>
@@ -155,7 +155,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
             <ol className="grid grid-cols-2 gap-x-3 gap-y-0.5">
               {groups.map((g) => (
                 <li key={g.section} className="min-w-0">
-                  <button type="button" onClick={() => openBlock(g.blocks[0]!.id)} className="flex min-h-target w-full items-center gap-1.5 rounded-xs py-1 text-left text-small text-secondary outline-none hover:text-primary focus-visible:outline-2 focus-visible:outline-link" data-outline-section={g.section}>
+                  <button type="button" onClick={() => openBlock(g.blocks[0]!.id)} className="flex min-h-target w-full items-center gap-1.5 rounded-xs py-1 text-left text-small text-secondary outline-none hover:text-primary focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-link" data-outline-section={g.section}>
                     <span className="min-w-0 break-words">{g.section}</span>
                     {g.blocks.length > 1 ? <span className="tabular-nums text-tertiary">{g.blocks.length}</span> : null}
                   </button>
