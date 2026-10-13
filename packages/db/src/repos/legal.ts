@@ -6,13 +6,16 @@
  * Nothing here signs, files or accepts terms: an incorporation row tracks a supervised browser session
  * whose gated steps the founder performs; `setContractStatus("signed")` records a signature that happened
  * elsewhere (Dropbox Sign webhook or the founder).
+ *
+ * Importing a registry record is idempotent: the same company (jurisdiction + registration number) is updated in
+ * place, its officers and deadlines are matched to the ones already recorded, never added twice.
  */
 import { INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  complianceEvents, CONTRACT_STATUSES, contracts, entities, FILING_STATUSES, filings, INCORPORATION_STATUSES, incorporations, LEGAL_ENTITY_STATUSES, legalEntities,
-  type ComplianceEvent, type Contract, type Filing, type Incorporation, type LegalEntity,
+  complianceEvents, CONTRACT_STATUSES, contracts, entities, FILING_STATUSES, filings, INCORPORATION_STATUSES, incorporations, LEGAL_ENTITY_STATUSES, legalEntities, regulatoryGates,
+  type ComplianceEvent, type Contract, type Filing, type Incorporation, type LegalEntity, type RegulatoryGate,
 } from "../schema";
 import { Currency, DateRange, defined, Id, IsoDateInput, JsonArray, MinorAmount, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page, patchSchema } from "./_shared";
 
@@ -98,6 +101,14 @@ export const CreateComplianceEventInput = z.object({
 });
 export type CreateComplianceEventInput = z.input<typeof CreateComplianceEventInput>;
 
+/** A registration number as registries compare it: "sc 123 456" and "SC123456" are one company. */
+export const normalizeRegNo = (regNo: string): string => regNo.replace(/[\s-]+/g, "").toUpperCase();
+
+/** Incorporations still in flight: they block a new start, and only these can be canceled. */
+export const ACTIVE_INCORPORATION_STATUSES = ["draft", "in_progress", "awaiting_founder", "submitted"] as const;
+/** In flight and not yet filed: the founder can still cancel (after `submitted` the filing is with the registry). */
+export const CANCELABLE_INCORPORATION_STATUSES = ["draft", "in_progress", "awaiting_founder"] as const;
+
 /** Contract lifecycle (BUILD §11.11): signing itself is a hard gate performed by the founder. */
 export const CONTRACT_TRANSITIONS: Record<(typeof CONTRACT_STATUSES)[number], readonly (typeof CONTRACT_STATUSES)[number][]> = {
   draft: ["review", "awaiting_signature", "terminated"],
@@ -176,9 +187,38 @@ export const legalRepo = {
     return one(await db.update(legalEntities).set(defined(v)).where(scopedLe(businessId, legalEntityId)).returning(), "legal entity", legalEntityId);
   },
 
-  /** Import confirm (router legal.import.confirm): a registry lookup becomes the operating entity. */
-  async importEntity(db: Executor, businessId: string, input: CreateLegalEntityInput & { source: string }): Promise<LegalEntity> {
-    return legalRepo.createEntity(db, businessId, { ...input, status: input.status ?? "active" });
+  /** The live entity registered under this number in this jurisdiction, or null. */
+  async findEntityByRegNo(db: Executor, businessId: string, jurisdiction: string, regNo: string): Promise<LegalEntity | null> {
+    const rows = await db
+      .select()
+      .from(legalEntities)
+      .where(and(eq(legalEntities.businessId, businessId), isNull(legalEntities.archivedAt), sql`lower(${legalEntities.jurisdiction}) = ${jurisdiction.trim().toLowerCase()}`, sql`upper(regexp_replace(coalesce(${legalEntities.regNo}, ''), '[[:space:]-]+', '', 'g')) = ${normalizeRegNo(regNo)}`))
+      .orderBy(asc(legalEntities.createdAt))
+      .limit(1);
+    return rows[0] ?? null;
+  },
+
+  /**
+   * Import confirm (router legal.import.confirm): a registry lookup becomes the operating entity. The same company
+   * imported again (a correction, a second click) updates its entity in place; `created` says which happened.
+   */
+  async importEntity(db: Executor, businessId: string, input: CreateLegalEntityInput & { source: string }): Promise<{ entity: LegalEntity; created: boolean }> {
+    const v = parseInput(CreateLegalEntityInput, { ...input, status: input.status ?? "active" }, "legal entity");
+    const existing = v.regNo ? await legalRepo.findEntityByRegNo(db, businessId, v.jurisdiction, v.regNo) : null;
+    if (!existing) return { entity: await legalRepo.createEntity(db, businessId, v), created: true };
+    const entity = await legalRepo.updateEntity(db, businessId, existing.id, {
+      entityType: v.entityType,
+      legalName: v.legalName,
+      regNo: v.regNo,
+      registeredAddress: v.registeredAddress ?? existing.registeredAddress,
+      officers: v.officers,
+      shareCapitalMinor: v.shareCapitalMinor ?? existing.shareCapitalMinor,
+      currency: v.currency,
+      formedAt: v.formedAt ?? existing.formedAt,
+      source: v.source ?? existing.source,
+      status: v.status,
+    });
+    return { entity, created: false };
   },
 
   async archiveEntity(db: Executor, businessId: string, legalEntityId: string): Promise<LegalEntity> {
@@ -199,7 +239,7 @@ export const legalRepo = {
     const rows = await db
       .select()
       .from(incorporations)
-      .where(and(eq(incorporations.businessId, businessId), isNull(incorporations.archivedAt), inArray(incorporations.status, ["draft", "in_progress", "awaiting_founder", "submitted"])))
+      .where(and(eq(incorporations.businessId, businessId), isNull(incorporations.archivedAt), inArray(incorporations.status, [...ACTIVE_INCORPORATION_STATUSES])))
       .orderBy(desc(incorporations.createdAt))
       .limit(1);
     return rows[0] ?? null;
@@ -233,6 +273,39 @@ export const legalRepo = {
       "incorporation",
       incorporationId,
     );
+  },
+
+  /**
+   * Moves an incorporation from one of `from` to `status` atomically (the row is locked): null when it was no longer in
+   * one of those states, so a founder's second click, or a submit racing a cancel, changes nothing.
+   */
+  async transitionIncorporation(db: Executor, businessId: string, incorporationId: string, from: readonly (typeof INCORPORATION_STATUSES)[number][], patch: UpdateIncorporationInput & { status: (typeof INCORPORATION_STATUSES)[number] }): Promise<Incorporation | null> {
+    return db.transaction(async (tx) => {
+      const current = one(await tx.select().from(incorporations).where(scopedInc(businessId, incorporationId)).for("update").limit(1), "incorporation", incorporationId);
+      if (!from.includes(current.status)) return null;
+      return legalRepo.updateIncorporation(tx, businessId, incorporationId, patch);
+    });
+  },
+
+  /**
+   * Abandons an incorporation (the founder canceled, the kill switch stopped it, or its workflow never started): the
+   * reason is the last step, and the entity it was forming, never registered, is archived so the Entity tab and the
+   * next start do not inherit a company that will not exist. A complete incorporation is left as it is.
+   */
+  async abandonIncorporation(db: Executor, businessId: string, incorporationId: string, reason: string, at = new Date()): Promise<Incorporation> {
+    return db.transaction(async (tx) => {
+      const inc = one(await tx.select().from(incorporations).where(scopedInc(businessId, incorporationId)).for("update").limit(1), "incorporation", incorporationId);
+      if (inc.status === "complete" || inc.status === "abandoned") return inc;
+      const steps = [...((inc.steps as unknown[]) ?? []), { step: "abandoned", at: at.toISOString(), note: reason }];
+      const updated = await legalRepo.updateIncorporation(tx, businessId, inc.id, { status: "abandoned", steps });
+      if (inc.legalEntityId) {
+        await tx
+          .update(legalEntities)
+          .set({ archivedAt: at })
+          .where(and(scopedLe(businessId, inc.legalEntityId), eq(legalEntities.status, "forming"), isNull(legalEntities.regNo), isNull(legalEntities.archivedAt)));
+      }
+      return updated;
+    });
   },
 
   // filings -----------------------------------------------------------------------------------------------------------
@@ -331,6 +404,19 @@ export const legalRepo = {
     );
   },
 
+  /** The contract whose document reference names this e-signature request (a Dropbox Sign request id or its URL). */
+  async findContractByDocRef(db: Executor, businessId: string, ref: string): Promise<Contract | null> {
+    const needle = ref.trim();
+    if (!needle) return null;
+    const rows = await db
+      .select()
+      .from(contracts)
+      .where(and(eq(contracts.businessId, businessId), isNull(contracts.archivedAt), sql`${contracts.docRef} is not null`, sql`strpos(${contracts.docRef}, ${needle}) > 0`))
+      .orderBy(desc(contracts.createdAt))
+      .limit(1);
+    return rows[0] ?? null;
+  },
+
   async getContract(db: Executor, businessId: string, contractId: string): Promise<Contract> {
     return one(await db.select().from(contracts).where(scopedContract(businessId, contractId)).limit(1), "contract", contractId);
   },
@@ -367,14 +453,19 @@ export const legalRepo = {
     return one(await db.update(contracts).set(defined(v)).where(scopedContract(businessId, contractId)).returning(), "contract", contractId);
   },
 
-  /** Moves a contract along its lifecycle; `signed` stamps signed_at (the signature itself happened outside the platform). */
-  async setContractStatus(db: Executor, businessId: string, contractId: string, status: (typeof CONTRACT_STATUSES)[number], options: { signedAt?: Date; force?: boolean } = {}): Promise<Contract> {
+  /**
+   * Moves a contract along its lifecycle; `signed` stamps signed_at (the signature itself happened outside the
+   * platform). The row is locked first, so of two concurrent moves to the same status exactly one changes it;
+   * `changed` is false when the contract already had the status (a double click, a retry, a repeated webhook), and
+   * callers raise their events and audit rows only for a change.
+   */
+  async transitionContract(db: Executor, businessId: string, contractId: string, status: (typeof CONTRACT_STATUSES)[number], options: { signedAt?: Date; force?: boolean } = {}): Promise<{ contract: Contract; changed: boolean }> {
     const s = parseInput(z.enum(CONTRACT_STATUSES), status, "contract status");
     return db.transaction(async (tx) => {
-      const current = await legalRepo.getContract(tx, businessId, contractId);
-      if (current.status === s) return current;
+      const current = one(await tx.select().from(contracts).where(scopedContract(businessId, contractId)).for("update").limit(1), "contract", contractId);
+      if (current.status === s) return { contract: current, changed: false };
       if (!options.force && !CONTRACT_TRANSITIONS[current.status].includes(s)) throw new ValidationError(`Contract cannot move from ${current.status} to ${s}`, { contractId, from: current.status, to: s });
-      return one(
+      const contract = one(
         await tx
           .update(contracts)
           .set({ status: s, ...(s === "signed" ? { signedAt: options.signedAt ?? new Date() } : {}) })
@@ -383,7 +474,13 @@ export const legalRepo = {
         "contract",
         contractId,
       );
+      return { contract, changed: true };
     });
+  },
+
+  /** `transitionContract` for callers that only need the row. */
+  async setContractStatus(db: Executor, businessId: string, contractId: string, status: (typeof CONTRACT_STATUSES)[number], options: { signedAt?: Date; force?: boolean } = {}): Promise<Contract> {
+    return (await legalRepo.transitionContract(db, businessId, contractId, status, options)).contract;
   },
 
   async archiveContract(db: Executor, businessId: string, contractId: string): Promise<Contract> {
@@ -408,6 +505,17 @@ export const legalRepo = {
       .orderBy(asc(complianceEvents.dueAt));
   },
 
+  /** The compliance deadline of this kind due on this day, done or not (an imported deadline is recorded once). */
+  async findCompliance(db: Executor, businessId: string, kind: string, dueAt: Date): Promise<ComplianceEvent | null> {
+    const day = dueAt.toISOString().slice(0, 10);
+    const rows = await db
+      .select()
+      .from(complianceEvents)
+      .where(and(eq(complianceEvents.businessId, businessId), isNull(complianceEvents.archivedAt), eq(complianceEvents.kind, kind), sql`(${complianceEvents.dueAt} at time zone 'UTC')::date = ${day}::date`))
+      .limit(1);
+    return rows[0] ?? null;
+  },
+
   async createCompliance(db: Executor, businessId: string, input: CreateComplianceEventInput): Promise<ComplianceEvent> {
     const v = parseInput(CreateComplianceEventInput, input, "compliance event");
     await assertLegalEntity(db, businessId, v.legalEntityId);
@@ -423,6 +531,28 @@ export const legalRepo = {
 
   async archiveCompliance(db: Executor, businessId: string, eventId: string): Promise<ComplianceEvent> {
     return one(await db.update(complianceEvents).set({ archivedAt: new Date() }).where(scopedCompliance(businessId, eventId)).returning(), "compliance event", eventId);
+  },
+
+  // regulated-sector gates ------------------------------------------------------------------------------------------------
+  /** The founder's sector choices (a sector without a row falls back to the suggestion). */
+  async listSectorChoices(db: Executor, businessId: string): Promise<RegulatoryGate[]> {
+    return db.select().from(regulatoryGates).where(eq(regulatoryGates.businessId, businessId)).orderBy(asc(regulatoryGates.sector));
+  },
+
+  /** Records whether a sector applies and which of its checklist items are done (either, or both). */
+  async setSectorChoice(db: Executor, businessId: string, input: { sector: string; applies?: boolean; done?: readonly string[]; decidedBy?: string | null }): Promise<RegulatoryGate> {
+    const done = input.done === undefined ? undefined : [...new Set(input.done)].sort();
+    return one(
+      await db
+        .insert(regulatoryGates)
+        .values({ businessId, sector: input.sector, applies: input.applies ?? true, done: done ?? [], decidedBy: input.decidedBy ?? null })
+        .onConflictDoUpdate({
+          target: [regulatoryGates.businessId, regulatoryGates.sector],
+          set: { ...(input.applies === undefined ? {} : { applies: input.applies }), ...(done === undefined ? {} : { done }), decidedBy: input.decidedBy ?? null, updatedAt: new Date() },
+        })
+        .returning(),
+      "regulatory gate",
+    );
   },
 
   /** Deadlines (filings + compliance) due within `days` — the "Legal deadline" wake event and the Inbox reminders. */

@@ -2,6 +2,7 @@ export * from "./types";
 export * from "./errors";
 export * from "./result";
 export * from "./money";
+export * from "./vesting";
 export * from "./us-spelling";
 export * from "./ids";
 export * from "./permissions";

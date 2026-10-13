@@ -31,7 +31,8 @@ export interface TransactionRow {
   id: string;
   accountId: string;
   externalId?: string | null;
-  bookedAt: Iso;
+  /** A Date over the wire (superjson) or an ISO string from a fixture: read it with `toDate`. */
+  bookedAt: Iso | Date;
   amountMinor: number;
   currency: string;
   counterparty: string | null;
@@ -77,27 +78,9 @@ export interface PnlResponse {
 export type ForecastScenario = "base" | "upside" | "downside";
 export const FORECAST_SCENARIOS: readonly ForecastScenario[] = ["base", "upside", "downside"];
 
-/** The driver contract of a forecast version (stored as `forecasts.drivers`). */
-export interface ForecastDrivers {
-  startingCashMinor: number;
-  monthlyRevenueMinor: number;
-  /** Month-on-month revenue growth in percent (5 = +5 %/month). */
-  revenueGrowthPct: number;
-  monthlyCostsMinor: number;
-  /** Month-on-month cost growth in percent. */
-  costGrowthPct: number;
-  /** Months projected (default 24). */
-  horizonMonths: number;
-  /** Months until cash reaches zero under these drivers; null when it never does within the horizon. apps/api reads it. */
-  runway_months?: number | null;
-}
-export interface ForecastPoint {
-  month: string;
-  revenueMinor: number;
-  costsMinor: number;
-  netMinor: number;
-  cashMinor: number;
-}
+/** The driver contract of a forecast version (stored as `forecasts.drivers`) and its projected points. */
+export type { ForecastDrivers, ForecastPoint } from "@foundmill/shared/forecast";
+
 export interface ForecastRow {
   id: string;
   scenario: ForecastScenario | string;
@@ -134,9 +117,12 @@ export interface CapTableEntryRow {
   security: { id: string; class: string; kind: SecurityKind };
 }
 export interface CapTableSummary {
+  /** Fully diluted shares: issued shares and options; SAFEs and notes are left out until they convert. */
   totalQuantity: number;
-  byClass: { securityId: string; class: string; kind: SecurityKind; quantity: number; holders: number; authorisedQuantity: number | null; fullyDilutedPct: number }[];
-  byHolder: { holderEntityId: string; displayName: string; quantity: number; fullyDilutedPct: number; positions: { securityId: string; class: string; quantity: number }[] }[];
+  /** A convertible (SAFE or note) class has no fully diluted percentage; its `quantity` is principal units. */
+  byClass: { securityId: string; class: string; kind: SecurityKind; convertible: boolean; quantity: number; holders: number; authorisedQuantity: number | null; fullyDilutedPct: number | null }[];
+  /** `quantity` counts shares and options; `fullyDilutedPct` is null for a holder of convertibles alone. */
+  byHolder: { holderEntityId: string; displayName: string; quantity: number; fullyDilutedPct: number | null; positions: { securityId: string; class: string; convertible: boolean; quantity: number }[] }[];
 }
 export interface CapTableResponse {
   securities: SecurityRow[];
@@ -177,6 +163,9 @@ export interface MembershipRow {
   userId: string;
   role: string;
   createdAt?: Iso;
+  /** The member's CRM `team_member` record name, or their own profile name for the signed-in member. */
   displayName?: string | null;
   email?: string | null;
+  /** The member's CRM `team_member` record (null when the CRM has none: no link then). */
+  entityId?: string | null;
 }

@@ -3,7 +3,7 @@
  * founder takeover) and Door B business import (sources read through the gateway; nothing scraped directly).
  */
 import { repos } from "@foundmill/db";
-import { uuid } from "@foundmill/shared";
+import { INCORPORATION_ROUTE_LABELS, uuid } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import type { ImportSourceResult, LoadedPlaybook } from "./types";
@@ -12,6 +12,15 @@ export const INCORPORATION_STEPS = ["prepare_documents", "founder_review", "foun
 export type IncorporationStep = (typeof INCORPORATION_STEPS)[number];
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The registration number the founder gave when they submitted (the `founder_submits` step keeps their payload). */
+export function submittedReference(steps: readonly unknown[]): string | null {
+  for (const s of [...steps].reverse()) {
+    const step = s as { step?: unknown; payload?: { reference?: unknown } } | null;
+    if (step?.step === "founder_submits" && typeof step.payload?.reference === "string" && step.payload.reference.trim()) return step.payload.reference.trim();
+  }
+  return null;
+}
 
 export function createMiscActivities(deps: OrchestratorDeps) {
   return {
@@ -57,16 +66,17 @@ export function createMiscActivities(deps: OrchestratorDeps) {
       const inc = await repos.legal.getIncorporation(db, input.businessId, input.incorporationId);
       const steps = Array.isArray(inc.steps) ? [...(inc.steps as Record<string, unknown>[])] : [];
       const push = (note: string, extra: Record<string, unknown> = {}) => steps.push({ step: input.step, at: deps.clock.now().toISOString(), note, ...extra });
+      const routeName = INCORPORATION_ROUTE_LABELS[inc.route] ?? "incorporation";
       switch (input.step) {
         case "prepare_documents": {
-          push(`Prepared the ${inc.route.replace(/_/g, " ")} document set from the business profile (drafts; nothing filed).`);
+          push(`Prepared the ${routeName} document set from the business profile (drafts; nothing filed).`);
           await repos.legal.updateIncorporation(db, input.businessId, inc.id, { status: "in_progress", steps, workflowId: input.workflowId });
           return { status: "in_progress", note: "documents prepared" };
         }
         case "founder_review": {
           const chief = await repos.agents.chiefOfStaff(db, input.businessId);
           if (chief) {
-            await repos.inbox.createItem(db, input.businessId, { type: "decision", from_agent_id: chief.id, subject: "Incorporation pack ready for your review", body_md: `The ${inc.route.replace(/_/g, " ")} pack is prepared. Review the documents, then submit the filing yourself: filing in your name is a hard gate the team never performs. The browser session stays supervised until you take over.`, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options: [{ id: "review", label: "Open the pack and submit", recommended: true, consequence: "You take over the browser session and file", cost_minor: 0, reversible: true }, { id: "later", label: "Not now", recommended: false, consequence: "The pack waits; nothing is filed", cost_minor: 0, reversible: true }], free_text: true, expires_at: null }, blocks_continue: false, source_event_ids: [], entity_ids: [] });
+            await repos.inbox.createItem(db, input.businessId, { type: "decision", from_agent_id: chief.id, subject: "Incorporation pack ready for your review", body_md: `The ${routeName} pack is prepared. Review the documents, then submit the filing yourself: filing in your name is a hard gate the team never performs. The browser session stays supervised until you take over.`, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options: [{ id: "review", label: "Open the pack and submit", recommended: true, consequence: "You take over the browser session and file", cost_minor: 0, reversible: true }, { id: "later", label: "Not now", recommended: false, consequence: "The pack waits; nothing is filed", cost_minor: 0, reversible: true }], free_text: true, expires_at: null }, blocks_continue: false, source_event_ids: [], entity_ids: [] });
           }
           push("Asked the founder to review and submit.");
           await repos.legal.updateIncorporation(db, input.businessId, inc.id, { status: "awaiting_founder", steps, browserSessionId: `supervised:${uuid()}` });
@@ -78,7 +88,7 @@ export function createMiscActivities(deps: OrchestratorDeps) {
           return { status: "submitted", note: "submitted by the founder" };
         }
         case "record_filing": {
-          await repos.legal.createFiling(db, input.businessId, { legalEntityId: inc.legalEntityId, kind: "incorporation", title: `Incorporation via ${inc.route}`, status: "filed", ref: typeof input.founderPayload?.reference === "string" ? input.founderPayload.reference : null });
+          await repos.legal.createFiling(db, input.businessId, { legalEntityId: inc.legalEntityId, kind: "incorporation", title: `Incorporation via ${routeName}`, status: "filed", ref: typeof input.founderPayload?.reference === "string" ? input.founderPayload.reference : null });
           push("Filing recorded.");
           await repos.legal.updateIncorporation(db, input.businessId, inc.id, { steps });
           return { status: "submitted", note: "filing recorded" };
@@ -86,6 +96,13 @@ export function createMiscActivities(deps: OrchestratorDeps) {
         case "complete": {
           push("Incorporation complete.");
           await repos.legal.updateIncorporation(db, input.businessId, inc.id, { status: "complete", steps });
+          // The filing is in: the entity it formed is the business's company now, formed today, with the registration
+          // number the founder gave at submit (or later on Legal › Entity, once the registry issues it).
+          if (inc.legalEntityId) {
+            const entity = await repos.legal.getEntity(db, input.businessId, inc.legalEntityId);
+            const reference = submittedReference(steps);
+            await repos.legal.updateEntity(db, input.businessId, entity.id, { status: "active", formedAt: entity.formedAt ?? deps.clock.now().toISOString().slice(0, 10), ...(entity.regNo ? {} : { regNo: reference }) });
+          }
           await repos.audit.append(db, input.businessId, { actorKind: "system", action: "incorporation.complete", target: { kind: "incorporation", id: inc.id }, details: { route: inc.route } });
           return { status: "complete", note: "complete" };
         }
@@ -104,10 +121,9 @@ export function createMiscActivities(deps: OrchestratorDeps) {
       return ok ? { ok: true, reason: null } : { ok: false, reason: "the sender is not an owner or admin of this business" };
     },
 
+    /** The founder canceled (or the kill switch stopped it): abandoned, and the entity it was forming archived. */
     async abandonIncorporation(input: { businessId: string; incorporationId: string; reason: string }): Promise<void> {
-      const inc = await repos.legal.getIncorporation(deps.db, input.businessId, input.incorporationId);
-      if (inc.status === "complete") return;
-      await repos.legal.updateIncorporation(deps.db, input.businessId, inc.id, { status: "abandoned", steps: [...((inc.steps as unknown[]) ?? []), { step: "abandoned", at: deps.clock.now().toISOString(), note: input.reason }] });
+      await repos.legal.abandonIncorporation(deps.db, input.businessId, input.incorporationId, input.reason, deps.clock.now());
     },
 
     // ---- Door B import ---------------------------------------------------------------------------------------------

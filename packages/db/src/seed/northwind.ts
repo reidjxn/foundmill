@@ -276,7 +276,6 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     financeLeadAgentId: squad.byTemplate.get("finance_lead")?.agent.id ?? null,
     recentSessions: journey.recentSessions,
     modelBilling: "credits",
-    mrrMinorNow: journey.mrrMinorNow,
   });
   const legal = await seedLegal(ctx, businessId, {
     legalName: "Northwind Skincare Ltd",

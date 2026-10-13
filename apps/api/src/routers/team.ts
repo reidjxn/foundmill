@@ -98,7 +98,16 @@ export const teamRouter = router({
   }),
 
   humans: router({
-    list: read.query(({ ctx }) => ctx.rls((tx) => repos.memberships.list(tx, ctx.businessId))),
+    /**
+     * Staff with their name and CRM record (`team_member` whose identifiers name the account); the signed-in member's
+     * own founder profile names them when the CRM has no record. Never an auth id dressed up as a CRM link.
+     */
+    list: read.query(({ ctx }) =>
+      ctx.rls(async (tx) => {
+        const [members, me] = await Promise.all([repos.memberships.listNamed(tx, ctx.businessId), repos.founders.get(tx, ctx.userId)]);
+        return members.map((m) => (m.displayName === null && m.userId === ctx.userId && me?.displayName ? { ...m, displayName: me.displayName } : m));
+      }),
+    ),
     /** Invite by user id (Supabase auth user); e-mail invitations are sent by the web app's auth flow. */
     /** Adds a new member only: an existing member (the owner included) is never overwritten (409; use `role`). */
     invite: adminProcedure.input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).default("member"), sectionPermissions: SectionPermissions.default({}), email: z.string().email().optional() })).mutation(({ ctx, input }) =>

@@ -47,7 +47,6 @@ const CONTRACT_KINDS = ["customer", "supplier", "nda", "employment", "contractor
 const KIND_OPTIONS = CONTRACT_KINDS.map((k) => ({ value: k, label: contractKindLabel(k) }));
 const PROVIDER_OPTIONS = [
   { value: "dropbox_sign", label: "Dropbox Sign" },
-  { value: "docusign", label: "DocuSign" },
   { value: "manual", label: "Signed on paper or by email" },
   { value: "other", label: "Other" },
 ];
@@ -55,7 +54,7 @@ const PROVIDER_OPTIONS = [
 const NEXT_LABEL: Partial<Record<ContractStatus, { label: string; icon: typeof ArrowRight; variant?: "default" | "danger" }>> = {
   draft: { label: "Back to draft", icon: FileText },
   review: { label: "Send for review", icon: ArrowRight },
-  awaiting_signature: { label: "Send for signature", icon: FileSignature },
+  awaiting_signature: { label: "Mark awaiting signature", icon: FileSignature },
   active: { label: "Mark active", icon: CheckCircle2 },
   expired: { label: "Mark expired", icon: Ban },
   terminated: { label: "Terminate", icon: Ban, variant: "danger" },
@@ -288,7 +287,7 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
                   </Button>
                   <FounderOnlyChip />
                 </div>
-                <p className="t-small text-secondary">Agents never sign. You sign on the e-signature page, then record it here; a webhook from Dropbox Sign or DocuSign records it for you when connected.</p>
+                <p className="t-small text-secondary">Agents never sign. Marking a contract awaiting signature sends nothing: send the envelope from your e-signature tool and paste its link into the document field. You sign there, then record it here; when Dropbox Sign is connected and the document link names the signature request, its webhook records the signature for you.</p>
               </>
             ) : (
               <p className="t-body text-primary">{selectedRow.signedAt ? `Signed ${formatDate(selectedRow.signedAt)} by the founder.` : CONTRACT_STATUS_WORD[selectedRow.status]}</p>

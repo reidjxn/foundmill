@@ -6,7 +6,9 @@
  */
 import { formatDate } from "@foundmill/dugout/lib/format";
 import type { DateFormatPrefs } from "@foundmill/dugout/lib/date-preferences";
+import { projectForecast, type ForecastProjection } from "@foundmill/shared/forecast";
 import { usSpelling } from "@foundmill/shared/us-spelling";
+import { readVesting } from "@foundmill/shared/vesting";
 import type { CapTableEntryRow, CapTableSummary, CategoryTotal, ForecastDrivers, ForecastPoint, ForecastScenario, MonthlyTotal, SecurityRow } from "./types";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -358,50 +360,70 @@ export function readDrivers(raw: Record<string, unknown> | null | undefined, fal
     startingCashMinor: Math.round(num(d.startingCashMinor, fallback.startingCashMinor)),
     monthlyRevenueMinor: Math.round(num(d.monthlyRevenueMinor, fallback.monthlyRevenueMinor)),
     revenueGrowthPct: num(d.revenueGrowthPct, fallback.revenueGrowthPct),
-    monthlyCostsMinor: Math.round(num(d.monthlyCostsMinor, fallback.monthlyCostsMinor)),
+    // `monthlyOutflowMinor` is the key forecasts were seeded with before the contract was settled.
+    monthlyCostsMinor: Math.round(num(d.monthlyCostsMinor, num(d.monthlyOutflowMinor, fallback.monthlyCostsMinor))),
     costGrowthPct: num(d.costGrowthPct, fallback.costGrowthPct),
     horizonMonths: Math.max(1, Math.min(60, Math.round(num(d.horizonMonths, fallback.horizonMonths)))),
     runway_months: typeof d.runway_months === "number" ? d.runway_months : null,
   };
 }
 
-export interface ForecastProjection {
-  series: ForecastPoint[];
-  /** Months until cash reaches zero (fraction of a month interpolated); null when it stays positive to the horizon. */
-  runwayMonths: number | null;
-  /** The month cash first goes negative. */
-  zeroMonth: string | null;
+// The projection is shared with the seeds and the api (packages/shared/src/forecast.ts), so a stored series and the
+// screens' projection of the same drivers are one computation.
+export { projectForecast, type ForecastProjection };
+
+/**
+ * A stored forecast version as every screen draws it: its drivers projected over its own months (the Overview's
+ * dashed Base line and the Runway tab are one computation). A version written without the driver contract (an older
+ * agent or import) is drawn from its stored series. Null without a version.
+ */
+export function storedProjection(row: { drivers?: unknown; series?: readonly unknown[] | null } | null | undefined, fallback: ForecastDrivers, thisMonth: string): ForecastProjection | null {
+  if (!row) return null;
+  const raw = (row.drivers && typeof row.drivers === "object" ? row.drivers : {}) as Record<string, unknown>;
+  if (typeof raw.startingCashMinor !== "number") {
+    const series = readSeries(row.series ?? null);
+    const firstBelow = series.find((p) => p.cashMinor < 0);
+    return { series, runwayMonths: typeof raw.runway_months === "number" ? raw.runway_months : null, zeroMonth: firstBelow?.month ?? null };
+  }
+  return projectForecast(readDrivers(raw, fallback), forecastStartMonth(row, thisMonth));
 }
 
-/** Project cash month by month: revenue and costs compound by their growth rates; cash = previous cash + net. */
-export function projectForecast(drivers: ForecastDrivers, startMonth: string): ForecastProjection {
-  const series: ForecastPoint[] = [];
-  let cash = drivers.startingCashMinor;
-  let revenue = drivers.monthlyRevenueMinor;
-  let costs = drivers.monthlyCostsMinor;
-  let runwayMonths: number | null = null;
-  let zeroMonth: string | null = null;
-  for (let i = 0; i < drivers.horizonMonths; i += 1) {
-    const month = addMonths(startMonth, i);
-    const r = Math.round(revenue);
-    const c = Math.round(costs);
-    const net = r - c;
-    const before = cash;
-    cash = before + net;
-    series.push({ month, revenueMinor: r, costsMinor: c, netMinor: net, cashMinor: cash });
-    if (runwayMonths === null && cash < 0) {
-      const fraction = net < 0 ? before / -net : 0;
-      runwayMonths = Math.round((i + Math.max(0, Math.min(1, fraction))) * 10) / 10;
-      zeroMonth = month;
-    }
-    revenue *= 1 + drivers.revenueGrowthPct / 100;
-    costs *= 1 + drivers.costGrowthPct / 100;
-  }
-  if (drivers.startingCashMinor < 0) {
-    runwayMonths = 0;
-    zeroMonth = startMonth;
-  }
-  return { series, runwayMonths, zeroMonth };
+/**
+ * The month a forecast version starts: its stored series' first month (a saved version keeps the months it was
+ * projected over), else `fallback` (this month, for drivers that were never saved).
+ */
+export function forecastStartMonth(row: { series?: readonly unknown[] | null } | null | undefined, fallback: string): string {
+  return readSeries(row?.series ?? null)[0]?.month ?? fallback;
+}
+
+/** "5% growth, costs up 1% a month" from the drivers themselves (never a fixed description of the defaults). */
+export function driversHint(d: ForecastDrivers): string {
+  const pct = (n: number) => `${Math.round(n * 10) / 10}%`;
+  const revenue = d.revenueGrowthPct === 0 ? "flat revenue" : d.revenueGrowthPct > 0 ? `revenue up ${pct(d.revenueGrowthPct)}` : `revenue down ${pct(-d.revenueGrowthPct)}`;
+  const costs = d.costGrowthPct === 0 ? "flat costs" : d.costGrowthPct > 0 ? `costs up ${pct(d.costGrowthPct)}` : `costs down ${pct(-d.costGrowthPct)}`;
+  return `${revenue} and ${costs} a month, over ${d.horizonMonths} month${d.horizonMonths === 1 ? "" : "s"}`;
+}
+
+/**
+ * What a scenario's runway is, in words the founder can act on:
+ * - `unknown`: there is nothing to project from yet (no bank, too little history, nothing saved or typed), so the
+ *   shared "Not known yet" wording and its reason, the same as Home's status strip;
+ * - `months`: cash runs out within the horizon;
+ * - `no_limit`: cash-flow positive every projected month;
+ * - `beyond`: burning, but cash lasts past the horizon.
+ */
+export type ScenarioRunway =
+  | { kind: "unknown"; value: string; caption: string }
+  | { kind: "months"; months: number }
+  | { kind: "no_limit" }
+  | { kind: "beyond"; horizonMonths: number };
+
+export function scenarioRunway(projection: ForecastProjection, drivers: ForecastDrivers, unknown: { value: string; caption: string } | null): ScenarioRunway {
+  if (unknown) return { kind: "unknown", ...unknown };
+  if (projection.runwayMonths !== null) return { kind: "months", months: projection.runwayMonths };
+  if (drivers.startingCashMinor === 0 && drivers.monthlyRevenueMinor === 0 && drivers.monthlyCostsMinor === 0) return { kind: "unknown", value: "Not known yet", caption: "Enter cash, revenue and costs to project it" };
+  if (projection.series.every((p) => p.netMinor >= 0)) return { kind: "no_limit" };
+  return { kind: "beyond", horizonMonths: drivers.horizonMonths };
 }
 
 export interface SeedInputs {
@@ -464,32 +486,47 @@ export interface VestingSummary {
   totalMonths: number;
   cliffMonths: number;
   startDate: string | null;
-  vestedPct: number;
-  vestedQuantity: number;
+  /** Null when neither the schedule nor the issuance says when vesting started. */
+  vestedPct: number | null;
+  vestedQuantity: number | null;
   text: string;
 }
 
 const qty = (q: number | string | null | undefined): number => (q === null || q === undefined ? 0 : Number(q));
 
 /**
- * Vesting state at `asOf` from the `{ months, cliffMonths, startDate }` JSON a cap-table entry carries. Monthly vesting
- * after the cliff; fully vested without a schedule.
+ * Vesting state at `asOf` from the `{ months, cliffMonths, startDate }` schedule a cap-table entry carries (the shared
+ * `VestingSchedule`; older rows' `{ schedule: "4y", startsAt }` are read too). Monthly vesting after the cliff, counted
+ * from the schedule's start or else the entry's issue date; a schedule with no start at all is never shown as vested.
+ * Null for an entry without vesting (fully vested at issue).
  */
-export function vestingSummary(vesting: Record<string, unknown> | null | undefined, quantity: number | string, asOf: Date): VestingSummary | null {
-  if (!vesting) return null;
-  const totalMonths = Math.max(0, Math.round(num(vesting.months ?? vesting.totalMonths, 48)));
-  const cliffMonths = Math.max(0, Math.round(num(vesting.cliffMonths ?? vesting.cliff, 12)));
-  const startDate = typeof vesting.startDate === "string" ? vesting.startDate : typeof vesting.start === "string" ? vesting.start : null;
+export function vestingSummary(vesting: Record<string, unknown> | null | undefined, quantity: number | string, asOf: Date, issuedAt?: string | null): VestingSummary | null {
+  const terms = readVesting(vesting, issuedAt);
+  if (!terms) return null;
+  const { months: totalMonths, cliffMonths, startDate } = terms;
   const q = qty(quantity);
-  let vestedPct = 100;
-  if (startDate && totalMonths > 0) {
-    const start = new Date(`${startDate.slice(0, 10)}T00:00:00.000Z`);
+  let vestedPct: number | null = null;
+  if (startDate) {
+    const start = new Date(`${startDate}T00:00:00.000Z`);
     const elapsed = (asOf.getUTCFullYear() - start.getUTCFullYear()) * 12 + (asOf.getUTCMonth() - start.getUTCMonth()) - (asOf.getUTCDate() < start.getUTCDate() ? 1 : 0);
     vestedPct = elapsed < cliffMonths ? 0 : Math.max(0, Math.min(100, Math.round((Math.min(elapsed, totalMonths) / totalMonths) * 1000) / 10));
   }
   const years = totalMonths % 12 === 0 ? `${totalMonths / 12}y` : `${totalMonths}m`;
   const cliff = cliffMonths ? ` / ${cliffMonths % 12 === 0 ? `${cliffMonths / 12}y` : `${cliffMonths}m`} cliff` : "";
-  return { totalMonths, cliffMonths, startDate, vestedPct, vestedQuantity: Math.round((q * vestedPct) / 100), text: `${years}${cliff} · ${vestedPct}% vested` };
+  const state = vestedPct === null ? "start date unknown" : `${vestedPct}% vested`;
+  return { totalMonths, cliffMonths, startDate, vestedPct, vestedQuantity: vestedPct === null ? null : Math.round((q * vestedPct) / 100), text: `${years}${cliff} · ${state}` };
+}
+
+/** The currency a position's price and principal are in: its share class's, which every price is denominated in. */
+export function entryCurrency(entry: Pick<CapTableEntryRow, "currency">, security: Pick<SecurityRow, "currency"> | undefined): string {
+  return security?.currency || entry.currency;
+}
+
+const HOLDER_KIND_WORDS: Record<string, string> = { person: "Person", organisation: "Organization", team_member: "Team member", agent: "Agent" };
+
+/** A holder's entity kind in words ("organisation" → "Organization"), never the stored enum. */
+export function holderKindWord(kind: string): string {
+  return HOLDER_KIND_WORDS[kind] ?? plainWords(kind);
 }
 
 export interface SafeTerms {
@@ -547,11 +584,18 @@ const pct2 = (n: number, total: number) => (total > 0 ? Math.round((n / total) *
 
 /**
  * Pro forma for a priced round (BUILD §11.8 round modelling):
- * 1. post-money SAFEs convert first at principal ÷ cap of the pre-round capitalisation (shares = pct × existing ÷ (1 − Σpct));
- * 2. the option pool is topped up so the unallocated pool is `poolTargetPct` of the post-money fully diluted shares;
- * 3. the round price is pre-money ÷ (existing + SAFE shares + pool top-up); discount-only SAFEs and notes convert at
- *    price × (1 − discount) (a capped SAFE takes whichever of cap or discount gives more shares);
- * 4. new shares = investment ÷ price.
+ * 1. post-money SAFEs convert at principal ÷ cap of the pre-round capitalization (shares = pct × existing ÷ (1 − Σpct));
+ * 2. discount-only SAFEs and notes convert at price × (1 − discount), and a capped SAFE takes whichever of cap or
+ *    discount gives more shares;
+ * 3. the option pool is topped up so the unallocated pool is `poolTargetPct` of the post-money fully diluted shares;
+ * 4. the round price is pre-money ÷ pre-round fully diluted, where pre-round fully diluted is everything before the
+ *    new money: existing shares and options, the unallocated pool, every SAFE's conversion shares and the top-up;
+ * 5. new shares = investment ÷ price.
+ * The price, the discount conversions and the top-up depend on each other, so they are solved together (each step is
+ * linear in the pre-round total once every capped SAFE's cap-or-discount choice is fixed, and those choices only move
+ * from cap to discount as the total grows). The new investor therefore holds exactly investment ÷ post-money, the
+ * post-money is price × post-round fully diluted, and the pool lands on its target. Shares are whole: conversions and
+ * new shares round down, the top-up to the nearest share.
  */
 export function modelRound(cap: { securities: readonly SecurityRow[]; entries: readonly CapTableEntryRow[]; summary: CapTableSummary }, input: RoundInput): RoundModel {
   const securities = new Map(cap.securities.map((s) => [s.id, s]));
@@ -564,38 +608,52 @@ export function modelRound(cap: { securities: readonly SecurityRow[]; entries: r
   const poolAvailable = Math.max(0, poolAuthorised - poolIssued);
   const preRoundBase = existing + poolAvailable;
 
-  // 1. capped SAFEs (post-money method)
-  const capped = convertibles.map((e) => ({ e, terms: safeTerms(e, securities.get(e.securityId)) })).filter((x): x is { e: CapTableEntryRow; terms: SafeTerms } => !!x.terms);
-  const capPct = capped.map(({ terms }) => (terms.valuationCapMinor && terms.valuationCapMinor > 0 ? terms.principalMinor / terms.valuationCapMinor : 0));
+  // 1. capped SAFEs (post-money method): fixed share counts, whatever the round's price.
+  const safes = convertibles.map((e) => ({ e, terms: safeTerms(e, securities.get(e.securityId)) })).filter((x): x is { e: CapTableEntryRow; terms: SafeTerms } => !!x.terms);
+  const capPct = safes.map(({ terms }) => (terms.valuationCapMinor && terms.valuationCapMinor > 0 ? terms.principalMinor / terms.valuationCapMinor : 0));
   const sumPct = capPct.reduce((a, b) => a + b, 0);
   const denom = Math.max(1e-9, 1 - sumPct);
-  const capShares = capPct.map((p) => (p > 0 ? r4((p * preRoundBase) / denom) : 0));
-  const capSharesTotal = capShares.reduce((a, b) => a + b, 0);
+  const capShares = capPct.map((p) => (p > 0 ? Math.floor((p * preRoundBase) / denom) : 0));
 
-  // 2. pool top-up so the unallocated pool is poolTargetPct of post-money FD
+  // 2–4. price, discount conversions and the pool top-up, solved together.
   const k = 1 + input.investmentMinor / input.preMoneyMinor;
   const p = Math.max(0, Math.min(0.5, input.poolTargetPct / 100));
-  const pre = preRoundBase + capSharesTotal;
-  const topUp = p > 0 ? Math.max(0, r4((p * k * pre - poolAvailable) / (1 - p * k))) : 0;
+  const discountFactor = (t: SafeTerms) => 1 - Math.min(99, Math.max(0, t.discountPct)) / 100;
+  const viaDiscount = safes.map((_, i) => !(capShares[i]! > 0));
+  let preRoundFullyDiluted = preRoundBase;
+  for (let round = 0; round <= safes.length; round += 1) {
+    // Money that converts at the round price (Σ principal ÷ (1 − discount)), and the shares that do not depend on it.
+    const discountMoney = safes.reduce((n, { terms }, i) => (viaDiscount[i] ? n + terms.principalMinor / discountFactor(terms) : n), 0);
+    const fixedShares = preRoundBase + capShares.reduce((n, c, i) => (viaDiscount[i] ? n : n + c), 0);
+    const share = discountMoney / input.preMoneyMinor; // discount shares per pre-round share
+    const withoutTopUp = fixedShares / Math.max(1e-9, 1 - share);
+    const needsTopUp = p > 0 && poolAvailable < p * k * withoutTopUp;
+    preRoundFullyDiluted = needsTopUp ? (fixedShares - poolAvailable) / Math.max(1e-9, 1 - p * k - share) : withoutTopUp;
+    const price = input.preMoneyMinor / preRoundFullyDiluted;
+    let moved = false;
+    safes.forEach(({ terms }, i) => {
+      if (!viaDiscount[i] && terms.principalMinor / (price * discountFactor(terms)) > capShares[i]!) {
+        viaDiscount[i] = true;
+        moved = true;
+      }
+    });
+    if (!moved) break;
+  }
 
-  // 3. price and discount conversions
-  const preRoundFullyDiluted = pre + topUp;
   const price = input.preMoneyMinor / preRoundFullyDiluted;
   const conversions: RoundModel["conversions"] = [];
   let safeShares = 0;
-  capped.forEach(({ e, terms }, i) => {
-    const discountPrice = terms.discountPct > 0 ? price * (1 - terms.discountPct / 100) : price;
-    const discountShares = r4(terms.principalMinor / discountPrice);
-    const viaCap = capShares[i] ?? 0;
-    const useCap = viaCap > discountShares;
-    const shares = useCap ? viaCap : discountShares;
+  safes.forEach(({ e, terms }, i) => {
+    const shares = viaDiscount[i] ? Math.floor(terms.principalMinor / (price * discountFactor(terms))) : capShares[i]!;
     safeShares += shares;
-    conversions.push({ entryId: e.id, holder: e.holder.displayName, principalMinor: terms.principalMinor, method: useCap ? "cap" : terms.discountPct > 0 ? "discount" : "price", conversionPriceMinor: r4(terms.principalMinor / shares), shares });
+    conversions.push({ entryId: e.id, holder: e.holder.displayName, principalMinor: terms.principalMinor, method: !viaDiscount[i] ? "cap" : terms.discountPct > 0 ? "discount" : "price", conversionPriceMinor: shares > 0 ? r4(terms.principalMinor / shares) : 0, shares });
   });
+  const topUp = Math.max(0, Math.round(preRoundFullyDiluted - preRoundBase - safeShares));
+  const preRound = preRoundBase + safeShares + topUp;
 
-  // 4. new money
-  const newShares = r4(input.investmentMinor / price);
-  const postRoundFullyDiluted = preRoundBase + topUp + safeShares + newShares;
+  // 5. new money
+  const newShares = Math.floor(input.investmentMinor / price);
+  const postRoundFullyDiluted = preRound + newShares;
 
   const rows: ProFormaRow[] = [];
   const before = new Map<string, { name: string; q: number }>();
@@ -607,7 +665,7 @@ export function modelRound(cap: { securities: readonly SecurityRow[]; entries: r
   const preTotal = preRoundBase;
   for (const [id, h] of before) rows.push({ id, name: h.name, kind: "holder", beforeQuantity: h.q, beforePct: pct2(h.q, preTotal), afterQuantity: h.q, afterPct: pct2(h.q, postRoundFullyDiluted) });
   const safeByHolder = new Map<string, { name: string; q: number; principal: number }>();
-  capped.forEach(({ e, terms }, i) => {
+  safes.forEach(({ e, terms }, i) => {
     const conv = conversions[i]!;
     const h = safeByHolder.get(e.holderEntityId) ?? { name: e.holder.displayName, q: 0, principal: 0 };
     h.q += conv.shares;
@@ -615,7 +673,7 @@ export function modelRound(cap: { securities: readonly SecurityRow[]; entries: r
     safeByHolder.set(e.holderEntityId, h);
   });
   for (const [id, h] of safeByHolder) rows.push({ id: `safe-${id}`, name: `${h.name} (converted)`, kind: "safe", beforeQuantity: 0, beforePct: 0, afterQuantity: h.q, afterPct: pct2(h.q, postRoundFullyDiluted) });
-  rows.push({ id: "pool", name: "Option pool (unallocated)", kind: "pool", beforeQuantity: poolAvailable, beforePct: pct2(poolAvailable, preTotal), afterQuantity: r4(poolAvailable + topUp), afterPct: pct2(poolAvailable + topUp, postRoundFullyDiluted) });
+  rows.push({ id: "pool", name: "Option pool (unallocated)", kind: "pool", beforeQuantity: poolAvailable, beforePct: pct2(poolAvailable, preTotal), afterQuantity: poolAvailable + topUp, afterPct: pct2(poolAvailable + topUp, postRoundFullyDiluted) });
   rows.push({ id: "investor", name: input.newClass ?? "New investors", kind: "investor", beforeQuantity: 0, beforePct: 0, afterQuantity: newShares, afterPct: pct2(newShares, postRoundFullyDiluted) });
   rows.sort((a, b) => b.afterQuantity - a.afterQuantity);
 
@@ -624,10 +682,10 @@ export function modelRound(cap: { securities: readonly SecurityRow[]; entries: r
     postMoneyMinor: input.preMoneyMinor + input.investmentMinor,
     pricePerShareMinor: r4(price),
     newShares,
-    safeShares: r4(safeShares),
+    safeShares,
     poolTopUpShares: topUp,
-    preRoundFullyDiluted: r4(preRoundFullyDiluted),
-    postRoundFullyDiluted: r4(postRoundFullyDiluted),
+    preRoundFullyDiluted: preRound,
+    postRoundFullyDiluted,
     investorPct: pct2(newShares, postRoundFullyDiluted),
     rows,
     conversions,
@@ -649,22 +707,28 @@ export function toCsv(rows: readonly (readonly unknown[])[]): string {
 
 const fmtMajor = (minor: number | null, currency: string) => (minor === null ? "" : `${(minor / 100).toFixed(2)} ${currency}`);
 
-/** Delaware stock ledger (DGCL §219 style): one row per issuance with certificate number, class, holder, shares, consideration. */
-export function delawareLedgerRows(entries: readonly CapTableEntryRow[], asOf: Date): (string | number)[][] {
+/**
+ * Delaware stock ledger (DGCL §219 style): one row per issuance with certificate number, class, holder, shares,
+ * consideration. Prices are in each share class's currency; the holder's kind is in words.
+ */
+export function delawareLedgerRows(entries: readonly CapTableEntryRow[], asOf: Date, securities: readonly SecurityRow[] = []): (string | number)[][] {
+  const byId = new Map(securities.map((s) => [s.id, s]));
   const header = ["Certificate No.", "Date of issue", "Stockholder", "Stockholder kind", "Class / series", "Kind", "Number of shares", "Price per share", "Consideration paid", "Vesting", "Status"];
   const rows = [...entries]
     .filter((e) => e.security.kind !== "safe" && e.security.kind !== "note")
     .sort((a, b) => (a.issuedAt ?? "").localeCompare(b.issuedAt ?? "") || a.holder.displayName.localeCompare(b.holder.displayName))
     .map((e, i) => {
       const q = qty(e.quantity);
-      const v = vestingSummary(e.vesting, q, asOf);
-      return [`C-${String(i + 1).padStart(4, "0")}`, e.issuedAt ?? "", e.holder.displayName, e.holder.kind, e.security.class, e.security.kind, q, fmtMajor(e.priceMinor, e.currency), fmtMajor(e.priceMinor === null ? null : Math.round(e.priceMinor * q), e.currency), v ? v.text : "Fully vested", e.archivedAt ? "Canceled" : "Outstanding"];
+      const v = vestingSummary(e.vesting, q, asOf, e.issuedAt);
+      const currency = entryCurrency(e, byId.get(e.securityId));
+      return [`C-${String(i + 1).padStart(4, "0")}`, e.issuedAt ?? "", e.holder.displayName, holderKindWord(e.holder.kind), e.security.class, e.security.kind, q, fmtMajor(e.priceMinor, currency), fmtMajor(e.priceMinor === null ? null : Math.round(e.priceMinor * q), currency), v ? v.text : "Fully vested", e.archivedAt ? "Canceled" : "Outstanding"];
     });
   return [header, ...rows];
 }
 
 /** Swedish aktiebok (ABL 5 kap.): share numbers in sequence per class, holder, date entered, class and notes. */
-export function aktiebokRows(entries: readonly CapTableEntryRow[]): (string | number)[][] {
+export function aktiebokRows(entries: readonly CapTableEntryRow[], securities: readonly SecurityRow[] = []): (string | number)[][] {
+  const byId = new Map(securities.map((s) => [s.id, s]));
   const header = ["Aktienummer (från)", "Aktienummer (till)", "Antal aktier", "Aktieslag", "Aktieägare", "Ägartyp", "Införd i aktieboken", "Teckningskurs", "Anteckningar"];
   let next = 1;
   const rows = [...entries]
@@ -675,7 +739,7 @@ export function aktiebokRows(entries: readonly CapTableEntryRow[]): (string | nu
       const from = next;
       const to = next + q - 1;
       next = to + 1;
-      return [from, to, q, e.security.class, e.holder.displayName, e.holder.kind === "organisation" ? "Juridisk person" : "Fysisk person", e.issuedAt ?? "", fmtMajor(e.priceMinor, e.currency), e.vesting ? "Förbehåll: intjäning" : ""];
+      return [from, to, q, e.security.class, e.holder.displayName, e.holder.kind === "organisation" ? "Juridisk person" : "Fysisk person", e.issuedAt ?? "", fmtMajor(e.priceMinor, entryCurrency(e, byId.get(e.securityId))), e.vesting ? "Förbehåll: intjäning" : ""];
     });
   return [header, ...rows];
 }

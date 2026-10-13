@@ -1,7 +1,8 @@
-/** 0010 — legal: entities, incorporations, filings, contracts, compliance events. */
+/** 0010 — legal: entities, incorporations, filings, contracts, compliance events; 0038 — regulated-sector gates. */
 import { INCORPORATION_ROUTES } from "@foundmill/shared";
-import { date, index, jsonb, pgTable, text, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
-import { currency, emptyList, id, minor, timestampsWithArchive, tstz } from "./_common";
+import { sql } from "drizzle-orm";
+import { boolean, date, index, jsonb, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { currency, emptyList, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
 import { businessId } from "./_refs";
 import { entities } from "./crm";
 
@@ -120,3 +121,20 @@ export const complianceEvents = pgTable(
 );
 export type ComplianceEvent = typeof complianceEvents.$inferSelect;
 export type NewComplianceEvent = typeof complianceEvents.$inferInsert;
+
+/** 0038 — the founder's choice per regulated sector (Legal › Regulatory): whether it applies, checklist items done. */
+export const regulatoryGates = pgTable(
+  "regulatory_gates",
+  {
+    id: id(),
+    businessId: businessId(),
+    sector: text("sector").notNull(),
+    applies: boolean("applies").notNull().default(true),
+    done: text("done").array().notNull().default(sql`'{}'::text[]`),
+    decidedBy: uuid("decided_by"),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("regulatory_gates_business_id_sector_key").on(t.businessId, t.sector)],
+);
+export type RegulatoryGate = typeof regulatoryGates.$inferSelect;
+export type NewRegulatoryGate = typeof regulatoryGates.$inferInsert;

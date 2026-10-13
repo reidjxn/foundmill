@@ -145,20 +145,20 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
   const investorA = await repos.entities.create(db, businessId, { kind: "organisation", displayName: "Harbor Angels Syndicate", identifiers: { domain: "harborangels.example" }, lawfulBasis: "contract", source: "cap_table", visibility: "private" });
   const investorB = await repos.entities.create(db, businessId, { kind: "organisation", displayName: "Beacon Ventures", identifiers: { domain: "beaconventures.example" }, lawfulBasis: "contract", source: "cap_table", visibility: "private" });
   for (const inv of [investorA, investorB]) await repos.entities.addRole(db, businessId, inv.id, { role: "investor", stage: "safe_holder" });
-  const pool = await repos.entities.create(db, businessId, { kind: "organisation", displayName: "Ledgerly employee option pool", aliases: ["option pool"], identifiers: {}, source: "cap_table", visibility: "private" });
   await repos.entities.upsertRelationship(db, businessId, { fromEntity: coFounder.id, toEntity: agentEntities.founder.id, type: "co_founder_of", strength: 1 });
   await repos.entities.upsertRelationship(db, businessId, { fromEntity: investorB.id, toEntity: investorA.id, type: "co_invests_with", strength: 0.5 });
 
   // --- cap table (BUILD §11.8): common, option pool, two post-money SAFEs ------------------------------------------
+  // The pool's unallocated 950,000 options stay authorized but unissued (authorized − issued is what is left to grant);
+  // only grants to people are issuances. Vesting is the shared `VestingSchedule` shape.
   const formed = addDays(ctx.startDate, 5).toISOString().slice(0, 10);
   const ordinary = await repos.capTable.createSecurity(db, businessId, { class: "Ordinary", kind: "common", terms: { nominalMinor: 0, votes: 1, label: "Ordinary shares of £0.0001" }, authorisedQuantity: 10_000_000, currency: CURRENCY });
   const options = await repos.capTable.createSecurity(db, businessId, { class: "EMI option pool", kind: "option", terms: { poolPct: 10, defaultVesting: "4 years, 1-year cliff, monthly", scheme: "EMI" }, authorisedQuantity: 1_000_000, currency: CURRENCY });
   const safeA = await repos.capTable.createSecurity(db, businessId, { class: "SAFE 2025-A (post-money)", kind: "safe", terms: { postMoney: true, valuationCapMinor: 600_000_000, discountPct: 0, mfn: true, amountMinor: 25_000_000, label: "YC post-money SAFE, cap £6.0m" }, currency: CURRENCY });
   const safeB = await repos.capTable.createSecurity(db, businessId, { class: "SAFE 2026-B (post-money)", kind: "safe", terms: { postMoney: true, valuationCapMinor: 1_100_000_000, discountPct: 15, mfn: false, amountMinor: 40_000_000, label: "Post-money SAFE, cap £11.0m, 15% discount" }, currency: CURRENCY });
   await repos.capTable.createEntry(db, businessId, { holderEntityId: agentEntities.founder.id, securityId: ordinary.id, quantity: 6_000_000, priceMinor: 0, issuedAt: formed });
-  await repos.capTable.createEntry(db, businessId, { holderEntityId: coFounder.id, securityId: ordinary.id, quantity: 2_000_000, priceMinor: 0, vesting: { schedule: "4y", cliffMonths: 12, startsAt: formed, acceleration: "double-trigger" }, issuedAt: formed });
-  await repos.capTable.createEntry(db, businessId, { holderEntityId: pool.id, securityId: options.id, quantity: 950_000, issuedAt: formed });
-  await repos.capTable.createEntry(db, businessId, { holderEntityId: employee.id, securityId: options.id, quantity: 50_000, priceMinor: 12, vesting: { schedule: "4y", cliffMonths: 12, startsAt: addDays(ctx.today, -200).toISOString().slice(0, 10) }, issuedAt: addDays(ctx.today, -200).toISOString().slice(0, 10) });
+  await repos.capTable.createEntry(db, businessId, { holderEntityId: coFounder.id, securityId: ordinary.id, quantity: 2_000_000, priceMinor: 0, vesting: { months: 48, cliffMonths: 12, startDate: formed, acceleration: "double-trigger" }, issuedAt: formed });
+  await repos.capTable.createEntry(db, businessId, { holderEntityId: employee.id, securityId: options.id, quantity: 50_000, priceMinor: 12, vesting: { months: 48, cliffMonths: 12, startDate: addDays(ctx.today, -200).toISOString().slice(0, 10) }, issuedAt: addDays(ctx.today, -200).toISOString().slice(0, 10) });
   const safeADate = addDays(ctx.startDate, Math.round(ctx.days * 0.27));
   const safeBDate = addDays(ctx.startDate, Math.round(ctx.days * 0.72));
   await repos.capTable.createEntry(db, businessId, { holderEntityId: investorA.id, securityId: safeA.id, quantity: 250_000, priceMinor: 100, issuedAt: safeADate.toISOString().slice(0, 10) });
@@ -296,7 +296,6 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     financeLeadAgentId: squad.byTemplate.get("finance_lead")?.agent.id ?? null,
     recentSessions: journey.recentSessions,
     modelBilling: "byok",
-    mrrMinorNow: journey.mrrMinorNow,
   });
   const legal = await seedLegal(ctx, businessId, {
     legalName: "Ledgerly Ltd",
@@ -308,7 +307,8 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
       { name: DEMO_OWNER_DISPLAY_NAME, role: "Director", appointedAt: formed },
       { name: "Priya Nandakumar", role: "Director", appointedAt: formed },
     ],
-    shareCapitalMinor: 80,
+    // 8,000,000 ordinary shares of £0.0001 nominal.
+    shareCapitalMinor: 80_000,
     currency: CURRENCY,
     formedDaysAgo: ctx.days - 5,
     incorporationRoute: "companies_house_web",

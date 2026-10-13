@@ -301,11 +301,13 @@ export interface EmitInput<T extends EventType> {
   payload: EventPayloadInput<T>;
   entityIds?: readonly string[];
   actor?: Actor;
+  /** One event per key and business: a second write with the same key writes nothing and returns the first id. */
+  idempotencyKey?: string;
 }
 
 /** Write an event through the transactional outbox in the same transaction as the change it describes. */
 export function emit<T extends EventType>(tx: Executor, ctx: Pick<BusinessContext, "businessId" | "userId">, input: EmitInput<T>): Promise<string> {
-  return writeEventRow(tx, { businessId: ctx.businessId, type: input.type, actor: input.actor ?? { kind: "user", id: ctx.userId }, payload: input.payload, entityIds: input.entityIds });
+  return writeEventRow(tx, { businessId: ctx.businessId, type: input.type, actor: input.actor ?? { kind: "user", id: ctx.userId }, payload: input.payload, entityIds: input.entityIds, idempotencyKey: input.idempotencyKey });
 }
 
 /** Shape every Temporal-backed mutation returns so the UI can say "queued" or "not queued: reason". */

@@ -8,12 +8,12 @@
  */
 import { useId, useMemo, useState } from "react";
 import { Building2, Check, CheckCircle2, Circle, CircleDashed, Compass, FileStack, Landmark, MonitorPlay, Play, Send, UserRound, XCircle } from "lucide-react";
-import { Button, Chip, Field, Input, Panel, ProvenanceChip, RadioCard, RadioGroup, SimpleSelect, StarRating, Timeline, cn, useFormatters, type IconComponent, type TimelineEvent } from "@foundmill/dugout";
+import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, ProvenanceChip, RadioCard, RadioGroup, SimpleSelect, StarRating, Timeline, cn, useFormatters, type IconComponent, type TimelineEvent } from "@foundmill/dugout";
 import { INCORPORATION_ROUTES, type IncorporationRoute } from "@foundmill/shared/constants";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
-import { ROUTE_META, ROUTE_ORDER, founderCanTakeOver, readSteps, routeForJurisdiction, stepRows, type StepRow } from "./legal-data";
+import { ROUTE_META, ROUTE_ORDER, founderCanCancel, founderCanTakeOver, readSteps, routeForJurisdiction, stepRows, type StepRow } from "./legal-data";
 import { FounderLinkOut, FounderOnlyChip, INCORPORATION_PILL, InformationNotice, InlineError, Pill, Screen, fmtMoney, humanise, useAction, useCurrency, useLegalStatus, useNow } from "./shared";
 import type { IncorporationStartResponse, JurisdictionCard, RecommendResponse } from "./types";
 
@@ -118,6 +118,7 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
   const recommend = useAction();
   const start = useAction();
   const submit = useAction();
+  const cancel = useAction();
   const [fundraising, setFundraising] = useState("none");
   const [coFounders, setCoFounders] = useState("0");
   const [result, setResult] = useState<RecommendResponse | null>(null);
@@ -127,6 +128,8 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
   const [legalName, setLegalName] = useState("");
   const [chosenCard, setChosenCard] = useState<string | null>(null);
   const [submittedLocally, setSubmittedLocally] = useState(false);
+  const [reference, setReference] = useState("");
+  const [cancelOpen, setCancelOpen] = useState(false);
 
   const incorporation = status.data?.incorporation ?? null;
   const entity = status.data?.entity ?? null;
@@ -136,6 +139,7 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
   const routeMeta = ROUTE_META[incorporation?.route ?? route];
   const canTakeOver = founderCanTakeOver(incorporation);
   const founderSubmitted = incorporation?.status === "submitted" || incorporation?.status === "complete" || submittedLocally;
+  const canCancel = founderCanCancel(incorporation);
 
   const runRecommend = async () => {
     const n = Number(coFounders);
@@ -161,12 +165,38 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
 
   const runFounderSubmitted = async () => {
     if (!incorporation) return;
-    await submit.run("legal.incorporate.founderSubmitted", { incorporationId: incorporation.id }, {
+    await submit.run("legal.incorporate.founderSubmitted", { incorporationId: incorporation.id, ...(reference.trim() ? { reference: reference.trim() } : {}) }, {
       then: () => {
         setSubmittedLocally(true);
         status.refetch();
       },
     });
+  };
+
+  const runCancel = async () => {
+    if (!incorporation) return;
+    await cancel.run("legal.incorporate.cancel", { incorporationId: incorporation.id }, {
+      then: () => {
+        setCancelOpen(false);
+        setSubmittedLocally(false);
+        setReference("");
+        status.refetch();
+      },
+    });
+  };
+
+  /** Picking a route fills in what it forms (a Delaware C-corp, a UK Ltd); the pack leaves both for the founder to name. */
+  const chooseRoute = (next: IncorporationRoute) => {
+    setRoute(next);
+    setChosenCard(null);
+    const defaults = ROUTE_META[next].defaults;
+    if (defaults) {
+      setJurisdiction(defaults.jurisdiction);
+      setEntityType(defaults.entityType);
+    } else if (routeForJurisdiction(jurisdiction) !== "kit") {
+      setJurisdiction("");
+      setEntityType("");
+    }
   };
 
   return (
@@ -235,7 +265,7 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
             if (canStart && start.pending === null) void runStart();
           }}
         >
-          <RadioGroup aria-label="Route" value={route} onValueChange={(v) => setRoute(v as IncorporationRoute)} disabled={active} className="flex flex-col gap-2">
+          <RadioGroup aria-label="Route" value={route} onValueChange={(v) => chooseRoute(v as IncorporationRoute)} disabled={active} className="flex flex-col gap-2">
             {ROUTE_ORDER.map((r) => {
               const meta = ROUTE_META[r];
               return <RadioCard key={r} id={`${id}-route-${r}`} value={r} label={`${meta.label} · ${meta.jurisdictionLabel}`} description={meta.who} icon={ROUTE_ICON[r]} />;
@@ -257,6 +287,7 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
               Start supervised session
             </Button>
             {active ? <Chip tone="info">An incorporation is in progress</Chip> : null}
+            {!active && entity && entity.status === "active" ? <span className="t-small text-secondary">{entity.legalName} is already registered; start another only for a new company.</span> : null}
           </div>
           <InlineError error={start.error} />
           <p className="t-small text-secondary">Starting prepares documents only. You sign in, verify your identity, review, submit and pay yourself; the team never handles passwords, identity documents or CAPTCHAs.</p>
@@ -327,7 +358,17 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
                     Submitted by you{incorporation.submittedAt ? ` · ${formatDate(incorporation.submittedAt)}` : ""}
                   </Chip>
                 )}
+                {canCancel ? (
+                  <Button icon={XCircle} variant="ghost" onClick={() => setCancelOpen(true)}>
+                    Cancel incorporation
+                  </Button>
+                ) : null}
               </div>
+              {!founderSubmitted && incorporation.status === "awaiting_founder" ? (
+                <Field htmlFor={`${id}-ref`} label="Registration number" hint="If the registry has already given you one; you can add it later on the Entity tab">
+                  <Input id={`${id}-ref`} value={reference} onChange={(e) => setReference(e.target.value)} maxLength={60} className="max-w-64" />
+                </Field>
+              ) : null}
               <InlineError error={submit.error} />
               <p className="t-small text-secondary">The buttons above only open the registry's own page. Submitting and paying happen there, by you, signed in as yourself. Nothing on {routeMeta.label} is clicked by an agent (AC-11.11.4).</p>
               {notes.length ? <Timeline aria-label="Session notes" events={notes} now={now} order="desc" /> : null}
@@ -335,6 +376,25 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
           </div>
         ) : null}
       </Panel>
+      <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
+        <DialogContent size="sm">
+          <DialogHeader>
+            <DialogTitle>Cancel this incorporation?</DialogTitle>
+            <DialogDescription>Nothing has been filed. The team stops preparing the pack and the company it was forming is removed from Legal › Entity; you can start again with another route or name.</DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <InlineError error={cancel.error} />
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCancelOpen(false)}>
+              Keep going
+            </Button>
+            <Button variant="primary" icon={XCircle} loading={cancel.pending !== null} onClick={() => void runCancel()}>
+              Yes, cancel it
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {INCORPORATION_ROUTES.length !== ROUTE_ORDER.length ? <p className="col-span-12 t-small text-status-warn">A route is missing from this screen.</p> : null}
     </Screen>
   );

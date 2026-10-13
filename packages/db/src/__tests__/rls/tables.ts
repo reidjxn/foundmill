@@ -130,6 +130,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("filings", s.filings, "member", (f) => ({ legalEntityId: f.legalEntityId, kind: "confirmation_statement", dueAt: new Date() })),
   spec("contracts", s.contracts, "member", (f) => ({ counterpartyEntityId: f.entity2Id, kind: "supplier" })),
   spec("compliance_events", s.complianceEvents, "member", (f) => ({ legalEntityId: f.legalEntityId, kind: "vat_return", dueAt: new Date() })),
+  // 0038 regulated-sector gates (Legal › Regulatory)
+  spec("regulatory_gates", s.regulatoryGates, "member", () => ({ sector: uniq("sector"), applies: true, done: ["claims"] })),
   // 0011 integrations & governance (credentials has its own suite)
   spec("integrations", s.integrations, "admin", () => ({ connectorKey: uniq("connector") })),
   spec("webhooks", s.webhooks, "admin", (f) => ({ integrationId: f.integrationId, connectorKey: "stripe", endpointPath: uniq("/webhooks/stripe") })),

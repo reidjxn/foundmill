@@ -4,8 +4,9 @@
  */
 import { mockIntegrationRecord, type ToolContext } from "@foundmill/connectors";
 import { HOUSE_STYLE } from "@foundmill/agents";
-import { CreateContractInput, UpdateContractInput, repos } from "@foundmill/db";
-import { INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
+import { CANCELABLE_INCORPORATION_STATUSES, CreateContractInput, UpdateContractInput, repos } from "@foundmill/db";
+import { AppError, ConflictError, INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
+import { SECTOR_GATES, SECTOR_KEYS } from "@foundmill/shared/sectors";
 import { z } from "zod";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { modelLimited } from "../services/model-limits";
@@ -15,13 +16,15 @@ const read = sectionRead("legal");
 const write = sectionWrite("legal");
 const admin = sectionAdmin("legal");
 
+// Bounds a real jurisdiction never exceeds (formation and yearly costs under 1,000,000.00, minimum capital under
+// 100,000,000.00, under two years to form), so neither a model nor the mock can put an absurd figure on a card.
 const JurisdictionCard = z.object({
-  jurisdiction: z.string().min(1),
-  entity_type: z.string().min(1),
-  formation_cost_minor: z.number().int().nonnegative(),
-  annual_cost_minor: z.number().int().nonnegative(),
-  minimum_capital_minor: z.number().int().nonnegative(),
-  time_to_form_days: z.number().int().nonnegative(),
+  jurisdiction: z.string().min(1).max(80),
+  entity_type: z.string().min(1).max(80),
+  formation_cost_minor: z.number().int().nonnegative().max(100_000_000),
+  annual_cost_minor: z.number().int().nonnegative().max(100_000_000),
+  minimum_capital_minor: z.number().int().nonnegative().max(10_000_000_000),
+  time_to_form_days: z.number().int().nonnegative().max(730),
   banking: z.string(),
   investor_familiarity: z.number().int().min(1).max(5),
   tax_notes: z.string(),
@@ -60,15 +63,46 @@ function toolCtx(ctx: BusinessContext, connectorKey: string): ToolContext {
   return { businessId: ctx.businessId, agentId: NIL, sessionId: NIL, integration: mockIntegrationRecord(connectorKey, ctx.businessId, mode === "live" ? { status: "connected" } : {}), log: { debug: () => undefined, info: () => undefined, warn: () => undefined, error: () => undefined }, mode };
 }
 
-async function call<T>(ctx: BusinessContext, connectorKey: string, tool: string, args: unknown): Promise<T> {
+/** The registries in words, for messages the founder reads (never a connector or tool key). */
+const REGISTRY_NAME: Record<string, string> = { companies_house: "Companies House", bolagsverket: "Bolagsverket", opencorporates: "OpenCorporates" };
+
+/**
+ * A registry tool call. A company the registry does not know is "not found" in the registry's own name; any other
+ * failure says the registry could not be reached, never the internal connector and tool names.
+ */
+async function call<T>(ctx: BusinessContext, connectorKey: string, tool: string, args: unknown, regNo: string): Promise<T> {
   const connector = ctx.connectors.get(connectorKey, ctx.env.INTEGRATIONS_MODE);
   const result = await connector.callTool(tool, args, toolCtx(ctx, connectorKey));
-  if (!result.ok) throw new ValidationError(`${connectorKey}.${tool} failed: ${result.error?.message ?? "unknown error"}`);
+  const registry = REGISTRY_NAME[connectorKey] ?? "the registry";
+  if (!result.ok) {
+    if (result.error?.status === 404 || result.error?.code === "not_found") throw new AppError("not_found", `No company with number ${regNo} at ${registry}`, 404);
+    throw new ValidationError(`${registry} could not be reached. Try again in a minute.`, { connector: connectorKey, tool, code: result.error?.code ?? null });
+  }
   const data = result.data as { untrusted?: boolean; content?: T } | T;
   return (data && typeof data === "object" && "untrusted" in (data as object) && "content" in (data as object) ? (data as { content: T }).content : (data as T)) as T;
 }
 
 const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
+
+/** "LINDQVIST, Sara" (the registry's form) → "Sara Lindqvist"; other names are kept as given. */
+export function officerName(raw: string): string {
+  const m = /^\s*([^,]+),\s*(.+?)\s*$/.exec(raw);
+  if (!m || /\b(ltd|limited|llp|plc|inc|ab|gmbh)\b/i.test(raw)) return raw.trim();
+  const title = (w: string) => w.toLowerCase().replace(/(^|[\s'-])(\p{L})/gu, (_, sep: string, ch: string) => sep + ch.toUpperCase());
+  return `${title(m[2]!)} ${title(m[1]!)}`;
+}
+const sameName = (a: string, b: string) => a.trim().toLowerCase().replace(/\s+/g, " ") === b.trim().toLowerCase().replace(/\s+/g, " ");
+
+const POLICIES_SECTION = "Policies";
+const POLICY_TITLES = ["Privacy policy", "Terms of service", "Cookie policy"] as const;
+
+/** The text of a ProseMirror document's first heading (a policy block is matched by it). */
+function docTitle(doc: Record<string, unknown>): string {
+  const nodes = Array.isArray(doc.content) ? (doc.content as Record<string, unknown>[]) : [];
+  const heading = nodes.find((n) => n.type === "heading");
+  const text = (n: Record<string, unknown>): string => (typeof n.text === "string" ? n.text : Array.isArray(n.content) ? (n.content as Record<string, unknown>[]).map(text).join("") : "");
+  return heading ? text(heading).trim() : "";
+}
 const addr = (v: unknown): Record<string, string> => (v && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([, x]) => typeof x === "string" && x).map(([k, x]) => [k, x as string])) : {});
 
 export const legalRouter = router({
@@ -99,8 +133,11 @@ export const legalRouter = router({
       });
       const workflowId = workflowIds.incorporation(started.incorporation.id);
       const workflow = await ctx.temporal.start(WORKFLOWS.incorporation, { workflowId, args: [{ businessId: ctx.businessId, incorporationId: started.incorporation.id, route: input.route }] });
-      if (workflow.queued) await repos.legal.updateIncorporation(ctx.db, ctx.businessId, started.incorporation.id, { workflowId, status: "in_progress" });
-      return { ...started, workflow, founderSubmits: true as const };
+      // A start that never reached the orchestrator must not sit in "draft" (an active status) and block every later start.
+      const incorporation = workflow.queued
+        ? await repos.legal.updateIncorporation(ctx.db, ctx.businessId, started.incorporation.id, { workflowId, status: "in_progress" })
+        : await repos.legal.abandonIncorporation(ctx.db, ctx.businessId, started.incorporation.id, `Could not start: ${workflow.reason ?? "the orchestrator is unreachable"}. Nothing was prepared; start again.`);
+      return { ...started, incorporation, workflow, founderSubmits: true as const };
     }),
     status: read.query(({ ctx }) =>
       ctx.rls(async (tx) => {
@@ -113,17 +150,55 @@ export const legalRouter = router({
      * incorporation is loaded under this business first (audit ARB-01): one from another business is "not found" and no
      * workflow hears anything; one not waiting for the founder is refused. The workflow id comes from that row.
      */
-    founderSubmitted: admin.input(z.object({ incorporationId: Id })).mutation(async ({ ctx, input }) => {
+    founderSubmitted: admin.input(z.object({ incorporationId: Id, reference: z.string().trim().max(60).optional() })).mutation(async ({ ctx, input }) => {
       const pending = await ctx.rls((tx) => repos.legal.getIncorporation(tx, ctx.businessId, input.incorporationId));
       if (pending.status !== "awaiting_founder") throw new ValidationError(`The incorporation is ${pending.status.replace(/_/g, " ")}, not waiting for your submission`, { incorporationId: pending.id, status: pending.status });
-      const workflow = await ctx.temporal.signal(workflowIds.incorporation(pending.id), "founderSubmit", { kind: "submitted", by: ctx.userId, at: new Date().toISOString() });
+      const reference = input.reference ? input.reference : undefined;
+      const workflow = await ctx.temporal.signal(workflowIds.incorporation(pending.id), "founderSubmit", { kind: "submitted", by: ctx.userId, at: new Date().toISOString(), ...(reference ? { payload: { reference } } : {}) });
+      // Nothing heard it: nothing is recorded, so the pack still waits for the founder (and can be canceled).
+      if (!workflow.queued) throw new AppError("unavailable", `Your submission could not be recorded: ${workflow.reason ?? "the orchestrator is unreachable"}. Nothing changed; try again in a minute.`, 503);
       const incorporation = await ctx.rls(async (tx) => {
-        const i = await repos.legal.updateIncorporation(tx, ctx.businessId, pending.id, { status: "submitted" });
-        await audit(tx, ctx, { action: "legal.incorporate.founder_submitted", target: { kind: "incorporation", id: i.id }, details: { queued: workflow.queued } });
+        // Only from awaiting_founder: a second click, or a submit racing a cancel, changes nothing.
+        const i = await repos.legal.transitionIncorporation(tx, ctx.businessId, pending.id, ["awaiting_founder"], { status: "submitted" });
+        if (!i) throw new ValidationError("The incorporation is no longer waiting for your submission", { incorporationId: pending.id });
+        await audit(tx, ctx, { action: "legal.incorporate.founder_submitted", target: { kind: "incorporation", id: i.id }, details: { queued: workflow.queued, reference: reference ?? null } });
         return i;
       });
       return { incorporation, workflow };
     }),
+    /**
+     * Cancels an incorporation that has not been filed (draft, in progress, or waiting for the founder). The workflow is
+     * told (`founderSubmit` `cancel`, which it verifies came from an owner or admin) and abandons it; when no workflow
+     * hears the signal (it never started, or the orchestrator is unreachable) the row is abandoned here. Either way
+     * the forming entity is archived and a new incorporation can start.
+     */
+    cancel: admin.input(z.object({ incorporationId: Id })).mutation(async ({ ctx, input }) => {
+      const current = await ctx.rls((tx) => repos.legal.getIncorporation(tx, ctx.businessId, input.incorporationId));
+      if (!(CANCELABLE_INCORPORATION_STATUSES as readonly string[]).includes(current.status)) {
+        throw new ValidationError(current.status === "submitted" ? "The filing is already with the registry; it cannot be canceled here" : `The incorporation is ${current.status.replace(/_/g, " ")}`, { incorporationId: current.id, status: current.status });
+      }
+      const workflow = current.workflowId ? await ctx.temporal.signal(workflowIds.incorporation(current.id), "founderSubmit", { kind: "cancel", by: ctx.userId, at: new Date().toISOString() }) : { queued: false, reason: "no workflow was started" };
+      const incorporation = await ctx.rls(async (tx) => {
+        const i = await repos.legal.abandonIncorporation(tx, ctx.businessId, current.id, "Canceled by the founder.");
+        await audit(tx, ctx, { action: "legal.incorporate.cancel", target: { kind: "incorporation", id: i.id }, details: { queued: workflow.queued } });
+        return i;
+      });
+      return { incorporation, workflow };
+    }),
+  }),
+
+  entity: router({
+    /**
+     * The founder records what the registry issued after filing (the registration number, the date of formation): an
+     * incorporation completes before the registry answers, so these arrive later, typed in by the founder.
+     */
+    update: admin.input(z.object({ legalEntityId: Id, regNo: z.string().trim().min(1).max(60).nullable().optional(), formedAt: z.string().date().nullable().optional() })).mutation(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const entity = await repos.legal.updateEntity(tx, ctx.businessId, input.legalEntityId, { ...(input.regNo !== undefined ? { regNo: input.regNo } : {}), ...(input.formedAt !== undefined ? { formedAt: input.formedAt } : {}) });
+        await audit(tx, ctx, { action: "legal.entity.update", target: { kind: "legal_entity", id: entity.id }, details: { fields: Object.keys(input).filter((k) => k !== "legalEntityId" && k !== "businessId") } });
+        return entity;
+      }),
+    ),
   }),
 
   import: router({
@@ -131,14 +206,15 @@ export const legalRouter = router({
     lookup: read.input(LookupInput).use(modelLimited("lookup")).mutation(async ({ ctx, input }): Promise<LookupResult> => {
       const checkedAt = new Date().toISOString();
       if (input.country === "gb") {
-        const company = await call<Record<string, unknown>>(ctx, "companies_house", "get_company", { companyNumber: input.regNo });
-        const officers = await call<{ items: Record<string, unknown>[] }>(ctx, "companies_house", "list_officers", { companyNumber: input.regNo });
+        const regNo = input.regNo.replace(/\s+/g, "").toUpperCase();
+        const company = await call<Record<string, unknown>>(ctx, "companies_house", "get_company", { companyNumber: regNo }, regNo);
+        const officers = await call<{ items: Record<string, unknown>[] }>(ctx, "companies_house", "list_officers", { companyNumber: regNo }, regNo);
         const acc = company.accounts as { nextDueOn: string | null } | undefined;
         const cs = company.confirmationStatement as { nextDueOn: string | null } | undefined;
         return {
           source: "companies_house",
-          legalName: str(company.name) ?? input.regNo,
-          regNo: str(company.companyNumber) ?? input.regNo,
+          legalName: str(company.name) ?? regNo,
+          regNo: str(company.companyNumber) ?? regNo,
           jurisdiction: str(company.jurisdiction) ?? "england-wales",
           entityType: str(company.type) ?? "ltd",
           status: str(company.status),
@@ -151,10 +227,10 @@ export const legalRouter = router({
         };
       }
       if (input.country === "se") {
-        const org = await call<Record<string, unknown>>(ctx, "bolagsverket", "get_organisation", { organisationNumber: input.regNo });
+        const org = await call<Record<string, unknown>>(ctx, "bolagsverket", "get_organisation", { organisationNumber: input.regNo }, input.regNo);
         return { source: "bolagsverket", legalName: str(org.name) ?? input.regNo, regNo: str(org.organisationNumber) ?? input.regNo, jurisdiction: "se", entityType: str(org.legalForm) ?? "AB", status: str(org.status), formedAt: str(org.registeredAt), registeredAddress: addr(org.address), officers: [], deadlines: [], checkedAt, untrusted: true };
       }
-      const company = await call<Record<string, unknown>>(ctx, "opencorporates", "get_company", { jurisdictionCode: input.jurisdictionCode, companyNumber: input.regNo });
+      const company = await call<Record<string, unknown>>(ctx, "opencorporates", "get_company", { jurisdictionCode: input.jurisdictionCode, companyNumber: input.regNo }, input.regNo);
       return { source: "opencorporates", legalName: str(company.name) ?? input.regNo, regNo: str(company.companyNumber) ?? input.regNo, jurisdiction: input.jurisdictionCode, entityType: str(company.companyType) ?? "company", status: str(company.currentStatus), formedAt: str(company.incorporationDate), registeredAddress: addr(company.registeredAddress), officers: [], deadlines: [], checkedAt, untrusted: true };
     }),
 
@@ -177,17 +253,37 @@ export const legalRouter = router({
       )
       .mutation(({ ctx, input }) =>
         ctx.rls(async (tx) => {
-          const entity = await repos.legal.importEntity(tx, ctx.businessId, { ...input, officers: input.officers, status: "active", source: input.source });
+          // Idempotent: the same company (jurisdiction + number) imported again updates what the first import wrote.
+          const { entity, created } = await repos.legal.importEntity(tx, ctx.businessId, { ...input, officers: input.officers.map((o) => ({ ...o, name: officerName(o.name) })), status: "active", source: input.source });
+          const known = await repos.entities.listByRole(tx, ctx.businessId, "officer", { limit: 500 });
           const people: string[] = [];
           for (const o of input.officers) {
-            const person = await repos.entities.create(tx, ctx.businessId, { kind: "person", displayName: o.name, source: input.source, lawfulBasis: "legitimate_interest" });
+            const name = officerName(o.name);
+            const existing = known.items.find((p) => sameName(p.displayName, name) || p.aliases.some((a) => sameName(a, o.name)));
+            if (existing) {
+              if (existing.role.stage !== o.role) await repos.entities.updateRole(tx, ctx.businessId, existing.role.id, { stage: o.role });
+              people.push(existing.id);
+              continue;
+            }
+            const person = await repos.entities.create(tx, ctx.businessId, { kind: "person", displayName: name, aliases: name === o.name ? [] : [o.name], source: input.source, lawfulBasis: "legitimate_interest" });
             await repos.entities.addRole(tx, ctx.businessId, person.id, { role: "officer", stage: o.role, startedAt: o.appointedOn ? new Date(o.appointedOn) : undefined });
             people.push(person.id);
           }
-          if (input.shareCapitalMinor !== null) await repos.capTable.createSecurity(tx, ctx.businessId, { class: "Ordinary", kind: "common", currency: input.currency, terms: { shareCapitalMinor: input.shareCapitalMinor, source: input.source } });
-          for (const d of input.deadlines) await repos.legal.createCompliance(tx, ctx.businessId, { legalEntityId: entity.id, kind: d.kind, title: d.kind.replace(/_/g, " "), dueAt: new Date(d.dueAt), recurrence: "yearly" });
-          await audit(tx, ctx, { action: "legal.import.confirm", target: { kind: "legal_entity", id: entity.id }, details: { source: input.source, regNo: input.regNo, officers: people.length, deadlines: input.deadlines.length } });
-          return { entity, people };
+          if (input.shareCapitalMinor !== null) {
+            // The registry's issued share capital on the business's ordinary class: reused when the cap table has it.
+            const ordinary = await repos.capTable.findSecurityByClass(tx, ctx.businessId, "Ordinary");
+            if (ordinary) await repos.capTable.updateSecurity(tx, ctx.businessId, ordinary.id, { terms: { ...(ordinary.terms as Record<string, unknown>), shareCapitalMinor: input.shareCapitalMinor, source: input.source } });
+            else await repos.capTable.createSecurity(tx, ctx.businessId, { class: "Ordinary", kind: "common", currency: input.currency, terms: { shareCapitalMinor: input.shareCapitalMinor, source: input.source } });
+          }
+          let deadlines = 0;
+          for (const d of input.deadlines) {
+            const dueAt = new Date(d.dueAt);
+            if (Number.isNaN(dueAt.getTime()) || (await repos.legal.findCompliance(tx, ctx.businessId, d.kind, dueAt))) continue;
+            await repos.legal.createCompliance(tx, ctx.businessId, { legalEntityId: entity.id, kind: d.kind, title: d.kind.replace(/_/g, " "), dueAt, recurrence: "yearly" });
+            deadlines += 1;
+          }
+          await audit(tx, ctx, { action: "legal.import.confirm", target: { kind: "legal_entity", id: entity.id }, details: { source: input.source, regNo: input.regNo, created, officers: people.length, deadlinesAdded: deadlines } });
+          return { entity, people, created };
         }),
       ),
   }),
@@ -209,13 +305,23 @@ export const legalRouter = router({
         return contract;
       }),
     ),
-    /** Signing is founder-only (hard gate): recording `signed` requires owner/admin and names the human who signed. */
-    setStatus: write.input(z.object({ contractId: Id, status: z.enum(CONTRACT_STATUSES), provider: z.enum(["dropbox_sign", "docusign", "manual", "other"]).default("manual") })).mutation(({ ctx, input }) =>
+    /**
+     * Signing is founder-only (hard gate): recording `signed` requires owner/admin and names the human who signed.
+     * Setting the status a contract already has changes nothing: no event, no audit row (a double click or a retry).
+     * Moving to `awaiting_signature` sends nothing anywhere; the founder sends the envelope from the e-signature tool.
+     */
+    setStatus: write.input(z.object({ contractId: Id, status: z.enum(CONTRACT_STATUSES), provider: z.enum(["dropbox_sign", "manual", "other"]).default("manual") })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         if (input.status === "signed" && !["owner", "admin"].includes(ctx.role)) throw new ValidationError("Only the founder (owner/admin) can record a signature");
-        const contract = await repos.legal.setContractStatus(tx, ctx.businessId, input.contractId, input.status);
+        const { contract, changed } = await repos.legal.transitionContract(tx, ctx.businessId, input.contractId, input.status);
+        if (!changed) return contract;
         if (input.status === "signed" && contract.counterpartyEntityId) {
-          await emit(tx, ctx, { type: "contract.signed", payload: { contractId: contract.id, counterpartyEntityId: contract.counterpartyEntityId, kind: contract.kind, title: contract.title || contract.kind, signedAt: new Date().toISOString(), signedBy: { kind: "user", id: ctx.userId }, value: contract.valueMinor === null ? null : { amountMinor: contract.valueMinor, currency: contract.currency }, provider: input.provider, docRef: contract.docRef, obligationCount: (contract.obligations as unknown[]).length }, entityIds: [contract.counterpartyEntityId] });
+          await emit(tx, ctx, {
+            type: "contract.signed",
+            payload: { contractId: contract.id, counterpartyEntityId: contract.counterpartyEntityId, kind: contract.kind, title: contract.title || contract.kind, signedAt: (contract.signedAt ?? new Date()).toISOString(), signedBy: { kind: "user", id: ctx.userId }, value: contract.valueMinor === null ? null : { amountMinor: contract.valueMinor, currency: contract.currency }, provider: input.provider, docRef: contract.docRef, obligationCount: (contract.obligations as unknown[]).length },
+            entityIds: [contract.counterpartyEntityId],
+            idempotencyKey: `contract.signed:${contract.id}`,
+          });
         }
         await audit(tx, ctx, { action: "legal.contracts.set_status", target: { kind: "contract", id: contract.id }, details: { status: input.status } });
         return contract;
@@ -230,5 +336,41 @@ export const legalRouter = router({
         return { events, upcoming: deadlines, filings: filings.items };
       }),
     ),
+  }),
+
+  policies: router({
+    /**
+     * Publishes the first version of a policy (privacy policy, terms, cookie policy) as a block in the product spec's
+     * "Policies" section, written as the founder (a pinned human edit). Later versions are per-hunk refreshes of that
+     * block through `product.spec.editBlock`; publishing a policy that already has a block is a conflict.
+     */
+    publish: write.input(z.object({ title: z.enum(POLICY_TITLES), content: z.record(z.string(), z.unknown()) })).mutation(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        if (docTitle(input.content).toLowerCase() !== input.title.toLowerCase()) throw new ValidationError(`The policy must start with the heading "${input.title}"`);
+        const existing = (await repos.product.listBlocks(tx, ctx.businessId)).find((b) => b.section === POLICIES_SECTION && docTitle(b.content as Record<string, unknown>).toLowerCase() === input.title.toLowerCase());
+        if (existing) throw new ConflictError(`The ${input.title.toLowerCase()} is already in the spec; refresh it instead`, { blockId: existing.id });
+        const block = await repos.product.createBlock(tx, ctx.businessId, { section: POLICIES_SECTION, content: input.content, authoredByKind: "user", authoredBy: ctx.userId, pinned: true });
+        await audit(tx, ctx, { action: "legal.policies.publish", target: { kind: "spec_block", id: block.id }, details: { title: input.title } });
+        return block;
+      }),
+    ),
+  }),
+
+  regulatory: router({
+    /** The founder's regulated-sector choices; a sector without one falls back to the suggestion on the screen. */
+    list: read.query(({ ctx }) => ctx.rls((tx) => repos.legal.listSectorChoices(tx, ctx.businessId))),
+    /** Whether a sector applies, and which of its checklist items are done. Open gates go into the team's brief. */
+    set: write
+      .input(z.object({ sector: z.enum(SECTOR_KEYS as unknown as [string, ...string[]]), applies: z.boolean().optional(), done: z.array(z.string().min(1).max(60)).max(20).optional() }))
+      .mutation(({ ctx, input }) =>
+        ctx.rls(async (tx) => {
+          const known = new Set(SECTOR_GATES[input.sector as keyof typeof SECTOR_GATES].checklist.map((i) => i.id));
+          const unknown = (input.done ?? []).filter((id) => !known.has(id));
+          if (unknown.length) throw new ValidationError(`Not on the ${SECTOR_GATES[input.sector as keyof typeof SECTOR_GATES].label} checklist: ${unknown.join(", ")}`);
+          const gate = await repos.legal.setSectorChoice(tx, ctx.businessId, { sector: input.sector, applies: input.applies, done: input.done, decidedBy: ctx.userId });
+          await audit(tx, ctx, { action: "legal.regulatory.set", target: { kind: "regulatory_gate", id: gate.id }, details: { sector: input.sector, applies: gate.applies, done: gate.done.length } });
+          return gate;
+        }),
+      ),
   }),
 });

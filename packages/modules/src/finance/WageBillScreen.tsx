@@ -18,6 +18,16 @@ import type { MembershipRow, PnlResponse, TaskRow, TasksListResponse, TeamAgentR
 
 export const CAP_WARN_PCT = 80;
 
+/**
+ * A staff member by the name the business knows them as. The link goes to their CRM record; without one the name is
+ * plain text (an auth account id is not a CRM record, so it is never linked).
+ */
+export function StaffName({ member, businessId }: { member: MembershipRow; businessId: string }) {
+  const name = member.displayName?.trim() || member.email?.trim() || `${memberRoleWord(member.role)} on the team`;
+  if (!member.entityId) return <span className="truncate text-body-strong text-primary">{name}</span>;
+  return <EntityLink entity={{ id: member.entityId, kind: "team_member", name, href: routes.crm(businessId, member.entityId) }} hoverCard={false} />;
+}
+
 /** "owner" → "Owner"; membership roles read as words. */
 export function memberRoleWord(role: string | null | undefined): string {
   if (!role) return "Member";
@@ -255,7 +265,7 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
           getRowKey={(m) => m.id}
           maxRows={12}
           columns={[
-            { id: "who", header: "Member", cell: (m) => <EntityLink entity={{ id: m.userId, kind: "team_member", name: m.displayName ?? m.email ?? "Team member" }} hoverCard={false} /> },
+            { id: "who", header: "Member", cell: (m) => <StaffName member={m} businessId={businessId} /> },
             { id: "role", header: "Role", width: 84, cell: (m) => <Chip tone="neutral">{memberRoleWord(m.role)}</Chip> },
             { id: "since", header: "Since", width: 80, cell: (m) => <span className="tabular-nums">{m.createdAt ? formatMonthYear(m.createdAt) : "—"}</span> },
           ]}
