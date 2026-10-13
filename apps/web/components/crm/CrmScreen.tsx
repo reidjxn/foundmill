@@ -309,7 +309,7 @@ export function CrmScreen() {
             </li>
             <li className="flex items-start gap-2">
               <Icon icon={UserRound} size="inline" className="mt-0.5 text-secondary" />
-              <span>Deletion requests wait for the scheduled job you approved; once deleted, a person is never imported again.</span>
+              <span>A deletion request stops outreach at once; the nightly, logged deletion job removes the record after 7 days, and the person is never imported again.</span>
             </li>
           </ul>
         </Panel>

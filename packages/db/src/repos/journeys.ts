@@ -378,6 +378,34 @@ export const journeysRepo = {
     return p === null || p === undefined ? null : Number(p);
   },
 
+  /**
+   * The trophy counters just before a payment (`src/milestones.ts`): first payments, first payments at or above
+   * `enterpriseMinMinor`, and the revenue in `currency` since `mrrSince`, all over the payments strictly earlier than
+   * this one (by occurred_at, then id).
+   */
+  async paymentCountersBefore(db: Executor, businessId: string, input: { conversionId: string; occurredAt: Date; currency: string; mrrSince: Date; enterpriseMinMinor: number }): Promise<{ customers: number; enterpriseContracts: number; revenueMinor: number }> {
+    const earlier = sql`(${conversions.occurredAt}, ${conversions.id}) < (${input.occurredAt.toISOString()}::timestamptz, ${input.conversionId}::uuid)`;
+    const rows = await db
+      .select({
+        customers: sql<number>`count(*) filter (where ${conversions.firstPayment})::int`,
+        enterprise: sql<number>`count(*) filter (where ${conversions.firstPayment} and ${conversions.amountMinor} >= ${input.enterpriseMinMinor})::int`,
+        revenue: sql<string>`coalesce(sum(${conversions.amountMinor}) filter (where ${conversions.currency} = ${input.currency} and ${conversions.occurredAt} > ${input.mrrSince.toISOString()}::timestamptz), 0)`,
+      })
+      .from(conversions)
+      .where(and(eq(conversions.businessId, businessId), eq(conversions.kind, "payment"), earlier));
+    const r = rows[0];
+    return { customers: Number(r?.customers ?? 0), enterpriseContracts: Number(r?.enterprise ?? 0), revenueMinor: Number(r?.revenue ?? 0) };
+  },
+
+  /** Every payment up to `until`, oldest first (the milestone catch-up replays them; one row per payment, a few columns). */
+  async paymentsUntil(db: Executor, businessId: string, until: Date): Promise<Array<Pick<Conversion, "id" | "entityId" | "amountMinor" | "currency" | "occurredAt" | "firstPayment">>> {
+    return db
+      .select({ id: conversions.id, entityId: conversions.entityId, amountMinor: conversions.amountMinor, currency: conversions.currency, occurredAt: conversions.occurredAt, firstPayment: conversions.firstPayment })
+      .from(conversions)
+      .where(and(eq(conversions.businessId, businessId), eq(conversions.kind, "payment"), sql`${conversions.occurredAt} <= ${until.toISOString()}::timestamptz`))
+      .orderBy(asc(conversions.occurredAt), asc(conversions.id));
+  },
+
   // journeys ----------------------------------------------------------------------------------------------------------
   async create(db: Executor, businessId: string, input: CreateJourneyInput): Promise<Journey> {
     const v = parseInput(CreateJourneyInput, input, "journey");
@@ -523,6 +551,29 @@ export const journeysRepo = {
       await db.insert(milestones).values({ businessId, kind: v.kind, label: v.label, achievedAt: v.achievedAt ?? new Date(), ref: v.ref ?? null, visibility: v.visibility }).returning(),
       "milestone",
     );
+  },
+
+  /**
+   * Awards a trophy milestone (`ref.trophyKey` required) once per business: a second award of the same key, from any
+   * writer, is a no-op (0028 unique index) and returns null.
+   */
+  async awardMilestone(db: Executor, businessId: string, input: CreateMilestoneInput & { ref: Record<string, unknown> & { trophyKey: string } }): Promise<Milestone | null> {
+    const v = parseInput(CreateMilestoneInput, input, "milestone");
+    const rows = await db
+      .insert(milestones)
+      .values({ businessId, kind: v.kind, label: v.label, achievedAt: v.achievedAt ?? new Date(), ref: v.ref ?? null, visibility: v.visibility })
+      .onConflictDoNothing()
+      .returning();
+    return rows[0] ?? null;
+  },
+
+  /** Trophy keys this business already holds (archived ones included: a trophy is never awarded twice). */
+  async awardedTrophyKeys(db: Executor, businessId: string): Promise<string[]> {
+    const rows = await db
+      .select({ key: sql<string>`${milestones.ref} ->> 'trophyKey'` })
+      .from(milestones)
+      .where(and(eq(milestones.businessId, businessId), sql`${milestones.ref} ->> 'trophyKey' is not null`));
+    return rows.map((r) => r.key);
   },
 
   async archiveMilestone(db: Executor, businessId: string, milestoneId: string): Promise<Milestone> {

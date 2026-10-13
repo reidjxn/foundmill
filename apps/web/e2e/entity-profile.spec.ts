@@ -65,6 +65,9 @@ test.describe("entity profile", () => {
     await expect(page.getByTestId("export-dialog")).toBeHidden();
     await page.getByTestId("entity-delete").click();
     await expect(page.getByTestId("delete-request-dialog")).toContainText("never runs immediately");
+    // What the request does now and later (audit RA-23): outreach suppressed at once, the record purged by the nightly job.
+    await expect(page.getByTestId("delete-request-dialog")).toContainText("Outreach to them stops now");
+    await expect(page.getByTestId("delete-request-dialog")).toContainText("nightly, audited deletion job");
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("delete-request-dialog")).toBeHidden();
   });

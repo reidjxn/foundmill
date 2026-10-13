@@ -198,10 +198,18 @@ export function totalBudget(views: readonly Pick<ChannelView, "enabled" | "budge
 
 /* ---------- Status ---------- */
 
-export type ChannelStatusWord = "Running" | "Paused" | "Off the board" | "Not scored";
+export type ChannelStatusWord = "Running" | "Starting" | "Paused" | "Off the board" | "Not scored";
 
-export function channelStatus(view: Pick<ChannelView, "enabled" | "paused" | "persisted">): { tone: "good" | "warn" | "neutral"; word: ChannelStatusWord } {
+/** Why a channel on the board reads "Starting": its engine has not started (yet). */
+export const ENGINE_STARTING_HINT = "On the board, but its engine has not started yet. It starts within 15 minutes; until then nothing is drafted or launched.";
+
+/**
+ * A channel on the board is "Running" only when its engine is recorded (`engineWorkflowId`); one without an engine reads
+ * "Starting" (audit GTM-01). A row from before the field existed (undefined) is taken as running.
+ */
+export function channelStatus(view: Pick<ChannelView, "enabled" | "paused" | "persisted"> & { engineWorkflowId?: string | null }): { tone: "good" | "warn" | "neutral"; word: ChannelStatusWord } {
   if (view.enabled && view.paused) return { tone: "warn", word: "Paused" };
+  if (view.enabled && view.persisted && view.engineWorkflowId === null) return { tone: "warn", word: "Starting" };
   if (view.enabled) return { tone: "good", word: "Running" };
   if (!view.persisted) return { tone: "neutral", word: "Not scored" };
   return { tone: "neutral", word: "Off the board" };

@@ -116,6 +116,9 @@ describe("Stop all agents cannot be undone by a member; resume is an owner's or 
     expect(res.resumedAgents).toBeGreaterThanOrEqual(2);
     expect(res.engines.map((e) => e.workflowId)).toContain(`engine:${channel.id}`);
     expect(temporal.starts.filter((s) => s.type === "channelEngine").map((s) => s.workflowId)).toContain(`engine:${channel.id}`);
+    // Every channel on the board runs its engine again, also one whose start was never recorded (audit GTM-01).
+    expect(res.engines.map((e) => e.workflowId)).toContain(`engine:${hz.A.channelId}`);
+    expect((await repos.channels.get(hz.db, A(), hz.A.channelId)).engineWorkflowId).toBe(`engine:${hz.A.channelId}`);
     expect(await repos.businesses.stopState(hz.db, A())).toMatchObject({ stopped: false });
     const agents = await repos.agents.list(hz.db, A(), { limit: 50 });
     expect(agents.items.every((a) => a.status !== "paused")).toBe(true);

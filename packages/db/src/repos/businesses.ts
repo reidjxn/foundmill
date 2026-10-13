@@ -1,9 +1,9 @@
 /** businesses — the business record (BUILD §7.2 "Accounts and businesses", routers business.*). */
 import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, DEFAULT_BUSINESS_CURRENCY, GAME_MODES, MODEL_BILLING, PLAN_TIERS, slugify, uuid, type AgentStopReason } from "@foundmill/shared";
-import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { businesses, memberships, type Business } from "../schema";
-import { Currency, defined, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, type Executor } from "./_shared";
+import { auditLog, businesses, memberships, type Business } from "../schema";
+import { Currency, defined, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, rowsOf, type Executor } from "./_shared";
 
 const HexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/, "brand colors are #RRGGBB");
 /** ISO 4217: three letters (0025 holds the column to the same shape). */
@@ -46,6 +46,15 @@ export const UpdateBusinessInput = z.object({
 export type UpdateBusinessInput = z.input<typeof UpdateBusinessInput>;
 
 const notArchived = isNull(businesses.archivedAt);
+
+/**
+ * Settings › Danger zone writes a scheduled deletion and its cancellation as audit entries (DECISIONS "Deletion requests
+ * live on the audit chain"); the latest of the two is the business's deletion state.
+ */
+export const BUSINESS_DELETION_REQUEST_ACTION = "business.request_deletion";
+export const BUSINESS_DELETION_CANCEL_ACTION = "business.cancel_deletion";
+/** Days between the request and the purge, when the request does not carry its own `scheduledFor`. */
+export const BUSINESS_DELETION_DELAY_DAYS = 7;
 
 export const businessesRepo = {
   /** The business, or NotFoundError. Archived businesses are not found unless `includeArchived`. */
@@ -233,6 +242,56 @@ export const businessesRepo = {
       await tx.update(businesses).set({ agentsStoppedAt: null, agentsStoppedReason: null }).where(eq(businesses.id, businessId));
       return { cleared: true, stoppedAt: before.stoppedAt, reason: before.reason };
     });
+  },
+
+  /**
+   * Service role, for the orchestrator's schedules: the ids of every committed business that is not archived, oldest
+   * first. `runnable` leaves out businesses whose team is stopped (0023), for the jobs that start agent work.
+   */
+  async listForSchedules(db: Executor, options: { runnable?: boolean; limit?: number } = {}): Promise<string[]> {
+    const rows = await db
+      .select({ id: businesses.id })
+      .from(businesses)
+      .where(and(notArchived, isNotNull(businesses.committedAt), options.runnable ? isNull(businesses.agentsStoppedAt) : undefined))
+      .orderBy(asc(businesses.createdAt), asc(businesses.id))
+      .limit(options.limit ?? 10_000);
+    return rows.map((r) => r.id);
+  },
+
+  /**
+   * Service role: the businesses whose scheduled deletion is due at `now` (the latest deletion entry on their audit
+   * chain is a request, not a cancellation, and its date has passed). Archived businesses are included.
+   */
+  async deletionsDue(db: Executor, now: Date = new Date()): Promise<{ businessId: string; scheduledFor: Date; requestedAt: Date }[]> {
+    const rows = rowsOf<{ business_id: string; action: string; scheduled_for: string | null; created_at: Date | string }>(
+      await db.execute(sql`
+        select business_id, action, details ->> 'scheduledFor' as scheduled_for, created_at
+          from (
+            select distinct on (business_id) business_id, action, details, created_at
+              from ${auditLog}
+             where action in (${BUSINESS_DELETION_REQUEST_ACTION}, ${BUSINESS_DELETION_CANCEL_ACTION})
+             order by business_id, seq desc
+          ) latest
+         where action = ${BUSINESS_DELETION_REQUEST_ACTION}`),
+    );
+    return rows
+      .map((r) => {
+        const requestedAt = new Date(r.created_at);
+        const scheduled = r.scheduled_for ? new Date(r.scheduled_for) : null;
+        return { businessId: r.business_id, requestedAt, scheduledFor: scheduled && !Number.isNaN(scheduled.getTime()) ? scheduled : new Date(requestedAt.getTime() + BUSINESS_DELETION_DELAY_DAYS * 86_400_000) };
+      })
+      .filter((r) => r.scheduledFor.getTime() <= now.getTime());
+  },
+
+  /**
+   * Service role only: permanently deletes the business and everything it owns, its audit chain included (0028
+   * `fm_purge_business`). Only the business-deletion job calls it, for a deletion its owner scheduled and did not cancel.
+   * Returns false when there was nothing to delete.
+   */
+  async purge(db: Executor, businessId: string): Promise<boolean> {
+    const id = parseInput(Id, businessId, "business id");
+    const rows = rowsOf<{ purged: boolean }>(await db.execute(sql`select fm_purge_business(${id}::uuid) as purged`));
+    return rows[0]?.purged === true;
   },
 
   /** Soft delete (permanent deletion is a hard gate). */

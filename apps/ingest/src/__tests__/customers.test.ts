@@ -133,3 +133,24 @@ describe("first payments only (#60)", () => {
     expect(Number(row!.revenueMinor)).toBe(4_900); // but it is revenue
   });
 });
+
+describe("milestones from real payments (#58)", () => {
+  it("the first payment a business receives awards First customer once; retries and repeat payments award it again never", async () => {
+    const A = hz.A.businessId;
+    const firstCustomer = async () => (await repos.journeys.listMilestones(hz.db, A)).filter((m) => (m.ref as { trophyKey?: unknown } | null)?.trophyKey === "customer_1");
+    const awarded = await firstCustomer();
+    expect(awarded).toHaveLength(1);
+    expect(awarded[0]!.label).toBe("First customer");
+    // Awarded by the delivery that brought the business's first payment, with that payment's time.
+    const payments = (await repos.journeys.listConversions(hz.db, A, { kind: "payment", firstPayment: true, limit: 100 })).items;
+    const winner = payments.find((p) => p.id === (awarded[0]!.ref as { conversionId?: string }).conversionId);
+    expect(winner).toBeDefined();
+    expect(awarded[0]!.achievedAt.toISOString()).toBe(winner!.occurredAt.toISOString());
+
+    // The same invoice delivered again (a vendor retry) and a repeat order award nothing more.
+    expect([200, 409]).toContain((await deliver(hz.base, signedStripeRequest(A, stripeEvent("invoice.paid", ST_INVOICES[2]!, "evt_omar_a")))).status);
+    const repeat = { ...SH_ORDERS[0]!, id: 5_500_000_901, created_at: "2026-10-05T10:00:00Z", customer: { id: 6_100_000_177, email: "anna.lind@example.com", orders_count: 2 } };
+    expect((await deliver(hz.base, signedShopifyRequest(A, "orders/paid", repeat, { webhookId: "anna-repeat" }))).status).toBe(200);
+    expect(await firstCustomer()).toHaveLength(1);
+  });
+});

@@ -3,7 +3,7 @@
  * distribution.assets.approve/reject).
  */
 import { APPROVAL_STATES, ASSET_KINDS, CAMPAIGN_STATUSES, ValidationError, type CampaignStatus } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { assets, campaigns, channels, type Asset, type Campaign } from "../schema";
 import { Currency, defined, Id, IsoDateInput, JsonObject, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page, patchSchema } from "./_shared";
@@ -36,6 +36,8 @@ export const CreateAssetInput = z.object({
   kind: z.enum(ASSET_KINDS),
   title: z.string().max(200).default(""),
   contentRef: z.string().max(2048).nullable().optional(),
+  /** The drafted text (0028). */
+  body: z.string().max(8000).nullable().optional(),
   approvalState: z.enum(APPROVAL_STATES).default("draft"),
   authoredByAgentId: Id.nullable().optional(),
 });
@@ -148,6 +150,16 @@ export const campaignsRepo = {
     });
   },
 
+  /** Whether any campaign of the channel ever went live (`starts_at` is stamped on the first move to live). */
+  async channelHasLaunched(db: Executor, businessId: string, channelId: string): Promise<boolean> {
+    const rows = await db
+      .select({ id: campaigns.id })
+      .from(campaigns)
+      .where(and(eq(campaigns.businessId, businessId), eq(campaigns.channelId, channelId), isNotNull(campaigns.startsAt)))
+      .limit(1);
+    return rows.length > 0;
+  },
+
   async archive(db: Executor, businessId: string, campaignId: string): Promise<Campaign> {
     return one(await db.update(campaigns).set({ archivedAt: new Date() }).where(scoped(businessId, campaignId)).returning(), "campaign", campaignId);
   },
@@ -192,7 +204,7 @@ export const campaignsRepo = {
     return one(
       await db
         .insert(assets)
-        .values({ businessId, campaignId: v.campaignId ?? null, kind: v.kind, title: v.title, contentRef: v.contentRef ?? null, approvalState: v.approvalState, authoredByAgentId: v.authoredByAgentId ?? null })
+        .values({ businessId, campaignId: v.campaignId ?? null, kind: v.kind, title: v.title, contentRef: v.contentRef ?? null, body: v.body ?? null, approvalState: v.approvalState, authoredByAgentId: v.authoredByAgentId ?? null })
         .returning(),
       "asset",
     );
@@ -207,6 +219,19 @@ export const campaignsRepo = {
   async setAssetApproval(db: Executor, businessId: string, assetId: string, approvalState: (typeof APPROVAL_STATES)[number]): Promise<Asset> {
     const s = parseInput(z.enum(APPROVAL_STATES), approvalState, "approval state");
     return one(await db.update(assets).set({ approvalState: s }).where(scopedAsset(businessId, assetId)).returning(), "asset", assetId);
+  },
+
+  /**
+   * The founder approved a campaign's launch (or the business runs automated within its caps): every draft or pending
+   * asset of the campaign is approved with it. Assets the founder rejected stay rejected. Returns the approved ids.
+   */
+  async approveCampaignAssets(db: Executor, businessId: string, campaignId: string): Promise<string[]> {
+    const rows = await db
+      .update(assets)
+      .set({ approvalState: "approved" })
+      .where(and(eq(assets.businessId, businessId), eq(assets.campaignId, campaignId), isNull(assets.archivedAt), inArray(assets.approvalState, ["draft", "pending"])))
+      .returning({ id: assets.id });
+    return rows.map((r) => r.id);
   },
 
   async archiveAsset(db: Executor, businessId: string, assetId: string): Promise<Asset> {

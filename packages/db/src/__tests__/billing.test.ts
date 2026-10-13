@@ -224,6 +224,8 @@ describe("the platform-key gate (SEC2 S2, S10)", () => {
 
     // Credits from a simulated payment only: they pay for mock calls, never for live ones.
     const gate = await repos.businesses.create(r.db, { name: "Gate Mock Only", createdBy: founder, planTier: "scale" });
+    // The month opened with nothing included (the founder's pool was used): a top-up that opens a period would also grant the tier's included credits.
+    await repos.usage.ensurePeriodCredits(r.db, gate.id, period, 0);
     const checkout = await repos.checkouts.create(r.db, gate.id, { mode: "mock", amountMinor: 2500 });
     const settled = await settleCreditCheckout(r.db, { businessId: gate.id, checkoutId: checkout.id, externalId: null, eventId: `mock:${checkout.id}`, amountMinor: 2500, currency: "USD", mode: "mock", paidAt: now, actor: { kind: "user", id: founder } });
     expect(settled.outcome).toBe("granted");

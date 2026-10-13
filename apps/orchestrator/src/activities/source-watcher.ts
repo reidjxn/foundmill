@@ -69,7 +69,8 @@ export interface SourceWatchWorkflowResult {
 
 /** The scheduled sweep (`sourceWatchSweep`): the schedule's business ids, plus how stale a read may be. */
 export interface SourceWatchSweepInput {
-  businessIds: string[];
+  /** Omitted by the registered schedule: the sweep lists the businesses whose team may work when it runs. */
+  businessIds?: string[];
   /** Re-read sources last checked more than this many hours ago (default 24). */
   staleAfterHours?: number;
   /** At most this many sources per business per sweep (default 10). */

@@ -35,7 +35,7 @@ import { addDays, dayKey } from "@foundmill/widgets/shared/time";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
-import { buildChannelViews, channelStatus, type ChannelView } from "./channel-data";
+import { buildChannelViews, channelStatus, ENGINE_STARTING_HINT, type ChannelView } from "./channel-data";
 import { METRICS_WINDOW_DAYS } from "./FormationScreen";
 import { localScores, RESCORE_DEBOUNCE_MS, useDebouncedRun } from "./rescore";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
@@ -133,12 +133,12 @@ export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColum
       cell: ({ row }) => {
         const s = channelStatus(row.original);
         return (
-          <StatusPill tone={s.tone} className="whitespace-nowrap">
+          <StatusPill tone={s.tone} className="whitespace-nowrap" title={s.word === "Starting" ? ENGINE_STARTING_HINT : undefined}>
             {s.word}
           </StatusPill>
         );
       },
-      meta: { filter: "select", filterOptions: ["Running", "Paused", "Off the board", "Not scored"].map((w) => ({ value: w, label: w })) },
+      meta: { filter: "select", filterOptions: ["Running", "Starting", "Paused", "Off the board", "Not scored"].map((w) => ({ value: w, label: w })) },
     },
     { id: "enabled", accessorFn: (r) => r.enabled, header: "Running", size: sizes.enabled, cell: ({ getValue }) => (getValue() ? "Yes" : "No"), meta: { filter: "boolean" } },
     {

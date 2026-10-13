@@ -137,6 +137,26 @@ test.describe("distribution, finance and legal read in plain words", () => {
     }
   });
 
+  test("distribution: the Board counts as running only channels whose engine runs (audit GTM-01)", async ({ page }) => {
+    await openTab(page, "distribution", "formation");
+    // A channel on the board without its engine yet reads "starting", never "running".
+    await expect(page.getByText(/^\d+ of 15 running( · \d+ starting)?$/)).toBeVisible({ timeout: LONG });
+    await openTab(page, "distribution", "channels");
+    const table = page.getByRole("grid", { name: "Channels" });
+    const starting = table.getByRole("row").filter({ hasText: "Starting" });
+    if ((await starting.count()) > 0) await expect(starting.first().getByTitle(/engine has not started yet/)).toBeVisible();
+  });
+
+  test("distribution: drafted creative shows its copy on the card", async ({ page }) => {
+    await openTab(page, "distribution", "creative");
+    if (await page.getByText("No creative yet").isVisible()) return;
+    const card = page.locator("article[data-asset]").first();
+    await expect(card).toBeVisible({ timeout: LONG });
+    // An engine's draft carries its body (a mock draft says so in its first line).
+    const body = card.getByTestId("asset-body");
+    if ((await body.count()) > 0) await expect(body).not.toBeEmpty();
+  });
+
   test("distribution: empty Leads and Creative each offer the way to fill them", async ({ page }) => {
     await openTab(page, "distribution", "leads");
     if (await page.getByText("No leads yet").isVisible()) {

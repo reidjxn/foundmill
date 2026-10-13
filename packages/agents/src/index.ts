@@ -22,6 +22,7 @@ export * from "./nudges";
 export * from "./conversation";
 export * from "./source-watcher";
 export * from "./community-screen";
+export * from "./channel-creative";
 export * as prompts from "./prompts";
 export {
   type PromptTemplate,

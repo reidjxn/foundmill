@@ -18,6 +18,8 @@ describe("CreativeScreen", () => {
     expect(within(card).getByText("Launch week on Meta")).toBeTruthy();
     expect(within(card).getByRole("link", { name: /Mara/ })).toBeTruthy();
     expect(within(card).getByText("Awaiting approval")).toBeTruthy();
+    // The drafted copy is on the card, so the founder reads what they approve.
+    expect(within(card).getByTestId("asset-body").textContent).toContain("Calm skin by Friday");
     const opened: string[] = [];
     const original = window.open;
     window.open = ((url: string) => {

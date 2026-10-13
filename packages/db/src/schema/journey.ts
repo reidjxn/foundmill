@@ -1,7 +1,7 @@
 /** 0007 — customer journey: visitors, touches, conversions, journeys, journey_daily, milestones. */
 import { CHANNEL_KEYS, CONVERSION_KINDS, MATCHDAY_LEVELS, MILESTONE_KINDS, VISIBILITY } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
-import { bigint, boolean, date, index, integer, jsonb, numeric, pgMaterializedView, pgTable, pgView, text, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { bigint, boolean, date, index, integer, jsonb, numeric, pgMaterializedView, pgTable, pgView, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { businessCurrency, emptyArray, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
 import { businessId } from "./_refs";
 import { entities } from "./crm";
@@ -116,7 +116,11 @@ export const milestones = pgTable(
     visibility: text("visibility", { enum: VISIBILITY }).notNull().default("private"),
     ...timestampsWithArchive(),
   },
-  (t) => [index("milestones_business_id_idx").on(t.businessId, t.achievedAt)],
+  (t) => [
+    index("milestones_business_id_idx").on(t.businessId, t.achievedAt),
+    // Each trophy once per business (0028): the award path inserts with on conflict do nothing.
+    uniqueIndex("milestones_trophy_key_idx").on(t.businessId, sql`(${t.ref} ->> 'trophyKey')`).where(sql`${t.ref} ->> 'trophyKey' is not null`),
+  ],
 );
 export type Milestone = typeof milestones.$inferSelect;
 export type NewMilestone = typeof milestones.$inferInsert;

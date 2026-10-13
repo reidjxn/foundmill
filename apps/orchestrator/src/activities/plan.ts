@@ -6,20 +6,26 @@
  * approvals row + `approval.requested` and returns `awaiting_approval` (the workflow waits on the `decision` signal),
  * `allow` executes. `request_human_action` is the hard-gate action: it creates a founder task and an inbox item and
  * never executes the underlying request. External actions (send_message, schedule_meeting) go through the gateway with
- * a session token minted for the acting agent, never to a vendor directly.
+ * a session token minted for the acting agent, never to a vendor directly, as the connectors' own tools with their own
+ * argument shapes (audit VGPC-X1, VGPC-X2): a message is Gmail `send_message` (or SendGrid `send_mail` from a verified
+ * sender), a meeting Google Calendar `create_event`. Recipients are email addresses, or CRM records (by id or exact name)
+ * resolved to their email. An action that names no wording or no time is handed to the acting agent as a task (it
+ * drafts or finds a slot with its own tools, through the same gateway and policy). The gateway's answer is checked:
+ * `ask` waits for the founder (once), a refused or failed tool call fails the action with the connector's reason.
  */
 import { LIMITS } from "@foundmill/config";
 import { getTemplate, getTemplateByAgentType, initialVersionFromTemplate, type AgentTemplate } from "@foundmill/agents";
-import { repos, type Agent, type Business, type PlanAction as PlanActionRow } from "@foundmill/db";
+import { repos, type Agent, type Business, type Entity, type PlanAction as PlanActionRow } from "@foundmill/db";
 import { PRICING_CURRENCY } from "@foundmill/models";
 import { evaluate, type ToolCtxInput } from "@foundmill/policy";
 import { CHANNEL_KEYS, CHANNEL_META, MODEL_KEYS, TASK_KINDS, uuid, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
+import type { GatewayCallResponse } from "../gateway-client";
 import { grantApproval, openApprovalNote } from "./approvals";
 import { openAgentSession } from "./dispatch";
 import type { LoadedPlan, PlanActionResult, PlanActionView } from "./types";
-import { createEventArgs, firstSlotIn, freeSlotArgs, gmailSendArgs, meetingFor, messageFor, resultData, resultError, sendgridSendArgs, verifiedSenderIn } from "./connector-calls";
+import { gmailSendArgs, messageFor, sendgridSendArgs } from "./connector-calls";
 
 /** Policy attributes per action type (same table as apps/api/src/services/plans.ts; kept in sync by the plan tests). */
 export const ACTION_TOOLS: Record<PlanActionType, ToolCtxInput & { internal?: boolean }> = {
@@ -79,6 +85,29 @@ export function evaluateAction(action: { type: PlanActionType; params: Record<st
 
 const view = (a: PlanActionRow): PlanActionView => ({ id: a.id, type: a.type, params: (a.params ?? {}) as Record<string, unknown>, agentId: a.agentId, policyOutcome: a.policyOutcome, status: a.status });
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Mail connectors in the order a message prefers them when the plan names none. */
+export const MAIL_CONNECTORS = ["gmail", "sendgrid"] as const;
+export const DEFAULT_MEETING_MINUTES = 30;
+
+/** Thrown by a handler when the gateway asked the founder: the action waits for that approval. */
+class AwaitingGatewayApproval extends Error {
+  constructor(readonly approvalId: string) {
+    super("waiting for the founder's approval");
+  }
+}
+
+/** The values a plan names as recipients: strings or lists of strings under the usual keys. */
+export function recipientValues(p: Record<string, unknown>, keys: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const k of keys) {
+    const v = p[k];
+    for (const x of Array.isArray(v) ? v : [v]) if (typeof x === "string" && x.trim()) out.push(x.trim());
+  }
+  return [...new Set(out)];
+}
+
 export function createPlanActivities(deps: OrchestratorDeps) {
   async function departmentForChannel(businessId: string): Promise<string | null> {
     const departments = await repos.departments.list(deps.db, businessId);
@@ -97,7 +126,71 @@ export function createPlanActivities(deps: OrchestratorDeps) {
     const minted = await deps.gateway.mintSessionToken({ businessId, agentId: agent.id, sessionId: null, allowedTools: tools.map((t) => `${connector}:${t}`), ttlSeconds: 300 });
     return (tool: string, args: Record<string, unknown>, context: Record<string, unknown> = {}) => deps.gateway.call(minted.token, { connector, tool, args, context });
   }
-  const refused = (res: { outcome: string; reasons?: string[] }) => res.outcome === "deny" || res.outcome === "rate_limited";
+
+  /** One tool through the gateway as the acting agent. */
+  async function gatewayCall(businessId: string, agent: Agent, connector: string, tool: string, args: Record<string, unknown>, context: Record<string, unknown>) {
+    return (await gatewayFor(businessId, agent, connector, [tool]))(tool, args, context);
+  }
+
+  /**
+   * The tool's data, or why not: `deny`/`rate_limited` and a tool that answered `ok: false` throw with the reason (the
+   * action fails, the founder reads why); `ask` waits for the founder, unless this run already carries the approval the
+   * gateway asked for, which would only ask again.
+   */
+  async function checkedResult(res: GatewayCallResponse, connector: string, tool: string, ctx: { approvalId: string | null; businessId: string }): Promise<unknown> {
+    if (res.outcome === "deny" || res.outcome === "rate_limited") throw new Error(`The gateway refused ${connector}.${tool} (${res.outcome}): ${(res.reasons ?? []).join("; ") || "no reason given"}`);
+    if (res.outcome === "ask") {
+      const approved = ctx.approvalId ? await repos.approvals.get(deps.db, ctx.businessId, ctx.approvalId).catch(() => null) : null;
+      if (approved && approved.connectorKey === connector) throw new Error(`The gateway asked again for ${connector}.${tool} after your approval; nothing was sent.`);
+      if (!res.approvalId) throw new Error(`The gateway asked for approval of ${connector}.${tool} but opened none.`);
+      throw new AwaitingGatewayApproval(res.approvalId);
+    }
+    const envelope = (res.result ?? {}) as { ok?: boolean; data?: unknown; error?: { code?: string; message?: string } };
+    if (envelope.ok === false) throw new Error(`${connector}.${tool} failed: ${envelope.error?.message ?? envelope.error?.code ?? "unknown error"}`.slice(0, 500));
+    return envelope.data;
+  }
+
+  /**
+   * Email addresses for the recipients a plan names: addresses as given, CRM records by id or by exact name (their
+   * `email` identifier). Records being deleted are never contacted. Returns the addresses and what could not be resolved.
+   */
+  async function resolveEmails(businessId: string, values: readonly string[]): Promise<{ emails: string[]; unresolved: string[] }> {
+    const emails = new Set<string>();
+    const unresolved: string[] = [];
+    for (const v of values) {
+      if (EMAIL_RE.test(v)) {
+        emails.add(v.toLowerCase());
+        continue;
+      }
+      let entity: Entity | null;
+      if (UUID_RE.test(v)) entity = await repos.entities.resolve(deps.db, businessId, v).catch(() => null);
+      else {
+        const found = await repos.entities.search(deps.db, businessId, { q: v, limit: 5 }).catch(() => null);
+        const hits = found?.hits ?? [];
+        entity = hits.find((h) => h.entity.displayName.toLowerCase() === v.toLowerCase())?.entity ?? (hits.length === 1 ? hits[0]!.entity : null);
+      }
+      const email = entity && !entity.deletionRequestedAt ? (entity.identifiers as Record<string, unknown>).email : null;
+      if (typeof email === "string" && EMAIL_RE.test(email)) emails.add(email.toLowerCase());
+      else unresolved.push(v);
+    }
+    return { emails: [...emails], unresolved };
+  }
+
+  /** The mail connector a message goes out through: the plan's choice, else a connected Gmail, else SendGrid, else Gmail. */
+  async function mailConnector(businessId: string, requested: unknown): Promise<(typeof MAIL_CONNECTORS)[number]> {
+    if (requested === "gmail" || requested === "sendgrid") return requested;
+    const integrations = await repos.integrations.list(deps.db, businessId).catch(() => []);
+    const connected = new Set(integrations.filter((i) => i.status === "connected" || i.status === "mock" || i.status === "degraded").map((i) => i.connectorKey));
+    return MAIL_CONNECTORS.find((c) => connected.has(c)) ?? "gmail";
+  }
+
+  /** Hands an action that names no wording (or no time) to the acting agent as a task with a session, like create_task. */
+  async function delegate(businessId: string, action: PlanActionRow, agent: Agent, title: string, goal: string): Promise<{ result: Record<string, unknown>; spawn: PlanActionResult["spawn"] }> {
+    const task = await repos.tasks.create(deps.db, businessId, { kind: "ops", title: title.slice(0, 200), goalMd: goal, acceptance: ["Done through the gateway's tools, within policy (approval where it asks)."], assigneeAgentId: agent.id, planActionId: action.id, status: "ready" });
+    const opened = await openAgentSession(deps, { businessId, agentId: agent.id, taskId: task.id });
+    const spawn: PlanActionResult["spawn"] = opened.sessionId ? [{ workflow: "agentSession", workflowId: opened.workflowId, args: { businessId, agentId: agent.id, taskId: task.id, sessionId: opened.sessionId } }] : [];
+    return { result: { delegated: true, taskId: task.id, assigneeAgentId: agent.id, ...(opened.sessionId ? {} : { deferred: opened.detail }) }, spawn };
+  }
 
   return {
     async loadPlan(input: { businessId: string; planId: string }): Promise<LoadedPlan> {
@@ -186,14 +279,28 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         return { ...empty, status: "awaiting_approval", outcome: "ask", approvalId: approval.id };
       }
 
+      // The founder turned down the approval the connector's own policy asked for: the action is denied, not retried.
+      if (!input.approved && !ACTION_TOOLS[action.type].internal) {
+        const prior = await repos.approvals.forPlanAction(db, businessId, action.id);
+        if (prior && (prior.outcome === "rejected" || prior.outcome === "expired")) {
+          await repos.plans.finishAction(db, businessId, action.id, { status: "denied", result: { approvalId: prior.id, outcome: prior.outcome }, policyOutcome: "ask" });
+          return { ...empty, status: "denied", outcome: "ask", approvalId: prior.id };
+        }
+      }
+
       // allow (or approved ask): run the typed handler.
       await repos.plans.startAction(db, businessId, action.id);
       try {
-        const handled = await handle(action, params, { businessId, business, agents, workflowId: input.workflowId });
+        const handled = await handle(action, params, { businessId, business, agents, workflowId: input.workflowId, approvalId: input.approvalId ?? null });
         const { action: finished } = await repos.plans.finishAction(db, businessId, action.id, { status: "done", result: handled.result, policyOutcome: input.approved ? "ask" : "allow" });
         await repos.audit.append(db, businessId, { actorKind: "system", action: `plan.action.${action.type}`, target: { kind: "plan_action", id: action.id }, details: { result: handled.result, approved: Boolean(input.approved) } });
         return { actionId: finished.id, status: "done", outcome: input.approved ? "ask" : "allow", approvalId: input.approvalId ?? null, result: handled.result, spawn: handled.spawn };
       } catch (err) {
+        if (err instanceof AwaitingGatewayApproval) {
+          // The connector's own policy asked (a new counterparty, augmented mode): the action waits for that approval.
+          await repos.plans.updateAction(db, businessId, action.id, { status: "awaiting_approval", policyOutcome: "ask" });
+          return { ...empty, status: "awaiting_approval", outcome: "ask", approvalId: err.approvalId };
+        }
         const message = (err as Error).message ?? String(err);
         await repos.plans.finishAction(db, businessId, action.id, { status: "failed", result: { error: message.slice(0, 500) }, policyOutcome: verdict.outcome });
         return { ...empty, status: "failed", outcome: verdict.outcome, result: { error: message.slice(0, 500) } };
@@ -213,7 +320,7 @@ export function createPlanActivities(deps: OrchestratorDeps) {
 
   // ---- handlers --------------------------------------------------------------------------------------------------
 
-  async function handle(action: PlanActionRow, p: Record<string, unknown>, ctx: { businessId: string; business: Business; agents: Agent[]; workflowId: string }): Promise<{ result: Record<string, unknown>; spawn: PlanActionResult["spawn"] }> {
+  async function handle(action: PlanActionRow, p: Record<string, unknown>, ctx: { businessId: string; business: Business; agents: Agent[]; workflowId: string; approvalId: string | null }): Promise<{ result: Record<string, unknown>; spawn: PlanActionResult["spawn"] }> {
     const { db } = deps;
     const { businessId } = ctx;
     // An amount the plan did not price in a currency is in the business's own (0025).
@@ -291,44 +398,53 @@ export function createPlanActivities(deps: OrchestratorDeps) {
       case "send_message": {
         const agent = await actingAgent(businessId, action.agentId, ctx.agents);
         if (!agent) throw new Error("no agent can send on the business's behalf");
-        const message = messageFor(p, ctx.business);
+        const named = recipientValues(p, ["to", "email", "recipient_email", "recipient", "recipient_id", "entity_id", "entity_ids"]);
+        const { emails, unresolved } = await resolveEmails(businessId, named);
+        if (emails.length === 0) throw new Error(`No email address on record for ${unresolved.join(", ") || "the recipient"}. Add one to their CRM profile, then decide again.`);
+        const body = str(p.body, str(p.text, str(p.message)));
+        const intent = str(p.intent, str(p.summary, str(p.subject)));
+        if (!body) {
+          const disclosure = p.requires_disclosure === false ? "" : " Say plainly that you are an AI agent writing for the business.";
+          return delegate(businessId, action, agent, `Write to ${emails.join(", ")}: ${intent || "the message from your decision"}`, `Draft and send this message to ${emails.join(", ")} through your mail tools: ${intent || "see the decision"}.${disclosure} The gateway checks suppression and asks for approval where the policy says so.`);
+        }
+        // The message with the AI disclosure that closes it unless the action says none is needed (connector-calls.ts).
+        const message = messageFor({ ...p, to: emails, body, subject: str(p.subject, `A message from ${ctx.business.name}`).slice(0, 300), connector: await mailConnector(businessId, p.connector) }, ctx.business);
         if ("error" in message) throw new Error(message.error);
         const context = { recipient: message.to[0], planActionId: action.id };
-        let tool: string;
-        let res: Awaited<ReturnType<Awaited<ReturnType<typeof gatewayFor>>>>;
+        const checks = { approvalId: ctx.approvalId, businessId };
         if (message.connector === "gmail") {
-          tool = "send_message";
-          res = await (await gatewayFor(businessId, agent, "gmail", [tool]))(tool, gmailSendArgs(message), context);
-        } else {
-          tool = "send_mail";
-          const call = await gatewayFor(businessId, agent, "sendgrid", ["list_verified_senders", tool]);
-          const from = verifiedSenderIn(resultData(await call("list_verified_senders", {})));
-          if (!from) throw new Error("SendGrid has no verified sender to send from; verify one in SendGrid first");
-          res = await call(tool, sendgridSendArgs(message, from), context);
+          const data = (await checkedResult(await gatewayCall(businessId, agent, "gmail", "send_message", gmailSendArgs(message), context), "gmail", "send_message", checks)) as { id?: string } | undefined;
+          return { result: { connector: message.connector, tool: "send_message", to: message.to, messageId: data?.id ?? null }, spawn: [] };
         }
-        if (refused(res)) throw new Error(`gateway ${res.outcome}: ${(res.reasons ?? []).join("; ")}`);
-        const failed = resultError(res);
-        if (failed) throw new Error(`${message.connector}.${tool} failed: ${failed}`);
-        return { result: { connector: message.connector, tool, to: message.to, outcome: res.outcome, approvalId: res.approvalId ?? null, costMinor: res.costMinor ?? 0 }, spawn: [] };
+        // SendGrid sends only from a verified sender identity of the account.
+        const senders = (await checkedResult(await gatewayCall(businessId, agent, "sendgrid", "list_verified_senders", {}, {}), "sendgrid", "list_verified_senders", checks)) as { items?: { fromEmail: string; fromName: string | null; verified: boolean }[] } | undefined;
+        const sender = senders?.items?.find((s) => s.verified);
+        if (!sender) throw new Error("SendGrid has no verified sender; verify one in SendGrid or connect Gmail, then decide again.");
+        const data = (await checkedResult(
+          await gatewayCall(businessId, agent, "sendgrid", "send_mail", { ...sendgridSendArgs(message, sender.fromEmail), from: { email: sender.fromEmail, ...(sender.fromName ? { name: sender.fromName } : {}) }, customArgs: { planActionId: action.id } }, context),
+          "sendgrid",
+          "send_mail",
+          checks,
+        )) as { messageId?: string } | undefined;
+        return { result: { connector: message.connector, tool: "send_mail", to: message.to, messageId: data?.messageId ?? null }, spawn: [] };
       }
       case "schedule_meeting": {
         const agent = await actingAgent(businessId, action.agentId, ctx.agents);
         if (!agent) throw new Error("no agent can schedule on the business's behalf");
-        const meeting = meetingFor(p, deps.clock.now());
-        if ("error" in meeting) throw new Error(meeting.error);
-        const call = await gatewayFor(businessId, agent, "google_calendar", ["find_free_slots", "create_event"]);
-        let slot = meeting.start && meeting.end ? { start: meeting.start, end: meeting.end } : null;
-        if (!slot) {
-          const free = await call("find_free_slots", freeSlotArgs(meeting));
-          if (refused(free)) throw new Error(`gateway ${free.outcome}: ${(free.reasons ?? []).join("; ")}`);
-          slot = firstSlotIn(resultData(free));
-          if (!slot) throw new Error(resultError(free) ?? "no free slot in the next 7 days; name a time in your reply");
+        const named = recipientValues(p, ["attendees", "with", "to", "email", "entity_id", "entity_ids"]);
+        const { emails, unresolved } = await resolveEmails(businessId, named);
+        if (named.length > 0 && emails.length === 0) throw new Error(`No email address on record for ${unresolved.join(", ")}. Add one to their CRM profile, then decide again.`);
+        const summary = str(p.title, str(p.summary, str(p.topic, "Meeting"))).slice(0, 300);
+        const start = str(p.start);
+        if (!start || Number.isNaN(Date.parse(start))) {
+          return delegate(businessId, action, agent, `Schedule: ${summary}`, `Find a free slot${p.timeframe ? ` (${String(p.timeframe)})` : ""} with your calendar tools and invite ${emails.join(", ") || "the people named in the decision"}: ${summary}.`);
         }
-        const res = await call("create_event", createEventArgs(meeting, slot), { recipient: meeting.attendees[0], planActionId: action.id });
-        if (refused(res)) throw new Error(`gateway ${res.outcome}: ${(res.reasons ?? []).join("; ")}`);
-        const failed = resultError(res);
-        if (failed) throw new Error(`google_calendar.create_event failed: ${failed}`);
-        return { result: { connector: "google_calendar", tool: "create_event", attendees: meeting.attendees, start: slot.start, end: slot.end, outcome: res.outcome, approvalId: res.approvalId ?? null }, spawn: [] };
+        const startIso = new Date(start).toISOString();
+        const end = str(p.end);
+        const endIso = end && !Number.isNaN(Date.parse(end)) && Date.parse(end) > Date.parse(start) ? new Date(end).toISOString() : new Date(Date.parse(start) + (num(p.duration_minutes) ?? DEFAULT_MEETING_MINUTES) * 60_000).toISOString();
+        const args = { calendarId: str(p.calendar_id, "primary"), summary, ...(str(p.description) ? { description: str(p.description).slice(0, 5000) } : {}), start: startIso, end: endIso, attendees: emails, ...(str(p.time_zone) ? { timeZone: str(p.time_zone) } : {}), addMeetLink: p.add_meet_link !== false };
+        const event = (await checkedResult(await gatewayCall(businessId, agent, "google_calendar", "create_event", args, { recipient: emails[0], planActionId: action.id }), "google_calendar", "create_event", { approvalId: ctx.approvalId, businessId })) as { id?: string } | undefined;
+        return { result: { connector: "google_calendar", tool: "create_event", eventId: event?.id ?? null, start: startIso, end: endIso, attendees: emails }, spawn: [] };
       }
       case "hire_agent": {
         const key = str(p.template_key, str(p.agent_type));

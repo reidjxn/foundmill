@@ -13,8 +13,12 @@
  * item within seconds (AC-11.4.1). After commit ingest starts the orchestrator's `journeyBuild`, which adds who was
  * involved, the data-driven models once the business has enough conversions, and commentary (`followups.ts`). Every
  * number here that is not counted from rows is null until the journey builder estimates it (`acquisitionCost`).
+ *
+ * Every payment, a repeat one included, is counted toward the milestones in the same transaction
+ * (`awardMilestonesForConversion`, packages/db): the first, 10th, 100th customer, an MRR line, the first enterprise
+ * contract. Each is awarded once; one a concurrent delivery hid is awarded by the orchestrator's nightly catch-up.
  */
-import { repos, type Conversion, type Journey } from "@foundmill/db";
+import { awardMilestonesForConversion, repos, type Conversion, type Journey } from "@foundmill/db";
 import type { Executor } from "@foundmill/db/repos/_shared";
 import type { PlatformEvent } from "@foundmill/events";
 import { buildEvent, type WriteEventInput } from "@foundmill/events";
@@ -192,6 +196,7 @@ export async function recordConversionForEvent(
     sourceEventId: event.id,
     firstPayment,
   });
+  if (facts.kind === "payment") await awardMilestonesForConversion(tx, businessId, conversion.id);
   if (!firstPayment) return { conversion, entityId, firstPayment, win: null };
 
   if (entityId) await recordConversionTouch(tx, businessId, entityId, facts, event.occurredAt);

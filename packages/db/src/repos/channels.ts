@@ -7,10 +7,11 @@
  * (and optionally campaign); `metricsSummary` folds a date range into the per-channel totals and a
  * blended CPA the screen labels "Estimate".
  */
+import { createHash } from "node:crypto";
 import { CHANNEL_KEYS, CHANNEL_LINES, type ChannelKey, type ChannelLine } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { channelMetrics, channels, SUPPRESSION_SCOPES, suppressionList, type Channel, type ChannelMetric, type SuppressionEntry } from "../schema";
+import { businesses, channelMetrics, channels, SUPPRESSION_SCOPES, suppressionList, type Channel, type ChannelMetric, type SuppressionEntry } from "../schema";
 import { Currency, DayRange, dayRange, defined, Id, MinorAmount, numericText, one, parseInput, type Executor } from "./_shared";
 
 export const UpsertChannelInput = z.object({
@@ -66,6 +67,19 @@ export interface ChannelMetricsSummary {
   /** spend ÷ customers in minor units; null without customers. Label "Estimate". */
   cpaMinor: number | null;
   days: number;
+}
+
+export type SuppressionKind = "email" | "phone" | "address";
+
+/**
+ * The value a `suppression_list` hash column holds: sha256 hex of the normalized value (an email trimmed and lowercased,
+ * a phone number as digits with one leading +, an address lowercased with its whitespace collapsed). The gateway's
+ * `hashRecipient` normalizes emails and phones the same way, so an entry written here blocks its recipient check.
+ */
+export function suppressionHash(kind: SuppressionKind, value: string): string {
+  const normalized =
+    kind === "email" ? value.trim().toLowerCase() : kind === "phone" ? value.replace(/[^\d+]/g, "").replace(/(?!^)\+/g, "") : value.trim().toLowerCase().replace(/\s+/g, " ");
+  return createHash("sha256").update(normalized, "utf8").digest("hex");
 }
 
 export const AddSuppressionInput = z
@@ -194,6 +208,21 @@ export const channelsRepo = {
 
   async setEngineWorkflow(db: Executor, businessId: string, channelId: string, engineWorkflowId: string | null): Promise<Channel> {
     return one(await db.update(channels).set({ engineWorkflowId }).where(scoped(businessId, channelId)).returning(), "channel", channelId);
+  },
+
+  /**
+   * Service role, for the engine reconciler (orchestrator `channelEngineReconcile`): every enabled channel of a committed
+   * business that is neither archived nor stopped (0023), i.e. every channel the Board shows as running, oldest first.
+   */
+  async listForEngines(db: Executor, options: { limit?: number } = {}): Promise<{ businessId: string; channelId: string; channelKey: ChannelKey; engineWorkflowId: string | null }[]> {
+    const rows = await db
+      .select({ businessId: channels.businessId, channelId: channels.id, channelKey: channels.channelKey, engineWorkflowId: channels.engineWorkflowId })
+      .from(channels)
+      .innerJoin(businesses, eq(businesses.id, channels.businessId))
+      .where(and(eq(channels.enabled, true), isNull(channels.archivedAt), isNull(businesses.archivedAt), isNull(businesses.agentsStoppedAt), sql`${businesses.committedAt} is not null`))
+      .orderBy(asc(channels.createdAt), asc(channels.id))
+      .limit(options.limit ?? 5_000);
+    return rows.map((r) => ({ ...r, channelKey: r.channelKey as ChannelKey }));
   },
 
   async setOwner(db: Executor, businessId: string, channelId: string, ownerAgentId: string | null): Promise<Channel> {

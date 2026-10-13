@@ -40,6 +40,7 @@ import {
 import { JsonElementScanner } from "../stream-json";
 import { type StreamCallArgs, type StreamCallResult, runStructuredStream } from "../structured-stream";
 import type { BilledTo, CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelLogger, StreamStructuredRequest, StreamStructuredResult, TokenUsage, UsageEvent, UsageSink } from "../types";
+import { generateChannelCreative, isChannelCreativeRequest } from "./channelCreative";
 import { generateChiefOfStaff } from "./chiefOfStaff";
 import { generateCategoriser, generateClassifier } from "./classifier";
 import { generateCoach } from "./coach";
@@ -87,7 +88,7 @@ export const MOCK_ROUTES: Record<RouteKey, MockRouteDefinition> = {
   foundationsSkeleton: { route: "foundationsSkeleton", description: "The foundations vision, a one-sentence thesis per outline section and the roadmap's titles and horizons, from the foundations mock for the same brief.", schema: FoundationsSkeletonOutput, generate: generateFoundationsSkeleton },
   skillGrader: { route: "skillGrader", description: "Rubric grading 0–1 per line; deterministic checks are authoritative.", schema: SkillGradeOutput, generate: generateSkillGrader },
   coach: { route: "coach", description: "Up to 3 instruction diffs for the focus skills; never weakens house rules.", schema: CoachOutput, generate: generateCoach },
-  worker: { route: "worker", description: "Generic Sonnet worker: a stepwise plan and artifact list for a task.", schema: WorkerOutput, generate: generateWorker },
+  worker: { route: "worker", description: "Generic Sonnet worker: a stepwise plan and artifact list for a task; a channel engine's weekly creative drafts (one per asset kind, from the campaign) when the schema asks for assets.", schema: WorkerOutput, generate: (ctx) => (isChannelCreativeRequest(ctx) ? generateChannelCreative(ctx) : generateWorker(ctx)) },
   journeyCommentary: { route: "journeyCommentary", description: "Customer Update narration: one line per touch, entities linked from the manifest.", schema: CommentaryOutput, generate: generateJourneyCommentary },
   nightlyBatch: { route: "nightlyBatch", description: "Nightly batch job summary with one result per item.", schema: NightlyBatchOutput, generate: generateNightlyBatch },
   linker: { route: "linker", description: "Proper-noun sweep: exact → alias → fuzzy against the manifest; ambiguous and unknown flagged.", schema: LinkerOutput, generate: generateLinker },

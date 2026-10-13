@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { FormationScreen } from "../FormationScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
-import { BID, CAMPAIGN, CHANNEL, dataResponses, emptyResponses, recommendResponse } from "./fixtures";
+import { BID, CAMPAIGN, CHANNEL, channelsList, dataResponses, emptyResponses, recommendResponse } from "./fixtures";
 
 // The Strategist re-scores right after a toggle here; rescore.test.tsx covers the two-second wait.
 const props = { businessId: BID, departmentId: "d1", animateEntrance: false, rescoreDelayMs: 0 };
@@ -24,6 +24,13 @@ describe("FormationScreen", () => {
     expect(within(board).getByRole("group", { name: /^Off the board: All 15 channels are available/ })).toBeTruthy();
     expect(screen.getByText("4 of 15 running")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Re-score" })).toBeTruthy();
+  });
+
+  it("never counts a channel without an engine as running: it reads 'starting' (audit GTM-01)", () => {
+    const withoutEngine = { ...channelsList, channels: channelsList.channels.map((c, i) => ({ ...c, engineWorkflowId: c.enabled && i === 0 ? null : c.enabled ? `engine:${c.id}` : null })) };
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "distribution.channels.list": withoutEngine } });
+    renderScreen(fake, <FormationScreen {...props} />);
+    expect(screen.getByText("3 of 15 running · 1 starting")).toBeTruthy();
   });
 
   it("moves a channel to the bench with Enter → disable, then re-scores through distribution.recommend and refetches", async () => {

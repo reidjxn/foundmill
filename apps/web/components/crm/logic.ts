@@ -380,10 +380,10 @@ export function exportEntityJson(get: EntityGet, exportedAt: Date = new Date()):
 }
 
 export function deletionRequestNote(requestedBy: string, now: Date = new Date()): string {
-  return `Deletion requested by ${requestedBy} on ${formatDate(now)}. Runs in the scheduled, audited deletion job approved by the founder at setup; suppression entry kept so the person is not re-imported.`;
+  return `Deletion requested by ${requestedBy} on ${formatDate(now)}. Runs in the nightly, audited deletion job after 7 days; suppression entry kept so the person is not re-imported.`;
 }
 
-export const RETENTION_COPY = "Leads who never became customers are deleted after 24 months by a scheduled job you approved at setup, and every run is logged. Export and deletion requests for one person start from their profile.";
+export const RETENTION_COPY = "Leads who never became customers are due for deletion after 24 months. Export and deletion requests for one person start from their profile: outreach stops at once and the nightly, logged deletion job removes the record after 7 days.";
 
 /** The open (not reverted) merge that produced this record, if any, and the merges it absorbed. */
 export function mergeBanner(get: Pick<EntityGet, "entity" | "mergeHistory" | "redirectedFrom">): { redirected: boolean; absorbed: MergeLogRecord[]; open: MergeLogRecord[] } {

@@ -508,9 +508,20 @@ export interface BusinessFoundationsResult {
   error: string | null;
 }
 
+/**
+ * What a schedule workflow is started with. The registered Temporal Schedules (src/schedules.ts) pass no business ids:
+ * the workflow lists the businesses when it runs, so a business committed after the schedule was registered is included.
+ * Tests and one-off runs may name them.
+ */
 export interface ScheduleInput {
-  businessIds: string[];
+  businessIds?: string[];
   /** ISO "now" for deterministic runs; defaults to the clock. */
+  at?: string;
+}
+
+/** What the schedule activities process: the businesses the workflow resolved. */
+export interface ScheduleBatch {
+  businessIds: string[];
   at?: string;
 }
 
@@ -520,6 +531,22 @@ export interface ScheduleResult {
   eventIds: string[];
   notes: string[];
 }
+
+/** A channel whose engine the reconciler makes sure is running (`engine:<channelId>`). */
+export interface EngineToEnsure {
+  businessId: string;
+  channelId: string;
+  channelKey: string;
+  engineWorkflowId: string | null;
+}
+
+/** A business whose scheduled deletion came due, with the workflows to stop before it is purged. */
+export interface DueBusinessDeletion {
+  businessId: string;
+  scheduledFor: string;
+  workflowIds: string[];
+}
+
 
 export interface HealthRefreshResult {
   changed: { agentId: string; from: AgentStatus; to: AgentStatus; reason: string }[];

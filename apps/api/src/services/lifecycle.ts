@@ -9,23 +9,25 @@
  * - `archiveBusiness` pulls the kill switch, then archives the row (hidden from lists and from every procedure but
  *   export, restore and deletion). `restoreBusiness` (owner) brings it back; its agents stay stopped until resumed.
  * - `requestDeletion` / `cancelDeletion` record the request on the audit chain (append-only, hash-chained) with the
- *   scheduled date 7 days out, for an active or an archived business; nothing is deleted by the API process (a
- *   deletion job outside this wave consumes the request). The request needs a fresh authentication (`authenticatedAt`
- *   from the token's `amr`).
+ *   scheduled date 7 days out, for an active or an archived business; nothing is deleted by the API process: the orchestrator's
+ *   nightly `businessDeletionSweep` deletes a business whose latest request is past its date and was not canceled
+ *   (`repos.businesses.deletionsDue`, 0028 `fm_purge_business`). The request needs a fresh authentication
+ *   (`authenticatedAt` from the token's `amr`).
  */
 import { APP_NAME } from "@foundmill/config";
-import { EXPORT_EXCLUDED_TABLES, EXPORT_SECTIONS, EXPORT_TABLES, portableValue, repos, type Business, type Executor, type ExportSection, type InboxItem, type PortableRow } from "@foundmill/db";
+import { BUSINESS_DELETION_CANCEL_ACTION, BUSINESS_DELETION_DELAY_DAYS, BUSINESS_DELETION_REQUEST_ACTION, EXPORT_EXCLUDED_TABLES, EXPORT_SECTIONS, EXPORT_TABLES, portableValue, repos, type Business, type Executor, type ExportSection, type InboxItem, type PortableRow } from "@foundmill/db";
 import { AppError, ValidationError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, effectivePermission } from "../trpc";
 import { stopAllAgents, type StopAllResult } from "./killswitch";
 
 export const EXPORT_FORMAT = "foundmill-export/2" as const;
-export const DELETION_DELAY_DAYS = 7;
+export const DELETION_DELAY_DAYS = BUSINESS_DELETION_DELAY_DAYS;
 /** How recent the authentication must be for permanent actions (BUILD §11.15 "re-auth"). */
 export const REAUTH_WINDOW_MS = 10 * 60 * 1000;
-export const DELETION_REQUEST_ACTION = "business.request_deletion";
-export const DELETION_CANCEL_ACTION = "business.cancel_deletion";
+/** The audit actions the orchestrator's deletion sweep reads (one definition, in packages/db). */
+export const DELETION_REQUEST_ACTION = BUSINESS_DELETION_REQUEST_ACTION;
+export const DELETION_CANCEL_ACTION = BUSINESS_DELETION_CANCEL_ACTION;
 /** Rows read per round trip while a table is exported. */
 export const EXPORT_PAGE_ROWS = 1000;
 /**
@@ -283,7 +285,7 @@ export function deletionCopy(business: Pick<Business, "name"> & { archivedAt?: D
   };
 }
 
-/** Owner-only; needs a fresh authentication. Records the request with the 7-day date; the deletion job does the rest. */
+/** Owner-only; needs a fresh authentication. Records the request with the 7-day date; the nightly deletion sweep does the rest. */
 export async function requestDeletion(ctx: BusinessContext, input: RequestDeletionInput = {}): Promise<RequestDeletionResult> {
   const now = input.now ?? new Date();
   const authenticatedAt = ctx.authenticatedAt ?? null;

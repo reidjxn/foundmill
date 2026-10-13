@@ -137,6 +137,20 @@ describe("seedDemo on PGlite", () => {
     expect(await repos.inbox.countBlocking(db, NORTHWIND_BUSINESS_ID)).toBe(1);
   });
 
+  it("counts a lead for every lead record: the Leads tab lists the leads who have not paid (audit GTM-02)", async () => {
+    for (const businessId of [LEDGERLY_BUSINESS_ID, NORTHWIND_BUSINESS_ID]) {
+      const counted = (await repos.channels.metricsSummary(db, businessId, { from: "2000-01-01", to: "2100-01-01" })).channels.reduce((n, c) => n + c.leads, 0);
+      const records = Number(
+        ((await db.execute(sql`select count(*)::int as n from entity_roles where business_id = ${businessId}::uuid and role = 'lead'`)) as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 0,
+      );
+      expect(records).toBe(counted);
+      const open = await repos.entities.listByRole(db, businessId, "lead", { limit: 500 });
+      // Open leads are the ones who never paid; a lead who paid became a customer and its lead role ended then.
+      for (const lead of open.items) expect(lead.role.stage).toBe("qualified");
+      if (records > 0) expect(open.items.length).toBeGreaterThan(0);
+    }
+  });
+
   it("fills the modules: channels, campaigns, spec, roadmap, tasks with sessions, finance, legal, integrations, dashboards", async () => {
     const nwChannels = await repos.channels.list(db, NORTHWIND_BUSINESS_ID);
     expect(nwChannels).toHaveLength(CHANNEL_KEYS.length);
@@ -230,7 +244,7 @@ describe("seedDemo on PGlite", () => {
     expect(customerCount).toBeGreaterThan(5);
     expect(customerPage.total).toBe(customerCount);
     expect(customerPage.items.every((e) => e.roles.some((r) => r.role === "customer"))).toBe(true);
-  });
+  }, 240_000); // the role-filtered CRM page scans every seeded customer on PGlite (slow, not wrong)
 
   it("gives Ledgerly its LIVE extras: holiday, GitHub repo, Stripe payments, cap table with two SAFEs, community, leaderboard, training", async () => {
     const holiday = await repos.holidays.current(db, LEDGERLY_BUSINESS_ID);
@@ -308,4 +322,24 @@ describe("seedDemo on PGlite", () => {
     const owners = await db.select({ id: s.memberships.id }).from(s.memberships).where(eq(s.memberships.userId, result.owner.userId));
     expect(owners).toHaveLength(2);
   }, 600_000);
+
+  // Last: it deletes Ledgerly. Every table, trigger and foreign key of a fully seeded business, not a hand-made fixture.
+  it("the scheduled business deletion purges a fully seeded business, its audit chain included, and leaves the other whole (audit MLSL-20)", async () => {
+    const tables = ((await db.execute(sql`select table_name from information_schema.columns where table_schema = 'public' and column_name = 'business_id' and table_name in (select table_name from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE') order by table_name`)) as unknown as { rows: { table_name: string }[] }).rows.map((r) => r.table_name);
+    const counts = async (businessId: string) => {
+      const out: Record<string, number> = {};
+      for (const t of tables) out[t] = Number(((await db.execute(sql.raw(`select count(*)::int as n from "${t}" where business_id = '${businessId}'`))) as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 0);
+      return out;
+    };
+    const ledgerly = await counts(LEDGERLY_BUSINESS_ID);
+    expect(ledgerly.audit_log).toBeGreaterThan(0);
+    expect(ledgerly.cap_table_entries).toBeGreaterThan(0);
+    const northwind = await counts(NORTHWIND_BUSINESS_ID);
+
+    expect(await repos.businesses.purge(db, LEDGERLY_BUSINESS_ID)).toBe(true);
+    const after = await counts(LEDGERLY_BUSINESS_ID);
+    expect(Object.entries(after).filter(([, n]) => n > 0)).toEqual([]);
+    expect(await counts(NORTHWIND_BUSINESS_ID)).toEqual(northwind);
+    expect((await db.select({ id: s.businesses.id }).from(s.businesses)).map((b) => b.id)).toEqual([NORTHWIND_BUSINESS_ID]);
+  }, 120_000);
 });

@@ -27,6 +27,9 @@ export const entities = pgTable(
     visibility: text("visibility", { enum: VISIBILITY }).notNull().default("private"),
     agentId: uuid("agent_id").references((): AnyPgColumn => agents.id, { onDelete: "set null" }),
     mergedIntoId: uuid("merged_into_id").references((): AnyPgColumn => entities.id, { onDelete: "set null" }),
+    /** A deletion (erasure) request: suppressed from outreach at once, purged by the scheduled job after `deletionDueAt` (0028). */
+    deletionRequestedAt: tstz("deletion_requested_at"),
+    deletionDueAt: tstz("deletion_due_at"),
     ...timestampsWithArchive(),
   },
   (t) => [
@@ -35,6 +38,7 @@ export const entities = pgTable(
     index("entities_search_idx").using("gin", t.search),
     index("entities_agent_id_idx").on(t.agentId),
     index("entities_merged_into_id_idx").on(t.mergedIntoId),
+    index("entities_deletion_due_idx").on(t.deletionDueAt).where(sql`${t.deletionDueAt} is not null`),
   ],
 );
 export type Entity = typeof entities.$inferSelect;

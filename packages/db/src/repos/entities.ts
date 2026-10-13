@@ -20,10 +20,11 @@ import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import {
-  ACTOR_BY_KINDS, entities, entityRoles, fieldProvenance, interactions, INTERACTION_DIRECTIONS, mentions, mergeLog, relationships,
+  ACTOR_BY_KINDS, capTableEntries, entities, entityRoles, fieldProvenance, interactions, INTERACTION_DIRECTIONS, mentions, mergeLog, relationships,
   type Entity, type EntityRole, type FieldProvenance, type Interaction, type Mention, type MergeLogEntry, type Relationship,
 } from "../schema";
 import { DateRange, defined, Id, IsoDateInput, numericText, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page, patchSchema } from "./_shared";
+import { channelsRepo, suppressionHash, type SuppressionKind } from "./channels";
 
 export const STRONG_IDENTIFIERS = ["email", "domain", "linkedin", "reg_no", "stripe_id"] as const;
 export type StrongIdentifier = (typeof STRONG_IDENTIFIERS)[number];
@@ -138,6 +139,32 @@ export const RecordProvenanceInput = z.object({
   observedAt: IsoDateInput.optional(),
 });
 export type RecordProvenanceInput = z.input<typeof RecordProvenanceInput>;
+
+/** A lead an engine found (BUILD §11.7 "push to CRM"): the person or organization with its source and lawful basis. */
+export const UpsertLeadInput = z.object({
+  kind: z.enum(["person", "organisation"]).default("person"),
+  displayName: z.string().trim().min(1).max(200),
+  email: z.email().max(320).nullable().optional(),
+  company: z.string().trim().max(200).nullable().optional(),
+  domain: z.string().trim().max(253).nullable().optional(),
+  /** The channel key (or connector) that produced the lead; the Leads tab shows it as the source. */
+  source: z.string().min(1).max(120),
+  /** BUILD §11.12 data duties: why the business may contact this person. */
+  lawfulBasis: z.enum(["consent", "legitimate_interest", "contract"]).nullable().optional(),
+  stage: z.string().max(80).default("new"),
+  ownerAgentId: Id.nullable().optional(),
+  startedAt: IsoDateInput.optional(),
+});
+export type UpsertLeadInput = z.input<typeof UpsertLeadInput>;
+
+export type UpsertLeadResult =
+  | { status: "created" | "existing"; entity: Entity; role: EntityRole; roleCreated: boolean }
+  /** The address is on the suppression list or the record is being deleted: nothing is written (no re-import). */
+  | { status: "suppressed"; entity: null; role: null; roleCreated: false };
+
+/** Days between a CRM deletion request and its purge (matches the copy on the profile and Settings › Danger zone). */
+export const ENTITY_DELETION_DELAY_DAYS = 7;
+export const ENTITY_DELETION_REASON = "Deletion requested";
 
 export const MergeOptions = z.object({ byKind: z.enum(ACTOR_BY_KINDS).default("user"), byId: Id.nullable().optional() });
 export type MergeOptions = z.input<typeof MergeOptions>;
@@ -369,6 +396,21 @@ async function unmergeBlockers(db: Executor, businessId: string, log: MergeLogEn
 
 const scoped = (businessId: string, entityId: string) => and(eq(entities.businessId, businessId), eq(entities.id, entityId));
 const live = and(isNull(entities.archivedAt), isNull(entities.mergedIntoId));
+const textOf = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
+
+/** The suppression hashes of a record's contact identifiers (email, phone, postal address). */
+function contactHashes(identifiers: Record<string, unknown>): { kind: SuppressionKind; hash: string }[] {
+  const out: { kind: SuppressionKind; hash: string }[] = [];
+  const email = textOf(identifiers.email);
+  const phone = textOf(identifiers.phone);
+  const address = textOf(identifiers.address);
+  if (email) out.push({ kind: "email", hash: suppressionHash("email", email) });
+  if (phone && phone.replace(/\D/g, "").length >= 6) out.push({ kind: "phone", hash: suppressionHash("phone", phone) });
+  if (address) out.push({ kind: "address", hash: suppressionHash("address", address) });
+  return out;
+}
+
+const HASH_FIELD = { email: "emailHash", phone: "phoneHash", address: "addressHash" } as const;
 const toArray = <T>(v: T | T[] | undefined): T[] | undefined => (v === undefined ? undefined : Array.isArray(v) ? v : [v]);
 const uniq = (xs: string[]) => [...new Set(xs)];
 const vectorLiteral = (v: number[]) => `[${v.join(",")}]`;
@@ -464,7 +506,7 @@ export const entitiesRepo = {
     return db
       .select({ id: entities.id, kind: entities.kind, displayName: entities.displayName, aliases: entities.aliases })
       .from(entities)
-      .where(and(eq(entities.businessId, businessId), live, options.ids ? inArray(entities.id, [...options.ids]) : undefined))
+      .where(and(eq(entities.businessId, businessId), live, isNull(entities.deletionRequestedAt), options.ids ? inArray(entities.id, [...options.ids]) : undefined))
       .orderBy(asc(entities.displayName))
       .limit(options.limit ?? 2000);
   },
@@ -972,5 +1014,107 @@ export const entitiesRepo = {
       db.select({ n: sql<number>`count(*)::int` }).from(mentions).where(and(eq(mentions.businessId, businessId), eq(mentions.entityId, entity.id))),
     ]);
     return { entity, roles, relationships: rels, recentInteractions: recent.items, mentionCount: Number(mentionRows[0]?.n ?? 0) };
+  },
+
+  // leads -------------------------------------------------------------------------------------------------------------
+  /**
+   * Records a lead an engine counted (audit GTM-02): the person or organization (found by email, else created with its
+   * source and lawful basis) and an active `lead` role, which the Distribution › Leads tab lists. An address on the
+   * suppression list, or a record whose deletion was requested, is never written again (`suppressed`).
+   */
+  async upsertLead(db: Executor, businessId: string, input: UpsertLeadInput): Promise<UpsertLeadResult> {
+    const v = parseInput(UpsertLeadInput, input, "lead");
+    const suppressed: UpsertLeadResult = { status: "suppressed", entity: null, role: null, roleCreated: false };
+    if (v.email && (await channelsRepo.isSuppressed(db, businessId, { emailHash: suppressionHash("email", v.email) }))) return suppressed;
+    const existing = v.email ? await entitiesRepo.findByIdentifier(db, businessId, "email", v.email) : null;
+    if (existing?.deletionRequestedAt) return suppressed;
+    const identifiers: Record<string, string> = {};
+    if (v.email) identifiers.email = v.email.toLowerCase();
+    if (v.company) identifiers.company = v.company;
+    if (v.domain) identifiers.domain = v.domain.toLowerCase();
+    const entity = existing ?? (await entitiesRepo.create(db, businessId, { kind: v.kind, displayName: v.displayName, identifiers, source: v.source, lawfulBasis: v.lawfulBasis ?? null }));
+    if (existing && !existing.lawfulBasis && v.lawfulBasis) await db.update(entities).set({ lawfulBasis: v.lawfulBasis }).where(scoped(businessId, existing.id));
+    const [active] = await db
+      .select()
+      .from(entityRoles)
+      .where(and(eq(entityRoles.businessId, businessId), eq(entityRoles.entityId, entity.id), eq(entityRoles.role, "lead"), isNull(entityRoles.endedAt)))
+      .limit(1);
+    if (active) return { status: existing ? "existing" : "created", entity, role: active, roleCreated: false };
+    const role = await entitiesRepo.addRole(db, businessId, entity.id, { role: "lead", stage: v.stage, ownerRef: v.ownerAgentId ? { kind: "agent", id: v.ownerAgentId } : null, startedAt: v.startedAt });
+    return { status: existing ? "existing" : "created", entity, role, roleCreated: true };
+  },
+
+  // deletion requests (GDPR erasure; audit RA-23) -----------------------------------------------------------------------
+  /**
+   * The founder asked to delete a person's record. At once: every contact identifier of the record (and of the records
+   * merged into it) goes on the business's suppression list, so the gateway refuses outreach and engines never import it
+   * again; the record is flagged (`deletion_requested_at`, the identifiers' `suppressed` flag, lead roles `suppressed`)
+   * and leaves the entity-linker manifest. The orchestrator's `crmDeletionSweep` purges it once `deletion_due_at` passes.
+   * Idempotent: a second request keeps the first dates.
+   */
+  async requestDeletion(db: Executor, businessId: string, entityId: string, options: { requestedAt?: Date; delayDays?: number } = {}): Promise<{ entity: Entity; already: boolean; suppressed: number }> {
+    return db.transaction(async (tx) => {
+      const entity = await entitiesRepo.resolve(tx, businessId, entityId);
+      if (entity.deletionRequestedAt) return { entity, already: true, suppressed: 0 };
+      const requestedAt = options.requestedAt ?? new Date();
+      const dueAt = new Date(requestedAt.getTime() + (options.delayDays ?? ENTITY_DELETION_DELAY_DAYS) * 86_400_000);
+      const merged = await tx.select().from(entities).where(and(eq(entities.businessId, businessId), eq(entities.mergedIntoId, entity.id)));
+      const hashes = new Map<string, { kind: SuppressionKind; hash: string }>();
+      for (const row of [entity, ...merged]) for (const h of contactHashes((row.identifiers ?? {}) as Record<string, unknown>)) hashes.set(`${h.kind}:${h.hash}`, h);
+      for (const h of hashes.values()) {
+        const field = HASH_FIELD[h.kind];
+        if (await channelsRepo.isSuppressed(tx, businessId, { [field]: h.hash })) continue;
+        await channelsRepo.addSuppression(tx, businessId, { [field]: h.hash, reason: ENTITY_DELETION_REASON, scope: "business", source: "crm.request_deletion" });
+      }
+      const identifiers = { ...((entity.identifiers ?? {}) as Record<string, unknown>), suppressed: "true", suppression_reason: ENTITY_DELETION_REASON } as Entity["identifiers"];
+      const updated = one(await tx.update(entities).set({ deletionRequestedAt: requestedAt, deletionDueAt: dueAt, identifiers }).where(scoped(businessId, entity.id)).returning(), "entity", entity.id);
+      await tx
+        .update(entityRoles)
+        .set({ stage: "suppressed" })
+        .where(and(eq(entityRoles.businessId, businessId), inArray(entityRoles.entityId, [entity.id, ...merged.map((m) => m.id)]), eq(entityRoles.role, "lead"), isNull(entityRoles.endedAt)));
+      return { entity: updated, already: false, suppressed: hashes.size };
+    });
+  },
+
+  /** Service role, for the deletion sweep: records whose deletion came due at `now`, across businesses, oldest first. */
+  async deletionsDue(db: Executor, now: Date = new Date(), limit = 500): Promise<{ businessId: string; entityId: string; dueAt: Date }[]> {
+    const rows = await db
+      .select({ businessId: entities.businessId, entityId: entities.id, dueAt: entities.deletionDueAt })
+      .from(entities)
+      .where(and(isNull(entities.mergedIntoId), sql`${entities.deletionDueAt} <= ${now.toISOString()}::timestamptz`))
+      .orderBy(asc(entities.deletionDueAt), asc(entities.id))
+      .limit(limit);
+    return rows.map((r) => ({ businessId: r.businessId, entityId: r.entityId, dueAt: r.dueAt! }));
+  },
+
+  /**
+   * Permanently deletes a record whose deletion came due, with the records merged into it: roles, relationships,
+   * mentions, provenance and merge history go with them (cascades), interactions about only them are deleted and the
+   * others forget them, and journey and finance rows keep their amounts without the person (`set null`). The
+   * suppression entries stay, so the person is never contacted or imported again. A cap-table holder is never purged
+   * (`blocked`: ownership records are kept by law). Returns the purged ids.
+   */
+  async purge(db: Executor, businessId: string, entityId: string): Promise<{ purged: string[]; blocked: string | null }> {
+    return db.transaction(async (tx) => {
+      const [entity] = await tx.select().from(entities).where(scoped(businessId, entityId)).limit(1);
+      if (!entity) return { purged: [], blocked: null };
+      if (!entity.deletionDueAt) return { purged: [], blocked: "no deletion was requested" };
+      const merged = await tx.select({ id: entities.id }).from(entities).where(and(eq(entities.businessId, businessId), eq(entities.mergedIntoId, entity.id)));
+      const ids = [entity.id, ...merged.map((m) => m.id)];
+      const holder = await tx.select({ id: capTableEntries.id }).from(capTableEntries).where(and(eq(capTableEntries.businessId, businessId), inArray(capTableEntries.holderEntityId, ids))).limit(1);
+      if (holder.length) return { purged: [], blocked: "the record holds a cap-table entry" };
+      const idArray = sql`array[${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)}]`;
+      // About them and nobody else: `&&` keeps an interaction that names no record at all (an empty array is contained
+      // in every array).
+      await tx.delete(interactions).where(and(eq(interactions.businessId, businessId), sql`${interactions.entityIds} && ${idArray}`, sql`${interactions.entityIds} <@ ${idArray}`));
+      for (const id of ids) {
+        await tx
+          .update(interactions)
+          .set({ entityIds: sql`array_remove(${interactions.entityIds}, ${id}::uuid)` })
+          .where(and(eq(interactions.businessId, businessId), sql`${interactions.entityIds} @> array[${id}::uuid]`));
+      }
+      await tx.delete(entities).where(and(eq(entities.businessId, businessId), inArray(entities.id, ids)));
+      return { purged: ids, blocked: null };
+    });
   },
 };

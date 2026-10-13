@@ -1,7 +1,7 @@
 /**
  * Source Watcher workflows (BUILD §11.5): `sourceWatch` reads the sources apps/api just added
  * (`source-watch:{sourceId}:added`), `sourceWatchSweep` re-reads every business's stale sources on a schedule (the
- * nightly schedule passes the active business ids, like the other schedule workflows). Each source is one
+ * registered schedule names no businesses, so the sweep lists those whose team may work). Each source is one
  * `watchSource` activity with its own retries; when they run out the read is recorded as failed and the next sweep
  * tries again. A failure never stops the other sources.
  */
@@ -49,8 +49,10 @@ export async function sourceWatchSweep(input: SourceWatchSweepInput): Promise<Sc
     }
     notes.push(`${businessId}: ${sourceIds.length} source(s) read, ${proposals} proposal(s), ${failed} failed`);
   };
-  for (let i = 0; i < input.businessIds.length; i += SWEEP_PARALLEL_BUSINESSES) {
-    await Promise.all(input.businessIds.slice(i, i + SWEEP_PARALLEL_BUSINESSES).map(sweepBusiness));
+  // The registered schedule names no businesses: every business whose team may work (a stopped team reads nothing).
+  const businessIds = input.businessIds ?? (await writeActs.listScheduledBusinesses({ runnable: true })).businessIds;
+  for (let i = 0; i < businessIds.length; i += SWEEP_PARALLEL_BUSINESSES) {
+    await Promise.all(businessIds.slice(i, i + SWEEP_PARALLEL_BUSINESSES).map(sweepBusiness));
   }
-  return { businesses: input.businessIds.length, touched, eventIds: [], notes };
+  return { businesses: businessIds.length, touched, eventIds: [], notes };
 }

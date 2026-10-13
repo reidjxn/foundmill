@@ -92,7 +92,7 @@ export const campaigns: CampaignRow[] = [
 ];
 
 export const assets: AssetRow[] = [
-  { id: ASSET.ad, campaignId: CAMPAIGN.launch, kind: "ad", title: "Glow serum carousel", contentRef: "https://assets.example.com/ad-1", approvalState: "pending", authoredByAgentId: AGENT.mara, createdAt: `${addDays(TODAY, -2)}T08:00:00.000Z` },
+  { id: ASSET.ad, campaignId: CAMPAIGN.launch, kind: "ad", title: "Glow serum carousel", contentRef: "https://assets.example.com/ad-1", body: "Headline: Calm skin by Friday\nDescription: Three steps, no fragrance.", approvalState: "pending", authoredByAgentId: AGENT.mara, createdAt: `${addDays(TODAY, -2)}T08:00:00.000Z` },
   { id: ASSET.post, campaignId: CAMPAIGN.spring, kind: "post", title: "Morning routine, day one", contentRef: null, approvalState: "approved", authoredByAgentId: AGENT.otis, createdAt: `${addDays(TODAY, -5)}T08:00:00.000Z` },
   { id: ASSET.email, campaignId: CAMPAIGN.welcome, kind: "email", title: "Welcome to Northwind", contentRef: "drive://welcome-1", approvalState: "draft", authoredByAgentId: null, createdAt: `${addDays(TODAY, -1)}T08:00:00.000Z` },
   { id: ASSET.video, campaignId: CAMPAIGN.launch, kind: "video", title: "Founder story 30s", contentRef: null, approvalState: "rejected", authoredByAgentId: AGENT.mara, createdAt: `${addDays(TODAY, -3)}T08:00:00.000Z` },

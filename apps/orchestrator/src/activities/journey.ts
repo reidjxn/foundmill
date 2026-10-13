@@ -9,15 +9,19 @@
  * the Markov removal-effect model from 200 labeled conversions and the trained xC model from 50, both fitted on the
  * business's recent paths, and the models actually used, which journey.get labels the record with. The founder's
  * viewed state is kept; the event ingest wrote is not repeated. A repeat payment has no journey to build.
+ *
+ * The milestones a payment reached (first customer, an MRR line, ...) are awarded again here, idempotently, in case the
+ * delivery's own award was missed, and the journey matview is refreshed soon after (`requestJourneyDailyRefresh`).
  */
 import { ApplicationFailure } from "@temporalio/common";
 import { LIMITS } from "@foundmill/config";
 import { archetypePrior, buildJourney, buildMarkovModel, conversionPathsFromTouches, trainXcModel, Touch, TouchKind, xcSamplesFromPaths, type ConsentState, type MarkovModel, type XcModel } from "@foundmill/journey";
-import { repos } from "@foundmill/db";
+import { awardMilestonesForConversion, repos } from "@foundmill/db";
 import { AppError, type Archetype, type ChannelKey } from "@foundmill/shared";
 import { ComposerRequestError, ComposerUnavailableError } from "../composer-client";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
+import { requestJourneyDailyRefresh } from "../journey-refresh";
 import type { JourneyBuildInput, JourneyBuildResult } from "./types";
 
 const DAY_MS = 86_400_000;
@@ -52,6 +56,8 @@ export function createJourneyActivities(deps: OrchestratorDeps) {
       const businessId = input.businessId;
       const existing = await repos.journeys.forConversion(db, businessId, input.conversionId);
       const conversion = await repos.journeys.getConversion(db, businessId, input.conversionId);
+      if (conversion.kind === "payment") await awardMilestonesForConversion(db, businessId, conversion.id);
+      requestJourneyDailyRefresh(deps);
       // A renewal or a repeat order is revenue, not a customer won: there is no Customer Update to build.
       if (conversion.kind === "payment" && !conversion.firstPayment) return { journeyId: existing?.id ?? null, matchdayLevel: "cup", fullMatchDay: false, eventId: null };
       const [business, nthOfKind, counts, p75, agentsPage, channels, metrics] = await Promise.all([

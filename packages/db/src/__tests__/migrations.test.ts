@@ -52,6 +52,7 @@ describe("journal", () => {
       "0025_business_currency",
       "0026_membership_guards",
       "0027_live_social_delivery",
+      "0028_journey_runtime",
       "0030_approvals_inbox",
       "0031_settings_lifecycle",
       "0033_payments",

@@ -70,6 +70,8 @@ export const assets = pgTable(
     kind: text("kind", { enum: ASSET_KINDS }).notNull(),
     title: text("title").notNull().default(""),
     contentRef: text("content_ref"),
+    /** The drafted text (an email, a post, an ad's copy, a print brief; 0028), at most 8,000 characters. */
+    body: text("body"),
     approvalState: text("approval_state", { enum: APPROVAL_STATES }).notNull().default("draft"),
     authoredByAgentId: uuid("authored_by_agent_id").references(() => agents.id, { onDelete: "set null" }),
     ...timestampsWithArchive(),
