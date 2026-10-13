@@ -50,7 +50,30 @@ export interface CreateDbOptions {
   logger?: boolean;
 }
 
-const isTransactionPooler = (url: string) => /pooler\.supabase\.com:6543/.test(url) || /pgbouncer=true/.test(url);
+/**
+ * Query parameters other clients (Prisma) put in a connection string. postgres.js sends every query parameter it does not
+ * know to the server as a startup parameter, and Postgres refuses the connection ("unrecognized configuration parameter
+ * \"pgbouncer\""), so they are dropped before connecting.
+ */
+const CLIENT_ONLY_PARAMS = ["pgbouncer", "connection_limit", "pool_timeout", "socket_timeout", "statement_cache_size"];
+
+/**
+ * The connection string postgres.js gets, and whether it reaches a transaction pooler (PgBouncer in transaction mode:
+ * Supabase's shared pooler, its dedicated pooler on port 6543, or any URL marked `pgbouncer=true`), where prepared
+ * statements must be off. A string that is not a URL is passed as it is.
+ */
+export function postgresConnection(url: string): { url: string; transactionPooler: boolean } {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { url, transactionPooler: /pooler\.supabase\.com:6543/.test(url) };
+  }
+  const transactionPooler = parsed.port === "6543" || /\.pooler\.supabase\.com$/i.test(parsed.hostname) || parsed.searchParams.get("pgbouncer") === "true";
+  const dropped = CLIENT_ONLY_PARAMS.filter((p) => parsed.searchParams.has(p));
+  for (const p of dropped) parsed.searchParams.delete(p);
+  return { url: dropped.length > 0 ? parsed.toString() : url, transactionPooler };
+}
 
 /**
  * `pglite:<dir>` / `pglite::memory:` → Drizzle over PGlite (roles, stub auth schema, pg_trgm + pgvector booted
@@ -63,10 +86,11 @@ export function createDb(url: string, options: CreateDbOptions = {}): AnyDb {
   if (!url) throw new Error("createDb: a connection string is required");
   const pglite = parsePgliteUrl(url);
   if (pglite) return createPgliteDb(pglite, { logger: options.logger });
-  const client = postgres(url, {
+  const connection = postgresConnection(url);
+  const client = postgres(connection.url, {
     max: options.max ?? 10,
     idle_timeout: options.idleTimeout,
-    prepare: options.prepare ?? !isTransactionPooler(url),
+    prepare: options.prepare ?? !connection.transactionPooler,
     onnotice: () => {},
   });
   return drizzle({ client, schema, logger: options.logger ?? false });

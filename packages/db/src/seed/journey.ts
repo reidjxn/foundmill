@@ -264,8 +264,9 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
   log(`inserted ${touchRows.length} touches`);
 
   // --- events for the most recent payments (webhook-shaped, so inbox items can cite them) ---------------------------
+  // Built to the catalogue's `payment.received` schema (packages/events), like the ingest webhook writes them (#432).
   const payments = data.conversions.filter((c) => c.kind === "payment");
-  const latest = payments.slice(-5);
+  const latest = payments.filter((c) => c.entityId).slice(-5);
   const eventRows: NewEvent[] = [];
   const outboxRows: NewOutboxRow[] = [];
   const eventIdByConversion = new Map<string, string>();
@@ -281,12 +282,18 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
       actor: { kind: "webhook", id: opts.customerSource },
       entityIds: c.entityId ? [c.entityId] : [],
       payload: {
-        provider: opts.customerSource,
-        amountMinor: c.amountMinor,
-        currency: c.currency,
+        entityId: c.entityId,
         conversionId: c.id,
-        customerName: customer?.displayName ?? null,
-        ...(opts.customerSource === "shopify" ? { orderId: `#${10_000 + payments.length - latest.length + i}` } : { subscriptionId: `sub_${c.id.replace(/-/g, "").slice(0, 14)}` }),
+        amount: { amountMinor: c.amountMinor, currency: c.currency },
+        provider: opts.customerSource,
+        // A Shopify order number, or the Stripe invoice the subscription payment settled.
+        externalId: opts.customerSource === "shopify" ? `#${10_000 + payments.length - latest.length + i}` : `in_${c.id.replace(/-/g, "").slice(0, 14)}`,
+        firstPayment: c.firstPayment ?? true,
+        recurring: opts.customerSource === "stripe",
+        productRef: null,
+        fee: null,
+        customer: { externalId: null, email: null, name: customer?.displayName ?? null },
+        source: null,
         label: "Synthetic",
       },
       narrated: i < latest.length - 2,

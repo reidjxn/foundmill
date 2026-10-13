@@ -32,6 +32,7 @@ import { plansRepo } from "./plans";
 import { playbooksRepo } from "./playbooks";
 import { policiesRepo } from "./policies";
 import { productRepo } from "./product";
+import { recordingsRepo } from "./recordings";
 import { screensRepo } from "./screens";
 import { skillsRepo } from "./skills";
 import { socialRepo } from "./social";
@@ -80,6 +81,7 @@ export const repos = {
   conversations: conversationsRepo,
   preferences: preferencesRepo,
   checkouts: checkoutsRepo,
+  recordings: recordingsRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -113,6 +115,7 @@ export * from "./plans";
 export * from "./playbooks";
 export * from "./policies";
 export * from "./product";
+export * from "./recordings";
 export * from "./screens";
 export * from "./skills";
 export * from "./social";

@@ -1,7 +1,7 @@
 /**
  * In-memory Redis Streams fake implementing the subset `StreamRedis` declares, with real Redis semantics
- * for ids, MAXLEN trimming, consumer groups, pending entries (idle time, delivery counts), XCLAIM and
- * blocking XREADGROUP/XREAD. Tests in this package and in consumers (composer, stream, journey...) run
+ * for ids, MAXLEN/MINID trimming (exact, also for `~`), key TTLs (EXPIRE; an expired key disappears on the next
+ * command), consumer groups, pending entries (idle time, delivery counts), XCLAIM and blocking XREADGROUP/XREAD. Tests in this package and in consumers (composer, stream, journey...) run
  * against it without a Redis server. `duplicate()` returns a client sharing the same store.
  *
  * Time is injectable (`new MemoryRedis({ now })`) so idle-based behaviour is deterministic.
@@ -42,12 +42,23 @@ interface Waiter {
 export class MemoryStore {
   readonly streams = new Map<string, Stream>();
   readonly waiters = new Set<Waiter>();
+  /** Key → epoch ms at which it expires (EXPIRE). */
+  readonly expiresAt = new Map<string, number>();
   now: () => number;
   constructor(now: () => number = () => Date.now()) {
     this.now = now;
   }
   notify(key: string): void {
     for (const w of this.waiters) if (w.keys.has(key)) w.wake();
+  }
+  /** Drops every key whose TTL has run out (Redis expires keys lazily too, on access). */
+  sweep(): void {
+    const now = this.now();
+    for (const [key, at] of this.expiresAt) {
+      if (at > now) continue;
+      this.expiresAt.delete(key);
+      this.streams.delete(key);
+    }
   }
 }
 
@@ -166,6 +177,15 @@ export class MemoryRedis implements StreamRedis {
 
   private checkOpen(): void {
     if (this.closed) throw new RedisReplyError("Connection is closed.");
+    this.store.sweep();
+  }
+
+  /** Removes entries with an id below `minId`; returns how many. */
+  private trimMinId(s: Stream, minId: string): number {
+    const keep = s.entries.findIndex((e) => compareStreamIds(e.id, minId) >= 0);
+    const n = keep === -1 ? s.entries.length : keep;
+    if (n > 0) s.entries.splice(0, n);
+    return n;
   }
 
   // ------------------------------------------------------------------ XADD / XRANGE / XLEN / XDEL
@@ -175,6 +195,7 @@ export class MemoryRedis implements StreamRedis {
     const args = rawArgs.map(str);
     let i = 0;
     let maxLen: number | null = null;
+    let minId: string | null = null;
     let noMkStream = false;
     for (; i < args.length;) {
       const tok = args[i]!.toUpperCase();
@@ -188,6 +209,7 @@ export class MemoryRedis implements StreamRedis {
         j += 1;
         if (args[j]?.toUpperCase() === "LIMIT") j += 2;
         if (tok === "MAXLEN") maxLen = Number(threshold);
+        else minId = threshold.includes("-") ? threshold : `${threshold}-0`;
         i = j;
       } else break;
     }
@@ -205,8 +227,27 @@ export class MemoryRedis implements StreamRedis {
     s.lastId = id;
     if (maxLen !== null && maxLen >= 0 && s.entries.length > maxLen)
       s.entries.splice(0, s.entries.length - maxLen);
+    if (minId !== null) this.trimMinId(s, minId);
     this.store.notify(key);
     return id;
+  }
+
+  /** XTRIM key MAXLEN|MINID [=|~] threshold (trimming is exact here). */
+  async xtrim(key: string, ...rawArgs: RedisArg[]): Promise<number> {
+    this.checkOpen();
+    const args = rawArgs.map(str);
+    const strategy = args[0]?.toUpperCase();
+    const threshold = args[1] === "~" || args[1] === "=" ? args[2] : args[1];
+    if ((strategy !== "MAXLEN" && strategy !== "MINID") || threshold === undefined)
+      throw new RedisReplyError("ERR syntax error");
+    const s = this.store.streams.get(key);
+    if (!s) return 0;
+    if (strategy === "MINID") return this.trimMinId(s, threshold.includes("-") ? threshold : `${threshold}-0`);
+    const maxLen = Number(threshold);
+    if (s.entries.length <= maxLen) return 0;
+    const n = s.entries.length - maxLen;
+    s.entries.splice(0, n);
+    return n;
   }
 
   async xrange(
@@ -652,8 +693,31 @@ export class MemoryRedis implements StreamRedis {
   async del(...keys: string[]): Promise<number> {
     this.checkOpen();
     let n = 0;
-    for (const k of keys) if (this.store.streams.delete(k)) n++;
+    for (const k of keys) {
+      this.store.expiresAt.delete(k);
+      if (this.store.streams.delete(k)) n++;
+    }
     return n;
+  }
+
+  /** EXPIRE key seconds: 1 when the key exists (a TTL of 0 or less deletes it at once), else 0. */
+  async expire(key: string, seconds: number | string): Promise<number> {
+    this.checkOpen();
+    if (!this.store.streams.has(key)) return 0;
+    const ms = Number(seconds) * 1000;
+    if (ms <= 0) {
+      this.store.expiresAt.delete(key);
+      this.store.streams.delete(key);
+    } else this.store.expiresAt.set(key, this.store.now() + ms);
+    return 1;
+  }
+
+  /** TTL key: seconds left, -1 without a TTL, -2 when the key does not exist. */
+  async ttl(key: string): Promise<number> {
+    this.checkOpen();
+    if (!this.store.streams.has(key)) return -2;
+    const at = this.store.expiresAt.get(key);
+    return at === undefined ? -1 : Math.ceil((at - this.store.now()) / 1000);
   }
 
   async exists(...keys: string[]): Promise<number> {
@@ -695,6 +759,7 @@ export class MemoryRedis implements StreamRedis {
   /** Remove every stream (between tests). */
   flushall(): void {
     this.store.streams.clear();
+    this.store.expiresAt.clear();
   }
 }
 

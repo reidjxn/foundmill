@@ -10,7 +10,7 @@ import { eq } from "drizzle-orm";
 import { repos } from "../repos";
 import { entities as entitiesTable, type Entity } from "../schema";
 import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
-import { DEMO_OWNER_DISPLAY_NAME, NORTHWIND_BUSINESS_ID, NORTHWIND_NAME, NORTHWIND_SLUG } from "./constants";
+import { DEMO_OWNER_DISPLAY_NAME, DEMO_SEED_AUDIT_ACTION, NORTHWIND_BUSINESS_ID, NORTHWIND_NAME, NORTHWIND_SLUG } from "./constants";
 import { addDays, atHour, mention, money, pct, proseDoc, type SeedCtx } from "./context";
 import { seedFinance } from "./finance";
 import { seedJourney } from "./journey";
@@ -447,10 +447,11 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   // Mark the oldest sessions' agent entity as the customer-facing contact so search has an "agent" hit.
   await db.update(entitiesTable).set({ aliases: ["Chief of Staff", "CoS"] }).where(eq(entitiesTable.id, agentEntities.byAgentId.get(chief.agent.id)!.id));
 
+  // The build's last write: seed-on-boot reads it as "this business was built completely" (demoSeedState).
   await repos.audit.append(db, businessId, {
     actorKind: "system",
     actorId: null,
-    action: "seed.demo",
+    action: DEMO_SEED_AUDIT_ACTION,
     target: { kind: "business", id: businessId },
     details: { app: APP_NAME, seed: ctx.seed, slug: NORTHWIND_SLUG, inboxItems: inbox.length, journeys: journey.counts.journeys, legalEntityId: legal.legalEntityId },
   });

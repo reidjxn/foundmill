@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { ValidationError } from "@foundmill/shared";
-import { sessionStreamKey } from "../keys";
+import { SESSION_STREAM_ARCHIVED_TTL_SECONDS, SESSION_STREAM_TTL_SECONDS, sessionStreamKey } from "../keys";
 import {
   computeProgress,
+  expireSessionStream,
   parseSessionEvent,
   publishSessionEvent,
   readSessionEvents,
@@ -192,6 +193,31 @@ describe("session stream", () => {
       "8",
       "9",
     ]);
+  });
+
+  it("every publish gives the stream a backstop TTL; a saved session's stream expires an hour later (#233)", async () => {
+    let now = Date.parse("2026-10-12T09:00:00.000Z");
+    const redis = new MemoryRedis({ now: () => now });
+    await publishSessionEvent(redis, SESSION, { kind: "note", text: "started" });
+    expect(await redis.ttl(sessionStreamKey(SESSION))).toBe(SESSION_STREAM_TTL_SECONDS);
+    // A session nobody finished still goes away (Redis runs noeviction, so nothing else would remove it).
+    now += SESSION_STREAM_TTL_SECONDS * 1000;
+    expect(await sessionEventCount(redis, SESSION)).toBe(0);
+
+    await publishSessionEvent(redis, SESSION, { kind: "note", text: "again" });
+    expect(await expireSessionStream(redis, SESSION)).toBe(true);
+    expect(await redis.ttl(sessionStreamKey(SESSION))).toBe(SESSION_STREAM_ARCHIVED_TTL_SECONDS);
+    expect(await sessionEventCount(redis, SESSION)).toBe(1);
+    now += SESSION_STREAM_ARCHIVED_TTL_SECONDS * 1000;
+    expect(await redis.exists(sessionStreamKey(SESSION))).toBe(0);
+
+    await publishSessionEvent(redis, SESSION, { kind: "note", text: "no ttl" }, { ttlSeconds: 0 });
+    expect(await redis.ttl(sessionStreamKey(SESSION))).toBe(-1);
+    // A client without EXPIRE keeps working, without retention.
+    const bare = new MemoryRedis() as MemoryRedis & { expire?: unknown };
+    Object.defineProperty(bare, "expire", { value: undefined });
+    await publishSessionEvent(bare as never, SESSION, { kind: "note", text: "bare" });
+    expect(await expireSessionStream(bare as never, SESSION)).toBe(false);
   });
 
   it("computeProgress follows the BUILD §11.6 formula and parseSessionEvent applies defaults", () => {

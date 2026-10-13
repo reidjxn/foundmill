@@ -4,13 +4,15 @@
  * payments, all 15 channels in mixed states, a cap table with common stock, an option pool and two post-money
  * SAFEs, a community, a leaderboard entry, and a coding squad with recorded sessions.
  */
-import { getArchetypeSeed } from "@foundmill/agents";
-import { APP_NAME } from "@foundmill/config";
+import { getArchetypeSeed, getSkillDefinition } from "@foundmill/agents";
+import { APP_NAME, LIMITS } from "@foundmill/config";
+import type { DecisionType, EventType } from "@foundmill/shared";
 import { eq } from "drizzle-orm";
 import { repos } from "../repos";
 import { agentSessions, type Entity } from "../schema";
 import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
-import { BOOTSTRAPPED_COMMUNITY_SLUG, DEMO_OWNER_DISPLAY_NAME, LEDGERLY_BUSINESS_ID, LEDGERLY_COMMUNITY_SLUG, LEDGERLY_GITHUB_REPO, LEDGERLY_NAME, LEDGERLY_SLUG } from "./constants";
+import { ensureSeedCommunity, ensureSeedPost } from "./community";
+import { BOOTSTRAPPED_COMMUNITY_SLUG, DEMO_OWNER_DISPLAY_NAME, DEMO_SEED_AUDIT_ACTION, LEDGERLY_BUSINESS_ID, LEDGERLY_COMMUNITY_SLUG, LEDGERLY_GITHUB_REPO, LEDGERLY_NAME, LEDGERLY_SLUG } from "./constants";
 import { addDays, addHours, atHour, mention, money, pct, quarterKey, type SeedCtx } from "./context";
 import { seedFinance } from "./finance";
 import { seedJourney } from "./journey";
@@ -19,6 +21,13 @@ import { applyAgentStatuses, seedSquad } from "./squad";
 import type { SeededBusiness } from "./types";
 
 const CURRENCY = "GBP";
+
+/** The vacation's grant and wake events (the holiday row and its `holiday.started` event carry the same lists). */
+const HOLIDAY_AUTHORITY: DecisionType[] = ["spend_above_threshold", "publish_content", "merge_to_main", "message_customers"];
+const HOLIDAY_WAKE_EVENTS: EventType[] = ["runway.threshold_crossed", "credential.expiring", "channel.threshold_breached", "filing.due", "agent.health_changed"];
+/** The backend engineer's training run (old → new per skill) and the coach's summary. */
+const TRAINING_RESULTS: Record<string, { old: number; new: number }> = { testing: { old: 12, new: 14 }, security_awareness: { old: 11, new: 13 }, api_design: { old: 13, new: 13 }, speed: { old: 12, new: 11 } };
+const TRAINING_COACH_SUMMARY = "Tenancy tests now come first; speed dipped one point because of the extra test per route. Promote: the trade is right for a multi-tenant product.";
 
 const SPEC_TEXT: Record<string, string[]> = {
   Problem: ["Operations teams at 20-200 person fintechs close the month by hand: exports from Stripe, the bank and the ledger are matched in spreadsheets, and unmatched lines wait for someone to notice."],
@@ -231,8 +240,8 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
   const run = await repos.training.create(db, businessId, { agentId: backend.agent.id, fromVersionId: v1, toVersionId: v2.id, status: "awaiting_decision", costMinor: 1_850, currency: CURRENCY, requestedBy: ctx.owner.userId });
   await repos.training.update(db, businessId, run.id, {
     status: "awaiting_decision",
-    results: { testing: { old: 12, new: 14 }, security_awareness: { old: 11, new: 13 }, api_design: { old: 13, new: 13 }, speed: { old: 12, new: 11 } },
-    coachSummaryMd: "Tenancy tests now come first; speed dipped one point because of the extra test per route. Promote: the trade is right for a multi-tenant product.",
+    results: TRAINING_RESULTS,
+    coachSummaryMd: TRAINING_COACH_SUMMARY,
   });
   await repos.training.decide(db, businessId, run.id, "promoted", { watchUntil: addDays(ctx.today, 7) });
   await repos.skills.upsertForAgent(db, businessId, backend.agent.id, [
@@ -245,14 +254,14 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
   const holiday = await repos.holidays.start(db, businessId, {
     untilAt: addDays(ctx.today, 11),
     authority: {
-      decisionTypes: ["spend_above_threshold", "publish_content", "merge_to_main", "message_customers"],
+      decisionTypes: HOLIDAY_AUTHORITY,
       maxSpendPerDecisionMinor: 50_000,
       neverDoes: ["sign_contracts", "hire_agents", "change_models"],
       label: "Chief of Staff decides within this grant; everything else queues for the founder",
     },
     budgetCeilingMinor: 250_000,
     currency: CURRENCY,
-    wakeEvents: ["runway.threshold_crossed", "credential.expiring", "channel.threshold_breached", "filing.due", "agent.health_changed"],
+    wakeEvents: HOLIDAY_WAKE_EVENTS,
     startedBy: ctx.owner.userId,
     startedAt: addDays(ctx.today, -3),
   });
@@ -371,12 +380,13 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
   });
 
   // --- social: community and leaderboard (LIVE) ----------------------------------------------------------------------
-  const community = await repos.social.createCommunity(db, { name: "Fintech ops founders", slug: LEDGERLY_COMMUNITY_SLUG, descriptionMd: "Founders selling to operations teams at fintechs. Benchmarks are shared as verified metrics only.", visibility: "public", ownerBusinessId: businessId, createdBy: ctx.owner.userId });
-  const outboundPost = await repos.social.createPost(db, { communityId: community.id, authorUserId: ctx.owner.userId, businessId, bodyMd: "We moved first-touch to outbound for UK fintechs and the time to first reply halved. Lawful basis per country is the whole game." });
-  await repos.social.createPost(db, { communityId: community.id, authorUserId: ctx.owner.userId, businessId, parentPostId: outboundPost.id, bodyMd: "Follow-up: the same pattern held for Irish fintechs in September, with a slightly longer legitimate-interest review." });
-  await repos.social.createPost(db, { communityId: community.id, authorUserId: ctx.owner.userId, businessId, bodyMd: "Question for the room: does anyone run share-of-answer panels for AI assistants and treat them as more than approximate?" });
-  // A second public community nobody has joined (no creator, so no members): the demo founder sees Join on offer.
-  await repos.social.createCommunity(db, { name: "Bootstrapped founders", slug: BOOTSTRAPPED_COMMUNITY_SLUG, descriptionMd: "Founders building without outside funding. Share what you tried, what it cost and what it returned.", visibility: "public" });
+  // Public communities real founders join: a rebuild adopts them (members and posts stay) instead of recreating them.
+  const community = await ensureSeedCommunity(db, { name: "Fintech ops founders", slug: LEDGERLY_COMMUNITY_SLUG, descriptionMd: "Founders selling to operations teams at fintechs. Benchmarks are shared as verified metrics only.", ownerBusinessId: businessId, createdBy: ctx.owner.userId });
+  const outboundPost = await ensureSeedPost(db, { communityId: community.id, authorUserId: ctx.owner.userId, businessId, bodyMd: "We moved first-touch to outbound for UK fintechs and the time to first reply halved. Lawful basis per country is the whole game." });
+  await ensureSeedPost(db, { communityId: community.id, authorUserId: ctx.owner.userId, businessId, parentPostId: outboundPost.id, bodyMd: "Follow-up: the same pattern held for Irish fintechs in September, with a slightly longer legitimate-interest review." });
+  await ensureSeedPost(db, { communityId: community.id, authorUserId: ctx.owner.userId, businessId, bodyMd: "Question for the room: does anyone run share-of-answer panels for AI assistants and treat them as more than approximate?" });
+  // A second public community the demo founder has not joined (no creator): the demo founder sees Join on offer.
+  await ensureSeedCommunity(db, { name: "Bootstrapped founders", slug: BOOTSTRAPPED_COMMUNITY_SLUG, descriptionMd: "Founders building without outside funding. Share what you tried, what it cost and what it returned." });
   const board = await repos.social.upsertLeaderboard(db, { boardKind: "growth", division: "b2b_saas", period: quarterKey(ctx.today), metric: "mrr_growth_pct", archetype: "b2b_saas", region: "eu" });
   await repos.social.setLeaderboardEntries(db, board.id, [{ businessId, metricValue: 18.4, verified: true, form: "WWDLW" }]);
   const customersBoard = await repos.social.upsertLeaderboard(db, { boardKind: "customers_won", division: "b2b_saas", period: quarterKey(ctx.today), metric: "customers_won", archetype: "b2b_saas", region: "eu" });
@@ -386,10 +396,67 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
 
   // --- events the inbox cites -----------------------------------------------------------------------------------------
   const dataEngineer = squad.byTemplate.get("data_engineer")!;
-  const evHealth = await repos.events.write(db, businessId, { type: "agent.health_changed", actor: { kind: "system", id: "health" }, entityIds: [], payload: { agentId: dataEngineer.agent.id, from: "healthy", to: "injured", reason: "sandbox crashed twice in a row on the backfill job", expectedBackAt: addDays(ctx.today, 1).toISOString() }, occurredAt: addDays(ctx.today, -1) });
-  const evHoliday = await repos.events.write(db, businessId, { type: "holiday.started", actor: { kind: "user", id: ctx.owner.userId }, entityIds: [], payload: { holidayId: holiday.id, untilAt: holiday.untilAt?.toISOString() ?? null }, occurredAt: addDays(ctx.today, -3) });
-  const evCred = await repos.events.write(db, businessId, { type: "credential.expiring", actor: { kind: "system", id: "credentials" }, entityIds: [], payload: { integrationKey: "tink", expiresAt: addDays(ctx.today, 6).toISOString(), accountId: finance.accountId }, occurredAt: addHours(ctx.today, -5) });
-  const evTraining = await repos.events.write(db, businessId, { type: "training.completed", actor: { kind: "agent", id: squad.byTemplate.get("engineering_lead")?.agent.id ?? "" }, entityIds: [], payload: { trainingRunId: run.id, agentId: backend.agent.id, decision: "promoted" }, occurredAt: addDays(ctx.today, -2) });
+  // Written straight to the events table (no outbox validation on this path), so each payload is built to its
+  // catalogue schema here; seed-on-boot.test.ts checks every seeded event against packages/events (audit #432).
+  const evHealth = await repos.events.write(db, businessId, {
+    type: "agent.health_changed",
+    actor: { kind: "system", id: "health" },
+    entityIds: [],
+    payload: {
+      agentId: dataEngineer.agent.id,
+      from: "healthy",
+      to: "injured",
+      reason: "sandbox crashed twice in a row on the backfill job",
+      signals: { heartbeatAgeMs: null, errorRate: 1, loopDetected: false, credentialExpired: false, rateLimited: false, budgetRemaining: null },
+      expectedReturnAt: addDays(ctx.today, 1).toISOString(),
+      sessionId: null,
+    },
+    occurredAt: addDays(ctx.today, -1),
+  });
+  const evHoliday = await repos.events.write(db, businessId, {
+    type: "holiday.started",
+    actor: { kind: "user", id: ctx.owner.userId },
+    entityIds: [],
+    payload: {
+      holidayId: holiday.id,
+      workflowId: `holiday:${holiday.id}`,
+      untilAt: holiday.untilAt?.toISOString() ?? null,
+      untilCondition: null,
+      budgetCeiling: holiday.budgetCeilingMinor === null ? null : { amountMinor: Number(holiday.budgetCeilingMinor), currency: CURRENCY },
+      authority: HOLIDAY_AUTHORITY,
+      wakeEvents: HOLIDAY_WAKE_EVENTS,
+      cadenceAgentHours: LIMITS.cycleTimeBoxAgentHours,
+    },
+    occurredAt: addDays(ctx.today, -3),
+  });
+  const tinkIntegrationId = integrationIds.get("tink")!;
+  const evCred = await repos.events.write(db, businessId, {
+    type: "credential.expiring",
+    actor: { kind: "system", id: "credentials" },
+    entityIds: [],
+    // An open-banking consent: the integration stands for the credential (as the nightly consent scan reports it).
+    payload: { integrationId: tinkIntegrationId, credentialId: tinkIntegrationId, connectorKey: "tink", accountLabel: "Ledgerly Ltd current account", expiresAt: addDays(ctx.today, 6).toISOString(), daysRemaining: 6, affectedAgentIds: [], expired: false },
+    occurredAt: addHours(ctx.today, -5),
+  });
+  const evTraining = await repos.events.write(db, businessId, {
+    type: "training.completed",
+    actor: { kind: "agent", id: squad.byTemplate.get("engineering_lead")?.agent.id ?? backend.agent.id },
+    entityIds: [],
+    payload: {
+      trainingRunId: run.id,
+      agentId: backend.agent.id,
+      fromVersionId: v1 ?? v2.id,
+      toVersionId: v2.id,
+      status: "succeeded",
+      cost: { amountMinor: 1_850, currency: CURRENCY },
+      durationMs: 38 * 60_000,
+      testsRun: 24,
+      skillDeltas: Object.entries(TRAINING_RESULTS).map(([skillKey, r]) => ({ skillKey, group: getSkillDefinition(skillKey)?.group ?? "craft", before: r.old, after: r.new })),
+      coachSummary: TRAINING_COACH_SUMMARY,
+      recommendation: "promote",
+    },
+    occurredAt: addDays(ctx.today, -2),
+  });
   await repos.events.markNarrated(db, businessId, [evHealth.id, evHoliday.id, evTraining.id]);
 
   // --- inbox -----------------------------------------------------------------------------------------------------------------
@@ -529,10 +596,11 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     for (const sessionId of t.sessionIds) await db.update(agentSessions).set({ workflowId: `holiday:${holiday.id}:${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}` }).where(eq(agentSessions.id, sessionId));
   }
 
+  // The build's last write: seed-on-boot reads it as "this business was built completely" (demoSeedState).
   await repos.audit.append(db, businessId, {
     actorKind: "system",
     actorId: null,
-    action: "seed.demo",
+    action: DEMO_SEED_AUDIT_ACTION,
     target: { kind: "business", id: businessId },
     details: { app: APP_NAME, seed: ctx.seed, slug: LEDGERLY_SLUG, inboxItems: inbox.length, journeys: journey.counts.journeys, holidayId: holiday.id, legalEntityId: legal.legalEntityId, communityId: community.id, leaderboardId: board.id, activation: pct(journey.signups ? journey.activations / journey.signups : 0) },
   });

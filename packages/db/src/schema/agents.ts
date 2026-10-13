@@ -342,6 +342,33 @@ export const agentSessions = pgTable(
 export type AgentSession = typeof agentSessions.$inferSelect;
 export type NewAgentSession = typeof agentSessions.$inferInsert;
 
+/** One entry of a saved recording: the `as:{sessionId}` stream id and the session event (packages/events `SessionEvent`). */
+export interface SessionRecordingEntry {
+  id: string;
+  event: Record<string, unknown> & { kind: string };
+}
+
+/**
+ * 0053 — a finished session's events, copied from its `as:{sessionId}` stream (which then expires), so replays outlive
+ * Redis. Written by the orchestrator with the service role; members read.
+ */
+export const sessionRecordings = pgTable(
+  "session_recordings",
+  {
+    id: id(),
+    businessId: businessId(),
+    sessionId: uuid("session_id").notNull().references(() => agentSessions.id, { onDelete: "cascade" }),
+    events: jsonb("events").$type<SessionRecordingEntry[]>().notNull().default(emptyList),
+    eventCount: integer("event_count").notNull().default(0),
+    bytes: integer("bytes").notNull().default(0),
+    truncated: boolean("truncated").notNull().default(false),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("session_recordings_session_id_key").on(t.sessionId), index("session_recordings_business_id_idx").on(t.businessId, t.createdAt)],
+);
+export type SessionRecording = typeof sessionRecordings.$inferSelect;
+export type NewSessionRecording = typeof sessionRecordings.$inferInsert;
+
 export const agentMetrics = pgTable(
   "agent_metrics",
   {
