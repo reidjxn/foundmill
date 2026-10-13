@@ -169,7 +169,9 @@ export const usageRepo = {
         tokens: sql<number>`coalesce(sum(case when ${usageLedger.kind} = 'tokens' then ${usageLedger.quantity} else 0 end), 0)::bigint`,
         sandbox: sql<number>`coalesce(sum(case when ${usageLedger.kind} = 'sandbox' then ${usageLedger.quantity} else 0 end), 0)::bigint`,
         tools: sql<number>`coalesce(sum(case when ${usageLedger.kind} = 'tool' then ${usageLedger.quantity} else 0 end), 0)::bigint`,
-        training: sql<number>`coalesce(sum(case when ${usageLedger.kind} = 'training' then ${usageLedger.costMinor} else 0 end), 0)::bigint`,
+        // A training run's model calls are booked once, as tokens attributed to the run (answers `training`, grading
+        // `skill_grader`); its own `training` row counts the tests and carries no cost of its own.
+        training: sql<number>`coalesce(sum(case when ${usageLedger.kind} = 'training' or (${usageLedger.kind} = 'tokens' and ${usageLedger.details}->>'kind' in ('training', 'skill_grader')) then ${usageLedger.costMinor} else 0 end), 0)::bigint`,
       })
       .from(usageLedger)
       .leftJoin(agents, eq(agents.id, usageLedger.agentId))
