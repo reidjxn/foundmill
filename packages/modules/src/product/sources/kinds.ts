@@ -84,6 +84,11 @@ export function topicCounts(sources: readonly SourceRow[]): { topic: string; cou
   return [...counts.entries()].map(([topic, count]) => ({ topic, count })).sort((a, b) => b.count - a.count || a.topic.localeCompare(b.topic));
 }
 
+/** Only http(s) links are opened from the browser; a stored `javascript:`, `data:` or `s3:` uri never reaches `window.open`. */
+export function isWebUri(uri: string | null | undefined): uri is string {
+  return !!uri && /^https?:\/\//i.test(uri.trim());
+}
+
 export function hostOf(uri: string | null | undefined): string | null {
   if (!uri) return null;
   try {

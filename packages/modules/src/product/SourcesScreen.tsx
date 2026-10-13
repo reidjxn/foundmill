@@ -15,7 +15,7 @@ import { plural } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { InlineError, Screen, blockTitle, useAction } from "./shared";
 import { AddSourceDialog } from "./sources/AddSourceDialog";
-import { SOURCE_KIND_META, hostOf, isSourceKind, linkedBlocks, readState, summaryLine, topics } from "./sources/kinds";
+import { SOURCE_KIND_META, hostOf, isSourceKind, isWebUri, linkedBlocks, readState, summaryLine, topics } from "./sources/kinds";
 import type { SourceRow, SourcesListResponse, SpecBlockRow, SpecGetResponse } from "./types";
 import { DateText } from "../dates";
 
@@ -37,8 +37,8 @@ function sourceFromLocation(): string | null {
 }
 
 export function openExternal(uri: string | null): boolean {
-  if (!uri || typeof window === "undefined") return false;
-  window.open(uri, "_blank", "noopener,noreferrer");
+  if (!isWebUri(uri) || typeof window === "undefined") return false;
+  window.open(uri.trim(), "_blank", "noopener,noreferrer");
   return true;
 }
 
@@ -205,7 +205,7 @@ export function SourcesScreen({ businessId }: ModuleScreenProps) {
           rowActions={(row) => {
             const linked = linkedBlocks(row);
             return [
-              { id: "open-link", label: "Open link", icon: ExternalLink, disabled: !row.uri, onSelect: (r) => void openExternal(r.uri) },
+              { id: "open-link", label: "Open link", icon: ExternalLink, disabled: !isWebUri(row.uri), onSelect: (r) => void openExternal(r.uri) },
               { id: "open-block", label: linked.length ? "Open linked spec block" : "No linked spec block", icon: FileText, disabled: linked.length === 0, onSelect: () => linked[0] && openBlock(linked[0].blockId) },
               ...(canWrite ? [{ id: "remove", label: "Remove source", icon: Trash2, onSelect: (r: SourceRow) => setRemoving(r) }] : []),
             ];

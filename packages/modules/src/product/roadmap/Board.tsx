@@ -201,6 +201,7 @@ export function Board({ columns, blocks, dependencies, movingId, onMove, onEdit,
     if (!item) return;
     const others = columns[h].filter((i) => i.id !== item.id);
     const onCard = (e.target instanceof Element ? e.target.closest("[data-roadmap-item]") : null)?.getAttribute("data-roadmap-item");
+    if (onCard === item.id) return; // released over the card it was dragging: nothing moves
     const at = onCard ? others.findIndex((i) => i.id === onCard) : -1;
     onMove(item, h, at === -1 ? others.length : at);
   };

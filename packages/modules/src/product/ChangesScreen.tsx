@@ -12,6 +12,7 @@ import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, u
 import type { ModuleScreenProps } from "../registry";
 import { ProposalDetail } from "./changes/ProposalDetail";
 import { PROPOSAL_STATUS_PILL, SEVERITY_CHIP, decisionProgress, impactLines } from "./changes/hunks";
+import { isWebUri } from "./sources/kinds";
 import { InlineError, Screen, useAction, useAgentNames } from "./shared";
 import type { ProposalRow, ProposalWithHunks, ProposalsListResponse, RoadmapResponse, SourceRow, SourcesListResponse, SpecGetResponse, SpecVersionRow } from "./types";
 import { DateText } from "../dates";
@@ -111,7 +112,7 @@ export function ChangesScreen({ businessId }: ModuleScreenProps) {
   const openBlock = (blockId: string) => navigate(href("product", "specification", `?block=${blockId}`));
   const openRoadmapItem = (itemId: string) => navigate(href("product", "roadmap", `?item=${itemId}`));
   const openSource = (s: SourceRow) => {
-    if (s.uri && typeof window !== "undefined") window.open(s.uri, "_blank", "noopener,noreferrer");
+    if (isWebUri(s.uri) && typeof window !== "undefined") window.open(s.uri.trim(), "_blank", "noopener,noreferrer");
     else navigate(href("product", "sources", `?source=${s.id}`));
   };
   const openCount = rows.filter((r) => r.status === "open").length;

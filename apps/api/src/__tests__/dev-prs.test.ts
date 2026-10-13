@@ -1,9 +1,12 @@
 /**
  * Development › Pull requests through the API (BUILD §11.6): only code tasks are pull requests (TPD-13), and the
  * Merged table lists what the platform's own merge queue landed as well as GitHub's `pr.merged` events (TPD-14), so it
- * agrees with Environments and Home, which count done code tasks.
+ * agrees with Environments and Home, which count done code tasks. Also the physical-product Operations department,
+ * which sits over the development module's Specialists and Plan tabs only (DB-11), when its defaults are restored.
  */
 import { repos } from "@foundmill/db";
+import { MODULE_TABS } from "@foundmill/shared";
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -41,5 +44,20 @@ describe("dev.prs.list", () => {
     expect(byTask.get(onGitHub.id)).toMatchObject({ source: "github", prNumber: 41 });
     expect(byTask.get(landed.id)).toMatchObject({ source: "merge_queue", eventId: null, title: "Usage export", branch: `agent/${landed.id}`, mergedBy: { kind: "agent", id: agentId } });
     expect(prs.merged.map((m) => m.title)).not.toContain("Set up the first runway forecast");
+  });
+});
+
+describe("department.resetDefaults", () => {
+  it("re-creates a hardware business's Operations over Specialists and Plan only, and Development with every tab (DB-11)", async () => {
+    const { businessId, ownerId } = hz.B;
+    await hz.db.execute(sql`update businesses set archetype = 'hardware' where id = ${businessId}::uuid`);
+    const departments = await hz.caller({ userId: ownerId }).department.resetDefaults({ businessId });
+    const tabsOf = async (slug: string) => {
+      const dept = departments.find((d) => d.slug === slug);
+      expect(dept, slug).toBeTruthy();
+      return (await repos.screens.list(hz.db, businessId, dept!.id)).sort((a, b) => a.position - b.position).map((s) => s.tabSlug);
+    };
+    expect(await tabsOf("operations")).toEqual(["specialists", "plan"]);
+    expect(await tabsOf("development")).toEqual(MODULE_TABS.development.map((t) => t.slug));
   });
 });

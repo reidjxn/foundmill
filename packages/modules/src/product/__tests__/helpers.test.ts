@@ -4,7 +4,7 @@ import { pmExcerpt, pmTitle, pmToText, pmWordCount, textToPm } from "../prosemir
 import { computeRoadmapStatus, taskSummary } from "../roadmap-status";
 import { adjacentHorizon, barSpan, groupByHorizon, indexDependencies, isMove, moveInput, timelineScale } from "../roadmap/board";
 import { decisionProgress, hunkSides, impactLines, isSettled } from "../changes/hunks";
-import { coverageBySection, linkedBlocks, topicCounts } from "../sources/kinds";
+import { coverageBySection, isWebUri, linkedBlocks, topicCounts } from "../sources/kinds";
 import { validateSourceDraft, sourceInput } from "../sources/AddSourceDialog";
 import { upsertInput, draftFrom, validateDraft } from "../roadmap/ItemDialog";
 import { compareSections, groupBySection } from "../shared";
@@ -133,6 +133,12 @@ describe("spec outline order (AC-10)", () => {
 });
 
 describe("source helpers", () => {
+  it("opens only http(s) links from the browser, whatever a stored row says (ARB-17)", () => {
+    expect(isWebUri("https://example.com/a")).toBe(true);
+    expect(isWebUri(" HTTP://example.com")).toBe(true);
+    for (const uri of ["javascript:alert(1)", "data:text/html,x", "s3://bucket/key", "ftp://x", "example.com", "", null, undefined]) expect(isWebUri(uri), String(uri)).toBe(false);
+  });
+
   it("reads linked blocks best-first, counts coverage per section and topics", () => {
     expect(linkedBlocks(sources[0]!)).toEqual([{ blockId: BLOCK.pricing, score: 0.82 }]);
     const coverage = coverageBySection(sources, blocks);

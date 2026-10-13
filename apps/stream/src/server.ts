@@ -239,7 +239,9 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
   }
 
   async function subscribe(client: Client, ch: string, focus: boolean): Promise<void> {
+    // The latest frame decides: a repeated sub (a retry after an error) carries the channel's current focus.
     if (focus) client.queue.focused.add(ch);
+    else client.queue.focused.delete(ch);
     // Idempotent: a repeated sub of a live channel is acknowledged again; a pending one is acknowledged when it lands.
     if (client.subs.has(ch)) return sendControl(client, { t: "subscribed", ch });
     if (client.pending.has(ch)) return;

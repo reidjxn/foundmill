@@ -177,6 +177,10 @@ describe("protocol handling", () => {
     sock.send({ t: "focus", ch: sessionChannel(SESSION_A), focused: false });
     sock.send({ t: "focus", ch: sessionChannel(SESSION_A2), focused: true });
     await waitFor(() => t.server.subscriptions()[0]!.focused.join() === sessionChannel(SESSION_A2), 2_000, "focus moved");
+    // A repeated sub (a retry) carries the channel's current focus: focus:false unfocuses a focused channel.
+    sock.sub(sessionChannel(SESSION_A2), false);
+    await waitFor(() => t.server.subscriptions()[0]!.focused.length === 0, 2_000, "unfocused by the repeated sub");
+    expect(t.server.subscriptions()[0]!.channels).toHaveLength(2);
   });
 
   it("reports malformed frames and closes the socket after too many", async () => {

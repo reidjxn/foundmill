@@ -60,6 +60,10 @@ describe("RoadmapScreen", () => {
       fireEvent.drop(screen.getByRole("region", { name: "Later" }), { dataTransfer: { getData: () => ITEM.reports } });
     });
     expect(fake.mutations).toHaveLength(3); // dropping where it already is changes nothing
+    await act(async () => {
+      fireEvent.drop(within(nowColumn).getByRole("listitem", { name: /Usage-based billing/ }), { dataTransfer: { getData: () => ITEM.billing } });
+    });
+    expect(fake.mutations).toHaveLength(3); // released over the card it was dragging: it does not jump to the bottom
   });
 
   it("reorders inside a column with Alt+↑/↓ and the Move up / Move down verbs", async () => {

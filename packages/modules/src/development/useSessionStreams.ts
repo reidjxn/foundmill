@@ -50,6 +50,8 @@ function rebuild(source: TileSource, events: readonly AgentSessionEvent[], queue
 export function useSessionStreams(sources: readonly TileSource[], focusedId: string | null, opts: { flushMs?: number } = {}): SessionStreams {
   const { subscribe, setFocus } = useWidgetData();
   const eventsRef = useRef(new Map<string, AgentSessionEvent[]>());
+  /** The keys of every event kept per session, so a burst is de-duplicated without re-reading the whole history. */
+  const keysRef = useRef(new Map<string, Set<string>>());
   const sourcesRef = useRef(new Map<string, TileSource>());
   /** Sessions whose replay found an empty stream (queued until their first event). */
   const emptyRef = useRef(new Set<string>());
@@ -68,11 +70,24 @@ export function useSessionStreams(sources: readonly TileSource[], focusedId: str
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceKey]);
 
+  /** The events not kept yet for a session (the replay and the live stream overlap), recorded as kept. */
+  const keep = useCallback((sessionId: string, events: readonly AgentSessionEvent[]): AgentSessionEvent[] => {
+    let keys = keysRef.current.get(sessionId);
+    if (!keys) keysRef.current.set(sessionId, (keys = new Set()));
+    const fresh: AgentSessionEvent[] = [];
+    for (const e of events) {
+      const key = eventKey(e);
+      if (keys.has(key)) continue;
+      keys.add(key);
+      fresh.push(e);
+    }
+    return fresh;
+  }, []);
+
   const deliver = useCallback((sessionId: string, events: AgentSessionEvent[]) => {
-    const list = eventsRef.current.get(sessionId) ?? [];
-    const seen = new Set(list.map(eventKey));
-    const fresh = events.filter((e) => !seen.has(eventKey(e)));
+    const fresh = keep(sessionId, events);
     if (!fresh.length) return;
+    const list = eventsRef.current.get(sessionId) ?? [];
     list.push(...fresh);
     eventsRef.current.set(sessionId, list);
     emptyRef.current.delete(sessionId);
@@ -85,7 +100,7 @@ export function useSessionStreams(sources: readonly TileSource[], focusedId: str
       next.set(sessionId, fresh.reduce(applySessionEvent, { ...current, queued: false }));
       return next;
     });
-  }, []);
+  }, [keep]);
 
   const throttle = useMemo(() => new SessionThrottle(deliver, { flushMs: opts.flushMs }), [deliver, opts.flushMs]);
   useEffect(() => () => throttle.dispose(), [throttle]);
@@ -135,8 +150,7 @@ export function useSessionStreams(sources: readonly TileSource[], focusedId: str
     (sessionId: string, raw: readonly unknown[], o: { streamEmpty?: boolean } = {}) => {
       const events = raw.map(readSessionEvent).filter((e): e is AgentSessionEvent => e !== null);
       const before = eventsRef.current.get(sessionId) ?? [];
-      const seen = new Set(before.map(eventKey));
-      const fresh = events.filter((e) => !seen.has(eventKey(e)));
+      const fresh = keep(sessionId, events);
       const wasEmpty = emptyRef.current.has(sessionId);
       if (o.streamEmpty && before.length === 0 && fresh.length === 0) emptyRef.current.add(sessionId);
       else emptyRef.current.delete(sessionId);
@@ -146,7 +160,7 @@ export function useSessionStreams(sources: readonly TileSource[], focusedId: str
       const source = sourcesRef.current.get(sessionId);
       if (source) setById((prev) => new Map(prev).set(sessionId, rebuild(source, list, emptyRef.current.has(sessionId))));
     },
-    [],
+    [keep],
   );
 
   const sessions = useMemo(() => sources.map((s) => byId.get(s.seed.id)).filter((s): s is AgentTileSession => !!s), [sources, byId]);

@@ -11,7 +11,7 @@ import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, u
 import { plural } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { Screen, blockTitle, findBlock } from "./shared";
-import { RESEARCH_NOTE_KINDS, SOURCE_KIND_META, coverageBySection, hostOf, linkedBlocks, relevance, topicCounts, topics } from "./sources/kinds";
+import { RESEARCH_NOTE_KINDS, SOURCE_KIND_META, coverageBySection, hostOf, isWebUri, linkedBlocks, relevance, topicCounts, topics } from "./sources/kinds";
 import type { SourceRow, SourcesListResponse, SpecBlockRow, SpecGetResponse } from "./types";
 
 function CompetitorCard({ source, onOpen }: { source: SourceRow; onOpen: () => void }) {
@@ -141,7 +141,7 @@ export function ResearchScreen({ businessId }: ModuleScreenProps) {
   const href = (tab: string, query?: string) => `${moduleHref(businessId, departments.data, "product", tab) ?? routes.department(businessId, "product", tab)}${query ?? ""}`;
   const openBlock = (blockId: string) => navigate(href("specification", `?block=${blockId}`));
   const open = (s: SourceRow) => {
-    if (s.uri && typeof window !== "undefined") window.open(s.uri, "_blank", "noopener,noreferrer");
+    if (isWebUri(s.uri) && typeof window !== "undefined") window.open(s.uri.trim(), "_blank", "noopener,noreferrer");
     else navigate(href("sources", `?source=${s.id}`));
   };
   const err = list.error ? list.error.message : undefined;
