@@ -59,7 +59,7 @@ test.describe("home", () => {
     await expect(page.getByTestId("edit-layout")).toHaveAttribute("aria-pressed", "false");
   });
 
-  test("a new dashboard from New never becomes the default Home; Make default does", async ({ page }) => {
+  test("a new dashboard from New never becomes the default Home", async ({ page }) => {
     const first = (await page.getByTestId("home-screen").getAttribute("data-dashboard-id"))!;
     await page.getByTestId("new-dashboard").click();
     await page.locator("[data-preset=investor]").click();

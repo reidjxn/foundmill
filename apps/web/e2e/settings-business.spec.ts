@@ -53,10 +53,6 @@ test.describe("settings › business: the logo", () => {
   });
 });
 
-/**
- * Settings › Mode: the "Spend cap per action" set on Commit is stored on the business and editable here (above it every
- * spend asks first, whatever the mode). The spec leaves Northwind without a cap, as the seed has it.
- */
 test.describe("settings › business: the slug", () => {
   test("a slug another business holds is refused inline as 'That slug is taken', and nothing is saved", async ({ page }) => {
     await openBusiness(page, "settings/business");
@@ -74,6 +70,10 @@ test.describe("settings › business: the slug", () => {
   });
 });
 
+/**
+ * Settings › Mode: the "Spend cap per action" set on Commit is stored on the business and editable here (above it every
+ * spend asks first, whatever the mode). The spec leaves Northwind without a cap, as the seed has it.
+ */
 test.describe("settings › mode: the spend cap per action", () => {
   test("set, kept after a reload, and removed again", async ({ page }) => {
     await openBusiness(page, "settings/mode");
