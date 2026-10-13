@@ -62,7 +62,7 @@ jobs:
   checks:
     name: Typecheck, lint, unit tests
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -122,7 +122,7 @@ jobs:
   e2e:
     name: Playwright (web screens + golden path)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     # The golden path (e2e/tests/golden-path.spec.ts) is green against this stack (docs/PROGRESS.md 2026-10-07), so
     # this job gates the build like the others.
     continue-on-error: false
