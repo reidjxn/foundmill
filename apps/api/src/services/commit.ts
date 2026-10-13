@@ -21,7 +21,7 @@ import { getArchetypeSeed, getTemplate } from "@foundmill/agents";
 import { initialModelBilling } from "@foundmill/config";
 import { assertBusinessAllowance, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
-import { CHANNEL_KEYS, CHANNEL_META, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, MODULE_TABS, ValidationError, slugify, type Archetype, type BusinessMode, type GameMode, type OptionAction } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, MODULE_TABS, ValidationError, slugify, type Archetype, type BusinessMode, type GameMode, type OptionAction } from "@foundmill/shared";
 import { presetLayout } from "../presets";
 import { QUEUE_ACTION } from "./cycle";
 import { checkLogoChoice, type LogoChoice } from "./logo";
@@ -31,6 +31,7 @@ import { WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
 import { ensureChannelEngines } from "./engines";
 import { importJobIdOf, resolveImportLink, seedFoundations, type ImportLink } from "./foundations";
 import { queueImportReads } from "./import";
+import { seedConceptSources } from "./concept-sources";
 
 export interface CommitIdeaInput {
   ideaId: string;
@@ -78,6 +79,12 @@ interface CommitReceipt {
 const COMMIT_AUDIT_ACTION = "idea.commit";
 
 /**
+ * What the Board's first item says about money. The first cycle starts the moment the founder takes charge, so the team
+ * has already started on the basics (model calls included); the decision comes before any budget is committed.
+ */
+export const BOARD_FIRST_DECISION_LINE = "The team has started on the basics; the Board asks for one decision before committing any budget:";
+
+/**
  * Door B's Board item: the Import report's suggested first decisions (the Import screen promises they arrive as the
  * Board's first item). Door A keeps the archetype's decision; its vision arrives with the drafted foundations.
  */
@@ -95,7 +102,9 @@ export function importBoardDecision(name: string, link: ImportLink): { subject: 
       "",
       report.summary,
       "",
-      "The vision, the specification and the roadmap are drafted from the import when you first open the business. The first cycle has already started; the Board asks for one decision before the team goes further: which of the import's first decisions comes first?",
+      // The first cycle starts at commit (BUILD §11.1), so the team is already at work on the basics: the decision gates
+      // the budget, not every model call.
+      `The vision, the specification and the roadmap are drafted from the import when you first open the business. ${BOARD_FIRST_DECISION_LINE} which of the import's first decisions comes first?`,
     ].join("\n"),
     options,
   };
@@ -120,8 +129,11 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   const seed = getArchetypeSeed(input.archetype);
   const businessMode = input.businessMode ?? DEFAULT_BUSINESS_MODE;
   // The business keeps its money in the currency the founder chose (their profile's unless they changed it): stored on
-  // the business itself (0025), which every business amount and every screen reads, and on the rows created here.
-  const currency = (input.currency ?? (await repos.founders.get(db, userId))?.currency ?? DEFAULT_BUSINESS_CURRENCY).toUpperCase();
+  // the business itself (0025), which every business amount and every screen reads, and on the rows created here. Every
+  // money field of the new business carries this code, so it is checked here too (callers other than idea.commit).
+  const parsedCurrency = CurrencyCode.safeParse(input.currency ?? (await repos.founders.get(db, userId))?.currency ?? DEFAULT_BUSINESS_CURRENCY);
+  if (!parsedCurrency.success) throw new ValidationError("Use a three-letter currency code, such as USD, GBP or EUR.", { currency: "Not a currency code" });
+  const currency = parsedCurrency.data;
   // A logo that does not pass the check fails the commit before anything is created. Checked once: storage recognises
   // the result and does not run the sanitiser again.
   const checkedLogo = input.logo ? checkLogoChoice(input.logo) : null;
@@ -251,6 +263,8 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
 
     // Foundations (vision, specification content, roadmap) wait for the first open; Door B links its Import job.
     const { sources: importSources } = await seedFoundations(tx, businessId, { ideaId: idea.id, link: importLink });
+    // Door A: the card's citations become the business's first sources (Product › Sources, the Source Watcher).
+    if (!importLink) await seedConceptSources(tx, businessId, { ideaId: idea.id, research: idea.current?.research });
 
     // First-cycle tasks.
     const taskIds: string[] = [];
@@ -389,11 +403,15 @@ export function squadPreview(archetype: Archetype) {
   const seed = getArchetypeSeed(archetype);
   const templates = new Set<string>([seed.assistantTemplateKey]);
   for (const d of seed.departments) for (const k of [d.leadTemplateKey, ...d.memberTemplateKeys]) templates.add(k);
+  // Each agent's department, as commit hires it: the Chief of Staff sits in the department over the Team module; anyone
+  // else in the first department that leads with or staffs the template (the Commit preview colors agents by it).
+  const teamDept = seed.departments.find((d) => d.moduleKeys.includes("team"));
+  const departmentOf = (key: string) => ((key === seed.assistantTemplateKey ? teamDept : undefined) ?? seed.departments.find((d) => d.leadTemplateKey === key || d.memberTemplateKeys.includes(key)))?.slug ?? null;
   return {
     departments: seed.departments.map((d) => ({ slug: d.slug, name: d.name, icon: d.icon, colourToken: d.colourToken, moduleKeys: d.moduleKeys, budgetMinor: d.budgetMinor, budgetLabel: "Estimate" as const })),
     agents: [...templates].map((key) => {
       const t = getTemplate(key);
-      return { templateKey: key, name: t.name, role: t.role, layer: t.layer, modelKey: t.modelKey, wageCapMinor: t.wageCapMinor, wageLabel: "Estimate" as const };
+      return { templateKey: key, name: t.name, role: t.role, layer: t.layer, modelKey: t.modelKey, wageCapMinor: t.wageCapMinor, wageLabel: "Estimate" as const, departmentSlug: departmentOf(key) };
     }),
     defaultChannels: seed.defaultChannels,
     specOutline: seed.specOutline,

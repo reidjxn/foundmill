@@ -6,24 +6,28 @@
  * shown above the form with what to do next.
  */
 import { Mail, Send, Unlink, Wrench } from "lucide-react";
-import { useSearchParams } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { APP_NAME } from "@foundmill/config";
 import { Button, Field, Input, StatusPill } from "@foundmill/dugout";
 import { magicLinkCallbackUrl } from "@/lib/auth/canonical-origin";
 import { NEXT_PARAM } from "@/lib/auth/constants";
 import { safeNextPath } from "@/lib/auth/redirects";
-import { classifySendLinkError, parseSignInError, sendLinkErrorMessage, SIGN_IN_ERROR_PARAM, signInErrorCopy } from "@/lib/auth/sign-in-errors";
+import { classifySendLinkError, parseSignInError, sendLinkErrorMessage, signInErrorCopy } from "@/lib/auth/sign-in-errors";
 import { hasSupabase, isDevLike, publicEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
 import { BrandFrame } from "@/components/shell/BrandFrame";
 
 type Phase = { kind: "idle" } | { kind: "sending" } | { kind: "sent"; email: string } | { kind: "error"; message: string };
 
-export function LoginForm() {
-  const params = useSearchParams();
-  const next = safeNextPath(params.get(NEXT_PARAM));
-  const linkError = parseSignInError(params.get(SIGN_IN_ERROR_PARAM));
+export interface LoginFormProps {
+  /** `?next=` as given (checked here by `safeNextPath`) and `?error=` as given (a reason code; anything else reads as a failure). */
+  nextParam?: string | null;
+  errorParam?: string | null;
+}
+
+export function LoginForm({ nextParam = null, errorParam = null }: LoginFormProps) {
+  const next = safeNextPath(nextParam);
+  const linkError = parseSignInError(errorParam);
   const linkProblem = linkError ? signInErrorCopy(linkError) : null;
   const [email, setEmail] = useState("");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });

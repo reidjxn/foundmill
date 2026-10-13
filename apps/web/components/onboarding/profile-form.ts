@@ -149,19 +149,35 @@ export function parseBudgetMinor(input: string): number | null {
   return Math.round(major * 100);
 }
 
+/** The longest each answer can be: the same limits packages/db/src/repos/founders.ts enforces, so the form refuses first. */
+export const PROFILE_LIMITS = {
+  displayName: 120,
+  /** Citizenship, residence and each target market. */
+  place: 80,
+  /** Each constraint. */
+  constraint: 400,
+  /** The budget in whole currency units (the API stores it in minor units as a safe integer). */
+  budgetMajor: 1_000_000_000_000,
+} as const;
+
 export type ProfileErrors = Partial<Record<keyof ProfileForm, string>>;
 
 export function validateProfileForm(form: ProfileForm): ProfileErrors {
   const errors: ProfileErrors = {};
   if (form.displayName.trim().length === 0) errors.displayName = "Tell the team what to call you.";
-  if (form.displayName.trim().length > 120) errors.displayName = "Keep it under 120 characters.";
+  if (form.displayName.trim().length > PROFILE_LIMITS.displayName) errors.displayName = `Keep it under ${PROFILE_LIMITS.displayName} characters.`;
   if (!form.experience) errors.experience = "Pick the one that fits best.";
   if (!form.timeCommitment) errors.timeCommitment = "How much of your week does this get?";
   const budget = parseBudgetMinor(form.budget);
   if (Number.isNaN(budget)) errors.budget = "Use a number, like 25000 or 25k.";
   else if (budget !== null && budget < 0) errors.budget = "The budget cannot be negative.";
+  else if (budget !== null && budget / 100 > PROFILE_LIMITS.budgetMajor) errors.budget = `Use a budget below ${formatNumber(PROFILE_LIMITS.budgetMajor, { maximumFractionDigits: 0 })}.`;
+  if (form.citizenship.trim().length > PROFILE_LIMITS.place) errors.citizenship = `Keep it under ${PROFILE_LIMITS.place} characters.`;
+  if (form.residence.trim().length > PROFILE_LIMITS.place) errors.residence = `Keep it under ${PROFILE_LIMITS.place} characters.`;
   if (!/^[A-Z]{3}$/.test(form.currency)) errors.currency = "Pick a currency.";
   if (form.targetMarkets.length === 0) errors.targetMarkets = "Add at least one market.";
+  else if (form.targetMarkets.some((m) => m.length > PROFILE_LIMITS.place)) errors.targetMarkets = `Keep each market under ${PROFILE_LIMITS.place} characters.`;
+  if (form.constraints.some((c) => c.length > PROFILE_LIMITS.constraint)) errors.constraints = `Keep each constraint under ${PROFILE_LIMITS.constraint} characters.`;
   if (!form.riskAppetite) errors.riskAppetite = "Pick a risk appetite.";
   return errors;
 }
@@ -205,9 +221,9 @@ export function profilePatch(form: ProfileForm): ProfilePatch {
 export const MAX_CHIPS = 20;
 
 /** Add a chip: trimmed, de-duplicated case-insensitively, capped. Returns the same array when nothing changes. */
-export function addChip(list: readonly string[], raw: string, max = MAX_CHIPS): string[] {
+export function addChip(list: readonly string[], raw: string, max = MAX_CHIPS, maxLength: number = PROFILE_LIMITS.constraint): string[] {
   const value = raw.trim().replace(/\s+/g, " ");
-  if (!value || value.length > 400) return [...list];
+  if (!value || value.length > maxLength) return [...list];
   if (list.some((x) => x.toLowerCase() === value.toLowerCase())) return [...list];
   if (list.length >= max) return [...list];
   return [...list, value];
@@ -217,8 +233,34 @@ export function removeChip(list: readonly string[], value: string): string[] {
   return list.filter((x) => x !== value);
 }
 
-export function toggleChip(list: readonly string[], value: string, max = MAX_CHIPS): string[] {
-  return list.some((x) => x.toLowerCase() === value.toLowerCase()) ? removeChip(list, list.find((x) => x.toLowerCase() === value.toLowerCase())!) : addChip(list, value, max);
+export function toggleChip(list: readonly string[], value: string, max = MAX_CHIPS, maxLength: number = PROFILE_LIMITS.constraint): string[] {
+  return list.some((x) => x.toLowerCase() === value.toLowerCase()) ? removeChip(list, list.find((x) => x.toLowerCase() === value.toLowerCase())!) : addChip(list, value, max, maxLength);
+}
+
+/** The answers the API names in its validation issues, in the founder's words (never the API's field names). */
+const ANSWER_NAMES: Record<string, string> = {
+  displayName: "your name",
+  experience: "experience",
+  skills: "skills",
+  timeCommitment: "time commitment",
+  budgetMinor: "budget",
+  currency: "currency",
+  citizenship: "citizenship",
+  residence: "residence",
+  targetMarkets: "target markets",
+  constraints: "constraints",
+  riskAppetite: "risk appetite",
+};
+
+/**
+ * What a refused save says: the answers the API did not accept, once each, by name ("budget, citizenship"), with what to
+ * do. The API's own Zod text ("budgetMinor: Too big: expected int to be <=9007199254740991") never reaches the screen.
+ */
+export function profileSaveMessage(issues: readonly { path?: readonly (string | number)[] }[] | null, fallback: string): string {
+  if (!issues?.length) return fallback;
+  const names = [...new Set(issues.map((i) => ANSWER_NAMES[String(i.path?.[0] ?? "")]).filter((n): n is string => Boolean(n)))];
+  if (names.length === 0) return fallback;
+  return `These answers were not accepted: ${names.join(", ")}. Shorten or correct them, then save again.`;
 }
 
 export const PROFILE_SECTIONS = [
@@ -237,8 +279,8 @@ export function sectionStatus(form: ProfileForm): Record<ProfileSectionId, boole
     identity: !errors.displayName && !errors.experience,
     skills: true,
     time: !errors.timeCommitment && !errors.budget && !errors.currency,
-    place: !errors.targetMarkets,
-    constraints: !errors.riskAppetite,
+    place: !errors.targetMarkets && !errors.citizenship && !errors.residence,
+    constraints: !errors.riskAppetite && !errors.constraints,
   };
 }
 

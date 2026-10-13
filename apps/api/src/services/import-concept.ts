@@ -10,6 +10,7 @@
  * - `import.continue` takes the held draft (waiting for it if it is still being written), saves it as the founder's idea
  *   with the job recorded on it (commit links the business to the import), and answers with the idea. Without a held
  *   draft (another api replica, a restart, an expired or failed draft) it drafts the card there and then, as before.
+ *   One card per job: a Continue for a job whose card is saved answers with that idea (and Prepare drafts nothing).
  * - Only the founder's own finished sign-up import qualifies (`linkableImportJob`: signed here, started by this
  *   account, no business yet, done), the same rule `idea.generate` applies to `importJobId`.
  *
@@ -157,6 +158,8 @@ async function draftConcept(deps: ImportConceptDeps, userId: string, report: Sco
  */
 export async function prepareImportConcept(deps: ImportConceptDeps, jobId: string, userId: string): Promise<{ status: "drafting" | "ready" }> {
   const { jobId: linked, report } = await finishedImport(deps, jobId, userId);
+  // The job's card is already saved (Continue ran, then the founder came back to the report): nothing to draft.
+  if (await repos.ideas.findByImportJob(deps.db, userId, linked)) return { status: "ready" };
   const cache = deps.cache ?? importConcepts;
   const held = cache.get(userId, linked);
   if (held && !held.failed) return { status: held.settled ? "ready" : "drafting" };
@@ -194,11 +197,32 @@ export interface ContinuedImport {
   mode: ModelMode;
   /** True when the card drafted ahead was used (Continue did not wait on a new model call). */
   speculative: boolean;
+  /** True when this job's card was saved by an earlier Continue: that idea is answered again, nothing was drafted. */
+  alreadySaved: boolean;
 }
 
-/** "Continue to Commit": saves the card drafted ahead (or drafts it now) as the founder's idea, linked to the import. */
+/** Continues in flight, per founder and job: a second call for the same job waits for the first and gets its idea. */
+const continuing = new Map<string, Promise<ContinuedImport>>();
+
+/**
+ * "Continue to Commit": saves the card drafted ahead (or drafts it now) as the founder's idea, linked to the import.
+ * Idempotent per founder and job (audit IAE-07, ARB-20): a call while one is running shares its answer (a double click
+ * that httpBatchLink sends as one request), and a later call (Back, then Continue again) answers with the idea already
+ * saved from this job, so no second card, model call or drafting allowance is spent.
+ */
 export async function continueImport(deps: ImportConceptDeps, jobId: string, userId: string): Promise<ContinuedImport> {
   const { jobId: linked, report } = await finishedImport(deps, jobId, userId);
+  const flightKey = `${userId}:${linked}`;
+  const running = continuing.get(flightKey);
+  if (running) return running;
+  const flight = continueOnce(deps, linked, report, userId).finally(() => continuing.delete(flightKey));
+  continuing.set(flightKey, flight);
+  return flight;
+}
+
+async function continueOnce(deps: ImportConceptDeps, linked: string, report: ScoutingReport, userId: string): Promise<ContinuedImport> {
+  const saved = await repos.ideas.findByImportJob(deps.db, userId, linked);
+  if (saved) return { idea: saved, costMinor: 0, costLabel: "Estimate", mode: deps.models.mode, speculative: false, alreadySaved: true };
   const cache = deps.cache ?? importConcepts;
   const held = cache.take(userId, linked);
   let drafted: DraftedConcept | null = null;
@@ -211,5 +235,5 @@ export async function continueImport(deps: ImportConceptDeps, jobId: string, use
     });
   }
   const [idea] = await repos.ideas.createMany(deps.db, userId, [ideaFromCard(drafted.card, { import_job_id: linked })]);
-  return { idea: idea!, costMinor: drafted.costMinor, costLabel: "Estimate", mode: drafted.mode, speculative };
+  return { idea: idea!, costMinor: drafted.costMinor, costLabel: "Estimate", mode: drafted.mode, speculative, alreadySaved: false };
 }

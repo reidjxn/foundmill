@@ -72,6 +72,19 @@ test.describe("onboarding", () => {
     await expect(page.getByTestId("studio-frame")).toHaveAttribute("data-step", "profile");
   });
 
+  test("refuses values the API would reject, inline and in plain words (audit FR-14)", async ({ page }) => {
+    await page.goto("/onboarding");
+    await expect(page.getByTestId("onboarding-form")).toBeVisible({ timeout: LONG });
+    await page.getByLabel(/Budget you can commit/).fill("99999999999999m");
+    await page.getByTestId("profile-submit").click();
+    await expect(page.getByRole("alert").filter({ hasText: /Use a budget below/ })).toBeVisible();
+    await expect(page.getByText(/budgetMinor|Too big/)).toHaveCount(0);
+    // The country fields stop at 80 characters instead of accepting text the API refuses.
+    const citizenship = page.locator("#profile-citizenship");
+    await citizenship.fill("x".repeat(100));
+    await expect(citizenship).toHaveValue("x".repeat(80));
+  });
+
   test("refuses an incomplete profile, then saves and lands on /new", async ({ page }) => {
     await page.goto("/onboarding");
     await expect(page.getByTestId("onboarding-form")).toBeVisible({ timeout: LONG });

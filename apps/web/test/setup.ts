@@ -17,4 +17,7 @@ if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
 }
 if (typeof Element !== "undefined" && typeof Element.prototype.scrollIntoView !== "function") Element.prototype.scrollIntoView = () => {};
 
+// The product is desktop only (>= 1280 px) and its frames show NeedsLargerWindow below that: tests render at desktop width.
+if (typeof window !== "undefined") Object.defineProperty(window, "innerWidth", { value: 1440, configurable: true, writable: true });
+
 afterEach(() => cleanup());

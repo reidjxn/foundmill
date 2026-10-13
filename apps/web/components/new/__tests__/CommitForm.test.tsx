@@ -3,7 +3,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { describe, expect, it, vi } from "vitest";
 import { CONCEPT_ATTRIBUTE_KEYS, TooltipProvider } from "@foundmill/dugout";
 import { TRPCClientError } from "@trpc/client";
-import { CommitForm, upgradeHrefOf, type CommitLogoApi } from "../commit/CommitScreen";
+import { CommitForm, archetypeParam, commitSteps, departmentColour, importHref, upgradeHrefOf, type CommitLogoApi } from "../commit/CommitScreen";
+import { IMPORT_STEPS, STUDIO_STEPS } from "../StudioFrame";
 import { META_KIND, type IdeaLike } from "../ideate/concepts";
 
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
@@ -90,6 +91,11 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
       expect(document.querySelector('[data-domain="ledgerly.com"]')).toBeTruthy();
       expect(document.querySelectorAll("[data-registry]")).toHaveLength(2);
       expect(screen.getAllByText("Estimate").length).toBeGreaterThan(0);
+      // The trademark screen carries the Estimate chip beside its label, like the Domains column (audit WEB-11).
+      expect(screen.getByTestId("trademark-provenance").textContent).toMatch(/Estimate/);
+      // "Ledgerly" starts like the known mark "ledger": said about that list, with the mark named (nothing invented).
+      expect(document.querySelector("[data-registry]")?.textContent).toMatch(/LEDGER.*Close to a known mark/);
+      expect(screen.getByTestId("trademark-caveat").textContent).toMatch(/not a registry search/);
     } finally {
       vi.useRealTimers();
     }
@@ -266,5 +272,48 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     const squad = screen.getByTestId("squad-preview");
     expect(squad.textContent).toMatch(/Chief of Staff/);
     expect(squad.textContent).toMatch(/1 agent · 1 department · 1 channel on/);
+  });
+
+  it("preselects the Import report's archetype over the card's and says where it came from (audit IAE-10)", () => {
+    renderForm(vi.fn(), { suggestedArchetype: "services" });
+    expect(document.querySelector('[data-option="services"]')?.getAttribute("data-selected")).toBe("true");
+    expect(document.querySelector('[data-option="b2b_saas"]')?.getAttribute("data-selected")).not.toBe("true");
+    expect(screen.getByText("From the import report")).toBeTruthy();
+    expect(screen.queryByText("From the card")).toBeNull();
+  });
+
+  it("draws Import's own trail when it came from Import (audit IAE-18)", () => {
+    renderForm(vi.fn(), { steps: commitSteps(true, "job-1") });
+    const ids = Array.from(document.querySelectorAll("[data-step-item]")).map((n) => n.getAttribute("data-step-item"));
+    expect(ids).toEqual(IMPORT_STEPS.map((s) => s.id));
+    expect(ids).not.toContain("ideate");
+    expect(document.querySelector('[data-step-item="import"] a')?.getAttribute("href")).toBe("/new/import?job=job-1");
+  });
+});
+
+describe("commit screen helpers", () => {
+  it("the trail is the studio's unless the founder came from Import", () => {
+    expect(commitSteps(false, "job-1")).toBe(STUDIO_STEPS);
+    expect(commitSteps(true, null).find((s) => s.id === "import")?.href).toBe("/new/import");
+  });
+
+  it("Back from Commit returns to the finished import when its job is known", () => {
+    expect(importHref("a.b")).toBe("/new/import?job=a.b");
+    expect(importHref(null)).toBe("/new/import");
+  });
+
+  it("reads only known archetypes from the address", () => {
+    expect(archetypeParam("b2b_saas")).toBe("b2b_saas");
+    expect(archetypeParam("crest")).toBeNull();
+    expect(archetypeParam(null)).toBeNull();
+  });
+
+  it("an agent wears its own department's color, not the color of its place in the list (audit AC-15)", () => {
+    const preview = { departments: [{ slug: "product", colourToken: "dept-1" as const }, { slug: "development", colourToken: "dept-2" as const }, { slug: "team", colourToken: "dept-6" as const }] };
+    expect(departmentColour(preview, "development")).toBe("dept-2");
+    expect(departmentColour(preview, "team")).toBe("dept-6");
+    expect(departmentColour(preview, null)).toBe("dept-1");
+    expect(departmentColour(preview, "unknown")).toBe("dept-1");
+    expect(departmentColour({ departments: [] }, "x")).toBe("dept-1");
   });
 });

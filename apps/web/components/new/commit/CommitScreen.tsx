@@ -13,7 +13,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, Check, Globe, Lock, Scale, SearchX, ThumbsUp } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { ARCHETYPE_LABELS, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
+import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype, type BusinessMode, type DeptColourToken, type GameMode } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { Avatar, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, cn, fieldDescribedBy, formatMoney, useToast, type Kit } from "@foundmill/dugout";
 import { plainWords, plural } from "@/lib/format";
@@ -21,7 +21,8 @@ import { useSingleFlight } from "@/lib/single-flight";
 import { errorMessage, tierLimitOf, trpcErrorCode, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
-import { StudioFrame } from "../StudioFrame";
+import { IMPORT_STEPS, STUDIO_STEPS, StudioFrame, type StudioStepItem } from "../StudioFrame";
+import { conceptErrorMessage, isConceptGone } from "../ideate/concept-errors";
 import { readMeta, toConcept, type IdeaLike } from "../ideate/concepts";
 import type { GeneratedLogoSet, LogoActions, LogoProgress } from "@/components/logo/LogoPicker";
 import { readLogoStream } from "@/components/logo/logo-stream";
@@ -31,6 +32,7 @@ import {
   BUSINESS_MODE_CARDS,
   DEFAULT_SPEND_CAP_MINOR,
   GAME_MODE_CARDS,
+  TRADEMARK_STATUS_WORDS,
   commitInput,
   domainCandidates,
   initialCommitForm,
@@ -107,15 +109,21 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
   const onCommit = useSingleFlight(commit.mutateAsync, { closeOnSuccess: true });
 
   const idea = ideaQ.data?.idea as IdeaLike | undefined;
+  // Reached from Import: its own trail, Back to the finished report (the signed job id travels in the address), and the
+  // report's archetype ahead of the card's (audit IAE-18, IAE-12, IAE-10).
+  const fromImport = params.get("from") === "import";
+  const jobId = fromImport ? params.get("job") : null;
+  const steps = useMemo(() => commitSteps(fromImport, jobId), [fromImport, jobId]);
+  const suggestedArchetype = fromImport ? archetypeParam(params.get("archetype")) : null;
   const back = (
-    <LinkButton variant="ghost" icon={ArrowLeft} href={params.get("from") === "import" ? "/new/import" : "/new/ideate"}>
+    <LinkButton variant="ghost" icon={ArrowLeft} href={fromImport ? importHref(jobId) : "/new/ideate"}>
       Back
     </LinkButton>
   );
 
   if (ideaQ.isLoading) {
     return (
-      <StudioFrame step="commit" title="Commit" viewer={viewer} actions={back}>
+      <StudioFrame step="commit" steps={steps} title="Commit" viewer={viewer} actions={back}>
         <div className="grid grid-cols-12 gap-gutter" aria-busy="true" aria-label="Loading">
           <Panel title="Name" span={8}>
             <SkeletonRows rows={4} cols={2} />
@@ -129,7 +137,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
   // that can never succeed (audit IAE-16); any other failure keeps its retry.
   if (!idea && (!ideaQ.error || trpcErrorCode(ideaQ.error) === "NOT_FOUND")) {
     return (
-      <StudioFrame step="commit" title="Commit" viewer={viewer} actions={back}>
+      <StudioFrame step="commit" steps={steps} title="Commit" viewer={viewer} actions={back}>
         <Panel title="Concept" data-testid="concept-not-found">
           <EmptyState icon={SearchX} title="No such concept" actions={<LinkButton variant="primary" size="sm" icon={ArrowLeft} href="/new/ideate">Back to your concepts</LinkButton>}>
             This concept was deleted, belongs to another account, or the link is wrong.
@@ -140,15 +148,15 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
   }
   if (!idea) {
     return (
-      <StudioFrame step="commit" title="Commit" viewer={viewer} actions={back}>
-        <Panel title="Concept" error={errorMessage(ideaQ.error)} onRetry={() => ideaQ.refetch()} />
+      <StudioFrame step="commit" steps={steps} title="Commit" viewer={viewer} actions={back}>
+        <Panel title="Concept" error={ideaQ.error ? conceptErrorMessage(ideaQ.error) : "This concept was not found."} onRetry={ideaQ.error && isConceptGone(ideaQ.error) ? undefined : () => ideaQ.refetch()} />
       </StudioFrame>
     );
   }
   if ((ideaQ.data?.idea as { committedAt?: Date | string | null } | undefined)?.committedAt && (ideaQ.data?.idea as { businessId?: string | null } | undefined)?.businessId) {
     const bid = (ideaQ.data!.idea as { businessId: string }).businessId;
     return (
-      <StudioFrame step="commit" title="Already committed" viewer={viewer} actions={back}>
+      <StudioFrame step="commit" steps={steps} title="Already committed" viewer={viewer} actions={back}>
         <Panel title="Concept">
           <EmptyState icon={Check} tone="kit" title="This concept already became a business" actions={<LinkButton variant="primary" size="sm" iconRight={ArrowRight} href={routes.home(bid)}>Open the business</LinkButton>}>
             Its team is already at work. Open it to see what they are doing, or go back and commit another concept.
@@ -164,6 +172,8 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
       viewer={viewer}
       currency={currency}
       initialName={params.get("name")}
+      suggestedArchetype={suggestedArchetype}
+      steps={steps}
       preview={previewQ.data}
       previewLoading={previewQ.isLoading}
       onArchetypeChange={setArchetype}
@@ -189,6 +199,10 @@ export interface CommitFormProps {
   viewer: { email: string | null };
   currency: string;
   initialName?: string | null;
+  /** The Import report's archetype (Import's Continue): preselected ahead of the card's. */
+  suggestedArchetype?: Archetype | null;
+  /** The first-run trail to draw (Import has its own). */
+  steps?: readonly StudioStepItem[];
   preview?: SquadPreview;
   previewLoading?: boolean;
   onArchetypeChange?: (archetype: Archetype | null) => void;
@@ -206,6 +220,27 @@ export interface CommitFormProps {
   back?: ReactNode;
 }
 
+/** Where Back and the trail's Import step go: the finished import when its job id is known, else a fresh picker. */
+export function importHref(jobId: string | null | undefined): string {
+  return jobId ? `/new/import?job=${encodeURIComponent(jobId)}` : "/new/import";
+}
+
+/** The trail the Commit screen draws: Import's when the founder came from Import (no Ideate or Compare), else the studio's. */
+export function commitSteps(fromImport: boolean, jobId: string | null | undefined): readonly StudioStepItem[] {
+  if (!fromImport) return STUDIO_STEPS;
+  return IMPORT_STEPS.map((s) => (s.id === "import" ? { ...s, href: importHref(jobId) } : s));
+}
+
+/** `?archetype=` from Import's Continue: one of the known archetypes, else none. */
+export function archetypeParam(value: string | null | undefined): Archetype | null {
+  return value && (ARCHETYPES as readonly string[]).includes(value) ? (value as Archetype) : null;
+}
+
+/** The color an agent wears in the Day one list: its own department's, as on Home and Team (never its place in the list). */
+export function departmentColour(preview: { departments: readonly { slug: string; colourToken: DeptColourToken }[] }, departmentSlug: string | null | undefined): DeptColourToken {
+  return preview.departments.find((d) => d.slug === departmentSlug)?.colourToken ?? preview.departments[0]?.colourToken ?? "dept-1";
+}
+
 /** Settings › Billing of the business whose plan sets the owner's business limit, when the plan refused the commit. */
 export function upgradeHrefOf(err: unknown): string | null {
   const tier = tierLimitOf(err);
@@ -214,12 +249,12 @@ export function upgradeHrefOf(err: unknown): string | null {
 
 const DEBOUNCE_MS = 350;
 
-export function CommitForm({ idea, viewer, currency, initialName, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, adultConfirmed = false, liveOpen = true, onCommit, logoApi, back }: CommitFormProps) {
+export function CommitForm({ idea, viewer, currency, initialName, suggestedArchetype, steps, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, adultConfirmed = false, liveOpen = true, onCommit, logoApi, back }: CommitFormProps) {
   const concept = useMemo(() => toConcept(idea), [idea]);
   // The idea's seed only picks the starting brand colours now; the logo is uploaded or generated.
   const ideaSeed = String(readMeta(idea.current?.research).crest_seed ?? idea.id);
   const [form, setForm] = useState<CommitFormValues>(() => {
-    const base = initialCommitForm({ title: idea.current?.title ?? idea.title, archetype: idea.archetype }, kitFromSeed(ideaSeed), currency);
+    const base = initialCommitForm({ title: idea.current?.title ?? idea.title, archetype: suggestedArchetype ?? idea.archetype }, kitFromSeed(ideaSeed), currency);
     return initialName ? { ...base, name: initialName } : base;
   });
   const [capTouched, setCapTouched] = useState(false);
@@ -266,6 +301,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
   return (
     <StudioFrame
       step="commit"
+      steps={steps}
       title={form.name.trim() ? `Commit to ${form.name.trim()}` : "Commit"}
       // While the business is set up the header says so, beside the button that started it (the panel's own status line
       // sits at the foot of a long column, usually off screen).
@@ -319,6 +355,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
                   <div className="mb-1.5 flex items-center gap-2">
                     <Scale size={14} className="text-secondary" aria-hidden />
                     <span className="t-label">USPTO / EUIPO quick screen</span>
+                    {(screened?.marks[0]?.provenance ?? "Estimate") === "Estimate" ? <ProvenanceChip kind="estimate" data-testid="trademark-provenance" /> : <Chip>{screened?.marks[0]?.provenance}</Chip>}
                   </div>
                   {screened && !screening ? (
                     <ul className="flex flex-col gap-1">
@@ -326,9 +363,9 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
                         <li key={m.registry} className="flex items-center justify-between gap-2 text-body" data-registry={m.registry} data-status={m.status}>
                           <span>
                             {m.registry}
-                            {m.similar.length ? <span className="text-small text-secondary"> · similar: {m.similar.join(", ")}</span> : null}
+                            {m.similar.length ? <span className="text-small text-secondary"> · {m.similar.join(", ")}</span> : null}
                           </span>
-                          <StatusPill tone={m.status === "clear" ? "good" : m.status === "similar" ? "warn" : "bad"}>{m.status === "clear" ? "No hit" : m.status === "similar" ? "Similar marks" : "Conflict"}</StatusPill>
+                          <StatusPill tone={m.status === "clear" ? "good" : m.status === "similar" ? "warn" : "bad"}>{TRADEMARK_STATUS_WORDS[m.status]}</StatusPill>
                         </li>
                       ))}
                     </ul>
@@ -336,7 +373,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
                     <p className="text-small text-secondary">{form.name.trim() ? "Screening…" : "Type a name to screen it."}</p>
                   )}
                   <p className="mt-1.5 text-small text-secondary" data-testid="trademark-caveat">
-                    Screen, not legal clearance. A lawyer or an attorney search confirms it.
+                    Checked against a list of well-known marks, not a registry search. Screen, not legal clearance: a lawyer or an attorney search confirms it.
                   </p>
                 </div>
               </div>
@@ -371,7 +408,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
             <Field htmlFor="archetype-group" label="Seeds the departments, the team and the first roadmap" required error={show("archetype")}>
               <RadioGroup id="archetype-group" value={form.archetype ?? ""} onValueChange={(v) => set("archetype", v as Archetype)} className="grid-cols-4" aria-label="Archetype">
                 {ARCHETYPE_CARDS.map((a) => (
-                  <ModeCardOption key={a.value} id={`arch-${a.value}`} value={a.value} label={a.label} tagline={a.tagline} details={[`First win: ${a.firstWin}`]} selected={form.archetype === a.value} badge={idea.archetype === a.value ? "From the card" : undefined} />
+                  <ModeCardOption key={a.value} id={`arch-${a.value}`} value={a.value} label={a.label} tagline={a.tagline} details={[`First win: ${a.firstWin}`]} selected={form.archetype === a.value} badge={suggestedArchetype === a.value ? "From the import report" : !suggestedArchetype && idea.archetype === a.value ? "From the card" : undefined} />
                 ))}
               </RadioGroup>
             </Field>
@@ -438,9 +475,9 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
                     ))}
                   </div>
                   <ul className="flex flex-col divide-y divide-line-faint" aria-label="Team">
-                    {preview.agents.map((a, i) => (
-                      <li key={a.templateKey} className="flex items-center gap-2 py-1.5 first:pt-0 last:pb-0">
-                        <Avatar size={24} name={a.name} agent={{ seed: a.templateKey, dept: preview.departments[i % preview.departments.length]?.colourToken ?? "dept-1" }} />
+                    {preview.agents.map((a) => (
+                      <li key={a.templateKey} className="flex items-center gap-2 py-1.5 first:pt-0 last:pb-0" data-department={a.departmentSlug ?? undefined}>
+                        <Avatar size={24} name={a.name} agent={{ seed: a.templateKey, dept: departmentColour(preview, a.departmentSlug) }} />
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-body-strong">{a.name}</div>
                           <div className="truncate text-small text-secondary">{a.role}</div>

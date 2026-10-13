@@ -1,7 +1,7 @@
 import { repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { IMPORT_READERS } from "@foundmill/shared";
-import { IMPORT_SOURCE_KEYS, buildScoutingReport, decodeJobId, importJobKey, importSourceRow, queueImportReads, sourceUri, validateConfigs, webUri, type ImportJob } from "../services/import";
+import { IMPORT_DEADLINE_MS, IMPORT_SOURCE_KEYS, IMPORT_TIMED_OUT, buildScoutingReport, decodeJobId, encodeJobId, importJobKey, importSourceRow, importStatus, queueImportReads, sourceUri, validateConfigs, webUri, type ImportJob } from "../services/import";
 import { silentLog } from "../services/log";
 import { createTemporalService } from "../services/temporal";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
@@ -191,10 +191,10 @@ describe("import.start / import.status — Door B (BUILD §11.1, AC-11.1.5)", ()
     // A member of another business cannot read the job.
     await expect(hz.caller({ userId: hz.B.ownerId }).import.status({ jobId: started.job.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
-    // The orchestrator's importSource activity finishes the sources: the website has no reader, the registry is read.
+    // The orchestrator's importSource activity finishes the sources: the website's read failed, the registry is read.
     const [siteId, registryId] = args.sourceIds as [string, string];
     const site = await repos.product.getSource(hz.db, businessId, siteId);
-    await repos.product.updateSource(hz.db, businessId, siteId, { fetchedAt: new Date(), relevance: { ...(site.relevance as Record<string, unknown>), imported: false, reason: "the import has no reader for this source yet" } });
+    await repos.product.updateSource(hz.db, businessId, siteId, { fetchedAt: new Date(), relevance: { ...(site.relevance as Record<string, unknown>), imported: false, reason: "the read failed: not connected" } });
     const registry = await repos.product.getSource(hz.db, businessId, registryId);
     await repos.product.updateSource(hz.db, businessId, registryId, { fetchedAt: new Date(), relevance: { ...(registry.relevance as Record<string, unknown>), imported: true, connector: "opencorporates", tool: "search_companies" } });
     const done = await owner.import.status({ jobId: started.job.id });
@@ -202,7 +202,7 @@ describe("import.start / import.status — Door B (BUILD §11.1, AC-11.1.5)", ()
     expect(done.job.sources.map((s) => s.status)).toEqual(["failed", "done"]);
     expect(done.report?.suggestedName).toBe("Ledgerlyhq");
     expect(done.report?.whatExists).toEqual(["Company registry (12345678): Read through opencorporates (search_companies), read only."]);
-    expect(done.report?.whatIsMissing[0]).toBe("Website (https://ledgerlyhq.com): Not read: the import has no reader for this source yet.");
+    expect(done.report?.whatIsMissing[0]).toBe("Website (https://ledgerlyhq.com): Not read: the read failed: not connected.");
     const audit = await repos.audit.list(hz.db, businessId, { action: "import.start" });
     expect(audit.items).toHaveLength(1);
   });
@@ -276,6 +276,54 @@ describe("import.start / import.status — Door B (BUILD §11.1, AC-11.1.5)", ()
     expect(relevance.reason).toBeUndefined();
     const audit = await repos.audit.list(hz.db, businessId, { action: "import.read_again" });
     expect(audit.items[0]).toMatchObject({ actorId: hz.A.ownerId, details: { sourceIds: [stripe.id], queued: true } });
+  });
+
+  it("a business import refuses a source no connector reads, and stores what the orchestrator routes on", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const { businessId } = hz.A;
+    const before = (await repos.product.listSources(hz.db, businessId, { limit: 100 })).items.length;
+    await expect(owner.import.start({ businessId, sources: [{ key: "linear", value: "" }, { key: "stripe", value: "" }] })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/Linear cannot be imported into a business yet/) });
+    expect((await repos.product.listSources(hz.db, businessId, { limit: 100 })).items).toHaveLength(before);
+    const started = await owner.import.start({ businessId, sources: [{ key: "github", value: "acme/ledgerly" }, { key: "registry", value: "12345678" }] });
+    const rows = (await repos.product.listSources(hz.db, businessId, { limit: 100 })).items.filter((r) => started.job.sources.some((s) => s.sourceId === r.id));
+    expect(rows.map((r) => (r.relevance as { import: { key: string; value: string; connector: string } }).import).sort((a, b) => a.key.localeCompare(b.key))).toEqual([
+      { key: "github", value: "acme/ledgerly", connector: "github", readOnly: true, status: "pending" },
+      { key: "registry", value: "12345678", connector: "opencorporates", readOnly: true, status: "pending" },
+    ]);
+    // The preview job (no business) still lists every source, including the two without a connector.
+    const preview = await owner.import.start({ sources: [{ key: "linear", value: "" }, { key: "jira", value: "" }], stepMs: 1 });
+    expect(preview.job.mode).toBe("local");
+  });
+
+  it("every source reaches a terminal state: failures carry their reason, finishedAt is when the last one finished, a silent run times out", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const { businessId } = hz.A;
+    const t0 = new Date("2026-10-12T10:00:00.000Z");
+    const started = await owner.import.start({ businessId, sources: [{ key: "stripe", value: "" }, { key: "shopify", value: "" }, { key: "bank", value: "" }] });
+    const [stripe, shopify, bank] = started.job.sources.map((s) => s.sourceId!);
+    const key = importJobKey(hz.deps.env);
+    const decoded = decodeJobId(key, started.job.id);
+    const jobId = encodeJobId(key, { ...decoded, t: t0.getTime() });
+    // One source failed (the orchestrator wrote the reason), one succeeded, one is still running: the job is running.
+    await repos.product.updateSource(hz.db, businessId, stripe!, { relevance: { imported: false, reason: "stripe.get_account failed: not connected", finishedAt: "2026-10-12T10:00:05.000Z" } });
+    await repos.product.updateSource(hz.db, businessId, shopify!, { fetchedAt: new Date("2026-10-12T10:00:09.000Z"), relevance: { imported: true, connector: "shopify", read: "3 orders", finishedAt: "2026-10-12T10:00:09.000Z" } });
+    const running = await importStatus({ db: hz.db, key }, jobId, hz.A.ownerId, new Date("2026-10-12T10:01:00.000Z"));
+    expect(running.job.status).toBe("running");
+    expect(running.job.finishedAt).toBeNull();
+    expect(running.job.sources.map((s) => [s.status, s.summary])).toEqual([["failed", "Not read: stripe.get_account failed: not connected."], ["done", "Read through shopify, read only."], ["running", null]]);
+    // Past the deadline the silent source is a failure and the job finishes, at the last real finish time plus the deadline.
+    const late = await importStatus({ db: hz.db, key }, jobId, hz.A.ownerId, new Date(t0.getTime() + IMPORT_DEADLINE_MS + 1000));
+    expect(late.job.status).toBe("done");
+    expect(late.job.sources[2]).toMatchObject({ status: "failed", summary: IMPORT_TIMED_OUT });
+    expect(late.job.finishedAt).toBe(new Date(t0.getTime() + IMPORT_DEADLINE_MS).toISOString());
+    expect(late.report).not.toBeNull();
+    // The orchestrator finished the last one: finishedAt is that time, and does not move with the poll.
+    await repos.product.updateSource(hz.db, businessId, bank!, { relevance: { imported: false, reason: "no bank link", finishedAt: "2026-10-12T10:00:30.000Z" } });
+    const a = await importStatus({ db: hz.db, key }, jobId, hz.A.ownerId, new Date("2026-10-12T10:02:00.000Z"));
+    const b = await importStatus({ db: hz.db, key }, jobId, hz.A.ownerId, new Date("2026-10-12T11:02:00.000Z"));
+    expect(a.job.finishedAt).toBe("2026-10-12T10:00:30.000Z");
+    expect(b.job.finishedAt).toBe(a.job.finishedAt);
+    expect(a.job.status).toBe("done");
   });
 
   it("import.sources lists the read-only catalogue", async () => {

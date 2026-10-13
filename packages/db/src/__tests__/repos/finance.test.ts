@@ -207,6 +207,14 @@ describe("usage", () => {
     await expect(repos.usage.grantCredits(r.db, A, "2026-10", 2500, "JPY")).rejects.toThrow(/Invalid credit grant/);
     expect((await repos.usage.creditBalance(r.db, A, "2026-10"))).toMatchObject({ balanceMinor: 300, currency: "USD" });
   });
+
+  it("books a call made outside a session (a token id with no agent_sessions row) without a session link (audit ARB-06)", async () => {
+    const A = r.A.businessId;
+    const orphan = await repos.usage.record(r.db, A, { agentId: r.A.agentId, sessionId: "00000000-0000-4000-8000-00000000dead", kind: "tool", quantity: 1, unit: "calls", costMinor: 0, occurredAt: day("2026-10-05") });
+    expect(orphan.sessionId).toBeNull();
+    const linked = await repos.usage.record(r.db, A, { agentId: r.A.agent2Id, sessionId: r.A.sessionId, kind: "tool", quantity: 1, unit: "calls", costMinor: 0, occurredAt: day("2026-10-05") });
+    expect(linked.sessionId).toBe(r.A.sessionId);
+  });
 });
 
 describe("usage, calls under half a cent (0039)", () => {

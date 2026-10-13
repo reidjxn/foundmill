@@ -145,6 +145,25 @@ function cardSpec(ctx: MockContext): MockCardSpec {
   return { id: str(concept.id, 120), name: str(concept.name, 60), archetype, angle: str(concept.angle, 400) };
 }
 
+/**
+ * Import's single card (no slate item; the report travels as `import_report`): the card describes the business the
+ * report is about, as a model following `buildSingleConceptRequest` would. It keeps the business's own name ("Existing
+ * business import: <name>."), takes the report's archetype (`archetype_hint`) and pitches what exists, instead of a
+ * random name, archetype and audience (audit IAE-10).
+ */
+function importSpec(ctx: MockContext): MockCardSpec {
+  const report = ctx.getString("import_report");
+  if (!report) return {};
+  const hint = ctx.getString("archetype_hint");
+  const archetype = hint && (ARCHETYPES as readonly string[]).includes(hint) ? (hint as Archetype) : undefined;
+  const line = (label: string) => new RegExp(`^${label}: (.+?)\\.$`, "m").exec(report)?.[1]?.trim();
+  const name = line("Existing business import")?.slice(0, 60);
+  const exists = line("What exists");
+  const kind = archetype ? `${ARCHETYPE_LABELS[archetype]} business` : "business";
+  const angle = name ? `${name} is an existing ${kind}${exists ? `: ${exists}` : ""}.`.slice(0, 400) : undefined;
+  return { ...(name ? { name } : {}), ...(archetype ? { archetype } : {}), ...(angle ? { angle } : {}) };
+}
+
 /** A full set of 6–12 cards (`{ concepts: [...] }`), seeded by the prompt. */
 export function generateIdeation(ctx: MockContext): IdeationOutput {
   const inputs = draftInputs(ctx);
@@ -157,11 +176,12 @@ export function generateIdeation(ctx: MockContext): IdeationOutput {
 
 /**
  * One card (audit P2: a card of the slate's fan-out, or Import's single card). A request naming a slate item
- * (`concept: {id, name, archetype, angle}`) keeps its id, name, archetype and angle; without one the card is drafted
- * from the prompt.
+ * (`concept: {id, name, archetype, angle}`) keeps its id, name, archetype and angle; Import's card keeps the imported
+ * business's name and archetype (`importSpec`); otherwise the card is drafted from the prompt.
  */
 export function generateConceptCard(ctx: MockContext): ConceptCard {
-  return draftCard(ctx, 0, draftInputs(ctx), new Set<string>(), cardSpec(ctx));
+  const slateItem = cardSpec(ctx);
+  return draftCard(ctx, 0, draftInputs(ctx), new Set<string>(), Object.keys(slateItem).length > 0 ? slateItem : importSpec(ctx));
 }
 
 /** The `ideation` route: one card when the caller's schema is a single card (it has `attributes`), else a full set. */

@@ -1,10 +1,10 @@
 /**
- * idea.generate/compare/merge/fork/ask/discard/commit — the Ideation Studio (BUILD §11.1 Door A).
+ * idea.generate/compare/merge/fork/ask/discard/restore/commit — the Ideation Studio (BUILD §11.1 Door A).
  * Ideation is account-scoped and private (no business yet); every action creates an `idea_version` (AC-11.1.3).
  */
-import { repos, type IdeaWithVersion } from "@foundmill/db";
+import { IDEAS_BY_ID_MAX, repos, type IdeaWithVersion } from "@foundmill/db";
 import { HOUSE_STYLE } from "@foundmill/agents";
-import { ARCHETYPES, Archetype, BUSINESS_MODES, GAME_MODES, ValidationError } from "@foundmill/shared";
+import { ARCHETYPES, Archetype, BUSINESS_MODES, CurrencyCode, GAME_MODES, ValidationError } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { commitIdea, squadPreview } from "../services/commit";
@@ -42,6 +42,12 @@ function mergeAttributes(sources: IdeaWithVersion[]): AttrMap {
   return out;
 }
 
+/** The Ask exchanges a version holds (`meta.qa`). */
+function storedQa(research: unknown): unknown[] {
+  const qa = readMeta(research).qa;
+  return Array.isArray(qa) ? (qa as unknown[]) : [];
+}
+
 /** "market_pull" → "market pull" (the card's own words for its attributes). */
 const attributeWords = (key: string): string => key.replace(/_/g, " ").replace(/\bagent executability\b/, "agent-executability");
 
@@ -69,6 +75,13 @@ export { IDEATION_CARD_MAX_TOKENS as SINGLE_CONCEPT_MAX_TOKENS } from "@foundmil
 const GenerateInput = z.object({ prompt: z.string().max(4000).default(""), archetypeHint: Archetype.optional(), single: z.boolean().default(false), importJobId: z.string().min(8).max(8192).optional() });
 type GenerateInput = z.infer<typeof GenerateInput>;
 
+/** 2–4 different cards (Compare and Merge): the same card twice is refused before any model call or write. */
+const DistinctIdeaIds = z
+  .array(Id)
+  .min(2)
+  .max(4)
+  .refine((ids) => new Set(ids).size === ids.length, { message: "Pick different concepts: the same one was chosen twice" });
+
 /** The Import job a draft may record (Import's "Continue to Commit"), verified; null when none was given. */
 function importJobOf(ctx: Pick<Context, "env">, userId: string, input: GenerateInput): string | null {
   if (!input.importJobId) return null;
@@ -87,6 +100,16 @@ export const ideaRouter = router({
     const idea = await repos.ideas.get(ctx.db, ctx.userId, input.ideaId);
     const versions = await repos.ideas.versions(ctx.db, ctx.userId, input.ideaId);
     return { idea, versions };
+  }),
+
+  /**
+   * The founder's cards among `ideaIds` that are still in the deck (not discarded, not committed), and which of the rest
+   * are discarded (restorable). The Studio pins its shortlisted and restored cards with this when they are older than
+   * the pages it has loaded, and lets go of any id that is missing from `items`.
+   */
+  listByIds: protectedProcedure.input(z.object({ ideaIds: z.array(Id).max(IDEAS_BY_ID_MAX) })).query(async ({ ctx, input }) => {
+    const [items, discardedIds] = await Promise.all([repos.ideas.getMany(ctx.db, ctx.userId, input.ideaIds), repos.ideas.discardedAmong(ctx.db, ctx.userId, input.ideaIds)]);
+    return { items, discardedIds };
   }),
 
   /**
@@ -122,7 +145,7 @@ export const ideaRouter = router({
    * Compare 2–4 cards: side-by-side attributes + agent verdict (AC-11.1.4). One Opus call with no business to book it
    * to, so it spends a draft from the founder's drafting allowance (SEC-13), after the cards are found to be theirs.
    */
-  compare: protectedProcedure.input(z.object({ ideaIds: z.array(Id).min(2).max(4) })).use(modelLimited("ideation")).mutation(async ({ ctx, input }) => {
+  compare: protectedProcedure.input(z.object({ ideaIds: DistinctIdeaIds })).use(modelLimited("ideation")).mutation(async ({ ctx, input }) => {
     const ideas = await Promise.all(input.ideaIds.map((id) => repos.ideas.get(ctx.db, ctx.userId, id)));
     await takeIdeationAllowance(ctx.limits, ctx.userId);
     const result = await ctx.models.complete({
@@ -142,7 +165,7 @@ export const ideaRouter = router({
   }),
 
   /** Merge 2–4 cards into a new idea; the sources get a `merged` version pointing at it. */
-  merge: protectedProcedure.input(z.object({ ideaIds: z.array(Id).min(2).max(4), title: z.string().min(1).max(120).optional() })).mutation(async ({ ctx, input }) => {
+  merge: protectedProcedure.input(z.object({ ideaIds: DistinctIdeaIds, title: z.string().min(1).max(120).optional() })).mutation(async ({ ctx, input }) => {
     const sources = await Promise.all(input.ideaIds.map((id) => repos.ideas.get(ctx.db, ctx.userId, id)));
     const title = input.title ?? sources.map((s) => s.title).join(" × ").slice(0, 120);
     const merged = await repos.ideas.create(ctx.db, ctx.userId, {
@@ -201,8 +224,7 @@ export const ideaRouter = router({
     .mutation(async ({ ctx, input }) => {
       const idea = await repos.ideas.get(ctx.db, ctx.userId, input.ideaId);
       const before = (idea.current?.attributes as AttrMap | undefined) ?? {};
-      const meta = readMeta(idea.current?.research);
-      const qa = Array.isArray(meta.qa) ? (meta.qa as unknown[]) : [];
+      const qa = storedQa(idea.current?.research);
       const history = qa.flatMap((q) => (q && typeof q === "object" && typeof (q as { question?: unknown }).question === "string" && typeof (q as { answer?: unknown }).answer === "string" ? [{ question: (q as { question: string }).question, answer: (q as { answer: string }).answer }] : [])).slice(-6);
       const reply = await replyAboutConcept(ctx.models, {
         concept: { id: idea.id, title: idea.current?.title ?? idea.title, pitch: idea.current?.pitch ?? idea.pitch, attributes: before },
@@ -213,18 +235,24 @@ export const ideaRouter = router({
         limits: ctx.limits,
       });
       const question = input.question ?? conceptStarters().find((q) => q.id === input.quickReplyId)?.say ?? "";
+      const exchange = { question, answer: reply.answerMd, bubbles: reply.bubbles, quick_replies: reply.quickReplies, quick_reply_id: input.quickReplyId ?? null, reaction: reply.reaction };
       // The conversation route answers from the card; it never moves a rating, so the attributes carry over unchanged.
-      const version = await repos.ideas.addVersion(ctx.db, ctx.userId, idea.id, {
+      // The answer joins the Q&A of the version current when it is saved (under the idea's row lock), not the one read
+      // before the model call, so two asks at once keep both answers.
+      const version = await repos.ideas.addVersion(ctx.db, ctx.userId, idea.id, (latest) => ({
         action: "edited",
-        attributes: before,
-        research: withMeta(idea.current?.research, { qa: [...qa, { question, answer: reply.answerMd, bubbles: reply.bubbles, quick_replies: reply.quickReplies, quick_reply_id: input.quickReplyId ?? null, reaction: reply.reaction }] }),
-        parentVersionId: idea.current?.id ?? null,
-      });
+        attributes: (latest.current?.attributes as AttrMap | undefined) ?? before,
+        research: withMeta(latest.current?.research, { qa: [...storedQa(latest.current?.research), exchange] }),
+        parentVersionId: latest.current?.id ?? null,
+      }));
       return { version, answer: reply.answerMd, question, bubbles: reply.bubbles, quickReplies: reply.quickReplies, reaction: reply.reaction, persona: reply.persona };
     }),
 
   /** Discard (reversible: archived, not deleted). */
   discard: protectedProcedure.input(z.object({ ideaId: Id })).mutation(({ ctx, input }) => repos.ideas.discard(ctx.db, ctx.userId, input.ideaId)),
+
+  /** Restore a discarded card (the tray's Restore and the notice's Undo): back in the deck, every action works again. */
+  restore: protectedProcedure.input(z.object({ ideaId: Id })).mutation(({ ctx, input }) => repos.ideas.restore(ctx.db, ctx.userId, input.ideaId)),
 
   /** What "Take charge" will seed for an archetype (Commit screen preview). */
   preview: protectedProcedure.input(z.object({ archetype: Archetype })).query(({ input }) => squadPreview(input.archetype)),
@@ -242,7 +270,7 @@ export const ideaRouter = router({
         /** The chosen logo (uploaded or generated); checked before anything is created. Null or absent: the initials mark. */
         logo: LogoChoice.nullable().optional(),
         /** The business's currency; absent: the founder's profile currency (services/commit.ts). */
-        currency: z.string().trim().regex(/^[A-Za-z]{3}$/, "a currency is a 3-letter ISO 4217 code").optional(),
+        currency: CurrencyCode.optional(),
         spendCapMinor: z.number().int().nonnegative().nullable().default(null),
         /** The founder's 18+ confirmation, asked when they take charge of a LIVE business (the network is for adults). */
         confirmAdult: z.boolean().optional(),

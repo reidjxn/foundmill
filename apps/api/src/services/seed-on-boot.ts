@@ -5,14 +5,15 @@
  *
  * - Neither demo business exists → `seedDemo` (owners through the Supabase admin API when the service role key is set;
  *   on PGlite and local databases the stub `auth.users` rows).
- * - Both exist → only make sure each SEED_OWNER_EMAILS owner has an owner membership on both, so adding an address
- *   later needs no reseed, and that Northwind is the newer of the two (a first sign-in opens the newest business).
- *   Nothing is deleted.
- * - Exactly one exists → a seed is still running in another process, or one stopped half-way. Nothing happens: a
- *   rebuild deletes the demo businesses, which stays a deliberate `pnpm db:seed`.
+ * - Both exist and both seeds finished (each ends with its `seed.demo` audit entry) → only make sure each
+ *   SEED_OWNER_EMAILS owner has an owner membership on both, so adding an address later needs no reseed, and that
+ *   Northwind is the newer of the two (a first sign-in opens the newest business). Nothing is deleted.
+ * - Exactly one exists, or a business exists without its `seed.demo` entry → a seed is still running in another
+ *   process, or one stopped half-way. Nothing happens but the `partial` warning: a rebuild deletes the demo
+ *   businesses, which stays a deliberate `pnpm db:seed`.
  */
 import { repos, type Db } from "@foundmill/db";
-import { DEMO_BUSINESS_IDS, findDemoBusinesses, parseOwnerEmails, putNorthwindFirst, seedDemo, stubAuthProvisioner, supabaseAuthProvisioner, type AuthProvisioner } from "@foundmill/db/seed";
+import { DEMO_BUSINESS_IDS, completedDemoBusinesses, findDemoBusinesses, parseOwnerEmails, putNorthwindFirst, seedDemo, stubAuthProvisioner, supabaseAuthProvisioner, type AuthProvisioner } from "@foundmill/db/seed";
 import type { Env } from "@foundmill/shared";
 
 export type SeedOnBootOutcome =
@@ -20,7 +21,7 @@ export type SeedOnBootOutcome =
   | { status: "skipped"; reason: string }
   | { status: "seeded"; businesses: string[]; owners: string[]; durationMs: number }
   | { status: "owners_ensured"; owners: string[]; added: number }
-  | { status: "partial"; present: string[] }
+  | { status: "partial"; present: string[]; /** Present demo businesses whose seed never wrote its completion marker (set when both exist). */ unfinished?: string[] }
   | { status: "failed"; error: string };
 
 interface SeedLogger {
@@ -68,6 +69,14 @@ export async function seedOnBoot(deps: SeedOnBootDeps, options: SeedOnBootOption
     const existing = await findDemoBusinesses(db);
 
     if (existing.length === DEMO_BUSINESS_IDS.length) {
+      // Both rows exist, but each seed writes its row first and its completion marker last: one without the marker
+      // stopped half-way and is not a finished demo, whatever its row says.
+      const finished = await completedDemoBusinesses(db);
+      if (finished.length < DEMO_BUSINESS_IDS.length) {
+        const unfinished = existing.map((b) => b.slug).filter((slug) => !finished.includes(slug));
+        log.warn({ unfinished }, "SEED_ON_BOOT: a demo business is missing its completion marker (its seed stopped half-way); nothing done. Rebuild them with `pnpm db:seed`.");
+        return { status: "partial", present: existing.map((b) => b.slug), unfinished };
+      }
       let added = 0;
       for (const email of ownerEmails) {
         const userId = await auth.ensureUser(email, { displayName: email.split("@")[0] });

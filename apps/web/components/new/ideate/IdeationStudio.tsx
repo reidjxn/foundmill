@@ -8,8 +8,9 @@
  * Steering chips ("Cheaper to start", "B2B instead", "More defensible") prefill the brief for the next set. Cards are 6–12 ConceptCards (Dugout profile cards: the initials mark
  * until a logo is chosen at Commit, stars, ten AttributeBars with evidence hover, citation count). Actions: Shortlist
  * (local), Merge / Fork / Ask (idea.*, each a new version; Ask is the Research agent's desk as a sheet, with starters and
- * quick replies), Discard (idea.discard; reversible from the tray). Select 2–4
- * cards → Compare. History opens every version. ⌘/Ctrl+Enter drafts from anywhere on the page.
+ * quick replies), Discard (idea.discard; Restore in the tray and the notice's Undo are idea.restore). Shortlisted and
+ * restored cards older than the loaded pages are read by id (idea.listByIds) so they stay pinned and counted. Select
+ * 2–4 cards → Compare. History opens every version. ⌘/Ctrl+Enter drafts from anywhere on the page.
  *
  * Ideation is private: no business exists yet, so there is no kit bar and nothing reaches Live.
  */
@@ -25,7 +26,8 @@ import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
 import { StudioFrame } from "../StudioFrame";
-import { COMPARE_MAX, COMPARE_MIN, attributeChanges, buildDeck, commitHref, compareHref, discardLocally, lineageOf, orderDeck, restoreLocally, toConcept, toggleSelection, type IdeaLike, type IdeaVersionLike } from "./concepts";
+import { COMPARE_MAX, COMPARE_MIN, attributeChanges, buildDeck, commitHref, compareHref, discardLocally, lineageOf, orderDeck, pinnedIdsToLoad, restoreLocally, settlePinned, toConcept, toggleSelection, withPinned, type IdeaLike, type IdeaVersionLike } from "./concepts";
+import { conceptErrorMessage } from "./concept-errors";
 import { AskDialog, ForkDialog, HistoryDialog, MergeDialog, type AskExchange, type AskInput } from "./dialogs";
 import { DraftStatus, DraftingCard } from "./DraftStatus";
 import { deckFromPages, draftedCount, gridEntries, prependIdeaToPages, slotsOf } from "./draft-run";
@@ -76,7 +78,17 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
 
   const ideasQ = useInfiniteQuery(trpc.idea.list.infiniteQueryOptions({ limit: DECK_PAGE }, { getNextPageParam: (last) => last.nextCursor ?? undefined, initialCursor: null, staleTime: 10_000 }));
   const serverIdeas = useMemo<IdeaLike[]>(() => deckFromPages(ideasQ.data?.pages), [ideasQ.data]);
-  const deck = useMemo(() => orderDeck(buildDeck(serverIdeas, studio), studio.shortlist), [serverIdeas, studio]);
+  // Shortlisted and restored cards older than every loaded page are asked for by id, so they stay pinned and counted.
+  const loadedIds = useMemo(() => new Set(serverIdeas.map((i) => i.id)), [serverIdeas]);
+  const pinIds = useMemo(() => (ideasQ.isSuccess ? pinnedIdsToLoad(studio, loadedIds) : []), [ideasQ.isSuccess, studio, loadedIds]);
+  const pinnedQ = useQuery(trpc.idea.listByIds.queryOptions({ ideaIds: pinIds }, { enabled: hydrated && pinIds.length > 0, staleTime: 0 }));
+  const pinnedAnswer = pinIds.length > 0 && pinnedQ.isSuccess && !pinnedQ.isFetching ? pinnedQ.data : null;
+  useEffect(() => {
+    if (!hydrated || !ideasQ.isSuccess || ideasQ.isFetching) return;
+    updateStudio((s) => settlePinned(s, loadedIds, pinnedAnswer ? { asked: pinIds, found: pinnedAnswer.items.map((i) => i.id), discarded: pinnedAnswer.discardedIds } : null));
+  }, [hydrated, ideasQ.isSuccess, ideasQ.isFetching, loadedIds, pinIds, pinnedAnswer, updateStudio]);
+  const liveIdeas = useMemo(() => withPinned(serverIdeas, pinnedQ.data?.items as IdeaLike[] | undefined), [serverIdeas, pinnedQ.data]);
+  const deck = useMemo(() => orderDeck(buildDeck(liveIdeas, studio), studio.shortlist), [liveIdeas, studio]);
   const titleOf = useCallback((id: string) => [...deck, ...studio.discarded.map((d) => d.idea)].find((i) => i.id === id)?.title, [deck, studio.discarded]);
 
   const [prompt, setPrompt] = useState("");
@@ -163,6 +175,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
     [ask, askDeskQ.data],
   );
   const discard = useMutation(trpc.idea.discard.mutationOptions());
+  const restoreIdea = useMutation(trpc.idea.restore.mutationOptions());
 
   const historyQ = useQuery(trpc.idea.get.queryOptions({ ideaId: activeId ?? "" }, { enabled: dialog === "history" && Boolean(activeId) }));
 
@@ -219,7 +232,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
       {
         onSuccess: () => say({ text: `Discarded ${idea.title}. It is in the tray; nothing is deleted.`, tone: "neutral", action: { label: "Undo", onClick: () => restore(idea.id) } }),
         onError: (err) => {
-          updateStudio((s) => restoreLocally(s, idea.id, true));
+          updateStudio((s) => restoreLocally(s, idea.id));
           say({ text: `${idea.title} was not discarded: ${errorMessage(err)}`, tone: "bad" });
         },
       },
@@ -227,9 +240,20 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
   }
 
   function restore(ideaId: string) {
-    // The API has no idea.restore yet: the snapshot returns to the deck locally (see concepts.ts).
-    updateStudio((s) => restoreLocally(s, ideaId, false));
-    say({ text: `Restored ${titleOf(ideaId) ?? "the card"} to the deck.`, tone: "good" });
+    // The API un-discards it first (idea.restore), so Ask, History, Compare and Commit work on the card again (AC-11.1.3);
+    // it stays in the tray until then.
+    const title = titleOf(ideaId) ?? "the card";
+    restoreIdea.mutate(
+      { ideaId },
+      {
+        onSuccess: (idea) => {
+          updateStudio((s) => restoreLocally(s, ideaId, idea as IdeaLike));
+          void invalidateIdeas();
+          say({ text: `Restored ${title} to the deck.`, tone: "good" });
+        },
+        onError: (err) => say({ text: `${title} was not restored: ${conceptErrorMessage(err)}`, tone: "bad" }),
+      },
+    );
   }
 
   function openHistory(ideaId: string) {
@@ -374,7 +398,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
                     <div className="truncate text-body-strong">{c.name}</div>
                     <div className="text-small text-secondary">Discarded {formatDayMonth(discardedAt, datePrefs)}</div>
                   </div>
-                  <Button size="sm" icon={RotateCcw} onClick={() => restore(idea.id)} data-testid="restore-button">
+                  <Button size="sm" icon={RotateCcw} onClick={() => restore(idea.id)} loading={restoreIdea.isPending && restoreIdea.variables?.ideaId === idea.id} data-testid="restore-button">
                     Restore
                   </Button>
                 </li>
@@ -488,10 +512,10 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
         exchanges={active ? (exchanges[active.id] ?? []) : []}
         onAsk={(input) => (active ? askIdea(active, input) : Promise.resolve())}
         busy={ask.isPending}
-        error={ask.error ? errorMessage(ask.error) : askDeskQ.error ? errorMessage(askDeskQ.error) : null}
+        error={ask.error ? conceptErrorMessage(ask.error) : askDeskQ.error ? conceptErrorMessage(askDeskQ.error) : null}
       />
-      <ForkDialog idea={active} open={dialog === "fork"} onOpenChange={(o) => !o && setDialog(null)} onFork={(input) => active && fork.mutate({ ideaId: active.id, ...input })} busy={fork.isPending} error={fork.error ? errorMessage(fork.error) : null} />
-      <MergeDialog source={active} candidates={deck} preselected={selection} open={dialog === "merge"} onOpenChange={(o) => !o && setDialog(null)} onMerge={(input) => merge.mutate(input)} busy={merge.isPending} error={merge.error ? errorMessage(merge.error) : null} />
+      <ForkDialog idea={active} open={dialog === "fork"} onOpenChange={(o) => !o && setDialog(null)} onFork={(input) => active && fork.mutate({ ideaId: active.id, ...input })} busy={fork.isPending} error={fork.error ? conceptErrorMessage(fork.error) : null} />
+      <MergeDialog source={active} candidates={deck} preselected={selection} open={dialog === "merge"} onOpenChange={(o) => !o && setDialog(null)} onMerge={(input) => merge.mutate(input)} busy={merge.isPending} error={merge.error ? conceptErrorMessage(merge.error) : null} />
       <HistoryDialog
         idea={active}
         versions={historyQ.data?.versions}

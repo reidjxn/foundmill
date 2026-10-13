@@ -15,6 +15,19 @@ export type IncorporationStep = (typeof INCORPORATION_STEPS)[number];
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * What a connector read, in numbers only ("12 entries"): the first list in the answer. The content itself is
+ * third-party text and stays with the gateway's envelope; nothing from it is copied into a source row.
+ */
+export function describeRead(data: unknown): string | null {
+  const body = data && typeof data === "object" && "content" in data && (data as { untrusted?: unknown }).untrusted === true ? (data as { content: unknown }).content : data;
+  if (!body || typeof body !== "object") return null;
+  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+    if (Array.isArray(value)) return `${value.length} ${key.replace(/([A-Z])/g, " $1").toLowerCase()}`;
+  }
+  return null;
+}
+
 export function createMiscActivities(deps: OrchestratorDeps) {
   return {
     // ---- playbooks ------------------------------------------------------------------------------------------------
@@ -136,7 +149,7 @@ export function createMiscActivities(deps: OrchestratorDeps) {
       const relevance = (source.relevance ?? {}) as Record<string, unknown>;
       const meta = (typeof relevance.import === "object" && relevance.import ? relevance.import : {}) as Record<string, unknown>;
       const call = importCall(meta, source.uri ?? "", source.title);
-      const record = (outcome: ImportReadOutcome, details: Record<string, unknown> = {}) => recordImportRead(db, input.businessId, source, outcome, { ...details, ...(outcome.ok ? { fetchedAt: deps.clock.now() } : {}) });
+      const record = (outcome: ImportReadOutcome, details: Record<string, unknown> = {}) => recordImportRead(db, input.businessId, source, outcome, { ...details, finishedAt: deps.clock.now().toISOString(), ...(outcome.ok ? { fetchedAt: deps.clock.now() } : {}) });
       if (!call) return record({ ok: false, reason: "the import has no reader for this source yet" });
       const chief = await repos.agents.chiefOfStaff(db, input.businessId);
       if (!chief) return record({ ok: false, reason: "there is no Chief of Staff to read it as" });
@@ -145,10 +158,24 @@ export function createMiscActivities(deps: OrchestratorDeps) {
         // An import runs outside any agent session: the token says so instead of naming a session that does not exist.
         const minted = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: chief.id, sessionId: null, allowedTools: [`${call.connector}:${call.tool}`], ttlSeconds: 300 });
         const res = await deps.gateway.call(minted.token, { connector: call.connector, tool: call.tool, args: call.args });
-        return record(readOutcome(res, via), { outcome: res.outcome, untrusted: true });
+        const outcome = readOutcome(res, via);
+        const result = (typeof res.result === "object" && res.result ? res.result : {}) as { data?: unknown; content?: unknown };
+        const read = outcome.ok ? describeRead(result.data ?? result.content) : null;
+        return record(outcome, { outcome: res.outcome, untrusted: true, ...(read ? { read } : {}) });
       } catch (err) {
         return record({ ok: false, reason: gatewayErrorReason(err), ...via });
       }
+    },
+
+    /**
+     * The import workflow could not run a source at all (its activity failed for good, or the run was stopped): the row
+     * says so, in the same shape as any other read that did not happen. A row that already has an outcome is left alone.
+     */
+    async failImportSource(input: { businessId: string; sourceId: string; reason: string }): Promise<void> {
+      const source = await repos.product.getSource(deps.db, input.businessId, input.sourceId);
+      const relevance = (source.relevance ?? {}) as Record<string, unknown>;
+      if (relevance.imported === true || relevance.imported === false) return;
+      await recordImportRead(deps.db, input.businessId, source, { ok: false, reason: input.reason.slice(0, 300) }, { finishedAt: deps.clock.now().toISOString() });
     },
 
     /**
@@ -162,7 +189,7 @@ export function createMiscActivities(deps: OrchestratorDeps) {
         const row = r.ok ? null : await repos.product.getSource(deps.db, input.businessId, r.sourceId).catch(() => null);
         const status = ((row?.relevance ?? {}) as { import?: { status?: unknown } }).import?.status;
         // The note then names the source and the reason, like every other line.
-        results.push(row && status === "pending" ? await recordImportRead(deps.db, input.businessId, row, { ok: false, reason: `the read did not finish (${r.summary.replace(/^failed: /, "").slice(0, 160)})` }) : r);
+        results.push(row && status === "pending" ? await recordImportRead(deps.db, input.businessId, row, { ok: false, reason: `the read did not finish (${r.summary.replace(/^failed: /, "").slice(0, 160)})` }, { finishedAt: deps.clock.now().toISOString() }) : r);
       }
       const chief = await repos.agents.chiefOfStaff(deps.db, input.businessId);
       const ok = results.filter((r) => r.ok).length;
@@ -203,6 +230,10 @@ export function importCall(meta: Record<string, unknown>, uri: string, title: st
     }
     case "notion":
       return { ...reader, args: { query: "", pageSize: 20 } };
+    case "website": {
+      const url = value || uri;
+      return url ? { ...reader, args: { url } } : null;
+    }
     case "registry": {
       const q = value || queryParam(uri, "q") || title;
       return q.length >= 2 ? { ...reader, args: { q } } : null;

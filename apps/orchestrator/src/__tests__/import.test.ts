@@ -106,7 +106,8 @@ describe("importSource", () => {
     expect(importCall({}, "https://github.com/acme/ledgerly", "x")).toEqual({ connector: "github", tool: "read_tree", args: { owner: "acme", repo: "ledgerly" } });
     expect(importCall({}, "https://dashboard.stripe.com/", "x")).toEqual({ connector: "stripe", tool: "get_account", args: {} });
     expect(importCall({}, "https://opencorporates.com/companies?q=Acme%20Ltd", "x")).toEqual({ connector: "opencorporates", tool: "search_companies", args: { q: "Acme Ltd" } });
-    expect(importCall({ key: "website", value: "https://ledgerlyhq.com" }, "https://ledgerlyhq.com", "x")).toBeNull();
+    expect(importCall({ key: "website", value: "https://ledgerlyhq.com" }, "https://ledgerlyhq.com", "x")).toEqual({ connector: "web", tool: "fetch", args: { url: "https://ledgerlyhq.com" } });
+    expect(importCall({ key: "website", value: "" }, "", "x")).toBeNull();
     expect(importCall({}, "https://linear.app/", "x")).toBeNull();
   });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LIMITS } from "@foundmill/config";
-import { ARCHETYPE_CARDS, BUSINESS_MODE_CARDS, DEFAULT_KIT, DEFAULT_SPEND_CAP_MINOR, commitInput, domainCandidates, extractPalette, initialCommitForm, isValidKit, keywordsOf, kitContrast, nameSuggestions, normaliseHex, parseSpendCapMinor, screenDomain, trademarkScreen, validateCommitForm } from "../commit/naming";
+import { ARCHETYPE_CARDS, BUSINESS_MODE_CARDS, DEFAULT_KIT, DEFAULT_SPEND_CAP_MINOR, commitInput, KNOWN_MARKS, TRADEMARK_STATUS_WORDS, domainCandidates, extractPalette, initialCommitForm, isValidKit, keywordsOf, kitContrast, nameSuggestions, normaliseHex, parseSpendCapMinor, screenDomain, trademarkScreen, validateCommitForm } from "../commit/naming";
 
 const IDEA = "11111111-1111-4111-8111-111111111111";
 
@@ -39,6 +39,29 @@ describe("commit screen: names, domains, trademarks", () => {
     expect(hits[0]?.similar).toContain("STRIPE");
     const clear = trademarkScreen("Quartzwind Forge");
     expect(clear.every((h) => h.caveat === "Screen, not legal clearance")).toBe(true);
+  });
+
+  it("invents nothing: the same name always gives the same answer, and every mark it names is on the known list (audit WEB-11)", () => {
+    const names = ["Ledgerly", "Pelgrove for Bookkeepers", "Quartzwind Forge", "Mintwell", "Atlas Labs", "Waveform", "Stripey", "Nameify", "Sagebrush Square", "Oaklane", "Xify"];
+    for (const name of names) {
+      const first = trademarkScreen(name);
+      expect(trademarkScreen(name)).toEqual(first);
+      for (const hit of first) {
+        expect(hit.provenance).toBe("Estimate");
+        for (const mark of hit.similar) expect(KNOWN_MARKS, `${name}: ${mark}`).toContain(mark.toLowerCase());
+        if (hit.status === "clear") expect(hit.similar).toEqual([]);
+        else expect(hit.similar.length).toBeGreaterThan(0);
+      }
+    }
+    // A name no known mark resembles is clear for every attempt, never "similar" by chance.
+    for (let i = 0; i < 40; i++) expect(trademarkScreen(`Quartzwind${i} Forge`).every((h) => h.status === "clear")).toBe(true);
+    expect(trademarkScreen("Atlas Labs")[0]).toMatchObject({ status: "conflict", similar: ["ATLAS"] });
+    expect(trademarkScreen("Mintwell")[0]!.status).not.toBe("conflict");
+  });
+
+  it("words the result about the list it was checked against, never about a registry", () => {
+    expect(Object.values(TRADEMARK_STATUS_WORDS).join(" ")).not.toMatch(/\bNo hit\b|Conflict\b|Similar marks/);
+    expect(TRADEMARK_STATUS_WORDS.clear).toBe("No known conflict");
   });
 });
 

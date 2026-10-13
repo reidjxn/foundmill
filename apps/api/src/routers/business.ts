@@ -7,7 +7,7 @@ import { HolidayRunningError, repos, UpdateBusinessInput } from "@foundmill/db";
 import { demoBusinessIdForSlug } from "@foundmill/db/seed/constants";
 import { BUSINESS_SETTINGS_FIELDS } from "@foundmill/events";
 import { PRICING_CURRENCY } from "@foundmill/models";
-import { BUSINESS_MODES, ConflictError, DECISION_TYPES, EVENT_TYPES, GAME_MODES, isValidTimeZone } from "@foundmill/shared";
+import { BUSINESS_MODES, ConflictError, CurrencyCode, DECISION_TYPES, EVENT_TYPES, GAME_MODES, isValidTimeZone } from "@foundmill/shared";
 import { z } from "zod";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
 import { assertAgentsRunning, resumeAgents, stopAllAgents } from "../services/killswitch";
@@ -204,7 +204,7 @@ export const businessRouter = router({
         authority: z.array(z.enum(DECISION_TYPES)).default(DECISION_TYPES.filter((d) => d !== "sign_contracts")),
         budgetCeilingMinor: z.number().int().nonnegative().nullable().default(null),
         /** The ceiling's currency; absent: the business's own (0025). */
-        currency: z.string().trim().regex(/^[A-Za-z]{3}$/, "a currency is a 3-letter ISO 4217 code").optional(),
+        currency: CurrencyCode.optional(),
         wakeEvents: z.array(z.enum(EVENT_TYPES)).default(["credential.expiring", "filing.due", "runway.threshold_crossed"]),
       }),
     )

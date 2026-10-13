@@ -3,8 +3,8 @@
  *
  * Name suggestions, domain candidates, the USPTO/EUIPO quick screen ("screen, not legal clearance"), hex handling,
  * the kit-on-primary contrast check (APCA Lc ≥ 75 from Dugout), colour extraction from an uploaded logo's pixels, and
- * the mode/archetype catalogues. The domain and trademark screens are local heuristics labelled "Estimate" until the
- * API gains `idea.domainCheck` / `idea.trademarkScreen` (the screen tries those first and falls back here).
+ * the mode/archetype catalogues. The domain and trademark screens are local heuristics: no registrar or trademark
+ * registry is asked, so every result carries `provenance: "Estimate"` and the screen shows the Estimate chip beside it.
  */
 import { LIMITS } from "@foundmill/config";
 import { apcaLc, createRng, hexToRgb, hslToRgb, isHexColour, kitOnPrimaryDetail, rgbToHex, rgbToHsl, type Kit } from "@foundmill/dugout";
@@ -111,23 +111,32 @@ export type TrademarkStatus = "clear" | "similar" | "conflict";
 export interface TrademarkScreen {
   registry: TrademarkRegistry;
   status: TrademarkStatus;
-  /** Similar marks found (words), empty when clear. */
+  /** Known marks the name matches or comes close to (words), empty when clear. */
   similar: string[];
   /** Always shown next to the result. */
   caveat: "Screen, not legal clearance";
+  /** "Estimate": a heuristic over a list of well-known marks, no registry was searched. */
   provenance: "Estimate" | "Registry";
 }
 
-const KNOWN_MARKS = ["apple", "stripe", "shopify", "notion", "linear", "slack", "google", "amazon", "nike", "tesla", "ledger", "mint", "wave", "sage", "xero", "intuit", "square", "atlas", "monzo", "revolut"];
+/** Well-known marks the quick screen checks a name against (the registries themselves are not searched). */
+export const KNOWN_MARKS = ["apple", "stripe", "shopify", "notion", "linear", "slack", "google", "amazon", "nike", "tesla", "ledger", "mint", "wave", "sage", "xero", "intuit", "square", "atlas", "monzo", "revolut"];
 
+/** What a quick-screen result says: about the list of known marks it was checked against, never about a registry. */
+export const TRADEMARK_STATUS_WORDS: Record<TrademarkStatus, string> = { clear: "No known conflict", similar: "Close to a known mark", conflict: "Matches a known mark" };
+
+/**
+ * The USPTO / EUIPO quick screen: the name's words against `KNOWN_MARKS`, deterministic. A word that is a known mark is
+ * a conflict, one that starts like a known mark is close to it; nothing else is claimed, and nothing is invented (no
+ * made-up similar marks).
+ */
 export function trademarkScreen(name: string): TrademarkScreen[] {
   const words = name.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+  const conflicts = words.filter((w) => KNOWN_MARKS.includes(w));
+  const near = KNOWN_MARKS.filter((m) => !conflicts.includes(m) && words.some((w) => w.length >= 4 && m.startsWith(w.slice(0, 4)) && Math.abs(m.length - w.length) <= 2));
   return (["USPTO", "EUIPO"] as const).map((registry) => {
-    const rng = createRng(`tm:${registry}:${name.toLowerCase()}`);
-    const conflicts = words.filter((w) => KNOWN_MARKS.includes(w));
     if (conflicts.length) return { registry, status: "conflict", similar: conflicts.map((c) => c.toUpperCase()), caveat: "Screen, not legal clearance", provenance: "Estimate" };
-    const near = words.filter((w) => KNOWN_MARKS.some((m) => m.startsWith(w.slice(0, 4)) && Math.abs(m.length - w.length) <= 2));
-    if (near.length || rng.bool(0.15)) return { registry, status: "similar", similar: near.length ? near.map((w) => `${w.toUpperCase()}*`) : [`${(words[0] ?? name).toUpperCase()}IFY`], caveat: "Screen, not legal clearance", provenance: "Estimate" };
+    if (near.length) return { registry, status: "similar", similar: near.map((m) => m.toUpperCase()), caveat: "Screen, not legal clearance", provenance: "Estimate" };
     return { registry, status: "clear", similar: [], caveat: "Screen, not legal clearance", provenance: "Estimate" };
   });
 }

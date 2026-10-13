@@ -21,7 +21,7 @@ export const Id = z.guid();
 export const IsoDateInput = z.coerce.date();
 export const JsonObject = z.record(z.string(), z.unknown());
 export const JsonArray = z.array(z.unknown());
-export const Currency = z.string().length(3).toUpperCase();
+export const Currency = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, "currency is a three-letter code");
 export const MinorAmount = z.number().int().safe();
 
 export const DEFAULT_PAGE_SIZE = 50;

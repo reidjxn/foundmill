@@ -33,6 +33,18 @@ describe("ideation mock", () => {
     expect(other.json.name).toBe(slate.json.slate[3]!.name);
   });
 
+  it("describes the imported business in Import's single card: its own name, the report's archetype, what exists (audit IAE-10)", async () => {
+    const importReport = ["Existing business import: Verifier Audit Co.", "What exists: A GitHub repository acme/verifier; Linear issues.", "Strengths: Code exists.", "Weaknesses: No revenue source.", "Missing: Bank."].join("\n");
+    for (const hint of ["b2b_saas", "services"] as const) {
+      const r = await new MockModelClient().complete({ route: "ideation", messages: promptWith({ prompt: "Produce one concept card that describes the existing business.", archetype_hint: hint, import_report: importReport }), schema: ConceptCard });
+      expect(r.repaired).toBe(false);
+      expect(r.json.name).toBe("Verifier Audit Co");
+      expect(r.json.archetype).toBe(hint);
+      expect(r.json.pitch).toMatch(/^Verifier Audit Co is an existing .+ business: A GitHub repository acme\/verifier; Linear issues\.$/);
+      expect(r.json.pitch).not.toMatch(/renters|new parents/);
+    }
+  });
+
   it("drafts a card from the prompt alone when no slate item is named (Import's single card)", async () => {
     const r = await new MockModelClient().complete({ route: "ideation", messages: promptWith({ prompt: "Import report: Lpgp, a B2B SaaS for invoices" }), schema: ConceptCard });
     expect(r.repaired).toBe(false);
