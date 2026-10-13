@@ -8,7 +8,7 @@ import { APP_NAME } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { CyclePlanOutput } from "@foundmill/models";
 import { uuid, type TaskKind } from "@foundmill/shared";
-import { ComposerUnavailableError } from "../composer-client";
+import { ComposerRejectedError, ComposerUnavailableError } from "../composer-client";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import type { BriefAgent, BriefTask, BusinessBrief, CyclePlan, CycleStart, CycleTrigger } from "./types";
@@ -163,6 +163,12 @@ export function createCycleActivities(deps: OrchestratorDeps) {
         return { inboxItemIds: out.inboxItemId ? [out.inboxItemId] : [], viaComposer: true };
       } catch (err) {
         if (!(err instanceof ComposerUnavailableError)) throw err;
+        // A refusal (4xx) fails the same way on every retry, and the workflow would then end the cycle with no note: the
+        // plain update goes out in every environment. An outage in staging or production is retried instead.
+        if (err instanceof ComposerRejectedError) {
+          deps.log.warn({ err: err.message, status: err.httpStatus }, "composer refused the cycle's events; writing a plain cycle update");
+          return plainCycleUpdate(deps, input, "This update was written without the Inbox Composer, so it has no links or exhibits.");
+        }
         if (deps.env.APP_ENV === "production" || deps.env.APP_ENV === "staging") throw err;
         deps.log.warn({ err: err.message }, "composer unavailable; writing a plain cycle update");
         return plainCycleUpdate(deps, input, "This update was written without the Inbox Composer (service unavailable); links and exhibits will appear once it is back.");

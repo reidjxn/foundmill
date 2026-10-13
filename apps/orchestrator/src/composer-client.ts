@@ -1,7 +1,8 @@
 /**
  * HTTP client for apps/composer (docs/ARCHITECTURE.md §11): `POST /v1/narrate { businessId, eventIds }` → one inbox
  * item; `POST /v1/commentary { journeyId }`; `POST /v1/chapter-title`. Transport failures surface as
- * `ComposerUnavailableError` so activities can fall back (a plain summary item) instead of failing a cycle.
+ * `ComposerUnavailableError` so activities can fall back (a plain summary item) instead of failing a cycle; a request
+ * the composer refused (`ComposerRejectedError`, a 4xx) is never worth retrying.
  */
 import { AppError } from "@foundmill/shared";
 
@@ -35,6 +36,23 @@ export class ComposerUnavailableError extends AppError {
   }
 }
 
+/**
+ * The composer answered and refused the request (a 4xx that is not about timing: invalid body, unknown business). Sending
+ * it again cannot succeed, so callers fall back at once instead of retrying. Still a `ComposerUnavailableError` for
+ * callers that only need to know the composer did not narrate.
+ */
+export class ComposerRejectedError extends ComposerUnavailableError {
+  readonly httpStatus: number;
+  constructor(message: string, httpStatus: number, details?: unknown) {
+    super(message, details);
+    this.name = "ComposerRejectedError";
+    this.httpStatus = httpStatus;
+  }
+}
+
+/** A 4xx a later attempt may still pass (timeout, conflict, too early, rate limit) is not a refusal. */
+const RETRYABLE_4XX = new Set([408, 409, 425, 429]);
+
 export interface ComposerClientOptions {
   baseUrl: string;
   fetch?: typeof fetch;
@@ -64,11 +82,15 @@ export function createComposerClient(options: ComposerClientOptions): ComposerCl
     }
     const text = await res.text();
     let json: unknown;
+    let parsed = true;
     try {
       json = text ? JSON.parse(text) : null;
     } catch {
-      throw new ComposerUnavailableError(`Composer ${path} returned non-JSON (${res.status})`, text.slice(0, 300));
+      parsed = false;
     }
+    // A refusal is a refusal whatever its body says (a proxy's HTML 404 included): sending it again cannot pass.
+    if (res.status >= 400 && res.status < 500 && !RETRYABLE_4XX.has(res.status)) throw new ComposerRejectedError(`Composer ${path} returned ${res.status}`, res.status, parsed ? json : text.slice(0, 300));
+    if (!parsed) throw new ComposerUnavailableError(`Composer ${path} returned non-JSON (${res.status})`, text.slice(0, 300));
     if (!res.ok) throw new ComposerUnavailableError(`Composer ${path} returned ${res.status}`, json);
     return json as T;
   }
