@@ -37,8 +37,10 @@ export interface CreditsOutcome {
 
 export interface BookUsageResult {
   entry: UsageEntry;
-  /** Null for a row that is not settled against credits (see `chargesCredits`). */
+  /** Null for a row that is not settled against credits (see `chargesCredits`), and for a repeat (`replayed`). */
   credits: CreditsOutcome | null;
+  /** The booking's `idempotencyKey` was already booked: the existing row is returned and nothing is charged again. */
+  replayed?: boolean;
 }
 
 /** Whether a ledger row is a platform cost charged to credits: billed to credits, not a tool call, in USD. */
@@ -46,18 +48,26 @@ export function chargesCredits(entry: Pick<UsageEntry, "billedTo" | "kind" | "cu
   return entry.billedTo === "credits" && entry.kind !== "tool" && entry.currency === CREDITS_CURRENCY;
 }
 
-/** Records a usage row and settles it against credits when the platform paid for it (see the module comment). */
+/**
+ * Records a usage row and settles it against credits when the platform paid for it (see the module comment). One
+ * transaction: the row, the charge and, on the last credit, the pause and its note commit together, so a failure after
+ * the charge never leaves an empty balance with the team still working (audit BILL-20). A booking with an
+ * `idempotencyKey` that was already booked (a retried session end) returns that row and charges nothing.
+ */
 export async function bookUsage(db: Executor, businessId: string, input: RecordUsageInput): Promise<BookUsageResult> {
-  const entry = await repos.usage.record(db, businessId, input);
-  if (!chargesCredits(entry)) return { entry, credits: null };
-  const business = await repos.businesses.get(db, businessId, { includeArchived: true });
-  if (business.modelBilling === "byok") return { entry, credits: null };
-  const period = periodOf(entry.occurredAt);
-  const charged = await repos.usage.chargeCredits(db, businessId, period, Number(entry.costMinor), { includedMinor: includedCreditsMinor(business.planTier) });
-  if (!charged) return { entry, credits: { enforced: false, balance: null, exhausted: null, pausedAgents: 0, noteId: null } };
-  if (charged.exhausted !== "now") return { entry, credits: { enforced: true, balance: charged.balance, exhausted: charged.exhausted, pausedAgents: 0, noteId: null } };
-  const { pausedAgents, noteId } = await pauseForCredits(db, business, period);
-  return { entry, credits: { enforced: true, balance: charged.balance, exhausted: "now", pausedAgents, noteId } };
+  return db.transaction(async (tx) => {
+    const { entry, created } = await repos.usage.recordOnce(tx, businessId, input);
+    if (!created) return { entry, credits: null, replayed: true };
+    if (!chargesCredits(entry)) return { entry, credits: null };
+    const business = await repos.businesses.get(tx, businessId, { includeArchived: true });
+    if (business.modelBilling === "byok") return { entry, credits: null };
+    const period = periodOf(entry.occurredAt);
+    const charged = await repos.usage.chargeCredits(tx, businessId, period, Number(entry.costMinor), { includedMinor: includedCreditsMinor(business.planTier) });
+    if (!charged) return { entry, credits: { enforced: false, balance: null, exhausted: null, pausedAgents: 0, noteId: null } };
+    if (charged.exhausted !== "now") return { entry, credits: { enforced: true, balance: charged.balance, exhausted: charged.exhausted, pausedAgents: 0, noteId: null } };
+    const { pausedAgents, noteId } = await pauseForCredits(tx, business, period);
+    return { entry, credits: { enforced: true, balance: charged.balance, exhausted: "now", pausedAgents, noteId } };
+  });
 }
 
 /**

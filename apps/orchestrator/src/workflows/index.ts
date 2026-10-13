@@ -15,6 +15,8 @@ export type { ChannelEngineResult } from "./channelEngine";
 export { trainingRun, TRAINING_PARALLELISM, TRAINING_START_FAILED } from "./trainingRun";
 export { holiday, MAX_HOLIDAY_CYCLES } from "./holiday";
 export type { HolidayResult } from "./holiday";
+export { autopilot, AUTOPILOT_CYCLES_PER_RUN, AUTOPILOT_CHAINED_CYCLES } from "./autopilot";
+export type { AutopilotResult } from "./autopilot";
 export { playbook } from "./playbook";
 export type { PlaybookResult } from "./playbook";
 export { incorporation } from "./incorporation";

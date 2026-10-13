@@ -12,7 +12,7 @@ import { LIMITS } from "@foundmill/config";
 import { getTemplate, getTemplateByAgentType, initialVersionFromTemplate, type AgentTemplate } from "@foundmill/agents";
 import { repos, type Agent, type Business, type PlanAction as PlanActionRow } from "@foundmill/db";
 import { evaluate, type ToolCtxInput } from "@foundmill/policy";
-import { CHANNEL_KEYS, CHANNEL_META, MODEL_KEYS, TASK_KINDS, uuid, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, CreatePlaybookParams, MODEL_KEYS, TASK_KINDS, uuid, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { openAgentSession } from "./dispatch";
@@ -110,33 +110,38 @@ export function createPlanActivities(deps: OrchestratorDeps) {
       const empty: PlanActionResult = { actionId: action.id, status: "skipped", outcome: action.policyOutcome, approvalId: null, result: null, spawn: [] };
       if (action.status !== "pending" && action.status !== "awaiting_approval") return { ...empty, status: action.status === "done" ? "done" : action.status === "denied" ? "denied" : action.status === "failed" ? "failed" : "skipped" };
       const params = (action.params ?? {}) as Record<string, unknown>;
-      const verdict = evaluateAction({ type: action.type, params, agentId: action.agentId }, { business, agents, holidayActive: holiday !== null });
+      const evaluated = evaluateAction({ type: action.type, params, agentId: action.agentId }, { business, agents, holidayActive: holiday !== null });
+      // A playbook step the founder asked to approve waits for the founder even where policy would let it run.
+      const verdict: PolicyVerdict = params.require_approval === true && evaluated.outcome === "allow" ? { ...evaluated, outcome: "ask", reasons: [...evaluated.reasons, "this playbook step waits for your approval"] } : evaluated;
 
-      // Hard gates: a founder task + inbox item, never the action itself.
+      // Hard gates: a founder task + inbox item, never the action itself. One transaction: a retried attempt finds the
+      // action done, never a second founder task and Inbox item beside a first that was written before a failure (audit O-33).
       if (verdict.hardGate) {
-        const chief = await repos.agents.chiefOfStaff(db, businessId);
-        const title = `Founder action: ${str(params.request, str(params.original_text, "action required")).slice(0, 180)}`;
-        const task = await repos.tasks.create(db, businessId, { kind: "ops", title, goalMd: [str(params.instructions), str(params.original_text)].filter(Boolean).join("\n\n"), acceptance: ["The founder completed the action personally (hard gate, BUILD §2.2)."], assigneeAgentId: null, planActionId: action.id, status: "ready", priority: 100 });
-        let inboxItemId: string | null = null;
-        if (chief) {
-          const item = await repos.inbox.createItem(db, businessId, {
-            type: "warning",
-            from_agent_id: chief.id,
-            subject: title.slice(0, 80),
-            body_md: `This needs you personally: ${str(params.request, str(params.original_text, "an action the team is not allowed to take"))}. ${str(params.instructions, "Open the task for the steps.")} The team prepared everything it could and will not act on this itself (hard gate).`,
-            status_strip: [],
-            exhibit: { kind: "none", spec_ref: null },
-            decision: null,
-            blocks_continue: false,
-            source_event_ids: [],
-            entity_ids: [],
-          });
-          inboxItemId = item.id;
-        }
-        await repos.plans.startAction(db, businessId, action.id);
-        const { action: finished } = await repos.plans.finishAction(db, businessId, action.id, { status: "done", result: { taskId: task.id, inboxItemId, hardGate: true, executed: false }, policyOutcome: "deny" });
-        await repos.audit.append(db, businessId, { actorKind: "system", action: "plan.action.hard_gate", target: { kind: "plan_action", id: action.id }, details: { taskId: task.id, inboxItemId } });
-        return { actionId: finished.id, status: "done", outcome: "deny", approvalId: null, result: { taskId: task.id, inboxItemId, hardGate: true, executed: false }, spawn: [] };
+        return db.transaction(async (tx): Promise<PlanActionResult> => {
+          const chief = await repos.agents.chiefOfStaff(tx, businessId);
+          const title = `Founder action: ${str(params.request, str(params.original_text, "action required")).slice(0, 180)}`;
+          const task = await repos.tasks.create(tx, businessId, { kind: "ops", title, goalMd: [str(params.instructions), str(params.original_text)].filter(Boolean).join("\n\n"), acceptance: ["The founder completed the action personally (hard gate, BUILD §2.2)."], assigneeAgentId: null, planActionId: action.id, status: "ready", priority: 100 });
+          let inboxItemId: string | null = null;
+          if (chief) {
+            const item = await repos.inbox.createItem(tx, businessId, {
+              type: "warning",
+              from_agent_id: chief.id,
+              subject: title.slice(0, 80),
+              body_md: `This needs you personally: ${str(params.request, str(params.original_text, "an action the team is not allowed to take"))}. ${str(params.instructions, "Open the task for the steps.")} The team prepared everything it could and will not act on this itself (hard gate).`,
+              status_strip: [],
+              exhibit: { kind: "none", spec_ref: null },
+              decision: null,
+              blocks_continue: false,
+              source_event_ids: [],
+              entity_ids: [],
+            });
+            inboxItemId = item.id;
+          }
+          await repos.plans.startAction(tx, businessId, action.id);
+          const { action: finished } = await repos.plans.finishAction(tx, businessId, action.id, { status: "done", result: { taskId: task.id, inboxItemId, hardGate: true, executed: false }, policyOutcome: "deny" });
+          await repos.audit.append(tx, businessId, { actorKind: "system", action: "plan.action.hard_gate", target: { kind: "plan_action", id: action.id }, details: { taskId: task.id, inboxItemId } });
+          return { actionId: finished.id, status: "done", outcome: "deny", approvalId: null, result: { taskId: task.id, inboxItemId, hardGate: true, executed: false }, spawn: [] };
+        });
       }
 
       if (verdict.outcome === "deny") {
@@ -201,7 +206,12 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         const kind = isTaskKind(p.kind) ? p.kind : "ops";
         const channel = isChannelKey(p.channel) ? p.channel : null;
         const assignee = action.agentId ?? (typeof p.agent_id === "string" ? p.agent_id : null);
-        const task = await repos.tasks.create(db, businessId, { kind, title: str(p.title, "Task from your decision").slice(0, 200), goalMd: str(p.goal, str(p.title)), acceptance: Array.isArray(p.acceptance) ? p.acceptance : [], assigneeAgentId: assignee, planActionId: action.id, status: "ready", budgetMinor: num(p.budget_minor), currency, departmentId: channel ? await departmentForChannel(businessId) : (typeof p.department_id === "string" ? p.department_id : null), fileScope: Array.isArray(p.file_scope) ? p.file_scope.filter((f): f is string => typeof f === "string") : [] });
+        const title = str(p.title, "Task from your decision").slice(0, 200);
+        const goalMd = str(p.goal, str(p.title));
+        // A retried action finds its task; a decision option chosen again (the recurring "Set the focus" item) reuses the
+        // unfinished task that already carries it instead of piling up identical ones (audit SOAK-04).
+        const earlier = (await repos.tasks.byPlanAction(db, businessId, action.id)) ?? (typeof p.decided_option === "string" ? await repos.tasks.openDuplicate(db, businessId, { title, goalMd }) : null);
+        const task = earlier ?? await repos.tasks.create(db, businessId, { kind, title, goalMd, acceptance: Array.isArray(p.acceptance) ? p.acceptance : [], assigneeAgentId: assignee, planActionId: action.id, status: "ready", budgetMinor: num(p.budget_minor), currency, departmentId: channel ? await departmentForChannel(businessId) : (typeof p.department_id === "string" ? p.department_id : null), fileScope: Array.isArray(p.file_scope) ? p.file_scope.filter((f): f is string => typeof f === "string") : [] });
         const spawn: PlanActionResult["spawn"] = [];
         let deferred: string | null = null;
         if (assignee && p.start_now !== false) {
@@ -211,7 +221,7 @@ export function createPlanActivities(deps: OrchestratorDeps) {
           if (opened.sessionId) spawn.push({ workflow: "agentSession", workflowId: opened.workflowId, args: { businessId, agentId: assignee, taskId: task.id, sessionId: opened.sessionId } });
           else deferred = opened.detail;
         }
-        return { result: { taskId: task.id, channel, assigneeAgentId: assignee, ...(deferred ? { deferred } : {}) }, spawn };
+        return { result: { taskId: task.id, channel, assigneeAgentId: assignee, ...(earlier ? { reused: true } : {}), ...(deferred ? { deferred } : {}) }, spawn };
       }
       case "enable_channel":
       case "disable_channel": {
@@ -319,11 +329,17 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         return { result: { modelKey: p.model_key, applyScope: scope, updated }, spawn: [] };
       }
       case "create_playbook": {
-        const sourceText = str(p.source_text, str(p.text, str(p.description)));
-        if (!sourceText) throw new Error("source_text is required");
-        const steps = Array.isArray(p.steps) ? (p.steps as Record<string, unknown>[]) : [{ kind: "action", action: { type: "create_task", params: { title: sourceText.slice(0, 120), goal: sourceText } } }];
-        const playbook = await repos.playbooks.create(db, businessId, { name: str(p.name, sourceText.slice(0, 60)), sourceText, compiled: { trigger: typeof p.trigger === "object" && p.trigger ? (p.trigger as Record<string, unknown>) : { event: str(p.event, "manual") }, steps, approvals: [], stop: typeof p.stop === "object" && p.stop ? (p.stop as Record<string, unknown>) : {} }, enabled: p.enabled !== false, createdBy: null });
-        return { result: { playbookId: playbook.id, steps: steps.length }, spawn: [] };
+        // One contract (packages/shared): a plan whose playbook is incomplete fails here, loudly, instead of creating a rule
+        // the engine could never run (audit AC-07).
+        const parsed = CreatePlaybookParams.safeParse(p);
+        if (!parsed.success) throw new Error(`the playbook is not complete: ${parsed.error.issues.slice(0, 2).map((i) => `${i.path.join(".") || "playbook"} ${i.message}`).join("; ")}`);
+        const v = parsed.data;
+        // A retried action finds the playbook it already created.
+        const earlier = (await repos.playbooks.list(db, businessId)).find((x) => x.sourceText === v.source_text);
+        if (earlier) return { result: { playbookId: earlier.id, steps: v.steps.length, enabled: earlier.enabled, reused: true }, spawn: [] };
+        // Created off: the founder reads the flow, edits it and turns it on (BUILD §11.13).
+        const playbook = await repos.playbooks.create(db, businessId, { name: v.name || v.source_text.slice(0, 60), sourceText: v.source_text, compiled: { trigger: v.trigger, steps: v.steps, approvals: v.approvals, stop: v.stop }, enabled: false, createdBy: null });
+        return { result: { playbookId: playbook.id, steps: v.steps.length, enabled: false }, spawn: [] };
       }
       case "reply_only":
         return { result: { question: str(p.question, str(p.text)) }, spawn: [] };

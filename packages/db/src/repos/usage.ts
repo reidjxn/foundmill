@@ -31,6 +31,8 @@ export const RecordUsageInput = z.object({
   billedTo: z.enum(MODEL_BILLING).default("credits"),
   occurredAt: IsoDateInput.optional(),
   details: JsonObject.default({}),
+  /** What the row settles (`session:<id>:sandbox`, a tool call id): a booking with a known key is not written again (0036). */
+  idempotencyKey: z.string().min(1).max(200).nullable().optional(),
 });
 export type RecordUsageInput = z.input<typeof RecordUsageInput>;
 
@@ -83,28 +85,43 @@ export function periodOf(date: Date): string {
 
 export const usageRepo = {
   async record(db: Executor, businessId: string, input: RecordUsageInput): Promise<UsageEntry> {
+    return (await usageRepo.recordOnce(db, businessId, input)).entry;
+  },
+
+  /**
+   * Write a usage row once: with an `idempotencyKey` a repeat (a retried activity) returns the row already booked under
+   * that key and `created: false`, so the caller charges nothing again (audit O-33, BILL-20). Without a key every call
+   * writes a row.
+   */
+  async recordOnce(db: Executor, businessId: string, input: RecordUsageInput): Promise<{ entry: UsageEntry; created: boolean }> {
     const v = parseInput(RecordUsageInput, input, "usage entry");
-    return one(
-      await db
-        .insert(usageLedger)
-        .values({
-          businessId,
-          agentId: v.agentId ?? null,
-          sessionId: v.sessionId ?? null,
-          kind: v.kind,
-          modelKey: v.modelKey ?? null,
-          quantity: v.quantity,
-          unit: v.unit,
-          costMinor: v.costMinor,
-          // Platform costs are US cents; a sink that names no currency books USD, never the old EUR column default.
-          currency: v.currency ?? CREDITS_CURRENCY,
-          billedTo: v.billedTo,
-          occurredAt: v.occurredAt ?? new Date(),
-          details: v.details,
-        })
-        .returning(),
-      "usage entry",
-    );
+    const key = v.idempotencyKey ?? null;
+    const booked = async () => (key ? await db.select().from(usageLedger).where(and(eq(usageLedger.businessId, businessId), eq(usageLedger.idempotencyKey, key))).limit(1) : []);
+    const before = (await booked())[0];
+    if (before) return { entry: before, created: false };
+    const [row] = await db
+      .insert(usageLedger)
+      .values({
+        businessId,
+        agentId: v.agentId ?? null,
+        sessionId: v.sessionId ?? null,
+        kind: v.kind,
+        modelKey: v.modelKey ?? null,
+        quantity: v.quantity,
+        unit: v.unit,
+        costMinor: v.costMinor,
+        // Platform costs are US cents; a sink that names no currency books USD, never the old EUR column default.
+        currency: v.currency ?? CREDITS_CURRENCY,
+        billedTo: v.billedTo,
+        occurredAt: v.occurredAt ?? new Date(),
+        details: v.details,
+        idempotencyKey: key,
+      })
+      .onConflictDoNothing()
+      .returning();
+    if (row) return { entry: row, created: true };
+    // A concurrent booking with the same key won the insert: return that one.
+    return { entry: one(await booked(), "usage entry"), created: false };
   },
 
   async list(db: Executor, businessId: string, filter: UsageListFilter = {}): Promise<Page<UsageEntry>> {

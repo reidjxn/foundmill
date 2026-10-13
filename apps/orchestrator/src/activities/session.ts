@@ -37,6 +37,7 @@ import type { SessionCommand } from "../control-bus";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { applySessionEvent, initialProgress, type ProgressState } from "../progress";
+import { failureStreak } from "../retry";
 import { AGENT_PAUSED_FAILURE } from "../session-contract";
 import { LoopDetector } from "./loop";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
@@ -127,11 +128,20 @@ function instructionsFor(version: AgentVersion | null, template: AgentTemplate) 
   return parsed?.success ? parsed.data : template.instructions;
 }
 
-/** Pick the recording for a task: same task kind when available, deterministic by task id. */
-export function recordingForTask(task: Pick<Task, "id" | "kind">, recordings: readonly { key: string; taskKind: string }[] = RECORDINGS): string {
+/**
+ * Pick the recording for a task, deterministic by task id. A new business's first tasks replay sessions that end well:
+ * the same task kind when one exists, else any kind that does (a legal or channel task never replays another kind's failed
+ * session). The failed and blocked recordings are opt-in (`scenarios: "all"`, env MOCK_SESSION_SCENARIOS=all, for demos
+ * and failure drills) or chosen by key; when a caller restricts the pool to such recordings they are used as they are
+ * (audit IAE-22).
+ */
+export function recordingForTask(task: Pick<Task, "id" | "kind">, recordings: readonly { key: string; taskKind: string; outcome?: string }[] = RECORDINGS, options: { scenarios?: "done" | "all" } = {}): string {
+  if (recordings.length === 0) throw new Error("no recordings available for the mock sandbox");
   const sameKind = recordings.filter((r) => r.taskKind === task.kind);
-  const pool = sameKind.length > 0 ? sameKind : recordings;
-  if (pool.length === 0) throw new Error("no recordings available for the mock sandbox");
+  const done = <T extends { outcome?: string }>(list: readonly T[]): T[] => list.filter((r) => r.outcome === undefined || r.outcome === "done");
+  let pool: readonly { key: string }[];
+  if (options.scenarios === "all") pool = sameKind.length > 0 ? sameKind : recordings;
+  else pool = [done(sameKind), done(recordings), sameKind, recordings].find((p) => p.length > 0)!;
   return pool[stableHash32(task.id) % pool.length]!.key;
 }
 
@@ -174,7 +184,12 @@ export class SessionUsage {
   private settled: UsageTotals = { tokensIn: 0, tokensOut: 0, costMinor: 0 };
   private readonly open = new Map<string, UsageTotals>();
 
-  constructor(private readonly fallbackModelId: string) {}
+  constructor(private fallbackModelId: string) {}
+
+  /** The session moved to another model (a nudge's "Upgrade to Opus"): assistant messages that name none are priced on it. */
+  useModel(modelId: string): void {
+    this.fallbackModelId = modelId;
+  }
 
   onResult(modelUsage: Record<string, SdkModelUsage> | null | undefined): void {
     const latest: UsageTotals = { tokensIn: 0, tokensOut: 0, costMinor: 0 };
@@ -314,7 +329,7 @@ class SessionRecorder {
   }
 
   /** Publish one event to the session stream and fold it into progress / loop detection / approvals. */
-  async publish(event: SessionEventInput): Promise<{ loop: boolean }> {
+  async publish(event: SessionEventInput, opts: { args?: unknown } = {}): Promise<{ loop: boolean }> {
     const { deps, ctx } = this;
     const at = event.at ?? deps.clock.now().toISOString();
     const full = { ...event, at } as SessionEventInput;
@@ -334,15 +349,21 @@ class SessionRecorder {
         if (m) this.prNumber = Number(m[1]);
       }
       if (full.status === "awaiting_approval") await this.openApproval(full);
+      // The call that waited for an approval ran: a replay's hold that resolved by itself (or a decision already applied)
+      // leaves no approvals row pending, and the session never reports "awaiting approval" for a call that already ran.
+      if (full.status === "succeeded" && full.approvalId) {
+        const row = this.approvalIds.get(full.approvalId);
+        if (row && this.pendingApprovalId === row) await this.markApprovalResolved(row, "approved", null);
+      }
     }
 
     const before = this.progress;
     this.progress = applySessionEvent(this.progress, full);
     await this.persistProgress(before);
 
-    const verdict = this.loop.observe(full);
+    const verdict = this.loop.observe(full, opts.args);
     if (verdict?.loop) {
-      await this.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), level: "error", source: "system", text: `Loop detected: ${verdict.signature.slice(0, 200)} repeated ${verdict.count} times. Stopping the session and returning the task to its lead.` });
+      await this.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), level: "error", source: "system", text: `Loop detected: ${verdict.signature.slice(0, 200)} repeated ${verdict.count} times in a row. Stopping the session and returning the task to its lead.` });
       return { loop: true };
     }
     return { loop: false };
@@ -509,7 +530,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       // AC-11.6.6: the sandbox environment is asserted before anything is created.
       const env = buildSandboxEnv({ businessId: input.businessId, agentId: agent.id, taskId: task.id, sessionId: input.sessionId, gatewayUrl: deps.gateway.baseUrl });
       const pool = provider instanceof MockSandboxProvider ? provider.recordings : RECORDINGS;
-      const recordingKey = mode === "mock" ? recordingForTask(task, pool) : null;
+      const recordingKey = mode === "mock" ? recordingForTask(task, pool, { scenarios: deps.env.MOCK_SESSION_SCENARIOS }) : null;
       const recording = recordingKey ? pool.find((r) => r.key === recordingKey) ?? null : null;
       const acceptance = Array.isArray(task.acceptance) ? task.acceptance.length : 0;
       return {
@@ -623,11 +644,13 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       const endedAt = deps.clock.now();
       await repos.agents.endSession(db, input.businessId, input.sessionId, { endedAt, tokensIn: result.tokensIn, tokensOut: result.tokensOut, costMinor: Math.round(result.costMinor), outcome: result.outcome, recordingRef: launch.recordingKey });
       const minutes = Math.max(1, Math.round(result.durationMs / 60_000));
-      await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "sandbox", quantity: minutes, unit: "minutes", costMinor: 0, billedTo: launch.modelBilling, occurredAt: endedAt, details: { sandboxMode: launch.sandboxMode, label: "Estimate", recording: launch.recordingKey } });
+      // Keyed by session and kind: a retried finish (a later write failed, or a deploy killed the worker) books each row and
+      // charges the credits once (audit O-33, BILL-20).
+      await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "sandbox", quantity: minutes, unit: "minutes", costMinor: 0, billedTo: launch.modelBilling, occurredAt: endedAt, details: { sandboxMode: launch.sandboxMode, label: "Estimate", recording: launch.recordingKey }, idempotencyKey: `session:${input.sessionId}:sandbox` });
       if (result.tokensIn + result.tokensOut > 0 && launch.sandboxMode !== "mock") {
         // The SDK prices in USD (an Estimate). Settled against credits when the platform key ran the session
         // (`bookUsage` pauses the team on the last credit).
-        await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "tokens", modelKey: launch.modelKey, quantity: result.tokensIn + result.tokensOut, unit: "tokens", costMinor: Math.round(result.costMinor), currency: "USD", billedTo: launch.modelBilling, occurredAt: endedAt, details: { source: "claude-agent-sdk", label: "Estimate" } });
+        await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "tokens", modelKey: result.modelKey ?? launch.modelKey, quantity: result.tokensIn + result.tokensOut, unit: "tokens", costMinor: Math.round(result.costMinor), currency: "USD", billedTo: launch.modelBilling, occurredAt: endedAt, details: { source: "claude-agent-sdk", label: "Estimate" }, idempotencyKey: `session:${input.sessionId}:tokens` });
       }
       // Read the agent after booking: the last credit may just have paused the team, and the founder's pause or Stop
       // all agents may have landed while the session ran. Nothing a session does un-pauses an agent.
@@ -639,6 +662,8 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       // A session cut short by a pause of its agent or a team-wide stop did not fail on its merits: the task waits
       // `paused` and the next cycle after the resume picks it up (0023).
       const teamStopped = agentPaused || (await repos.businesses.agentsStopped(db, input.businessId));
+      // How many sessions of this task in a row ended failed or blocked, this one included (it is ended above).
+      const blockedStreak = Math.max(1, failureStreak(await repos.agents.recentOutcomes(db, input.businessId, { taskIds: [task.id], limit: 12 }), ["failed", "blocked"]).failures);
       switch (teamStopped && result.outcome === "failed" ? "stopped" : result.outcome) {
         case "done": {
           taskStatus = result.progress.merged ? "done" : result.progress.reviewPassed || result.progress.phase === "review" || result.progress.phase === "merge" ? "review" : "done";
@@ -647,7 +672,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
             type: "task.completed",
             actor: { kind: "agent", id: agent.id },
             payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, outcome: result.progress.progress >= 0.999 ? "success" : "partial", durationMs: Math.max(0, Math.round(result.durationMs)), cost, acceptanceTestsPassing: result.progress.acceptanceTestsPassing, acceptanceTests: result.progress.acceptanceTests, prNumber: result.prNumber, branch: launch.branch, summary: result.summary.slice(0, 2000) },
-          });
+          }, { idempotencyKey: `task.completed:${input.sessionId}` });
           eventIds.push(ev.id);
           break;
         }
@@ -657,8 +682,8 @@ export function createSessionActivities(deps: OrchestratorDeps) {
             businessId: input.businessId,
             type: "task.blocked",
             actor: { kind: "agent", id: agent.id },
-            payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, reason: result.blockedReason ?? "error", detail: (result.reason ?? "blocked").slice(0, 2000), approvalId: result.approvalId, occurrence: 1 },
-          });
+            payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, reason: result.blockedReason ?? "error", detail: (result.reason ?? "blocked").slice(0, 2000), approvalId: result.approvalId, occurrence: blockedStreak },
+          }, { idempotencyKey: `task.blocked:${input.sessionId}` });
           eventIds.push(ev.id);
           break;
         }
@@ -668,8 +693,8 @@ export function createSessionActivities(deps: OrchestratorDeps) {
             businessId: input.businessId,
             type: "task.blocked",
             actor: { kind: "agent", id: agent.id },
-            payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, reason: result.blockedReason ?? "error", detail: (result.reason ?? "failed").slice(0, 2000), approvalId: null, occurrence: 1 },
-          });
+            payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: agent.id, sessionId: input.sessionId, reason: result.blockedReason ?? "error", detail: (result.reason ?? "failed").slice(0, 2000), approvalId: null, occurrence: blockedStreak },
+          }, { idempotencyKey: `task.blocked:${input.sessionId}` });
           eventIds.push(ev.id);
           break;
         }
@@ -699,7 +724,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           businessId: input.businessId,
           type: "agent.health_changed",
           actor: systemActor,
-          payload: { agentId: agent.id, from, to, reason: result.blockedReason === "loop_detected" ? "loop detected: the same call repeated three times" : result.outcome === "failed" ? `session failed: ${(result.reason ?? "error").slice(0, 200)}` : `session ${result.outcome}`, signals: { loopDetected: result.blockedReason === "loop_detected", errorRate: result.toolCalls > 0 ? Math.min(1, result.toolFailures / result.toolCalls) : null }, sessionId: input.sessionId },
+          payload: { agentId: agent.id, from, to, reason: result.blockedReason === "loop_detected" ? "loop detected: the same call repeated three times in a row" : result.outcome === "failed" ? `session failed: ${(result.reason ?? "error").slice(0, 200)}` : `session ${result.outcome}`, signals: { loopDetected: result.blockedReason === "loop_detected", errorRate: result.toolCalls > 0 ? Math.min(1, result.toolFailures / result.toolCalls) : null }, sessionId: input.sessionId },
         });
         eventIds.push(ev.id);
         healthChanged = true;
@@ -721,7 +746,7 @@ export type SessionActivities = ReturnType<typeof createSessionActivities>;
 // Mock runner (packages/sandbox replay)
 // ---------------------------------------------------------------------------------------------------------------------
 
-type RunOutcome = Pick<SessionResult, "outcome" | "reason" | "blockedReason" | "approvalId" | "summary" | "providerSessionId"> & Partial<Pick<SessionResult, "tokensIn" | "tokensOut" | "costMinor" | "parked">>;
+type RunOutcome = Pick<SessionResult, "outcome" | "reason" | "blockedReason" | "approvalId" | "summary" | "providerSessionId"> & Partial<Pick<SessionResult, "tokensIn" | "tokensOut" | "costMinor" | "parked" | "modelKey">>;
 
 /** Why a replay frees its slot early: the founder left an approval undecided, or a pause outlasted the hold. */
 type MockEnding = { kind: "approval_timeout" } | ({ kind: "park" } & SessionParked);
@@ -773,6 +798,11 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         replay.stop(c.reason);
         break;
       case "shout":
+        if (c.modelKey) {
+          // A replay runs no model: say so, rather than claim a switch that changes nothing.
+          await recorder.publishRaw({ kind: "note", at, source: "system", level: "info", text: `Asked to switch to ${c.modelKey}. This is a recorded session, so no model runs and nothing changes.` });
+          break;
+        }
         await recorder.publishRaw({ kind: "note", at, source: "shout", level: "info", text: c.message.slice(0, 4000) });
         break;
       case "decision": {
@@ -814,7 +844,7 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     await loop.flush();
     const stop = stoppedBy as { reason: string; by: string | null } | null;
     const end = ending as MockEnding | null;
-    if (loopTripped) return { outcome: "failed", reason: "loop detected: the same call repeated three times", blockedReason: "loop_detected", approvalId: null, summary: `Stopped after a detected loop (${recorder.loop.loopDetected?.signature.slice(0, 120) ?? "repeated call"}).`, providerSessionId: summary.recordingKey };
+    if (loopTripped) return { outcome: "failed", reason: "loop detected: the same call repeated three times in a row", blockedReason: "loop_detected", approvalId: null, summary: `Stopped after a detected loop (${recorder.loop.loopDetected?.signature.slice(0, 120) ?? "repeated call"}).`, providerSessionId: summary.recordingKey };
     if (stop) return { outcome: "stopped", reason: stop.reason, blockedReason: "stopped", approvalId: null, summary: `Stopped: ${stop.reason}.`, providerSessionId: summary.recordingKey };
     if (end?.kind === "park") return { outcome: "stopped", reason: "paused", blockedReason: "stopped", approvalId: null, summary: "Paused; the session continues on Resume.", providerSessionId: summary.recordingKey, parked: { cursor: end.cursor, carry: carriedOver(end.carry) } };
     if (end?.kind === "approval_timeout") return { outcome: "blocked", reason: `no decision on the approval within ${minutesText(waits.approvalMs)}`, blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: `Blocked after ${summary.emitted} events: waiting for the founder's approval.`, providerSessionId: summary.recordingKey };
@@ -1020,9 +1050,31 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   let holdBack: string | null = "the session did not finish";
   let sdkSessionId: string | null = null;
   const openCalls = new Map<string, { tool: string; connectorKey: string | null; startedAt: number }>();
+  /** The model a nudge moved the session to, once it has (usage after that is booked on it). */
+  let switchedTo: ModelKey | null = null;
   const usageNow = () => {
     const u = recorder.usage.totals();
-    return { tokensIn: u.tokensIn, tokensOut: u.tokensOut, costMinor: Math.round(u.costMinor) };
+    return { tokensIn: u.tokensIn, tokensOut: u.tokensOut, costMinor: Math.round(u.costMinor), ...(switchedTo ? { modelKey: switchedTo } : {}) };
+  };
+  /**
+   * "Upgrade to Opus" on a running task: the SDK query moves to that model for the rest of the session and later usage is
+   * priced and booked on it (audit O-27). A route locked to one model refuses the change and says so.
+   */
+  const switchModel = async (modelKey: ModelKey, at: string) => {
+    const model = resolveModel(live.template.route, modelKey);
+    if (model.modelKey !== modelKey) {
+      await recorder.publishRaw({ kind: "note", at, source: "system", level: "warn", text: model.warning ?? `This work stays on ${model.modelKey}.` });
+      return;
+    }
+    try {
+      await q?.setModel(model.modelId);
+      switchedTo = model.modelKey;
+      recorder.usage.useModel(model.modelId);
+      await recorder.publishRaw({ kind: "note", at, source: "system", level: "info", text: `Switched to ${model.modelKey[0]!.toUpperCase()}${model.modelKey.slice(1)} for the rest of this session.` });
+    } catch (err) {
+      deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "SDK model switch failed");
+      await recorder.publishRaw({ kind: "note", at, source: "system", level: "warn", text: "The model could not be switched; the session carries on with its current model." });
+    }
   };
 
   const send = (text: string) => {
@@ -1060,6 +1112,12 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     switch (c.kind) {
       case "shout":
       case "decision":
+        // A model change is not a message to the agent: it switches the SDK query and nothing is sent.
+        if (c.kind === "shout" && c.modelKey) {
+          if (ending === "park") carry.push(c);
+          else if (!ending) await switchModel(c.modelKey as ModelKey, at);
+          break;
+        }
         if (c.kind === "shout") await recorder.publishRaw({ kind: "note", at, source: "shout", text: c.message.slice(0, 4000) });
         else await recorder.markApprovalResolved(c.approvalId, c.outcome, c.by ?? null);
         if (ending === "park") carry.push(c);
@@ -1188,7 +1246,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
               const connectorKey = parts ? parts[1]! : null;
               const tool = parts ? parts[2]! : block.name;
               openCalls.set(block.id, { tool, connectorKey, startedAt: deps.clock.nowMs() });
-              const { loop: looped } = await recorder.publish({ kind: "tool_call", at: deps.clock.now().toISOString(), callId: block.id, connectorKey, tool, status: "started", argsSummary: summariseArgs(block.input) });
+              const { loop: looped } = await recorder.publish({ kind: "tool_call", at: deps.clock.now().toISOString(), callId: block.id, connectorKey, tool, status: "started", argsSummary: summariseArgs(block.input) }, { args: block.input });
               if (looped) await end("loop");
             }
           }
@@ -1237,7 +1295,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     const how = ending as LiveEnding | null;
     if (how === "loop") {
       holdBack = "the session stopped on a loop";
-      return { outcome: "failed", reason: "loop detected: the same tool call repeated three times", blockedReason: "loop_detected", approvalId: null, summary: "Stopped after a detected loop.", providerSessionId: sdkSessionId, ...usageNow() };
+      return { outcome: "failed", reason: "loop detected: the same tool call repeated three times in a row", blockedReason: "loop_detected", approvalId: null, summary: "Stopped after a detected loop.", providerSessionId: sdkSessionId, ...usageNow() };
     }
     const stop = stoppedBy as { reason: string } | null;
     if (stop) {

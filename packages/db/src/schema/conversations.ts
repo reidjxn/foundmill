@@ -1,5 +1,6 @@
 /** 0020 — founder ↔ agent conversations (the agent's desk): threads per agent and subject, and their messages. */
 import { AGENT_REACTIONS, CONVERSATION_AUTHOR_KINDS, CONVERSATION_SUBJECT_KINDS, type QuickReplyKind } from "@foundmill/shared";
+import { sql } from "drizzle-orm";
 import { foreignKey, index, integer, jsonb, pgTable, text, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { emptyArray, emptyList, emptyObject, id, timestamps, tstz } from "./_common";
@@ -59,9 +60,12 @@ export const agentMessages = pgTable(
     entityIds: uuid("entity_ids").array().notNull().default(emptyArray),
     planId: uuid("plan_id").references(() => plans.id, { onDelete: "set null" }),
     meta: jsonb("meta").$type<Record<string, unknown>>().notNull().default(emptyObject),
+    /** 0036: the id the founder's client gave the message; a repeat in the same thread returns the recorded exchange. */
+    clientMessageId: text("client_message_id"),
     ...timestamps(),
   },
   (t) => [
+    uniqueIndex("agent_messages_client_message_idx").on(t.threadId, t.clientMessageId).where(sql`client_message_id is not null`),
     foreignKey({ name: "agent_messages_thread_fkey", columns: [t.threadId, t.businessId], foreignColumns: [agentThreads.id, agentThreads.businessId] }).onDelete("cascade"),
     index("agent_messages_thread_idx").on(t.threadId, t.createdAt),
     index("agent_messages_business_id_idx").on(t.businessId, t.createdAt),

@@ -1,5 +1,5 @@
 /**
- * Bounded, backed-off retries (audit O-08). A failed session used to remove its task and its agent from the loop for
+ * Bounded, backed-off retries (audit O-08, BF-14). A failed session used to remove its task and its agent from the loop for
  * good: the task stayed `failed` and never reached the planner, the agent stayed `failing` and was never picked again.
  * Now a failed task is offered to the planner again after a pause that doubles with each failure in a row, up to
  * `TASK_RETRY_LIMIT` automatic retries (then it waits for the founder's Start on the Plan), and a failing agent goes
@@ -27,11 +27,15 @@ export interface FailureStreak {
   lastEndedAt: Date | null;
 }
 
-/** Count the failures in a row from the newest session back (sessions newest first). */
-export function failureStreak(sessions: readonly EndedSession[]): FailureStreak {
+/**
+ * Count the failures in a row from the newest session back (sessions newest first). `outcomes` says what counts: a
+ * failed task counts `failed` sessions; a blocked task counts `blocked` ones too (a credential, budget or rate-limit
+ * refusal that keeps coming back is retried on the same doubling wait and limit, never every cycle; audit BF-14).
+ */
+export function failureStreak(sessions: readonly EndedSession[], outcomes: readonly string[] = ["failed"]): FailureStreak {
   let failures = 0;
   for (const s of sessions) {
-    if (s.outcome !== "failed") break;
+    if (s.outcome === null || !outcomes.includes(s.outcome)) break;
     failures += 1;
   }
   const newest = sessions[0]?.endedAt ?? null;

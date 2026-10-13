@@ -22,28 +22,81 @@ export function Screen({ name, children, className }: { name: string; children: 
 
 /* ---------- Mutations ---------- */
 
+/** How many of the sessions a control was meant for received it (the api answers `queued` per signal). */
+export interface Delivery {
+  delivered: number;
+  total: number;
+  /** Why the first signal that did not arrive did not, in the founder's words. */
+  reason: string | null;
+}
+
+/** Words for why a signal did not reach a session (the api passes Temporal's own message). */
+export function notDeliveredReason(reason: string | null | undefined): string {
+  const r = (reason ?? "").trim();
+  if (/workflow(execution)?\s*not\s*found|WorkflowNotFound|not found for ID/i.test(r)) return "the session is no longer running";
+  if (/unreachable|disabled|ECONNREFUSED|timeout/i.test(r)) return "the orchestrator is not reachable";
+  if (/already (completed|closed)|execution already/i.test(r)) return "the session has already ended";
+  const plain = r.replace(/^[A-Za-z]*Error:\s*/, "").replace(/\s+/g, " ").slice(0, 120);
+  return plain || "the session did not answer";
+}
+
+/**
+ * Read the delivery of a control from a mutation result: `{ workflow: { queued } }` for one session, `{ results: [{ queued }] }`
+ * for a nudge to several. Null when the result carries neither (nothing was signalled).
+ */
+export function deliveryOf(result: unknown): Delivery | null {
+  const r = (result ?? null) as { workflow?: { queued?: unknown; reason?: unknown } | null; results?: unknown } | null;
+  if (!r || typeof r !== "object") return null;
+  const entries = Array.isArray(r.results) ? (r.results as { queued?: unknown; reason?: unknown }[]) : r.workflow && typeof r.workflow.queued === "boolean" ? [r.workflow] : null;
+  if (!entries) return null;
+  const failed = entries.find((e) => e.queued !== true);
+  return { delivered: entries.filter((e) => e.queued === true).length, total: entries.length, reason: failed ? notDeliveredReason(typeof failed.reason === "string" ? failed.reason : null) : null };
+}
+
+/** The founder-facing line for a control that did not (fully) arrive; null when it did. */
+export function deliveryMessage(d: Delivery | null): string | null {
+  if (!d || d.delivered === d.total) return d && d.total === 0 ? "Not delivered: no session is running to receive this." : null;
+  if (d.total === 1) return `Not delivered: ${d.reason}. The agent is not listening.`;
+  return d.delivered === 0 ? `Not delivered: ${d.reason}. No session received it.` : `Delivered to ${d.delivered} of ${d.total} sessions. Not delivered to the rest: ${d.reason}.`;
+}
+
 export interface ActionState {
   pending: string | null;
+  /** The last failure, or a control that did not reach its session (`deliveryMessage`). */
   error: Error | null;
+  /** A short confirmation that stays a few seconds: a nudge that reached several sessions. */
+  notice: string | null;
   clearError: () => void;
-  /** Run a mutation; resolves to the result or undefined when it failed (the error is kept in state). */
-  run: <T = unknown>(path: string, input: Record<string, unknown>, opts?: { key?: string; then?: (result: T) => void }) => Promise<T | undefined>;
+  /** Run a mutation; resolves to the result or undefined when it failed (the error is kept in state). `then` also gets how far the control reached. */
+  run: <T = unknown>(path: string, input: Record<string, unknown>, opts?: { key?: string; then?: (result: T, delivery: Delivery | null) => void }) => Promise<T | undefined>;
 }
+
+const NOTICE_MS = 6000;
 
 /** Mutations through the host data source with one pending key and the last error, for buttons and inline errors. */
 export function useAction(): ActionState {
   const { mutate } = useWidgetData();
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<Error | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const alive = useRef(true);
   const run = useCallback(
-    async <T,>(path: string, input: Record<string, unknown>, opts?: { key?: string; then?: (result: T) => void }): Promise<T | undefined> => {
+    async <T,>(path: string, input: Record<string, unknown>, opts?: { key?: string; then?: (result: T, delivery: Delivery | null) => void }): Promise<T | undefined> => {
       const key = opts?.key ?? path;
       setPending(key);
       setError(null);
+      setNotice(null);
       try {
         const result = await mutate<T>(path, input);
-        opts?.then?.(result);
+        // A 200 only says the api took the request: whether the session heard it is in the result (audit OL-04, TPD-16).
+        const delivery = deliveryOf(result);
+        const problem = deliveryMessage(delivery);
+        if (problem && alive.current) setError(new Error(problem));
+        else if (delivery && delivery.total > 1 && alive.current) {
+          setNotice(`Delivered to ${delivery.delivered} sessions.`);
+          setTimeout(() => alive.current && setNotice(null), NOTICE_MS);
+        }
+        opts?.then?.(result, delivery);
         return result;
       } catch (e) {
         if (alive.current) setError(e instanceof Error ? e : new Error(String(e)));
@@ -54,7 +107,7 @@ export function useAction(): ActionState {
     },
     [mutate],
   );
-  return { pending, error, clearError: () => setError(null), run };
+  return { pending, error, notice, clearError: () => setError(null), run };
 }
 
 export function errorMessage(e: Error | string | null | undefined): string {

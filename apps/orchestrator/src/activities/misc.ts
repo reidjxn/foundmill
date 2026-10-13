@@ -19,15 +19,20 @@ export function createMiscActivities(deps: OrchestratorDeps) {
     async loadPlaybook(input: { businessId: string; playbookId: string }): Promise<LoadedPlaybook> {
       const playbook = await repos.playbooks.get(deps.db, input.businessId, input.playbookId);
       const compiled = playbook.compiled as { steps?: unknown; stop?: unknown };
-      return { playbookId: playbook.id, enabled: playbook.enabled && !playbook.archivedAt, steps: Array.isArray(compiled.steps) ? (compiled.steps as Record<string, unknown>[]) : [], stop: typeof compiled.stop === "object" && compiled.stop ? (compiled.stop as Record<string, unknown>) : {}, departmentId: playbook.departmentId };
+      const approvals = (Array.isArray((compiled as { approvals?: unknown }).approvals) ? ((compiled as { approvals: unknown[] }).approvals) : []).flatMap((a) => {
+        const x = a as { step?: unknown; scope?: unknown };
+        return typeof x?.step === "number" ? [{ step: x.step, scope: x.scope === "first_run" ? ("first_run" as const) : ("every_run" as const) }] : [];
+      });
+      return { playbookId: playbook.id, enabled: playbook.enabled && !playbook.archivedAt, approvals, firstRun: playbook.lastRunAt === null, steps: Array.isArray(compiled.steps) ? (compiled.steps as Record<string, unknown>[]) : [], stop: typeof compiled.stop === "object" && compiled.stop ? (compiled.stop as Record<string, unknown>) : {}, departmentId: playbook.departmentId };
     },
 
     /** Compile a playbook step into a plan (one action) so the plan executor's typed handlers and policy apply. */
-    async playbookStepToPlan(input: { businessId: string; playbookId: string; step: Record<string, unknown>; event: { type: string; payload?: Record<string, unknown> } | null }): Promise<{ planId: string | null; actionIds: string[] }> {
+    async playbookStepToPlan(input: { businessId: string; playbookId: string; step: Record<string, unknown>; event: { type: string; payload?: Record<string, unknown> } | null; requireApproval?: boolean }): Promise<{ planId: string | null; actionIds: string[] }> {
       const action = (input.step.action ?? input.step) as { type?: unknown; params?: unknown; agent_id?: unknown };
       if (typeof action.type !== "string") return { planId: null, actionIds: [] };
       const params = typeof action.params === "object" && action.params ? { ...(action.params as Record<string, unknown>) } : {};
       if (input.event) params.trigger_event = { type: input.event.type, ...(input.event.payload ?? {}) };
+      if (input.requireApproval) params.require_approval = true;
       const plan = await repos.plans.create(deps.db, input.businessId, { origin: "playbook", summaryMd: `Playbook step: ${action.type}`, playbookId: input.playbookId, status: "executing", actions: [{ type: action.type as never, params, agentId: typeof action.agent_id === "string" ? action.agent_id : null }] });
       return { planId: plan.id, actionIds: plan.actions.map((a) => a.id) };
     },
@@ -64,13 +69,18 @@ export function createMiscActivities(deps: OrchestratorDeps) {
           return { status: "in_progress", note: "documents prepared" };
         }
         case "founder_review": {
+          // The Inbox item and the step that records it commit together: a retried attempt cannot ask the founder twice
+          // (audit O-33), and one that already recorded the step asks nothing more.
+          if (steps.some((s) => s.step === "founder_review")) return { status: inc.status, note: "awaiting founder" };
           const chief = await repos.agents.chiefOfStaff(db, input.businessId);
+          return db.transaction(async (tx) => {
           if (chief) {
-            await repos.inbox.createItem(db, input.businessId, { type: "decision", from_agent_id: chief.id, subject: "Incorporation pack ready for your review", body_md: `The ${inc.route.replace(/_/g, " ")} pack is prepared. Review the documents, then submit the filing yourself: filing in your name is a hard gate the team never performs. The browser session stays supervised until you take over.`, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options: [{ id: "review", label: "Open the pack and submit", recommended: true, consequence: "You take over the browser session and file", cost_minor: 0, reversible: true }, { id: "later", label: "Not now", recommended: false, consequence: "The pack waits; nothing is filed", cost_minor: 0, reversible: true }], free_text: true, expires_at: null }, blocks_continue: false, source_event_ids: [], entity_ids: [] });
+            await repos.inbox.createItem(tx, input.businessId, { type: "decision", from_agent_id: chief.id, subject: "Incorporation pack ready for your review", body_md: `The ${inc.route.replace(/_/g, " ")} pack is prepared. Review the documents, then submit the filing yourself: filing in your name is a hard gate the team never performs. The browser session stays supervised until you take over.`, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options: [{ id: "review", label: "Open the pack and submit", recommended: true, consequence: "You take over the browser session and file", cost_minor: 0, reversible: true }, { id: "later", label: "Not now", recommended: false, consequence: "The pack waits; nothing is filed", cost_minor: 0, reversible: true }], free_text: true, expires_at: null }, blocks_continue: false, source_event_ids: [], entity_ids: [] });
           }
           push("Asked the founder to review and submit.");
-          await repos.legal.updateIncorporation(db, input.businessId, inc.id, { status: "awaiting_founder", steps, browserSessionId: `supervised:${uuid()}` });
+          await repos.legal.updateIncorporation(tx, input.businessId, inc.id, { status: "awaiting_founder", steps, browserSessionId: `supervised:${uuid()}` });
           return { status: "awaiting_founder", note: "awaiting founder" };
+          });
         }
         case "founder_submits": {
           push("The founder submitted the filing in the supervised session.", { payload: input.founderPayload ?? {} });

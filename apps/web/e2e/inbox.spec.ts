@@ -201,7 +201,7 @@ test.describe("inbox", () => {
     await expect(founderBubbles).toHaveCount(foundersBefore + 1, { timeout: LONG });
     await expect(desk.getByTestId("read-receipt").last()).toContainText("Not sent", { timeout: LONG });
     const words = (await founderBubbles.last().innerText()).replace(/^You:\s*/, "").trim();
-    await expect(desk.getByTestId("agent-bubble").filter({ hasText: "didn't reach me" }).last()).toBeVisible();
+    await expect(desk.getByTestId("agent-bubble").filter({ hasText: "couldn't confirm your message" }).last()).toBeVisible();
     const retry = desk.locator('[data-quick-reply="local-retry"]');
     await expect(retry).toBeVisible();
     await expect(retry).toHaveAttribute("data-likeliest", "true");
@@ -212,13 +212,40 @@ test.describe("inbox", () => {
     await page.unroute(offline);
     const agentBubbles = desk.getByTestId("agent-bubble");
     await retry.click();
-    await expect(desk.getByTestId("agent-bubble").filter({ hasText: "didn't reach me" })).toHaveCount(0, { timeout: LONG });
+    await expect(desk.getByTestId("agent-bubble").filter({ hasText: "couldn't confirm your message" })).toHaveCount(0, { timeout: LONG });
     await expect(desk.getByTestId("read-receipt").last()).not.toContainText("Not sent", { timeout: LONG });
     await expect.poll(() => agentBubbles.count(), { timeout: LONG }).toBeGreaterThan(0);
     await expect(founderBubbles.last()).toContainText(words);
     await expect(founderBubbles).toHaveCount(foundersBefore + 1);
     await expect(desk.locator('[data-quick-reply="local-retry"]')).toHaveCount(0);
     await expect(item).toHaveAttribute("data-state", stateBefore!);
+  });
+
+  test("a reply lost on its way back is not reported as unsent, and nothing is posted twice (audit RES-09)", async ({ page }) => {
+    await openInbox(page, "respond");
+    const decision = rowsOf(page).filter({ hasText: "Approve batch 002" }).first();
+    await expect(decision, "the seed gives Northwind the batch 002 decision").toBeVisible({ timeout: LONG });
+    await decision.click();
+    await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-type", "decision", { timeout: LONG });
+    const desk = page.getByTestId("agent-desk");
+    const replies = desk.getByTestId("quick-replies").locator("[data-quick-reply]:not([data-quick-reply=write]):not([data-quick-reply=go_with])");
+    await expect(replies.first()).toBeVisible({ timeout: LONG });
+    const founderBubbles = desk.getByTestId("founder-bubble");
+    const foundersBefore = await founderBubbles.count();
+
+    // The api takes the message and answers it; the answer never reaches the browser.
+    const lost = /\/trpc\/[^?]*agent\.conversation\.send/;
+    await page.route(lost, async (route) => {
+      await route.fetch();
+      await route.abort("connectionreset");
+    });
+    await replies.first().click();
+    // The desk asks the server and finds the message there: the exchange shows, with nothing to send again.
+    await expect(founderBubbles).toHaveCount(foundersBefore + 1, { timeout: LONG });
+    await expect(desk.getByTestId("read-receipt").last()).not.toContainText("Not sent", { timeout: LONG });
+    await expect(desk.locator('[data-quick-reply="local-retry"]')).toHaveCount(0);
+    await expect(desk.getByTestId("agent-bubble").filter({ hasText: "couldn't confirm your message" })).toHaveCount(0);
+    await page.unroute(lost);
   });
 
   test("number keys in an agent's sheet opened over a decision answer the sheet, never the note underneath", async ({ page }) => {

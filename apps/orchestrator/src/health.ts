@@ -38,7 +38,7 @@ export function computeHealth(s: HealthSignals): HealthVerdict {
   if (s.paused) return { status: "paused", reason: "paused by the founder or the kill switch", expectedReturnAt: null };
   if (s.credentialExpired) return { status: "injured", reason: "a credential this agent depends on has expired", expectedReturnAt: s.expectedReturnAt ?? null };
   if (s.budgetRemainingMinor !== null && s.budgetRemainingMinor <= 0) return { status: "paused", reason: "wage cap reached for the period", expectedReturnAt: s.expectedReturnAt ?? null };
-  if (s.loopDetected) return { status: "failing", reason: "loop detected: the same tool call repeated three times", expectedReturnAt: null };
+  if (s.loopDetected) return { status: "failing", reason: "loop detected: the same tool call repeated three times in a row", expectedReturnAt: null };
   if (s.errorRate !== null && s.errorRate > ERROR_RATE_FAILING) return { status: "failing", reason: `error rate ${Math.round(s.errorRate * 100)} % over the window`, expectedReturnAt: null };
   if (s.active && s.heartbeatAgeMs !== null && s.heartbeatAgeMs > HEARTBEAT_FAILING_MS) return { status: "failing", reason: `no heartbeat for ${Math.round(s.heartbeatAgeMs / 60000)} min`, expectedReturnAt: null };
   if (s.errorRate !== null && s.errorRate > ERROR_RATE_DEGRADED) return { status: "degraded", reason: `error rate ${Math.round(s.errorRate * 100)} % over the window`, expectedReturnAt: null };

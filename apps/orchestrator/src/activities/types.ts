@@ -47,8 +47,17 @@ export interface BriefTask {
   budgetMinor: number | null;
   /** Dependencies not yet done block dispatch. */
   blocked: boolean;
-  /** A failed task's next automatic retry (`retry.ts`); absent for every other status. */
+  /** A session of this task holds a gated call nobody has decided yet: starting it again would only wait on it again. */
+  awaitingApproval?: boolean;
+  /** A failed or blocked task's next automatic retry (`retry.ts`); absent for every other status. */
   retry?: { failures: number; due: boolean; exhausted: boolean; nextAttemptAt: string | null } | null;
+}
+
+/** A roadmap item no task links to yet: it needs a task graph (Development › Plan) before anyone can start it. */
+export interface BriefRoadmapItem {
+  id: string;
+  title: string;
+  horizon: string;
 }
 
 export interface BusinessBrief {
@@ -63,6 +72,10 @@ export interface BusinessBrief {
   agents: BriefAgent[];
   chiefOfStaffId: string | null;
   openTasks: BriefTask[];
+  /** How many tasks a cycle could plan in all (`openTasks` lists the most important and oldest of them). */
+  openTaskTotal?: number;
+  /** Roadmap items without tasks, Now first. */
+  untaskedRoadmap?: BriefRoadmapItem[];
   pendingApprovals: number;
   blockingInboxItems: number;
   /**
@@ -106,6 +119,8 @@ export interface CyclePlan {
   modelKey: ModelKey;
   warning: string | null;
   costMinor: number;
+  /** Nothing could start, so no model was called: the cycle posts one plain note instead of a narration. */
+  idle?: boolean;
 }
 
 export type CycleTrigger = "continue" | "holiday" | "schedule" | "wake";
@@ -183,6 +198,8 @@ export interface SessionResult {
   summary: string;
   /** Last SDK/replay session id for resume. */
   providerSessionId: string | null;
+  /** The model the session was moved to by a nudge ("Upgrade to Opus"); absent when it ran on its launch model throughout. */
+  modelKey?: ModelKey | null;
   /**
    * Set when the run handed its slot back because the session stayed paused past SESSION_PAUSE_HOLD_MINUTES: the
    * workflow waits for Resume without holding a slot, then starts another run. Never set on a finished session.
@@ -316,6 +333,8 @@ export interface HolidayInput {
   holidayId: string;
   /** Override the cadence between auto-Continues (agent-hours). */
   cadenceAgentHours?: number;
+  /** Cycles run by earlier runs of this vacation (a long vacation continues as new). */
+  cyclesRun?: number;
 }
 
 export interface LoadedHoliday {
@@ -333,11 +352,33 @@ export interface LoadedHoliday {
 
 export interface HolidayCheck {
   shouldEnd: boolean;
-  reason: "until_reached" | "condition_met" | "founder_returned" | "wake_event" | "budget_exhausted" | "kill_switch" | null;
+  reason: "until_reached" | "condition_met" | "founder_returned" | "wake_event" | "budget_exhausted" | "kill_switch" | "cycle_cap" | null;
   wakeEventType: string | null;
   wakeEventId: string | null;
   spentMinor: number;
   now: string;
+}
+
+export interface AutopilotInput {
+  businessId: string;
+  /** Cycles run by earlier runs of this autopilot (it continues as new to keep its history short). */
+  cyclesRun?: number;
+  /** Override the cadence between cycles (agent-hours). */
+  cadenceAgentHours?: number;
+}
+
+export interface LoadedAutopilot {
+  chiefOfStaffId: string | null;
+  authority: string[];
+  cadenceAgentHours: number;
+}
+
+export interface AutopilotCheck {
+  /** False once the business left Automated mode or was archived: the autopilot ends. */
+  active: boolean;
+  /** Why no cycle runs this tick although the autopilot continues. */
+  hold: "vacation" | "stopped" | null;
+  reason: string;
 }
 
 export interface HolidayDecisions {
@@ -409,6 +450,10 @@ export interface LoadedPlaybook {
   playbookId: string;
   enabled: boolean;
   steps: Record<string, unknown>[];
+  /** Steps that wait for the founder: `step` is an index into `steps`; `first_run` only until the playbook has run once. */
+  approvals: { step: number; scope: "first_run" | "every_run" }[];
+  /** The playbook has not run before. */
+  firstRun: boolean;
   stop: Record<string, unknown>;
   departmentId: string | null;
 }

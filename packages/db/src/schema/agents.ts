@@ -399,7 +399,12 @@ export const holidayPeriods = pgTable(
     startedBy: uuid("started_by"),
     ...timestampsWithArchive(),
   },
-  (t) => [index("holiday_periods_business_id_idx").on(t.businessId, t.startedAt), index("holiday_periods_report_inbox_item_id_idx").on(t.reportInboxItemId)],
+  (t) => [
+    index("holiday_periods_business_id_idx").on(t.businessId, t.startedAt),
+    index("holiday_periods_report_inbox_item_id_idx").on(t.reportInboxItemId),
+    // 0036: at most one running vacation per business.
+    uniqueIndex("holiday_periods_one_running_idx").on(t.businessId).where(sql`started_at is not null and ended_at is null and archived_at is null`),
+  ],
 );
 export type HolidayPeriod = typeof holidayPeriods.$inferSelect;
 export type NewHolidayPeriod = typeof holidayPeriods.$inferInsert;

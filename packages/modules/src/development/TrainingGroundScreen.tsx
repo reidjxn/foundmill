@@ -156,7 +156,8 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
   const sendNudge = (sessionId: string, input: Record<string, unknown>, text: string) => {
     const task = taskOf(sessionId);
     if (!task) return;
-    void action.run("dev.tasks.shout", { ...input, taskId: task.id }, { key: `shout:${task.id}`, then: () => acknowledge(sessionId, task.assigneeAgentId ?? null, text) });
+    // The agent's "Noted." appears only when the nudge reached the session; otherwise the screen says it did not.
+    void action.run("dev.tasks.shout", { ...input, taskId: task.id }, { key: `shout:${task.id}`, then: (_result, delivery) => delivery && delivery.delivered === delivery.total && delivery.total > 0 && acknowledge(sessionId, task.assigneeAgentId ?? null, text) });
   };
   const focusedAgentId = focusedSource?.task.assigneeAgentId ?? null;
   const focusedPersona = useNudgePersona(focusedAgentId).persona;
@@ -228,6 +229,11 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
             {concurrencyHint(limit, running)}
             {!plan.data ? <ProvenanceChip kind="estimate" /> : null}
             {action.error ? <InlineError error={action.error} /> : null}
+            {action.notice ? (
+              <span role="status" className="text-secondary" data-testid="ground-notice">
+                {action.notice}
+              </span>
+            ) : null}
             {action.pending?.startsWith("shout") ? <span className="text-secondary">Sending nudge…</span> : null}
           </span>
         }

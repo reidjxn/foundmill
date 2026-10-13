@@ -164,7 +164,7 @@ describe("TrainingGroundScreen", () => {
         { key: "check_sources", label: "Check your sources", text: "Check your sources: quote the record behind every figure.", hint: "Quote the record behind every figure.", apiPreset: null },
       ],
     };
-    const fake = createFakeSource({ responses: { ...trainingGroundResponses(), "agent.conversation.get": (input?: Record<string, unknown>) => ({ persona, input }) }, onMutate: () => ({ message: "ok", results: [] }) });
+    const fake = createFakeSource({ responses: { ...trainingGroundResponses(), "agent.conversation.get": (input?: Record<string, unknown>) => ({ persona, input }) }, onMutate: () => ({ message: "ok", results: [{ queued: true, workflowId: "session:s1" }] }) });
     renderScreen(fake, <TrainingGroundScreen {...props} />);
     const grid = await screen.findByRole("region", { name: "Agent tiles" });
     const tile = () => within(grid).getByRole("article", { name: /Juno: Add a bundle picker/ });
@@ -183,6 +183,22 @@ describe("TrainingGroundScreen", () => {
     expect(await screen.findByRole("menuitem", { name: /Check your sources/ })).toBeTruthy();
     await user.click(screen.getByRole("menuitem", { name: /Check your sources/ }));
     await waitFor(() => expect(fake.mutations).toContainEqual({ path: "dev.tasks.shout", input: { taskId: TASK_BUNDLE, text: "Check your sources: quote the record behind every figure." } }));
+  });
+
+  it("never says a nudge reached the agent when the orchestrator did not take it (audit #79)", async () => {
+    const user = userEvent.setup();
+    const persona = { key: "juno", name: "Juno", voice: { greeting: "Here.", thinking: [], ack: ["Understood. Changing course in this step."] }, nudges: [] };
+    const fake = createFakeSource({
+      responses: { ...trainingGroundResponses(), "agent.conversation.get": () => ({ persona }) },
+      onMutate: () => ({ message: "ok", results: [{ queued: false, workflowId: "session:s1", reason: "Temporal is not reachable" }] }),
+    });
+    renderScreen(fake, <TrainingGroundScreen {...props} />);
+    const grid = await screen.findByRole("region", { name: "Agent tiles" });
+    const tile = within(grid).getByRole("article", { name: /Juno: Add a bundle picker/ });
+    await user.click(within(tile).getByRole("button", { name: "Nudge Juno" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Simplify/ }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/Not delivered/));
+    expect(screen.queryByTestId("nudge-ack")).toBeNull();
   });
 
   it("switches to the Task graph view and draws the whole task graph", async () => {

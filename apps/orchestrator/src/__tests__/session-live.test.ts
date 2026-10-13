@@ -28,6 +28,8 @@ type QueryCall = { prompt: unknown; options: Record<string, unknown> };
 const calls: QueryCall[] = [];
 /** Every `Query.interrupt()` the runner made, in order. */
 const interrupts: number[] = [];
+/** Every model id `Query.setModel()` was asked to move to. */
+const modelSwitches: (string | undefined)[] = [];
 let script: (call: QueryCall) => AsyncGenerator<Record<string, unknown>>;
 
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
@@ -36,6 +38,9 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
     return Object.assign(script(call), {
       async interrupt() {
         interrupts.push(Date.now());
+      },
+      async setModel(model?: string) {
+        modelSwitches.push(model);
       },
     });
   },
@@ -149,6 +154,7 @@ afterAll(async () => {
 afterEach(() => {
   calls.length = 0;
   interrupts.length = 0;
+  modelSwitches.length = 0;
 });
 
 const success = (sessionId: string) =>
@@ -653,6 +659,32 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     expect(result).toMatchObject({ outcome: "done", tokensIn: 15, tokensOut: 4, costMinor: 2 });
     const notes = await notesOf(sessionId);
     expect(notes.map((n) => n.text)).toEqual(expect.arrayContaining(["Paused.", "Resumed."]));
+  });
+
+  it("a nudge's Upgrade to Opus moves the live query to Opus, says so, and prices the rest of the session on it (O-27, #237)", async () => {
+    const { sessionId, input, launch } = await start();
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: "sdk-upgrade" };
+      await t.control.post(sessionId, { kind: "shout", message: "Upgrade to Opus", modelKey: "opus", by: t.fixture.ownerId });
+      await until(() => modelSwitches.length > 0, "the model switch");
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "text", text: "On it." }], usage: { input_tokens: 100, output_tokens: 50 } } };
+      yield resultOf(modelUsage(100, 50, 0.05));
+      await prompts.next();
+    };
+    const result = await acts.runAgentSession(input, launch);
+    expect(modelSwitches).toHaveLength(1);
+    expect(modelSwitches[0]).toMatch(/opus/);
+    // The nudge changed the model, not the conversation: the agent was sent nothing.
+    expect(result).toMatchObject({ outcome: "done", modelKey: "opus" });
+    const notes = await notesOf(sessionId);
+    expect(notes.map((n) => n.text)).toContain("Switched to Opus for the rest of this session.");
+    expect(notes.some((n) => n.source === "shout")).toBe(false);
+    await acts.finishSession(input, launch, result);
+    const tokens = (await repos.usage.list(t.db, t.businessId, { sessionId, limit: 10 })).items.find((u) => u.kind === "tokens");
+    expect(tokens?.modelKey).toBe("opus");
+    await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
   });
 
   it("an API refusal for billing (is_error on a success result) blocks the session for budget instead of booking it done (BF-03)", async () => {

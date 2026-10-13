@@ -566,19 +566,25 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
 
   const costMinor = Math.max(0, Math.round(result.costMinor ?? connector.costModel?.(tool.name, args) ?? 0));
   if (result.ok) {
-    // Billed to the business's own key or the platform's credits; a credits row is charged to the period's balance.
-    await bookUsage(deps.db, session.businessId, {
-      agentId: session.agentId,
-      sessionId: session.sessionId,
-      kind: "tool",
-      quantity: 1,
-      unit: "calls",
-      costMinor,
-      currency: loaded.agent.currency,
-      billedTo: loaded.business.modelBilling,
-      occurredAt: now(),
-      details: { connector: connector.key, tool: tool.name, mode: modeFor(deps, connector.key), untrusted, label: "Estimate" },
-    });
+    // Billed to the business's own key or the platform's credits; a credits row is charged to the period's balance. The
+    // call already happened: a metering failure is logged and never turns it into an error the agent would retry (an
+    // email sent twice; audit BILL-20).
+    try {
+      await bookUsage(deps.db, session.businessId, {
+        agentId: session.agentId,
+        sessionId: session.sessionId,
+        kind: "tool",
+        quantity: 1,
+        unit: "calls",
+        costMinor,
+        currency: loaded.agent.currency,
+        billedTo: loaded.business.modelBilling,
+        occurredAt: now(),
+        details: { connector: connector.key, tool: tool.name, mode: modeFor(deps, connector.key), untrusted, label: "Estimate" },
+      });
+    } catch (err) {
+      log.error({ err: (err as Error).message, costMinor }, "tool call executed but its usage could not be booked");
+    }
   }
   const audit = await appendAudit(deps, session, req, {
     outcome: "allow",

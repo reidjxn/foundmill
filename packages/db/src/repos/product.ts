@@ -432,6 +432,26 @@ export const productRepo = {
       .orderBy(asc(roadmapItems.horizon), asc(roadmapItems.position), asc(roadmapItems.createdAt));
   },
 
+  /**
+   * Roadmap items nobody has turned into tasks yet (no task, live or finished, links to them), Now first, then by
+   * position: what the Chief of Staff's brief shows as work waiting for a task graph (audit OL-10).
+   */
+  async untaskedRoadmap(db: Executor, businessId: string, limit = 20): Promise<Pick<RoadmapItem, "id" | "title" | "horizon" | "status">[]> {
+    return db
+      .select({ id: roadmapItems.id, title: roadmapItems.title, horizon: roadmapItems.horizon, status: roadmapItems.status })
+      .from(roadmapItems)
+      .where(
+        and(
+          eq(roadmapItems.businessId, businessId),
+          isNull(roadmapItems.archivedAt),
+          sql`${roadmapItems.status} not in ('done', 'shipped', 'dropped')`,
+          sql`not exists (select 1 from tasks t where t.business_id = ${roadmapItems.businessId} and t.roadmap_item_id = ${roadmapItems.id} and t.archived_at is null)`,
+        ),
+      )
+      .orderBy(sql`case ${roadmapItems.horizon} when 'now' then 0 when 'next' then 1 else 2 end`, asc(roadmapItems.position), asc(roadmapItems.createdAt))
+      .limit(Math.min(Math.max(Math.trunc(limit), 1), 200));
+  },
+
   async getRoadmapItem(db: Executor, businessId: string, itemId: string): Promise<RoadmapItem> {
     return one(await db.select().from(roadmapItems).where(and(eq(roadmapItems.businessId, businessId), eq(roadmapItems.id, itemId))).limit(1), "roadmap item", itemId);
   },

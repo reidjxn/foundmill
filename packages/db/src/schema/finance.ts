@@ -1,5 +1,6 @@
 /** 0009 — finance: bank accounts, transactions, ledger, forecasts, cap table, usage, credits. */
 import { MODEL_BILLING, MODEL_KEYS, SECURITY_KINDS, USAGE_KINDS } from "@foundmill/shared";
+import { sql } from "drizzle-orm";
 import { date, index, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { currency, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz, usdCurrency } from "./_common";
 import { businessId } from "./_refs";
@@ -154,6 +155,8 @@ export const usageLedger = pgTable(
     billedTo: text("billed_to", { enum: MODEL_BILLING }).notNull().default("credits"),
     occurredAt: tstz("occurred_at").notNull().defaultNow(),
     details: jsonb("details").$type<Record<string, unknown>>().notNull().default(emptyObject),
+    /** 0036: what the booking settles (`session:<id>:sandbox`, ...); a repeat with the same key is not booked again. */
+    idempotencyKey: text("idempotency_key"),
     ...timestamps(),
   },
   (t) => [
@@ -161,6 +164,7 @@ export const usageLedger = pgTable(
     index("usage_ledger_agent_id_idx").on(t.agentId, t.occurredAt),
     index("usage_ledger_session_id_idx").on(t.sessionId),
     index("usage_ledger_kind_idx").on(t.businessId, t.kind, t.occurredAt),
+    uniqueIndex("usage_ledger_idempotency_idx").on(t.businessId, t.idempotencyKey).where(sql`idempotency_key is not null`),
   ],
 );
 export type UsageEntry = typeof usageLedger.$inferSelect;

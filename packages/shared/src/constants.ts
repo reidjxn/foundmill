@@ -87,6 +87,11 @@ export type TaskKind = (typeof TASK_KINDS)[number];
 
 export const TASK_STATUSES = ["planned", "ready", "running", "paused", "blocked", "review", "merging", "done", "failed", "stopped"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
+/**
+ * Statuses a cycle may start a task from. A failed or blocked task comes back with a backoff and a limit; `stopped` is the
+ * founder's "Stop and discard", which only Start undoes. One list for the planner, the brief and the mock planner.
+ */
+export const PLANNABLE_TASK_STATUSES = ["planned", "ready", "paused", "blocked", "failed"] as const satisfies readonly TaskStatus[];
 
 export const TASK_PHASES = ["planning", "implementing", "testing", "review", "merge", "done"] as const;
 export type TaskPhase = (typeof TASK_PHASES)[number];

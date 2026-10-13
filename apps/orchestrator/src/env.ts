@@ -23,6 +23,8 @@ const Extra = z.object({
   ORCHESTRATOR_MAX_WORKFLOWS: z.coerce.number().int().positive().default(100),
   /** Replay speed for mock sessions (1 = recorded timeline, 4 = four times faster, "inf" = emit without waiting). */
   MOCK_SESSION_SPEED: z.string().default("4"),
+  /** Which recorded sessions mock mode replays on its own: "done" (sessions that end well) or "all" (failed and blocked ones too). */
+  MOCK_SESSION_SCENARIOS: z.enum(["done", "all"]).default("done"),
   /** Local workspace root for live coding sessions (worktrees are created under it). */
   ORCHESTRATOR_WORKSPACE_DIR: z.string().default("/tmp/foundmill-workspaces"),
   /** Seconds between connection attempts when Temporal is unreachable (never faster than 10 s). */
@@ -36,6 +38,7 @@ export interface OrchestratorEnv extends Env {
   APPROVAL_WAIT_MINUTES: number;
   SESSION_PAUSE_HOLD_MINUTES: number;
   ORCHESTRATOR_MAX_WORKFLOWS: number;
+  MOCK_SESSION_SCENARIOS: "done" | "all";
   /** Parsed replay speed (Infinity for "inf"). */
   mockSessionSpeed: number;
   ORCHESTRATOR_WORKSPACE_DIR: string;
@@ -58,6 +61,7 @@ export function loadOrchestratorEnv(overrides: Partial<NodeJS.ProcessEnv> = {}):
     APPROVAL_WAIT_MINUTES: extra.APPROVAL_WAIT_MINUTES,
     SESSION_PAUSE_HOLD_MINUTES: extra.SESSION_PAUSE_HOLD_MINUTES,
     ORCHESTRATOR_MAX_WORKFLOWS: extra.ORCHESTRATOR_MAX_WORKFLOWS,
+    MOCK_SESSION_SCENARIOS: extra.MOCK_SESSION_SCENARIOS,
     mockSessionSpeed: Number.isFinite(speed) && speed > 0 ? speed : speed === Infinity ? Infinity : 4,
     ORCHESTRATOR_WORKSPACE_DIR: extra.ORCHESTRATOR_WORKSPACE_DIR,
     TEMPORAL_RETRY_SECONDS: extra.TEMPORAL_RETRY_SECONDS,

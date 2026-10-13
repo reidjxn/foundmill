@@ -32,28 +32,40 @@ export function nextPeriodStart(now: Date): Date {
 
 const shortDate = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
-/** Open a session for `agentId` on `taskId`, or say why not. See the module comment. */
-export async function openAgentSession(deps: OrchestratorDeps, input: { businessId: string; agentId: string; taskId: string }): Promise<OpenSessionResult> {
+/**
+ * Open a session for `agentId` on `taskId`, or say why not. See the module comment. A caller that names the session
+ * (`sessionId`, the cycle workflow's deterministic id) can retry: the second attempt finds the row the first created and
+ * finishes its remaining steps instead of opening another session or refusing for the open one (audit O-33).
+ */
+export async function openAgentSession(deps: OrchestratorDeps, input: { businessId: string; agentId: string; taskId: string; sessionId?: string }): Promise<OpenSessionResult> {
   const { db, clock } = deps;
   const businessId = input.businessId;
   const stop = await repos.businesses.stopState(db, businessId);
   if (stop.stopped) return refuse("agents_stopped", stop.archived ? "the business is archived" : `agents are stopped (${(stop.reason ?? "kill_switch").replace(/_/g, " ")}); an owner or admin resumes them`);
-  const [agent, task, open] = await Promise.all([repos.agents.get(db, businessId, input.agentId), repos.tasks.get(db, businessId, input.taskId), repos.agents.listSessions(db, businessId, { taskId: input.taskId, openOnly: true, limit: 1 })]);
-  if (agent.archivedAt) return refuse("agent_archived", `${agent.name} has left the team`);
-  if (agent.status === "paused") return refuse("agent_paused", `${agent.name} is paused${agent.pausedReason === "wage_cap" ? " (wage cap reached)" : ""}`);
-  if (open.items.length > 0) return refuse("open_session", `"${task.title}" already has a session running`);
-  const capped = await checkWageCap(deps, businessId, agent);
-  if (capped) return refuse("wage_cap", capped);
+  const [agent, task, open] = await Promise.all([repos.agents.get(db, businessId, input.agentId), repos.tasks.get(db, businessId, input.taskId), repos.agents.listSessions(db, businessId, { taskId: input.taskId, openOnly: true, limit: 5 })]);
+  // The session an earlier attempt of this same call already opened.
+  const mine = input.sessionId ? open.items.find((s) => s.id === input.sessionId) : undefined;
+  if (!mine) {
+    if (agent.archivedAt) return refuse("agent_archived", `${agent.name} has left the team`);
+    if (agent.status === "paused") return refuse("agent_paused", `${agent.name} is paused${agent.pausedReason === "wage_cap" ? " (wage cap reached)" : ""}`);
+    if (open.items.length > 0) return refuse("open_session", `"${task.title}" already has a session running`);
+    const capped = await checkWageCap(deps, businessId, agent);
+    if (capped) return refuse("wage_cap", capped);
+  }
 
-  const session = await repos.agents.createSession(db, businessId, { agentId: agent.id, versionId: agent.currentVersionId, taskId: task.id, modelKey: agent.modelKey, startedAt: clock.now() });
+  const session = mine ?? (await repos.agents.createSession(db, businessId, { ...(input.sessionId ? { id: input.sessionId } : {}), agentId: agent.id, versionId: agent.currentVersionId, taskId: task.id, modelKey: agent.modelKey, startedAt: clock.now() }));
   if (task.assigneeAgentId !== agent.id) await repos.tasks.reassign(db, businessId, task.id, agent.id);
   if (task.status !== "running") await repos.tasks.setStatus(db, businessId, task.id, "running", { force: true });
-  await emitEvent(db, {
-    businessId,
-    type: "task.started",
-    actor: agentActor(agent.id),
-    payload: { taskId: task.id, title: task.title, kind: task.kind, assigneeAgentId: agent.id, sessionId: session.id, roadmapItemId: task.roadmapItemId, workflowId: session.workflowId ?? `session:${session.id}`, branch: `agent/${task.id}` },
-  });
+  await emitEvent(
+    db,
+    {
+      businessId,
+      type: "task.started",
+      actor: agentActor(agent.id),
+      payload: { taskId: task.id, title: task.title, kind: task.kind, assigneeAgentId: agent.id, sessionId: session.id, roadmapItemId: task.roadmapItemId, workflowId: session.workflowId ?? `session:${session.id}`, branch: `agent/${task.id}` },
+    },
+    { idempotencyKey: `task.started:${session.id}` },
+  );
   return { sessionId: session.id, workflowId: session.workflowId ?? `session:${session.id}`, refused: null, detail: null };
 }
 
@@ -115,7 +127,7 @@ async function pauseForWageCap(deps: OrchestratorDeps, businessId: string, agent
   await repos.audit.append(db, businessId, { actorKind: "agent", actorId: agent.id, action: WAGE_ALERT_ACTION, target: { kind: "agent", id: agent.id }, details: { period: periodOf(deps.clock.now()), percent: 100, spentMinor: info.spentMinor, capMinor: info.capMinor } });
 }
 
-async function postNote(deps: OrchestratorDeps, businessId: string, fromAgentId: string, note: { type: "update" | "warning"; subject: string; body: string; blocksContinue: boolean }): Promise<void> {
+export async function postNote(deps: OrchestratorDeps, businessId: string, fromAgentId: string, note: { type: "update" | "warning"; subject: string; body: string; blocksContinue: boolean }): Promise<void> {
   const item = await repos.inbox.createItem(deps.db, businessId, {
     type: note.type,
     from_agent_id: fromAgentId,

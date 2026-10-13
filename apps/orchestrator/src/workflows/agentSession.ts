@@ -52,6 +52,7 @@ export function combineRuns(a: SessionResult, b: SessionResult): SessionResult {
     costMinor: a.costMinor + b.costMinor,
     durationMs: a.durationMs + b.durationMs,
     prNumber: b.prNumber ?? a.prNumber,
+    modelKey: b.modelKey ?? a.modelKey,
   };
 }
 
