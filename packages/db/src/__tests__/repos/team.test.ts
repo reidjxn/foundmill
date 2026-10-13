@@ -137,6 +137,9 @@ describe("approvals routed by Responsibilities (TPD-04)", () => {
     // A paused agent handler hands it back too.
     await repos.agents.setStatus(r.db, businessId, approver.id, "paused");
     expect(await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "github", tool: "merge_pr" })).toMatchObject({ handlerKind: null, outcome: null });
+    // An agent never approves its own request (the matrix names it for merges, but it asked): the founder answers.
+    await repos.agents.setStatus(r.db, businessId, approver.id, "idle");
+    expect(await repos.approvals.create(r.db, businessId, { agentId: approver.id, connectorKey: "github", tool: "merge_pr" })).toMatchObject({ decisionType: "merge_to_main", handlerKind: null, outcome: null, byKind: null });
     // An agent with no department goes by the business-wide handler, which needs every department to agree.
     const loose = await agent("Routing loose");
     expect(await repos.approvals.create(r.db, businessId, { agentId: loose.id, connectorKey: "gmail", tool: "send_email" })).toMatchObject({ handlerKind: null });

@@ -84,7 +84,7 @@ export interface ApprovalRouting {
  * Who handles a new approval (AC-11.9.2): the decision type's handler in the requesting agent's department
  * (`departments.approvers`, set from Team › Responsibilities), or, with no department to go by, the business-wide
  * handler when every department agrees. A staff member who left, or an agent released or paused, hands it back to the
- * founder. Signing is a hard gate: an agent never decides it.
+ * founder. Signing is a hard gate: an agent never decides it, nor its own request.
  */
 export async function routeApproval(db: Executor, businessId: string, input: { agentId?: string | null; decisionType: DecisionType | null }): Promise<ApprovalRouting> {
   const none: ApprovalRouting = { decisionType: input.decisionType, handlerKind: null, handlerId: null, decidedByAgent: null };
@@ -105,7 +105,8 @@ export async function routeApproval(db: Executor, businessId: string, input: { a
     return member.length ? { ...none, handlerKind: "user", handlerId: handler.id } : none;
   }
   const agent = (await db.select({ id: agents.id, status: agents.status, archivedAt: agents.archivedAt }).from(agents).where(and(eq(agents.businessId, businessId), eq(agents.id, handler.id))).limit(1))[0];
-  if (!agent || agent.archivedAt || agent.status === "paused" || input.decisionType === "sign_contracts") return none;
+  // An agent never approves its own request: that would be no approval at all, so the founder answers it.
+  if (!agent || agent.archivedAt || agent.status === "paused" || agent.id === input.agentId || input.decisionType === "sign_contracts") return none;
   return { ...none, handlerKind: "agent", handlerId: agent.id, decidedByAgent: agent.id };
 }
 
