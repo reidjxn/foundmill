@@ -86,6 +86,8 @@ export const JourneyListFilter = PageInput.extend(DateRange.shape).extend({
   matchdayLevel: z.union([z.enum(MATCHDAY_LEVELS), z.array(z.enum(MATCHDAY_LEVELS))]).optional(),
   kind: z.enum(CONVERSION_KINDS).optional(),
   unviewedOnly: z.boolean().default(false),
+  /** `created` (default): the newest Customer Updates first; `converted`: the newest wins first, by when they happened. */
+  orderBy: z.enum(["created", "converted"]).default("created"),
 });
 export type JourneyListFilter = z.input<typeof JourneyListFilter>;
 
@@ -109,6 +111,15 @@ export const CreateMilestoneInput = z.object({
 });
 export type CreateMilestoneInput = z.input<typeof CreateMilestoneInput>;
 
+/** A `journey.list` row: the journey, its conversion and the consent behind it (see `consentForJourneys`). */
+export type JourneyListRow = Journey & { conversion: Conversion; consent: JourneyConsent; partialJourney: boolean };
+
+/** How many Customer Updates a business has and how many of them are partial (consent other than granted). */
+export interface JourneyConsentSummary {
+  journeys: number;
+  partialJourneys: number;
+}
+
 export interface JourneyDetail extends Journey {
   conversion: Conversion;
   touches: Touch[];
@@ -116,6 +127,29 @@ export interface JourneyDetail extends Journey {
 }
 
 const NIL_UUID = "00000000-0000-0000-0000-000000000000";
+export type JourneyConsent = (typeof CONSENT_STATES)[number];
+
+/**
+ * A journey's consent is that of the visitor on the earliest of its touches that came through a visitor (by time, then
+ * id), `unknown` when none did. A journey is partial unless that consent is `granted`: the builder weighted first-party
+ * touches only (`filterTouchesForConsent`). `journey.get`, `journey.list` and the Attribution summary all read it here,
+ * so a replay and the Attribution screen never disagree about which wins are partial.
+ */
+export function isPartialConsent(consent: JourneyConsent): boolean {
+  return consent !== "granted";
+}
+
+/** `journeys j` joined to the visitor `v` of its first visitor-bearing touch: one definition for every reader. */
+const journeyConsentFrom = sql`journeys j
+  left join lateral (
+    select t.visitor_id from touches t
+    where t.business_id = j.business_id and t.id = any(j.touch_ids) and t.visitor_id is not null
+    order by t.occurred_at asc, t.id asc
+    limit 1
+  ) first_touch on true
+  left join visitors v on v.business_id = j.business_id and v.id = first_touch.visitor_id`;
+const journeyConsent = sql`coalesce(v.consent_state, 'unknown')`;
+
 const toArray = <T>(v: T | T[] | undefined): T[] | undefined => (v === undefined ? undefined : Array.isArray(v) ? v : [v]);
 
 export const journeysRepo = {
@@ -469,11 +503,17 @@ export const journeysRepo = {
     return rows[0] ?? null;
   },
 
-  /** Match Days newest first, with the conversion joined for the list row (kind, amount, when). */
-  async list(db: Executor, businessId: string, filter: JourneyListFilter = {}): Promise<Page<Journey & { conversion: Conversion }>> {
+  /**
+   * Customer Updates newest first (by creation, or by when the win happened with `orderBy: "converted"`), with the
+   * conversion joined for the list row (kind, amount, when) and the consent behind each one (`partialJourney`).
+   */
+  async list(db: Executor, businessId: string, filter: JourneyListFilter = {}): Promise<Page<JourneyListRow>> {
     const f = parseInput(JourneyListFilter, filter, "journey filter");
     type Row = Journey & { conversion: Conversion };
-    const ks = timeKeyset<Row>(journeys.createdAt, journeys.id, (r) => ({ at: r.createdAt, id: r.id }));
+    const ks =
+      f.orderBy === "converted"
+        ? timeKeyset<Row>(conversions.occurredAt, journeys.id, (r) => ({ at: r.conversion.occurredAt, id: r.id }))
+        : timeKeyset<Row>(journeys.createdAt, journeys.id, (r) => ({ at: r.createdAt, id: r.id }));
     const levels = toArray(f.matchdayLevel);
     const rows = await db
       .select({ journey: journeys, conversion: conversions })
@@ -492,11 +532,42 @@ export const journeysRepo = {
       )
       .orderBy(...ks.orderBy)
       .limit(f.limit + 1);
-    return toPage(
+    const page = toPage(
       rows.map((r) => ({ ...r.journey, conversion: r.conversion })),
       f,
       ks,
     );
+    const consent = await journeysRepo.consentForJourneys(db, businessId, page.items.map((j) => j.id));
+    return {
+      ...page,
+      items: page.items.map((j) => {
+        const c = consent.get(j.id) ?? "unknown";
+        return { ...j, consent: c, partialJourney: isPartialConsent(c) };
+      }),
+    };
+  },
+
+  /** The consent behind each of these journeys (`isPartialConsent` says which are partial), in one query. */
+  async consentForJourneys(db: Executor, businessId: string, journeyIds: readonly string[]): Promise<Map<string, JourneyConsent>> {
+    const ids = [...new Set(journeyIds)];
+    if (ids.length === 0) return new Map();
+    const rows = rowsOf<{ journey_id: string; consent: JourneyConsent }>(
+      await db.execute(
+        sql`select j.id as journey_id, ${journeyConsent} as consent from ${journeyConsentFrom} where j.business_id = ${businessId}::uuid and j.id in (${sql.join(
+          ids.map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )})`,
+      ),
+    );
+    return new Map(rows.map((r) => [String(r.journey_id), r.consent] as const));
+  },
+
+  /** Every Customer Update of the business and how many are partial: the Attribution screen's count, not one page's. */
+  async consentSummary(db: Executor, businessId: string): Promise<JourneyConsentSummary> {
+    const rows = rowsOf<{ journeys: number | string; partial: number | string }>(
+      await db.execute(sql`select count(*)::int as journeys, (count(*) filter (where ${journeyConsent} <> 'granted'))::int as partial from ${journeyConsentFrom} where j.business_id = ${businessId}::uuid`),
+    );
+    return { journeys: Number(rows[0]?.journeys ?? 0), partialJourneys: Number(rows[0]?.partial ?? 0) };
   },
 
   async markViewed(db: Executor, businessId: string, journeyId: string): Promise<Journey> {

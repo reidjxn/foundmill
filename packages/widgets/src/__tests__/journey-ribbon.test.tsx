@@ -74,6 +74,19 @@ describe("journey ribbon widget", () => {
     expect(fake.navigations.at(-1)).toMatch(new RegExp(`^/b/${BID}/journey/`));
   });
 
+  it("a Customer Update opened from the page the Ribbon sits on comes back to that page", async () => {
+    const here = `/b/${BID}/home`;
+    window.history.pushState({}, "", here);
+    try {
+      const { fake, container } = mountRibbon({ zoom: "all" });
+      await screen.findByRole("group", { name: /Journey Ribbon/ });
+      fireEvent.click(container.querySelector("[data-marker='payment'][data-count='1']") as SVGGElement);
+      expect(fake.navigations.at(-1)).toMatch(new RegExp(`^/b/${BID}/journey/[^?]+\\?from=${encodeURIComponent(here)}$`));
+    } finally {
+      window.history.pushState({}, "", "/");
+    }
+  });
+
   it("ripples live events into Today and refetches on payments", async () => {
     const { fake } = mountRibbon();
     await screen.findByRole("group", { name: /Journey Ribbon/ });

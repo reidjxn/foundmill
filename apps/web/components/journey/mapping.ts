@@ -6,7 +6,8 @@
  */
 import type { CustomerFacts, Journey as StageJourney, JourneyAgent as StageAgent, StageAgentMeta, Touch as StageTouch, TouchKind, TouchSource } from "@foundmill/dugout";
 import type { Journey as JourneyRecord } from "@foundmill/journey";
-import type { AgentStatus, ConversionKind, DeptColourToken, EntityKind } from "@foundmill/shared";
+import { CHANNEL_META, type AgentStatus, type ConversionKind, type DeptColourToken, type EntityKind } from "@foundmill/shared";
+import { plainWords } from "@/lib/format";
 
 const iso = (d: Date | string): string => (typeof d === "string" ? d : d.toISOString());
 
@@ -94,10 +95,11 @@ export function customerFactsFor(row: JourneyRowLike, journey: StageJourney, tou
   const ids = profile?.identifiers ?? {};
   if (typeof ids.domain === "string") facts.push({ label: "Domain", value: ids.domain });
   else if (typeof ids.email === "string") facts.push({ label: "Email", value: ids.email });
+  // Stored keys read as words: the role ("customer" → "Customer") and the first channel by its name ("seo" → "SEO").
   const role = profile?.roles?.find((r) => typeof r.role === "string")?.role;
-  if (role) facts.push({ label: "Role", value: role });
+  if (role) facts.push({ label: "Role", value: plainWords(role) });
   const firstChannel = touches[0]?.channelKey;
-  facts.push({ label: "First touch", value: firstChannel ? firstChannel.replace(/_/g, " ") : "Direct" });
+  facts.push({ label: "First touch", value: firstChannel ? CHANNEL_META[firstChannel].label : "Direct" });
   facts.push({ label: "Touches", value: journey.partialJourney ? `${touches.length} (consented touches only)` : String(touches.length) });
   if (journey.stats.timeToConvertHours !== null) {
     const h = journey.stats.timeToConvertHours;
@@ -131,7 +133,50 @@ export function entityKindsFor(row: JourneyRowLike, agents: readonly StageAgent[
   return out;
 }
 
-/** The replay a Ribbon marker opens is addressed by conversion id (the widget only knows the marker); match it to a journey. */
-export function journeyIdForConversion(conversionId: string, journeys: readonly { id: string; conversionId: string }[] | undefined): string | null {
-  return journeys?.find((j) => j.conversionId === conversionId)?.id ?? null;
+export interface ReplayOrigin {
+  /** Where the back button and the breadcrumb lead. */
+  href: string;
+  /** What they call it ("CRM", "Milestones", "Attribution", …). */
+  label: string;
+}
+
+export interface DepartmentTabsLike {
+  slug: string;
+  tabs: readonly { slug: string; title: string }[];
+}
+
+/**
+ * Where the founder opened the replay from (`?from=`, an in-app path of this business), so back returns there; the
+ * Inbox when the link carried none or anything else (another business's path, an absolute URL: never followed).
+ */
+export function replayOrigin(from: string | null | undefined, businessId: string, departments: readonly DepartmentTabsLike[] = []): ReplayOrigin {
+  const inbox = { href: `/b/${businessId}/inbox`, label: "Inbox" };
+  const base = `/b/${businessId}`;
+  if (!from || !from.startsWith(`${base}/`) || from.includes("//") || from.includes("\\") || [...from].some((ch) => ch.charCodeAt(0) < 32)) return inbox;
+  const [path = ""] = from.split(/[?#]/);
+  const parts = path.slice(base.length + 1).split("/").filter(Boolean);
+  // A dot segment would walk out of this business once the browser resolves the path.
+  if (parts.some((p) => p === "." || p === "..")) return inbox;
+  const [section, ...rest] = parts;
+  const label = (() => {
+    switch (section) {
+      case "home":
+        return "Home";
+      case "inbox":
+        return "Inbox";
+      case "crm":
+        return rest.length ? "CRM profile" : "CRM";
+      case "milestones":
+        return "Milestones";
+      case "agents":
+        return "Agent profile";
+      case "d": {
+        const dept = departments.find((d) => d.slug === rest[0]);
+        return dept?.tabs.find((t) => t.slug === rest[1])?.title ?? null;
+      }
+      default:
+        return null;
+    }
+  })();
+  return label ? { href: from, label } : inbox;
 }

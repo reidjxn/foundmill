@@ -178,9 +178,24 @@ export interface JourneyRow {
   matchdayLevel: MatchdayLevel;
   viewedAt?: Iso | null;
   createdAt: Iso;
-  /** Set by the journey builder when consent removed third-party touches; derived when absent. */
-  partialJourney?: boolean;
+  /** Consent other than granted: only first-party touches were weighted (the reading journey.get uses). */
+  partialJourney: boolean;
+  consent?: "unknown" | "granted" | "denied" | "withdrawn";
   conversion: { id: string; entityId: string | null; kind: ConversionKind; amountMinor: number; currency: string; occurredAt: Iso };
+}
+
+/* ---------- journey.attribution ---------- */
+
+/** The model in use over the business's whole history (never a page of journeys). */
+export interface AttributionSummaryResponse {
+  /** Labeled conversions: every first conversion of each kind, repeat payments left out (what `chooseModel` counts). */
+  conversionCount: number;
+  byKind: Partial<Record<ConversionKind, number>>;
+  attributionModel: "position_based_40_20_40" | "data_driven_markov";
+  threshold: number;
+  remaining: number;
+  journeys: number;
+  partialJourneys: number;
 }
 
 /* ---------- team.agents.list ---------- */

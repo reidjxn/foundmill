@@ -37,7 +37,7 @@ import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery } from "@fou
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import type { ModuleScreenProps } from "../registry";
-import { buildChannelViews, channelStatus, ENGINE_STARTING_HINT, type ChannelView } from "./channel-data";
+import { buildChannelViews, channelStatus, ENGINE_STARTING_HINT, resumeStatus, type ChannelView } from "./channel-data";
 import { METRICS_WINDOW_DAYS } from "./FormationScreen";
 import { localScores, RESCORE_DEBOUNCE_MS, useDebouncedRun } from "./rescore";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
@@ -230,7 +230,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
   const pause = useCallback(
     async (row: ChannelView, paused: boolean) => {
       const targets = row.campaigns.filter((c) => (paused ? c.status === "live" || c.status === "scheduled" : c.status === "paused"));
-      for (const c of targets) await action.run("distribution.campaigns.setStatus", { campaignId: c.id, status: paused ? "paused" : "live" }, { key: `pause:${row.channelKey}` });
+      for (const c of targets) await action.run("distribution.campaigns.setStatus", { campaignId: c.id, status: paused ? "paused" : resumeStatus(c) }, { key: `pause:${row.channelKey}` });
       campaigns.refetch();
     },
     [action, campaigns],

@@ -123,6 +123,17 @@ function Panelette({ title, children, className, action }: { title: string; chil
   );
 }
 
+/** An empty panel says why it is empty (a win nobody on the team touched, a win with no measured touch). */
+function EmptyLine({ children }: { children: ReactNode }) {
+  return (
+    <p className="text-small text-secondary" data-empty-line>
+      {children}
+    </p>
+  );
+}
+
+const NO_AGENT = "No agent touched this win: it came in without a touch from the team.";
+
 function TeamSheet({ journey, agents }: { journey: Journey; agents?: readonly StageAgentMeta[] }) {
   const maxW = Math.max(1e-9, ...journey.channels.map((c) => c.weight));
   const captainAgent = journey.captain?.agentId ?? null;
@@ -130,6 +141,7 @@ function TeamSheet({ journey, agents }: { journey: Journey; agents?: readonly St
   return (
     <div className="grid grid-cols-2 gap-gutter" data-stage-panel="team_sheet">
       <Panelette title="Channels">
+        {journey.channels.length === 0 ? <EmptyLine>No measured touch before this win, so no channel shares the credit.</EmptyLine> : null}
         <ol className="flex flex-col gap-2">
           {journey.channels.map((c) => (
             <li key={c.channelKey ?? "direct"} className="flex items-center gap-2">
@@ -149,6 +161,7 @@ function TeamSheet({ journey, agents }: { journey: Journey; agents?: readonly St
         </ol>
       </Panelette>
       <Panelette title="Team">
+        {journey.agents.length === 0 ? <EmptyLine>{NO_AGENT}</EmptyLine> : null}
         <ol className="flex flex-col gap-2">
           {[...journey.agents]
             .sort((a, b) => b.contribution - a.contribution)
@@ -232,7 +245,7 @@ function MatchFeed({ journey, touches, playedIds, commentaryShown, agents, onOpe
     <div className="grid grid-cols-[1fr_200px] gap-gutter" data-stage-panel="match">
       <Panelette title="Touches">
         <ol ref={feedRef} className="flex max-h-[420px] flex-col gap-3 overflow-y-auto pr-1" aria-live="polite" aria-relevant="additions">
-          {rows.length === 0 ? <li className="text-small text-secondary">Waiting for the first touch…</li> : null}
+          {rows.length === 0 ? <li className="text-small text-secondary">{reduced || touches.length === 0 ? "No touch was recorded before this win." : "Waiting for the first touch…"}</li> : null}
           {rows.map((t, idx) => {
             const meta = agentMeta(agents, t.source?.agentId ?? null);
             const agent = journey.agents.find((a) => a.agentId === t.source?.agentId);
@@ -281,11 +294,28 @@ const RAIL_PANELS = ["attribution", "touches", "time", "cost", "xc"] as const;
 type RailPanel = (typeof RAIL_PANELS)[number];
 const RAIL_LABELS: Record<RailPanel, string> = { attribution: "Attribution", touches: "Touch count", time: "Time to convert", cost: "Acquisition cost", xc: "xC curve" };
 
+/** Months for the win's revenue to pay its acquisition cost back; null when nothing was spent (nothing to pay back). */
 function paybackMonths(journey: Journey): number | null {
   const cost = journey.stats.acquisitionCostMinor;
   const amount = journey.amountMinor ?? 0;
-  if (cost === null || amount <= 0) return null;
+  if (cost === null || cost <= 0 || amount <= 0) return null;
   return cost / (amount / 12);
+}
+
+/**
+ * The acquisition cost as the toolbar, the Rails and the Debrief all say it: an Estimate amount, "No paid acquisition"
+ * when the channels that won the customer spent nothing (never "£0.00 Estimate"), or a dash when it is not known.
+ */
+function AcquisitionCost({ journey, currency, size }: { journey: Journey; currency: string; size: "lg" | "xl" }) {
+  const cost = journey.stats.acquisitionCostMinor;
+  if (cost === 0) return <span className="t-display-sm text-secondary" data-acquisition-cost="none">No paid acquisition</span>;
+  if (cost === null) return <span className={cn(size === "xl" ? "t-display-xl" : "t-display-lg", "tabular-nums")}>—</span>;
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className={cn(size === "xl" ? "t-display-xl" : "t-display-lg", "tabular-nums")}>{formatMoney({ amountMinor: cost, currency: journey.stats.currency || currency })}</span>
+      <ProvenanceChip kind="estimate" />
+    </span>
+  );
 }
 
 function Rails({ journey, customer, touches, currency, onOpenEntity, entityKinds }: { journey: Journey; customer: CustomerFacts; touches: readonly Touch[]; currency: string; onOpenEntity?: (id: string) => void; entityKinds?: Record<string, EntityKind> }) {
@@ -373,11 +403,10 @@ function Rails({ journey, customer, touches, currency, onOpenEntity, entityKinds
           ) : null}
           {panel === "cost" ? (
             <div className="flex flex-col gap-2">
-              <span className="inline-flex items-center gap-2">
-                <span className="t-display-xl tabular-nums">{journey.stats.acquisitionCostMinor === null ? "—" : formatMoney({ amountMinor: journey.stats.acquisitionCostMinor, currency: journey.stats.currency || currency })}</span>
-                <ProvenanceChip kind="estimate" />
+              <AcquisitionCost journey={journey} currency={currency} size="xl" />
+              <span className="text-small text-secondary">
+                {journey.stats.acquisitionCostMinor === 0 ? "The channels behind this win spent nothing to win it." : `Σ attribution weight × channel cost per acquisition${payback !== null ? ` · payback ${formatNumber(payback, { maxDigits: 1 })} months` : ""}`}
               </span>
-              <span className="text-small text-secondary">Σ attribution weight × channel cost per acquisition{payback !== null ? ` · payback ${formatNumber(payback, { maxDigits: 1 })} months` : ""}</span>
             </div>
           ) : null}
           {panel === "xc" ? (
@@ -447,7 +476,7 @@ function GoalMoment({ journey, customer, kit, currency, reduced, overlay }: { jo
   );
 }
 
-function FullTime({ journey, customer, agents, currency, onReplay, onClose, closeLabel }: { journey: Journey; customer: CustomerFacts; agents?: readonly StageAgentMeta[]; currency: string; onReplay: () => void; onClose?: () => void; closeLabel: string }) {
+function FullTime({ journey, customer, agents, currency, onReplay, onClose, closeLabel }: { journey: Journey; customer: CustomerFacts; agents?: readonly StageAgentMeta[]; currency: string; onReplay?: () => void; onClose?: () => void; closeLabel: string }) {
   const f = useFormatters();
   const payback = paybackMonths(journey);
   const potm = journey.agents.find((a) => a.agentId === journey.playerOfTheMatch) ?? null;
@@ -464,20 +493,22 @@ function FullTime({ journey, customer, agents, currency, onReplay, onClose, clos
             </p>
           </div>
           <dl className="grid grid-cols-2 gap-3">
-            <div>
+            <div className={journey.stats.acquisitionCostMinor === 0 ? "col-span-2" : undefined}>
               <dt className="t-data">Acquisition cost</dt>
-              <dd className="inline-flex items-center gap-2">
-                <span className="t-display-lg tabular-nums">{journey.stats.acquisitionCostMinor === null ? "—" : formatMoney({ amountMinor: journey.stats.acquisitionCostMinor, currency: journey.stats.currency || currency })}</span>
-                <ProvenanceChip kind="estimate" />
+              <dd>
+                <AcquisitionCost journey={journey} currency={currency} size="lg" />
               </dd>
             </div>
-            <div>
-              <dt className="t-data">Payback</dt>
-              <dd className="inline-flex items-center gap-2">
-                <span className="t-display-lg tabular-nums">{payback === null ? "—" : `${formatNumber(payback, { maxDigits: 1 })} mo`}</span>
-                {payback !== null ? <ProvenanceChip kind="estimate" /> : null}
-              </dd>
-            </div>
+            {/* Nothing spent, nothing to pay back: the payback is left out rather than shown as "0 mo". */}
+            {journey.stats.acquisitionCostMinor === 0 ? null : (
+              <div>
+                <dt className="t-data">Payback</dt>
+                <dd className="inline-flex items-center gap-2">
+                  <span className="t-display-lg tabular-nums">{payback === null ? "—" : `${formatNumber(payback, { maxDigits: 1 })} mo`}</span>
+                  {payback !== null ? <ProvenanceChip kind="estimate" /> : null}
+                </dd>
+              </div>
+            )}
             <div>
               <dt className="t-data">Time to convert</dt>
               <dd className="t-display-lg tabular-nums">{journey.stats.timeToConvertHours === null ? "—" : formatDuration(journey.stats.timeToConvertHours * 3_600_000)}</dd>
@@ -488,9 +519,11 @@ function FullTime({ journey, customer, agents, currency, onReplay, onClose, clos
             </div>
           </dl>
           <div className="flex items-center gap-2 pt-1">
-            <Button size="sm" icon={RotateCcw} onClick={onReplay}>
-              Watch again
-            </Button>
+            {onReplay ? (
+              <Button size="sm" icon={RotateCcw} onClick={onReplay}>
+                Watch again
+              </Button>
+            ) : null}
             {onClose ? (
               <Button size="sm" variant="ghost" icon={ChevronLeft} onClick={onClose}>
                 {closeLabel}
@@ -500,6 +533,7 @@ function FullTime({ journey, customer, agents, currency, onReplay, onClose, clos
         </div>
       </Panelette>
       <Panelette title="Agent ratings">
+        {sorted.length === 0 ? <EmptyLine>{NO_AGENT} Nobody is rated.</EmptyLine> : null}
         <ol className="flex flex-col gap-2">
           {sorted.map((a: JourneyAgent) => {
             const meta = agentMeta(agents, a.agentId);
@@ -553,10 +587,17 @@ export function JourneyStage({ journey, touches, customer, agents, kit, speed: s
   const [manualStage, setManualStage] = useState<StageName | null>(null);
   const clockStage = stageAt(schedule, time);
   const stage: StageName = manualStage ?? clockStage;
-  const playedIds = manualStage ? schedule.touchIds : touchesPlayedBy(schedule, time);
-  const commentaryShown = manualStage ? schedule.commentary.map((_, i) => i) : commentaryShownBy(schedule, time);
+  // The static summary shows every touch and every line at once; the clock only decides them while replaying.
+  const playedIds = manualStage || reduced ? schedule.touchIds : touchesPlayedBy(schedule, time);
+  const commentaryShown = manualStage || reduced ? schedule.commentary.map((_, i) => i) : commentaryShownBy(schedule, time);
+  const staticRef = useRef<HTMLDivElement>(null);
   const goToStage = (s: StageName) => {
     setManualStage(s);
+    if (reduced) {
+      // No clock under reduced motion: the stepper moves to that stage's section of the summary instead.
+      staticRef.current?.querySelector<HTMLElement>(`[data-static-section='${s}']`)?.scrollIntoView?.({ block: "start" });
+      return;
+    }
     setPlaying(false);
     seek(stageWindow(schedule, s).startMs);
   };
@@ -596,13 +637,16 @@ export function JourneyStage({ journey, touches, customer, agents, kit, speed: s
           </li>
         ))}
       </ol>
-      <div role="group" aria-label="Speed" className="seg-track h-control-sm">
-        {REPLAY_SPEEDS.map((s) => (
-          <button key={s} type="button" aria-pressed={speed === s} className={cn("seg-item font-body text-action-sm font-medium focus-visible:shadow-ring", speed === s && "tile-tab-on text-primary")} onClick={() => changeSpeed(s)} data-speed={s}>
-            {REPLAY_SPEED_LABELS[s]}
-          </button>
-        ))}
-      </div>
+      {/* A speed means nothing without a replay clock: the static summary leaves the control out. */}
+      {reduced ? null : (
+        <div role="group" aria-label="Speed" className="seg-track h-control-sm">
+          {REPLAY_SPEEDS.map((s) => (
+            <button key={s} type="button" aria-pressed={speed === s} className={cn("seg-item font-body text-action-sm font-medium focus-visible:shadow-ring", speed === s && "tile-tab-on text-primary")} onClick={() => changeSpeed(s)} data-speed={s}>
+              {REPLAY_SPEED_LABELS[s]}
+            </button>
+          ))}
+        </div>
+      )}
       {!reduced && schedule.durationMs > 0 ? <IconButton icon={playing ? Pause : Play} label={playing ? "Pause" : "Play"} onClick={togglePlay} /> : null}
       <Tooltip content="Sound is off by default">
         <span className="inline-flex items-center gap-1 rounded-sm bg-white/5 px-1.5 t-label">
@@ -617,12 +661,26 @@ export function JourneyStage({ journey, touches, customer, agents, kit, speed: s
     return (
       <div className={cn("flex min-h-full flex-col bg-base", className)} style={vignette} data-journey-stage="static" data-stage={stage}>
         {header}
-        <div className="flex flex-col gap-gutter p-gutter">
-          <p className="text-small text-secondary">Static summary (reduced motion): every stage at once, no replay clock.</p>
-          <GoalMoment journey={journey} customer={customer} kit={kit} currency={currency} reduced overlay="none" />
-          <FullTime journey={journey} customer={customer} agents={agents} currency={currency} onReplay={replay} onClose={onClose} closeLabel={closeLabel} />
-          <TeamSheet journey={journey} agents={agents} />
-          <Rails journey={journey} customer={customer} touches={orderedTouches} currency={currency} onOpenEntity={onOpenEntity} entityKinds={entityKinds} />
+        <div ref={staticRef} className="flex flex-col gap-gutter p-gutter">
+          <p className="text-small text-secondary">Static summary (reduced motion): every stage at once, no replay clock. The stages above jump to their section.</p>
+          <section data-static-section="goal" aria-label={STAGE_LABELS.goal} className="scroll-mt-gutter">
+            <GoalMoment journey={journey} customer={customer} kit={kit} currency={currency} reduced overlay="none" />
+          </section>
+          <section data-static-section="full_time" aria-label={STAGE_LABELS.full_time} className="scroll-mt-gutter">
+            <FullTime journey={journey} customer={customer} agents={agents} currency={currency} onClose={onClose} closeLabel={closeLabel} />
+          </section>
+          <section data-static-section="team_sheet" aria-label={STAGE_LABELS.team_sheet} className="scroll-mt-gutter">
+            <TeamSheet journey={journey} agents={agents} />
+          </section>
+          <section data-static-section="kick_off" aria-label={STAGE_LABELS.kick_off} className="scroll-mt-gutter">
+            <KickOff journey={journey} touches={orderedTouches} />
+          </section>
+          <section data-static-section="match" aria-label={STAGE_LABELS.match} className="scroll-mt-gutter">
+            <MatchFeed journey={journey} touches={orderedTouches} playedIds={playedIds} commentaryShown={commentaryShown} agents={agents} onOpenEntity={onOpenEntity} entityKinds={entityKinds} reduced />
+          </section>
+          <section data-static-section="rails" aria-label={STAGE_LABELS.rails} className="scroll-mt-gutter">
+            <Rails journey={journey} customer={customer} touches={orderedTouches} currency={currency} onOpenEntity={onOpenEntity} entityKinds={entityKinds} />
+          </section>
         </div>
       </div>
     );

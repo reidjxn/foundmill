@@ -82,6 +82,40 @@ describe("search ranking", () => {
     await expect(repos.entities.search(r.db, r.A.businessId, { q: "  " })).rejects.toThrow(/Invalid search/);
   });
 
+  it("pages every match with offset and nextOffset (the CRM search is not cut at one page)", async () => {
+    const all = await repos.entities.search(r.db, r.A.businessId, { q: "north", limit: 100 });
+    expect(all.nextOffset).toBeNull();
+    expect(all.hits.length).toBeGreaterThanOrEqual(2);
+    const seen: string[] = [];
+    let offset: number | null = 0;
+    let pages = 0;
+    while (offset !== null) {
+      const page: Awaited<ReturnType<typeof repos.entities.search>> = await repos.entities.search(r.db, r.A.businessId, { q: "north", limit: 1, offset });
+      seen.push(...page.hits.map((h) => h.entity.id));
+      offset = page.nextOffset;
+      pages++;
+      expect(pages).toBeLessThan(20);
+    }
+    expect(seen).toEqual(all.hits.map((h) => h.entity.id));
+    expect(pages).toBe(all.hits.length);
+  });
+
+  it("counts what list pages through, for the same filters", async () => {
+    const total = await repos.entities.count(r.db, r.A.businessId);
+    const everyone = await repos.entities.list(r.db, r.A.businessId, { limit: 100 });
+    expect(everyone.nextCursor).toBeNull();
+    expect(total).toBe(everyone.items.length);
+    const people = await repos.entities.list(r.db, r.A.businessId, { kind: "person", limit: 100 });
+    expect(await repos.entities.count(r.db, r.A.businessId, { kind: "person" })).toBe(people.items.length);
+    expect(people.items.length).toBeGreaterThanOrEqual(2);
+    expect(people.items.length).toBeLessThan(total);
+    expect(await repos.entities.count(r.db, r.A.businessId, { role: "lead", stage: "qualified" })).toBe(1);
+    // The cursor and the limit never change the total; another business's records are never counted.
+    expect(await repos.entities.count(r.db, r.A.businessId, { limit: 1, cursor: everyone.nextCursor })).toBe(total);
+    expect(await repos.entities.count(r.db, r.B.businessId)).toBe((await repos.entities.list(r.db, r.B.businessId, { limit: 100 })).items.length);
+    expect(await repos.entities.count(r.db, r.B.businessId)).toBeLessThan(total);
+  });
+
   it("uses the query embedding when supplied (pgvector)", async () => {
     if (!r.h.hasVector) return;
     const res = await repos.entities.search(r.db, r.A.businessId, { q: "zzzz-nothing-lexical", embedding: unit(3) });

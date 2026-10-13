@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { CampaignsScreen } from "../CampaignsScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
-import { ASSET, BID, CAMPAIGN, dataResponses, emptyResponses } from "./fixtures";
+import { ASSET, BID, CAMPAIGN, CHANNEL, assets, dataResponses, emptyResponses } from "./fixtures";
 
 const props = { businessId: BID, departmentId: "d1" };
 
@@ -32,7 +32,7 @@ describe("CampaignsScreen", () => {
     expect(within(assets).getByText("Rejected")).toBeTruthy();
     expect(within(assets).getAllByRole("link", { name: /Mara/ })).toHaveLength(2);
     expect(within(detail).getByRole("button", { name: "Pause" })).toBeTruthy();
-    expect(within(detail).getByRole("button", { name: "End campaign" })).toBeTruthy();
+    expect(within(detail).getByRole("button", { name: "End campaign…" })).toBeTruthy();
     expect(within(detail).queryByRole("button", { name: "Launch" })).toBeNull();
   });
 
@@ -85,6 +85,106 @@ describe("CampaignsScreen", () => {
     const detail = screen.getByRole("region", { name: "Scheduled one" });
     expect((within(detail).getByRole("button", { name: "Launch" }) as HTMLButtonElement).disabled).toBe(true);
     expect(within(detail).getByText("Launch needs at least one approved asset.")).toBeTruthy();
+  });
+
+  it("holds the approved-asset rule in the row actions and for a campaign with no assets at all", async () => {
+    const scheduled = (id: string, name: string) => ({ id, channelId: "x", name, goal: "", status: "scheduled", budgetMinor: 100, currency: "EUR", startsAt: null, endsAt: null });
+    const fake = createFakeSource({
+      businessId: BID,
+      responses: {
+        ...dataResponses,
+        "distribution.campaigns.list": { items: [scheduled("c-bare", "No assets yet"), scheduled(CAMPAIGN.welcome, "Has a draft")], nextCursor: null },
+        "distribution.assets.list": [assets[2]],
+      },
+      onMutate: () => ({}),
+    });
+    renderScreen(fake, <CampaignsScreen {...props} />);
+    // Detail: no assets is no excuse (the API refuses the same launch).
+    const detail = screen.getByRole("region", { name: "No assets yet" });
+    expect((within(detail).getByRole("button", { name: "Launch" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(detail).getByText("Launch needs at least one approved asset.")).toBeTruthy();
+    // Row actions: the same rule on the right-click menu, for both campaigns.
+    const table = screen.getByRole("grid", { name: "Campaigns" });
+    for (const name of ["No assets yet", "Has a draft"]) {
+      fireEvent.contextMenu(within(table).getByText(name));
+      const menu = await screen.findByRole("menu");
+      expect(within(menu).getByRole("menuitem", { name: "Launch" }).getAttribute("aria-disabled")).toBe("true");
+      fireEvent.keyDown(menu, { key: "Escape" });
+    }
+  });
+
+  it("launches once an asset is approved, and resume restores a campaign paused while scheduled", async () => {
+    const user = userEvent.setup();
+    const approved = { ...assets[2]!, approvalState: "approved" as const };
+    const ready = { id: CAMPAIGN.welcome, channelId: "x", name: "Ready one", goal: "", status: "scheduled", budgetMinor: 100, currency: "EUR", startsAt: null, endsAt: null, config: {} };
+    const paused = { id: CAMPAIGN.spring, channelId: "x", name: "Paused one", goal: "", status: "paused", budgetMinor: 100, currency: "EUR", startsAt: null, endsAt: null, config: { pausedFrom: "scheduled" } };
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "distribution.campaigns.list": { items: [ready, paused], nextCursor: null }, "distribution.assets.list": [approved] }, onMutate: () => ({}) });
+    renderScreen(fake, <CampaignsScreen {...props} />);
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("region", { name: "Ready one" })).getByRole("button", { name: "Launch" }));
+    });
+    expect(fake.mutations.at(-1)).toEqual({ path: "distribution.campaigns.setStatus", input: { campaignId: CAMPAIGN.welcome, status: "live" } });
+    // Paused while scheduled: Resume puts it back to scheduled (it never went live), not live.
+    const table = screen.getByRole("grid", { name: "Campaigns" });
+    fireEvent.contextMenu(within(table).getByText("Paused one"));
+    await user.click(await screen.findByRole("menuitem", { name: "Resume" }));
+    await waitFor(() => expect(fake.mutations.at(-1)).toEqual({ path: "distribution.campaigns.setStatus", input: { campaignId: CAMPAIGN.spring, status: "scheduled" } }));
+  });
+
+  it("asks before ending a campaign (ending is final), from the detail and from the menu", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: () => ({}) });
+    renderScreen(fake, <CampaignsScreen {...props} />);
+    fireEvent.click(within(screen.getByRole("region", { name: "Launch week on Meta" })).getByRole("button", { name: "End campaign…" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/Ending is final/)).toBeTruthy();
+    expect(fake.mutations).toHaveLength(0);
+    // Keeping it running changes nothing.
+    await user.click(within(dialog).getByRole("button", { name: "Keep it running" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(fake.mutations).toHaveLength(0);
+    // The right-click verb asks the same question; confirming ends it.
+    const table = screen.getByRole("grid", { name: "Campaigns" });
+    fireEvent.contextMenu(within(table).getByText("Launch week on Meta"));
+    await user.click(await screen.findByRole("menuitem", { name: "End campaign…" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "End campaign" }));
+    await waitFor(() => expect(fake.mutations.at(-1)).toEqual({ path: "distribution.campaigns.setStatus", input: { campaignId: CAMPAIGN.launch, status: "ended" } }));
+  });
+
+  it("creates a campaign and edits one (name, objective, budget, dates) over campaigns.create / update", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: (path) => (path === "distribution.campaigns.create" ? { id: "c-new", name: "Autumn push" } : {}) });
+    renderScreen(fake, <CampaignsScreen {...props} />);
+    await user.click(screen.getByRole("button", { name: "New campaign" }));
+    let dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Create campaign" }));
+    expect(within(dialog).getByText("Give the campaign a name.")).toBeTruthy();
+    expect(fake.mutations).toHaveLength(0);
+    await user.type(within(dialog).getByLabelText(/Name/), "Autumn push");
+    await user.type(within(dialog).getByLabelText(/Objective/), "Win 20 first orders");
+    await user.type(within(dialog).getByLabelText(/Budget/), "2500");
+    fireEvent.change(within(dialog).getByLabelText("Starts"), { target: { value: "2026-10-20" } });
+    fireEvent.change(within(dialog).getByLabelText(/Ends/), { target: { value: "2026-11-20" } });
+    await user.click(within(dialog).getByRole("button", { name: "Create campaign" }));
+    await waitFor(() => expect(fake.mutations.at(-1)?.path).toBe("distribution.campaigns.create"));
+    const created = fake.mutations.at(-1)!.input as Record<string, unknown>;
+    expect(created).toMatchObject({ channelId: CHANNEL.paid, name: "Autumn push", goal: "Win 20 first orders", budgetMinor: 250000, currency: "EUR" });
+    expect(new Date(created.startsAt as string).getFullYear()).toBe(2026);
+    expect(created.status).toBeUndefined();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(fake.refetches["distribution.campaigns.list"]).toBe(1);
+
+    // Edit from the detail: the form opens on the campaign's own values and saves a patch.
+    await user.click(within(screen.getByRole("region", { name: "Launch week on Meta" })).getByRole("button", { name: "Edit" }));
+    dialog = await screen.findByRole("dialog");
+    const name = within(dialog).getByLabelText(/Name/) as HTMLInputElement;
+    expect(name.value).toBe("Launch week on Meta");
+    expect((within(dialog).getByLabelText(/Budget/) as HTMLInputElement).value).toMatch(/600/);
+    await user.clear(name);
+    await user.type(name, "Launch fortnight on Meta");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(fake.mutations.at(-1)?.path).toBe("distribution.campaigns.update"));
+    expect(fake.mutations.at(-1)!.input).toMatchObject({ campaignId: CAMPAIGN.launch, patch: { name: "Launch fortnight on Meta", budgetMinor: 60000, currency: "EUR" } });
   });
 
   it("shows the empty state, the error and the loading skeleton", () => {

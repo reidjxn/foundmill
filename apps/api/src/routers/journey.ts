@@ -2,7 +2,7 @@
 import { JourneyListFilter, NO_DEPARTMENT_ID, repos } from "@foundmill/db";
 import { buildChapters } from "@foundmill/journey";
 import { dayKeyIn, dayRangeIn } from "@foundmill/shared";
-import { buildJourneyRecord } from "../services/journey";
+import { attributionSummary, buildJourneyRecord } from "../services/journey";
 import { z } from "zod";
 import { Id, businessProcedure, router } from "../trpc";
 
@@ -61,7 +61,22 @@ export const journeyRouter = router({
     }),
   ),
 
+  /** Customer Updates, newest first; each row says whether it is partial (`partialJourney`, the reading journey.get uses). */
   list: businessProcedure.input(JourneyListFilter).query(({ ctx, input }) => ctx.rls((tx) => repos.journeys.list(tx, ctx.businessId, input ?? {}))),
+
+  /**
+   * The journey of a conversion, or null when the win has none (yet): links that only know the conversion (Ribbon
+   * markers, CRM activity, milestones) resolve through this, whatever the age of the win.
+   */
+  forConversion: businessProcedure.input(z.object({ conversionId: Id })).query(({ ctx, input }) =>
+    ctx.rls(async (tx) => ({ journeyId: (await repos.journeys.forConversion(tx, ctx.businessId, input.conversionId))?.id ?? null })),
+  ),
+
+  /**
+   * The Attribution screen's model in use (BUILD §11.4): labeled conversions over the whole history on the basis
+   * `chooseModel` and the journey builder use, and every Customer Update with the partial ones (consent not granted).
+   */
+  attribution: businessProcedure.query(({ ctx }) => ctx.rls((tx) => attributionSummary(tx, ctx.businessId))),
 
   markViewed: businessProcedure.input(z.object({ journeyId: Id })).mutation(({ ctx, input }) => ctx.rls((tx) => repos.journeys.markViewed(tx, ctx.businessId, input.journeyId))),
 

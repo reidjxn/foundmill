@@ -78,6 +78,8 @@ export const SearchInput = z
     limit: z.number().int().min(1).max(100).default(20),
     /** Minimum score to return (0–1). */
     minScore: z.number().min(0).max(1).default(0.2),
+    /** Hits to skip (best first): page through every match with `limit` and the result's `nextOffset`. */
+    offset: z.number().int().min(0).max(100_000).default(0),
   })
   .refine((v) => v.q.length > 0 || Boolean(v.role || v.stage || v.ownerId || v.departmentId), { message: "Search needs words or a filter such as role:customer", path: ["q"] });
 export type SearchInput = z.input<typeof SearchInput>;
@@ -98,7 +100,10 @@ export interface SearchHit {
 export interface SearchResult {
   hits: SearchHit[];
   groups: { kind: EntityKind; hits: SearchHit[] }[];
+  /** Hits in this page. */
   total: number;
+  /** The `offset` of the next page; null when these hits were the last. */
+  nextOffset: number | null;
 }
 
 export const AddRoleInput = z.object({
@@ -437,8 +442,8 @@ function roleFilter(businessId: string, f: { role?: string; stage?: string; owne
   return sql`exists (select 1 from entity_roles r where ${sql.join(conds, sql` and `)})`;
 }
 
-/** The records an `EntityListFilter` matches, before paging. */
-function listWhere(businessId: string, f: z.output<typeof EntityListFilter>): SQL | undefined {
+/** The filters `list`, `listWithRoles` and `count` share. */
+function listConditions(businessId: string, f: z.output<typeof EntityListFilter>): SQL | undefined {
   const kinds = toArray(f.kind);
   return and(
     eq(entities.businessId, businessId),
@@ -451,11 +456,11 @@ function listWhere(businessId: string, f: z.output<typeof EntityListFilter>): SQ
 }
 
 /** Search hits with their per-kind groups. */
-function groupHits(hits: SearchHit[]): SearchResult {
+function groupHits(hits: SearchHit[], nextOffset: number | null = null): SearchResult {
   const byKind = new Map<EntityKind, SearchHit[]>();
   for (const h of hits) byKind.set(h.entity.kind, [...(byKind.get(h.entity.kind) ?? []), h]);
   const groups = ENTITY_KINDS.filter((k) => byKind.has(k)).map((kind) => ({ kind, hits: byKind.get(kind)! }));
-  return { hits, groups, total: hits.length };
+  return { hits, groups, total: hits.length, nextOffset };
 }
 
 export const entitiesRepo = {
@@ -465,10 +470,17 @@ export const entitiesRepo = {
     const rows = await db
       .select()
       .from(entities)
-      .where(and(listWhere(businessId, f), ks.after(f.cursor)))
+      .where(and(listConditions(businessId, f), ks.after(f.cursor)))
       .orderBy(...ks.orderBy)
       .limit(f.limit + 1);
     return toPage(rows, f, ks);
+  },
+
+  /** How many entities `list` pages through for these filters: the CRM's true total (cursor and limit are ignored). */
+  async count(db: Executor, businessId: string, filter: EntityListFilter = {}): Promise<number> {
+    const f = parseInput(EntityListFilter, filter, "entity filter");
+    const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(entities).where(listConditions(businessId, f));
+    return Number(row?.n ?? 0);
   },
 
   /**
@@ -479,7 +491,7 @@ export const entitiesRepo = {
     const f = parseInput(EntityListFilter, filter, "entity filter");
     const page = await entitiesRepo.list(db, businessId, f);
     const roles = await entitiesRepo.activeRoles(db, businessId, page.items.map((e) => e.id));
-    const total = !f.cursor && !page.nextCursor ? page.items.length : Number((await db.select({ n: sql<number>`count(*)::int` }).from(entities).where(listWhere(businessId, f)))[0]?.n ?? 0);
+    const total = !f.cursor && !page.nextCursor ? page.items.length : await entitiesRepo.count(db, businessId, f);
     return { ...page, items: page.items.map((e) => ({ ...e, roles: roles.get(e.id) ?? [] })), total };
   },
 
@@ -615,9 +627,11 @@ export const entitiesRepo = {
         .from(entities)
         .where(and(eq(entities.businessId, businessId), live, v.kinds?.length ? inArray(entities.kind, v.kinds) : undefined, roleFilter(businessId, v)))
         .orderBy(asc(entities.displayName), asc(entities.id))
-        .limit(v.limit);
-      const roles = await entitiesRepo.activeRoles(db, businessId, rows.map((e) => e.id));
-      return groupHits(rows.map((entity) => ({ entity, score: 1, matchedOn: "filter" as const, roles: roles.get(entity.id) ?? [] })));
+        .limit(v.limit + 1)
+        .offset(v.offset);
+      const page = rows.slice(0, v.limit);
+      const roles = await entitiesRepo.activeRoles(db, businessId, page.map((e) => e.id));
+      return groupHits(page.map((entity) => ({ entity, score: 1, matchedOn: "filter" as const, roles: roles.get(entity.id) ?? [] })), rows.length > v.limit ? v.offset + v.limit : null);
     }
     const tsq = sql`plainto_tsquery('simple', ${q})`;
     const nameSim = sql<number>`similarity(${entities.displayName}, ${q})`;
@@ -648,17 +662,22 @@ export const entitiesRepo = {
       .from(entities)
       .where(and(eq(entities.businessId, businessId), live, v.kinds?.length ? inArray(entities.kind, v.kinds) : undefined, roleFilter(businessId, v), candidate))
       .orderBy(desc(score), asc(entities.displayName), asc(entities.id))
-      .limit(v.limit);
+      .limit(v.limit + 1)
+      .offset(v.offset);
 
+    // One row past the page says another page follows (hits below `minScore` rank last, so they end the list).
+    const more = rows.length > v.limit;
     const scored = rows
+      .slice(0, v.limit)
       .map((r) => {
         const s = Number(r.score);
         const matchedOn: SearchMatch = r.identifier ? "identifier" : r.prefix ? "prefix" : Number(r.vec) * 0.9 >= s - 1e-9 && Number(r.vec) > 0 ? "meaning" : Number(r.nameSim) >= s - 1e-9 ? "name" : Number(r.aliasSim) >= s - 1e-9 ? "alias" : "text";
         return { entity: r.entity, score: Math.round(s * 1000) / 1000, matchedOn };
       })
       .filter((h) => h.score >= v.minScore);
+    const nextOffset = more && scored.length === v.limit ? v.offset + v.limit : null;
     const roles = await entitiesRepo.activeRoles(db, businessId, scored.map((h) => h.entity.id));
-    return groupHits(scored.map((h) => ({ ...h, roles: roles.get(h.entity.id) ?? [] })));
+    return groupHits(scored.map((h) => ({ ...h, roles: roles.get(h.entity.id) ?? [] })), nextOffset);
   },
 
   // roles -------------------------------------------------------------------------------------------------------------

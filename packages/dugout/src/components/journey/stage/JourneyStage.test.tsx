@@ -92,6 +92,50 @@ describe("JourneyStage", () => {
     expect(container.querySelector("[data-stage-panel='rails']")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Play" })).toBeNull();
     expect(container.querySelector("[data-goal-burst]")).toBeNull();
+    // Identical information (DESIGN §1): the first touch, every touch and every commentary line are in the summary too.
+    expect(container.querySelector("[data-stage-panel='kick_off']")).toBeTruthy();
+    expect(container.querySelectorAll("[data-touch-row]").length).toBe(fx.touches.length);
+    expect(screen.getByText(/the slow-start article does the patient work/)).toBeTruthy();
+    expect(screen.getByText(/The closer. Lifecycle delivers it within the hour/)).toBeTruthy();
+    // No dead controls: no speeds and no Watch again without a replay clock.
+    expect(screen.queryByRole("group", { name: "Speed" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Watch again" })).toBeNull();
+  });
+
+  it("under reduced motion the stepper moves to that stage's section of the summary", () => {
+    setReducedMotion(true);
+    const scrolled: string[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this.getAttribute("data-static-section") ?? "");
+    };
+    try {
+      const { container } = render(<JourneyStage currency="EUR" journey={fx.journey} touches={fx.touches} customer={fx.customer} kit={NORTHWIND_KIT} overlay="none" />);
+      fireEvent.click(screen.getByRole("button", { name: "Touches" }));
+      fireEvent.click(screen.getByRole("button", { name: "First touch" }));
+      expect(scrolled).toEqual(["match", "kick_off"]);
+      expect(container.querySelector("[data-journey-stage]")?.getAttribute("data-stage")).toBe("kick_off");
+      expect(screen.getByRole("button", { name: "First touch" }).getAttribute("aria-current")).toBe("step");
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it("a win nobody spent on or touched says so instead of £0.00 Estimate, 0 months and empty panels", async () => {
+    const user = userEvent.setup();
+    const journey = { ...fx.journey, agents: [], playerOfTheMatch: null, captain: fx.journey.captain ? { ...fx.journey.captain, agentId: null } : null, stats: { ...fx.journey.stats, acquisitionCostMinor: 0 } };
+    const { container } = render(<JourneyStage currency="EUR" journey={journey} touches={fx.touches} customer={fx.customer} kit={NORTHWIND_KIT} autoplay={false} overlay="none" />);
+    expect(screen.getByRole("region", { name: "Team" }).textContent).toContain("No agent touched this win");
+    await user.click(screen.getByRole("button", { name: "Rails" }));
+    await user.click(screen.getByRole("tab", { name: "Acquisition cost" }));
+    const rail = container.querySelector("[data-rail-panel='cost']")!;
+    expect(rail.textContent).toContain("No paid acquisition");
+    expect(rail.textContent).not.toMatch(/€0\.00|Estimate|payback/);
+    await user.click(screen.getByRole("button", { name: "Debrief" }));
+    const debrief = screen.getByRole("region", { name: "Debrief" });
+    expect(debrief.textContent).toContain("No paid acquisition");
+    expect(debrief.textContent).not.toMatch(/€0\.00|Payback|0 mo/);
+    expect(screen.getByRole("region", { name: "Agent ratings" }).textContent).toContain("No agent touched this win");
   });
 });
 

@@ -43,6 +43,8 @@ export const crmRouter = router({
      * owner) for the role and stage views; role, stage, owner and department filters match those roles server-side.
      */
     list: read.input(EntityListFilter).query(({ ctx, input }) => ctx.rls((tx) => repos.entities.listWithRoles(tx, ctx.businessId, { ...input, limit: Math.min(input?.limit ?? 100, 500) }))),
+    /** How many records the same filters list (without paging): the CRM footer's true total. */
+    count: read.input(EntityListFilter.omit({ cursor: true, limit: true, offset: true })).query(({ ctx, input }) => ctx.rls(async (tx) => ({ total: await repos.entities.count(tx, ctx.businessId, input ?? {}) }))),
     /**
      * GDPR-style deletion request (audit RA-23): at once, every contact identifier of the record goes on the business's
      * suppression list (the gateway refuses outreach to it and no engine imports it again) and the record is flagged
@@ -77,7 +79,9 @@ export const crmRouter = router({
           repos.journeys.listConversions(tx, ctx.businessId, { entityId: entity.id, limit: 50 }),
           repos.entities.mergeHistory(tx, ctx.businessId, entity.id),
         ]);
-        return { entity, profile, roles, relationships, interactions: interactions.items, mentions, conversions: journeys.items, mergeHistory, redirectedFrom: entity.id !== input.entityId ? input.entityId : null };
+        // Each win carries its Customer Update id (null when it has none), so Re-watch and Activity link straight to it.
+        const conversions = (await repos.journeys.labelConversions(tx, ctx.businessId, journeys.items)).map(({ entityName: _name, ...c }) => c);
+        return { entity, profile, roles, relationships, interactions: interactions.items, mentions, conversions, mergeHistory, redirectedFrom: entity.id !== input.entityId ? input.entityId : null };
       }),
     ),
     update: write.input(z.object({ entityId: Id, patch: UpdateEntityInput })).mutation(({ ctx, input }) =>

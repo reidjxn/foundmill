@@ -1,4 +1,4 @@
-import { entities, repos } from "@foundmill/db";
+import { conversions, entities, repos } from "@foundmill/db";
 import { eq } from "drizzle-orm";
 import { Journey } from "@foundmill/journey";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -80,6 +80,46 @@ describe("journey.get returns the full Journey record (BUILD §11.4, AC-11.4.3)"
     const { journey } = await hz.caller({ userId: hz.A.ownerId }).journey.get({ businessId, journeyId: row.id });
     expect(journey.attributionModel).toBe("data_driven_markov");
     expect(journey.xcModelSource).toBe("trained");
+  });
+
+  it("journey.list and journey.attribution read consent the way journey.get does; the model in use counts every labeled conversion", async () => {
+    const { businessId, entityId } = hz.A;
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    // A win through a visitor who denied consent, after the win of the first test (its visitor has withdrawn by now).
+    const denied = await repos.journeys.upsertVisitor(hz.db, businessId, { anonId: "attribution-denied", entityId, consentState: "denied" });
+    const touch = await repos.journeys.recordTouch(hz.db, businessId, { visitorId: denied.id, entityId, occurredAt: new Date("2026-09-10T09:00:00.000Z"), channelKey: "social" });
+    const win = await repos.journeys.recordConversion(hz.db, businessId, { entityId, kind: "activation", occurredAt: new Date("2026-09-10T10:00:00.000Z") });
+    const deniedRow = await repos.journeys.create(hz.db, businessId, { conversionId: win.id, touchIds: [touch.id], matchdayLevel: "friendly" });
+
+    const list = await owner.journey.list({ businessId, limit: 50 });
+    for (const row of list.items) {
+      const { journey } = await owner.journey.get({ businessId, journeyId: row.id });
+      expect(row.partialJourney, `journey ${row.id}`).toBe(journey.partialJourney);
+      expect(row.consent).toBe(journey.consent);
+    }
+    expect(list.items.find((j) => j.id === deniedRow.id)?.partialJourney).toBe(true);
+
+    const counts = await repos.journeys.countConversions(hz.db, businessId);
+    const labeled = Object.values(counts).reduce((s, n) => s + n, 0);
+    const before = await owner.journey.attribution({ businessId });
+    expect(before).toMatchObject({ conversionCount: labeled, byKind: counts, attributionModel: "position_based_40_20_40", threshold: 200, remaining: 200 - labeled, journeys: list.items.length, partialJourneys: list.items.filter((j) => j.partialJourney).length });
+
+    // Past 200 labeled conversions the model is data-driven, though only a handful of them have a Customer Update (the
+    // screen used to count payments among the newest 200 journeys and claimed position-based for good).
+    await hz.db.insert(conversions).values(Array.from({ length: 200 }, (_, i) => ({ businessId, entityId, kind: "signup" as const, occurredAt: new Date(Date.parse("2026-08-01T00:00:00.000Z") + i * 60_000) })));
+    const after = await owner.journey.attribution({ businessId });
+    expect(after).toMatchObject({ conversionCount: labeled + 200, attributionModel: "data_driven_markov", remaining: 0, journeys: before.journeys });
+    // A record built before the models were stored is labeled with the same count, so the replay agrees with the screen.
+    const { journey } = await owner.journey.get({ businessId, journeyId: deniedRow.id });
+    expect(journey.attributionModel).toBe(after.attributionModel);
+
+    // Links that only know the conversion resolve through journey.forConversion, whatever the age of the win.
+    expect(await owner.journey.forConversion({ businessId, conversionId: win.id })).toEqual({ journeyId: deniedRow.id });
+    const bare = await repos.journeys.recordConversion(hz.db, businessId, { entityId, kind: "signup", occurredAt: new Date("2025-01-01T00:00:00.000Z") });
+    expect(await owner.journey.forConversion({ businessId, conversionId: bare.id })).toEqual({ journeyId: null });
+    // Tenancy: another business never resolves A's conversion, and A's numbers never include B's.
+    expect(await hz.caller({ userId: hz.B.ownerId }).journey.forConversion({ businessId: hz.B.businessId, conversionId: win.id })).toEqual({ journeyId: null });
+    expect((await hz.caller({ userId: hz.B.ownerId }).journey.attribution({ businessId: hz.B.businessId })).conversionCount).toBeLessThan(200);
   });
 });
 

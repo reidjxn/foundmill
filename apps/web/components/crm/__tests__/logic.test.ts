@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityItems, applyChipFilters, commercialSummary, deletionRequestNote, documentItems, exportEntityJson, groupByForView, groupCounts, introPaths, isCustomerWin, isEntityTab, leadScore, mergeBanner, relationshipStrength, rowFromEntity, rowsFromSearch, strengthRating, CRM_VIEWS, type EntityGet, type RelationshipRecord } from "../logic";
+import { activityItems, applyChipFilters, commercialSummary, deletionRequestNote, documentItems, exportEntityJson, groupByForView, groupCounts, introPaths, isCustomerWin, isEntityTab, leadScore, loadedSummary, mergeBanner, nextActiveHit, relationshipStrength, rowFromEntity, rowsFromSearch, strengthRating, CRM_VIEWS, type EntityGet, type RelationshipRecord } from "../logic";
 import { parseCrmQuery } from "../search";
 
 const entity = (over: Record<string, unknown> = {}) => ({ id: "e1", businessId: "b", kind: "person", displayName: "Ana Lind", aliases: [], avatarUrl: null, identifiers: { email: "ana@example.com" }, lawfulBasis: "contract", source: "stripe", embedding: null, search: null, visibility: "private", agentId: null, mergedIntoId: null, createdAt: new Date("2026-01-10"), updatedAt: new Date("2026-09-01"), archivedAt: null, ...over });
@@ -69,9 +69,9 @@ describe("profile derivations", () => {
   });
   it("summarises commercial history and lists activity newest first", () => {
     const conversions = [
-      { id: "c1", kind: "signup", amountMinor: 0, currency: "EUR", occurredAt: new Date("2026-01-01") },
-      { id: "c2", kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: new Date("2026-02-01") },
-      { id: "c3", kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: new Date("2026-04-01") },
+      { id: "c1", kind: "signup", amountMinor: 0, currency: "EUR", occurredAt: new Date("2026-01-01"), journeyId: null },
+      { id: "c2", kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: new Date("2026-02-01"), journeyId: "j2" },
+      { id: "c3", kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: new Date("2026-04-01"), journeyId: "j3" },
     ] as never[];
     const s = commercialSummary(conversions as never, "SEK");
     expect(s).toMatchObject({ payments: 2, totalMinor: 9800, currency: "EUR", monthlyMinor: 3267, signedUpAt: "2026-01-01T00:00:00.000Z" });
@@ -82,7 +82,14 @@ describe("profile derivations", () => {
     const items = activityItems({ interactions: [{ id: "i1", kind: "email", occurredAt: new Date("2026-03-01"), direction: "inbound", summary: "Asked about pricing", agentId: null, contentRef: "vault://x" }], mentions: [{ id: "m1", containerKind: "inbox_item", containerId: "n1", createdAt: new Date("2026-05-01") }], conversions } as never, { inbox: (id) => `/inbox/${id}`, journey: (id) => `/j/${id}` });
     expect(items.map((i) => i.id)).toEqual(["m-m1", "c-c3", "i-i1", "c-c2", "c-c1"]);
     expect(items[0]!.href).toBe("/inbox/n1");
-    expect(items.find((i) => i.id === "c-c2")).toMatchObject({ title: "Payment", href: "/j/c2" });
+    expect(items.find((i) => i.id === "c-c2")).toMatchObject({ title: "Payment", href: "/j/j2" });
+    // Wins link to their Customer Update by journey id; a win without one has no link (it would dead-end).
+    expect(items.find((i) => i.id === "c-c3")?.href).toBe("/j/j3");
+    expect(items.find((i) => i.id === "c-c1")?.href).toBeUndefined();
+    // Payments read as money in their own currency with the narrow symbol, never "49.00 EUR".
+    expect(items.find((i) => i.id === "c-c2")?.description).toBe("€49.00");
+    const gbp = activityItems({ interactions: [], mentions: [], conversions: [{ id: "g1", kind: "payment", amountMinor: 3534999, currency: "GBP", occurredAt: new Date("2026-10-01"), journeyId: null }, { id: "y1", kind: "payment", amountMinor: 5000, currency: "JPY", occurredAt: new Date("2026-10-02"), journeyId: null }] } as never, { inbox: (id) => id, journey: (id) => id });
+    expect(gbp.map((i) => i.description)).toEqual(["¥5,000", "£35,349.99"]);
     const docs = documentItems({ interactions: [{ id: "i1", kind: "email", occurredAt: new Date(), summary: "", contentRef: "vault://x" }], mentions: [{ id: "m2", containerKind: "spec_block", containerId: "s1", createdAt: new Date() }] } as never, { inbox: (id) => id });
     expect(docs.map((d) => [d.kind, d.encrypted])).toEqual([
       ["email", true],
@@ -91,14 +98,14 @@ describe("profile derivations", () => {
   });
   it("a renewal or repeat order is revenue with no replay link; only wins open a Customer Update", () => {
     const conversions = [
-      { id: "c1", kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: new Date("2026-02-01"), firstPayment: true },
-      { id: "c2", kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: new Date("2026-03-01"), firstPayment: false },
+      { id: "c1", kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: new Date("2026-02-01"), firstPayment: true, journeyId: "j1" },
+      { id: "c2", kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: new Date("2026-03-01"), firstPayment: false, journeyId: "j2" },
     ] as never[];
     expect(commercialSummary(conversions as never, "EUR")).toMatchObject({ payments: 2, totalMinor: 9800 });
     const items = activityItems({ interactions: [], mentions: [], conversions } as never, { inbox: (id) => `/inbox/${id}`, journey: (id) => `/j/${id}` });
     expect(items.map((i) => [i.id, i.title, i.href])).toEqual([
       ["c-c2", "Repeat payment", undefined],
-      ["c-c1", "Payment", "/j/c1"],
+      ["c-c1", "Payment", "/j/j1"],
     ]);
     expect((conversions as { id: string; firstPayment: boolean }[]).filter(isCustomerWin).map((c) => c.id)).toEqual(["c1"]);
   });
@@ -124,5 +131,32 @@ describe("data duties and merges", () => {
   it("knows its tabs", () => {
     expect(isEntityTab("journey")).toBe(true);
     expect(isEntityTab("billing")).toBe(false);
+  });
+});
+
+describe("how much of the CRM is loaded", () => {
+  it("says what the list holds against the server's total, in en-US numbers", () => {
+    expect(loadedSummary({ mode: "list", loaded: 500, total: 4519, hasMore: true })).toBe("500 of 4,519 records");
+    expect(loadedSummary({ mode: "list", loaded: 4519, total: 4519, hasMore: false })).toBe("4,519 records");
+    expect(loadedSummary({ mode: "list", loaded: 1, total: 1, hasMore: false })).toBe("1 record");
+    // A total the server cannot give (a chip applied to the rows): the loaded count, never a made-up total.
+    expect(loadedSummary({ mode: "list", loaded: 37, total: null, hasMore: false })).toBe("37 records");
+  });
+  it("says a search is still loading, then how many matched", () => {
+    expect(loadedSummary({ mode: "search", loaded: 100, total: null, hasMore: true })).toBe("100 matches so far");
+    expect(loadedSummary({ mode: "search", loaded: 182, total: null, hasMore: false })).toBe("182 matches");
+    expect(loadedSummary({ mode: "search", loaded: 1, total: null, hasMore: false })).toBe("1 match");
+  });
+});
+
+describe("typeahead keyboard", () => {
+  it("moves the active hit with the arrow keys: Down stops at the last hit, Up returns to the text box", () => {
+    expect(nextActiveHit(-1, 1, 3)).toBe(0);
+    expect(nextActiveHit(0, 1, 3)).toBe(1);
+    expect(nextActiveHit(2, 1, 3)).toBe(2);
+    expect(nextActiveHit(1, -1, 3)).toBe(0);
+    expect(nextActiveHit(0, -1, 3)).toBe(-1);
+    expect(nextActiveHit(-1, -1, 3)).toBe(-1);
+    expect(nextActiveHit(0, 1, 0)).toBe(-1);
   });
 });

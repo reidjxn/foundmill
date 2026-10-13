@@ -1,7 +1,7 @@
 /** channels (formation, metrics, suppression), campaigns + assets, journeys (visitors → touches → conversions → journey, journey_daily, milestones). */
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { repos } from "../../repos";
+import { hasLaunched, isPartialConsent, repos, resumeStatus } from "../../repos";
 import * as s from "../../schema";
 import { day, NIL, setupRepoHarness, type RepoHarness } from "./helpers";
 
@@ -96,6 +96,38 @@ describe("campaigns and assets", () => {
     await expect(repos.campaigns.createAsset(r.db, r.B.businessId, { campaignId: c.id, kind: "post" })).rejects.toThrow(/not found/);
     const ended = await repos.campaigns.setStatus(r.db, r.A.businessId, c.id, "ended");
     expect(ended.endsAt).toBeInstanceOf(Date);
+  });
+
+  it("a pause remembers where it interrupted: a scheduled campaign resumes scheduled, a live one resumes live and was never launched twice", async () => {
+    const mk = (name: string) => repos.campaigns.create(r.db, r.A.businessId, { channelId: r.A.channelId, name });
+    // Paused while scheduled: not launched yet, resumes to scheduled.
+    const scheduled = await mk("Creator seeding");
+    await repos.campaigns.setStatus(r.db, r.A.businessId, scheduled.id, "scheduled");
+    expect(hasLaunched(scheduled)).toBe(false);
+    const pausedEarly = await repos.campaigns.setStatus(r.db, r.A.businessId, scheduled.id, "paused");
+    expect(pausedEarly.config).toMatchObject({ pausedFrom: "scheduled" });
+    expect(hasLaunched(pausedEarly)).toBe(false);
+    expect(resumeStatus(pausedEarly)).toBe("scheduled");
+    const back = await repos.campaigns.setStatus(r.db, r.A.businessId, scheduled.id, "scheduled");
+    expect(back.status).toBe("scheduled");
+    expect(back.config).not.toHaveProperty("pausedFrom");
+
+    // Launched, paused, resumed, paused, resumed: launchedAt is set once and every resume counts as a resume.
+    const going = await mk("Always on");
+    await repos.campaigns.setStatus(r.db, r.A.businessId, going.id, "scheduled");
+    const live = await repos.campaigns.setStatus(r.db, r.A.businessId, going.id, "live");
+    const launchedAt = (live.config as { launchedAt?: string }).launchedAt;
+    expect(launchedAt).toEqual(expect.any(String));
+    expect(hasLaunched(live)).toBe(true);
+    const paused = await repos.campaigns.setStatus(r.db, r.A.businessId, going.id, "paused");
+    expect(paused.config).toMatchObject({ pausedFrom: "live", launchedAt });
+    expect(hasLaunched(paused)).toBe(true);
+    expect(resumeStatus(paused)).toBe("live");
+    const resumed = await repos.campaigns.setStatus(r.db, r.A.businessId, going.id, resumeStatus(paused));
+    expect(resumed.config).toMatchObject({ launchedAt });
+    // A campaign paused before the bookkeeping existed (no pausedFrom) counts as launched and resumes live.
+    expect(hasLaunched({ status: "paused", config: {} })).toBe(true);
+    expect(resumeStatus({ status: "paused", config: {} })).toBe("live");
   });
 });
 
@@ -206,6 +238,49 @@ describe("journeys", () => {
     expect((await repos.journeys.get(r.db, r.A.businessId, journeyId)).commentary).toHaveLength(1);
     expect((await r.svc((tx) => repos.journeys.list(tx, r.B.businessId))).items.map((j) => j.id)).not.toContain(journeyId);
     expect((await repos.journeys.forConversion(r.db, r.A.businessId, conversionId))?.id).toBe(journeyId);
+  });
+
+  it("every journey carries the consent of its first visitor touch; the summary counts partial journeys over all of them", async () => {
+    // The journey above came through a visitor who granted consent: measured, not partial.
+    const listed = await repos.journeys.list(r.db, r.A.businessId, { kind: "payment" });
+    const measured = listed.items.find((j) => j.id === journeyId)!;
+    expect(measured.consent).toBe("granted");
+    expect(measured.partialJourney).toBe(false);
+    // A visitor who denied consent, and a win without any visitor touch (consent unknown): both partial, as journey.get says.
+    const denied = await repos.journeys.upsertVisitor(r.db, r.A.businessId, { anonId: "anon-denied", consentState: "denied" });
+    const granted = await repos.journeys.upsertVisitor(r.db, r.A.businessId, { anonId: "anon-granted-later", consentState: "granted" });
+    const [deniedTouch, laterGranted] = await repos.journeys.recordTouches(r.db, r.A.businessId, [
+      { visitorId: denied.id, entityId: r.A.entityId, occurredAt: day("2026-09-04"), channelKey: "social" },
+      { visitorId: granted.id, entityId: r.A.entityId, occurredAt: day("2026-09-05"), channelKey: "content" },
+    ]);
+    const deniedWin = await repos.journeys.recordConversion(r.db, r.A.businessId, { entityId: r.A.entityId, kind: "activation", occurredAt: day("2026-09-06") });
+    const bareWin = await repos.journeys.recordConversion(r.db, r.A.businessId, { entityId: r.A.entityId, kind: "signup", occurredAt: day("2026-08-20") });
+    const deniedJourney = await repos.journeys.create(r.db, r.A.businessId, { conversionId: deniedWin.id, touchIds: [laterGranted!.id, deniedTouch!.id], matchdayLevel: "friendly" });
+    const bareJourney = await repos.journeys.create(r.db, r.A.businessId, { conversionId: bareWin.id, matchdayLevel: "friendly" });
+    const consent = await repos.journeys.consentForJourneys(r.db, r.A.businessId, [journeyId, deniedJourney.id, bareJourney.id]);
+    // The earliest visitor touch decides (the denied visitor's, though the granted visitor's touch is listed first).
+    expect(Object.fromEntries(consent)).toEqual({ [journeyId]: "granted", [deniedJourney.id]: "denied", [bareJourney.id]: "unknown" });
+    expect(isPartialConsent("granted")).toBe(false);
+    expect(isPartialConsent("withdrawn")).toBe(true);
+    const all = await repos.journeys.list(r.db, r.A.businessId, { limit: 50 });
+    expect(all.items.find((j) => j.id === deniedJourney.id)?.partialJourney).toBe(true);
+    expect(all.items.find((j) => j.id === bareJourney.id)?.partialJourney).toBe(true);
+    // Not a page's count: every journey of the business, and nothing of another business.
+    expect(await repos.journeys.consentSummary(r.db, r.A.businessId)).toEqual({ journeys: all.items.length, partialJourneys: all.items.filter((j) => j.partialJourney).length });
+    expect(all.items.filter((j) => j.partialJourney).length).toBe(all.items.length - 1);
+    expect((await repos.journeys.consentForJourneys(r.db, r.B.businessId, [journeyId])).size).toBe(0);
+    // Newest wins first by when they happened (creation order says nothing about that), paged on the same key.
+    const byWin = await repos.journeys.list(r.db, r.A.businessId, { orderBy: "converted", limit: 2 });
+    expect(byWin.items.map((j) => j.conversion.occurredAt.toISOString().slice(0, 10))).toEqual(
+      all.items
+        .map((j) => j.conversion.occurredAt.toISOString().slice(0, 10))
+        .sort()
+        .reverse()
+        .slice(0, 2),
+    );
+    const rest = await repos.journeys.list(r.db, r.A.businessId, { orderBy: "converted", limit: 50, cursor: byWin.nextCursor });
+    expect(rest.items.map((j) => j.id)).toContain(bareJourney.id);
+    expect(rest.items.at(-1)?.id).toBe(bareJourney.id);
   });
 
   it("dailyRange reads journey_daily (matview for the service role, barrier view for members)", async () => {

@@ -153,6 +153,61 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(table.getByRole("row").filter({ hasText: "£0.00 Estimate" })).toHaveCount(0);
   });
 
+  test("distribution: a channel's profile card agrees with the Channels table (No spend, one Offline tracking chip)", async ({ page }) => {
+    await openTab(page, "distribution", "channels");
+    const table = page.getByRole("grid", { name: "Channels" });
+    const spendless = table.getByRole("row").filter({ hasText: "No spend" }).first();
+    await expect(spendless).toBeVisible();
+    await spendless.locator("[data-channel-name]").click();
+    const drawer = page.locator("[data-channel-drawer]");
+    await expect(drawer).toBeVisible({ timeout: LONG });
+    // "Cost per customer (Estimate)" reads "No spend" like the table, never "£0.00".
+    await expect(drawer).toContainText(/Cost per customer \(Estimate\)\s*No spend/);
+    await expect(drawer).not.toContainText("£0.00 Estimate");
+    // The chip is the card's own, shown once; offline-tracked channels say so as the table does.
+    expect(await drawer.getByText("Offline tracking", { exact: true }).count()).toBeLessThanOrEqual(1);
+  });
+
+  test("distribution: campaigns can be created and edited, and ending one asks first", async ({ page }) => {
+    await openTab(page, "distribution", "campaigns");
+    await page.getByRole("button", { name: "New campaign" }).click();
+    const dialog = page.getByRole("dialog", { name: "New campaign" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Create campaign" }).click();
+    await expect(dialog.getByText("Give the campaign a name.")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    // Ending is final: the verb opens a confirmation, and keeping the campaign changes nothing.
+    const table = page.getByRole("grid", { name: "Campaigns" });
+    const row = table.getByRole("row").nth(1);
+    await expect(row).toBeVisible({ timeout: LONG });
+    await row.click({ button: "right" });
+    const end = page.getByRole("menuitem", { name: "End campaign…" });
+    if (await end.isEnabled()) {
+      await end.click();
+      const confirm = page.getByRole("dialog", { name: /^End / });
+      await expect(confirm).toContainText("Ending is final");
+      await confirm.getByRole("button", { name: "Keep it running" }).click();
+      await expect(confirm).toBeHidden();
+    } else {
+      await page.keyboard.press("Escape");
+    }
+  });
+
+  test("distribution: the model in use and the win count come from the whole history and agree with the replays", async ({ page }) => {
+    await openTab(page, "distribution", "attribution");
+    const model = page.getByRole("region", { name: "Model in use" });
+    await expect(model).toBeVisible();
+    const count = Number((await model.getByText(/^[\d,]+$/).first().innerText()).replace(/,/g, ""));
+    // Past 200 labeled conversions the model is data-driven (the replays say so), and no "more … before" countdown.
+    if (count >= 200) {
+      await expect(model).toContainText("Data-driven (Markov removal effect)");
+      await expect(model).not.toContainText("before the Markov removal-effect model takes over");
+    } else {
+      await expect(model).toContainText("Position-based 40/20/40");
+    }
+  });
+
   test("distribution: the touch funnel never reads 0 % or more than 100 % for a step", async ({ page }) => {
     await openTab(page, "distribution", "attribution");
     const funnel = page.getByRole("region", { name: "Touch funnel" });

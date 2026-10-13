@@ -6,10 +6,10 @@
  */
 import { useEffect, useId, useState } from "react";
 import { ArrowRight, Save } from "lucide-react";
-import { Button, ChannelProfileCard, Chip, Field, Markdown, MoneyInput, RightRail, StatusPill, formatMoney, type ChannelTokenData } from "@foundmill/dugout";
+import { Button, ChannelProfileCard, Field, Markdown, MoneyInput, RightRail, StatusPill, formatMoney, type ChannelTokenData } from "@foundmill/dugout";
 import type { ChannelKey } from "@foundmill/shared";
 import { CAMPAIGN_STATUS_WORDS, CHANNEL_RULES, SHARED_RULES, approvalThresholdMinor, type ChannelView } from "./channel-data";
-import { InlineError, OFFLINE_TRACKING_LABEL, parseMajor, type ActionState } from "./shared";
+import { InlineError, parseMajor, type ActionState } from "./shared";
 
 export interface ChannelProfileDrawerProps {
   view: ChannelView | null;
@@ -65,12 +65,8 @@ export function ChannelProfileDrawer({ view, token, action, onClose, onToggle, o
       {view && token ? (
         <div className="flex flex-col gap-4" data-channel-drawer={view.channelKey}>
           <ChannelProfileCard channel={token} onToggle={onToggle} onPause={onPause} />
-          {view.kitMode ? (
-            <div className="flex flex-col items-start gap-1">
-              <Chip tone="info">{OFFLINE_TRACKING_LABEL}</Chip>
-              <p className="text-small text-secondary">Bookings become a founder task with every material attached; nothing is booked by an agent.</p>
-            </div>
-          ) : null}
+          {/* The card above carries the Offline tracking chip (the channel's own setting); this says what it means. */}
+          {view.kitMode ? <p className="text-small text-secondary">Offline tracking: bookings become a founder task with every material attached; nothing is booked by an agent.</p> : null}
 
           <section aria-labelledby={`${budgetId}-h`} className="flex flex-col gap-2 border-t border-subtle pt-3">
             <h3 id={`${budgetId}-h`} className="t-title text-primary">

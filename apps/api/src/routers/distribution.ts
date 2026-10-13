@@ -1,7 +1,7 @@
 /** distribution.recommend / channels.* / campaigns.* / assets.* (BUILD §11.7; AC-11.7.2 enable/disable re-scores). */
-import { CreateCampaignInput, UpdateCampaignInput, repos } from "@foundmill/db";
+import { CreateCampaignInput, UpdateCampaignInput, hasLaunched, repos } from "@foundmill/db";
 import { HOUSE_STYLE } from "@foundmill/agents";
-import { CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, CHANNEL_WINDOW_DAYS, ChannelKey, dayKeyIn, type ChannelLine } from "@foundmill/shared";
+import { CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, CHANNEL_WINDOW_DAYS, ChannelKey, dayKeyIn, ValidationError, type ChannelLine } from "@foundmill/shared";
 import { z } from "zod";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
@@ -115,7 +115,8 @@ export const distributionRouter = router({
       }),
     ),
     /**
-     * Status changes; launching a campaign emits `campaign.launched`. Spend above caps is gated by the engine, not here.
+     * Status changes. The first launch needs at least one approved asset and emits `campaign.launched`; resuming a
+     * campaign that already went live is neither checked nor announced again. Spend above caps is gated by the engine.
      * Going live is refused while the team is stopped: Stop all agents paused the live campaigns, and no member sets one
      * spending again before an owner or admin resumes the agents (pausing or ending stays allowed).
      */
@@ -123,13 +124,15 @@ export const distributionRouter = router({
       if (input.status === "live") await assertAgentsRunning(ctx, "a live campaign");
       return ctx.rls(async (tx) => {
         const before = await repos.campaigns.get(tx, ctx.businessId, input.campaignId);
+        const launching = input.status === "live" && before.status !== "live" && !hasLaunched(before);
+        const approved = launching ? await repos.campaigns.listAssets(tx, ctx.businessId, { campaignId: before.id, approvalState: "approved" }) : [];
+        if (launching && approved.length === 0) throw new ValidationError("Launch needs at least one approved asset. Approve one of the campaign's assets first.", { campaignId: before.id });
         const campaign = await repos.campaigns.setStatus(tx, ctx.businessId, input.campaignId, input.status);
-        if (input.status === "live" && before.status !== "live") {
+        if (launching) {
           const channel = await repos.channels.get(tx, ctx.businessId, campaign.channelId);
-          const assets = await repos.campaigns.listAssets(tx, ctx.businessId, { campaignId: campaign.id, approvalState: "approved" });
           await emit(tx, ctx, {
             type: "campaign.launched",
-            payload: { campaignId: campaign.id, channelId: channel.id, channelKey: channel.channelKey, name: campaign.name, goal: campaign.goal.slice(0, 500), budget: { amountMinor: campaign.budgetMinor, currency: campaign.currency }, startsAt: (campaign.startsAt ?? new Date()).toISOString(), endsAt: campaign.endsAt?.toISOString() ?? null, kitMode: channel.kitMode, assetIds: assets.map((a) => a.id), approvalId: null },
+            payload: { campaignId: campaign.id, channelId: channel.id, channelKey: channel.channelKey, name: campaign.name, goal: campaign.goal.slice(0, 500), budget: { amountMinor: campaign.budgetMinor, currency: campaign.currency }, startsAt: (campaign.startsAt ?? new Date()).toISOString(), endsAt: campaign.endsAt?.toISOString() ?? null, kitMode: channel.kitMode, assetIds: approved.map((a) => a.id), approvalId: null },
           });
         }
         await audit(tx, ctx, { action: "distribution.campaigns.set_status", target: { kind: "campaign", id: campaign.id }, details: { from: before.status, to: input.status } });
