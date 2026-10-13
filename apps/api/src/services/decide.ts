@@ -4,7 +4,9 @@
  * option click (rule engine, in-process) or free text (plan compiler, Opus) → plan → policy per action → inside policy:
  * write plan + plan_actions and execute
  * / outside: return `{ requiresConfirmation: true, plan }` → item marked answered (releases Continue) →
- * `decision.made` through the outbox → follow-up Update item with links to the artefacts.
+ * `decision.made` through the outbox → follow-up Update item with links to the artefacts. A plan outside policy waits in
+ * the database (`pending_confirmation`, each action's policy outcome) until `plan.confirm`, which needs only its id:
+ * inbox.get hands the waiting confirmation back (`pendingConfirmation`) to whoever reopens the item.
  *
  * An approval's decision item (an agent's gated call waiting for the founder, audit FR-01) is answered without a plan
  * compiler: Approve or Reject resolves the approval (./approvals), records a one-line plan for the history, and the
@@ -12,12 +14,12 @@
  */
 import { classifyFounderText } from "@foundmill/agents";
 import { approvalOutcomeOf, closeApprovalItem, repos, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
-import { ValidationError } from "@foundmill/shared";
+import { ValidationError, hasSectionAccess, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { assertApprovalAccess, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
-import { assertInstructionSectionAccess, assertPlanSectionAccess, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, requiresConfirmation, syncChannelEngines, type ActionEvaluation, type PlanContext } from "./plans";
+import { assertInstructionSectionAccess, assertPlanSectionAccess, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, planSectionRefusal, requiresConfirmation, syncChannelEngines, type ActionEvaluation, type ChannelToggle, type PlanContext } from "./plans";
 
 export interface DecideItemInput {
   itemId: string;
@@ -196,15 +198,29 @@ async function decideApprovalItem(ctx: BusinessContext, item: InboxItem, approva
   });
 }
 
-/** Confirm a plan that policy flagged (BUILD §11.3 "Here is what will happen"). */
+
+/** What a confirmation that ran nothing reports: the plan was confirmed before, so nothing runs twice. */
+const NOTHING_RUN = { executed: [] as string[], deferred: [] as string[], denied: [] as string[], needsOrchestrator: false, channels: [] as ChannelToggle[] };
+
+/**
+ * Confirm a plan that policy flagged (BUILD §11.3 "Here is what will happen"). It works from the stored plan alone (the
+ * plan id; no state from the page that staged it), so the founder can confirm after a reload, from another tab or
+ * device, or on returning from a vacation. Idempotent: a plan someone already confirmed comes back as it is
+ * (`alreadyConfirmed`), with nothing executed, audited or written a second time; two presses at once run it once
+ * (`repos.plans.claimConfirmation` is one conditional update).
+ */
 export async function confirmPlan(ctx: BusinessContext, planId: string) {
   const planCtx = await planContextFor(ctx);
   const written = await ctx.rls(async (tx) => {
     const plan = await repos.plans.get(tx, ctx.businessId, planId);
-    if (plan.status !== "pending_confirmation") throw new ValidationError(`Plan is ${plan.status}, not awaiting confirmation`, { planId });
+    if (plan.status !== "pending_confirmation") {
+      if (plan.confirmedAt) return { plan, exec: NOTHING_RUN, followUp: null, alreadyConfirmed: true };
+      throw new ValidationError(`Plan is ${plan.status}, not awaiting confirmation`, { planId });
+    }
     // The confirmer needs write on every section the plan changes, whoever staged it (audit RUI-01).
     assertPlanSectionAccess(ctx.membership, plan.actions.filter((a) => a.status === "pending").map((a) => ({ type: a.type, params: a.params, denied: a.policyOutcome === "deny" })));
-    await repos.plans.confirm(tx, ctx.businessId, planId);
+    const claimed = await repos.plans.claimConfirmation(tx, ctx.businessId, planId);
+    if (!claimed) return { plan: await repos.plans.get(tx, ctx.businessId, planId), exec: NOTHING_RUN, followUp: null, alreadyConfirmed: true };
     const confirmed = await repos.plans.get(tx, ctx.businessId, planId);
     const exec = await executePlanActions(tx, ctx.businessId, confirmed, { actorUserId: ctx.userId, temporal: ctx.temporal, currency: planCtx.currency });
     await audit(tx, ctx, { action: "plan.confirm", target: { kind: "plan", id: planId }, details: { executed: exec.executed.length, deferred: exec.deferred.length } });
@@ -212,12 +228,48 @@ export async function confirmPlan(ctx: BusinessContext, planId: string) {
     const followUp = item ? await writeFollowUp(tx, ctx, item, confirmed, confirmed.summaryMd, exec.executed.length, exec.deferred.length) : null;
     // Other members' open Inbox shows the plan confirmed and the follow-up at once (audit RUI-09).
     if (item) await emit(tx, ctx, { type: "inbox.item_updated", payload: { inboxItemId: item.id, change: "plan_confirmed", planId, followUpItemId: followUp?.id ?? null } });
-    return { plan: await repos.plans.get(tx, ctx.businessId, planId), exec, followUp };
+    return { plan: await repos.plans.get(tx, ctx.businessId, planId), exec, followUp, alreadyConfirmed: false };
   });
+  if (written.alreadyConfirmed) return asSeenBy(ctx, null, { ...written, dispatch: null });
   const dispatch = written.exec.needsOrchestrator ? await dispatchPlan(ctx.temporal, ctx.businessId, planId) : null;
   if (dispatch?.queued) await repos.plans.setWorkflowId(ctx.db, ctx.businessId, planId, dispatch.workflowId);
   await syncChannelEngines(ctx, written.exec.channels);
   return asSeenBy(ctx, null, { ...written, dispatch });
+}
+
+/** A plan still waiting for "Here is what will happen", as inbox.get hands it back to whoever reopens the item. */
+export interface PendingConfirmation {
+  planId: string;
+  /** Actions outside the current policy: they need the go-ahead. */
+  asks: number;
+  /** Actions the founder takes personally (hard gates): the team prepares, they act. */
+  hardGates: number;
+  /** Actions policy denied: skipped when the plan runs. */
+  denied: number;
+  /** Whether this reader may give the go-ahead (Inbox write and write on every section the plan changes). */
+  canConfirm: boolean;
+  /** Why not, in words, when `canConfirm` is false. */
+  blockedReason: string | null;
+}
+
+/**
+ * The pending confirmation of a stored plan (audit OL-01, FR-08): the plan row (status `pending_confirmation`, each
+ * action's policy outcome) is the server's record of what needs confirming, so the Inbox can offer the go-ahead after a
+ * reload or on another device and `plan.confirm` runs it from that record. Null for a plan that is not waiting.
+ */
+export function pendingConfirmation(membership: SectionMembership, plan: PlanWithActions): PendingConfirmation | null {
+  if (plan.status !== "pending_confirmation") return null;
+  const pending = plan.actions.filter((a) => a.status === "pending");
+  const sectionRefusal = planSectionRefusal(membership, pending.map((a) => ({ type: a.type, params: a.params, denied: a.policyOutcome === "deny" })));
+  const blockedReason = !hasSectionAccess(membership, "inbox", "write") ? "Your access to the Inbox is read-only, so someone who can answer notes gives the go-ahead." : sectionRefusal;
+  return {
+    planId: plan.id,
+    asks: pending.filter((a) => a.policyOutcome === "ask").length,
+    hardGates: pending.filter((a) => a.type === "request_human_action").length,
+    denied: pending.filter((a) => a.policyOutcome === "deny").length,
+    canConfirm: blockedReason === null,
+    blockedReason,
+  };
 }
 
 /**

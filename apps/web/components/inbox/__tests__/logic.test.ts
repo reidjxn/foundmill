@@ -7,13 +7,15 @@ import {
   approvalStatus,
   describeAction,
   taskHref,
+  answerLabel,
   answeredFrom,
-  askedActionChip,
+  askChip,
   confirmationLines,
   decisionDeadline,
   decisionExpired,
   followUpLinks,
   freeTextAllowed,
+  goAheadState,
   hasAgentDesk,
   hiddenNotice,
   headerDates,
@@ -22,6 +24,7 @@ import {
   journeyForItem,
   neighbourId,
   parseInboxTab,
+  planConfirmationLines,
   planStatusLine,
   previewLine,
   refreshGate,
@@ -84,6 +87,12 @@ describe("rows (DESIGN §9)", () => {
     expect(headerTag("decision", false, true)).toMatchObject({ word: "Needs your call", tone: "bad" });
     expect(headerTag("decision", true, true)).toMatchObject({ word: "Decided" });
     expect(headerTag("update", false, false)).toMatchObject({ word: "Update" });
+  });
+  it("an answered note whose plan waits for the go-ahead still asks: Respond in the list, Needs your go-ahead on the note", () => {
+    const waiting = rowModel({ ...base, type: "decision", state: "answered", blocksContinue: false, awaitingConfirmation: true });
+    expect(waiting).toMatchObject({ needsAnswer: true, tag: { word: "Respond", tone: "bad" } });
+    expect(rowModel({ ...base, type: "decision", state: "answered", blocksContinue: false, awaitingConfirmation: false }).tag.word).toBe("Decided");
+    expect(headerTag("decision", true, false, true)).toEqual({ word: "Needs your go-ahead", tone: "warn", icon: "respond" });
   });
   it("J/K moves through the visible rows and clamps at the ends", () => {
     const ids = ["a", "b", "c"];
@@ -280,6 +289,55 @@ describe("plans", () => {
     );
     expect(links.map((l) => l.href)).toEqual([`/b/${BID}/d/growth/formation`, `/b/${BID}/d/build/plan`, `/b/${BID}/agents/ag-1/overview`, `/b/${BID}/d/build/training-ground`]);
     expect(links[0]!.label).toBe("Open the Board");
+    // A task is a task: never "Open the plan" (the decision's own plan is the Decided panel; audit FR-08).
+    expect(links[1]!.label).toBe("Open the task list");
+    // One task that ran opens on that task; several open the list.
+    const one = followUpLinks([{ id: "t", type: "create_task", params: {}, status: "done", result: { taskId: "task-7" } }], BID, departments);
+    expect(one).toEqual([{ id: "t", label: "Open the task", href: `/b/${BID}/d/build/plan?task=task-7` }]);
+    const two = followUpLinks([{ id: "t1", type: "create_task", params: {}, result: { taskId: "task-7" } }, { id: "t2", type: "create_task", params: {}, result: { taskId: "task-8" } }], BID, departments);
+    expect(two).toEqual([{ id: "t1", label: "Open the tasks", href: `/b/${BID}/d/build/plan` }]);
+  });
+  it("a stored plan's lines come from its actions' recorded outcomes (after a reload, no evaluation in memory)", () => {
+    const lines = planConfirmationLines(
+      [
+        { type: "enable_channel", params: { channel: "paid_ads" }, policyOutcome: "allow" },
+        { type: "set_budget", params: { channel: "paid_ads", amount_minor: 50_000, currency: "GBP" }, policyOutcome: "ask" },
+        { type: "request_human_action", params: { request: "Pay the supplier invoice" }, policyOutcome: null },
+      ],
+      "GBP",
+    );
+    expect(lines.map((l) => [l.label, l.outcome, l.hardGate])).toEqual([
+      ["Enable channel paid ads", "allow", false],
+      ["Set budget for paid ads", "ask", false],
+      ["Founder action: Pay the supplier invoice", "allow", true],
+    ]);
+    expect(totalCost(lines)).toEqual([{ amountMinor: 50_000, currency: "GBP" }]);
+  });
+  it("an action policy asked about waits for the go-ahead until the plan is confirmed (audit VOL-X1)", () => {
+    expect(askChip({ status: "pending_confirmation", confirmedAt: null }, { policyOutcome: "ask" })).toEqual({ word: "Needs your go-ahead", tone: "warn" });
+    expect(askChip({ status: "done", confirmedAt: "2026-10-07T15:45:00Z" }, { policyOutcome: "ask" })).toEqual({ word: "Confirmed", tone: "neutral" });
+    expect(askChip({ status: "executing", confirmedAt: null }, { policyOutcome: "ask" })).toBeNull();
+    expect(askChip({ status: "pending_confirmation", confirmedAt: null }, { policyOutcome: "allow" })).toBeNull();
+  });
+  it("Review what will happen follows the stored plan, not the page that decided it (audit OL-01, FR-08)", () => {
+    const waiting = { id: "plan-1", status: "pending_confirmation" };
+    // After a reload: only inbox.get's record, and it says this reader may give the go-ahead.
+    expect(goAheadState(waiting, { planId: "plan-1", canConfirm: true, blockedReason: null })).toEqual({ waiting: true, canConfirm: true, blockedReason: null });
+    // Just decided here, before inbox.get has caught up: the decider may confirm.
+    expect(goAheadState(waiting, null)).toEqual({ waiting: true, canConfirm: true, blockedReason: null });
+    expect(goAheadState(waiting, { planId: "plan-0", canConfirm: false, blockedReason: "Older plan" })).toMatchObject({ canConfirm: true, blockedReason: null });
+    // Someone walled from a section the plan changes, or a viewer: no button, and the reason in words.
+    expect(goAheadState(waiting, { planId: "plan-1", canConfirm: false, blockedReason: "Your access to the Inbox is read-only." })).toEqual({ waiting: true, canConfirm: false, blockedReason: "Your access to the Inbox is read-only." });
+    // Confirmed (here or elsewhere), running or done: nothing waits.
+    for (const status of ["executing", "done", "failed"]) expect(goAheadState({ id: "plan-1", status }, { planId: "plan-1", canConfirm: true, blockedReason: null })).toEqual({ waiting: false, canConfirm: false, blockedReason: null });
+    expect(goAheadState(null, null).waiting).toBe(false);
+  });
+  it("the answer reads as the Chief of Staff's when they decided on vacation (audit O-16)", () => {
+    expect(answerLabel([{ decidedByKind: "user", decidedAt: "2026-10-07T15:45:00Z" }])).toBe("Your answer");
+    expect(answerLabel([{ decidedByKind: "chief_of_staff", decidedAt: "2026-10-07T15:45:00Z" }])).toBe("Chief of Staff's answer");
+    // The latest decision speaks.
+    expect(answerLabel([{ decidedByKind: "chief_of_staff", decidedAt: "2026-10-07T15:45:00Z" }, { decidedByKind: "user", decidedAt: "2026-10-08T09:00:00Z" }])).toBe("Your answer");
+    expect(answerLabel(undefined)).toBe("Your answer");
   });
   it("summarises plan status for the answered strip", () => {
     expect(planStatusLine(null)).toBeNull();
@@ -291,14 +349,14 @@ describe("plans", () => {
   it("says an action left to the founder is confirmed only once it is (VOL-X1)", () => {
     const ask = { type: "set_budget", params: null, policyOutcome: "ask" };
     // The plan still awaits confirmation: the action has not been confirmed, whatever its own status says.
-    expect(askedActionChip({ status: "pending_confirmation" }, { ...ask, status: "pending" })).toBe("Needs your go-ahead");
-    expect(askedActionChip({ status: "executing" }, { ...ask, status: "awaiting_approval" })).toBe("Needs your go-ahead");
-    expect(askedActionChip({ status: "executing" }, { ...ask, status: "pending" })).toBe("Confirmed by you");
-    expect(askedActionChip({ status: "done" }, { ...ask, status: "done" })).toBe("Confirmed by you");
+    expect(askChip({ status: "pending_confirmation" }, { ...ask, status: "pending" })).toEqual({ word: "Needs your go-ahead", tone: "warn" });
+    expect(askChip({ status: "executing" }, { ...ask, status: "awaiting_approval" })).toEqual({ word: "Needs your go-ahead", tone: "warn" });
+    expect(askChip({ status: "executing", confirmedAt: "2026-10-12T10:00:00Z" }, { ...ask, status: "pending" })).toEqual({ word: "Confirmed", tone: "neutral" });
+    expect(askChip({ status: "done", confirmedAt: "2026-10-12T10:00:00Z" }, { ...ask, status: "done" })).toEqual({ word: "Confirmed", tone: "neutral" });
     // Turned down or skipped (it never ran), or never left to the founder: no chip.
-    expect(askedActionChip({ status: "done" }, { ...ask, status: "denied" })).toBeNull();
-    expect(askedActionChip({ status: "done" }, { ...ask, status: "skipped" })).toBeNull();
-    expect(askedActionChip({ status: "pending_confirmation" }, { ...ask, policyOutcome: "allow", status: "pending" })).toBeNull();
+    expect(askChip({ status: "done" }, { ...ask, status: "denied" })).toBeNull();
+    expect(askChip({ status: "done" }, { ...ask, status: "skipped" })).toBeNull();
+    expect(askChip({ status: "pending_confirmation" }, { ...ask, policyOutcome: "allow", status: "pending" })).toBeNull();
   });
 });
 

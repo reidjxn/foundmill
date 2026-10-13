@@ -193,6 +193,31 @@ describe("AgentDesk", () => {
     expect(onHandOff).toHaveBeenCalledWith("m4");
   });
 
+  it("a staged plan stays reviewable until it is confirmed (after a reload, from another device)", async () => {
+    const user = userEvent.setup();
+    const onHandOff = vi.fn();
+    const last = {
+      ...JUNO_HANDOFF[3]!,
+      planId: "plan-1",
+      quickReplies: [
+        { id: "thanks", label: "Thanks" },
+        { id: "whats_next", label: "What happens after?" },
+      ],
+    };
+    const { unmount } = desk({ messages: [...JUNO_HANDOFF.slice(0, 3), last], onHandOff });
+    let strip = screen.getByTestId("desk-handoff");
+    expect(strip.textContent).toContain("Plan staged. Nothing runs until you confirm it.");
+    await user.click(within(strip).getByRole("button", { name: "Review the plan" }));
+    expect(onHandOff).toHaveBeenCalledWith("m4");
+    unmount();
+
+    desk({ messages: [...JUNO_HANDOFF.slice(0, 3), { ...last, planConfirmed: true }], onHandOff });
+    strip = screen.getByTestId("desk-handoff");
+    expect(strip.textContent).toContain("Plan confirmed. The team is on it.");
+    expect(strip.getAttribute("data-confirmed")).toBe("true");
+    expect(within(strip).queryByRole("button")).toBeNull();
+  });
+
   it("never offers the hand-off action when the founder cannot act", () => {
     const last = {
       ...JUNO_HANDOFF[3]!,

@@ -45,6 +45,8 @@ export interface InboxRowInput {
   fromAgentId: string | null;
   fromUserId?: string | null;
   createdAt: Date | string;
+  /** Answered, but its plan still waits for the founder's go-ahead (inbox.list; audit OL-01): it says "Respond". */
+  awaitingConfirmation?: boolean;
 }
 
 export type RowTone = "bad" | "warn" | "info" | "good" | "neutral";
@@ -80,13 +82,17 @@ export type NoteTag = SharedNoteTag;
  * One tag per row: a won customer reads "Customer" (gold), anything waiting on the founder says "Respond", the rest
  * name their kind ("Milestone", "Update", "Report", "Decided" once a decision is answered).
  */
-export function rowTag(item: Pick<InboxRowInput, "type" | "state" | "blocksContinue">): NoteTag {
+export function rowTag(item: Pick<InboxRowInput, "type" | "state" | "blocksContinue" | "awaitingConfirmation">): NoteTag {
   return noteRowTag(item);
 }
 
-/** The reading pane's type tag: the same vocabulary, a little fuller ("Needs your call", "Customer won"). */
-export function headerTag(type: InboxItemType, answered: boolean, blocksContinue: boolean): NoteTag {
+/**
+ * The reading pane's type tag: the same vocabulary, a little fuller ("Needs your call", "Customer won", and "Needs your
+ * go-ahead" for an answered note whose plan waits for "Here is what will happen").
+ */
+export function headerTag(type: InboxItemType, answered: boolean, blocksContinue: boolean, awaitingConfirmation = false): NoteTag {
   if (type === "customer_won") return { word: "Customer won", tone: "gold", icon: "win" };
+  if (awaitingConfirmation) return { word: "Needs your go-ahead", tone: "warn", icon: "respond" };
   if (!answered && (type === "decision" || blocksContinue)) return { word: "Needs your call", tone: "bad", icon: "respond" };
   return NOTE_TYPE_TAGS[type];
 }
@@ -113,7 +119,7 @@ export function rowModel(item: InboxRowInput): InboxRowModel {
     subject: item.subject,
     preview: previewLine(item.bodyMd),
     createdAt: item.createdAt,
-    needsAnswer: !answered && (item.blocksContinue || item.type === "decision" || item.type === "customer_won"),
+    needsAnswer: item.awaitingConfirmation === true || (!answered && (item.blocksContinue || item.type === "decision" || item.type === "customer_won")),
     won: item.type === "customer_won",
     unread: item.state === "unread",
     tone: TYPE_META[item.type].tone,
@@ -419,11 +425,13 @@ export interface PlanActionLike {
   params: Record<string, unknown> | null;
   status?: string;
   policyOutcome?: string | null;
+  /** What the action produced once it ran (a task's id, a channel's). */
+  result?: Record<string, unknown> | null;
 }
 
 // The "Here is what will happen" lines live in ./confirmation, so the agent desk (mounted in every business page) can
 // use them without shipping the rest of the Inbox's logic.
-export { actionCost, confirmationLines, describeAction, totalCost, type ConfirmationLine, type EvaluationLike } from "./confirmation";
+export { actionCost, confirmationLines, describeAction, planConfirmationLines, totalCost, type ConfirmationLine, type EvaluationLike } from "./confirmation";
 
 export interface FollowUpLink {
   id: string;
@@ -485,7 +493,11 @@ export function approvalLockedReason(a: Pick<ApprovalLike, "canAnswer" | "sectio
   return `Answering this needs write access to ${section}. Someone who has it can approve or reject it.`;
 }
 
-/** Where the artefacts of a decided plan live (BUILD §11.3 "follow-up Update with links to artefacts"). */
+/**
+ * Where the artefacts of a decided plan live (BUILD §11.3 "follow-up Update with links to artefacts"). A task opens
+ * Development › Plan (the task list) on that task when the plan made exactly one, never as "the plan" (audit FR-08: the
+ * decision's own plan is the Decided panel).
+ */
 export function followUpLinks(actions: readonly PlanActionLike[], businessId: string, departments: readonly DepartmentForLinks[]): FollowUpLink[] {
   const out: FollowUpLink[] = [];
   const seen = new Set<string>();
@@ -494,12 +506,16 @@ export function followUpLinks(actions: readonly PlanActionLike[], businessId: st
     seen.add(href);
     out.push({ id, label, href });
   };
+  const taskIds = actions.flatMap((a) => (a.type === "create_task" && typeof a.result?.taskId === "string" ? [a.result.taskId] : []));
+  const tasks = actions.filter((a) => a.type === "create_task").length;
   for (const a of actions) {
     const id = a.id ?? `${a.type}-${out.length}`;
     switch (a.type) {
       case "create_task": {
         const t = moduleTab(departments, "development", "plan");
-        push(id, "Open the plan", t ? routes.department(businessId, t.slug, t.tab) : null);
+        const list = t ? routes.department(businessId, t.slug, t.tab) : null;
+        if (tasks === 1 && taskIds.length === 1) push(id, "Open the task", list ? `${list}?task=${encodeURIComponent(taskIds[0]!)}` : null);
+        else push(id, tasks === 1 ? "Open the task list" : "Open the tasks", list);
         break;
       }
       case "enable_channel":
@@ -655,6 +671,44 @@ export interface PlanLike {
   actions: readonly PlanActionLike[];
 }
 
+/**
+ * The chip beside an action policy said "ask" for: it waits for the go-ahead until the plan is confirmed, and only then
+ * reads as confirmed (audit VOL-X1: never "Confirmed" while the plan still waits). Null for every other action and for
+ * one that never ran.
+ */
+export function askChip(plan: { status: string; confirmedAt?: Date | string | null }, action: Pick<PlanActionLike, "policyOutcome"> & { status?: string }): { word: string; tone: "warn" | "neutral" } | null {
+  // An action turned down or skipped never ran: its status says so, no chip.
+  if (action.policyOutcome !== "ask" || action.status === "denied" || action.status === "skipped") return null;
+  // Still waiting on an approval (a gated call inside the plan) reads as waiting too.
+  if (plan.status === "pending_confirmation" || action.status === "awaiting_approval") return { word: "Needs your go-ahead", tone: "warn" };
+  return plan.confirmedAt ? { word: "Confirmed", tone: "neutral" } : null;
+}
+
+/** inbox.get's `confirmation`: the server's record of a plan waiting for its go-ahead (apps/api `pendingConfirmation`). */
+export interface ConfirmationLike {
+  planId: string;
+  canConfirm: boolean;
+  blockedReason: string | null;
+}
+
+/**
+ * Whether the Decided panel offers "Review what will happen" (audit OL-01, FR-08). It follows the plan's stored status,
+ * so it is there after a reload, in another tab or on another device, never only on the page that decided. Before
+ * inbox.get has caught up with a decision taken here there is no `confirmation` yet, and the decider may confirm (decide
+ * already checked their walls); once it has, it says whether this reader may, and why not.
+ */
+export function goAheadState(plan: { id: string; status: string } | null | undefined, confirmation: ConfirmationLike | null | undefined): { waiting: boolean; canConfirm: boolean; blockedReason: string | null } {
+  if (plan?.status !== "pending_confirmation") return { waiting: false, canConfirm: false, blockedReason: null };
+  if (!confirmation || confirmation.planId !== plan.id) return { waiting: true, canConfirm: true, blockedReason: null };
+  return { waiting: true, canConfirm: confirmation.canConfirm, blockedReason: confirmation.canConfirm ? null : confirmation.blockedReason };
+}
+
+/** The Decided panel's label for the answer: the founder's own, or the Chief of Staff's while they were on vacation. */
+export function answerLabel(decisions: readonly { decidedByKind?: string | null; decidedAt: Date | string }[] | undefined): string {
+  const latest = [...(decisions ?? [])].sort((a, b) => Date.parse(String(b.decidedAt)) - Date.parse(String(a.decidedAt)))[0];
+  return latest?.decidedByKind === "chief_of_staff" ? "Chief of Staff's answer" : "Your answer";
+}
+
 /** One line for the answered strip: "Done · 3 of 3 actions" / "Awaiting your confirmation" / "Running · 1 of 3". */
 export function planStatusLine(plan: PlanLike | null | undefined): { word: string; tone: "good" | "warn" | "bad" | "info" | "neutral"; detail: string } | null {
   if (!plan) return null;
@@ -674,16 +728,6 @@ export function planStatusLine(plan: PlanLike | null | undefined): { word: strin
     default:
       return { word: plan.status.replace(/_/g, " "), tone: "neutral", detail: of };
   }
-}
-
-/**
- * The chip beside an action the policy left to the founder (`ask`): "Needs your go-ahead" while the plan awaits
- * confirmation or the action still waits on an approval, "Confirmed by you" only after that; none for other actions
- * and for one that never ran (turned down or skipped: its status says so).
- */
-export function askedActionChip(plan: Pick<PlanLike, "status">, action: Pick<PlanActionLike, "status" | "policyOutcome">): string | null {
-  if (action.policyOutcome !== "ask" || action.status === "denied" || action.status === "skipped") return null;
-  return plan.status === "pending_confirmation" || action.status === "awaiting_approval" ? "Needs your go-ahead" : "Confirmed by you";
 }
 
 /** The id of the item from the pathname (`/b/<bid>/inbox/<itemId>`), or null on the list route. */

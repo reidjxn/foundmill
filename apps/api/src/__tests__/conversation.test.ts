@@ -194,8 +194,14 @@ describe("agent.conversation.send", () => {
     expect(again.planId).toBe(staged.planId);
     expect(again.source).toBe("stored");
 
+    // After a reload the desk still knows the staged plan waits (audit OL-01), so it can offer the review again.
+    const subject = { kind: "agent" as const, id: hz.A.agentId };
+    const handOffMessage = async () => (await owner().agent.conversation.get({ businessId: hz.A.businessId, subject })).messages.find((m) => m.id === reply.id)!;
+    expect(await handOffMessage()).toMatchObject({ planId: staged.planId, planStatus: "pending_confirmation" });
+
     const confirmed = await owner().plan.confirm({ businessId: hz.A.businessId, planId: staged.planId });
     expect(confirmed.exec.executed.length).toBe(3);
+    expect((await handOffMessage()).planStatus).toBe("done");
   });
 
   it("a double press on Review the plan stages one plan, not two", async () => {

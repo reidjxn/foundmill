@@ -73,6 +73,14 @@ export function confirmationLines(evaluations: readonly EvaluationLike[], curren
 }
 
 /**
+ * The lines of a stored plan (inbox.get, after a reload or on another device; audit OL-01): each action's recorded
+ * policy outcome stands in for its evaluation, so "Here is what will happen" never depends on the page that decided.
+ */
+export function planConfirmationLines(actions: readonly { type: string; params?: Record<string, unknown> | null; policyOutcome?: string | null }[], currency: string): ConfirmationLine[] {
+  return confirmationLines(actions.map((a) => ({ action: { type: a.type, params: a.params ?? null }, outcome: a.policyOutcome ?? "allow" })), currency);
+}
+
+/**
  * The total, one figure per currency in the order the lines name them: amounts in different currencies are never added
  * together (a "£300" the founder typed stays £300 beside the business's dollars). Empty when nothing costs anything.
  */

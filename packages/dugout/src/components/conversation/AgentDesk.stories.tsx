@@ -71,6 +71,16 @@ export const InboxKeys: Story = { name: "Inbox keys (Alt+1–4)", args: { keyMod
 /** The agent offers to hand work off; nothing runs until the founder reviews and confirms the plan. */
 export const HandOff: Story = { args: { messages: JUNO_HANDOFF, onHandOff: noop } };
 
+/** Staged and not yet confirmed (after a reload, say): the plan can still be reviewed from the strip. */
+export const HandOffStaged: Story = {
+  args: { messages: [...JUNO_HANDOFF.slice(0, -1), { ...JUNO_HANDOFF[JUNO_HANDOFF.length - 1]!, planId: "plan-1", quickReplies: [{ id: "thanks", label: "Thanks" }, { id: "whats_next", label: "What happens after?" }] }], onHandOff: noop },
+};
+
+/** Confirmed: the strip says so and offers nothing more. */
+export const HandOffConfirmed: Story = {
+  args: { messages: [...JUNO_HANDOFF.slice(0, -1), { ...JUNO_HANDOFF[JUNO_HANDOFF.length - 1]!, planId: "plan-1", planConfirmed: true, quickReplies: [{ id: "thanks", label: "Thanks" }, { id: "whats_next", label: "What happens after?" }] }], onHandOff: noop },
+};
+
 /** A message that did not reach the server: "Not sent" and Try again. */
 export const NotSent: Story = {
   args: {

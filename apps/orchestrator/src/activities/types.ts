@@ -353,7 +353,16 @@ export interface HolidayCheck {
 export interface HolidayDecisions {
   decided: number;
   queuedGated: number;
+  /** The items the Chief of Staff decided in this pass. */
   inboxItemIds: string[];
+  /**
+   * Plans of this vacation's decisions still to run (origin `holiday`, executing): this pass's, and any an earlier pass
+   * wrote but whose start a retry lost. The holiday workflow starts `planExecution` (`plan:<id>`) for each; one already
+   * running is left alone.
+   */
+  planIds: string[];
+  /** The items left to the founder in this pass, with the reason in words (the report lists them). */
+  waiting: { inboxItemId: string; reason: string }[];
 }
 
 export interface HolidayEnd {

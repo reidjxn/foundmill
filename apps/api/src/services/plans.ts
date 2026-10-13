@@ -15,9 +15,9 @@
 import { buildSystemPrompt, chiefOfStaff } from "@foundmill/agents";
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import { repos, type Agent, type Business, type Executor, type PlanAction as PlanActionRow, type PlanWithActions } from "@foundmill/db";
-import { compilePlanRuleBased, PlanOutput, type ModelClient, type PlanAction } from "@foundmill/models";
+import { compileOptionPlan as compileOptionPlanRules, compilePlanRuleBased, PlanOutput, type DecisionOption, type ModelClient, type PlanAction } from "@foundmill/models";
 import { evaluate, type EvaluateResult, type ToolCtxInput } from "@foundmill/policy";
-import { CHANNEL_META, CHANNEL_KEYS, ForbiddenError, MODEL_KEYS, TASK_KINDS, hasSectionAccess, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type Section, type SectionMembership, type TaskKind } from "@foundmill/shared";
+import { CHANNEL_META, CHANNEL_KEYS, ForbiddenError, MODEL_KEYS, TASK_KINDS, planActionSection, planSectionWalls, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type SectionMembership, type TaskKind } from "@foundmill/shared";
 import type { TemporalService } from "./temporal";
 import { WORKFLOWS, workflowIds } from "./temporal";
 
@@ -64,38 +64,17 @@ export async function compilePlan(models: ModelClient, text: string, ctx: PlanCo
   return { summary: result.json.summary, actions: result.json.actions, source: models.mode === "mock" ? "rules" : "model" };
 }
 
-/** A pre-written option that means "do nothing for now" (only consulted when the rules found no action in it). */
-const NO_ACTION_OPTION_RE = /^(?:not now|not yet|no thanks|skip(?: (?:it|this))?|dismiss|ignore(?: it| this)?|decline|hold off|wait(?: and see)?|do nothing|no change|stay the course|park (?:it|this)|leave (?:it|things) as (?:it is|they are)|keep (?:it|things) as (?:it is|they are))(?=$|[\s.,;:!?–—-])(?!\s+(?:on|with|to|for)\s)/i;
-
-export interface DecisionOption {
-  id: string;
-  label: string;
-  consequence?: string;
-}
+export type { DecisionOption } from "@foundmill/models";
 
 /**
- * An option click (BUILD §11.3: "option click or free text → (free text) Opus compiles a Plan"). The option was written
- * with the item, so it is compiled by the deterministic rule engine in-process, with no model call on the click path;
- * hard gates still compile to `request_human_action` only. When the rules find no action in the option's words, the
- * agent who asked gets one task to carry the choice out (a clarifying question back to the founder would undo the click),
- * and an option that means "not now" records the choice and runs nothing. Free text keeps `compilePlan` (Opus).
+ * An option click (BUILD §11.3: "option click or free text → (free text) Opus compiles a Plan"): the deterministic rule
+ * engine in-process, with no model call on the click path (`compileOptionPlan` in @foundmill/models, which the Chief of
+ * Staff's vacation decisions use too). Hard gates still compile to `request_human_action` only; free text keeps
+ * `compilePlan` (Opus).
  */
 export function compileOptionPlan(option: DecisionOption, item: { fromAgentId: string | null; subject: string }, ctx: PlanContext): CompiledPlan {
-  const label = option.label.trim();
-  const text = `${label}. ${option.consequence?.trim() ?? ""}`.trim();
   const agents = ctx.agents.map((a) => ({ id: a.id, name: a.name, role: a.role, department_id: a.departmentIds[0] ?? undefined }));
-  const rules = compilePlanRuleBased(text, { agents, defaultCurrency: ctx.currency });
-  const actions = rules.actions.filter((a) => a.type !== "reply_only");
-  if (actions.length > 0) return { summary: rules.summary, actions, source: "rules" };
-  if (NO_ACTION_OPTION_RE.test(label)) {
-    return { summary: `You chose "${label}". Nothing runs now.`, actions: [{ type: "reply_only", params: { acknowledgement: `You chose "${label}"; nothing runs now.`, option: option.id }, agent_id: null }], source: "rules" };
-  }
-  const agent = (item.fromAgentId && ctx.agents.find((a) => a.id === item.fromAgentId)) || null;
-  return {
-    summary: `${agent?.name ?? "The team"} carries out your choice: ${label}.`,
-    actions: [{ type: "create_task", params: { kind: "ops", title: label.slice(0, 80), goal: text, decided_option: option.id, decision: item.subject.slice(0, 200) }, agent_id: agent?.id ?? null }],
-    source: "rules",
-  };
+  return { ...compileOptionPlanRules(option, item, { agents, defaultCurrency: ctx.currency }), source: "rules" };
 }
 
 /** Policy attributes of each plan action, expressed as a platform tool for the Cedar evaluator. */
@@ -117,44 +96,8 @@ export const ACTION_TOOLS: Record<PlanActionType, ToolCtxInput & { internal?: bo
   reply_only: { connector: "platform", name: "reply_only", internal: true },
 };
 
-/**
- * The section each plan action changes (BUILD §11.9; audit RUI-01). A plan compiled from an Inbox decision, a confirmation
- * or an agent's hand-off runs as the person who decided it, so they need write access to every section it changes,
- * exactly as that section's own screen requires (distribution.channels.*, finance, team.agents.*, product.spec.*, crm).
- * Null: nothing beyond Inbox write (a reply, a founder task, a plain task for the agent who asked).
- */
-export function sectionForAction(action: { type: PlanActionType; params?: unknown }): Section | null {
-  const p = (action.params ?? {}) as Record<string, unknown>;
-  switch (action.type) {
-    case "enable_channel":
-    case "disable_channel":
-      return "distribution";
-    case "set_budget":
-      // A channel's budget is set on the Distribution screen; a department's or the business's is Finance's.
-      return isChannelKey(p.channel) ? "distribution" : "finance";
-    case "approve_spend":
-      return "finance";
-    case "create_task":
-      // A task does its section's work: channel work is Distribution's, code Development's, finance and legal work
-      // their own section's. Research, specialist and ops tasks are the asking agent's own work.
-      if (isChannelKey(p.channel) || p.kind === "channel") return "distribution";
-      return p.kind === "code" ? "development" : p.kind === "finance" ? "finance" : p.kind === "legal" ? "legal" : null;
-    case "update_spec":
-    case "update_roadmap":
-      return "product";
-    case "send_message":
-    case "schedule_meeting":
-      return "crm";
-    case "hire_agent":
-    case "train_agent":
-    case "set_agent_model":
-    case "create_playbook":
-      return "team";
-    case "request_human_action":
-    case "reply_only":
-      return null;
-  }
-}
+/** The section each plan action changes (BUILD §11.9; audit RUI-01): one definition in @foundmill/shared for every service. */
+export const sectionForAction = planActionSection;
 
 const ACTION_WORDS: Record<PlanActionType, string> = {
   create_task: "start a task",
@@ -175,29 +118,25 @@ const ACTION_WORDS: Record<PlanActionType, string> = {
 };
 
 /** The sections a plan's actions change that this person cannot write to, with the actions that need each. */
-export function sectionWalls(membership: SectionMembership, actions: readonly { type: PlanActionType; params?: unknown }[]): { section: Section; actionTypes: PlanActionType[] }[] {
-  const walls = new Map<Section, PlanActionType[]>();
-  for (const action of actions) {
-    const section = sectionForAction(action);
-    if (!section || hasSectionAccess(membership, section, "write")) continue;
-    const types = walls.get(section) ?? [];
-    if (!types.includes(action.type)) types.push(action.type);
-    walls.set(section, types);
-  }
-  return [...walls].map(([section, actionTypes]) => ({ section, actionTypes }));
-}
+export const sectionWalls = planSectionWalls;
 
 /**
  * Refuses (403, before anything is written) a plan that changes a section the person cannot write to: the item stays
  * open for someone who can. Policy-denied actions never run, so they are not counted.
  */
 export function assertPlanSectionAccess(membership: SectionMembership, actions: readonly { type: PlanActionType; params?: unknown; denied?: boolean }[]): void {
+  const refusal = planSectionRefusal(membership, actions);
+  if (refusal) throw new ForbiddenError(refusal);
+}
+
+/** Why this person may not run the plan (the walls `assertPlanSectionAccess` refuses on), or null when they may. */
+export function planSectionRefusal(membership: SectionMembership, actions: readonly { type: PlanActionType; params?: unknown; denied?: boolean }[]): string | null {
   const walls = sectionWalls(membership, actions.filter((a) => !a.denied));
-  if (walls.length === 0) return;
+  if (walls.length === 0) return null;
   const sections = walls.map((w) => w.section);
   const doing = [...new Set(walls.flatMap((w) => w.actionTypes))].map((t) => ACTION_WORDS[t]);
   const list = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
-  throw new ForbiddenError(`You do not have write access to ${list(sections)}, and this plan would ${list(doing)}. Someone with that access can decide it.`);
+  return `You do not have write access to ${list(sections)}, and this plan would ${list(doing)}. Someone with that access can decide it.`;
 }
 
 /**

@@ -39,11 +39,13 @@ export const NOTE_TYPE_TAGS: Record<InboxItemType, NoteTag> = {
 };
 
 /**
- * One tag per row: a won customer reads "Customer" (gold), anything waiting on the founder says "Respond", the rest
- * name their kind ("Milestone", "Update", "Report", "Decided" once a decision is answered).
+ * One tag per row: a won customer reads "Customer" (gold), anything waiting on the founder says "Respond" (an answered
+ * note whose plan still waits for their go-ahead too: inbox.list's `awaitingConfirmation`), the rest name their kind
+ * ("Milestone", "Update", "Report", "Decided" once a decision is answered).
  */
-export function noteRowTag(item: { type: InboxItemType; state: InboxState; blocksContinue: boolean }): NoteTag {
+export function noteRowTag(item: { type: InboxItemType; state: InboxState; blocksContinue: boolean; awaitingConfirmation?: boolean }): NoteTag {
   if (item.type === "customer_won") return NOTE_TYPE_TAGS.customer_won;
+  if (item.awaitingConfirmation && item.state !== "archived") return RESPOND_TAG;
   const answered = item.state === "answered" || item.state === "archived";
   if (!answered && (item.blocksContinue || item.type === "decision")) return RESPOND_TAG;
   return NOTE_TYPE_TAGS[item.type];

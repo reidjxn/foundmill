@@ -118,6 +118,34 @@ describe("inbox tabs, blocking count and decide", () => {
     expect(await repos.inbox.decisionsFor(r.db, r.A.businessId, decisionId)).toHaveLength(1);
   });
 
+  it("an answered item whose plan waits for the go-ahead stays in Respond (not blocking) until the plan is confirmed", async () => {
+    const inRespond = async (db: Parameters<typeof repos.inbox.list>[0], businessId: string) => (await repos.inbox.list(db, businessId, { tab: "respond", limit: 100 })).items.map((i) => i.id);
+    expect(await inRespond(r.db, r.A.businessId)).not.toContain(decisionId);
+    const respondBefore = (await repos.inbox.countByTab(r.db, r.A.businessId)).respond;
+    const plan = await repos.plans.create(r.db, r.A.businessId, { origin: "option", inboxItemId: decisionId, status: "pending_confirmation", actions: [{ type: "set_budget", params: { channel: "paid_ads", amount_minor: 50000 }, policyOutcome: "ask" }] });
+
+    expect(await inRespond(r.db, r.A.businessId)).toContain(decisionId);
+    expect((await repos.inbox.countByTab(r.db, r.A.businessId)).respond).toBe(respondBefore + 1);
+    // Continue stays free: the item was answered.
+    expect(await repos.inbox.countBlocking(r.db, r.A.businessId)).toBe(1);
+    const update = (await repos.inbox.list(r.db, r.A.businessId, { tab: "updates", limit: 1 })).items[0]!;
+    expect(await repos.plans.awaitingConfirmation(r.db, r.A.businessId, [decisionId, update.id])).toEqual(new Set([decisionId]));
+    expect((await repos.plans.awaitingConfirmation(r.db, r.A.businessId)).has(decisionId)).toBe(true);
+    expect((await repos.plans.awaitingConfirmation(r.db, r.B.businessId)).has(decisionId)).toBe(false);
+    // Through RLS: A's owner sees it in Respond; B's owner neither sees it nor learns that its plan waits.
+    expect(await r.as(r.A.ownerId, (tx) => inRespond(tx, r.A.businessId))).toContain(decisionId);
+    expect(await r.as(r.B.ownerId, (tx) => inRespond(tx, r.A.businessId))).toEqual([]);
+    expect((await r.as(r.B.ownerId, (tx) => repos.plans.awaitingConfirmation(tx, r.A.businessId, [decisionId]))).size).toBe(0);
+    expect((await repos.plans.awaitingConfirmation(r.db, r.B.businessId, [decisionId])).size).toBe(0);
+
+    expect(await repos.plans.statusesById(r.db, r.A.businessId, [plan.id, plan.id])).toEqual(new Map([[plan.id, "pending_confirmation"]]));
+    expect((await repos.plans.statusesById(r.db, r.B.businessId, [plan.id])).size).toBe(0);
+    await repos.plans.confirm(r.db, r.A.businessId, plan.id);
+    expect((await repos.plans.statusesById(r.db, r.A.businessId, [plan.id])).get(plan.id)).toBe("executing");
+    expect(await inRespond(r.db, r.A.businessId)).not.toContain(decisionId);
+    expect((await repos.plans.awaitingConfirmation(r.db, r.A.businessId, [decisionId])).size).toBe(0);
+  });
+
   it("markRead is idempotent and a member of A cannot read B's item", async () => {
     const [first] = (await repos.inbox.list(r.db, r.A.businessId, { tab: "updates", limit: 1 })).items;
     const read = await repos.inbox.markRead(r.db, r.A.businessId, first!.id);
@@ -207,6 +235,11 @@ describe("plans", () => {
     expect(confirmed.status).toBe("executing");
     expect(confirmed.confirmedAt).toBeInstanceOf(Date);
     await expect(repos.plans.confirm(r.db, r.A.businessId, plan.id)).rejects.toThrow(/not pending confirmation/);
+    // A second confirmation (another tab, a double press) claims nothing and changes nothing.
+    expect(await repos.plans.claimConfirmation(r.db, r.A.businessId, plan.id)).toBeNull();
+    expect((await repos.plans.get(r.db, r.A.businessId, plan.id)).confirmedAt?.getTime()).toBe(confirmed.confirmedAt!.getTime());
+    // Scoped: another business can neither claim it nor learn it exists.
+    expect(await repos.plans.claimConfirmation(r.db, r.B.businessId, plan.id)).toBeNull();
 
     const next = await repos.plans.nextPendingAction(r.db, r.A.businessId, plan.id);
     expect(next?.type).toBe("enable_channel");
