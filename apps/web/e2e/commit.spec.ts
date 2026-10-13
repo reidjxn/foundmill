@@ -36,6 +36,31 @@ test.describe("commit", () => {
     await expect(page.getByLabel(/Business name/)).not.toHaveValue("Stripe Ledger");
   });
 
+  test("domain availability comes from the checker, says where each answer came from, and never invents a status (#458)", async ({ page }) => {
+    const domains = page.getByTestId("domain-checks");
+    const name = page.getByLabel(/Business name/);
+    // This stack runs mock mode: a fixed list of well-known names is taken, everything else is free, and the chip says Mock.
+    await name.fill("Northwind");
+    await expect(domains.locator('[data-domain="northwind.com"]')).toHaveAttribute("data-status", "taken", { timeout: LONG });
+    await expect(domains.locator('[data-domain="northwind.com"]')).toHaveAttribute("data-provenance", "Mock");
+    await expect(page.getByTestId("domain-provenance")).toHaveText("Mock");
+    await name.fill("Quillfeather Works");
+    await expect(domains.locator('[data-domain="quillfeatherworks.com"]')).toHaveAttribute("data-status", "available", { timeout: LONG });
+    // A real registry answer is never dressed as an Estimate, and there is no premium status.
+    await expect(domains).not.toContainText("Premium");
+    await expect(page.getByTestId("domain-checked")).toContainText(/Checked \d{1,2}:\d{2} [AP]M/);
+    await expect(page.getByTestId("domain-note")).toContainText("Availability is a snapshot; registering the domain happens at a registrar. We never buy domains for you.");
+    // A name the checker cannot answer reads "Couldn't check" with a Retry, and committing stays possible.
+    await name.fill("unknown-brand");
+    const row = domains.locator('[data-domain="unknown-brand.com"]');
+    await expect(row).toHaveAttribute("data-status", "unknown", { timeout: LONG });
+    await expect(row).toContainText("Couldn't check");
+    await expect(row.getByTestId("domain-retry")).toBeVisible();
+    await expect(page.getByTestId("take-charge")).toBeEnabled();
+    // The trademark screen is labeled as an estimate, not clearance.
+    await expect(page.getByTestId("trademark-screen")).toContainText("Trademark quick screen (Estimate, not legal clearance)");
+  });
+
   test("logo: the initials mark until one is chosen; generate four marks and pick one; the contrast check reads the primary", async ({ page }) => {
     const preview = page.getByTestId("logo-preview").locator("[data-logo]");
     await expect(preview).toHaveAttribute("data-logo", "initials");

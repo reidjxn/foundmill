@@ -9,6 +9,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { commitIdea, squadPreview } from "../services/commit";
 import { conceptPersona, conceptStarters, replyAboutConcept } from "../services/conversation";
+import { checkDomainAvailability, DomainCheckInput } from "../services/domains";
 import { linkableImportJob } from "../services/foundations";
 import { draftEventStream, draftIdeas, isMeta, readMeta, takeIdeationAllowance, withMeta, type DraftEvent } from "../services/ideation";
 import { importJobKey } from "../services/import";
@@ -252,6 +253,13 @@ export const ideaRouter = router({
 
   /** Restore a discarded card (the tray's Restore and the notice's Undo): back in the deck, every action works again. */
   restore: protectedProcedure.input(z.object({ ideaId: Id })).mutation(({ ctx, input }) => repos.ideas.restore(ctx.db, ctx.userId, input.ideaId)),
+
+  /**
+   * Which domains are free for a business name (or up to eight candidates), asked of the registries through the gateway:
+   * `{ domain, status, provenance, checkedAt, registrar?, expires?, reason? }` per name, in the asked order. `unknown` (with
+   * a reason) when a registry could not answer; never a guess. A snapshot: nothing is registered or reserved.
+   */
+  domainCheck: protectedProcedure.input(DomainCheckInput).use(modelLimited("domains")).mutation(({ ctx, input }) => checkDomainAvailability(ctx, ctx.userId, input)),
 
   /** What "Take charge" will seed for an archetype (Commit screen preview). */
   preview: protectedProcedure.input(z.object({ archetype: Archetype })).query(({ input }) => squadPreview(input.archetype)),

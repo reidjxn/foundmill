@@ -3,7 +3,9 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest";
 import { CONCEPT_ATTRIBUTE_KEYS, TooltipProvider } from "@foundmill/dugout";
 import { TRPCClientError } from "@trpc/client";
-import { CommitForm, archetypeParam, commitSteps, departmentColour, importHref, upgradeHrefOf, type CommitLogoApi } from "../commit/CommitScreen";
+import { domainCandidates } from "@foundmill/shared";
+import { CommitForm, archetypeParam, commitSteps, departmentColour, importHref, upgradeHrefOf, type CommitDomainApi, type CommitLogoApi } from "../commit/CommitScreen";
+import type { DomainCheck } from "../commit/naming";
 import { IMPORT_STEPS, STUDIO_STEPS } from "../StudioFrame";
 import { META_KIND, type IdeaLike } from "../ideate/concepts";
 
@@ -48,10 +50,21 @@ function fakeLogoApi(over: Partial<CommitLogoApi> = {}): CommitLogoApi & { gener
   } as never;
 }
 
+const CHECKED_AT = "2026-10-13T15:45:00.000Z";
+const answer = (domain: string, status: DomainCheck["status"] = "available", over: Partial<DomainCheck> = {}): DomainCheck => ({ domain, status, provenance: "Registry", estimate: false, checkedAt: CHECKED_AT, ...over });
+
+/** `idea.domainCheck` answered from the registry: every candidate available unless `statuses` says otherwise. */
+function fakeDomainApi(statuses: Record<string, Partial<DomainCheck>> = {}, over: Partial<CommitDomainApi> = {}): CommitDomainApi & { check: ReturnType<typeof vi.fn> } {
+  return {
+    check: vi.fn(async (input: { name: string } | { domains: string[] }) => ("name" in input ? domainCandidates(input.name) : input.domains).map((d) => answer(d, "available", statuses[d]))),
+    ...over,
+  } as never;
+}
+
 function renderForm(onCommit = vi.fn(), extra: Partial<React.ComponentProps<typeof CommitForm>> = {}) {
   render(
     <TooltipProvider>
-      <CommitForm idea={idea} viewer={{ email: null }} currency="EUR" onCommit={onCommit} logoApi={fakeLogoApi()} {...extra} />
+      <CommitForm idea={idea} viewer={{ email: null }} currency="EUR" onCommit={onCommit} logoApi={fakeLogoApi()} domainApi={fakeDomainApi()} {...extra} />
     </TooltipProvider>,
   );
   return onCommit;
@@ -70,27 +83,23 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(screen.getByTestId("kit-contrast").dataset.passes).toBe("true");
   });
 
-  it("screens domains and trademarks after the name settles", async () => {
+  it("screens the trademark after the name settles, as an Estimate and not a registry search", async () => {
     vi.useFakeTimers();
     try {
       renderForm();
       await act(async () => {
         vi.advanceTimersByTime(500);
       });
-      expect(document.querySelectorAll("[data-domain]")).toHaveLength(5);
-      expect(document.querySelector('[data-domain="ledgerly.com"]')).toBeTruthy();
       expect(document.querySelectorAll("[data-registry]")).toHaveLength(2);
-      expect(screen.getAllByText("Estimate").length).toBeGreaterThan(0);
-      // The trademark screen carries the Estimate chip beside its label, like the Domains column (audit WEB-11).
+      expect(screen.getByTestId("trademark-screen").textContent).toMatch(/Trademark quick screen \(Estimate, not legal clearance\)/);
       expect(screen.getByTestId("trademark-provenance").textContent).toMatch(/Estimate/);
       // "Ledgerly" starts like the known mark "ledger": said about that list, with the mark named (nothing invented).
       expect(document.querySelector("[data-registry]")?.textContent).toMatch(/LEDGER.*Close to a known mark/);
-      expect(screen.getByTestId("trademark-caveat").textContent).toMatch(/not a registry search/);
+      expect(screen.getByTestId("trademark-caveat").textContent).toMatch(/A heuristic.*not a registry search/);
     } finally {
       vi.useRealTimers();
     }
   });
-
   it("changes the default spend cap with the business mode until the founder edits it", () => {
     renderForm();
     fireEvent.click(screen.getByLabelText(/Automated/));
@@ -258,6 +267,234 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(ids).toEqual(IMPORT_STEPS.map((s) => s.id));
     expect(ids).not.toContain("ideate");
     expect(document.querySelector('[data-step-item="import"] a')?.getAttribute("href")).toBe("/new/import?job=job-1");
+  });
+});
+
+/** Lets the debounce fire and the promises settle. */
+async function settle(ms = 500) {
+  await act(async () => {
+    vi.advanceTimersByTime(ms);
+  });
+  await act(async () => {});
+}
+
+const domainsBox = () => screen.getByTestId("domain-checks");
+const rowFor = (domain: string) => domainsBox().querySelector(`[data-domain="${domain}"]`) as HTMLElement;
+
+describe("CommitForm domain checker (audit #458: a real lookup, never a guess)", () => {
+  it("asks the registry once the name settles and draws Available, Taken and 'Couldn't check' with where each came from", async () => {
+    vi.useFakeTimers();
+    try {
+      const domainApi = fakeDomainApi({ "ledgerly.com": { status: "taken", registrar: "MarkMonitor Inc.", expires: "2028-09-14" }, "ledgerly.io": { status: "unknown", reason: "The registry is busy. Try again in a minute." } });
+      renderForm(vi.fn(), { domainApi });
+      expect(domainsBox().textContent).toMatch(/Checking/);
+      await settle();
+      expect(domainApi.check).toHaveBeenCalledTimes(1);
+      expect(domainApi.check.mock.calls[0]![0]).toEqual({ name: "Ledgerly" });
+      expect(domainApi.check.mock.calls[0]![1]).toBeInstanceOf(AbortSignal);
+      expect(domainsBox().querySelectorAll("[data-domain]")).toHaveLength(5);
+      expect(rowFor("ledgerly.com").dataset.status).toBe("taken");
+      expect(rowFor("ledgerly.com").textContent).toMatch(/Taken/);
+      expect(rowFor("ledgerly.com").title).toBe("Registered with MarkMonitor Inc., expires 2028-09-14");
+      expect(rowFor("ledgerly.co").textContent).toMatch(/Available/);
+      expect(rowFor("ledgerly.io").dataset.status).toBe("unknown");
+      expect(rowFor("ledgerly.io").textContent).toMatch(/Couldn't check/);
+      expect(rowFor("ledgerly.io").textContent).toMatch(/The registry is busy/);
+      expect(rowFor("ledgerly.io").querySelector('[data-testid="domain-retry"]')).toBeTruthy();
+      expect(rowFor("ledgerly.com").querySelector('[data-testid="domain-retry"]')).toBeNull();
+      // Registry answers: a "Registry" chip, no Estimate chip anywhere in the Domains column, and the time it was checked.
+      expect([...domainsBox().querySelectorAll('[data-testid="domain-provenance"]')].map((c) => c.textContent)).toEqual(["Registry"]);
+      expect(domainsBox().querySelector('[data-provenance="estimate"]')).toBeNull();
+      expect(domainsBox().textContent).not.toMatch(/Estimate/);
+      expect(screen.getByTestId("domain-checked").textContent).toMatch(/^Checked \d{1,2}:\d{2} (AM|PM)\.\s*$/);
+      expect(screen.getByTestId("domain-note").textContent).toContain("Availability is a snapshot; registering the domain happens at a registrar. We never buy domains for you.");
+      // Premium is not claimed anywhere: the registry cannot tell it.
+      expect(domainsBox().textContent).not.toMatch(/Premium/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a DNS answer reads 'DNS (Estimate)'; the mock reads 'Mock'", async () => {
+    vi.useFakeTimers();
+    try {
+      const domainApi = fakeDomainApi({
+        "ledgerly.io": { provenance: "DNS", estimate: true, reason: "It has no DNS records. This TLD has no public registry lookup, so this is an estimate." },
+        "ledgerly.co": { provenance: "DNS", estimate: true, status: "taken" },
+        "ledgerly.com": { provenance: "Mock" },
+      });
+      renderForm(vi.fn(), { domainApi });
+      await settle();
+      expect([...domainsBox().querySelectorAll('[data-testid="domain-provenance"]')].map((c) => c.textContent)).toEqual(["Registry", "DNS (Estimate)", "Mock"]);
+      expect(rowFor("ledgerly.io").dataset.provenance).toBe("DNS");
+      expect(rowFor("ledgerly.io").textContent).toMatch(/this is an estimate/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("debounces: typing asks once, for the final name", async () => {
+    vi.useFakeTimers();
+    try {
+      const domainApi = fakeDomainApi();
+      renderForm(vi.fn(), { domainApi });
+      const input = screen.getByLabelText(/Business name/);
+      for (const value of ["N", "No", "Nor", "Nort", "Northwind HQ"]) {
+        fireEvent.change(input, { target: { value } });
+        await act(async () => {
+          vi.advanceTimersByTime(100);
+        });
+      }
+      expect(domainApi.check).not.toHaveBeenCalled();
+      await settle();
+      expect(domainApi.check).toHaveBeenCalledTimes(1);
+      expect(domainApi.check.mock.calls[0]![0]).toEqual({ name: "Northwind HQ" });
+      expect(rowFor("northwindhq.com")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a slow answer for an old name never overwrites the newer list, and the old request is cancelled", async () => {
+    vi.useFakeTimers();
+    try {
+      let releaseOld!: (rows: DomainCheck[]) => void;
+      const signals: AbortSignal[] = [];
+      const domainApi = fakeDomainApi(
+        {},
+        {
+          check: vi.fn((input: { name: string } | { domains: string[] }, signal?: AbortSignal) => {
+            signals.push(signal!);
+            if ("name" in input && input.name === "Ledgerly") return new Promise<DomainCheck[]>((resolve) => (releaseOld = resolve));
+            return Promise.resolve(("name" in input ? domainCandidates(input.name) : input.domains).map((d) => answer(d)));
+          }),
+        },
+      );
+      renderForm(vi.fn(), { domainApi });
+      await settle(); // the first name is asked and is still waiting
+      expect(domainApi.check).toHaveBeenCalledTimes(1);
+      fireEvent.change(screen.getByLabelText(/Business name/), { target: { value: "Northwind" } });
+      // The old rows are not shown for the new name while it is checked.
+      expect(domainsBox().querySelector("[data-domain]")).toBeNull();
+      await settle();
+      expect(signals[0]!.aborted).toBe(true);
+      expect(rowFor("northwind.com")).toBeTruthy();
+      // The old answer arrives late, as taken: it is dropped.
+      await act(async () => {
+        releaseOld(domainCandidates("Ledgerly").map((d) => answer(d, "taken")));
+      });
+      expect(rowFor("northwind.com").dataset.status).toBe("available");
+      expect(domainsBox().querySelector('[data-domain="ledgerly.com"]')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("when the call itself fails every row says 'Couldn't check' with a Retry that asks for that domain only", async () => {
+    vi.useFakeTimers();
+    try {
+      let fail = true;
+      const domainApi = fakeDomainApi(
+        {},
+        {
+          check: vi.fn(async (input: { name: string } | { domains: string[] }) => {
+            if (fail) throw new Error("gateway down");
+            return ("name" in input ? domainCandidates(input.name) : input.domains).map((d) => answer(d));
+          }),
+        },
+      );
+      renderForm(vi.fn(), { domainApi });
+      await settle();
+      const rows = [...domainsBox().querySelectorAll("[data-domain]")] as HTMLElement[];
+      expect(rows).toHaveLength(5);
+      for (const row of rows) {
+        expect(row.dataset.status).toBe("unknown");
+        expect(row.textContent).toMatch(/Couldn't check/);
+        expect(row.querySelector('[data-testid="domain-retry"]')).toBeTruthy();
+      }
+      // No invented status, no provenance chip, no time, no Estimate.
+      expect(domainsBox().querySelector('[data-testid="domain-provenance"]')).toBeNull();
+      expect(domainsBox().querySelector('[data-testid="domain-checked"]')).toBeNull();
+      expect(domainsBox().textContent).not.toMatch(/Available|Taken|Estimate/);
+      // Retry one: it asks for that domain only, and only that row changes.
+      fail = false;
+      fireEvent.click(rowFor("ledgerly.ai").querySelector('[data-testid="domain-retry"]')!);
+      await act(async () => {});
+      expect(domainApi.check.mock.calls.at(-1)![0]).toEqual({ domains: ["ledgerly.ai"] });
+      expect(rowFor("ledgerly.ai").dataset.status).toBe("available");
+      expect(rowFor("ledgerly.com").dataset.status).toBe("unknown");
+      expect(screen.getByTestId("domain-checked").textContent).toMatch(/Checked/);
+      // A retry that fails again keeps the row as it was, with its Retry.
+      fail = true;
+      fireEvent.click(rowFor("ledgerly.io").querySelector('[data-testid="domain-retry"]')!);
+      await act(async () => {});
+      expect(rowFor("ledgerly.io").dataset.status).toBe("unknown");
+      expect(rowFor("ledgerly.io").querySelector('[data-testid="domain-retry"]')).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a Retry answered after the name changed is dropped", async () => {
+    vi.useFakeTimers();
+    try {
+      let release!: (rows: DomainCheck[]) => void;
+      const domainApi = fakeDomainApi(
+        { "ledgerly.io": { status: "unknown", reason: "busy" } },
+        {
+          check: vi.fn((input: { name: string } | { domains: string[] }) => {
+            if ("domains" in input) return new Promise<DomainCheck[]>((resolve) => (release = resolve));
+            return Promise.resolve(domainCandidates(input.name).map((d) => answer(d, d.endsWith(".io") ? "unknown" : "available", d.endsWith(".io") ? { reason: "busy" } : {})));
+          }),
+        },
+      );
+      renderForm(vi.fn(), { domainApi });
+      await settle();
+      fireEvent.click(rowFor("ledgerly.io").querySelector('[data-testid="domain-retry"]')!);
+      fireEvent.change(screen.getByLabelText(/Business name/), { target: { value: "Ledgerlyx" } });
+      await settle();
+      await act(async () => {
+        release([answer("ledgerly.io", "taken")]);
+      });
+      expect(domainsBox().querySelector('[data-domain="ledgerly.io"]')).toBeNull();
+      expect(rowFor("ledgerlyx.io").dataset.status).toBe("unknown");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks nothing for an empty name or one that cannot make a domain, and says so", async () => {
+    vi.useFakeTimers();
+    try {
+      const domainApi = fakeDomainApi();
+      renderForm(vi.fn(), { domainApi });
+      await settle();
+      expect(domainApi.check).toHaveBeenCalledTimes(1);
+      fireEvent.change(screen.getByLabelText(/Business name/), { target: { value: "日本" } });
+      await settle();
+      expect(domainApi.check).toHaveBeenCalledTimes(1);
+      expect(domainsBox().textContent).toMatch(/Add letters or numbers/);
+      fireEvent.change(screen.getByLabelText(/Business name/), { target: { value: "" } });
+      await settle();
+      expect(domainsBox().textContent).toMatch(/Type a name to check domains/);
+      expect(domainApi.check).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("any status still lets the founder commit", async () => {
+    vi.useFakeTimers();
+    try {
+      const onCommit = vi.fn();
+      renderForm(onCommit, { domainApi: fakeDomainApi({ "ledgerly.com": { status: "taken" } }) });
+      await settle();
+      expect(rowFor("ledgerly.com").dataset.status).toBe("taken");
+      fireEvent.click(screen.getByTestId("take-charge"));
+      expect(onCommit).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -10,6 +10,7 @@ import { createAnthropicConnector } from "./connectors/anthropic";
 import { createBolagsverketConnector } from "./connectors/bolagsverket";
 import { createCloudflareDnsConnector } from "./connectors/cloudflare_dns";
 import { createCompaniesHouseConnector } from "./connectors/companies_house";
+import { createDomainsConnector } from "./connectors/domains";
 import { createDropboxSignConnector } from "./connectors/dropbox_sign";
 import { createE2bConnector } from "./connectors/e2b";
 import { createEcbRatesConnector } from "./connectors/ecb_rates";
@@ -45,6 +46,7 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   e2b: createE2bConnector,
   dropbox_sign: createDropboxSignConnector,
   ecb_rates: createEcbRatesConnector,
+  domains: createDomainsConnector,
   web: createWebConnector,
   stripe: createStripeConnector,
   sendgrid: createSendgridConnector,

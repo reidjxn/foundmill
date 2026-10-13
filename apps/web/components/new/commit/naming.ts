@@ -3,12 +3,14 @@
  *
  * Name suggestions, domain candidates, the USPTO/EUIPO quick screen ("screen, not legal clearance"), hex handling,
  * the kit-on-primary contrast check (APCA Lc ≥ 75 from Dugout), colour extraction from an uploaded logo's pixels, and
- * the mode/archetype catalogues. The domain and trademark screens are local heuristics: no registrar or trademark
- * registry is asked, so every result carries `provenance: "Estimate"` and the screen shows the Estimate chip beside it.
+ * the mode/archetype catalogues. Domains are looked up by the api through the gateway (`idea.domainCheck`: the registry
+ * answers, never a guess), so this file only holds the shapes and the rows the screen draws. The trademark screen is a
+ * local heuristic: no trademark registry is asked, so every result carries `provenance: "Estimate"` and the screen shows
+ * the Estimate chip beside it.
  */
 import { LIMITS } from "@foundmill/config";
 import { apcaLc, createRng, hexToRgb, hslToRgb, isHexColour, kitOnPrimaryDetail, rgbToHex, rgbToHsl, type Kit } from "@foundmill/dugout";
-import { ARCHETYPE_LABELS, slugify, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
+import { ARCHETYPE_LABELS, domainCandidates, domainSlug, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
 import type { LogoDraft } from "@/lib/logo";
 
 export const HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -67,40 +69,45 @@ export function nameSuggestions(title: string, pitch: string, archetype: Archety
 
 /* ---------- domains ---------- */
 
-export const DOMAIN_TLDS = [".com", ".io", ".co", ".app", ".ai"] as const;
+// One definition of what a name becomes and which names are looked up, shared with the api and the gateway.
+export { domainCandidates, domainSlug };
 
-export function domainSlug(name: string): string {
-  if (!name.trim()) return "";
-  return slugify(name).replace(/-/g, "");
-}
+export type DomainStatus = "available" | "taken" | "unknown";
 
-export function domainCandidates(name: string): string[] {
-  const slug = domainSlug(name);
-  if (!slug) return [];
-  return DOMAIN_TLDS.map((tld) => `${slug}${tld}`);
-}
-
-export type DomainStatus = "available" | "taken" | "premium";
+/** Where an answer came from: the registry (RDAP), DNS (an estimate: the TLD has no registry lookup), or the mock. */
+export type DomainProvenance = "Registry" | "DNS" | "Mock";
 
 export interface DomainCheck {
   domain: string;
   status: DomainStatus;
-  /** Local heuristics are estimates; a registrar answer is "Registrar". */
-  provenance: "Estimate" | "Registrar";
+  /** Null for a row nobody answered (the checker could not be reached). */
+  provenance: DomainProvenance | null;
+  /** True for a DNS answer: it is shown with the Estimate label. */
+  estimate: boolean;
+  /** ISO time of the answer; null when there was none. */
+  checkedAt: string | null;
+  registrar?: string;
+  expires?: string;
+  /** Why the status is unknown, or what an estimate rests on. */
+  reason?: string;
 }
 
-const COMMON_WORDS = new Set(["app", "cloud", "shop", "store", "bank", "pay", "mail", "news", "home", "work", "team", "data", "code", "labs", "studio", "base", "get", "my", "the", "go", "one", "hub", "box", "bit", "net", "web", "air", "sky", "sun", "fit", "run", "ledger", "northwind"]);
+export const DOMAIN_STATUS_WORDS: Record<DomainStatus, string> = { available: "Available", taken: "Taken", unknown: "Couldn't check" };
 
-/** Deterministic screen: short or common names read as taken on .com, long specific ones as available. */
-export function screenDomain(domain: string): DomainCheck {
-  const [label = "", tld = ""] = domain.split(/\.(?=[a-z]+$)/);
-  const rng = createRng(`domain:${domain}`);
-  const common = COMMON_WORDS.has(label) || label.length <= 4;
-  let status: DomainStatus;
-  if (tld === "com") status = common ? "taken" : label.length <= 7 ? (rng.bool(0.6) ? "taken" : "premium") : rng.bool(0.25) ? "taken" : "available";
-  else if (tld === "io" || tld === "ai") status = common ? (rng.bool(0.7) ? "taken" : "premium") : rng.bool(0.2) ? "taken" : "available";
-  else status = common ? (rng.bool(0.4) ? "taken" : "available") : "available";
-  return { domain, status, provenance: "Estimate" };
+/** The chip beside an answer: "Registry", "DNS (Estimate)" or "Mock". */
+export function domainProvenanceWord(provenance: DomainProvenance): string {
+  return provenance === "DNS" ? "DNS (Estimate)" : provenance;
+}
+
+/** Under the list, always: what an answer is and is not. */
+export const DOMAIN_NOTE = "Availability is a snapshot; registering the domain happens at a registrar. We never buy domains for you.";
+
+/**
+ * Rows for candidates nobody answered (the api call failed): every one reads "Couldn't check" with a reason. Nothing is
+ * guessed from the name; the founder retries, or commits anyway.
+ */
+export function couldNotCheck(domains: readonly string[], reason = "The domain checker did not answer."): DomainCheck[] {
+  return domains.map((domain) => ({ domain, status: "unknown", provenance: null, estimate: false, checkedAt: null, reason }));
 }
 
 /* ---------- trademark quick screen ---------- */

@@ -69,6 +69,7 @@ describe("each model-backed procedure is limited", () => {
     { name: "training", who: "user", call: () => as(hz.A.ownerId).agent.model.set({ businessId: A(), agentId: hz.A.agentId, modelKey: "sonnet" }) },
     { name: "continue", who: "business", call: () => as(hz.A.ownerId).business.continue({ businessId: A() }) },
     { name: "lookup", who: "user", call: () => as(hz.A.ownerId).legal.import.lookup({ businessId: A(), country: "gb", regNo: "12345678" }) },
+    { name: "domains", who: "user", call: () => as(hz.A.ownerId).idea.domainCheck({ name: "Ledgerly" }) },
   ];
   for (const c of cases) {
     it(`${c.name} (${c.who})`, async () => {

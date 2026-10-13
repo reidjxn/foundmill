@@ -27,6 +27,9 @@ const gateway: ApiGatewayClient = {
   async createCheckout() {
     throw new Error("no checkouts in these tests");
   },
+  async checkDomains() {
+    throw new Error("no domain checks in these tests");
+  },
 };
 
 describe("integrations.connect for a live GitHub App", () => {
