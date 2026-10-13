@@ -1,7 +1,9 @@
 "use client";
 /**
  * Messages on /network: the founder's threads on the left (with an unread count each), the open thread on the right
- * with a reply box. Messages are human to human: only the signed-in founder's own Send writes one (`live.messages.send`);
+ * with a reply box. A thread is named by the people in it, never by its subject: the subject is whatever the first sender
+ * typed, so it is shown as secondary text and cannot pose as the platform or as someone else (audit GLS2F-06, LS2-04).
+ * Messages are human to human: only the signed-in founder's own Send writes one (`live.messages.send`);
  * agents may draft, never send. Opening a thread marks it read on the server, then the counts are refreshed.
  *
  * The thread pane says who is in it (and who left) and has a More menu: mute (no badge, no Inbox note), leave, ask a
@@ -31,7 +33,7 @@ import {
   useToast,
   type ConversationMessage,
 } from "@foundmill/dugout";
-import { joinNames, leftNote, otherParticipants, threadTitle } from "@/lib/live";
+import { joinNames, leftNote, otherParticipants, threadParticipants, threadSubject, threadTitle } from "@/lib/live";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useAskToConnect, useConnectStates } from "./connect";
@@ -145,7 +147,10 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
   }, [messagesQ.data, people, viewerId]);
 
   const titleOf = (t: ThreadRow) => threadTitle(t, viewerId, (id) => people.person(id));
-  const withName = selection?.kind === "new" ? people.name(selection.userId) : thread ? titleOf(thread) : "";
+  // Everyone else in the open conversation, by name: the header, the label and the placeholder all say who will read it.
+  const withName = selection?.kind === "new" ? people.name(selection.userId) : thread ? threadParticipants(thread, viewerId, (id) => people.person(id)) : "";
+  const subject = thread ? threadSubject(thread) : null;
+  const headCount = thread ? otherParticipants(thread, viewerId).length : 1;
   const leftLine = thread ? leftNote(thread.leftIds ?? [], (id) => people.person(id)) : null;
   const closed = selection?.kind === "thread" && pane && !pane.canSend ? (CLOSED_COPY[pane.closedReason ?? "closed"] ?? CLOSED_COPY.closed) : null;
 
@@ -210,7 +215,10 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
                     <Avatar size={24} name={people.name(others[0] ?? "")} />
                     <span className="min-w-0 flex-1">
                       <span className={cn("block truncate text-primary", t.unread > 0 && !t.muted ? "t-body-strong" : "text-body")}>{titleOf(t)}</span>
-                      <span className="block truncate text-small text-secondary">{t.lastMessageAt ? formatRelative(t.lastMessageAt) : "No messages yet"}</span>
+                      <span className="flex gap-1 text-small text-secondary">
+                        {threadSubject(t) ? <span className="min-w-0 truncate">{threadSubject(t)}</span> : null}
+                        <span className="shrink-0">{threadSubject(t) ? "· " : ""}{t.lastMessageAt ? formatRelative(t.lastMessageAt) : "No messages yet"}</span>
+                      </span>
                     </span>
                     {t.muted ? <Icon icon={BellOff} size="inline" className="text-tertiary" label="Muted" /> : null}
                     {t.unread > 0 ? <Chip tone={t.muted ? "neutral" : "info"}>{t.unread} new</Chip> : null}
@@ -231,9 +239,9 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
           {selection ? (
             <>
               <div className="flex h-8 shrink-0 items-center gap-2 border-b border-subtle px-panel-pad">
-                <span className="t-body-strong min-w-0 truncate text-primary">{withName}</span>
-                {thread?.subject && thread.subject.trim() && thread.subject !== withName ? <span className="truncate text-small text-secondary">{thread.subject}</span> : null}
-                {pane && pane.participants.length > 1 ? <span className="truncate text-small text-secondary" data-testid="thread-people">With {joinNames(pane.participants.map((p) => people.person(p.userId)))}</span> : null}
+                <span className="t-body-strong min-w-0 truncate text-primary" title={withName}>{withName}</span>
+                {headCount > 1 ? <Chip tone="neutral">{headCount + 1} people</Chip> : null}
+                {subject ? <span className="truncate text-small text-secondary" title={subject}>{subject}</span> : null}
                 {muted ? <Chip tone="neutral" icon={BellOff}>Muted</Chip> : null}
                 {selection.kind === "thread" && pane ? (
                   <span className="ml-auto flex shrink-0 items-center">

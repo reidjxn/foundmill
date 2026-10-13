@@ -43,8 +43,10 @@ test.describe("login", () => {
 
   test("signing in never leaves this origin, even for a next a browser reads as another host", async ({ page, baseURL }) => {
     const origin = new URL(baseURL ?? "http://localhost:3000").origin;
-    // "/\evil.example" and "/<tab>/evil.example" resolve to https://evil.example/ with `new URL(next, here)`.
-    for (const next of ["%2F%5Cevil.example", "%2F%09%2Fevil.example"]) {
+    // "/\evil.example" and "/<tab>/evil.example" resolve to https://evil.example/ with `new URL(next, here)`; the
+    // dot-segment forms collapse to the path "//evil.example", which Next's proxy turns into a protocol-relative Location
+    // (audit PAS-1).
+    for (const next of ["%2F%5Cevil.example", "%2F%09%2Fevil.example", "%2F.%2F%2Fevil.example", "%2F..%2F%2Fevil.example", "%2F%252e%252e%2F%2Fevil.example", "%2F..%2F%2Fevil.example%2Fphish%3Fa%3D1"]) {
       const signIn = await page.request.get(`/auth/dev?next=${next}`, { maxRedirects: 0 });
       expect(signIn.status(), next).toBe(303);
       expect(new URL(signIn.headers().location ?? "", origin).origin, next).toBe(origin);
@@ -52,7 +54,28 @@ test.describe("login", () => {
       const signedIn = await page.request.get(`/login?next=${next}`, { maxRedirects: 0 });
       expect(signedIn.status(), next).toBe(307);
       expect(new URL(signedIn.headers().location ?? "", origin).origin, next).toBe(origin);
+      expect(signedIn.headers().location ?? "", next).not.toMatch(/^\/\//);
     }
+  });
+
+  test("GET /auth/signout does not sign anyone out: only the sign-out form's POST does (audit PAS-8)", async ({ page }) => {
+    await openBusiness(page);
+    const get = await page.request.get("/auth/signout", { maxRedirects: 0 });
+    expect([404, 405]).toContain(get.status());
+    // Still signed in: the business opens.
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
+    await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+  });
+
+  test("signing out in one tab sends the browser's other tabs to sign-in, and closes their stream socket (audit RES-08)", async ({ page, context }) => {
+    await openBusiness(page);
+    const other = await context.newPage();
+    await other.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
+    await expect(other.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+    await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Sign out" }).click();
+    await expect(page).toHaveURL(/\/login$/, { timeout: LONG });
+    await expect(other).toHaveURL(/\/login\?next=/, { timeout: LONG });
+    await expect(other.getByTestId("app-shell")).toHaveCount(0);
   });
 });
 

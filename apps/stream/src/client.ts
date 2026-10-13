@@ -9,6 +9,10 @@
  * terminal output); the focused tile gets every event as it arrives. A per-channel buffer cap drops the oldest
  * events of an unfocused channel when a tab is far behind.
  *
+ * The token travels in the `foundmill.bearer.*` subprotocol, never the URL (SEC-12). Before it expires the client
+ * fetches a fresh one and sends it on the open socket (`{ t: "auth" }`), so the server, which closes a socket at its
+ * token's expiry, keeps it open.
+ *
  * No Node imports: this file is imported by apps/web. Only `./protocol` (dependency-free) is used.
  */
 import {
@@ -16,6 +20,8 @@ import {
   isErrorFrame,
   isEventFrame,
   isPongFrame,
+  streamProtocols,
+  tokenExpiry,
   UNFOCUSED_BURSTS_PER_SECOND,
   type ClientFrame,
   type ErrorFrame,
@@ -37,12 +43,14 @@ export interface WebSocketLike {
 }
 
 export interface StreamClientOptions {
-  /** WebSocket endpoint, e.g. `wss://stream.foundmill.com` (NEXT_PUBLIC_STREAM_URL). `?token=` is appended. */
+  /** WebSocket endpoint, e.g. `wss://stream.foundmill.com` (NEXT_PUBLIC_STREAM_URL). The token is never put in it. */
   url: string;
   /** Supplies the current access token (async so it can refresh). Return `""` to connect anonymously (dev bypass). */
   getToken: () => string | Promise<string>;
-  /** WebSocket constructor (defaults to the global `WebSocket`). */
-  webSocket?: new (url: string) => WebSocketLike;
+  /** WebSocket constructor (defaults to the global `WebSocket`); the token goes in the subprotocols. */
+  webSocket?: new (url: string, protocols?: string[]) => WebSocketLike;
+  /** How long before the token expires a fresh one is sent on the open socket (default 60 000 ms). */
+  renewBeforeMs?: number;
   /** First reconnect delay (default 250 ms), doubling with jitter up to `maxBackoffMs` (default 10 000 ms). */
   minBackoffMs?: number;
   maxBackoffMs?: number;
@@ -86,9 +94,11 @@ export class StreamClient {
   private attempt = 0;
   private reconnectTimer: TimerHandle | null = null;
   private pingTimer: TimerHandle | null = null;
+  private renewTimer: TimerHandle | null = null;
   private lastFrameAt = 0;
   private closedByUser = false;
   private connectSeq = 0;
+  private readonly renewBefore: number;
   private readonly minBackoff: number;
   private readonly maxBackoff: number;
   private readonly pingMs: number;
@@ -104,6 +114,7 @@ export class StreamClient {
     this.minBackoff = Math.max(1, opts.minBackoffMs ?? 250);
     this.maxBackoff = Math.max(this.minBackoff, opts.maxBackoffMs ?? 10_000);
     this.pingMs = Math.max(10, opts.pingMs ?? 20_000);
+    this.renewBefore = Math.max(0, opts.renewBeforeMs ?? 60_000);
     this.burstIntervalMs = Math.max(1, Math.round(1000 / (opts.unfocusedBurstsPerSecond ?? UNFOCUSED_BURSTS_PER_SECOND)));
     this.maxBuffered = Math.max(1, opts.maxBufferedPerChannel ?? 2_000);
     this.now = opts.now ?? (() => Date.now());
@@ -224,14 +235,13 @@ export class StreamClient {
       .then(() => this.opts.getToken())
       .catch(() => "");
     if (seq !== this.connectSeq || this.closedByUser) return;
-    const Ctor = this.opts.webSocket ?? (globalThis as unknown as { WebSocket?: new (url: string) => WebSocketLike }).WebSocket;
+    const Ctor = this.opts.webSocket ?? (globalThis as unknown as { WebSocket?: new (url: string, protocols?: string[]) => WebSocketLike }).WebSocket;
     if (!Ctor) throw new Error("No WebSocket implementation available");
     const url = new URL(this.opts.url);
-    if (token) url.searchParams.set("token", token);
-    else url.searchParams.delete("token");
+    url.searchParams.delete("token"); // the server refuses a token in the URL
     let ws: WebSocketLike;
     try {
-      ws = new Ctor(url.toString());
+      ws = new Ctor(url.toString(), streamProtocols(token));
     } catch {
       this.scheduleReconnect();
       return;
@@ -246,6 +256,7 @@ export class StreamClient {
       this.setStatus("open");
       for (const [channel, state] of this.channels) this.sendSub(channel, state);
       this.startPing();
+      this.scheduleRenewal(token);
     };
     ws.onmessage = (ev) => {
       if (this.ws !== ws) return;
@@ -264,7 +275,7 @@ export class StreamClient {
       const code = typeof ev?.code === "number" ? ev.code : undefined;
       const reason = typeof ev?.reason === "string" ? ev.reason : undefined;
       if (this.closedByUser) return this.setStatus("closed", { code, reason });
-      if (code === CLOSE_CODES.unauthorized) this.attempt = Math.max(this.attempt, 3); // back off harder on auth failures
+      if (code === CLOSE_CODES.unauthorized || code === CLOSE_CODES.forbidden) this.attempt = Math.max(this.attempt, 3); // back off harder on auth failures
       this.scheduleReconnect({ code, reason });
     };
   }
@@ -309,11 +320,42 @@ export class StreamClient {
     this.pingTimer = this.setTimer(tick, this.pingMs);
   }
 
+  /**
+   * Before the token in use expires, fetch a fresh one and send it on the open socket, so the server (which closes a
+   * socket at its token's expiry) keeps it. A token without an expiry (a dev token) needs none; one the server refuses
+   * closes the socket, and the reconnect fetches a token again.
+   */
+  private scheduleRenewal(token: string, retryInMs?: number): void {
+    if (this.renewTimer !== null) this.clearTimer(this.renewTimer);
+    this.renewTimer = null;
+    const exp = tokenExpiry(token);
+    if (exp === null) return;
+    const ws = this.ws;
+    this.renewTimer = this.setTimer(
+      () => {
+        this.renewTimer = null;
+        void Promise.resolve()
+          .then(() => this.opts.getToken())
+          .catch(() => "")
+          .then((fresh) => {
+            if (this.ws !== ws || !this.isOpen) return;
+            // Not refreshed yet (or no session): ask again shortly, until the server closes the socket at expiry.
+            if (!fresh || fresh === token) return this.now() < exp ? this.scheduleRenewal(token, Math.max(1_000, Math.min(15_000, this.renewBefore / 4))) : undefined;
+            this.send({ t: "auth", token: fresh });
+            this.scheduleRenewal(fresh);
+          });
+      },
+      retryInMs ?? Math.max(0, exp - this.now() - this.renewBefore),
+    );
+  }
+
   private clearTimers(): void {
     if (this.reconnectTimer !== null) this.clearTimer(this.reconnectTimer);
     if (this.pingTimer !== null) this.clearTimer(this.pingTimer);
+    if (this.renewTimer !== null) this.clearTimer(this.renewTimer);
     this.reconnectTimer = null;
     this.pingTimer = null;
+    this.renewTimer = null;
   }
 
   private handleMessage(data: unknown): void {

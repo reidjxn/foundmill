@@ -8,8 +8,12 @@
  * When a channel comes back after a gap, `resyncBusiness` refetches that business's queries (the stream does not
  * replay), and a tab that becomes visible again refetches the stale queries of the business on screen.
  */
-import { QueryClient } from "@tanstack/react-query";
+import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
+import { reportApiError } from "./auth/session-end";
+import { businessOfKey, routerOfKey } from "./query-keys";
 import { businessLiveSince } from "./stream-status";
+
+export { businessOfKey, routerOfKey };
 
 export const DEFAULT_STALE_MS = 30_000;
 /** Freshness of stream-kept data while its business's channel stays live. */
@@ -21,20 +25,6 @@ export const STREAM_KEPT_STALE_MS = 5 * 60_000;
  * mount or focus.
  */
 export const STREAM_KEPT_ROUTERS: readonly string[] = ["inbox", "cycle", "finance"];
-
-/** The router of a tRPC query key (`[["inbox", "list"], {…}]` → "inbox"). */
-export function routerOfKey(queryKey: readonly unknown[]): string | null {
-  const path = queryKey[0];
-  return Array.isArray(path) && typeof path[0] === "string" ? path[0] : null;
-}
-
-/** The business a tRPC query key reads (`[["inbox", "list"], { input: { businessId } }]`); null for account-level reads. */
-export function businessOfKey(queryKey: readonly unknown[]): string | null {
-  const meta = queryKey[1];
-  const input = meta && typeof meta === "object" ? (meta as { input?: unknown }).input : undefined;
-  const businessId = input && typeof input === "object" ? (input as { businessId?: unknown }).businessId : undefined;
-  return typeof businessId === "string" ? businessId : null;
-}
 
 interface StaleTimeQuery {
   queryKey: readonly unknown[];
@@ -64,8 +54,18 @@ export function resyncBusiness(queryClient: QueryClient, businessId: string): Pr
   return queryClient.invalidateQueries({ predicate: (query) => businessOfKey(query.queryKey) === businessId });
 }
 
+/** The business a mutation's variables name (`{ businessId, ... }`); null for account-level writes. */
+function businessOfVariables(variables: unknown): string | null {
+  const id = variables && typeof variables === "object" ? (variables as { businessId?: unknown }).businessId : undefined;
+  return typeof id === "string" ? id : null;
+}
+
 export function makeQueryClient(): QueryClient {
   return new QueryClient({
+    // Every failed read and write is reported: an UNAUTHORIZED answer ends the session and a "not a member" FORBIDDEN ends
+    // the membership, whichever screen made the call (lib/auth/session-end.ts; nothing listens on the server).
+    queryCache: new QueryCache({ onError: (err, query) => reportApiError(err, businessOfKey(query.queryKey)) }),
+    mutationCache: new MutationCache({ onError: (err, variables) => reportApiError(err, businessOfVariables(variables)) }),
     defaultOptions: {
       queries: {
         staleTime: streamAwareStaleTime(DEFAULT_STALE_MS),

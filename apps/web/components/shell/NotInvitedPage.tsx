@@ -7,8 +7,9 @@
  */
 import { MailX } from "lucide-react";
 import { APP_NAME } from "@foundmill/config";
-import { Button, EmptyState } from "@foundmill/dugout";
+import { EmptyState } from "@foundmill/dugout";
 import { BrandFrame } from "./BrandFrame";
+import { SignOutButton } from "./SignOutButton";
 
 export function NotInvitedPage({ message, email, unconfirmed = false }: { message: string; email?: string | null; unconfirmed?: boolean }) {
   const title = unconfirmed ? (email ? `Confirm ${email} first` : "Confirm your address first") : email ? `${email} is not on the list` : "This address is not on the list";
@@ -19,9 +20,7 @@ export function NotInvitedPage({ message, email, unconfirmed = false }: { messag
           {message}
         </EmptyState>
         <div className="mt-3 flex justify-end">
-          <Button variant="default" size="sm" asChild>
-            <a href="/auth/signout">Sign out</a>
-          </Button>
+          <SignOutButton variant="default" />
         </div>
       </div>
     </BrandFrame>

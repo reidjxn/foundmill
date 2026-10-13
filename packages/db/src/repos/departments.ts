@@ -3,6 +3,7 @@ import { ConflictError, departmentLetters, DEPT_COLOUR_TOKENS, isDepartmentShort
 import { and, asc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { departmentMembers, departments, MEMBER_KINDS, screenDefinitions, type Department, type DepartmentMember } from "../schema";
+import { assertAgentsOwned, assertDepartmentsOwned } from "./_refs";
 import { Currency, defined, Id, JsonArray, maybeOne, MinorAmount, one, parseInput, type Executor, patchSchema } from "./_shared";
 
 export const CreateDepartmentInput = z.object({
@@ -92,6 +93,7 @@ export const departmentsRepo = {
    */
   async create(db: Executor, businessId: string, input: CreateDepartmentInput): Promise<Department> {
     const v = parseInput(CreateDepartmentInput, input, "department");
+    await assertAgentsOwned(db, businessId, [v.leadAgentId], "leadAgentId");
     const position = v.position ?? Number(one(await db.select({ n: sql<number>`coalesce(max(${departments.position}), -1) + 1` }).from(departments).where(live(businessId)), "position").n);
     const slug = v.slug ?? (await departmentsRepo.freeSlug(db, businessId, v.name));
     if (v.slug && (await db.select({ id: departments.id }).from(departments).where(and(eq(departments.businessId, businessId), eq(departments.slug, v.slug))).limit(1)).length) {
@@ -124,6 +126,8 @@ export const departmentsRepo = {
 
   async update(db: Executor, businessId: string, departmentId: string, input: UpdateDepartmentInput): Promise<Department> {
     const v = parseInput(UpdateDepartmentInput, input, "department update");
+    // The lead is one of this business's agents (the foreign key knows nothing about tenants, audit RA-07).
+    await assertAgentsOwned(db, businessId, [v.leadAgentId], "leadAgentId");
     if (v.name === undefined) return one(await db.update(departments).set(defined(v)).where(and(eq(departments.businessId, businessId), eq(departments.id, departmentId))).returning(), "department", departmentId);
     // A rename re-derives this department's letter from its new name (AC-11.13.1) unless the founder chose it; every
     // other department keeps the letter it has now, stored first for a business that has none stored yet.
@@ -161,6 +165,11 @@ export const departmentsRepo = {
       await settleShortcuts(tx, businessId);
       return departmentsRepo.get(tx, businessId, departmentId);
     });
+  },
+
+  /** Throws a ValidationError (400) unless every id is a department of the business (an id from another tenant is not). */
+  assertOwned(db: Executor, businessId: string, ids: readonly (string | null | undefined)[], field = "departmentId"): Promise<void> {
+    return assertDepartmentsOwned(db, businessId, ids, field);
   },
 
   async setLead(db: Executor, businessId: string, departmentId: string, leadAgentId: string | null): Promise<Department> {

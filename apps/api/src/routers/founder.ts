@@ -7,6 +7,7 @@
  * founder.tableViews.get/save: the views a person saves on a data table (saved_table_views, 0041), for a business they
  * belong to or for the account-wide LIVE pages; RLS holds them to their own rows and their own businesses.
  */
+import { freeDisplayName } from "@foundmill/config";
 import { AccountPreferencesPatch, repos, withRls, FounderProfileInput, FounderProfilePatch, SaveTableViewsInput, TableViewsScope, type Db, type DbTx } from "@foundmill/db";
 import { protectedProcedure, router } from "../trpc";
 
@@ -25,7 +26,7 @@ export const founderRouter = router({
     update: protectedProcedure.input(FounderProfilePatch).mutation(async ({ ctx, input }) => {
       const existing = await repos.founders.get(ctx.db, ctx.userId);
       if (existing) return repos.founders.update(ctx.db, ctx.userId, input);
-      const created = FounderProfileInput.parse({ displayName: input.displayName ?? ctx.email?.split("@")[0] ?? "Founder", ...input });
+      const created = FounderProfileInput.parse({ displayName: input.displayName ?? freeDisplayName(ctx.email?.split("@")[0]), ...input });
       return repos.founders.upsert(ctx.db, ctx.userId, created);
     }),
   }),

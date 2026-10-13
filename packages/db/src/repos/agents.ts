@@ -6,6 +6,7 @@ import { AGENT_LAYERS, AGENT_PAUSE_REASONS, AGENT_STATUSES, AGENT_STOP_REASONS, 
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agentMetrics, agentSessions, agentVersions, agents, businesses, CREATED_BY_KINDS, departments, tasks, type Agent, type AgentMetric, type AgentSession, type AgentVersion } from "../schema";
+import { assertAgentsOwned, assertDepartmentsOwned } from "./_refs";
 import { Currency, DayRange, dayRange, defined, Id, JsonArray, JsonObject, MinorAmount, numericText, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page, patchSchema } from "./_shared";
 
 export const AgentInstructions = z.object({
@@ -178,6 +179,8 @@ export const agentsRepo = {
   async create(db: Executor, businessId: string, input: CreateAgentInput): Promise<Agent & { currentVersion: AgentVersion | null }> {
     const v = parseInput(CreateAgentInput, input, "agent");
     return db.transaction(async (tx) => {
+      await assertDepartmentsOwned(tx, businessId, v.departmentIds, "departmentIds");
+      await assertAgentsOwned(tx, businessId, [v.lineManagerId], "lineManagerId");
       const start = await startingStatus(tx, businessId, v.status);
       const agent = one(
         await tx
@@ -293,6 +296,12 @@ export const agentsRepo = {
 
   async update(db: Executor, businessId: string, agentId: string, input: UpdateAgentInput): Promise<Agent> {
     const v = parseInput(UpdateAgentInput, input, "agent update");
+    // A reference field must name this business's own rows: the foreign keys do not know about tenants (audit RA-07).
+    if (v.departmentIds) await assertDepartmentsOwned(db, businessId, v.departmentIds, "departmentIds");
+    if (v.lineManagerId) {
+      if (v.lineManagerId === agentId) throw new ValidationError("An agent cannot be its own line manager", { lineManagerId: v.lineManagerId });
+      await assertAgentsOwned(db, businessId, [v.lineManagerId], "lineManagerId");
+    }
     return one(await db.update(agents).set(defined(v)).where(scoped(businessId, agentId)).returning(), "agent", agentId);
   },
 

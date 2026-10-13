@@ -72,9 +72,12 @@ describe("/network", () => {
     expect(tiles[1]!.textContent).toMatch(/Requests waiting\s*1/);
     expect(tiles[2]!.textContent).toMatch(/Connections\s*2/);
     const panel = await screen.findByTestId("messages-panel");
-    const rows = await within(panel).findAllByRole("button", { name: /Fintech ops intro|Ben Okoye/ });
+    const rows = await within(panel).findAllByRole("button", { name: /Ana Ruiz|Ben Okoye/ });
     expect(rows).toHaveLength(2);
     expect(rows[0]!.textContent).toContain("2 new");
+    // The row is titled by who the thread is with; the subject the sender typed is secondary text.
+    expect(rows[0]!.querySelector(".t-body-strong")?.textContent).toBe("Ana Ruiz");
+    expect(rows[0]!.textContent).toContain("Fintech ops intro");
     expect(rows[1]!.textContent).not.toContain("new");
     expect(within(panel).getByText("2 unread")).toBeTruthy();
     expect(within(panel).getByText("Pick a conversation to read it and reply.")).toBeTruthy();
@@ -84,8 +87,8 @@ describe("/network", () => {
 
   it("opens a thread: messages oldest first, the counts refreshed once it is read, and Send replies in that thread", async () => {
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: /Fintech ops intro/ }));
-    const log = await screen.findByRole("log", { name: "Conversation with Fintech ops intro" });
+    fireEvent.click(await screen.findByRole("button", { name: /Ana Ruiz/ }));
+    const log = await screen.findByRole("log", { name: "Conversation with Ana Ruiz" });
     await waitFor(() => expect(within(log).getAllByRole("listitem")).toHaveLength(3));
     const bodies = within(log).getAllByRole("listitem").map((li) => li.querySelector("p")!.textContent);
     expect(bodies).toEqual(["Hi Jamie, great to connect.", "Sounds good", "Thursday at 3?"]);
@@ -93,7 +96,7 @@ describe("/network", () => {
     // Reading it marks it read on the server; the screen asks for the thread list and the unread count again.
     await waitFor(() => expect(callsTo(api, "live.messages.unread").length).toBeGreaterThan(1));
 
-    const field = screen.getByLabelText("Message: Conversation with Fintech ops intro");
+    const field = screen.getByLabelText("Message: Conversation with Ana Ruiz");
     fireEvent.change(field, { target: { value: "Works for me." } });
     fireEvent.keyDown(field, { key: "Enter", ctrlKey: true });
     await waitFor(() => expect(callsTo(api, "live.messages.send")).toEqual([{ threadId: "t-ana", body: "Works for me." }]));
@@ -106,7 +109,7 @@ describe("/network", () => {
     });
     mount();
     fireEvent.click(await screen.findByRole("button", { name: /Fintech ops intro/ }));
-    const log = await screen.findByRole("log", { name: "Conversation with Fintech ops intro" });
+    const log = await screen.findByRole("log", { name: "Conversation with Ana Ruiz" });
     const bodies = () => Array.from(log.querySelectorAll("li p")).map((p) => p.textContent);
     await waitFor(() => expect(bodies()).toEqual(["Sounds good", "Thursday at 3?"]));
     expect(callsTo(api, "live.messages.list")[0]).toMatchObject({ threadId: "t-ana", limit: 50, cursor: null });
@@ -128,6 +131,29 @@ describe("/network", () => {
     await within(panel).findByRole("button", { name: /Ben Okoye/ });
     expect(callsTo(api, "live.messages.threads").at(-1)).toMatchObject({ cursor: "t-cur" });
     expect(within(panel).queryByRole("button", { name: "Show more conversations" })).toBeNull();
+  });
+
+  it("names the people in a conversation, whatever subject the sender typed (audit GLS2F-06, LS2-04)", async () => {
+    const spoof = { ...THREAD_ANA, subject: "Foundmill Support: verify your account" };
+    const group = { id: "t-group", participantIds: [ids.me, ids.ana, ids.ben], subject: "Launch plans", lastMessageAt: AT(1), createdAt: AT(10), updatedAt: AT(1), archivedAt: null, unread: 0 };
+    seed({ "live.messages.threads": () => ({ items: [group, spoof], nextCursor: null }) });
+    mount();
+    const panel = await screen.findByTestId("messages-panel");
+    const spoofRow = await within(panel).findByRole("button", { name: /Ana Ruiz\s*Foundmill Support/ });
+    expect(spoofRow.querySelector(".t-body-strong")?.textContent).toBe("Ana Ruiz");
+    fireEvent.click(spoofRow);
+    const log = await screen.findByRole("log", { name: "Conversation with Ana Ruiz" });
+    expect(log).toBeTruthy();
+    const field = screen.getByPlaceholderText("Write to Ana Ruiz") as HTMLTextAreaElement;
+    expect(field.placeholder).not.toContain("Foundmill");
+    // The subject sits beside the names in the header, as its own line.
+    expect(within(panel).getAllByText("Foundmill Support: verify your account").length).toBeGreaterThan(0);
+
+    // A group lists every participant in its header and says how many people are in it.
+    fireEvent.click(within(panel).getByRole("button", { name: /Ana Ruiz and Ben Okoye/ }));
+    await screen.findByRole("log", { name: "Conversation with Ana Ruiz and Ben Okoye" });
+    expect(within(panel).getByText("3 people")).toBeTruthy();
+    expect(screen.getByPlaceholderText("Write to Ana Ruiz and Ben Okoye")).toBeTruthy();
   });
 
   it("Accept and Block answer the request that was pressed", async () => {
@@ -152,7 +178,7 @@ describe("/network", () => {
   it("audit #34: the thread pane mutes, leaves, and blocks someone in it with no connection needed", async () => {
     mount();
     fireEvent.click(await screen.findByRole("button", { name: /Fintech ops intro/ }));
-    await screen.findByRole("log", { name: "Conversation with Fintech ops intro" });
+    await screen.findByRole("log", { name: "Conversation with Ana Ruiz" });
     const openThreadMenu = async () => fireEvent.keyDown(await screen.findByTestId("thread-menu"), { key: "Enter" });
     await openThreadMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: /Mute/ }));
@@ -172,7 +198,7 @@ describe("/network", () => {
     mount();
     fireEvent.click(await screen.findByRole("button", { name: /Fintech ops intro/ }));
     expect((await screen.findByTestId("thread-closed")).textContent).toMatch(/You can no longer write here/);
-    expect((screen.getByLabelText("Message: Conversation with Fintech ops intro") as HTMLTextAreaElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Message: Conversation with Ana Ruiz") as HTMLTextAreaElement).disabled).toBe(true);
   });
 
   it("audit #34/#66: from a thread a removed connection closed, the founder can ask that person to connect again", async () => {
@@ -195,7 +221,7 @@ describe("/network", () => {
   it("audit #66: a connected person in a thread is never offered Ask to connect", async () => {
     mount();
     fireEvent.click(await screen.findByRole("button", { name: /Fintech ops intro/ }));
-    await screen.findByRole("log", { name: "Conversation with Fintech ops intro" });
+    await screen.findByRole("log", { name: "Conversation with Ana Ruiz" });
     fireEvent.keyDown(await screen.findByTestId("thread-menu"), { key: "Enter" });
     await screen.findByRole("menuitem", { name: /Leave conversation/ });
     expect(screen.queryByRole("menuitem", { name: /to connect/ })).toBeNull();

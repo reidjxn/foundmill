@@ -77,8 +77,10 @@ export const teamRouter = router({
 
     clone: write.input(z.object({ agentId: Id, name: z.string().min(1).max(80), departmentIds: z.array(Id).optional() })).mutation(async ({ ctx, input }) =>
       ctx.db.transaction(async (tx) => {
-        await repos.memberships.get(tx, ctx.businessId, ctx.userId);
+        // The repo refuses a department that is not this business's. A clone joins the departments it is filed under as
+        // a hire does, so department rosters and merges see it (audit ARB-24).
         const cloned = await repos.agents.clone(tx, ctx.businessId, input.agentId, { name: input.name, departmentIds: input.departmentIds });
+        await repos.departments.addMembers(tx, ctx.businessId, cloned.departmentIds.map((departmentId) => ({ departmentId, memberKind: "agent" as const, memberId: cloned.id })));
         const skills = await repos.skills.listForAgent(tx, ctx.businessId, input.agentId);
         if (skills.length) await repos.skills.upsertForAgent(tx, ctx.businessId, cloned.id, skills.map((s) => ({ skillKey: s.skillKey, group: s.group, tested: s.tested === null ? null : Number(s.tested), proven: s.proven === null ? null : Number(s.proven), nLive: 0, displayed: s.displayed, potential: s.potential })));
         await audit(tx, ctx, { action: "team.agents.clone", target: { kind: "agent", id: cloned.id }, details: { from: input.agentId } });

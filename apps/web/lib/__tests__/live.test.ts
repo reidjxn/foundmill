@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   askToConnectBlocker, boardKindLabel, canSpeakAsBusiness, boardScope, boardTitle, connectStateOf, counterpartId, describeMetric, findDirectThread, formResults, formatMetricValue, groupConnections, humanise, joinNames,
-  leaveBlocker, leftNote, otherParticipants, periodLabel, personName, positionLabel, postStatusLabel, REPORT_REASONS, reportReasonLabel, requestOutcome, threadTitle, UNNAMED_PERSON, VISIBILITY_OPTIONS, visibilityLabel,
+  leaveBlocker, leftNote, otherParticipants, periodLabel, personName, positionLabel, postStatusLabel, threadParticipants, threadSubject, REPORT_REASONS, reportReasonLabel, requestOutcome, threadTitle, UNNAMED_PERSON, VISIBILITY_OPTIONS, visibilityLabel,
 } from "../live";
 
 const ME = "00000000-0000-4000-8000-0000000000aa";
@@ -14,6 +14,11 @@ describe("profile visibility", () => {
     expect(VISIBILITY_OPTIONS.map((o) => o.label)).toEqual(["Public", "Connections", "Community", "Private"]);
     expect(VISIBILITY_OPTIONS.every((o) => o.description.length > 10)).toBe(true);
     expect(VISIBILITY_OPTIONS[0]!.description).toContain("Foundmill");
+    // Every setting says that people you write to or ask to connect see your name, which is what the name lookup does.
+    const copy = Object.fromEntries(VISIBILITY_OPTIONS.map((o) => [o.value, o.description]));
+    expect(copy.private).toBe("Nobody, except people you write to or ask to connect.");
+    expect(copy.connections).toContain("anyone you write to or ask to connect");
+    expect(copy.community).toContain("anyone you write to or ask to connect");
     expect(visibilityLabel("community")).toBe("Community");
     expect(visibilityLabel("nonsense")).toBe("Private");
   });
@@ -33,6 +38,7 @@ describe("people", () => {
     expect(joinNames([card("Ana"), card("Ben"), card("Cal"), card("Dee")])).toBe("Ana, Ben and 2 others");
     expect(joinNames([card(null)])).toBe("A founder");
     expect(joinNames([card("Ana"), card(null, "u1"), card(null, "u2")])).toBe("Ana and 2 founders");
+    expect(joinNames([card("Ana"), card("Ben"), card("Cal"), card("Dee")], { all: true })).toBe("Ana, Ben, Cal and Dee");
     expect(joinNames([])).toBe("A founder");
   });
 });
@@ -67,11 +73,24 @@ describe("message threads", () => {
   it("lists who else is in a thread", () => {
     expect(otherParticipants(group, ME)).toEqual([ANA, BEN]);
   });
-  it("titles a thread by its subject, else by who it is with", () => {
-    expect(threadTitle(named, ME, names)).toBe("Intro");
+  it("titles a thread by who it is with, never by the subject the sender chose (audit GLS2F-06, LS2-04)", () => {
+    expect(threadTitle(named, ME, names)).toBe("A founder");
     expect(threadTitle(direct, ME, names)).toBe("Ana");
     expect(threadTitle(group, ME, names)).toBe("Ana and Ben");
     expect(threadTitle({ id: "t4", participantIds: [ME, CAL], subject: null }, ME, names)).toBe("A founder");
+    const spoof = { id: "t5", participantIds: [ME, ANA], subject: "Foundmill Support: verify your account" };
+    expect(threadTitle(spoof, ME, names)).toBe("Ana");
+    expect(threadSubject(spoof)).toBe("Foundmill Support: verify your account");
+  });
+  it("names every participant of a group in the header, and keeps the subject as a separate line", () => {
+    const crowd = { id: "t6", participantIds: [ME, ANA, BEN, CAL], subject: "Launch" };
+    expect(threadTitle(crowd, ME, names)).toBe("Ana, Ben and 1 other");
+    expect(threadParticipants(crowd, ME, names)).toBe("Ana, Ben and A founder");
+    expect(threadParticipants(direct, ME, names)).toBe("Ana");
+    expect(threadParticipants(group, ME, names)).toBe("Ana and Ben");
+    expect(threadSubject(named)).toBe("Intro");
+    expect(threadSubject(direct)).toBeNull();
+    expect(threadSubject({ subject: "   " })).toBeNull();
   });
   it("finds the one-to-one thread with a person, never a group thread", () => {
     expect(findDirectThread([group, direct, named], ME, ANA)?.id).toBe("t1");

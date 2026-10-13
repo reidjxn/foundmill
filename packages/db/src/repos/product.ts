@@ -2,13 +2,14 @@
  * product — spec blocks, spec versions, change proposals + hunks, roadmap, sources
  * (BUILD §11.5; routers product.spec.*, product.roadmap.*, product.proposals.*).
  */
-import { HUNK_DECISIONS, ROADMAP_HORIZONS, SEVERITIES, SOURCE_KINDS, ValidationError, type PROPOSAL_STATUSES } from "@foundmill/shared";
+import { HUNK_DECISIONS, NotFoundError, ROADMAP_HORIZONS, SEVERITIES, SOURCE_KINDS, ValidationError, type PROPOSAL_STATUSES } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   AUTHOR_KINDS, changeProposals, proposalHunks, roadmapDependencies, roadmapItems, sources, specBlocks, specVersions,
   type ChangeProposal, type ProposalHunk, type RoadmapDependency, type RoadmapItem, type Source, type SpecBlock, type SpecVersion,
 } from "../schema";
+import { assertOwnerRef, assertSpecBlocksOwned } from "./_refs";
 import { defined, Id, JsonObject, maybeOne, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page, patchSchema } from "./_shared";
 import { docText, mergeBlockContent, sameContent, textDoc } from "./spec-merge";
 
@@ -458,6 +459,9 @@ export const productRepo = {
 
   async upsertRoadmapItem(db: Executor, businessId: string, input: UpsertRoadmapItemInput): Promise<RoadmapItem> {
     const v = parseInput(UpsertRoadmapItemInput, input, "roadmap item");
+    // References to other tenants are refused (audit ARB-23): the spec blocks and the owner must be this business's own.
+    await assertSpecBlocksOwned(db, businessId, v.specBlockIds, "specBlockIds");
+    await assertOwnerRef(db, businessId, v.ownerRef);
     const values = {
       title: v.title,
       descriptionMd: v.descriptionMd,
@@ -471,12 +475,13 @@ export const productRepo = {
       ...(v.position !== undefined ? { position: v.position } : {}),
     };
     if (v.id) {
+      // An id names an item to change. One that is not in this business is a 404, never an insert under the caller's id:
+      // that would collide with another tenant's primary key (a 500) or let the caller choose ids.
       const existing = await db.select({ id: roadmapItems.id }).from(roadmapItems).where(and(eq(roadmapItems.businessId, businessId), eq(roadmapItems.id, v.id))).limit(1);
-      if (existing.length) {
-        return one(await db.update(roadmapItems).set(values).where(and(eq(roadmapItems.businessId, businessId), eq(roadmapItems.id, v.id))).returning(), "roadmap item", v.id);
-      }
+      if (!existing.length) throw new NotFoundError("roadmap item", v.id);
+      return one(await db.update(roadmapItems).set(values).where(and(eq(roadmapItems.businessId, businessId), eq(roadmapItems.id, v.id))).returning(), "roadmap item", v.id);
     }
-    return one(await db.insert(roadmapItems).values({ ...(v.id ? { id: v.id } : {}), businessId, ...values }).returning(), "roadmap item");
+    return one(await db.insert(roadmapItems).values({ businessId, ...values }).returning(), "roadmap item");
   },
 
   async archiveRoadmapItem(db: Executor, businessId: string, itemId: string): Promise<RoadmapItem> {

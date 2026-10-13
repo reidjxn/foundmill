@@ -271,13 +271,17 @@ export function loadBusinessAccess(ctx: Pick<Context, "db" | "accessMemo">, user
   return pending;
 }
 
+const NOT_A_MEMBER_MESSAGE = "You are not a member of this business";
+
 /** The procedure base for a business: membership asserted, the business loaded (archived ones only when asked), RLS attached. */
 function businessBase(options: { includeArchived: boolean }) {
   return protectedProcedure.input(BusinessInput).use(async ({ ctx, input, next }) => {
     const access = await loadBusinessAccess(ctx, ctx.userId, input.businessId, options);
     // Membership first: a non-member learns nothing about the business, not even whether it exists.
     const membership = access.membership;
-    if (!membership) throw new TRPCError({ code: "FORBIDDEN", message: "You are not a member of this business" });
+    // `appCode: "not_a_member"` lets a tab that is open on the business tell a removal from any other refusal (the web then
+    // drops the business and says so, instead of leaving a shell full of "Try again" panels).
+    if (!membership) throw new TRPCError({ code: "FORBIDDEN", message: NOT_A_MEMBER_MESSAGE, cause: new AppError("not_a_member", NOT_A_MEMBER_MESSAGE, 403) });
     // A member of an archived business gets what `repos.businesses.get` says about it.
     if (!access.business) throw new NotFoundError("business", input.businessId);
     const business = access.business;

@@ -10,7 +10,10 @@ class FakeSocket implements WebSocketLike {
   onerror: ((ev: unknown) => void) | null = null;
   sent: string[] = [];
   closeCode: number | undefined;
-  constructor(public url: string) {
+  constructor(
+    public url: string,
+    public protocols: string[] = [],
+  ) {
     FakeSocket.instances.push(this);
   }
   open() {
@@ -32,6 +35,10 @@ class FakeSocket implements WebSocketLike {
     return this.sent.map((s) => JSON.parse(s));
   }
 }
+
+const base64Url = (text: string) => Buffer.from(text, "utf8").toString("base64url");
+/** A JWT-shaped token that expires at `expSeconds` (the signature is never checked in the browser). */
+const jwt = (expSeconds: number) => `${base64Url('{"alg":"ES256"}')}.${base64Url(JSON.stringify({ sub: "u", exp: expSeconds }))}.sig`;
 
 function makeClient(over: Partial<ConstructorParameters<typeof StreamClient>[0]> = {}) {
   FakeSocket.instances = [];
@@ -74,7 +81,9 @@ describe("StreamClient (apps/stream protocol)", () => {
     client.subscribe("ev:00000000-0000-4000-8000-000000000001", h2);
     await flush();
     const ws = socket();
-    expect(ws.url).toBe("ws://stream.test/?token=tok");
+    // The token rides in a subprotocol, never in the URL, where proxies and CDNs log it (security review SEC-12).
+    expect(ws.url).toBe("ws://stream.test/");
+    expect(ws.protocols).toEqual(["foundmill.stream.v1", `foundmill.bearer.${base64Url("tok")}`]);
     ws.open();
     expect(client.state).toBe("open");
     expect(ws.frames()).toEqual([{ t: "sub", ch: "ev:00000000-0000-4000-8000-000000000001" }]);
@@ -162,6 +171,66 @@ function liveClient(over: Partial<ConstructorParameters<typeof StreamClient>[0]>
   const made = makeClient({ onChannel: (ch, live, d) => changes.push(`${ch === BIZ ? "biz" : ch === OTHER_BIZ ? "other" : ch} ${live ? "live" : "down"}${d.resync ? " resync" : ""}`), ...over });
   return { ...made, changes };
 }
+
+describe("StreamClient access token (security review SEC-12, audit SIEC-4)", () => {
+  const BIZ = "ev:00000000-0000-4000-8000-000000000001";
+
+  it("offers no token at all to a dev connection and never puts one in the URL, even a configured one", async () => {
+    const { client, flush, socket } = makeClient({ getToken: () => "", url: "ws://stream.test/?token=leaked" });
+    client.subscribe(BIZ, vi.fn());
+    await flush();
+    expect(socket().url).toBe("ws://stream.test/");
+    expect(socket().protocols).toEqual(["foundmill.stream.v1"]);
+  });
+
+  it("sends a fresh token on the open socket before the current one expires, and again before that one does", async () => {
+    // The clock is 1 000 ms; the first token expires at 121 s, the renewal is due 60 s before.
+    const tokens = [jwt(121), jwt(241), jwt(361)];
+    let n = 0;
+    const { client, flush, timers, advance, socket } = makeClient({ getToken: () => tokens[Math.min(n++, tokens.length - 1)]!, renewBeforeMs: 60_000, pingMs: 10_000_000 });
+    client.subscribe(BIZ, vi.fn());
+    await flush();
+    const ws = socket();
+    ws.open();
+    const renewal = timers.find((t) => t.ms === 60_000);
+    expect(renewal).toBeDefined();
+    advance(60_000);
+    renewal!.fn();
+    await flush();
+    await flush();
+    expect(ws.frames().filter((f) => (f as { t: string }).t === "auth")).toEqual([{ t: "auth", token: tokens[1] }]);
+    // The next renewal is armed from the new token's expiry.
+    expect(timers.some((t) => t.ms === 241_000 - 61_000 - 60_000)).toBe(true);
+  });
+
+  it("does not send the same token again; it asks again shortly until the server closes the socket at expiry", async () => {
+    const same = jwt(121);
+    const { client, flush, timers, advance, socket } = makeClient({ getToken: () => same, renewBeforeMs: 60_000, pingMs: 10_000_000 });
+    client.subscribe(BIZ, vi.fn());
+    await flush();
+    const ws = socket();
+    ws.open();
+    advance(60_000);
+    timers.find((t) => t.ms === 60_000)!.fn();
+    await flush();
+    await flush();
+    expect(ws.frames().some((f) => (f as { t: string }).t === "auth")).toBe(false);
+    expect(timers.some((t) => t.ms > 0 && t.ms <= 15_000)).toBe(true);
+  });
+
+  it("reconnects after the server closes it for an expired token, with a freshly fetched one", async () => {
+    let n = 0;
+    const { client, flush, runTimers, socket } = makeClient({ getToken: () => `tok-${++n}` });
+    client.subscribe(BIZ, vi.fn());
+    await flush();
+    socket().open();
+    socket().close(CLOSE_CODES.unauthorized, "token expired");
+    runTimers();
+    await flush();
+    expect(FakeSocket.instances).toHaveLength(2);
+    expect(socket().protocols).toEqual(["foundmill.stream.v1", `foundmill.bearer.${base64Url("tok-2")}`]);
+  });
+});
 
 describe("StreamClient channel liveness (audit RES-01/02/03: stale screens after a gap)", () => {
   it("is live only once the server acknowledges the subscription, and comes back after a reconnect with a resync", async () => {

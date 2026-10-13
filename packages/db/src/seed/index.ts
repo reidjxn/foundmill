@@ -7,6 +7,7 @@
  *
  * `pnpm --filter @foundmill/db seed` runs it against DATABASE_URL (or a local PGlite directory, see src/seed.ts).
  */
+import { freeDisplayName } from "@foundmill/config";
 import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../client";
 import { repos } from "../repos";
@@ -103,7 +104,7 @@ export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<Seed
     if (!ownerProfile && o.userId === owner.userId) continue;
     if (!(await repos.founders.get(db, o.userId))) {
       await repos.founders.upsert(db, o.userId, {
-        displayName: o.userId === owner.userId ? DEMO_OWNER_DISPLAY_NAME : o.email.split("@")[0]!,
+        displayName: o.userId === owner.userId ? DEMO_OWNER_DISPLAY_NAME : freeDisplayName(o.email.split("@")[0]),
         experience: "operator",
         skills: { engineering: 9, sales: 13, design: 11, finance: 10, domain: 16 },
         timeCommitment: "full_time",

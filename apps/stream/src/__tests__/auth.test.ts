@@ -1,4 +1,4 @@
-import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
+import { createLocalJWKSet, decodeJwt, exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createTokenVerifier, parseDevToken, StreamAuthError } from "../auth";
 import { USER_A, USER_B } from "./helpers";
@@ -21,8 +21,9 @@ describe("token verifier", () => {
   it("verifies a Supabase-shaped access token against the JWKS", async () => {
     const auth = createTokenVerifier({ appEnv: "production", jwks: createLocalJWKSet({ keys: [jwk] }) });
     const token = await sign({ sub: USER_A, email: "founder@example.test" });
-    expect(await auth.verify(token)).toEqual({ userId: USER_A, email: "founder@example.test" });
-    expect(await auth.resolve(token)).toEqual({ userId: USER_A, email: "founder@example.test" });
+    const exp = decodeJwt(token).exp! * 1000;
+    expect(await auth.verify(token)).toEqual({ userId: USER_A, email: "founder@example.test", expiresAt: exp });
+    expect(await auth.resolve(token)).toEqual({ userId: USER_A, email: "founder@example.test", expiresAt: exp });
   });
 
   it("rejects the wrong audience, an expired token, a non-uuid subject and garbage", async () => {
@@ -31,6 +32,9 @@ describe("token verifier", () => {
     await expect(auth.verify(await sign({ sub: USER_A }, { exp: "-1h" }))).rejects.toBeInstanceOf(StreamAuthError);
     await expect(auth.verify(await sign({ sub: "service" }))).rejects.toThrow(/UUID subject/);
     await expect(auth.verify("garbage")).rejects.toThrow(/malformed/);
+    // A token without `exp` would keep a socket open forever (audit SIEC-4): refused.
+    const forever = await new SignJWT({ sub: USER_A }).setProtectedHeader({ alg: "ES256", kid: "k1" }).setAudience("authenticated").sign(privateKey);
+    await expect(auth.verify(forever)).rejects.toThrow(/exp/);
     expect(await auth.resolve("garbage")).toBeNull();
     expect(await auth.resolve(null)).toBeNull();
     expect(await auth.resolve("")).toBeNull();
@@ -48,17 +52,17 @@ describe("token verifier", () => {
   it("honours the dev bypass only in development/test", async () => {
     const dev = createTokenVerifier({ appEnv: "test", devUserId: USER_A });
     expect(dev.devUserId).toBe(USER_A);
-    expect(await dev.resolve(null)).toEqual({ userId: USER_A, email: null });
-    expect(await dev.resolve("dev")).toEqual({ userId: USER_A, email: null });
-    expect(await dev.resolve(`dev:${USER_B}`)).toEqual({ userId: USER_B, email: null });
-    expect(await dev.resolve("dev:nope")).toEqual({ userId: USER_A, email: null }); // falls back to the dev user
-    expect(await dev.resolve("stale.jwt.value")).toEqual({ userId: USER_A, email: null });
+    expect(await dev.resolve(null)).toEqual({ userId: USER_A, email: null, expiresAt: null });
+    expect(await dev.resolve("dev")).toEqual({ userId: USER_A, email: null, expiresAt: null });
+    expect(await dev.resolve(`dev:${USER_B}`)).toEqual({ userId: USER_B, email: null, expiresAt: null });
+    expect(await dev.resolve("dev:nope")).toEqual({ userId: USER_A, email: null, expiresAt: null }); // falls back to the dev user
+    expect(await dev.resolve("stale.jwt.value")).toEqual({ userId: USER_A, email: null, expiresAt: null });
 
     const prod = createTokenVerifier({ appEnv: "production", devUserId: USER_A, jwks: createLocalJWKSet({ keys: [jwk] }) });
     expect(prod.devUserId).toBeNull();
     expect(await prod.resolve("dev")).toBeNull();
     expect(await prod.resolve(null)).toBeNull();
-    expect(await prod.resolve(await sign({ sub: USER_B }))).toEqual({ userId: USER_B, email: null });
+    expect(await prod.resolve(await sign({ sub: USER_B }))).toMatchObject({ userId: USER_B, email: null, expiresAt: expect.any(Number) });
   });
 
   it("requires a UUID dev user id and parses dev tokens strictly", () => {

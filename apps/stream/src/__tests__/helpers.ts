@@ -8,6 +8,7 @@ import WebSocket from "ws";
 import { createTokenVerifier, type TokenVerifier } from "../auth";
 import { createMemoryAuthorizer, type Authorizer } from "../authorize";
 import { Metrics } from "../metrics";
+import { streamProtocols } from "../protocol";
 import { createStreamServer, type StreamServer, type StreamServerDeps, type StreamServerOptions } from "../server";
 
 export const USER_A = fixtureId("user-a");
@@ -81,6 +82,8 @@ export interface TestSocket {
   errors: { t: "err"; ch?: string; code: string; message: string }[];
   /** Channels the server acknowledged as live (`{ t: "subscribed", ch }`), in arrival order. */
   subscribed: string[];
+  /** Expiries the server acknowledged for refreshed tokens (`{ t: "authed", exp }`), in arrival order. */
+  authed: (number | null)[];
   send(frame: unknown): void;
   sub(ch: string, focus?: boolean): void;
   unsub(ch: string): void;
@@ -88,14 +91,17 @@ export interface TestSocket {
   close(): Promise<void>;
 }
 
-/** Open a raw `ws` client and resolve once the handshake completes. Rejects with the HTTP status on a refused upgrade. */
+/**
+ * Open a raw `ws` client and resolve once the handshake completes. The token travels as the web client sends it, in
+ * the `foundmill.bearer.*` subprotocol. Rejects with the HTTP status on a refused upgrade.
+ */
 export function openSocket(url: string, token: string | null): Promise<TestSocket> {
-  const target = token === null ? url : `${url}/?token=${encodeURIComponent(token)}`;
-  const ws = new WebSocket(target);
+  const ws = new WebSocket(url, streamProtocols(token));
   const frames: unknown[] = [];
   const events: { ch: string; e: unknown }[] = [];
   const errors: TestSocket["errors"] = [];
   const subscribed: string[] = [];
+  const authed: (number | null)[] = [];
   const closed = new Promise<{ code: number; reason: string }>((resolve) => {
     ws.on("close", (code, reason) => resolve({ code, reason: reason.toString() }));
   });
@@ -107,6 +113,7 @@ export function openSocket(url: string, token: string | null): Promise<TestSocke
       if (typeof f.ch === "string" && "e" in f) events.push({ ch: f.ch, e: f.e });
       else if (f.t === "err") errors.push(f as TestSocket["errors"][number]);
       else if (f.t === "subscribed" && typeof f.ch === "string") subscribed.push(f.ch);
+      else if (f.t === "authed") authed.push(typeof f.exp === "number" ? f.exp : null);
     }
   });
   const sock: TestSocket = {
@@ -115,6 +122,7 @@ export function openSocket(url: string, token: string | null): Promise<TestSocke
     events,
     errors,
     subscribed,
+    authed,
     send: (frame) => ws.send(JSON.stringify(frame)),
     sub: (ch, focus) => ws.send(JSON.stringify(focus === undefined ? { t: "sub", ch } : { t: "sub", ch, focus })),
     unsub: (ch) => ws.send(JSON.stringify({ t: "unsub", ch })),
