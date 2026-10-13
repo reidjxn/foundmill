@@ -305,7 +305,8 @@ describe("product.foundations — Door B (Import)", () => {
     const generated = await f.caller.idea.generate({ prompt: "x", single: true, importJobId: bad });
     const result = await f.caller.idea.commit({ ideaId: generated.ideas[0]!.id, name: "Recheck Co", archetype: "b2b_saas", gameMode: "personal" });
     expect(result.foundations).toMatchObject({ door: "ideation", importSourceIds: [] });
-    expect((await repos.product.listSources(hz.db, result.business.id)).items).toEqual([]);
+    // Nothing of the refused job is stored (the concept's own sources, which Commit files for every business, are not the import's).
+    expect((await repos.product.listSources(hz.db, result.business.id)).items.filter((s) => (s.relevance as { import?: unknown }).import !== undefined || (s.uri ?? "").startsWith("javascript:"))).toEqual([]);
   });
 });
 

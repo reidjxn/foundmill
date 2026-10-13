@@ -238,7 +238,7 @@ describe("RUI-02: notes follow the reader's Finance and CRM walls", () => {
     expect(owner.item.bodyMd).toContain("£56.99");
     expect(owner.item.subject).toBe(`New order from ${name}`);
     expect(owner.item.redacted).toEqual([]);
-    expect(owner.entities).toEqual([{ id: hz.A.entityId, kind: "person", displayName: name }]);
+    expect(owner.entities).toEqual([{ id: hz.A.entityId, kind: "person", displayName: name, agentId: null }]);
     expect(JSON.stringify(owner.entities)).not.toContain("identifiers");
   });
 
@@ -336,7 +336,7 @@ describe("RUI-02: notes follow the reader's Finance and CRM walls", () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     // Continue refuses while notes block it: clear what the tests above left open.
     const open = await owner.inbox.list({ businessId, blocking: true, state: ["unread", "read"], limit: 50 });
-    for (const i of open.items) await owner.inbox.archive({ businessId, itemId: i.id });
+    for (const i of open.items) await repos.inbox.archive(hz.db, businessId, i.id, { force: true });
     await walls({ finance: "none", crm: "none" });
     try {
       const member = hz.caller({ userId: hz.A.memberId });

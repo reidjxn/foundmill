@@ -101,7 +101,7 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   // An Inbox item that blocks Continue (or the decision that clears it) moves the Autopilot chip: Waiting for you.
   "inbox.item_created": ["inbox", "business.autopilot"],
   // Another member archived an item or confirmed its plan (audit RUI-09).
-  "inbox.item_updated": ["inbox", "plan", "business.autopilot"],
+  "inbox.item_updated": ["inbox", "plan"],
   "decision.made": ["inbox", "plan", "business.autopilot"],
   "customer.converted": ["inbox", "journey", "finance"],
   // A renewal or a repeat order is revenue with no customer.converted (only first payments win a customer).

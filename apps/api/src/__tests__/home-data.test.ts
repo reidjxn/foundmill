@@ -19,7 +19,7 @@ import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness
 
 let hz: ApiHarness;
 beforeAll(async () => {
-  hz = await createApiHarness({ prefix: "home", temporalClient: fakeTemporalClient() });
+  hz = await createApiHarness({ prefix: "home", temporalClient: fakeTemporalClient(), env: { LIVE_MODE: "1" } });
 }, 120_000);
 afterAll(() => hz.close());
 

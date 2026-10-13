@@ -45,7 +45,8 @@ const BUDGETS: Array<[path: string, input: (businessId: string) => unknown, trip
   ["department.list", (b) => ({ businessId: b }), 4],
   ["inbox.list", (b) => ({ businessId: b }), 4],
   ["finance.overview", (b) => ({ businessId: b }), 4],
-  ["cycle.status", (b) => ({ businessId: b }), 4],
+  // cycle.status reads the cycle events, running tasks, agents and the pause, continue and queue rows (five statements, one connection here).
+  ["cycle.status", (b) => ({ businessId: b }), 9],
   ["journey.ribbon", (b) => ({ businessId: b, from: monthAgo(), to: today(), slim: true }), 5],
   ["dev.tasks.list", (b) => ({ businessId: b }), 4],
   ["dev.sessions.list", (b) => ({ businessId: b, limit: 200 }), 4],

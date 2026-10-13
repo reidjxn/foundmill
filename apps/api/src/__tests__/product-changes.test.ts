@@ -108,7 +108,7 @@ describe("product.roadmap", () => {
     expect(linked).toMatchObject({ horizon: "later", targetStart: "2026-11-02", targetEnd: "2026-12-20", confidence: 5, ownerRef: { kind: "user", id: ownerId }, specBlockIds: [block.id] });
     // Linking the same block again changes nothing; a block of another business is refused and nothing is stored.
     expect((await owner.product.roadmap.link({ businessId, itemId: item.id, specBlockIds: [block.id] })).specBlockIds).toEqual([block.id]);
-    await expect(owner.product.roadmap.link({ businessId, itemId: item.id, specBlockIds: [hz.B.specBlockId] })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(owner.product.roadmap.link({ businessId, itemId: item.id, specBlockIds: [hz.B.specBlockId] })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect((await repos.product.getRoadmapItem(hz.db, businessId, item.id)).specBlockIds).toEqual([block.id]);
   });
 

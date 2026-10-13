@@ -65,8 +65,9 @@ describe("reference fields name rows of the business", () => {
   });
 
   it("team.agents.clone: departments of another business are refused; a clone joins the departments it is filed under", async () => {
-    expect(await codeOf(owner().team.agents.clone({ businessId: businessId(), agentId: hz.A.agentId, name: "Copy", departmentIds: [hz.B.departmentId] }))).toBe("BAD_REQUEST");
-    const copy = await owner().team.agents.clone({ businessId: businessId(), agentId: hz.A.agentId, name: "Copy", departmentIds: [hz.A.departmentId] });
+    // The Chief of Staff is not cloned (one per business), so a worker agent is the source.
+    expect(await codeOf(owner().team.agents.clone({ businessId: businessId(), agentId: hz.A.agent2Id, name: "Copy", departmentIds: [hz.B.departmentId] }))).toBe("BAD_REQUEST");
+    const copy = await owner().team.agents.clone({ businessId: businessId(), agentId: hz.A.agent2Id, name: "Copy", departmentIds: [hz.A.departmentId] });
     expect(copy.departmentIds).toEqual([hz.A.departmentId]);
     const members = await repos.departments.listMembers(hz.db, businessId(), hz.A.departmentId);
     expect(members.some((m) => m.memberKind === "agent" && m.memberId === copy.id)).toBe(true);

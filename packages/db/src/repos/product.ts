@@ -555,6 +555,8 @@ export const productRepo = {
     return db.transaction(async (tx) => {
       const item = one(await tx.select().from(roadmapItems).where(and(eq(roadmapItems.businessId, businessId), eq(roadmapItems.id, itemId))).for("update").limit(1), "roadmap item", itemId);
       if (ids.length === 0) return item;
+      // Another business's block is a 400 like every reference field (audit ARB-23); an archived block of this one is a 404.
+      await assertSpecBlocksOwned(tx, businessId, ids, "specBlockIds");
       const owned = await tx.select({ id: specBlocks.id }).from(specBlocks).where(and(eq(specBlocks.businessId, businessId), inArray(specBlocks.id, ids), isNull(specBlocks.archivedAt)));
       const missing = ids.filter((id) => !owned.some((b) => b.id === id));
       if (missing.length) throw new NotFoundError("spec block", missing[0]!);

@@ -198,7 +198,7 @@ describe("LandingPage (signed-out /)", () => {
     // Milestone values (TrophyCabinet) and the DecisionBar's cost line for screen readers.
     expect(screen.getByText("$29.00")).toBeTruthy();
     expect(screen.getByText("$290.00")).toBeTruthy();
-    expect(screen.getByText(/^Recommended\. Scout books the sponsorship and the copy runs next week\. \$480\.00\. Not reversible\.$/)).toBeTruthy();
+    expect(screen.getByText(/^Recommended\. Scout books the sponsorship and the copy runs next week\. \$480\.00 \(Estimate\)\. Not reversible\.$/)).toBeTruthy();
     expect(document.body.textContent).not.toContain("US$");
     for (const el of document.body.querySelectorAll("[aria-label], [title]")) expect(`${el.getAttribute("aria-label")} ${el.getAttribute("title")}`).not.toContain("US$");
   });

@@ -345,6 +345,8 @@ export const agentsRepo = {
    */
   async assertLineManager(db: Executor, businessId: string, agentId: string, managerId: string): Promise<void> {
     if (managerId === agentId) throw new ValidationError("An agent cannot be its own line manager");
+    // A reference field names this business's own rows: another tenant's agent is a 400, not a 404 (audit RA-07).
+    await assertAgentsOwned(db, businessId, [managerId], "lineManagerId");
     const manager = await agentsRepo.get(db, businessId, managerId);
     if (manager.archivedAt) throw new ValidationError(`${manager.name} has left the team and cannot be a line manager`);
     const chain = rowsOf<{ id: string }>(

@@ -42,8 +42,8 @@ describe("line managers stay a tree (TPD-27)", () => {
     const gone = await agent("Tree gone");
     await repos.agents.release(r.db, businessId, gone.id);
     await expect(repos.agents.update(r.db, businessId, lead.id, { lineManagerId: gone.id })).rejects.toThrow(/has left the team/);
-    // Another business's agent is not found.
-    await expect(repos.agents.update(r.db, businessId, lead.id, { lineManagerId: r.B.agentId })).rejects.toThrow(/not found/);
+    // Another business's agent is refused as a reference to a row that is not this business's (audit RA-07).
+    await expect(repos.agents.update(r.db, businessId, lead.id, { lineManagerId: r.B.agentId })).rejects.toThrow(/must be an agent of this business/);
     expect((await repos.agents.update(r.db, businessId, deep.id, { lineManagerId: lead.id })).lineManagerId).toBe(lead.id);
   });
 });
