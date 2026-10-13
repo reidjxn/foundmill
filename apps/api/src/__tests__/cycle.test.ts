@@ -159,4 +159,18 @@ describe("business.continue / pauseCycle with Temporal reachable", () => {
     const done = await owner.cycle.status({ businessId });
     expect(done).toMatchObject({ running: false, completedCount: 1, lastOutcome: "time_box", nextCycleNumber: 2 });
   });
+
+  it("Continue starts a plan an earlier decision could not hand to the orchestrator (audit api-services-15)", async () => {
+    const { businessId } = hz.A;
+    // A plan left behind: executing, an action still pending, no workflow id (its planExecution start never reached Temporal).
+    const plan = await repos.plans.create(hz.db, businessId, { origin: "free_text", summaryMd: "Hire a growth agent.", status: "executing", actions: [{ type: "hire_agent", params: { role: "growth" }, status: "pending" }] });
+    // A playbook step's plan is the orchestrator's own (no planExecution workflow runs it): never started from here.
+    const playbookStep = await repos.plans.create(hz.db, businessId, { origin: "playbook", summaryMd: "Playbook step: create_task", status: "executing", actions: [{ type: "create_task", params: { title: "Step" }, status: "pending" }] });
+    expect((await repos.plans.awaitingDispatch(hz.db, businessId)).map((p) => p.id)).toEqual([plan.id]);
+    await hz.caller({ userId: hz.A.ownerId }).business.continue({ businessId });
+    expect(temporal.starts).toContainEqual({ type: "planExecution", workflowId: `plan:${plan.id}`, args: [{ businessId, planId: plan.id }] });
+    expect((await repos.plans.get(hz.db, businessId, plan.id)).workflowId).toBe(`plan:${plan.id}`);
+    expect(temporal.starts.map((x) => x.workflowId)).not.toContain(`plan:${playbookStep.id}`);
+    expect(await repos.plans.awaitingDispatch(hz.db, businessId)).toEqual([]);
+  });
 });

@@ -13,6 +13,7 @@ import { repos, type Executor, type InboxItem } from "@foundmill/db";
 import { AppError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
+import { redispatchPlans } from "./plans";
 import { assertAgentsRunning } from "./stop-guard";
 import { WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
 
@@ -154,6 +155,9 @@ export async function startCycle(ctx: BusinessContext): Promise<StartCycleResult
   const before = await continueStateFor(ctx);
   if (before.kind === "holiday") throw new ContinueBlockedError("The Chief of Staff is running the business while you are away. End the vacation to take over.", { continueState: before });
   if (before.kind === "blocked") throw new ContinueBlockedError(`Respond to ${before.count} item${before.count === 1 ? "" : "s"} in the Inbox before the next cycle.`, { continueState: before });
+
+  // Plans an earlier decision could not hand to the orchestrator start now that the founder moves on (audit api-services-15).
+  await redispatchPlans(ctx).catch((err: unknown) => ctx.log.warn({ err: (err as Error).message }, "plan redispatch failed"));
 
   const status = await cycleStatus(ctx);
   if (status.running && status.paused) {
