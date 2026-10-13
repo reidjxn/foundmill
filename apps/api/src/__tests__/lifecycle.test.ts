@@ -58,6 +58,9 @@ describe("Settings › Danger zone (BUILD §11.15): export, deletion request, ar
     expect(result.copy.body).toContain("7 days");
     expect(result.copy.body).toContain("cancel");
     expect(result.inboxItem?.type).toBe("warning");
+    // US dates in what the founder reads: "Oct 18, 2026", never "2026-10-18".
+    expect(result.copy.title).toMatch(/^Deletion scheduled for [A-Z][a-z]{2} \d{1,2}, \d{4}$/);
+    expect(result.copy.body).not.toMatch(/\d{4}-\d{2}-\d{2}/);
 
     // Visible on business.get; a second request is idempotent; cancel clears it.
     const got = await owner.business.get({ businessId });
@@ -66,6 +69,14 @@ describe("Settings › Danger zone (BUILD §11.15): export, deletion request, ar
     expect(again.deletion.scheduledFor).toBe(result.deletion.scheduledFor);
     const cancelled = await owner.business.cancelDeletion({ businessId });
     expect(cancelled.status).toBe("cancelled");
+    // The Inbox no longer announces a deletion that will not happen: the warning is settled and a note says so.
+    expect((await repos.inbox.get(hz.db, businessId, result.inboxItem!.id)).state).toBe("archived");
+    const note = (await repos.inbox.list(hz.db, businessId, { limit: 50 })).items.find((i) => i.subject === "Deletion canceled");
+    expect(note).toMatchObject({ type: "update", state: "unread" });
+    expect(note?.bodyMd).toContain("was canceled");
+    // Cancelling again is idempotent: no second note.
+    await owner.business.cancelDeletion({ businessId });
+    expect((await repos.inbox.list(hz.db, businessId, { limit: 50 })).items.filter((i) => i.subject === "Deletion canceled")).toHaveLength(1);
     expect((await owner.business.get({ businessId })).deletion).toBeNull();
     const audit = await repos.audit.list(hz.db, businessId, { action: ["business.request_deletion", "business.cancel_deletion"] });
     expect(audit.items.map((a) => a.action)).toEqual(["business.cancel_deletion", "business.request_deletion"]);

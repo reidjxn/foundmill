@@ -26,6 +26,9 @@ export const DELETION_CANCEL_ACTION = "business.cancel_deletion";
 
 const DAY_MS = 86_400_000;
 
+/** "Oct 18, 2026" (US English, UTC so a note reads the same wherever it is written). */
+const usDate = (iso: string): string => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+
 export interface ExportArchive {
   format: typeof EXPORT_FORMAT;
   app: string;
@@ -246,7 +249,7 @@ export interface RequestDeletionResult {
 
 /** Deletion copy shown by the UI; the API is the source of truth for the delay. */
 export function deletionCopy(business: Pick<Business, "name">, scheduledFor: string): { title: string; body: string } {
-  const when = scheduledFor.slice(0, 10);
+  const when = usDate(scheduledFor);
   return {
     title: `Deletion scheduled for ${when}`,
     body: `${business.name} and everything in it (spec, roadmap, tasks, CRM, journeys, finance, audit log, agent instructions) will be permanently deleted on ${when}, ${DELETION_DELAY_DAYS} days from now. Until then the business keeps working and any owner can cancel from Settings › Danger zone. This cannot be undone after that date.`,
@@ -267,23 +270,54 @@ export async function requestDeletion(ctx: BusinessContext, input: RequestDeleti
   const scheduledFor = new Date(now.getTime() + DELETION_DELAY_DAYS * DAY_MS).toISOString();
   const copy = deletionCopy(ctx.business, scheduledFor);
   const inboxItem = await ctx.rls(async (tx) => {
-    await audit(tx, ctx, { action: DELETION_REQUEST_ACTION, target: { kind: "business", id: ctx.businessId }, details: { requestedAt: now.toISOString(), scheduledFor, delayDays: DELETION_DELAY_DAYS, reauthenticatedAt: authenticatedAt!.toISOString() } });
     const chief = await repos.agents.chiefOfStaff(tx, ctx.businessId);
-    if (!chief) return null;
-    return repos.inbox.createItem(
-      tx,
-      ctx.businessId,
-      { type: "warning", from_agent_id: chief.id, subject: copy.title.slice(0, 80), body_md: copy.body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] },
-      { fromUserId: ctx.userId },
-    );
+    // The warning is made first so the request on the audit chain can name it: cancelling settles exactly this item.
+    const item = chief
+      ? await repos.inbox.createItem(
+          tx,
+          ctx.businessId,
+          { type: "warning", from_agent_id: chief.id, subject: copy.title.slice(0, 80), body_md: copy.body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] },
+          { fromUserId: ctx.userId },
+        )
+      : null;
+    await audit(tx, ctx, { action: DELETION_REQUEST_ACTION, target: { kind: "business", id: ctx.businessId }, details: { requestedAt: now.toISOString(), scheduledFor, delayDays: DELETION_DELAY_DAYS, reauthenticatedAt: authenticatedAt!.toISOString(), inboxItemId: item?.id ?? null } });
+    return item;
   });
   return { deletion: await deletionState(ctx), reauth: { required: true, satisfied, authenticatedAt: authenticatedAt!.toISOString(), windowMinutes: REAUTH_WINDOW_MS / 60_000 }, copy, inboxItem };
 }
 
-/** Owner-only. Cancels a scheduled deletion (idempotent). */
+/**
+ * Owner-only. Cancels a scheduled deletion (idempotent). The Inbox warning the request left is settled (archived) and
+ * the Chief of Staff leaves a note that the deletion was canceled, so the Inbox never keeps announcing a deletion that
+ * is no longer going to happen (audit MLSL-X: "Deletion scheduled for …" stayed after canceling).
+ */
 export async function cancelDeletion(ctx: BusinessContext): Promise<DeletionState> {
   const existing = await deletionState(ctx);
   if (existing.status !== "scheduled") return existing;
-  await ctx.rls((tx) => audit(tx, ctx, { action: DELETION_CANCEL_ACTION, target: { kind: "business", id: ctx.businessId }, details: { cancelledAt: new Date().toISOString(), hadBeenScheduledFor: existing.scheduledFor } }));
+  const request = (await repos.audit.list(ctx.db, ctx.businessId, { action: DELETION_REQUEST_ACTION, limit: 1 })).items[0];
+  const warningId = (request?.details as { inboxItemId?: string | null } | undefined)?.inboxItemId ?? null;
+  await ctx.rls(async (tx) => {
+    await audit(tx, ctx, { action: DELETION_CANCEL_ACTION, target: { kind: "business", id: ctx.businessId }, details: { cancelledAt: new Date().toISOString(), hadBeenScheduledFor: existing.scheduledFor } });
+    if (warningId) await repos.inbox.archive(tx, ctx.businessId, warningId).catch(() => undefined);
+    const chief = await repos.agents.chiefOfStaff(tx, ctx.businessId);
+    if (!chief) return;
+    await repos.inbox.createItem(
+      tx,
+      ctx.businessId,
+      {
+        type: "update",
+        from_agent_id: chief.id,
+        subject: "Deletion canceled",
+        body_md: `The permanent deletion of ${ctx.business.name}${existing.scheduledFor ? ` that was scheduled for ${usDate(existing.scheduledFor)}` : ""} was canceled. Nothing was deleted and the business keeps working. You can schedule it again from Settings › Danger zone.`,
+        status_strip: [],
+        exhibit: { kind: "none", spec_ref: null },
+        decision: null,
+        blocks_continue: false,
+        source_event_ids: [],
+        entity_ids: [],
+      },
+      { fromUserId: ctx.userId, state: "unread" },
+    );
+  });
   return deletionState(ctx);
 }
