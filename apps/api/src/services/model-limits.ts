@@ -12,10 +12,11 @@
  * allowances that predate this one keep their own rules inside their services (drafting in ideation.ts, logo sets in
  * logo.ts, conversation sends in conversation.ts); their procedures still spend from the shared ceiling.
  */
+import { gateModelClient } from "@foundmill/models";
 import { TRPCError } from "@trpc/server";
 import type { Context } from "../context";
 import { middleware, toTRPCError } from "../trpc";
-import { withModelCallScope } from "./model-calls";
+import { noteModelCall, notesCalls, withModelCallScope } from "./model-calls";
 import { RateLimitedError, type LimitEntry, type WindowLimit } from "./rate-limit";
 
 const MINUTE = 60_000;
@@ -104,7 +105,10 @@ export function modelLimited(name: ModelLimitName, options: ModelLimitOptions = 
     if (options.when && !options.when(await getRawInput())) return next();
     const taken = await c.limits.take(modelLimitEntries(name, { userId: c.userId, businessId: c.businessId ?? null }));
     if (!taken.ok) throw new RateLimitedError(MODEL_LIMITS[name].what, taken.retryAfterMs);
-    const { result, scope } = await withModelCallScope(() => next());
+    // The procedure gets a model client that notes every call as it starts (the api's own already does, at its credits gate,
+    // once the gate let the call through; any other client is wrapped), so a request that reached the model keeps its hit
+    // whatever refuses it afterwards.
+    const { result, scope } = await withModelCallScope(() => next({ ctx: { ...ctx, models: notesCalls(c.models) ? c.models : gateModelClient(c.models, async () => noteModelCall()) } }));
     if (!result.ok && scope.calls === 0 && REFUNDED_CODES.has(toTRPCError(result.error).code)) await c.limits.refund(taken.ticket);
     return result;
   });

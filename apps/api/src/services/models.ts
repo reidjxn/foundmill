@@ -18,7 +18,7 @@ import { assertPlatformCredits, bookUsage, type Db } from "@foundmill/db";
 import { createModelClient, gateModelClient, type ModelCallGate, type ModelClient, type UsageEvent, type UsageSink } from "@foundmill/models";
 import type { Env } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
-import { noteModelCall } from "./model-calls";
+import { markNotesCalls, noteModelCall } from "./model-calls";
 
 export interface ApiModelClientOptions {
   /** The service-role database the usage ledger is written to; without it nothing is booked (logged only). */
@@ -97,5 +97,5 @@ export function createApiModelClient(env: Pick<Env, "MODEL_MODE" | "ANTHROPIC_AP
     log.error({}, "MODEL_MODE=live but ANTHROPIC_API_KEY is missing; falling back to the mock model client");
     client = createModelClient({ mode: "mock", onUsage: usage, logger: log });
   } else client = createModelClient({ mode: env.MODEL_MODE, apiKey: env.ANTHROPIC_API_KEY, onUsage: usage, logger: log });
-  return gateModelClient(client, opts.db ? apiCreditsGate(opts.db, client.mode === "live") : async () => noteModelCall());
+  return markNotesCalls(gateModelClient(client, opts.db ? apiCreditsGate(opts.db, client.mode === "live") : async () => noteModelCall()));
 }

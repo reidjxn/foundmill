@@ -15,11 +15,10 @@
  * `/v1/call` and `/mcp/:connector` both run this function; nothing reaches a vendor any other way.
  */
 import { createHash } from "node:crypto";
-import { effectiveApprovalThresholdMinor } from "@foundmill/config";
-import { AppError, BUSINESS_MODES, NotFoundError, type BusinessMode } from "@foundmill/shared";
+import { AppError, NotFoundError } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
 import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
-import { evaluate, getPolicyEngine, type AgentAutonomy, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
+import { agentAutonomy, businessApprovalThreshold, evaluate, getPolicyEngine, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
 import {
   ALWAYS_LIVE_CONNECTORS,
   canonicalJson,
@@ -177,33 +176,8 @@ export function toolAttributes(connector: string, tool: string): { finance: bool
   return { finance: FINANCE_CONNECTORS.has(connector), contract: CONTRACT_TOOLS.has(toolRef(connector, tool)) };
 }
 
-const MODE_ORDER: readonly BusinessMode[] = ["augmented", "assisted", "automated"];
-
-/** `agents.autonomy` (BUILD §9.2): `mode` is `inherit`, a business mode, or `lower` / `higher` relative to the business mode. */
-export function agentAutonomy(agent: Pick<Agent, "autonomy">, businessMode: BusinessMode): { autonomy: AgentAutonomy; spendCapMinor?: number; approvalThresholdMinor?: number } {
-  const raw = agent.autonomy ?? {};
-  const mode = raw["mode"];
-  let autonomy: AgentAutonomy = "inherit";
-  if (typeof mode === "string") {
-    if ((BUSINESS_MODES as readonly string[]).includes(mode)) autonomy = mode as BusinessMode;
-    else if (mode === "lower" || mode === "higher") {
-      const idx = MODE_ORDER.indexOf(businessMode);
-      const next = MODE_ORDER[Math.min(MODE_ORDER.length - 1, Math.max(0, idx + (mode === "lower" ? -1 : 1)))];
-      autonomy = next && next !== businessMode ? next : "inherit";
-    }
-  }
-  const minor = (v: unknown): number | undefined => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : undefined);
-  return { autonomy, spendCapMinor: minor(raw["spendCapMinor"]), approvalThresholdMinor: minor(raw["approvalThresholdMinor"]) };
-}
-
-/**
- * The approval threshold the Cedar request carries: the agent's own (the policy default when it has none), lowered to
- * the business's "Spend cap per action" when the founder set one (`businesses.spend_cap_minor`; DECISIONS 2026-10-05
- * "caps copied from the business"). Undefined leaves the policy default.
- */
-export function businessApprovalThreshold(agentThresholdMinor: number | undefined, businessCapMinor: number | null): number | undefined {
-  return effectiveApprovalThresholdMinor(agentThresholdMinor, businessCapMinor);
-}
+// The principal's autonomy and thresholds live in @foundmill/policy, shared with plan evaluation (audit api-services-03).
+export { agentAutonomy, businessApprovalThreshold };
 
 const argsHash = (args: unknown): string => createHash("sha256").update(canonical(args), "utf8").digest("hex").slice(0, 32);
 

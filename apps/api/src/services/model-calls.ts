@@ -32,3 +32,14 @@ export async function withModelCallScope<T>(fn: () => Promise<T>): Promise<{ res
 export function noteModelCall(): void {
   for (let scope = scopes.getStore() ?? null; scope; scope = scope.parent) scope.calls += 1;
 }
+
+const noting = new WeakSet<object>();
+
+/** Marks a model client that notes its own calls (the api's: at its credits gate, after the gate let the call through). */
+export function markNotesCalls<T extends object>(client: T): T {
+  noting.add(client);
+  return client;
+}
+
+/** Whether `client` notes its own calls; any other client (a test's) is wrapped by `modelLimited` to note them. */
+export const notesCalls = (client: object): boolean => noting.has(client);

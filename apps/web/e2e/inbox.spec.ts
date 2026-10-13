@@ -114,6 +114,8 @@ test.describe("inbox", () => {
     await expect(confirm.or(answered).first()).toBeVisible({ timeout: LONG });
     if (await confirm.isVisible()) {
       await expect(confirm.getByRole("heading", { name: "Here is what will happen" })).toBeVisible();
+      // A costed option reaches the plan as a budget the founder confirms; its amount is an Estimate (audit FR-10, OL-11).
+      await expect(confirm.getByTestId("confirm-plan-lines")).toContainText("(Estimate)");
       await page.getByTestId("confirm-plan-go").click();
       await expect(confirm).toBeHidden({ timeout: LONG });
     }

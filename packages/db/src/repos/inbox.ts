@@ -7,10 +7,10 @@
  * business's own words (Settings › Glossary, AC-11.13.6): `applyGlossary` runs on its subject, body and decision
  * options here, the one place every composed and templated note passes through.
  */
-import { EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, ValidationError, applyGlossary, type InboxItemType, type InboxState } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
+import { EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, OptionAction, ValidationError, applyGlossary, type InboxItemType, type InboxState } from "@foundmill/shared";
+import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
-import { agents, businesses, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItems, plans, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
+import { agents, businesses, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItemReads, inboxItems, plans, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
 import { Currency, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
 
 // --- Composer output schema (BUILD §11.3) ------------------------------------------------------------------------------
@@ -22,6 +22,8 @@ export const ComposerOption = z.object({
   consequence: z.string(),
   cost_minor: z.number().int().nonnegative(),
   reversible: z.boolean(),
+  /** What choosing it runs, written with the option (the Board's and the Import report's options; audit IAE-20). */
+  actions: z.array(OptionAction).min(1).max(8).optional(),
 });
 
 export const ComposerStatusMetric = z.object({ metric: z.string().min(1), source: z.string().min(1) });
@@ -30,7 +32,13 @@ export const ComposerDecision = z
   .object({
     options: z.array(ComposerOption).min(2).max(4),
     free_text: z.boolean(),
+    /** A deadline: an ISO timestamp in the future, or null (the composer validates what the model writes; audit CML-13). */
     expires_at: z.string().nullable(),
+    /**
+     * What a grounded next-best decision is about (its kind and facts, never the rotation), so Refresh does not write the
+     * same open decision twice (audit CML-02). Set by the composer service; absent on every other note.
+     */
+    key: z.string().min(1).max(200).optional(),
   })
   .refine((d) => d.options.filter((o) => o.recommended).length === 1, { message: "exactly one option must be recommended", path: ["options"] })
   .refine((d) => new Set(d.options.map((o) => o.id)).size === d.options.length, { message: "option ids must be unique", path: ["options"] });
@@ -95,6 +103,17 @@ export const RESPOND_TYPES: readonly InboxItemType[] = ["decision", "customer_wo
  * Continue is free, but it still asks for something, so it stays in Respond until the plan is confirmed (audit OL-01).
  */
 const awaitingConfirmation = sql`exists (select 1 from ${plans} where ${plans.businessId} = ${inboxItems.businessId} and ${plans.inboxItemId} = ${inboxItems.id} and ${plans.status} = 'pending_confirmation' and ${plans.archivedAt} is null)`;
+
+/**
+ * A note's state as this person sees it (0048): `unread` becomes `read` once they have a receipt for it; answered,
+ * archived and a state the system wrote as `read` are the same for everyone. No viewer: the stored state.
+ */
+function stateFor(viewerId?: string | null): SQL<InboxState> {
+  if (!viewerId) return sql<InboxState>`"inbox_items"."state"`;
+  // Qualified by hand: a single-table select strips the table from the columns of its SQL fields, and the bare `id` would
+  // then be the receipt's own.
+  return sql<InboxState>`case when "inbox_items"."state" = 'unread' and exists (select 1 from "inbox_item_reads" "r" where "r"."inbox_item_id" = "inbox_items"."id" and "r"."user_id" = ${viewerId}::uuid) then 'read' else "inbox_items"."state" end`;
+}
 
 function tabCondition(tab: InboxTab) {
   switch (tab) {
@@ -162,20 +181,26 @@ async function assertOwnedIds(db: Executor, businessId: string, v: z.output<type
 }
 
 export const inboxRepo = {
-  async list(db: Executor, businessId: string, filter: InboxListFilter = {}): Promise<Page<InboxItem>> {
+  /**
+   * `viewerId` is who is looking: with it, `state` reads `read` for a note that person has opened (their receipt, 0048)
+   * and `unread` for one they have not, whatever others did; the `state` filter follows. Without it (the composer, the
+   * orchestrator) the stored state is used as it is.
+   */
+  async list(db: Executor, businessId: string, filter: InboxListFilter = {}, viewerId?: string | null): Promise<Page<InboxItem>> {
     const f = parseInput(InboxListFilter, filter, "inbox filter");
+    const state = stateFor(viewerId);
     const ks = timeKeyset<InboxItem>(inboxItems.createdAt, inboxItems.id, (r) => ({ at: r.createdAt, id: r.id }));
     const states = toArray(f.state);
     const types = toArray(f.type);
     const rows = await db
-      .select()
+      .select({ ...getTableColumns(inboxItems), state })
       .from(inboxItems)
       .where(
         and(
           eq(inboxItems.businessId, businessId),
           isNull(inboxItems.archivedAt),
           tabCondition(f.tab),
-          states?.length ? inArray(inboxItems.state, states) : undefined,
+          states?.length ? inArray(state, states) : undefined,
           types?.length ? inArray(inboxItems.type, types) : undefined,
           f.fromAgentId ? eq(inboxItems.fromAgentId, f.fromAgentId) : undefined,
           f.blocking === undefined ? undefined : eq(inboxItems.blocksContinue, f.blocking),
@@ -187,8 +212,9 @@ export const inboxRepo = {
     return toPage(rows, f, ks);
   },
 
-  async get(db: Executor, businessId: string, itemId: string): Promise<InboxItem> {
-    return one(await db.select().from(inboxItems).where(scoped(businessId, itemId)).limit(1), "inbox item", itemId);
+  /** One note; with `viewerId` its `state` is that person's (see `list`). */
+  async get(db: Executor, businessId: string, itemId: string, viewerId?: string | null): Promise<InboxItem> {
+    return one(await db.select({ ...getTableColumns(inboxItems), state: stateFor(viewerId) }).from(inboxItems).where(scoped(businessId, itemId)).limit(1), "inbox item", itemId);
   },
 
   /** Several items in one query (ids of another business, or of nothing, are left out). */
@@ -254,11 +280,35 @@ export const inboxRepo = {
     return inboxRepo.createItem(db, businessId, { type: "human_message", from_agent_id: null, subject: v.subject, body_md: v.bodyMd, entity_ids: v.entityIds }, { fromUserId: v.fromUserId });
   },
 
-  async markRead(db: Executor, businessId: string, itemId: string): Promise<InboxItem> {
-    return one(await db.update(inboxItems).set({ state: "read" }).where(and(scoped(businessId, itemId), eq(inboxItems.state, "unread"))).returning().then((rows) => (rows.length ? rows : db.select().from(inboxItems).where(scoped(businessId, itemId)))), "inbox item", itemId);
+  /**
+   * `userId` opened the note: their receipt (0048), and nobody else's markers move. Any member keeps their own, the
+   * viewers and advisors the Inbox policy keeps from writing notes included. Without a `userId` the system read it for
+   * the whole business (the Chief of Staff deciding a win on vacation): the stored state becomes `read`.
+   */
+  async markRead(db: Executor, businessId: string, itemId: string, userId?: string | null): Promise<InboxItem> {
+    const item = await inboxRepo.get(db, businessId, itemId);
+    if (item.state !== "unread") return inboxRepo.get(db, businessId, itemId, userId);
+    if (!userId) {
+      await db.update(inboxItems).set({ state: "read" }).where(and(scoped(businessId, itemId), eq(inboxItems.state, "unread")));
+      return inboxRepo.get(db, businessId, itemId);
+    }
+    await db.insert(inboxItemReads).values({ businessId, inboxItemId: itemId, userId }).onConflictDoNothing();
+    return inboxRepo.get(db, businessId, itemId, userId);
   },
 
-  async archive(db: Executor, businessId: string, itemId: string): Promise<InboxItem> {
+  /**
+   * Moves a note to the Archive. A decision that blocks Continue and still waits for its answer cannot be archived
+   * (BUILD §11.3: Continue stays blocked until red items are answered): archiving it would clear the gate with nobody
+   * having decided and could never be undone. Answered notes, and blocking notes that offer nothing to choose (a
+   * warning), archive as before. `force` is for the system closing a note whose question was settled some other way.
+   */
+  async archive(db: Executor, businessId: string, itemId: string, options: { force?: boolean } = {}): Promise<InboxItem> {
+    const item = await inboxRepo.get(db, businessId, itemId);
+    const choices = (item.decision as { options?: unknown[] } | null)?.options;
+    // `force`: the system closing a request that was settled some other way (an expired approval), not the founder.
+    if (!options.force && item.blocksContinue && (item.state === "unread" || item.state === "read") && Array.isArray(choices) && choices.length > 0) {
+      throw new ValidationError("This decision is waiting for your answer. Choose an option or write what to do; it can be archived once it is answered.", { itemId, state: item.state });
+    }
     return one(await db.update(inboxItems).set({ state: "archived" }).where(scoped(businessId, itemId)).returning(), "inbox item", itemId);
   },
 

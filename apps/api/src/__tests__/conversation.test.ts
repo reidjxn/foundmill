@@ -4,7 +4,8 @@
  * Inbox questions that never use up a decision, and tenancy (business, role and section).
  */
 import { CONVERSATION_MAX_TOKENS, CONVERSATION_RESERVE_TOKENS, hasClubRulesPrefix } from "@foundmill/agents";
-import { repos } from "@foundmill/db";
+import { inboxItems, repos } from "@foundmill/db";
+import { eq } from "drizzle-orm";
 import { MockModelClient, PRICING_CURRENCY, type CompleteRequest, type ModelClient } from "@foundmill/models";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { CONVERSATION_LIMITS, conceptStarters, replyAboutConcept } from "../services/conversation";
@@ -82,6 +83,17 @@ describe("agent.conversation.get", () => {
 });
 
 describe("agent.conversation.send", () => {
+  it("prices option costs in the business currency as an Estimate, never in the note's own model-cost currency (audit CML-12)", async () => {
+    const client = recordingModels();
+    const item = await decisionItem("Which channel carries the first spend?");
+    // The composer stores what writing the note cost (USD) on the row; it says nothing about the decision's money.
+    await hz.db.update(inboxItems).set({ currency: "JPY" }).where(eq(inboxItems.id, item.id));
+    await owner().agent.conversation.send({ businessId: hz.A.businessId, subject: { kind: "inbox_item", id: item.id }, quickReplyId: "why_that_one" });
+    const prompt = JSON.stringify(conversationRequests(client)[0]!.messages);
+    expect(prompt).toContain("(Estimate)");
+    expect(prompt).not.toMatch(/¥|JPY/);
+  });
+
   it("answers a question with the house rules first, stores both messages, emits two un-narrated events, and leaves the decision open", async () => {
     const client = recordingModels();
     const item = await decisionItem("Paid acquisition first?");

@@ -76,11 +76,14 @@ export interface DecisionBarProps extends Omit<HTMLAttributes<HTMLDivElement>, "
   keyHints?: boolean;
 }
 
-/** "€500.00" / "No cost" / "Cost unknown". Exported for tests. */
+/**
+ * "€500.00 (Estimate)" / "No cost" / "Cost unknown". An option's cost is written with the option before anything runs,
+ * so it is an Estimate (CLAUDE.md: label every non-real number). Exported for tests.
+ */
 export function costText(cost: Money | null | undefined): string {
   if (cost === undefined) return "Cost unknown";
   if (cost === null || cost.amountMinor === 0) return "No cost";
-  return formatMoney(cost);
+  return `${formatMoney(cost)} (Estimate)`;
 }
 
 /** "Reversible" / "Not reversible" / "Reversibility unknown". */

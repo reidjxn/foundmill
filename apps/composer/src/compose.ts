@@ -14,7 +14,7 @@ import { APP_NAME, LIMITS } from "@foundmill/config";
 import type { ComposerItem, Event } from "@foundmill/db";
 import { checkComposerText, linkComposerText, stripMarkup, type LinkedText, type ValidationResult } from "@foundmill/entity-linker";
 import { ComposerOutput, ModelAbortedError, type ChatMessage, type CompleteResultWithJson, type ModelClient, type ModelLogger, type TokenUsage } from "@foundmill/models";
-import { AppError, type InboxItemType } from "@foundmill/shared";
+import { AppError, futureDeadline, type InboxItemType } from "@foundmill/shared";
 import { businessBrief, type ComposeContext } from "./context";
 import type { NextBestDecision } from "./decisions";
 import { namedQueryCatalogue, sanitizeExhibit } from "./exhibits";
@@ -119,6 +119,8 @@ export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record
     metrics: ctx.status.map((m) => ({ metric: m.metric, value: m.value, source: m.source, label: m.label })),
     named_queries: namedQueryCatalogue(),
     glossary: ctx.glossary,
+    // The model has no clock: without today's date it guesses deadlines, and a guessed one in the past locks the options.
+    now: ctx.now.toISOString(),
   };
   switch (brief.mode) {
     case "events": {
@@ -257,7 +259,10 @@ async function composeWithin(deps: ComposeDeps, ctx: ComposeContext, brief: Comp
       ? {
           options: decision.options.map((o) => ({ ...o, id: plain(o.id).slice(0, 40) || "option", label: plain(o.label).slice(0, 120) || "Option", consequence: plain(o.consequence) })),
           free_text: decision.free_text,
-          expires_at: decision.expires_at,
+          // A deadline is a future ISO timestamp within a bounded horizon, or none (audit CML-13).
+          expires_at: futureDeadline(decision.expires_at, ctx.now),
+          // The grounded decision this note is about, so Refresh does not write it twice while it is open (audit CML-02).
+          ...(brief.mode === "decision" ? { key: brief.decision.identity } : {}),
         }
       : null,
     blocks_continue: blocksContinueFor(type, ctx, events),

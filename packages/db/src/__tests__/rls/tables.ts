@@ -163,6 +163,7 @@ export const NON_TENANT_TABLES = [
   "idea_comparisons",
   "dashboard_layouts",
   "saved_table_views",
+  "inbox_item_reads",
   "skill_definitions",
   "skill_tests",
   "suppression_list",

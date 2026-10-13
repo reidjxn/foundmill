@@ -17,7 +17,7 @@ import { LIMITS } from "@foundmill/config";
 import { getTemplate, getTemplateByAgentType, initialVersionFromTemplate, type AgentTemplate } from "@foundmill/agents";
 import { repos, type Agent, type Business, type Entity, type PlanAction as PlanActionRow } from "@foundmill/db";
 import { PRICING_CURRENCY, resolveRoadmapItem, roadmapPatchFrom, SetAgentModelParams, UpdateRoadmapParams } from "@foundmill/models";
-import { evaluate, type ToolCtxInput } from "@foundmill/policy";
+import { agentPrincipal, evaluate, type ToolCtxInput } from "@foundmill/policy";
 import { CHANNEL_KEYS, CHANNEL_META, CreatePlaybookParams, MODEL_KEYS, TASK_KINDS, uuid, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
@@ -67,15 +67,20 @@ export interface PolicyVerdict {
   hardGate: boolean;
 }
 
-/** Evaluate one action against the policies; internal actions are allowed without a Cedar round-trip. */
-export function evaluateAction(action: { type: PlanActionType; params: Record<string, unknown>; agentId: string | null }, ctx: { business: Pick<Business, "id" | "businessMode">; agents: readonly Agent[]; holidayActive: boolean }): PolicyVerdict {
+/**
+ * Evaluate one action against the policies; internal actions are allowed without a Cedar round-trip. The acting agent
+ * is the principal with its own autonomy, caps and threshold, the business's spend cap per action and the vacation
+ * budget ceiling, exactly as the gateway and the api's plan evaluation build it (@foundmill/policy `agentPrincipal`).
+ */
+export function evaluateAction(action: { type: PlanActionType; params: Record<string, unknown>; agentId: string | null }, ctx: { business: Pick<Business, "id" | "businessMode"> & Partial<Pick<Business, "spendCapMinor">>; agents: readonly Agent[]; holidayActive: boolean; holidayBudgetMinor?: number | null }): PolicyVerdict {
   const hardGate = HARD_GATE_ACTIONS.has(action.type);
   const tool = ACTION_TOOLS[action.type];
   if (tool.internal) return { outcome: "allow", reasons: [], policyIds: [], hardGate };
   const chief = ctx.agents.find((a) => a.agentType === "chief_of_staff") ?? ctx.agents[0];
   const agent = (action.agentId && ctx.agents.find((a) => a.id === action.agentId)) || chief;
+  const scope = { businessMode: ctx.business.businessMode, businessSpendCapMinor: ctx.business.spendCapMinor ?? null, holidayActive: ctx.holidayActive, holidayBudgetMinor: ctx.holidayBudgetMinor ?? null };
   const result = evaluate({
-    principal: { id: agent?.id ?? "chief_of_staff", department: agent?.departmentIds[0] ?? "team", type: agent?.agentType ?? "chief_of_staff", modelKey: agent?.modelKey ?? "opus", autonomy: "inherit", approvalThresholdMinor: LIMITS.approvalThresholdMinorDefault },
+    principal: agent ? agentPrincipal(agent, scope, { department: "team" }) : { id: "chief_of_staff", department: "team", type: "chief_of_staff", modelKey: "opus", autonomy: "inherit", approvalThresholdMinor: Math.min(LIMITS.approvalThresholdMinorDefault, ctx.business.spendCapMinor ?? Number.MAX_SAFE_INTEGER) },
     tool: { connector: tool.connector, name: tool.name, spendsMoney: tool.spendsMoney, contactsThirdParty: tool.contactsThirdParty },
     business: { id: ctx.business.id, businessMode: ctx.business.businessMode, holidayActive: ctx.holidayActive },
     context: { amountMinor: amountOf(action.params), holidayActive: ctx.holidayActive },
@@ -220,7 +225,7 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         return { ...empty, status: "failed", result: { error } };
       }
 
-      const evaluated = evaluateAction({ type: action.type, params, agentId: action.agentId }, { business, agents, holidayActive: holiday !== null });
+      const evaluated = evaluateAction({ type: action.type, params, agentId: action.agentId }, { business, agents, holidayActive: holiday !== null, holidayBudgetMinor: holiday?.budgetCeilingMinor ?? null });
       // A playbook step the founder asked to approve waits for the founder even where policy would let it run.
       const verdict: PolicyVerdict = params.require_approval === true && evaluated.outcome === "allow" ? { ...evaluated, outcome: "ask", reasons: [...evaluated.reasons, "this playbook step waits for your approval"] } : evaluated;
 

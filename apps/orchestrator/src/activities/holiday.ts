@@ -80,6 +80,8 @@ interface HolidayOption {
   recommended?: boolean;
   reversible?: boolean;
   cost_minor?: number;
+  /** What choosing it runs, written with the option (typed actions); when present nothing is read from its words. */
+  actions?: unknown;
 }
 
 /** What the Chief of Staff does with one blocking item: run the recommended option's plan, or leave it to the founder. */
@@ -139,7 +141,7 @@ export function vacationVerdict(item: Pick<InboxItem, "subject" | "bodyMd" | "de
   // Money is the founder's (CLAUDE.md "Never"): an option that costs anything waits, whatever authority was given.
   if ((recommended.cost_minor ?? 0) > 0) return { kind: "wait", reason: `it costs money (${formatMoney({ amountMinor: recommended.cost_minor ?? 0, currency: ctx.currency })})` };
 
-  const compiled = compileOptionPlan({ id: recommended.id, label: recommended.label ?? recommended.id, consequence: recommended.consequence }, { fromAgentId: item.fromAgentId, subject: item.subject }, {
+  const compiled = compileOptionPlan({ id: recommended.id, label: recommended.label ?? recommended.id, consequence: recommended.consequence, cost_minor: recommended.cost_minor, reversible: recommended.reversible, actions: recommended.actions }, { fromAgentId: item.fromAgentId, subject: item.subject }, {
     agents: ctx.agents.map((a) => ({ id: a.id, name: a.name, role: a.role, department_id: a.departmentIds[0] ?? undefined })),
     defaultCurrency: ctx.currency,
   });

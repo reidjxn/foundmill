@@ -19,7 +19,13 @@ export interface DecisionOptionSeed {
 
 export interface NextBestDecision {
   kind: "unblock_tasks" | "start_distribution" | "review_slip" | "runway_plan" | "plan_next_cycle";
+  /** The buffer slot: the kind, the facts and the rotation, so consecutive refreshes serve a decision not served before. */
   key: string;
+  /**
+   * What the decision is about: the kind and the facts, without the rotation. It is stored on the note (`decision.key`),
+   * so a decision the founder has not answered yet is not written again (audit CML-02).
+   */
+  identity: string;
   title: string;
   /** Why this is the next-best call, as facts from the snapshot. */
   facts: Record<string, string | number | null>;
@@ -27,18 +33,15 @@ export interface NextBestDecision {
   exhibit: { kind: "table" | "chart"; spec_ref: NamedQueryId };
 }
 
-/**
- * Picks one decision from the state. `variant` lets consecutive refreshes with unchanged state rotate through the
- * grounded decisions instead of repeating the same note (it is the number of decision notes already written for
- * this state).
- */
-export function nextBestDecision(s: MetricsSnapshot, variant = 0): NextBestDecision {
+/** The decisions the state calls for, in the order they rotate (the first is the most pressing). */
+export function groundedDecisions(s: MetricsSnapshot): NextBestDecision[] {
   const candidates: NextBestDecision[] = [];
 
   if (s.tasks.blocked > 0) {
     candidates.push({
       kind: "unblock_tasks",
       key: "",
+      identity: "",
       title: "Blocked tasks need a call",
       facts: { blocked_tasks: s.tasks.blocked, running_tasks: s.tasks.running },
       options: [
@@ -54,6 +57,7 @@ export function nextBestDecision(s: MetricsSnapshot, variant = 0): NextBestDecis
     candidates.push({
       kind: "start_distribution",
       key: "",
+      identity: "",
       title: "No distribution channel is live",
       facts: { channels_enabled: s.channelsEnabled, signups_30d: s.signups30d, customers_30d: s.customers30d },
       options: [
@@ -69,6 +73,7 @@ export function nextBestDecision(s: MetricsSnapshot, variant = 0): NextBestDecis
     candidates.push({
       kind: "review_slip",
       key: "",
+      identity: "",
       title: "Re-plan a slipped roadmap item",
       facts: { item_title: worst.title, target_end: worst.targetEnd, days_late: worst.daysLate },
       options: [
@@ -84,6 +89,7 @@ export function nextBestDecision(s: MetricsSnapshot, variant = 0): NextBestDecis
     candidates.push({
       kind: "runway_plan",
       key: "",
+      identity: "",
       title: "Choose a runway plan",
       facts: { runway_months: s.runwayMonths, cash_minor: s.cashMinor, net_burn_monthly_minor: s.netBurnMonthlyMinor, currency: s.currency, label: "Estimate" },
       options: [
@@ -98,6 +104,7 @@ export function nextBestDecision(s: MetricsSnapshot, variant = 0): NextBestDecis
   candidates.push({
     kind: "plan_next_cycle",
     key: "",
+    identity: "",
     title: "Set the focus for the next cycle",
     facts: { planned_tasks: s.tasks.planned, running_tasks: s.tasks.running, done_tasks: s.tasks.done, customers_week: s.customersWeek, signups_week: s.signupsWeek },
     options: [
@@ -108,9 +115,22 @@ export function nextBestDecision(s: MetricsSnapshot, variant = 0): NextBestDecis
     exhibit: { kind: "table", spec_ref: "tasks_by_status" },
   });
 
+  for (const c of candidates) {
+    // Exactly one recommended option (BUILD §12.2).
+    if (c.options.filter((o) => o.recommended).length !== 1) c.options = c.options.map((o, i) => ({ ...o, recommended: i === 0 }));
+    c.identity = `decision:${c.kind}:${stableHash({ facts: c.facts })}`;
+  }
+  return candidates;
+}
+
+/**
+ * Picks one decision from the state. `variant` lets consecutive refreshes with unchanged state rotate through the
+ * grounded decisions instead of repeating the same note (it is the number of decision notes already written for
+ * this state).
+ */
+export function nextBestDecision(s: MetricsSnapshot, variant = 0): NextBestDecision {
+  const candidates = groundedDecisions(s);
   const pick = candidates[variant % candidates.length]!;
-  // Exactly one recommended option (BUILD §12.2).
-  if (pick.options.filter((o) => o.recommended).length !== 1) pick.options = pick.options.map((o, i) => ({ ...o, recommended: i === 0 }));
   pick.key = `decision:${pick.kind}:${stableHash({ facts: pick.facts, variant })}`;
   return pick;
 }

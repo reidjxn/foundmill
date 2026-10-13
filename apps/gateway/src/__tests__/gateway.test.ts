@@ -2,7 +2,6 @@
  * The pipeline over HTTP on an ephemeral port with PGlite, the test connector and the in-memory rate limiter.
  * Policy outcomes are asserted end to end: audit rows, approvals + outbox events, usage_ledger metering.
  */
-import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { BUSINESS_MODES, ForbiddenError } from "@foundmill/shared";
 import { mockIntegrationRecord } from "@foundmill/connectors";
@@ -340,14 +339,14 @@ describe("allow path", () => {
   });
 
   it("a service call (a plan action's message, a Source Watcher read) has no agent session: it is metered and asks without one", async () => {
-    // The orchestrator mints these tokens with an id of its own; linking usage or an approval to it broke their foreign
-    // key after the message had gone out, and the founder read a failure (audit VGPC-X1).
-    const serviceSession = randomUUID();
+    // The orchestrator mints these tokens with no session at all (`sessionId: null`); an id of its own is refused, and
+    // linking usage or an approval to a made-up session broke their foreign key after the message had gone out (audit VGPC-X1).
+    const serviceSession = null;
     const sent = asAllow(await g.client.call(await g.token({ sessionId: serviceSession }), { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "from a plan" } }));
     expect(sent.result).toMatchObject({ ok: true, data: { sent: true, to: SAFE_EMAIL } });
     const booked = await repos.usage.list(g.db, g.businessId, { agentId: g.agentId, kind: "tool", limit: 5 });
     expect(booked.items[0]).toMatchObject({ sessionId: null, details: { connector: "test", tool: "send_message" } });
-    expect((await repos.audit.get(g.db, g.businessId, sent.auditId)).details).toMatchObject({ outcome: "allow", sessionId: serviceSession });
+    expect((await repos.audit.get(g.db, g.businessId, sent.auditId)).details).toMatchObject({ outcome: "allow", sessionId: null });
 
     await repos.businesses.setBusinessMode(g.db, g.businessId, "augmented");
     const asked = asAsk(await g.client.call(await g.token({ sessionId: serviceSession }), { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "from a plan" } }));

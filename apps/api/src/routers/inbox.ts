@@ -29,7 +29,7 @@ export const inboxRouter = router({
     ctx.rls(async (tx) => {
       const firstPage = !input?.cursor;
       const [page, tally, waiting] = await Promise.all([
-        repos.inbox.list(tx, ctx.businessId, input ?? {}),
+        repos.inbox.list(tx, ctx.businessId, input ?? {}, ctx.userId),
         firstPage ? Promise.all([repos.inbox.countByTab(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId)]) : null,
         repos.plans.awaitingConfirmation(tx, ctx.businessId),
       ]);
@@ -45,7 +45,7 @@ export const inboxRouter = router({
 
   get: inboxRead.input(z.object({ itemId: Id })).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
-      const item = await repos.inbox.get(tx, ctx.businessId, input.itemId);
+      const item = await repos.inbox.get(tx, ctx.businessId, input.itemId, ctx.userId);
       const walls = inboxWalls(ctx.membership);
       const [decisions, plan, fromAgent, entities, source, approval] = await Promise.all([
         repos.inbox.decisionsFor(tx, ctx.businessId, item.id),
@@ -73,7 +73,7 @@ export const inboxRouter = router({
   // Free text is compiled into a plan (a model call) and spends the planning allowance; choosing an option does not.
   decide: inboxWrite.input(z.object({ itemId: Id, chosenOption: z.string().max(40).nullable().optional(), freeText: z.string().max(4000).nullable().optional() })).use(modelLimited("plan", { when: hasFreeText })).mutation(({ ctx, input }) => decideInboxItem(ctx, input)),
 
-  markRead: inboxRead.input(z.object({ itemId: Id })).mutation(({ ctx, input }) => ctx.rls(async (tx) => noteAsSeenBy(tx, ctx.businessId, ctx.membership, await repos.inbox.markRead(tx, ctx.businessId, input.itemId)))),
+  markRead: inboxRead.input(z.object({ itemId: Id })).mutation(({ ctx, input }) => ctx.rls(async (tx) => noteAsSeenBy(tx, ctx.businessId, ctx.membership, await repos.inbox.markRead(tx, ctx.businessId, input.itemId, ctx.userId)))),
 
   archive: inboxWrite.input(z.object({ itemId: Id })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {

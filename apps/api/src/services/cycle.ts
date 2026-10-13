@@ -15,6 +15,7 @@ import { repos, type Executor, type InboxItem } from "@foundmill/db";
 import { AppError, vacationUntilLabel } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
+import { redispatchPlans } from "./plans";
 import { assertAgentsRunning } from "./stop-guard";
 import { WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
 
@@ -65,6 +66,8 @@ const num = (v: unknown): number | null => (typeof v === "number" && Number.isFi
 export interface CycleScope {
   db: Executor;
   businessId: string;
+  /** Who is asking: a win waits for *their* Customer Update until they have opened it (per-person reads, 0048). */
+  userId?: string;
 }
 
 export async function cycleStatus(ctx: CycleScope): Promise<CycleStatus> {
@@ -141,7 +144,7 @@ export function untilWords(text: string | null | undefined): string {
 /** The Continue button state (BUILD §5.4, AC-11.3.3): holiday › blocked › win waiting for its Customer Update › processing › idle. */
 export async function continueStateFor(ctx: CycleScope, status?: CycleStatus): Promise<ContinueState> {
   const { db, businessId } = ctx;
-  const [holiday, blocking, wins] = await Promise.all([repos.holidays.current(db, businessId), repos.inbox.countBlocking(db, businessId), repos.inbox.list(db, businessId, { type: "customer_won", state: "unread", limit: 1 })]);
+  const [holiday, blocking, wins] = await Promise.all([repos.holidays.current(db, businessId), repos.inbox.countBlocking(db, businessId), repos.inbox.list(db, businessId, { type: "customer_won", state: "unread", limit: 1 }, ctx.userId)]);
   if (holiday) {
     const condition = holiday.untilCondition as { text?: string } | null;
     return { kind: "holiday", until: holiday.untilAt ? holiday.untilAt.toISOString() : null, untilLabel: holiday.untilAt ? null : vacationUntilLabel(condition?.text) };
@@ -188,6 +191,9 @@ export async function startCycle(ctx: BusinessContext): Promise<StartCycleResult
   const before = await continueStateFor(ctx);
   if (before.kind === "holiday") throw new ContinueBlockedError("The Chief of Staff is running the business while you are away. End the vacation to take over.", { continueState: before });
   if (before.kind === "blocked") throw new ContinueBlockedError(`Respond to ${before.count} item${before.count === 1 ? "" : "s"} in the Inbox before the next cycle.`, { continueState: before });
+
+  // Plans an earlier decision could not hand to the orchestrator start now that the founder moves on (audit api-services-15).
+  await redispatchPlans(ctx).catch((err: unknown) => ctx.log.warn({ err: (err as Error).message }, "plan redispatch failed"));
 
   const status = await reconcileCycle(ctx);
   if (status.running && status.paused) {

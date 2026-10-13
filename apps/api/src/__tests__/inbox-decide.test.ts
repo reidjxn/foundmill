@@ -125,7 +125,8 @@ describe("inbox.decide (BUILD §11.3, AC-11.3.3/4/5)", () => {
     const confirmed = await owner.plan.confirm({ businessId: hz.A.businessId, planId: staged.plan.id });
     expect(await updates()).toContainEqual({ inboxItemId: staged.item.id, change: "plan_confirmed", planId: staged.plan.id, followUpItemId: confirmed.followUp!.id });
 
-    const gone = await decisionItem("Archived elsewhere");
+    // A decision that still waits for its answer cannot be archived (it would clear the gate with nobody deciding): a note can.
+    const gone = await repos.inbox.createItem(hz.db, hz.A.businessId, { type: "update", from_agent_id: hz.A.agentId, subject: "Archived elsewhere", body_md: "Nothing to decide.", status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] });
     await owner.inbox.archive({ businessId: hz.A.businessId, itemId: gone.id });
     // Ids only: a member walled from the item learns nothing from the stream.
     expect(await updates()).toContainEqual({ inboxItemId: gone.id, change: "archived", planId: null, followUpItemId: null });
@@ -133,7 +134,7 @@ describe("inbox.decide (BUILD §11.3, AC-11.3.3/4/5)", () => {
     expect(event.actor).toMatchObject({ kind: "user", id: hz.A.ownerId });
   });
 
-  it("free text naming a roadmap item carries its id, and 'all agents' is left for the orchestrator to apply to every agent (audit VRB-X1, verify-api-services-x1)", async () => {
+  it("free text naming a roadmap item carries its id, and 'all agents' changes every agent, not the one the compiler named (audit VRB-X1, api-services-28)", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     const portal = await repos.product.upsertRoadmapItem(hz.db, hz.A.businessId, { title: "Retail portal", horizon: "now" });
     const roadmap = await owner.inbox.decide({ businessId: hz.A.businessId, itemId: (await decisionItem("Roadmap?")).id, freeText: "push the retail portal milestone to next quarter" });
@@ -144,10 +145,13 @@ describe("inbox.decide (BUILD §11.3, AC-11.3.3/4/5)", () => {
     const before = (await repos.agents.list(hz.db, hz.A.businessId, { limit: 50 })).items.map((a) => a.modelKey);
     const models = await owner.inbox.decide({ businessId: hz.A.businessId, itemId: (await decisionItem("Cut model costs?")).id, freeText: "Switch all agents to haiku" });
     expect(models.plan.actions[0]).toMatchObject({ type: "set_agent_model", params: { model_key: "haiku", apply_scope: "all" } });
-    // Not run in-process against the one agent the compiler happened to name: deferred to the orchestrator.
-    expect(models.executed).toEqual([]);
-    expect(models.deferred).toEqual([models.plan.actions[0]!.id]);
-    expect((await repos.agents.list(hz.db, hz.A.businessId, { limit: 50 })).items.map((a) => a.modelKey)).toEqual(before);
+    // Run for every agent in-process, exactly as Agent profile › Model does (locked work is skipped): never only the one
+    // agent the compiler happened to name.
+    expect(models.executed).toEqual([models.plan.actions[0]!.id]);
+    expect(models.deferred).toEqual([]);
+    const after = (await repos.agents.list(hz.db, hz.A.businessId, { limit: 50 })).items.map((a) => a.modelKey);
+    expect(after).not.toEqual(before);
+    expect(after.filter((k) => k === "haiku").length).toBeGreaterThan(1);
   });
 
   it("an option marked not reversible, or costing more than the threshold, asks for confirmation in Assisted mode (audit AC-02)", async () => {
@@ -241,12 +245,32 @@ describe("inbox.decide (BUILD §11.3, AC-11.3.3/4/5)", () => {
     expect(first.source).toBe("local");
     expect(first.item.businessId).toBe(hz.A.businessId);
     expect(first.item.subject.length).toBeLessThanOrEqual(80);
+    // The founder answers it, so the next press has something new to say (a decision still waiting is not written twice).
+    if (first.item.type === "decision") await owner.inbox.decide({ businessId: hz.A.businessId, itemId: first.item.id, chosenOption: ((first.item.decision as { options: { id: string }[] }).options[0])!.id });
     const second = await owner.inbox.refresh({ businessId: hz.A.businessId });
     expect(second.item.id).not.toBe(first.item.id);
     const after = await owner.inbox.list({ businessId: hz.A.businessId, limit: 200 });
-    expect(after.items.length).toBe(before.items.length + 2);
+    expect(after.items.length).toBeGreaterThanOrEqual(before.items.length + 2);
     const created = await repos.events.list(hz.db, hz.A.businessId, { type: "inbox.item_created" });
     expect(created.items.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("audit CML-02: Refresh with nothing new does not write the same blocking decision again; it points at the open one", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    let last = await owner.inbox.refresh({ businessId: hz.A.businessId });
+    for (let i = 0; i < 4 && last.item.type !== "decision"; i++) last = await owner.inbox.refresh({ businessId: hz.A.businessId });
+    expect(last.item.type).toBe("decision");
+    const before = await owner.inbox.list({ businessId: hz.A.businessId, limit: 200 });
+    const again = await owner.inbox.refresh({ businessId: hz.A.businessId });
+    const third = await owner.inbox.refresh({ businessId: hz.A.businessId });
+    const after = await owner.inbox.list({ businessId: hz.A.businessId, limit: 200 });
+    // Every grounded decision the in-process composer knows is open now: the presses answer with one of them.
+    const decisions = after.items.filter((i) => i.type === "decision" && i.state !== "answered");
+    const subjects = decisions.map((i) => i.subject);
+    expect(new Set(subjects).size).toBe(subjects.length);
+    expect(after.blocking ?? 0).toBeLessThanOrEqual((before.blocking ?? 0) + 1);
+    expect(decisions.map((i) => i.id)).toContain(third.item.id);
+    expect(again.item.type).toBe("decision");
   });
 });
 

@@ -21,7 +21,7 @@ import { getArchetypeSeed, getTemplate } from "@foundmill/agents";
 import { initialModelBilling } from "@foundmill/config";
 import { assertBusinessAllowance, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
-import { CHANNEL_KEYS, CHANNEL_META, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, MODULE_TABS, ValidationError, slugify, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, MODULE_TABS, ValidationError, slugify, type Archetype, type BusinessMode, type GameMode, type OptionAction } from "@foundmill/shared";
 import { presetLayout } from "../presets";
 import { QUEUE_ACTION } from "./cycle";
 import { checkLogoChoice, type LogoChoice } from "./logo";
@@ -81,10 +81,11 @@ const COMMIT_AUDIT_ACTION = "idea.commit";
  * Door B's Board item: the Import report's suggested first decisions (the Import screen promises they arrive as the
  * Board's first item). Door A keeps the archetype's decision; its vision arrives with the drafted foundations.
  */
-export function importBoardDecision(name: string, link: ImportLink): { subject: string; bodyMd: string; options: { id: string; label: string; recommended: boolean; consequence: string; costMinor: number; reversible: boolean }[] } | null {
+export function importBoardDecision(name: string, link: ImportLink): { subject: string; bodyMd: string; options: { id: string; label: string; recommended: boolean; consequence: string; costMinor: number; reversible: boolean; actions?: OptionAction[] }[] } | null {
   const report = link.report;
   if (!report || report.firstDecisions.length < 2) return null;
-  const options = report.firstDecisions.slice(0, 4).map((d) => ({ id: d.id.slice(0, 40), label: d.label.slice(0, 120), recommended: d.recommended, consequence: d.consequence, costMinor: 0, reversible: d.reversible }));
+  // Each option carries what choosing it runs, so the click never parses its words (audit IAE-20).
+  const options = report.firstDecisions.slice(0, 4).map((d) => ({ id: d.id.slice(0, 40), label: d.label.slice(0, 120), recommended: d.recommended, consequence: d.consequence, costMinor: 0, reversible: d.reversible, ...(d.actions?.length ? { actions: d.actions } : {}) }));
   if (options.filter((o) => o.recommended).length !== 1) options.forEach((o, i) => (o.recommended = i === 0));
   const sources = link.status.job.sources.length;
   return {
@@ -279,7 +280,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
       body_md: board.bodyMd,
       status_strip: [],
       exhibit: { kind: "none", spec_ref: null },
-      decision: { options: board.options.map((o) => ({ id: o.id, label: o.label, recommended: o.recommended, consequence: o.consequence, cost_minor: o.costMinor, reversible: o.reversible })), free_text: true, expires_at: null },
+      decision: { options: board.options.map((o) => ({ id: o.id, label: o.label, recommended: o.recommended, consequence: o.consequence, cost_minor: o.costMinor, reversible: o.reversible, ...(o.actions?.length ? { actions: o.actions } : {}) })), free_text: true, expires_at: null },
       blocks_continue: true,
       source_event_ids: [],
       entity_ids: [],

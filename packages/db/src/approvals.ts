@@ -203,5 +203,6 @@ export async function closeApprovalItem(db: Executor, businessId: string, approv
     const decided = await repos.inbox.decide(db, businessId, item.id, { chosenOption: approval.outcome === "approved" ? APPROVAL_OPTIONS.approve : APPROVAL_OPTIONS.reject, decidedByKind: decidedBy, decidedBy: approval.byId ?? null });
     return decided.item;
   }
-  return repos.inbox.archive(db, businessId, item.id);
+  // Settled some other way (expired, resolved by a plan): the question is gone, so the note closes without an answer.
+  return repos.inbox.archive(db, businessId, item.id, { force: true });
 }

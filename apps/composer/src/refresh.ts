@@ -12,6 +12,10 @@
  * so consuming the event candidate never invalidates the insight and decision candidates behind it, and the next
  * refresh is warm (AC-11.3.7) while the refill writes the next event candidate in the background.
  *
+ * A decision the founder has not answered is never written twice (audit CML-02): its kind and facts are stored on the
+ * note (`decision.key`), the plan leaves out any grounded decision that is already open, and when everything the state
+ * calls for is open and nothing else is new, Refresh answers with that open decision instead of another copy of it.
+ *
  * A served slot key stays served: its row keeps `consumed_at` (a note written on demand is recorded the same way), the
  * plan leaves out an insight whose key was served and moves the decision on to a variant not yet served. An insight
  * that holds for weeks is therefore one note, not one per press (audit CML-01), and Refresh falls through to the
@@ -22,7 +26,7 @@ import { repos, type ComposerBufferRow, type ComposerItem, type Db, type InboxIt
 import { stableHash, type ModelClient, type ModelLogger } from "@foundmill/models";
 import { composeNote, type ComposeBrief, type ComposedNote, type ComposeSlot } from "./compose";
 import { loadContext, type ComposeContext } from "./context";
-import { nextBestDecision } from "./decisions";
+import { nextBestDecision, type NextBestDecision } from "./decisions";
 import { computeInsights, DEFAULT_INSIGHT_THRESHOLDS, type InsightThresholds } from "./insights";
 import { persistDrafts, persistNote } from "./persist";
 
@@ -41,8 +45,11 @@ export interface RefreshResult {
   item: InboxItem;
   /** Which Refresh rule produced the note. */
   slot: ComposeSlot;
-  /** `buffer` = pre-written candidate (warm path); `generated` = written on demand (cold path). */
-  source: "buffer" | "generated";
+  /**
+   * `buffer` = pre-written candidate (warm path); `generated` = written on demand (cold path); `open` = nothing new and
+   * every decision the state calls for is still waiting for the founder, so that decision is returned and none written.
+   */
+  source: "buffer" | "generated" | "open";
   /** True when this call fell inside the debounce window and returned the item of the previous call. */
   debounced: boolean;
   costMinor: number;
@@ -61,6 +68,8 @@ interface Plan {
   keys: Set<string>;
   /** The decision variant the plan's decision slot was written for. */
   decisionVariant: number;
+  /** The decision the founder still has open when the state calls for nothing else (the plan then has no decision slot). */
+  open: InboxItem | null;
 }
 
 /** How many decision variants past the current one the plan looks at for one not yet served. */
@@ -156,13 +165,22 @@ export class RefreshEngine {
     const plan = await this.plan(ctx);
     const rows = await this.reconcile(businessId, plan);
 
+    const top = plan.slots[0];
+    if (!top) {
+      // Nothing new, and every decision the state calls for is already on the founder's desk: point at it.
+      const open = plan.open;
+      if (!open) throw new Error("Refresh has nothing to write and no open decision to return");
+      const result: RefreshResult = { item: open, slot: "decision", source: "open", debounced: false, costMinor: 0, buffer: { remaining: 0, refilling: false }, durationMs: Date.now() - started };
+      this.recent.set(businessId, { at: this.now().getTime(), result });
+      return result;
+    }
+
     let composed: ComposedNote | null = null;
     let source: RefreshResult["source"] = "buffer";
     let candidate: { item: ComposerItem; slot: ComposeSlot; eventIds: string[]; costMinorInt: number; currency: string };
 
     // Rule 1 beats the buffer: when the top candidate is an un-narrated event and no event candidate is pre-written
     // (the event arrived after the last refill), write it now rather than serving a lower-priority buffered note.
-    const top = plan.slots[0]!;
     const bufferedEvent = rows.some((r) => r.sourceHash.startsWith("event:"));
     const useBuffer = rows.length > 0 && (top.brief.mode !== "events" || bufferedEvent);
     const row = useBuffer ? await repos.inbox.bufferConsume(this.deps.db, businessId) : null;
@@ -175,7 +193,7 @@ export class RefreshEngine {
       source = "generated";
       // Cold path (empty buffer, or a new event): one Opus call the caller waits on, bounded by the compose deadline,
       // which sits below the api's wait, so the founder hears either the note or why there is none (audit CML-04).
-      composed = await composeNote(this.deps, ctx, top.brief, { onInvalidLinks: "strip", deadlineMs: this.deadlineMs }); // the decision slot is always present
+      composed = await composeNote(this.deps, ctx, top.brief, { onInvalidLinks: "strip", deadlineMs: this.deadlineMs });
       candidate = { item: composed.item, slot: composed.slot, eventIds: composed.eventIds, costMinorInt: composed.costMinorInt, currency: composed.costCurrency };
     }
 
@@ -216,10 +234,25 @@ export class RefreshEngine {
     const start = this.decisionVariant.get(ctx.businessId) ?? 0;
     const decisions = Array.from({ length: DECISION_LOOKAHEAD }, (_, i) => nextBestDecision(ctx.metrics, start + i));
     const served = await repos.inbox.bufferServed(this.deps.db, ctx.businessId, [...insights.map((i) => i.key), ...decisions.map((d) => d.key)]);
-    const fresh = decisions.findIndex((d) => !served.has(d.key));
-    const decisionVariant = start + (fresh === -1 ? DECISION_LOOKAHEAD : fresh);
-    const decision = fresh === -1 ? nextBestDecision(ctx.metrics, decisionVariant) : decisions[fresh]!;
-    if (decisionVariant !== start) this.decisionVariant.set(ctx.businessId, decisionVariant);
+    // A decision the founder has not answered yet is not offered again (audit CML-02).
+    const open = await this.openDecisions(ctx.businessId);
+    const wanted = decisions.filter((d) => !open.has(d.identity));
+
+    let decision: NextBestDecision | null = null;
+    let decisionVariant = start;
+    if (wanted.length > 0) {
+      const fresh = decisions.findIndex((d) => !open.has(d.identity) && !served.has(d.key));
+      if (fresh === -1) {
+        // Every wanted variant was served before: move on to one that was not (a kind that is open is skipped).
+        decisionVariant = start + DECISION_LOOKAHEAD;
+        decision = nextBestDecision(ctx.metrics, decisionVariant);
+        while (open.has(decision.identity)) decision = nextBestDecision(ctx.metrics, ++decisionVariant);
+      } else {
+        decisionVariant = start + fresh;
+        decision = decisions[fresh]!;
+      }
+      if (decisionVariant !== start) this.decisionVariant.set(ctx.businessId, decisionVariant);
+    }
 
     const slots: Slot[] = [];
     // Wins the volume rule rolled up (`fullMatchDay: false`) are not narrated one by one: each day's become one round-up note.
@@ -227,8 +260,20 @@ export class RefreshEngine {
     single.forEach((e, i) => slots.push({ key: `event:${e.id}`, priority: 300 - i, brief: { mode: "events", events: [e] } }));
     roundups.forEach((events, i) => slots.push({ key: `event:roundup:${stableHash(events.map((e) => e.id))}`, priority: 250 - i, brief: { mode: "events", events } }));
     for (const insight of insights) if (!served.has(insight.key)) slots.push({ key: insight.key, priority: 200 - insight.rank, brief: { mode: "insight", insight } });
-    slots.push({ key: decision.key, priority: 100, brief: { mode: "decision", decision } });
-    return { slots, keys: new Set(slots.map((s) => s.key)), decisionVariant };
+    if (decision) slots.push({ key: decision.key, priority: 100, brief: { mode: "decision", decision } });
+    const pressing = decisions.map((d) => open.get(d.identity)).find((i) => i !== undefined) ?? null;
+    return { slots, keys: new Set(slots.map((s) => s.key)), decisionVariant, open: decision ? null : pressing };
+  }
+
+  /** The decisions still waiting for the founder, by what they are about (`decision.key`, see `NextBestDecision.identity`). */
+  private async openDecisions(businessId: string): Promise<Map<string, InboxItem>> {
+    const page = await repos.inbox.list(this.deps.db, businessId, { type: "decision", state: ["unread", "read"], limit: 100 });
+    const open = new Map<string, InboxItem>();
+    for (const item of page.items) {
+      const key = (item.decision as { key?: unknown } | null)?.key;
+      if (typeof key === "string" && !open.has(key)) open.set(key, item);
+    }
+    return open;
   }
 
   /**

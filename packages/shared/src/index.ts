@@ -5,6 +5,7 @@ export * from "./money";
 export * from "./us-spelling";
 export * from "./glossary";
 export * from "./time-zone";
+export * from "./deadline";
 export * from "./ids";
 export * from "./permissions";
 export * from "./allowlist";

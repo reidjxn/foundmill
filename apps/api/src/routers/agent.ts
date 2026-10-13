@@ -6,10 +6,11 @@
 import { AgentInstructions, detectClubRuleViolation, deriveTraits, getSkillTests, getTemplateByAgentType, redactHeldOut } from "@foundmill/agents";
 import { CREDITS_CURRENCY, LIMITS } from "@foundmill/config";
 import { UpdateAgentInput, repos, type Agent } from "@foundmill/db";
-import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
+import { MODELS, meter, resolveModel } from "@foundmill/models";
 import { MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
 import { z } from "zod";
 import { modelLimited } from "../services/model-limits";
+import { changeAgentModels, routeOf, startModelRetests } from "../services/agent-model";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds } from "../services/temporal";
 import { Id, audit, emit, router, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
@@ -29,7 +30,6 @@ async function scopedAgents(ctx: BusinessContext, agentId: string, scope: z.infe
   return scope === "all" ? all.items : all.items.filter((a) => a.agentType === agent.agentType);
 }
 
-const routeOf = (agent: Agent): RouteKey => getTemplateByAgentType(agent.agentType)?.route ?? "worker";
 
 /** Reference usage per test for the wage estimate: ~4k input / 1.2k output tokens plus an Opus grading pass. */
 const REFERENCE_TEST_USAGE = { inputTokens: 4_000, outputTokens: 1_200, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
@@ -222,38 +222,17 @@ export const agentRouter = router({
      */
     set: write.input(z.object({ agentId: Id, modelKey: z.enum(MODEL_KEYS), applyScope: ApplyScope.default("agent") })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
       const targets = await scopedAgents(ctx, input.agentId, input.applyScope);
-      const updated: string[] = [];
-      const skipped: { agentId: string; reason: string }[] = [];
-      const warnings: string[] = [];
-      const retests: string[] = [];
-      const superseded: string[] = [];
-      await ctx.rls(async (tx) => {
-        for (const agent of targets) {
-          const r = resolveModel(routeOf(agent), input.modelKey as ModelKey);
-          if (r.locked && r.modelKey !== input.modelKey) {
-            skipped.push({ agentId: agent.id, reason: r.warning ?? "this work is locked to one model" });
-            continue;
-          }
-          if (r.warning) warnings.push(`${agent.name}: ${r.warning}`);
-          await repos.agents.setModel(tx, ctx.businessId, agent.id, input.modelKey);
-          updated.push(agent.id);
-          // An agent already on this model has nothing new to retest.
-          if (agent.modelKey === input.modelKey) continue;
-          const { retest, superseded: withdrawn } = await repos.training.createModelRetest(tx, ctx.businessId, agent.id, { modelKey: input.modelKey, requestedBy: ctx.userId });
-          superseded.push(...withdrawn.map((w) => w.id));
-          if (retest) retests.push(retest.run.id);
-        }
-        await audit(tx, ctx, { action: "agent.model.set", target: { kind: "agent", id: input.agentId }, details: { modelKey: input.modelKey, applyScope: input.applyScope, updated, skipped, retests, superseded } });
+      const change = await ctx.rls(async (tx) => {
+        const c = await changeAgentModels(tx, ctx.businessId, targets, input.modelKey as ModelKey, ctx.userId);
+        await audit(tx, ctx, { action: "agent.model.set", target: { kind: "agent", id: input.agentId }, details: { modelKey: input.modelKey, applyScope: input.applyScope, updated: c.updated, skipped: c.skipped, retests: c.retests, superseded: c.superseded } });
+        return c;
       });
       // Earlier retests of a model these agents no longer run were canceled above; those still running stop too.
-      if (superseded.length) await ctx.temporal.signalMany(superseded.map((runId) => workflowIds.training(runId)), SIGNALS.stop);
       // The model itself changes while the team is stopped (it costs nothing), but a retest spends credits: it waits,
       // queued, until the agents resume (Resume agents, a new key or a top-up start it; killswitch.ts).
-      const waitForResume = retests.length > 0 && (await repos.businesses.agentsStopped(ctx.db, ctx.businessId));
-      const workflows = waitForResume
-        ? retests.map((runId) => ({ queued: false, workflowId: workflowIds.training(runId), reason: "agents are stopped; the retest starts when they resume" }))
-        : await Promise.all(retests.map((runId) => ctx.temporal.start(WORKFLOWS.trainingRun, { workflowId: workflowIds.training(runId), args: [{ businessId: ctx.businessId, trainingRunId: runId }] })));
-      return { updated, skipped, warnings, retests: retests.map((runId, i) => ({ runId, workflow: workflows[i]! })), superseded, retestsWaitForResume: waitForResume };
+      const waitForResume = change.retests.length > 0 && (await repos.businesses.agentsStopped(ctx.db, ctx.businessId));
+      const retests = await startModelRetests(ctx.temporal, ctx.businessId, change, { waitForResume });
+      return { updated: change.updated, skipped: change.skipped, warnings: change.warnings, retests, superseded: change.superseded, retestsWaitForResume: waitForResume };
     }),
   }),
 

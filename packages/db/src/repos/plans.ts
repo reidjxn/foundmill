@@ -183,6 +183,23 @@ export const plansRepo = {
     return rows[0] ?? null;
   },
 
+  /**
+   * Plans the orchestrator should be running and is not (audit api-services-15): executing, an action still pending,
+   * and no workflow id because their dispatch never reached Temporal. Only the plans the api itself dispatches (an
+   * Inbox option, free text); a playbook step or a vacation decision is created by the orchestrator, which runs it
+   * without a `planExecution` workflow. Oldest first; the api starts them again (`redispatchPlans`) and records the
+   * workflow id once Temporal takes the start.
+   */
+  async awaitingDispatch(db: Executor, businessId: string, options: { limit?: number } = {}): Promise<Plan[]> {
+    const pending = sql`exists (select 1 from ${planActions} where ${planActions.businessId} = ${plans.businessId} and ${planActions.planId} = ${plans.id} and ${planActions.status} = 'pending')`;
+    return db
+      .select()
+      .from(plans)
+      .where(and(eq(plans.businessId, businessId), eq(plans.status, "executing"), inArray(plans.origin, ["option", "free_text"]), isNull(plans.workflowId), isNull(plans.archivedAt), pending))
+      .orderBy(asc(plans.createdAt))
+      .limit(Math.min(Math.max(options.limit ?? 20, 1), 100));
+  },
+
   async setStatus(db: Executor, businessId: string, planId: string, status: PlanStatus): Promise<Plan> {
     const s = parseInput(z.enum(PLAN_STATUSES), status, "plan status");
     const terminal = s === "done" || s === "failed";

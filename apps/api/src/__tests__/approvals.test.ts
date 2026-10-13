@@ -6,7 +6,8 @@
  * team is stopped); Reject keeps the task blocked and the Chief of Staff says so. Section walls hold, and
  * `team.approvals.resolve` does the same from Team › approvals.
  */
-import { APPROVAL_OPTIONS, openApprovalItem, repos, resumeBusinessAgents, stopBusinessAgents, type Approval } from "@foundmill/db";
+import { APPROVAL_OPTIONS, inboxItems, openApprovalItem, repos, resumeBusinessAgents, stopBusinessAgents, type Approval } from "@foundmill/db";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
@@ -21,6 +22,8 @@ beforeEach(() => {
   temporal.signals.length = 0;
 });
 
+/** Cycles the tests above started on the fake Temporal (they never finish by themselves). */
+const temporalStarted: { workflowId: string }[] = [];
 const owner = () => hz.caller({ userId: hz.A.ownerId, email: "owner@test.local" });
 /** The fixture agent the approvals are opened for. */
 let agentName = "";
@@ -31,8 +34,10 @@ beforeAll(async () => {
 /** Other notes that still block Continue (earlier tests leave some open): a cycle would wait for them. */
 async function answerOtherBlockingNotes(exceptId: string) {
   const open = await repos.inbox.list(hz.db, hz.A.businessId, { limit: 200 });
-  for (const item of open.items) if (item.id !== exceptId && item.blocksContinue && (item.state === "unread" || item.state === "read")) await repos.inbox.archive(hz.db, hz.A.businessId, item.id);
+  for (const item of open.items) if (item.id !== exceptId && item.blocksContinue && (item.state === "unread" || item.state === "read")) await markAnswered(item.id);
 }
+/** A blocking decision stays open until it is answered (it cannot be archived); the test stands in for that answer. */
+const markAnswered = (itemId: string) => hz.db.update(inboxItems).set({ state: "answered" }).where(eq(inboxItems.id, itemId));
 const member = () => hz.caller({ userId: hz.A.memberId, email: "member@test.local" });
 
 interface Gated {
@@ -161,6 +166,7 @@ describe("an answer that comes after the session ended", () => {
     expect(temporal.signals).toEqual([]);
     expect((await repos.tasks.get(hz.db, hz.A.businessId, g.taskId)).status).toBe("ready");
     expect(temporal.starts).toHaveLength(1);
+    temporalStarted.push({ workflowId: temporal.starts[0]!.workflowId });
     expect(temporal.starts[0]).toMatchObject({ type: "businessCycle", workflowId: expect.stringMatching(new RegExp(`^cycle:${hz.A.businessId}:\\d+$`)), args: [expect.objectContaining({ businessId: hz.A.businessId, trigger: "wake" })] });
     expect(result.approval).toMatchObject({ sessionWaiting: false, task: { id: g.taskId, status: "ready" }, cycle: { started: true, workflowId: temporal.starts[0]!.workflowId, reason: null } });
     expect(result.approval?.summary).toBe(`You approved ${agentName}'s request to run GitHub › run migration. “Index the usage events” runs again on the next cycle.`);
@@ -168,13 +174,15 @@ describe("an answer that comes after the session ended", () => {
 
   it("no cycle starts over another note that still blocks Continue, or while the Chief of Staff runs the vacation; the task is ready for the next one", async () => {
     await answerOtherBlockingNotes("");
+    // The cycle the test before started is over: the workflow of that press reports it finished.
+    for (const start of temporalStarted) await repos.events.write(hz.db, hz.A.businessId, { type: "cycle.completed", actor: { kind: "system", id: "orchestrator" }, payload: { cycleId: start.workflowId, cycleNumber: Number(start.workflowId.split(":").at(-1)), workflowId: start.workflowId, outcome: "time_box", tasksStarted: 0 } });
     const other = await repos.inbox.createItem(hz.db, hz.A.businessId, { type: "decision", from_agent_id: hz.A.agentId, subject: "Pick the launch week", body_md: "Which week?", status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options: [{ id: "w1", label: "Week 1", recommended: true, consequence: "Launch early", cost_minor: 0, reversible: true }, { id: "w2", label: "Week 2", recommended: false, consequence: "Launch later", cost_minor: 0, reversible: true }], free_text: false, expires_at: null }, blocks_continue: true, source_event_ids: [], entity_ids: [] });
     const first = await gatedCall({ sessionEnded: true, title: "Wire the usage dashboard" });
     const waiting = await owner().inbox.decide({ businessId: hz.A.businessId, itemId: first.itemId, chosenOption: APPROVAL_OPTIONS.approve });
     expect(temporal.starts).toEqual([]);
     expect(waiting.approval?.cycle).toMatchObject({ started: false, reason: expect.stringMatching(/other Inbox item/) });
     expect((await repos.tasks.get(hz.db, hz.A.businessId, first.taskId)).status).toBe("ready");
-    await repos.inbox.archive(hz.db, hz.A.businessId, other.id);
+    await markAnswered(other.id);
 
     const started = new Date();
     const vacation = await repos.holidays.start(hz.db, hz.A.businessId, { untilAt: new Date(started.getTime() + 86_400_000), authority: { decisionTypes: [] }, wakeEvents: [], startedAt: started, currency: "USD" });

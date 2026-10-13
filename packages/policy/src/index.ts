@@ -6,3 +6,4 @@ export type { PolicyMeta, LoadedPolicySet } from "./policies/index";
 export { createPolicyEngine, getPolicyEngine, cedarVersion } from "./cedar";
 export type { PolicyEngine } from "./cedar";
 export { evaluate, effectiveBusinessMode, toEntities, toContext, ACTION_CALL, NO_SPEND_CAP_MINOR } from "./evaluate";
+export { agentAutonomy, agentPrincipal, businessApprovalThreshold, type PrincipalAgent, type PrincipalScope } from "./principal";

@@ -337,6 +337,10 @@ describe("plans", () => {
     expect(lines.map((l) => l.cost)).toEqual([{ amountMinor: 30_000, currency: "GBP" }, { amountMinor: 20_000, currency: "USD" }, { amountMinor: 10_000, currency: "GBP" }]);
     expect(totalCost(lines)).toEqual([{ amountMinor: 40_000, currency: "GBP" }, { amountMinor: 20_000, currency: "USD" }]);
   });
+  it("an approved spend names what it is for and carries its amount (audit FR-10)", () => {
+    const [line] = confirmationLines([{ action: { type: "approve_spend", params: { what: "Samples and costing", amount_minor: 100_000, currency: "USD" } }, outcome: "ask" }], "USD");
+    expect(line).toMatchObject({ label: "Approve spend: Samples and costing", cost: { amountMinor: 100_000, currency: "USD" }, outcome: "ask" });
+  });
   it("follow-up links point at the screens that hold the artefacts, de-duplicated", () => {
     const departments = [
       { slug: "growth", moduleKeys: ["distribution"], tabs: [{ slug: "channels", position: 2 }, { slug: "formation", position: 1 }] },

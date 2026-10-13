@@ -61,6 +61,72 @@ describe("plan compiler rules (BUILD §12.3)", () => {
     expect(detectHardGates("spend €500 on paid ads")).toEqual([]);
   });
 
+  it("gates signing, never the product words sign-up, sign-in, sign-on or single sign-on (audit VRB-X2)", () => {
+    for (const text of ["sign up for the newsletter", "improve the sign-up flow", "fix the sign-in page", "add single sign-on to the roadmap", "sign-on for enterprise customers", "sign off on the brief"]) {
+      expect(detectHardGates(text).map((g) => g.gate), text).not.toContain("sign");
+    }
+    expect(types(compilePlanRuleBased("fix the sign-in page"))).toEqual(["create_task"]);
+    expect(types(compilePlanRuleBased("update the spec to add single sign-on to the acceptance criteria"))).toEqual(["update_spec"]);
+    for (const text of ["sign the Acme NDA", "countersign the agency contract", "e-sign the lease"]) expect(detectHardGates(text).map((g) => g.gate), text).toContain("sign");
+  });
+
+  it("gates moving money, never 'paid', 'refund' or 'payout' as words for it (audit AC-01)", () => {
+    const moves = ["pay the supplier invoice", "refund Mara's order", "refund the deposit", "issue a refund to Mara", "make the payout to the creator", "wire €2,000 to the agency", "send them the payment", "settle the invoice"];
+    for (const text of moves) expect(detectHardGates(text).map((g) => g.gate), text).toContain("move_money");
+    const words = [
+      "Small paid test with a hard CPA cap",
+      "Free for the first chapter, paid tier at 1,000 subscribers",
+      "Paid membership from issue one",
+      "Paid pre-orders now",
+      "paid acquisition or organic first",
+      "a paid plan for teams",
+      "Cash earlier, but refunds and consumer-law exposure if certification slips",
+      "write the refund policy",
+      "Cheaper per install if creators fit; disclosure checked before any payout",
+      "find our first paying customers",
+      "wire up the Stripe webhook",
+      "a pay-as-you-go tier",
+    ];
+    for (const text of words) expect(detectHardGates(text), text).toEqual([]);
+    // The recommended Consumer app option compiles to the paid test it names, not a founder payment.
+    expect(types(compilePlanRuleBased("Small paid test with a hard CPA cap", { agents: AGENTS }))).not.toContain("request_human_action");
+  });
+
+  it("does not read a sponsorship as the events channel", () => {
+    expect(detectChannels("sponsorship starts when reach justifies it")).toEqual([]);
+    expect(detectChannels("sponsor a trade show").map((c) => c.channel)).toEqual(["events"]);
+  });
+
+  it("templates readable summaries: the right article and no doubled full stop (audit IAE-20)", () => {
+    const plan = compilePlanRuleBased("Review the onboarding checklist before launch.");
+    expect(plan.summary).toBe("Create an ops task: Review the onboarding checklist before launch.");
+    expect(plan.actions[0]!.params.title).toBe("Review the onboarding checklist before launch");
+    expect(compilePlanRuleBased("spend €200 on email automation").summary).toMatch(/Create an Email automation task/);
+    expect(compilePlanRuleBased("research the three closest competitors").summary).toMatch(/^Create a research task: research the three/);
+    expect(compilePlanRuleBased("hire a growth agent").summary).toBe("Hire a growth agent.");
+    expect(compilePlanRuleBased("rebuild the specification from the imported sources").actions.map((a) => a.type)).toEqual(["update_spec"]);
+  });
+
+  it("only hires when the words name who joins the team (audit VIAE-X1)", () => {
+    expect(types(compilePlanRuleBased("Recruit supply by hand, then open demand"))).not.toContain("hire_agent");
+    expect(types(compilePlanRuleBased("recruit two engineers for the API"))).toEqual(["hire_agent"]);
+  });
+
+  it("gives a channel's task to the agent that runs the channel, never to whoever has 'Lead' in the title (audit FR-20)", () => {
+    const team = [
+      { id: "product", name: "Ines Ortega", role: "Product Lead" },
+      { id: "eng", name: "Kai Moreau", role: "Engineering Lead" },
+      { id: "leadgen", name: "Lead Generation Engine", role: "Channel engine" },
+    ];
+    const byName = compilePlanRuleBased("start lead generation for fintech CFOs", { agents: team });
+    expect(byName.actions.find((a) => a.type === "create_task")!.agent_id).toBe("leadgen");
+    // With the channel each agent runs, the owner wins whatever its name.
+    const owned = compilePlanRuleBased("start lead generation for fintech CFOs", { agents: [team[0]!, { id: "owner", name: "Rafa", role: "Outbound", channel: "lead_generation" }] });
+    expect(owned.actions.find((a) => a.type === "create_task")!.agent_id).toBe("owner");
+    // Nobody runs it: no agent rather than the Product Lead.
+    expect(compilePlanRuleBased("start lead generation", { agents: team.slice(0, 2) }).actions.find((a) => a.type === "create_task")!.agent_id).toBeNull();
+  });
+
   it("disables channels, hires, trains, changes models, messages and schedules", () => {
     expect(types(compilePlanRuleBased("pause paid ads for now"))).toEqual(["disable_channel"]);
     expect(compilePlanRuleBased("stop the newsletter").actions[0]!.params.channel).toBe("email_automation");

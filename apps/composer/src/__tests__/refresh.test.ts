@@ -10,7 +10,7 @@ import { MOCK_ROUTES, createModelClient, type MockGenerator } from "@foundmill/m
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ComposeTimeoutError } from "../compose";
 import { createComposerService } from "../service";
-import { countInbox, countSourceEvents, createComposerHarness, p95, servedKeys, silentLog, unnarratedIds, type ComposerHarness } from "./harness";
+import { answerOpenDecisions, countInbox, countSourceEvents, createComposerHarness, p95, servedKeys, silentLog, unnarratedIds, type ComposerHarness } from "./harness";
 
 let hz: ComposerHarness;
 beforeAll(async () => {
@@ -19,9 +19,10 @@ beforeAll(async () => {
 afterAll(() => hz?.close());
 
 const quiet = async (businessId: string) => {
-  // Narrate away the fixture's seed events so the business has no un-narrated event at all.
+  // Narrate away the fixture's seed events so the business has no un-narrated event at all, and answer what earlier tests left waiting.
   const ids = await unnarratedIds(hz.db, businessId);
   if (ids.length) await repos.events.markNarrated(hz.db, businessId, ids);
+  await answerOpenDecisions(hz.db, businessId);
 };
 
 describe("exactly one item, never a fabricated event (AC-11.3.2)", () => {
@@ -29,6 +30,7 @@ describe("exactly one item, never a fabricated event (AC-11.3.2)", () => {
     const service = hz.service();
     await quiet(hz.B.businessId);
     for (let i = 0; i < 5; i++) {
+      await answerOpenDecisions(hz.db, hz.B.businessId);
       const inboxBefore = await countInbox(hz.db, hz.B.businessId);
       const eventsBefore = await countSourceEvents(hz.db, hz.B.businessId);
       const r = await service.refresh(hz.B.businessId);
@@ -121,7 +123,12 @@ describe("buffer (3 pre-written candidates, invalidated on source change, refill
     expect(r.item.bodyMd).not.toContain("Slipped launch");
     const after = await repos.inbox.bufferList(hz.db, hz.A.businessId);
     expect(after.some((row) => row.sourceHash === slipRow!.sourceHash)).toBe(false);
-    expect(after.length).toBeGreaterThan(0);
+    // The decision the press wrote is on the founder's desk, so the refill has nothing to pre-write behind it; once it is
+    // answered the next decision is warmed again.
+    expect(after.some((row) => row.sourceHash.startsWith("decision:"))).toBe(false);
+    await answerOpenDecisions(hz.db, hz.A.businessId);
+    await service.warm(hz.A.businessId);
+    expect((await repos.inbox.bufferList(hz.db, hz.A.businessId)).length).toBeGreaterThan(0);
   }, 120_000);
 
   it("a data-change insight: channel CPA moved ≥ 20 % becomes a warning that quotes the computed numbers", async () => {
@@ -145,6 +152,97 @@ describe("buffer (3 pre-written candidates, invalidated on source change, refill
   }, 120_000);
 });
 
+describe("a decision that is still waiting is not written twice (audit CML-02)", () => {
+  it("presses with nothing new leave one open decision per thing the state calls for, and answer with it", async () => {
+    const C = await createBusinessFixture(hz.h, "refresh-open-decision");
+    const service = hz.service();
+    await quiet(C.businessId);
+    const results = [];
+    for (let i = 0; i < 8; i++) {
+      results.push(await service.refresh(C.businessId));
+      await service.drain(C.businessId);
+    }
+    const open = (await repos.inbox.list(hz.db, C.businessId, { type: "decision", state: ["unread", "read"], limit: 100 })).items;
+    const keys = open.map((i) => (i.decision as { key?: string } | null)?.key);
+    // Never two open copies of the same decision, and never one without its identity.
+    expect(keys.every((k) => typeof k === "string")).toBe(true);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(open.every((i) => i.blocksContinue)).toBe(true);
+    // Once everything the state calls for is open, a press answers with an open decision and writes nothing.
+    const pointers = results.filter((r) => r.source === "open");
+    expect(pointers.length).toBeGreaterThan(0);
+    for (const r of pointers) {
+      expect(r.slot).toBe("decision");
+      expect(r.costMinor).toBe(0);
+      expect(open.map((i) => i.id)).toContain(r.item.id);
+    }
+    expect(new Set(results.filter((r) => r.source !== "open").map((r) => r.item.id)).size).toBe(results.filter((r) => r.source !== "open").length);
+    const blocking = await repos.inbox.countBlocking(hz.db, C.businessId);
+    const before = await countInbox(hz.db, C.businessId);
+    await service.refresh(C.businessId);
+    await service.drain(C.businessId);
+    expect(await countInbox(hz.db, C.businessId)).toBe(before);
+    expect(await repos.inbox.countBlocking(hz.db, C.businessId)).toBe(blocking);
+  }, 180_000);
+
+  it("answering the open decision lets the next press write one again", async () => {
+    const C = await createBusinessFixture(hz.h, "refresh-open-answered");
+    const service = hz.service();
+    await quiet(C.businessId);
+    let first = await service.refresh(C.businessId);
+    for (let i = 0; i < 8 && first.slot !== "decision"; i++) first = await service.refresh(C.businessId);
+    await service.drain(C.businessId);
+    // Press until the state has nothing more to offer, then answer: a new decision is written.
+    let last = first;
+    for (let i = 0; i < 8 && last.source !== "open"; i++) last = await service.refresh(C.businessId);
+    await service.drain(C.businessId);
+    expect(last.source).toBe("open");
+    const before = await countInbox(hz.db, C.businessId);
+    await answerOpenDecisions(hz.db, C.businessId);
+    const next = await service.refresh(C.businessId);
+    await service.drain(C.businessId);
+    expect(next.source).not.toBe("open");
+    expect(await countInbox(hz.db, C.businessId)).toBe(before + 1);
+  }, 180_000);
+});
+
+describe("a decision's deadline is a real one (audit CML-13)", () => {
+  const base = MOCK_ROUTES.inboxComposer.generate;
+  const withExpiry = (expires: string | null): MockGenerator => (ctx) => {
+    const out = base(ctx) as { decision: { expires_at: string | null } | null };
+    return { ...out, decision: out.decision ? { ...out.decision, expires_at: expires } : out.decision } as ReturnType<MockGenerator>;
+  };
+  const day = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString();
+
+  it("the model is told today's date", async () => {
+    let input = "";
+    const service = hz.service({}, { inboxComposer: (ctx) => { input = ctx.messages[0]?.content ?? ""; return base(ctx); } });
+    const C = await createBusinessFixture(hz.h, "refresh-now");
+    await quiet(C.businessId);
+    await service.refresh(C.businessId);
+    expect(input).toMatch(/"now":"\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("a deadline in the past, one that is not a date, and one far beyond the horizon are dropped; a real one is kept", async () => {
+    const outcomes = new Map<string, string | null>();
+    for (const [label, value] of [["past", "2020-01-01T00:00:00Z"], ["words", "next Tuesday"], ["far", day(400)], ["soon", day(5)]] as const) {
+      const C = await createBusinessFixture(hz.h, `refresh-expiry-${label}`);
+      const service = hz.service({}, { inboxComposer: withExpiry(value) });
+      await quiet(C.businessId);
+      let r = await service.refresh(C.businessId);
+      for (let i = 0; i < 6 && r.item.type !== "decision"; i++) r = await service.refresh(C.businessId);
+      await service.drain(C.businessId);
+      expect(r.item.type, label).toBe("decision");
+      outcomes.set(label, (r.item.decision as { expires_at: string | null }).expires_at);
+    }
+    expect(outcomes.get("past")).toBeNull();
+    expect(outcomes.get("words")).toBeNull();
+    expect(outcomes.get("far")).toBeNull();
+    expect(outcomes.get("soon")).not.toBeNull();
+    expect(Date.parse(outcomes.get("soon")!)).toBeGreaterThan(Date.now());
+  }, 180_000);
+});
+
 describe("debounce (3 s per business)", () => {
   it("rapid calls inside the window return the pending item instead of a second one", async () => {
     let t = 1_000_000;
@@ -158,6 +256,7 @@ describe("debounce (3 s per business)", () => {
     expect(second.item.id).toBe(first.item.id);
     expect(await countInbox(hz.db, hz.A.businessId)).toBe(before + 1);
     t += 2500;
+    await answerOpenDecisions(hz.db, hz.A.businessId);
     const third = await service.refresh(hz.A.businessId);
     expect(third.debounced).toBe(false);
     expect(third.item.id).not.toBe(first.item.id);
@@ -167,6 +266,7 @@ describe("debounce (3 s per business)", () => {
 
   it("concurrent calls share one in-flight refresh", async () => {
     const service = hz.service();
+    await answerOpenDecisions(hz.db, hz.A.businessId);
     const before = await countInbox(hz.db, hz.A.businessId);
     const [a, b, c] = await Promise.all([service.refresh(hz.A.businessId), service.refresh(hz.A.businessId), service.refresh(hz.A.businessId)]);
     expect(new Set([a.item.id, b.item.id, c.item.id]).size).toBe(1);
@@ -194,6 +294,7 @@ describe("served candidates stay served (audit CML-01)", () => {
     ]);
     const results = [];
     for (let i = 0; i < 6; i++) {
+      await answerOpenDecisions(hz.db, C.businessId);
       const served = (await servedKeys(hz.h, C.businessId)).length;
       const r = await service.refresh(C.businessId);
       await service.drain(C.businessId);
@@ -214,6 +315,7 @@ describe("served candidates stay served (audit CML-01)", () => {
     await repos.channels.upsertMetrics(hz.db, C.businessId, [{ channelId: C.channelId, day: day(1), spendMinor: 40_000, customers: 10 }]);
     const after = [];
     for (let i = 0; i < 2; i++) {
+      await answerOpenDecisions(hz.db, C.businessId);
       after.push(await service.refresh(C.businessId));
       await service.drain(C.businessId);
     }
@@ -225,10 +327,12 @@ describe("served candidates stay served (audit CML-01)", () => {
     await quiet(C.businessId);
     const first = hz.service();
     for (let i = 0; i < 3; i++) {
+      await answerOpenDecisions(hz.db, C.businessId);
       await first.refresh(C.businessId);
       await first.drain(C.businessId);
     }
     const before = await servedKeys(hz.h, C.businessId);
+    await answerOpenDecisions(hz.db, C.businessId);
     const restarted = hz.service();
     const r = await restarted.refresh(C.businessId);
     await restarted.drain(C.businessId);

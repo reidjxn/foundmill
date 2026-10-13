@@ -66,7 +66,7 @@ import {
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { audit, effectivePermission, emit, hasSectionAccess, Id, type BusinessContext, type Section } from "../trpc";
-import { decideInboxItem, planContextFor, type DecideItemResult } from "./decide";
+import { decideInboxItem, decidesByText, planContextFor, type DecideItemResult } from "./decide";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactText, redactValue } from "./inbox-redaction";
 import { assertInstructionSectionAccess, assertPlanSectionAccess, compilePlan, evaluatePlan, requiresConfirmation, type ActionEvaluation } from "./plans";
 import { takeOrThrow, type RateLimitStore, type WindowLimit } from "./rate-limit";
@@ -382,6 +382,10 @@ export async function manifestFor(tx: DbTx, ctx: Pick<BusinessContext, "business
   };
 }
 
+/**
+ * `currency` is the business's own: an option's cost is business money, priced in it as the Inbox shows it, and an
+ * Estimate. Never the note's `inbox_items.currency`, which is the currency of what writing the note cost (audit CML-12).
+ */
 function promptSubject(r: Resolved, currency: string): ConversationSubjectInput {
   if (r.item) {
     const strip = Array.isArray(r.item.statusStrip) ? (r.item.statusStrip as Array<Record<string, unknown>>) : [];
@@ -396,7 +400,7 @@ function promptSubject(r: Resolved, currency: string): ConversationSubjectInput 
         label: o.label,
         recommended: o.recommended === true,
         consequence: o.consequence ?? "",
-        cost: typeof o.cost_minor === "number" && o.cost_minor > 0 ? formatMoney({ amountMinor: o.cost_minor, currency: r.item!.currency || currency }) : null,
+        cost: typeof o.cost_minor === "number" && o.cost_minor > 0 ? `${formatMoney({ amountMinor: o.cost_minor, currency })} (Estimate)` : null,
         reversible: typeof o.reversible === "boolean" ? o.reversible : null,
       })),
       facts: strip.flatMap((m) => (typeof m.metric === "string" && (typeof m.value === "string" || typeof m.value === "number") ? [{ label: humanise(m.metric), value: String(m.value) }] : [])),
@@ -831,7 +835,10 @@ export type InboxReplyResult = ({ route: "conversation" } & SendResult) | { rout
  * "OK, go ahead" is one press away from a real decision.
  */
 export async function replyToInboxItem(ctx: BusinessContext, input: { itemId: string; text: string; clientMessageId?: string }): Promise<InboxReplyResult> {
-  if (isConversationalText(input.text)) {
+  // A note that asks for no decision (an Update, a Milestone, a follow-up) has nothing to decide: what the founder writes
+  // on it is a message to the agent (audit VRUI-X2).
+  const item = await ctx.rls((tx) => repos.inbox.get(tx, ctx.businessId, input.itemId));
+  if (isConversationalText(input.text) || (!decidesByText(item) && item.state !== "answered" && item.state !== "archived")) {
     const sent = await sendConversationMessage(ctx, { subject: { kind: "inbox_item", id: input.itemId }, text: input.text, ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}) });
     return { route: "conversation", ...sent };
   }

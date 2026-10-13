@@ -28,7 +28,7 @@ export const cycleRouter = router({
   /** Continue button state computed server-side: holiday › blocked › win awaiting its Customer Update › processing › idle. */
   continueState: businessProcedure.query(async ({ ctx }) => {
     await reconcileQuietly(ctx);
-    return ctx.rls((tx) => continueStateFor({ db: tx, businessId: ctx.businessId }));
+    return ctx.rls((tx) => continueStateFor({ db: tx, businessId: ctx.businessId, userId: ctx.userId }));
   }),
 
   /** Past cycles, newest first (from `cycle.started` / `cycle.completed`). */

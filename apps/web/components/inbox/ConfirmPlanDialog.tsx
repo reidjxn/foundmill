@@ -47,7 +47,7 @@ export function ConfirmPlanDialog({ open, onOpenChange, lines, summary, loading,
                   <StatusPill tone={l.outcome === "allow" ? "good" : l.outcome === "ask" ? "warn" : l.outcome === "deny" ? "bad" : "neutral"}>{l.outcome === "allow" ? "Within policy" : l.outcome === "ask" ? "Needs your go-ahead" : l.outcome === "deny" ? "Denied" : l.outcome}</StatusPill>
                   <span className="min-w-0 flex-1 text-body text-pretty">{l.label}</span>
                   {l.hardGate ? <Chip tone="ink">You act</Chip> : null}
-                  <span className="shrink-0 text-small text-secondary tabular-nums">{l.cost ? formatMoney(l.cost) : "No cost"}</span>
+                  <span className="shrink-0 text-small text-secondary tabular-nums">{l.cost ? `${formatMoney(l.cost)} (Estimate)` : "No cost"}</span>
                 </li>
               ))}
             </ol>

@@ -4,13 +4,17 @@
  * option click (rule engine, in-process) or free text (plan compiler, Opus) → plan → policy per action → inside policy:
  * write plan + plan_actions and execute
  * / outside: return `{ requiresConfirmation: true, plan }` → item marked answered (releases Continue) →
- * `decision.made` through the outbox → follow-up Update item with links to the artefacts. A plan outside policy waits in
+ * `decision.made` through the outbox → dispatch what the orchestrator runs → follow-up Update item that reports each
+ * action's real status and what the dispatch did (audit VRUI-X1, api-services-15). A plan outside policy waits in
  * the database (`pending_confirmation`, each action's policy outcome) until `plan.confirm`, which needs only its id:
  * inbox.get hands the waiting confirmation back (`pendingConfirmation`) to whoever reopens the item.
  *
  * An approval's decision item (an agent's gated call waiting for the founder, audit FR-01) is answered without a plan
  * compiler: Approve or Reject resolves the approval (./approvals), records a one-line plan for the history, and the
  * decision reaches the session or wait that asked.
+ *
+ * Only a note that asks for a decision can be decided (audit VRUI-X2): an Update, a Milestone or a follow-up has nothing
+ * to choose; free text on them goes to the agent's desk (`replyToInboxItem`).
  */
 import { classifyFounderText } from "@foundmill/agents";
 import { approvalOutcomeOf, closeApprovalItem, repos, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
@@ -19,7 +23,8 @@ import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { assertApprovalAccess, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
-import { assertInstructionSectionAccess, assertPlanSectionAccess, choiceOf, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, planSectionRefusal, requiresConfirmation, syncChannelEngines, type ActionEvaluation, type ChannelToggle, type DecisionOption, type PlanContext } from "./plans";
+import { startModelRetests } from "./agent-model";
+import { assertInstructionSectionAccess, assertPlanSectionAccess, choiceOf, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, planSectionRefusal, redispatchPlans, requiresConfirmation, syncChannelEngines, type ActionEvaluation, type ChannelToggle, type DecisionOption, type DispatchResult, type ModelRetests, type PlanContext } from "./plans";
 
 export interface DecideItemInput {
   itemId: string;
@@ -42,12 +47,25 @@ export interface DecideItemResult {
   approval?: ApprovalAnswer | null;
 }
 
-type ItemOption = DecisionOption;
+/** The decision block of a note (Composer schema `decision`), or null for a note that asks for none. */
+interface ItemDecision {
+  options?: DecisionOption[];
+  free_text?: boolean;
+}
 
 export async function planContextFor(ctx: BusinessContext): Promise<PlanContext> {
   const [agents, holiday, roadmap] = await Promise.all([repos.agents.list(ctx.db, ctx.businessId, { limit: 200 }), repos.holidays.current(ctx.db, ctx.businessId), repos.product.listRoadmap(ctx.db, ctx.businessId)]);
   // Amounts the founder writes without a symbol ("spend up to 300 on ads") are in the business's own currency (0025).
-  return { business: ctx.business, agents: agents.items, holidayActive: holiday !== null, currency: ctx.business.currency, roadmap };
+  return { business: ctx.business, agents: agents.items, holidayActive: holiday !== null, holidayBudgetMinor: holiday?.budgetCeilingMinor ?? null, currency: ctx.business.currency, roadmap };
+}
+
+/**
+ * Whether free text decides this note: it is open, asks for a decision and takes free text (the Inbox shows its Write
+ * box on the same rule). Anything else the founder writes on it goes to the agent's desk instead.
+ */
+export function decidesByText(item: Pick<InboxItem, "state" | "decision">): boolean {
+  const decision = item.decision as ItemDecision | null;
+  return item.state !== "answered" && item.state !== "archived" && !!decision && decision.free_text !== false;
 }
 
 export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInput): Promise<DecideItemResult> {
@@ -70,12 +88,17 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   // Refused before the plan compiler (a model call on the platform key) runs: answering an answered item again would
   // otherwise cost a call every time and only fail at the write. `repos.inbox.decide` re-checks it under the row lock.
   if (item.state === "answered" || item.state === "archived") throw new ValidationError(`Inbox item is already ${item.state}`, { itemId: item.id });
-  const options = ((item.decision as { options?: ItemOption[] } | null)?.options ?? []) as ItemOption[];
-  const option = chosenOption ? options.find((o) => o.id === chosenOption) : undefined;
-  if (chosenOption && !option) throw new ValidationError("chosenOption is not one of the item's options", { chosenOption, options: options.map((o) => o.id) });
+  const decision = item.decision as ItemDecision | null;
+  // Only a note that asks for a decision is decided (audit VRUI-X2): an Update or a Milestone has nothing to choose, and
+  // running a plan from it would answer it and chain "Decided: Decided: …" follow-ups.
+  if (!decision) throw new ValidationError("This note doesn't ask for a decision. Reply to the agent in the conversation instead.", { route: "conversation", itemId: item.id });
   // An agent's gated call waiting for the founder: Approve or Reject answers the approval itself.
   const approval = await ctx.rls((tx) => repos.approvals.forInboxItem(tx, ctx.businessId, item.id));
   if (approval) return decideApprovalItem(ctx, item, approval, { chosenOption, freeText });
+  if (freeText && !chosenOption && decision.free_text === false) throw new ValidationError("This decision takes one of its options. Pick one, or talk it through with the agent first.", { route: "conversation", itemId: item.id });
+  const options = decision.options ?? [];
+  const option = chosenOption ? options.find((o) => o.id === chosenOption) : undefined;
+  if (chosenOption && !option) throw new ValidationError("chosenOption is not one of the item's options", { chosenOption, options: options.map((o) => o.id) });
 
   const planCtx = { ...(await planContextFor(ctx)), ...(option ? { choice: choiceOf(option) } : {}) };
   // Section walls hold in the Inbox too (audit RUI-01): a plan that changes a section the decider cannot write to is
@@ -99,7 +122,7 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
       actions: evaluations.map((e) => ({ type: e.action.type, params: e.action.params, agentId: e.action.agent_id, policyOutcome: e.outcome })),
     });
     const decided = await repos.inbox.decide(tx, ctx.businessId, item.id, { chosenOption, freeText, decidedByKind: "user", decidedBy: ctx.userId, planId: plan.id });
-    const exec = confirm ? { executed: [], deferred: plan.actions.map((a) => a.id), denied: [], needsOrchestrator: false, channels: [] } : await executePlanActions(tx, ctx.businessId, plan, { actorUserId: ctx.userId, temporal: ctx.temporal, currency: planCtx.currency });
+    const exec = confirm ? { ...NOTHING_RUN, deferred: plan.actions.map((a) => a.id) } : await executePlanActions(tx, ctx.businessId, plan, { actorUserId: ctx.userId, temporal: ctx.temporal, currency: planCtx.currency });
 
     await emit(tx, ctx, {
       type: "decision.made",
@@ -119,27 +142,23 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
       target: { kind: "inbox_item", id: item.id },
       details: { chosenOption, freeText: freeText ? freeText.slice(0, 500) : null, planId: plan.id, requiresConfirmation: confirm, actionTypes: plan.actions.map((a) => a.type) },
     });
-
-    const followUp = confirm ? null : await writeFollowUp(tx, ctx, item, plan, compiled.summary, exec.executed.length, exec.deferred.length);
-    const refreshed = await repos.plans.get(tx, ctx.businessId, plan.id);
-    return { plan: refreshed, decided, exec, followUp };
+    // The plan as its actions left it (audit VRUI-X1): what ran is done, what the team runs is still pending.
+    return { plan: await repos.plans.get(tx, ctx.businessId, plan.id), decided, exec };
   });
 
-  const dispatch = !confirm && written.exec.needsOrchestrator ? await dispatchPlan(ctx.temporal, ctx.businessId, written.plan.id) : null;
-  if (dispatch?.queued) await repos.plans.setWorkflowId(ctx.db, ctx.businessId, written.plan.id, dispatch.workflowId);
-  await syncChannelEngines(ctx, written.exec.channels);
+  const after = confirm ? { dispatch: null, followUp: null, plan: null } : await afterCommit(ctx, item, written.plan, compiled.summary, written.exec);
 
   return asSeenBy(ctx, item, {
     item: written.decided.item,
     decision: written.decided.decision,
-    plan: written.plan,
+    plan: after.plan ?? written.plan,
     evaluations,
     requiresConfirmation: confirm,
     executed: written.exec.executed,
     deferred: written.exec.deferred,
     denied: written.exec.denied,
-    dispatch,
-    followUp: written.followUp,
+    dispatch: after.dispatch,
+    followUp: after.followUp,
   });
 }
 
@@ -195,42 +214,53 @@ async function decideApprovalItem(ctx: BusinessContext, item: InboxItem, approva
 }
 
 
-/** What a confirmation that ran nothing reports: the plan was confirmed before, so nothing runs twice. */
-const NOTHING_RUN = { executed: [] as string[], deferred: [] as string[], denied: [] as string[], needsOrchestrator: false, channels: [] as ChannelToggle[] };
+/** What a step that runs nothing in-process reports. */
+const NOTHING_RUN = { executed: [] as string[], deferred: [] as string[], denied: [] as string[], needsOrchestrator: false, channels: [] as ChannelToggle[], models: { retests: [], superseded: [] } as ModelRetests };
 
 /**
- * Confirm a plan that policy flagged (BUILD §11.3 "Here is what will happen"). It works from the stored plan alone (the
- * plan id; no state from the page that staged it), so the founder can confirm after a reload, from another tab or
- * device, or on returning from a vacation. Idempotent: a plan someone already confirmed comes back as it is
- * (`alreadyConfirmed`), with nothing executed, audited or written a second time; two presses at once run it once
- * (`repos.plans.claimConfirmation` is one conditional update).
+ * After the decision committed: hand what the orchestrator runs to `planExecution`, start the channel engines and model
+ * retests the plan switched, write the follow-up from the actions' real statuses and the dispatch result, then start any
+ * plan an earlier dispatch left behind now that Temporal answers (audit api-services-15).
+ */
+async function afterCommit(ctx: BusinessContext, item: InboxItem | null, plan: PlanWithActions, summary: string, exec: { needsOrchestrator: boolean; channels: ChannelToggle[]; models: ModelRetests }): Promise<{ dispatch: DispatchResult | null; followUp: InboxItem | null; plan: PlanWithActions | null }> {
+  const dispatch = exec.needsOrchestrator ? await dispatchPlan(ctx.temporal, ctx.businessId, plan.id) : null;
+  if (dispatch?.queued) await repos.plans.setWorkflowId(ctx.db, ctx.businessId, plan.id, dispatch.workflowId);
+  await syncChannelEngines(ctx, exec.channels);
+  await startModelRetests(ctx.temporal, ctx.businessId, exec.models);
+  const followUp = await ctx.rls((tx) => writeFollowUp(tx, ctx, item, plan, summary, dispatch));
+  if (!dispatch || dispatch.queued) await redispatchPlans(ctx).catch((err: unknown) => ctx.log.warn({ err: (err as Error).message }, "plan redispatch failed"));
+  return { dispatch, followUp, plan: dispatch?.queued ? { ...plan, workflowId: dispatch.workflowId } : null };
+}
+
+/**
+ * Confirm a plan that policy flagged (BUILD §11.3 "Here is what will happen"). Exactly once (audit api-services-05):
+ * the plan is claimed by one conditional update, so of two presses at once (two tabs, two members) one runs it and the
+ * other comes back `alreadyConfirmed` with nothing executed, audited or written a second time, and a finished plan is
+ * never put back to executing.
  */
 export async function confirmPlan(ctx: BusinessContext, planId: string) {
   const planCtx = await planContextFor(ctx);
   const written = await ctx.rls(async (tx) => {
     const plan = await repos.plans.get(tx, ctx.businessId, planId);
     if (plan.status !== "pending_confirmation") {
-      if (plan.confirmedAt) return { plan, exec: NOTHING_RUN, followUp: null, alreadyConfirmed: true };
+      if (plan.confirmedAt) return { plan, exec: NOTHING_RUN, item: null, alreadyConfirmed: true };
       throw new ValidationError(`Plan is ${plan.status}, not awaiting confirmation`, { planId });
     }
     // The confirmer needs write on every section the plan changes, whoever staged it (audit RUI-01).
     assertPlanSectionAccess(ctx.membership, plan.actions.filter((a) => a.status === "pending").map((a) => ({ type: a.type, params: a.params, denied: a.policyOutcome === "deny" })));
     const claimed = await repos.plans.claimConfirmation(tx, ctx.businessId, planId);
-    if (!claimed) return { plan: await repos.plans.get(tx, ctx.businessId, planId), exec: NOTHING_RUN, followUp: null, alreadyConfirmed: true };
+    if (!claimed) return { plan: await repos.plans.get(tx, ctx.businessId, planId), exec: NOTHING_RUN, item: null, alreadyConfirmed: true };
     const confirmed = await repos.plans.get(tx, ctx.businessId, planId);
     const exec = await executePlanActions(tx, ctx.businessId, confirmed, { actorUserId: ctx.userId, temporal: ctx.temporal, currency: planCtx.currency });
     await audit(tx, ctx, { action: "plan.confirm", target: { kind: "plan", id: planId }, details: { executed: exec.executed.length, deferred: exec.deferred.length } });
     const item = plan.inboxItemId ? await repos.inbox.get(tx, ctx.businessId, plan.inboxItemId) : null;
-    const followUp = item ? await writeFollowUp(tx, ctx, item, confirmed, confirmed.summaryMd, exec.executed.length, exec.deferred.length) : null;
-    // Other members' open Inbox shows the plan confirmed and the follow-up at once (audit RUI-09).
-    if (item) await emit(tx, ctx, { type: "inbox.item_updated", payload: { inboxItemId: item.id, change: "plan_confirmed", planId, followUpItemId: followUp?.id ?? null } });
-    return { plan: await repos.plans.get(tx, ctx.businessId, planId), exec, followUp, alreadyConfirmed: false };
+    return { plan: await repos.plans.get(tx, ctx.businessId, planId), exec, item, alreadyConfirmed: false };
   });
-  if (written.alreadyConfirmed) return asSeenBy(ctx, null, { ...written, dispatch: null });
-  const dispatch = written.exec.needsOrchestrator ? await dispatchPlan(ctx.temporal, ctx.businessId, planId) : null;
-  if (dispatch?.queued) await repos.plans.setWorkflowId(ctx.db, ctx.businessId, planId, dispatch.workflowId);
-  await syncChannelEngines(ctx, written.exec.channels);
-  return asSeenBy(ctx, null, { ...written, dispatch });
+  if (written.alreadyConfirmed) return asSeenBy(ctx, null, { plan: written.plan, exec: written.exec, followUp: null, dispatch: null, alreadyConfirmed: true });
+  const after = await afterCommit(ctx, written.item, written.plan, written.plan.summaryMd, written.exec);
+  // Other members' open Inbox shows the plan confirmed and the follow-up at once (audit RUI-09).
+  if (written.item) await ctx.rls((tx) => emit(tx, ctx, { type: "inbox.item_updated", payload: { inboxItemId: written.item!.id, change: "plan_confirmed", planId, followUpItemId: after.followUp?.id ?? null } }));
+  return asSeenBy(ctx, null, { plan: after.plan ?? written.plan, exec: written.exec, followUp: after.followUp, dispatch: after.dispatch, alreadyConfirmed: false });
 }
 
 /** A plan still waiting for "Here is what will happen", as inbox.get hands it back to whoever reopens the item. */
@@ -287,15 +317,49 @@ async function asSeenBy<R extends { item?: InboxItem; plan: PlanWithActions; fol
   };
 }
 
-async function writeFollowUp(tx: DbTx, ctx: BusinessContext, item: InboxItem, plan: PlanWithActions, summary: string, executed: number, deferred: number): Promise<InboxItem | null> {
+/** Each action's line in the follow-up: what really happened to it (audit VRUI-X1). */
+function statusWords(status: string, dispatched: boolean): string {
+  switch (status) {
+    case "done":
+      return "done";
+    case "pending":
+      return dispatched ? "handed to the team" : "waiting to start";
+    case "running":
+      return "running";
+    case "awaiting_approval":
+      return "waiting for your approval";
+    case "denied":
+      return "not run (outside policy)";
+    case "failed":
+      return "failed";
+    case "skipped":
+      return "skipped";
+    default:
+      return status.replace(/_/g, " ");
+  }
+}
+
+async function writeFollowUp(tx: DbTx, ctx: BusinessContext, item: InboxItem | null, plan: PlanWithActions, summary: string, dispatch: DispatchResult | null): Promise<InboxItem | null> {
+  if (!item) return null;
   const from = item.fromAgentId ?? (await repos.agents.chiefOfStaff(tx, ctx.businessId))?.id ?? null;
   if (!from) return null;
-  const lines = plan.actions.map((a) => `- ${describeAction(a.type, a.params as Record<string, unknown>)} — ${a.status}${a.policyOutcome === "ask" ? " (confirmed by you)" : ""}`);
-  const body = [`Decided: ${item.subject}.`, "", summary, "", ...lines, "", executed > 0 || deferred > 0 ? `${executed} done now, ${deferred} handed to the team.` : "Nothing further to run."].join("\n");
+  const dispatched = dispatch?.queued !== false;
+  const lines = plan.actions.map((a) => `- ${describeAction(a.type, a.params as Record<string, unknown>)} — ${statusWords(a.status, dispatched)}${a.policyOutcome === "ask" ? " (confirmed by you)" : ""}`);
+  const done = plan.actions.filter((a) => a.status === "done").length;
+  const pending = plan.actions.filter((a) => a.status === "pending").length;
+  // Worded from what the dispatch did, never assumed (audit api-services-15): a plan Temporal did not take is not "handed to the team".
+  const tally =
+    done === 0 && pending === 0
+      ? "Nothing further to run."
+      : dispatched
+        ? `${done} done now, ${pending} handed to the team.`
+        : `${done} done now. ${pending} waiting to start: the team's worker could not be reached, so ${pending === 1 ? "it starts" : "they start"} on your next decision or Continue.`;
+  const subject = item.subject.replace(/^(?:Decided: )+/, "");
+  const body = [`Decided: ${subject}.`, "", summary, "", ...lines, "", tally].join("\n");
   return repos.inbox.createItem(
     tx,
     ctx.businessId,
-    { type: "update", from_agent_id: from, subject: `Decided: ${item.subject}`.slice(0, 80), body_md: body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: item.entityIds },
+    { type: "update", from_agent_id: from, subject: `Decided: ${subject}`.slice(0, 80), body_md: body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: item.entityIds },
     { state: "unread" },
   );
 }

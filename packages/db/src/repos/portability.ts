@@ -100,6 +100,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   compliance_events: t(s.complianceEvents, "legal"),
   // inbox
   inbox_items: t(s.inboxItems, "inbox"),
+  inbox_item_reads: t(s.inboxItemReads, "inbox"),
   plans: t(s.plans, "inbox"),
   plan_actions: t(s.planActions, "inbox"),
   decisions: t(s.decisions, "inbox"),
