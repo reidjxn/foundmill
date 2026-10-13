@@ -178,6 +178,8 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect((await repos.businesses.listForUser(hz.db, userId)).length).toBe(0);
     const result = await caller.idea.commit({ ideaId: idea!.id, name: "Adult Co", archetype: "b2b_saas", gameMode: "live", confirmAdult: true });
     expect(result.business.gameMode).toBe("live");
+    // The attestation is on the audit chain next to the commit.
+    expect((await repos.audit.list(hz.db, result.business.id, { action: "idea.commit", limit: 1 })).items[0]?.details).toMatchObject({ gameMode: "live", confirmedAdult: true });
   });
 
   it("preview lists what an archetype seeds, labelled Estimate", async () => {

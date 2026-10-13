@@ -30,6 +30,8 @@ export interface CommitIdeaInput {
   ideaId: string;
   name: string;
   gameMode: GameMode;
+  /** The 18+ attestation the router requires for LIVE; the audit row records it (BUILD §11.14). */
+  confirmAdult?: boolean;
   archetype: Archetype;
   businessMode?: BusinessMode;
   kit?: { primary: string; secondary: string };
@@ -291,6 +293,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
         ideaId: idea.id,
         archetype: input.archetype,
         gameMode: input.gameMode,
+        ...(input.gameMode === "live" ? { confirmedAdult: true } : {}),
         businessMode,
         departments: departmentIds.length,
         agents: agentIds.length,

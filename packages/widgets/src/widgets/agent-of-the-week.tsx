@@ -74,7 +74,6 @@ function AgentOfTheWeekWidget({ settings }: WidgetProps<AgentOfTheWeekSettings>)
                   contextMenu={false}
                   className="t-display-md truncate text-primary"
                 />
-
                 {agent.rating !== null ? <RatingCell value={agent.rating} /> : null}
               </div>
               <div className="flex flex-wrap items-center gap-2 text-small text-secondary">
