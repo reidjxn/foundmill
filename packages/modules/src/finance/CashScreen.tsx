@@ -10,6 +10,7 @@ import { Button, Chip, DataTable, EntityLink, Figure, Input, Panel, StatusPill, 
 import { daysUntil } from "@foundmill/widgets/shared/time";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
 import { PNL_CATEGORY_OPTIONS, categoryLabel, monthStart, plainWords, sectionOf, type PnlSection } from "./metrics";
 import { RecategoriseDialog } from "./RecategoriseDialog";
@@ -152,7 +153,8 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
   const accountsQ = useWidgetQuery<AccountsListResponse>("finance.accounts.list", {});
   const [accountId, setAccountId] = useState<string | null>(null);
   const txQ = useWidgetQuery<TransactionsListResponse>("finance.transactions.list", accountId ? { accountId, limit: 500 } : { limit: 500 });
-  const [views, setViews] = useState<SavedView[]>(TRANSACTION_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("finance.cash", TRANSACTION_VIEWS, { defaultViewId: "all" });
   const [search, setSearch] = useState("");
   const [recat, setRecat] = useState<TransactionRow | null>(null);
 
@@ -230,8 +232,7 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
           aria-label="Transactions"
           data={rows}
           columns={columns}
-          views={views}
-          onViewsChange={setViews}
+          {...savedViews}
           defaultViewId="all"
           height={520}
           globalFilter={search}

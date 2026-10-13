@@ -24,7 +24,9 @@ describe("ResearchScreen", () => {
     expect(within(notes).getByText(/Mandatory structured e-invoices/)).toBeTruthy();
     const topicsList = screen.getByRole("list", { name: "Topics" });
     expect(within(topicsList).getByText("pricing")).toBeTruthy();
-    expect(screen.getByRole("img", { name: /^Sources per spec section\. .*Pricing 1/ })).toBeTruthy();
+    // A real list (no role="img" over list items): one item per section with its count.
+    const coverageList = screen.getByRole("list", { name: "Sources per spec section" });
+    expect(within(coverageList).getAllByRole("listitem").some((li) => /Pricing\s*1$/.test(li.textContent ?? ""))).toBe(true);
     expect(screen.getByText(/1 competitors · pricing and market figures are the agent's estimates/)).toBeTruthy();
   });
 

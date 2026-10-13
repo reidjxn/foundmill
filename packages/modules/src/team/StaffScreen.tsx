@@ -9,6 +9,7 @@ import { ExternalLink, ShieldCheck, UserRoundMinus, UserRoundPlus, Users } from 
 import { Avatar, Button, Chip, DataTable, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EmptyState, EntityLink, Field, Input, Panel, SimpleSelect, formatRelative, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { MEMBERSHIP_ROLES, type MembershipRole } from "@foundmill/shared/constants";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { fitColumns, fitToGrow, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { DECISION_LABELS, InlineError, ROLE_LABELS, STAFF_SECTIONS, Screen, memberEntity, memberName, permissionSummary, readMe, sectionLabel, useAction, useHumans, useMe, useNow, type Me } from "./shared";
@@ -293,7 +294,8 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
   const responsibilities = useWidgetQuery<ResponsibilitiesResponse>("team.responsibilities.get", undefined);
   const me = useMemo(() => readMe(meQuery.data, businessId), [meQuery.data, businessId]);
   const rows = useMemo(() => toStaffRows(humans.data, responsibilities.data, me), [humans.data, responsibilities.data, me]);
-  const [views, setViews] = useState<SavedView[]>(STAFF_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("team.staff", STAFF_VIEWS, { defaultViewId: "all" });
   const [invite, setInvite] = useState(false);
   const [edit, setEdit] = useState<StaffRow | null>(null);
   const [remove, setRemove] = useState<StaffRow | null>(null);
@@ -400,7 +402,7 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
       >
         <div className="min-w-0">
           {/* The table is as tall as its rows (up to the window), so one person is not a screen of empty rows. */}
-          <DataTable<StaffRow> aria-label="Staff" data={rows} columns={columns} views={views} onViewsChange={setViews} defaultViewId="all" rowActions={rowActions} onRowOpen={(row) => setEdit(row)} height={Math.min(typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 264), Math.max(1, rows.length) * ROW_PX + 42)} exportFileName="staff" className="border-0" />
+          <DataTable<StaffRow> aria-label="Staff" data={rows} columns={columns} {...savedViews} defaultViewId="all" rowActions={rowActions} onRowOpen={(row) => setEdit(row)} height={Math.min(typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 264), Math.max(1, rows.length) * ROW_PX + 42)} exportFileName="staff" className="border-0" />
         </div>
         {onlyMe ? (
           <EmptyState icon={Users} title="Only you so far" tone="kit" className="border-t border-line-faint" action={canAdmin ? { label: "Invite staff", icon: UserRoundPlus, onClick: () => setInvite(true) } : undefined}>

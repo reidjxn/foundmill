@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, openBusiness } from "./helpers";
+import { LONG, chooseTableView, openBusiness } from "./helpers";
 
 /**
  * CRM list and universal search (BUILD §11.12) on the seeded Northwind Skincare (customers, suppliers and supplier
@@ -9,6 +9,8 @@ test.describe("crm", () => {
   test.beforeEach(async ({ page }) => {
     await openBusiness(page, "crm");
     await expect(page.getByTestId("crm-screen")).toBeVisible({ timeout: LONG });
+    // The open view is saved per person (audit #204): start every test from All, whatever an earlier one left open.
+    await chooseTableView(page, "All");
   });
 
   test("lists records with grouped views, importers and the data duties panel", async ({ page }) => {
@@ -27,6 +29,29 @@ test.describe("crm", () => {
     await page.getByRole("menuitemradio", { name: "By kind" }).click();
     await expect(page.getByRole("button", { name: /^View: By kind/ })).toBeVisible();
     await expect(page.getByTestId("crm-groups")).toBeVisible();
+  });
+
+  test("a saved view, and the view left open, come back after a reload (audit #204)", async ({ page }) => {
+    const name = `E2E view ${Date.now().toString(36)}`;
+    await chooseTableView(page, "By kind");
+    await page.getByRole("button", { name: /^View: / }).click();
+    await page.getByRole("menuitem", { name: "Save as new view…" }).click();
+    await page.getByLabel("Name").fill(name);
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("button", { name: `View: ${name}` })).toBeVisible();
+    await page.reload();
+    await expect(page.getByTestId("crm-screen")).toBeVisible({ timeout: LONG });
+    await expect(page.getByRole("button", { name: `View: ${name}` })).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("crm-groups")).toBeVisible();
+    // Deleting it is kept too: the table goes back to All, after a reload as well.
+    await page.getByRole("button", { name: `View: ${name}` }).click();
+    await page.getByRole("menuitem", { name: "Delete view" }).click();
+    await expect(page.getByRole("button", { name: "View: All" })).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole("button", { name: "View: All" })).toBeVisible({ timeout: LONG });
+    await page.getByRole("button", { name: "View: All" }).click();
+    await expect(page.getByRole("menuitemradio", { name })).toHaveCount(0);
+    await page.keyboard.press("Escape");
   });
 
   test("natural language and operators become editable chips; typeahead groups by kind", async ({ page }) => {

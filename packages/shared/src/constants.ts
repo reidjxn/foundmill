@@ -133,6 +133,13 @@ export type ChannelKey = (typeof CHANNEL_KEYS)[number];
 export const CHANNEL_LINES = ["attack", "midfield", "defence", "wings"] as const;
 export type ChannelLine = (typeof CHANNEL_LINES)[number];
 
+/**
+ * The window every channel figure covers ("last 35 days"): the API's channel summary (today and the 34 days before it,
+ * both ends included), the Channel Board, Attribution, the funnel and Finance's acquisition cost all read and label
+ * this one window.
+ */
+export const CHANNEL_WINDOW_DAYS = 35;
+
 export const CHANNEL_META: Record<ChannelKey, { label: string; line: ChannelLine; coreMetric: string; kitModeByDefault: boolean }> = {
   lead_generation: { label: "Lead generation", line: "attack", coreMetric: "Qualified leads/week", kitModeByDefault: false },
   paid_ads: { label: "Paid advertising", line: "attack", coreMetric: "CPA", kitModeByDefault: false },

@@ -100,6 +100,35 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(screen.getByText(/^0 (holders|issuances)\b/)).toHaveCount(0);
   });
 
+  test("finance: the Cash panel's caret menu pins Cash and runway to Home, and unpins it (audit #394)", async ({ page }) => {
+    await openTab(page, "finance", "overview");
+    const cash = page.getByRole("region", { name: "Cash", exact: true });
+    await cash.getByRole("button", { name: "Panel menu" }).click();
+    const item = page.getByRole("menuitem", { name: /^(Pin to Home|Unpin from Home)$/ });
+    await expect(item).toBeVisible();
+    // Start unpinned whatever an earlier run left.
+    if ((await item.innerText()).includes("Unpin")) {
+      await item.click();
+      await cash.getByRole("button", { name: "Panel menu" }).click();
+    }
+    await page.getByRole("menuitem", { name: "Pin to Home" }).click();
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
+    await expect(page.locator("[data-widget=cash_runway]")).toHaveCount(1, { timeout: LONG });
+    await openTab(page, "finance", "overview");
+    await page.getByRole("region", { name: "Cash", exact: true }).getByRole("button", { name: "Panel menu" }).click();
+    await page.getByRole("menuitem", { name: "Unpin from Home" }).click();
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
+    await expect(page.getByTestId("home-grid")).toBeVisible({ timeout: LONG });
+    await expect(page.locator("[data-widget=cash_runway]")).toHaveCount(0);
+  });
+
+  test("finance: the empty cap table's Open Legal goes to the department that holds Legal (audit #192)", async ({ page }) => {
+    await openTab(page, "finance", "cap-table");
+    await page.getByRole("button", { name: "Open Legal" }).click();
+    await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "legal/entity", { timeout: LONG });
+    await expect(page.getByText(/No such department/)).toHaveCount(0);
+  });
+
   test("finance: runway drivers are money fields in the business's currency", async ({ page }) => {
     await openTab(page, "finance", "runway");
     const form = page.getByRole("form", { name: "Base drivers" });

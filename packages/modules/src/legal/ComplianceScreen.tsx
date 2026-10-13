@@ -8,8 +8,10 @@
 import { useMemo, useState } from "react";
 import { CalendarDays, CalendarRange, Inbox, List, Repeat } from "lucide-react";
 import { Chip, DataTable, Panel, SegmentedControl, StatusStrip, cn, useFormatters, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
+import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
 import { DUE_WINDOW_DAYS, calendarMonths, calendarRows, daysToNextDeadline, type CalendarRow } from "./legal-data";
 import { CALENDAR_PILL, Pill, Screen, fitTableHeight, humanise, useNow } from "./shared";
@@ -56,8 +58,10 @@ export function complianceColumns(): DataTableColumn<CalendarRow>[] {
 export function ComplianceScreen({ businessId, subView }: ModuleScreenProps) {
   const now = useNow();
   const { navigate } = useWidgetData();
+  const departments = useDepartments();
   const query = useWidgetQuery<ComplianceListResponse>("legal.compliance.list", COMPLIANCE_INPUT);
-  const [views, setViews] = useState<SavedView[]>(COMPLIANCE_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("legal.compliance", COMPLIANCE_VIEWS, { defaultViewId: "open" });
   const [mode, setMode] = useState<"list" | "calendar">(subView === "calendar" ? "calendar" : "list");
   const [highlight, setHighlight] = useState<string | null>(null);
 
@@ -80,7 +84,7 @@ export function ComplianceScreen({ businessId, subView }: ModuleScreenProps) {
 
   const rowActions = (row: CalendarRow): RowAction<CalendarRow>[] => [
     { id: "calendar", label: "Show in calendar", icon: CalendarDays, disabled: !row.dueAt, onSelect: (r) => { setHighlight(r.id); setMode("calendar"); } },
-    { id: "entity", label: "Open the legal entity", icon: List, onSelect: () => navigate(routes.department(businessId, "legal", "entity")) },
+    { id: "entity", label: "Open the legal entity", icon: List, onSelect: () => navigate(moduleTabHref(businessId, departments.data, "legal", "entity")) },
     { id: "inbox", label: "Open the Inbox", icon: Inbox, separatorBefore: true, onSelect: () => navigate(routes.inbox(businessId)) },
   ];
 
@@ -115,7 +119,7 @@ export function ComplianceScreen({ businessId, subView }: ModuleScreenProps) {
         footer={<span>Right-click a deadline to see it in the calendar, open the legal entity or the Inbox.</span>}
       >
         {mode === "list" ? (
-          <DataTable<CalendarRow> aria-label="Deadlines" data={rows} columns={columns} getRowId={(r) => `${r.kind}-${r.id}`} views={views} onViewsChange={setViews} defaultViewId="open" height={fitTableHeight(rows.length, { minRows: 8, maxRows: 16 })} exportFileName="compliance-calendar" rowActions={rowActions} onRowOpen={(r) => { setHighlight(r.id); setMode("calendar"); }} rowClassName={(r) => (r.id === highlight ? "row-selected" : undefined)} />
+          <DataTable<CalendarRow> aria-label="Deadlines" data={rows} columns={columns} getRowId={(r) => `${r.kind}-${r.id}`} {...savedViews} defaultViewId="open" height={fitTableHeight(rows.length, { minRows: 8, maxRows: 16 })} exportFileName="compliance-calendar" rowActions={rowActions} onRowOpen={(r) => { setHighlight(r.id); setMode("calendar"); }} rowClassName={(r) => (r.id === highlight ? "row-selected" : undefined)} />
         ) : (
           <ol aria-label="Twelve-month calendar" className="grid grid-cols-4 gap-gutter">
             {months.map((m) => (

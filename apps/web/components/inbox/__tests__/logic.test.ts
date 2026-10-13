@@ -50,6 +50,11 @@ describe("tabs", () => {
     expect(inboxTabs(BID, false, {})[0]!.href).toBe(`/b/${BID}/inbox`);
     expect(inboxTabs(BID, false, {})[1]!.href).toBe(`/b/${BID}/inbox?tab=respond`);
   });
+  it("names the tabs in the business's words (Settings › Glossary, AC-11.13.6)", () => {
+    const tabs = inboxTabs(BID, false, {}, { customer: "client" });
+    expect(tabs.find((t) => t.id === "customers")?.label).toBe("Clients");
+    expect(inboxTabs(BID, false, {}).find((t) => t.id === "customers")?.label).toBe("Customers");
+  });
   it("parses the tab from the query, falling back to All (and off Messages when not LIVE)", () => {
     expect(parseInboxTab("respond", false)).toBe("respond");
     expect(parseInboxTab("messages", false)).toBe("all");
@@ -193,6 +198,13 @@ describe("status strip (AC-11.3.6: numbers come from live queries, never the not
     const raised = { ...finance, revenue: { monthly: [...finance.revenue.monthly.slice(0, 1), { month: "2026-09", inflowMinor: 40_042_000, netMinor: 40_000_000, operatingInflowMinor: 42_000 }] } };
     const [revenue] = statusStripTiles([{ metric: "revenue", source: "Stripe" }], { finance: raised, conversions, now });
     expect(revenue).toMatchObject({ label: "Revenue", value: { amountMinor: 42_000, currency: "EUR" } });
+  });
+
+  it("names the note's figures in the business's words (Settings › Glossary, AC-11.13.6)", () => {
+    const strip = [{ metric: "customers_week", source: "Stripe" }, { metric: "Customers 1101", source: "conversions" }];
+    const tiles = statusStripTiles(strip, { finance, conversions, now, glossary: { customer: "client" } });
+    expect(tiles.map((t) => t.label)).toEqual(["Clients this week", "Clients"]);
+    expect(statusStripTiles(strip, { finance, conversions, now }).map((t) => t.label)).toEqual(["Customers this week", "Customers"]);
   });
   it("unknown metrics render honestly empty; missing sources give null values", () => {
     const tiles = statusStripTiles([{ metric: "made_up", source: "x" }, { metric: "cash" }], { finance: null, conversions: null, now });

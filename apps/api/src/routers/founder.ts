@@ -4,8 +4,10 @@
  * in every business. Any signed-in account may call them, with or without a business or a profile; both run as that
  * user under RLS, so a row is only ever their own. No event: preferences belong to the account, not to a business
  * (events and the audit log are business-scoped), and nothing reacts to them but the person's own screens.
+ * founder.tableViews.get/save: the views a person saves on a data table (saved_table_views, 0041), for a business they
+ * belong to or for the account-wide LIVE pages; RLS holds them to their own rows and their own businesses.
  */
-import { AccountPreferencesPatch, repos, withRls, FounderProfileInput, FounderProfilePatch, type Db, type DbTx } from "@foundmill/db";
+import { AccountPreferencesPatch, repos, withRls, FounderProfileInput, FounderProfilePatch, SaveTableViewsInput, TableViewsScope, type Db, type DbTx } from "@foundmill/db";
 import { protectedProcedure, router } from "../trpc";
 
 /** Runs fn as the signed-in user, so Postgres RLS holds every row it touches to that user. */
@@ -32,5 +34,11 @@ export const founderRouter = router({
     get: protectedProcedure.query(({ ctx }) => asUser(ctx, (tx) => repos.preferences.get(tx, ctx.userId))),
     /** Change the date format, the time format or both; returns the result. */
     update: protectedProcedure.input(AccountPreferencesPatch).mutation(({ ctx, input }) => asUser(ctx, (tx) => repos.preferences.update(tx, ctx.userId, input))),
+  }),
+  tableViews: router({
+    /** The person's saved views and open view for one table; null until they change something there. */
+    get: protectedProcedure.input(TableViewsScope).query(({ ctx, input }) => asUser(ctx, (tx) => repos.tableViews.get(tx, ctx.userId, input))),
+    /** Replace the person's views and open view for one table (built-in views stay in code). */
+    save: protectedProcedure.input(SaveTableViewsInput).mutation(({ ctx, input }) => asUser(ctx, (tx) => repos.tableViews.save(tx, ctx.userId, input))),
   }),
 });

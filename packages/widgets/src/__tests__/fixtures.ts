@@ -1,7 +1,7 @@
 /** Deterministic API fixtures for every path the gallery widgets query. */
 import type { FakeResponse } from "../testing";
 import { addDays, dayKey, lastDays } from "../shared/time";
-import type { ChannelMetricRow, ChannelsListResponse, CommunityPostRow, CommunityRow, ComplianceResponse, CustomMetricResult, DepartmentRow, FinanceOverview, InboxListResponse, LeaderboardEntryRow, LeaderboardPositionRow, LeaderboardRow, Page, RibbonResponse, RoadmapListResponse, TaskRow, TeamAgentRow } from "../shared/types";
+import type { ChannelMetricRow, ChannelsListResponse, CommunityPostRow, CommunityRow, ComplianceResponse, CustomMetricResult, DepartmentRow, FinanceOverview, InboxListResponse, LeaderboardEntryRow, LeaderboardPositionRow, LeaderboardRow, MetricCatalogEntry, Page, RibbonResponse, RoadmapListResponse, TaskRow, TeamAgentRow } from "../shared/types";
 import type { SessionRow } from "../widgets/squad-pulse";
 
 export const BID = "11111111-1111-4111-8111-111111111111";
@@ -195,7 +195,13 @@ export const posts: Page<CommunityPostRow> = {
   nextCursor: null,
 };
 
-export const customMetric: CustomMetricResult = { value: 125_000, currency: "EUR", format: "money", label: "MRR", asOf: `${TODAY}T06:00:00.000Z`, provenance: "Stripe subscriptions, active", series: [9, 10, 11, 12.5] };
+export const customMetric: CustomMetricResult = { value: 125_000, currency: "EUR", format: "money", label: "Revenue, last 30 days", asOf: `${TODAY}T06:00:00.000Z`, provenance: "Payment conversions, last 30 days", series: [9, 10, 11, 12.5] };
+/** dashboard.customMetric.list: a slice of the API catalog (apps/api services/metrics.ts METRICS). */
+export const metricCatalog: MetricCatalogEntry[] = [
+  { id: "cash", label: "Cash in bank", format: "money", estimate: null },
+  { id: "revenue_30d", label: "Revenue, last 30 days", format: "money", estimate: null },
+  { id: "customers_30d", label: "Customers won, last 30 days", format: "integer", estimate: null },
+];
 
 /** Every path with data: the "data" state of each widget. */
 export function dataResponses(): Record<string, FakeResponse> {
@@ -226,6 +232,7 @@ export function dataResponses(): Record<string, FakeResponse> {
     "live.communities.list": communities,
     "live.communities.posts": posts,
     "dashboard.customMetric.get": customMetric,
+    "dashboard.customMetric.list": metricCatalog,
   };
 }
 

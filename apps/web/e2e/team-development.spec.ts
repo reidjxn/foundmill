@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, openBusiness } from "./helpers";
+import { LONG, chooseTableView, openBusiness } from "./helpers";
 
 /**
  * Team and Development screens on the seeded Northwind business at the two desktop widths (1280, the minimum, and
@@ -191,3 +191,26 @@ for (const width of [1280, 1440]) {
     });
   });
 }
+
+test.describe("saved table views on module screens", () => {
+  test("Team › Agents: a view saved as new comes back after a reload, and deleting it sticks (audit #204)", async ({ page }) => {
+    await openBusiness(page);
+    const team = await departmentBase(page, /^team$/i);
+    await openTab(page, team, "squad", "team/squad");
+    await chooseTableView(page, "General");
+    const name = `E2E agents ${Date.now().toString(36)}`;
+    await page.getByRole("button", { name: /^View: / }).click();
+    await page.getByRole("menuitem", { name: "Save as new view…" }).click();
+    await page.getByLabel("Name").fill(name);
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("button", { name: `View: ${name}` })).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole("grid", { name: "Agents" })).toBeVisible({ timeout: LONG });
+    await expect(page.getByRole("button", { name: `View: ${name}` })).toBeVisible({ timeout: LONG });
+    await page.getByRole("button", { name: `View: ${name}` }).click();
+    await page.getByRole("menuitem", { name: "Delete view" }).click();
+    await expect(page.getByRole("button", { name: "View: General" })).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole("button", { name: "View: General" })).toBeVisible({ timeout: LONG });
+  });
+});

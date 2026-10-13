@@ -11,12 +11,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, House, LayoutGrid, Pencil } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button, EmptyState, Kbd, Panel, useToast, type TabItem } from "@foundmill/dugout";
 import { useModulePacks } from "@foundmill/modules/lazy";
 import { getModuleScreen, type ModuleScreen } from "@foundmill/modules/registry";
 import type { ModuleKey } from "@foundmill/shared";
 import { MODULE_KEYS } from "@foundmill/shared/constants";
+import { moduleHref } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { usePageShortcuts } from "@/lib/keys";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
@@ -59,12 +60,26 @@ export function moduleScreenFor(layout: { widgets: readonly { key: string }[] } 
 
 const isModuleKey = (key: string): key is ModuleKey => (MODULE_KEYS as readonly string[]).includes(key);
 
+/**
+ * Where a link to a department slug that no longer exists should go when the slug names a module ("legal", "finance"):
+ * the department that holds that module now (after a merge, a split or an archive), at the same tab when it has one.
+ * Null when the slug is not a module key or no department holds the module.
+ */
+export function relocatedModuleHref(businessId: string, departments: Parameters<typeof moduleHref>[1], deptSlug: string, tabSlug: string): string | null {
+  return isModuleKey(deptSlug) ? moduleHref(businessId, departments, deptSlug, tabSlug) : null;
+}
+
 export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScreenProps) {
-  const { businessId, departmentBySlug, data } = useBusiness();
+  const { businessId, departmentBySlug, departments, data } = useBusiness();
   const department = departmentBySlug(deptSlug);
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
+  // An old link (or a bookmark) to a module's original department after it was merged or split: follow the module.
+  const relocated = department ? null : relocatedModuleHref(businessId, departments, deptSlug, tabSlug);
+  useEffect(() => {
+    if (relocated) router.replace(`${relocated}${typeof window === "undefined" ? "" : window.location.search}`);
+  }, [relocated, router]);
   const { toast } = useToast();
   const live = data.business.gameMode === "live";
 
@@ -106,6 +121,7 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
   );
 
   if (!department) {
+    if (relocated) return <ScreenSkeleton />;
     return (
       <div className="p-gutter">
         <Panel title="Department" span={12}>

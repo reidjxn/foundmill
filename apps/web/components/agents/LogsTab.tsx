@@ -14,6 +14,7 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { useStreamSubscription } from "@/lib/stream-client";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { useTableViews } from "@/lib/table-views";
 import type { TabProps } from "./AgentProfileScreen";
 import { OUTCOME_TONE, departmentColour, outcomeWord, sessionRows, type SessionRow } from "./logic";
 
@@ -70,7 +71,8 @@ export function LogsTab({ businessId, profile }: TabProps) {
   const rows = useMemo(() => sessionRows(profile.sessions), [profile.sessions]);
   const [selectedId, setSelectedId] = useState<string | null>(rows[0]?.id ?? null);
   const selected = rows.find((r) => r.id === selectedId) ?? null;
-  const [views, setViews] = useState<SavedView[]>(VIEWS);
+  // Saved per person and business, shared by every agent's Logs tab (audit #204).
+  const savedViews = useTableViews("agent.logs", VIEWS, { businessId, defaultViewId: "recent" });
 
   const columns = useMemo<DataTableColumn<SessionRow>[]>(
     () => [
@@ -89,7 +91,7 @@ export function LogsTab({ businessId, profile }: TabProps) {
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="agent-logs">
       <Panel title="Sessions" span={12} flush empty={rows.length === 0 ? { icon: ScrollText, children: "Every session this agent runs is listed here with its replay. Sessions start when Continue dispatches a task to it." } : undefined} footer="Click a session to replay it below. Live sessions stream as they run.">
-        <DataTable<SessionRow> aria-label="Sessions" data={rows} columns={columns} views={views} onViewsChange={setViews} defaultViewId="recent" onRowClick={(r) => setSelectedId(r.id)} onRowOpen={(r) => setSelectedId(r.id)} selectedIds={selectedId ? [selectedId] : []} height={Math.min(360, Math.max(160, rows.length * 28 + 48))} exportFileName={`${profile.agent.name}-sessions`} className="border-0" />
+        <DataTable<SessionRow> aria-label="Sessions" data={rows} columns={columns} {...savedViews} defaultViewId="recent" onRowClick={(r) => setSelectedId(r.id)} onRowOpen={(r) => setSelectedId(r.id)} selectedIds={selectedId ? [selectedId] : []} height={Math.min(360, Math.max(160, rows.length * 28 + 48))} exportFileName={`${profile.agent.name}-sessions`} className="border-0" />
       </Panel>
       {selected ? <ReplayPanel businessId={businessId} profile={profile} session={selected} /> : null}
     </div>

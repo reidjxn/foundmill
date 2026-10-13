@@ -43,6 +43,26 @@ describe("dashboard_layouts", () => {
   });
 });
 
+describe("saved_table_views (0041)", () => {
+  it("saved_table_views: a person reads and writes only their own views, and only for businesses they belong to", async () => {
+    await h.asUser(A.memberId).run((tx) => tx.insert(s.savedTableViews).values({ businessId: A.businessId, userId: A.memberId, tableKey: "team.agents" }));
+    await h.asUser(A.ownerId).run((tx) => tx.insert(s.savedTableViews).values({ businessId: A.businessId, userId: A.ownerId, tableKey: "team.agents" }));
+    const mine = await h.asUser(A.memberId).run((tx) => tx.select().from(s.savedTableViews));
+    expect(mine.map((v) => v.userId)).toEqual([A.memberId]);
+    // Not as someone else, and not in a business the person is not a member of.
+    await expect(h.asUser(A.memberId).run((tx) => tx.insert(s.savedTableViews).values({ businessId: A.businessId, userId: A.ownerId, tableKey: "crm.list" }))).rejects.toThrow(RLS_DENIED);
+    await expect(h.asUser(B.memberId).run((tx) => tx.insert(s.savedTableViews).values({ businessId: A.businessId, userId: B.memberId, tableKey: "crm.list" }))).rejects.toThrow(RLS_DENIED);
+    expect(await h.asUser(B.ownerId).run((tx) => tx.select().from(s.savedTableViews))).toHaveLength(0);
+    const upd = await h.asUser(A.memberId).run((tx) => tx.update(s.savedTableViews).set({ activeViewId: "hacked" }).where(eq(s.savedTableViews.userId, A.ownerId)).returning());
+    expect(upd).toHaveLength(0);
+  });
+  it("saved_table_views: account-wide rows (the LIVE pages, no business) are the person's own too", async () => {
+    await h.asUser(outsiderId).run((tx) => tx.insert(s.savedTableViews).values({ businessId: null, userId: outsiderId, tableKey: "live.leaderboards" }));
+    expect(await h.asUser(A.ownerId).run((tx) => tx.select().from(s.savedTableViews).where(isNull(s.savedTableViews.businessId)))).toHaveLength(0);
+    expect(await h.asUser(outsiderId).run((tx) => tx.select().from(s.savedTableViews))).toHaveLength(1);
+  });
+});
+
 describe("ideas (nullable business_id until commit)", () => {
   it("ideas: private to the owner before commit, visible to members after", async () => {
     const [idea] = await h.asUser(A.ownerId).run((tx) => tx.insert(s.ideas).values({ ownerUserId: A.ownerId, title: "Robot bakery" }).returning());

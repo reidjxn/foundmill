@@ -68,6 +68,19 @@ describe("foundations on the Product tabs", () => {
     expect(fake.mutations).toEqual([{ path: "product.foundations.retry", input: {} }]);
   });
 
+  it("a failed read says so with Try again instead of vanishing; a person walled from Product sees nothing", () => {
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "product.foundations.get": new Error("tRPC: INTERNAL_SERVER_ERROR") } });
+    const { unmount } = renderScreen(fake, <RoadmapScreen businessId={BID} departmentId="d1" />);
+    const status = screen.getByTestId("foundations-status");
+    expect(status.textContent).toContain("could not be loaded");
+    fireEvent.click(within(status).getByRole("button", { name: "Try again" }));
+    expect(fake.refetches["product.foundations.get"]).toBe(1);
+    unmount();
+    const walled = createFakeSource({ businessId: BID, responses: { ...dataResponses, "product.foundations.get": Object.assign(new Error("You do not have read access to product"), { data: { code: "FORBIDDEN" } }) } });
+    renderScreen(walled, <RoadmapScreen businessId={BID} departmentId="d1" />);
+    expect(screen.queryByTestId("foundations-status")).toBeNull();
+  });
+
   it("Roadmap: pending reads as drafting; a settled or foundation-less business shows nothing", () => {
     const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "product.foundations.get": { ...base, status: "pending", door: "import" } } });
     renderScreen(fake, <RoadmapScreen businessId={BID} departmentId="d1" />);

@@ -5,7 +5,7 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { formatMoney, type ChannelTokenData, type FormCell } from "@foundmill/dugout";
-import { CHANNEL_KEYS, CHANNEL_META, type ApprovalState, type CampaignStatus, type ChannelKey, type ChannelLine } from "@foundmill/shared/constants";
+import { CHANNEL_KEYS, CHANNEL_META, CHANNEL_WINDOW_DAYS, type ApprovalState, type CampaignStatus, type ChannelKey, type ChannelLine } from "@foundmill/shared/constants";
 import { weekKey } from "@foundmill/widgets/shared/time";
 import type { AgentRow, AssetRow, BlendedSummary, CampaignRow, ChannelMetricRow, ChannelRow, ChannelSummaryRow, JourneyRow, RecommendationRow } from "./types";
 
@@ -184,7 +184,7 @@ export function toChannelToken(view: ChannelView, opts: TokenOptions = {}): Chan
 export function summaryResults(form: ChannelSummaryRow, currency: string): Array<{ label: string; value: string }> {
   const money = (minor: number) => formatMoney({ amountMinor: minor, currency }, { compact: Math.abs(minor) >= 1_000_000 });
   return [
-    { label: "Leads (35 days)", value: String(form.leads) },
+    { label: `Leads (${CHANNEL_WINDOW_DAYS} days)`, value: String(form.leads) },
     { label: "Signups", value: String(form.signups) },
     { label: "Customers", value: String(form.customers) },
     { label: "Spend", value: money(form.spendMinor) },

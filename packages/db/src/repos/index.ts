@@ -42,6 +42,7 @@ import { workspacesRepo } from "./workspaces";
 import { conversationsRepo } from "./conversations";
 import { preferencesRepo } from "./preferences";
 import { portabilityRepo } from "./portability";
+import { tableViewsRepo } from "./table-views";
 
 export const repos = {
   businesses: businessesRepo,
@@ -80,6 +81,7 @@ export const repos = {
   foundations: foundationsRepo,
   conversations: conversationsRepo,
   preferences: preferencesRepo,
+  tableViews: tableViewsRepo,
   checkouts: checkoutsRepo,
   portability: portabilityRepo,
 } as const;
@@ -125,5 +127,6 @@ export * from "./workspaces";
 export * from "./logos";
 export * from "./conversations";
 export * from "./preferences";
+export * from "./table-views";
 export * from "./checkouts";
 export * from "./portability";

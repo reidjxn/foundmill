@@ -1,10 +1,18 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@foundmill/dugout";
-import { ConnectionsPanel, RequestsPanel, SentRequestsPanel, type ConnectionRow } from "../ConnectionPanels";
+import type { FakeApi } from "./fake-trpc";
+
+const api = vi.hoisted(() => ({ handlers: {}, calls: [] }) as FakeApi);
+vi.mock("@/lib/trpc-react", async () => {
+  const { fakeTrpc } = await import("./fake-trpc");
+  return { useTRPC: () => fakeTrpc(api) };
+});
+
+import { CONNECTION_VIEWS, ConnectionsPanel, RequestsPanel, SentRequestsPanel, type ConnectionRow } from "../ConnectionPanels";
 import type { People } from "../shared";
-import { ids } from "./fake-trpc";
+import { callsTo, ids, renderWithProviders } from "./fake-trpc";
 
 const NOW = new Date();
 const row = (id: string, from: string, to: string, status: ConnectionRow["status"], message: string | null = null): ConnectionRow => ({ id, fromUser: from, toUser: to, status, message, respondedAt: status === "requested" ? null : NOW, createdAt: NOW });
@@ -12,6 +20,10 @@ const NAMES: Record<string, string | null> = { [ids.ana]: "Ana Ruiz", [ids.ben]:
 const people: People = { person: (id) => ({ userId: id, displayName: NAMES[id] ?? null }), business: () => undefined, name: (id) => NAMES[id] ?? "A founder", loading: false };
 const wrap = (ui: React.ReactElement) => render(<TooltipProvider>{ui}</TooltipProvider>);
 
+beforeEach(() => {
+  api.handlers = { "founder.tableViews.get": () => null };
+  api.calls = [];
+});
 afterEach(cleanup);
 
 describe("RequestsPanel", () => {
@@ -73,7 +85,7 @@ describe("ConnectionsPanel", () => {
   const rows = [row("c1", ids.ana, ids.me, "accepted", "Met at the meetup."), row("c2", ids.me, ids.ben, "accepted"), row("c3", ids.cal, ids.me, "blocked")];
 
   it("opens on the Connected view: accepted people only, with the note they came with", () => {
-    wrap(<ConnectionsPanel rows={rows} viewerId={ids.me} people={people} />);
+    renderWithProviders(<ConnectionsPanel rows={rows} viewerId={ids.me} people={people} />);
     const grid = screen.getByRole("grid", { name: "Connections" });
     const body = within(grid).getAllByRole("row").slice(1);
     expect(body).toHaveLength(2);
@@ -87,7 +99,7 @@ describe("ConnectionsPanel", () => {
     const onMessage = vi.fn();
     const onBlock = vi.fn();
     const onRemove = vi.fn();
-    wrap(<ConnectionsPanel rows={rows} viewerId={ids.me} people={people} onMessage={onMessage} onBlock={onBlock} onRemove={onRemove} />);
+    renderWithProviders(<ConnectionsPanel rows={rows} viewerId={ids.me} people={people} onMessage={onMessage} onBlock={onBlock} onRemove={onRemove} />);
     const first = within(screen.getByRole("grid", { name: "Connections" })).getAllByRole("row")[1]!;
     fireEvent.contextMenu(first);
     expect(screen.getByRole("menuitem", { name: /Message/ })).toBeTruthy();
@@ -98,15 +110,24 @@ describe("ConnectionsPanel", () => {
 
   it("Enter on a connection opens a message to them", () => {
     const onMessage = vi.fn();
-    wrap(<ConnectionsPanel rows={rows} viewerId={ids.me} people={people} onMessage={onMessage} />);
+    renderWithProviders(<ConnectionsPanel rows={rows} viewerId={ids.me} people={people} onMessage={onMessage} />);
     const grid = screen.getByRole("grid", { name: "Connections" });
     fireEvent.keyDown(grid, { key: "ArrowDown" });
     fireEvent.keyDown(grid, { key: "Enter" });
     expect(onMessage).toHaveBeenCalledWith(rows[0]);
   });
 
+  it("reopens on the view the person left it on, from their saved views (audit #204)", async () => {
+    api.handlers["founder.tableViews.get"] = () => ({ views: CONNECTION_VIEWS, activeViewId: "blocked" });
+    renderWithProviders(<ConnectionsPanel rows={rows} viewerId={ids.me} people={people} />);
+    await waitFor(() => expect(within(screen.getByRole("grid", { name: "Connections" })).getAllByRole("row").slice(1)).toHaveLength(1));
+    expect(within(screen.getByRole("grid", { name: "Connections" })).getAllByRole("row")[1]!.textContent).toContain("A founder");
+    // Account-wide: the LIVE pages are not one business's, so the views are stored without a business.
+    expect(callsTo(api, "founder.tableViews.get")).toEqual([{ tableKey: "live.network.connections", businessId: null }]);
+  });
+
   it("explains what will appear when there are no connections", () => {
-    wrap(<ConnectionsPanel rows={[]} viewerId={ids.me} people={people} />);
+    renderWithProviders(<ConnectionsPanel rows={[]} viewerId={ids.me} people={people} />);
     expect(screen.getByText(/No connections yet/)).toBeTruthy();
     expect(screen.queryByRole("grid")).toBeNull();
   });

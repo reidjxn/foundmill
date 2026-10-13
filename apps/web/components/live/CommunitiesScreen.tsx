@@ -15,6 +15,7 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { leaveBlocker } from "@/lib/live";
 import { errorMessage, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { useTableViews } from "@/lib/table-views";
 import { useShellChrome } from "@/components/shell/chrome";
 import { COMMUNITY_ROLE_WORD, COMMUNITY_VISIBILITY, useCommunityMembership } from "./communities";
 import { AdultNotice, PersonalNotice } from "./shared";
@@ -42,7 +43,8 @@ export function CommunitiesScreen() {
   useShellChrome({ title: "Communities" });
   const q = useQuery(trpc.live.communities.list.queryOptions(undefined, { staleTime: 15_000 }));
   const membership = useCommunityMembership();
-  const [views, setViews] = useState<SavedView[]>(COMMUNITY_VIEWS);
+  // Saved per person across their businesses: the LIVE pages are the account's, not one business's (audit #204).
+  const savedViews = useTableViews("live.communities", COMMUNITY_VIEWS, { defaultViewId: "all" });
   const [creating, setCreating] = useState(false);
 
   const rows = useMemo<TableRow[]>(() => (q.data ?? []).map((c) => ({ ...c, membership: c.role ? "joined" : "not_joined" })), [q.data]);
@@ -162,8 +164,7 @@ export function CommunitiesScreen() {
           aria-label="Communities"
           data={rows}
           columns={columns}
-          views={views}
-          onViewsChange={setViews}
+          {...savedViews}
           defaultViewId="all"
           rowActions={rowActions}
           onRowOpen={(r) => open(r.id)}

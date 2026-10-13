@@ -50,6 +50,16 @@ export function moduleHref(bid: string, rows: readonly DepartmentRow[] | undefin
   return tab ? routes.department(bid, d.slug, tab.slug) : null;
 }
 
+/**
+ * Href of a module tab for links between screens: the department that holds the module now (`moduleHref`), never a
+ * fixed archetype slug, which is gone after a merge, a split or an archive. Before the departments have loaded (or
+ * when none holds the module) it is the module's own key as the slug, which the department screen forwards to the
+ * holder once there is one.
+ */
+export function moduleTabHref(bid: string, rows: readonly DepartmentRow[] | undefined, moduleKey: ModuleKey, tabSlug: string): string {
+  return moduleHref(bid, rows, moduleKey, tabSlug) ?? routes.department(bid, moduleKey, tabSlug);
+}
+
 /** Hook form of `moduleHref` plus a navigate callback. */
 export function useModuleNavigate(rows: readonly DepartmentRow[] | undefined): (moduleKey: ModuleKey, tabSlug?: string) => void {
   const { businessId, navigate } = useWidgetData();

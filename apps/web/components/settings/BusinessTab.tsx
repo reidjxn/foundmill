@@ -2,12 +2,14 @@
 /**
  * Settings › Business (BUILD §11.15): name, slug, archetype and the currency the business keeps its money in (0025);
  * the logo (upload a real one, generate marks, or go back to the initials mark: `business.logo.*`, owner/admin, saved at
- * once and audited); and the brand colours (saved with the rest of the form, with a suggestion read from the logo).
+ * once and audited); the brand colours (saved with the rest of the form, with a suggestion read from the logo); and the time zone the business counts its days in
+ * (`business.setTimeZone`, saved at once; audit #196).
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Field, Input, SimpleSelect, type Kit } from "@foundmill/dugout";
 import { ARCHETYPES, ARCHETYPE_LABELS, CURRENCIES, type Archetype } from "@foundmill/shared/constants";
+import { timeZoneLabel, timeZoneNames } from "@foundmill/shared/time-zone";
 import { LogoPicker, type LogoActions } from "@/components/logo/LogoPicker";
 import { readLogoStream } from "@/components/logo/logo-stream";
 import { useBusinessLogoSrc } from "@/components/logo/useBusinessLogo";
@@ -20,6 +22,13 @@ import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, FormRow, Hint, SaveBar, SettingsSection, useSettingsToast } from "./shared";
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+
+/** The zones to pick from: UTC, then every zone the browser knows, with the business's own kept when it is not listed. */
+export function timeZoneOptions(current: string | null | undefined): { value: string; label: string }[] {
+  const names = timeZoneNames();
+  const all = current && !names.includes(current) ? [current, ...names] : names;
+  return all.map((z) => ({ value: z, label: timeZoneLabel(z) }));
+}
 
 export function BusinessTab() {
   const { businessId, data } = useBusiness();
@@ -91,6 +100,18 @@ export function BusinessTab() {
     }
   }
 
+  // --- the time zone: saved at once (business.setTimeZone, owner/admin, audited) ------------------------------------
+  const zones = useMemo(() => timeZoneOptions(b.timeZone), [b.timeZone]);
+  const setZone = useMutation(
+    trpc.business.setTimeZone.mutationOptions({
+      onSuccess: () => {
+        void invalidate(["business", "journey", "finance"]);
+        t.saved("Time zone saved", "Home, the Journey and the top bar count days in it now.");
+      },
+      onError: (e) => t.failed(e, "Time zone not saved"),
+    }),
+  );
+
   const validHex = HEX_RE.test(primary) && HEX_RE.test(secondary);
   const dirty = name !== b.name || slug !== b.slug || (archetype || null) !== (b.archetype ?? null) || currency !== b.currency || primary !== b.kitPrimary || secondary !== b.kitSecondary;
 
@@ -110,6 +131,9 @@ export function BusinessTab() {
         </Field>
         <Field htmlFor="biz-currency" label="Currency" hint="Cash, budgets, wage caps and plans read in it. Amounts already set keep their own currency; model costs stay in US dollars.">
           <SimpleSelect id="biz-currency" value={currency} onValueChange={setCurrency} options={currencyOptions} />
+        </Field>
+        <Field htmlFor="biz-time-zone" label="Time zone" hint="Home's today, week and month, the Journey's days and the top bar's date follow it. Saved as soon as you pick one.">
+          <SimpleSelect id="biz-time-zone" value={b.timeZone ?? ""} onValueChange={(v) => setZone.mutate({ businessId, timeZone: v })} placeholder="UTC until you pick one" disabled={setZone.isPending} options={zones} />
         </Field>
       </SettingsSection>
       <SettingsSection title="Logo and brand colors" data-testid="settings-logo">

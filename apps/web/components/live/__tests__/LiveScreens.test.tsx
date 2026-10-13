@@ -44,7 +44,7 @@ const lookup = (v: unknown) => ({
 });
 
 beforeEach(() => {
-  api.handlers = { "live.people.lookup": lookup };
+  api.handlers = { "live.people.lookup": lookup, "founder.tableViews.get": () => null };
   api.calls = [];
   ctx.gameMode = "live";
   ctx.role = "owner";

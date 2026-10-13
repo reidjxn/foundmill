@@ -44,6 +44,19 @@ export async function openBusiness(page: Page, path = "home"): Promise<string> {
  * `DIV#S:*` outside the shell until the reveal script moves it in; if the boundary is client-rendered meanwhile, both
  * copies exist for a moment, so an unscoped `getByTestId("settings-screen")` can match two elements (strict mode).
  */
+/**
+ * Open a DataTable's saved view by name when it is not open already. Views and the open view are saved per person
+ * (founder.tableViews, audit #204), so a spec that depends on a view picks it rather than assuming the default.
+ */
+export async function chooseTableView(page: Page, name: string, scope: Page | Locator = page): Promise<void> {
+  const trigger = scope.getByRole("button", { name: /^View: / }).first();
+  await expect(trigger).toBeVisible({ timeout: LONG });
+  if (((await trigger.getAttribute("aria-label")) ?? "") === `View: ${name}`) return;
+  await trigger.click();
+  await page.getByRole("menuitemradio", { name, exact: true }).click();
+  await expect(scope.getByRole("button", { name: `View: ${name}` }).first()).toBeVisible();
+}
+
 export function settingsScreen(page: Page): Locator {
   return page.getByTestId("shell-content").getByTestId("settings-screen");
 }

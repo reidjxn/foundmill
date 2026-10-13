@@ -9,8 +9,10 @@ import { useId, useMemo, useState } from "react";
 import { Calculator, Download, ExternalLink, FileSpreadsheet, Landmark, PieChart, Users } from "lucide-react";
 import { Button, Chip, DataTable, cn, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, ProvenanceChip, StatusStrip, Textarea, formatPercent, useFormatters, type ChipTone, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { EntityKind } from "@foundmill/shared";
+import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
 import { aktiebokRows, delawareLedgerRows, modelRound, plainWords, safeTerms, toCsv, vestingSummary, type RoundInput } from "./metrics";
 import { DateText } from "../dates";
@@ -125,10 +127,12 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
   const { formatDate } = useFormatters();
   const currency = useCurrency();
   const { navigate } = useWidgetData();
+  const departments = useDepartments();
   const id = useId();
   const cap = useWidgetQuery<CapTableResponse>("finance.capTable.get", {});
-  const [holderViews, setHolderViews] = useState<SavedView[]>(HOLDER_VIEWS);
-  const [issuanceViews, setIssuanceViews] = useState<SavedView[]>(ISSUANCE_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const holderSavedViews = useSavedViews("finance.cap-table.holders", HOLDER_VIEWS, { defaultViewId: "all" });
+  const issuanceSavedViews = useSavedViews("finance.cap-table.issuances", ISSUANCE_VIEWS, { defaultViewId: "all" });
   const [holderFilter, setHolderFilter] = useState<string | null>(null);
   const [round, setRound] = useState<{ preMoney: string; investment: string; poolPct: string; newClass: string }>({ preMoney: "", investment: "", poolPct: "10", newClass: "Series Seed Preferred" });
   const [exportText, setExportText] = useState<{ title: string; csv: string } | null>(null);
@@ -187,7 +191,7 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
   const nothingToExport = !data || data.entries.length === 0;
   // One empty state for an empty cap table (the Holders panel, with the way forward); the other panels keep their place
   // with one quiet line of what they will hold, no second icon, button or zero-count footer.
-  const emptyState = { icon: PieChart, title: "No cap table yet", children: "The legal lead records the founders' shares here once the company is incorporated.", action: { label: "Open Legal", icon: Landmark, onClick: () => navigate(routes.department(businessId, "legal", "entity")) } };
+  const emptyState = { icon: PieChart, title: "No cap table yet", children: "The legal lead records the founders' shares here once the company is incorporated.", action: { label: "Open Legal", icon: Landmark, onClick: () => navigate(moduleTabHref(businessId, departments.data, "legal", "entity")) } };
   const quiet = (text: string, padded?: boolean) => <p className={cn("text-small text-secondary", padded && "px-panel-pad py-3")}>{text}</p>;
 
   return (
@@ -197,7 +201,7 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
       </section>
       <Panel title="Holders" span={8} flush loading={cap.isLoading} error={cap.error ? cap.error.message : undefined} onRetry={cap.refetch} empty={empty ? emptyState : undefined} footer={empty ? undefined : <span className="tabular-nums">{holders.length} holder{holders.length === 1 ? "" : "s"} · fully diluted over {fmtQuantity(data?.summary.totalQuantity ?? 0)} shares · right-click for CRM and issuances</span>}>
         <div className="min-w-0">
-        <DataTable<HolderRow> aria-label="Holders" data={holders} columns={hColumns} getRowId={(r) => r.holderEntityId} views={holderViews} onViewsChange={setHolderViews} defaultViewId="all" height={320} exportFileName="cap-table-holders" rowActions={holderActions} onRowOpen={(r) => navigate(routes.crm(businessId, r.holderEntityId))} rowClassName={(r) => (holderFilter === r.holderEntityId ? "bg-panel-alt" : undefined)} />
+        <DataTable<HolderRow> aria-label="Holders" data={holders} columns={hColumns} getRowId={(r) => r.holderEntityId} {...holderSavedViews} defaultViewId="all" height={320} exportFileName="cap-table-holders" rowActions={holderActions} onRowOpen={(r) => navigate(routes.crm(businessId, r.holderEntityId))} rowClassName={(r) => (holderFilter === r.holderEntityId ? "bg-panel-alt" : undefined)} />
         </div>
       </Panel>
       <Panel title="Classes" span={4} loading={cap.isLoading} error={cap.error ? cap.error.message : undefined} footer={empty ? undefined : <span>Options count toward fully diluted; SAFEs and notes are shown at principal until they convert.</span>}>
@@ -251,7 +255,7 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
           quiet("Each issuance and its vesting appear here once the first shares are recorded.", true)
         ) : (
           <div className="min-w-0">
-          <DataTable<CapTableEntryRow> aria-label="Issuances" data={entries} columns={iColumns} views={issuanceViews} onViewsChange={setIssuanceViews} defaultViewId="all" height={360} exportFileName="cap-table-issuances" rowActions={issuanceActions} onRowOpen={(r) => navigate(routes.crm(businessId, r.holderEntityId))} empty={holderFilter ? "No issuances for this holder." : undefined} />
+          <DataTable<CapTableEntryRow> aria-label="Issuances" data={entries} columns={iColumns} {...issuanceSavedViews} defaultViewId="all" height={360} exportFileName="cap-table-issuances" rowActions={issuanceActions} onRowOpen={(r) => navigate(routes.crm(businessId, r.holderEntityId))} empty={holderFilter ? "No issuances for this holder." : undefined} />
           </div>
         )}
       </Panel>

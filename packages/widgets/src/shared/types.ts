@@ -244,6 +244,10 @@ export interface LeaderboardRow {
   period: string;
   boardKind: string;
   division?: string | null;
+  /** The ranked metric's key ("customers_won", "mrr_growth_pct"); the widget names it (shared/leaderboards.ts). */
+  metric?: string;
+  archetype?: string | null;
+  region?: string | null;
   title?: string;
   metricLabel?: string;
 }
@@ -301,6 +305,14 @@ export interface CustomMetricResult {
   provenance?: string;
   estimate?: "forecast" | "estimate" | null;
   series?: number[];
+}
+/** dashboard.customMetric.list: the catalog entries the caller may read. */
+export interface MetricCatalogEntry {
+  id: string;
+  label: string;
+  description?: string;
+  format?: CustomMetricFormat;
+  estimate?: "forecast" | "estimate" | null;
 }
 export interface CompileMetricResponse extends CompiledMetric {
   preview: CustomMetricResult;

@@ -5,7 +5,7 @@
 import { useMemo } from "react";
 import { z } from "zod";
 import { MessageCircle, Users } from "lucide-react";
-import { Button, EmptyState, Timeline, type TimelineEvent } from "@foundmill/dugout";
+import { Button, EmptyState, Timeline, formatNumber, type TimelineEvent } from "@foundmill/dugout";
 import { useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { WidgetFrame } from "../shared/frame";
@@ -24,6 +24,11 @@ export function pickCommunity(communities: readonly CommunityRow[] | undefined, 
   return (communityId ? joined.find((c) => c.id === communityId) : undefined) ?? joined[0];
 }
 
+/** "1 member", "12 members", "1,204 replies". */
+export function countWords(n: number, one: string, many: string): string {
+  return `${formatNumber(n, { maxDigits: 0 })} ${n === 1 ? one : many}`;
+}
+
 export function postPreview(bodyMd: string, max = 140): string {
   const plain = bodyMd.replace(/[#*_>`]/g, "").replace(/\s+/g, " ").trim();
   return plain.length > max ? `${plain.slice(0, max - 1)}…` : plain;
@@ -40,7 +45,7 @@ export function postsToTimeline(posts: readonly CommunityPostRow[]): TimelineEve
     tone: p.status === "pending_review" ? ("warn" as const) : ("neutral" as const),
     ...(p.status === "pending_review" ? { statusWord: "Held for review" } : {}),
     actor: { name: p.authorName ?? "Member" },
-    children: p.replyCount ? <span className="text-small text-secondary">{p.replyCount} replies</span> : undefined,
+    children: p.replyCount ? <span className="text-small text-secondary">{countWords(p.replyCount, "reply", "replies")}</span> : undefined,
   }));
 }
 
@@ -67,7 +72,7 @@ function CommunityFeedWidget({ settings }: WidgetProps<CommunityFeedSettings>) {
       queries={community ? [communities, posts] : [communities]}
       empty={communities.data && !community ? { icon: Users, text: "Join a community to see its posts here.", action: { label: "Browse communities", onClick: () => navigate("/communities") } } : posts.data && events.length === 0 ? { icon: MessageCircle, text: "No posts yet. Be the first to say hello." } : null}
       actions={community ? <Button size="sm" variant="ghost" className="px-1.5" onClick={() => navigate(routes.community(community.id))}>Open</Button> : null}
-      footer={community?.memberCount ? <span>{community.memberCount} members</span> : undefined}
+      footer={community?.memberCount ? <span>{countWords(community.memberCount, "member", "members")}</span> : undefined}
     >
       <Timeline events={events} order="desc" emptyText="No posts." />
     </WidgetFrame>

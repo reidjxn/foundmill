@@ -10,6 +10,7 @@ import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, Ke
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, humanise, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
@@ -86,6 +87,8 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   const agentIndex = useAgentIndex(agents.data?.agents);
   const action = useAction();
   const planner = useAction();
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("development.plan", PLAN_VIEWS, { defaultViewId: "all" });
   useBusinessEvents(() => tasks.refetch(), ["task.started", "task.completed", "task.blocked", "pr.merged"]);
 
   const rows = useMemo(() => toPlanRows(tasks.data?.items ?? [], tasks.data?.edges ?? [], agentIndex), [tasks.data, agentIndex]);
@@ -245,7 +248,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
           <DataTable<PlanRow>
             data={rows}
             columns={columns}
-            views={PLAN_VIEWS}
+            {...savedViews}
             defaultViewId="all"
             rowActions={rowActions}
             onRowOpen={(r) => setSelectedId(r.id)}

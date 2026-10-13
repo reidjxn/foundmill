@@ -8,7 +8,7 @@
 import { useMemo, useState } from "react";
 import { ExternalLink, Network, UserRoundPlus } from "lucide-react";
 import { Avatar, Button, DeptChip, EntityLink, HierarchyChart, KeyValueList, ModelChip, Panel, ProvenanceChip, Switch, formatMoney, layoutHierarchy, type HierarchyKind, type HierarchyNode } from "@foundmill/dugout";
-import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
+import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData } from "@foundmill/widgets/data";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
@@ -79,8 +79,7 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
   const selectedAgent = agents.find((a) => a.id === selectedId) ?? null;
   const selectedStaff = selectedId?.startsWith("staff:") ? humans.data?.find((m) => `staff:${m.userId}` === selectedId) ?? null : null;
   const reports = selectedId ? nodes.filter((n) => n.parentId === selectedId).length : 0;
-  const teamDept = departmentForModule(departments.data, "team");
-  const recruitHref = routes.department(businessId, teamDept?.slug ?? "team", "recruitment");
+  const recruitHref = moduleTabHref(businessId, departments.data, "team", "recruitment");
   const liveAgents = agents.filter((a) => !a.archivedAt);
   const leads = liveAgents.filter((a) => hierarchyKind(a) === "lead").length;
   const workers = liveAgents.filter((a) => hierarchyKind(a) === "worker").length;

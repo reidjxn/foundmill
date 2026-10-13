@@ -125,6 +125,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   // A person's note: the founder's own ("You"), or another founder's words that Network filed here, never "You".
   const sender = humanSender(item.fromUserId, biz.membership.userId);
   const senderName = sender === "self" ? "You" : sender === "other" ? NETWORK_SENDER : "Team";
+  const glossary = biz.business.glossary;
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -153,8 +154,9 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
         conversions: ribbonQ.data?.conversions ?? null,
         tasks: tasksQ.data?.items ?? null,
         channelsEnabled: channelsQ.data ? channelsQ.data.channels.filter((c) => c.enabled).length : null,
+        glossary,
       }).map((t) => ({ ...t, loading: (needs.has("finance") && financeQ.isLoading) || (needs.has("conversions") && ribbonQ.isLoading) || (needs.has("tasks") && tasksQ.isLoading) || (needs.has("channels") && channelsQ.isLoading) })),
-    [item.statusStrip, financeQ.data, financeQ.isLoading, ribbonQ.data, ribbonQ.isLoading, tasksQ.data, tasksQ.isLoading, channelsQ.data, channelsQ.isLoading, needs],
+    [item.statusStrip, financeQ.data, financeQ.isLoading, ribbonQ.data, ribbonQ.isLoading, tasksQ.data, tasksQ.isLoading, channelsQ.data, channelsQ.isLoading, needs, glossary],
   );
 
   // --- won customer → replay ----------------------------------------------------------------------------------------

@@ -9,6 +9,7 @@ import { Avatar, DataTable, EntityLink, FitText, Panel, StatusPill, formatNumber
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type WidgetEvent } from "@foundmill/widgets/data";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, humanise, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
@@ -119,6 +120,9 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
   const prs = useWidgetQuery<PrsListResponse>("dev.prs.list", {});
   const agents = useAgents();
   const agentIndex = useAgentIndex(agents.data?.agents);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const openSavedViews = useSavedViews("development.pull-requests.open", OPEN_PR_VIEWS, { defaultViewId: "open" });
+  const mergedSavedViews = useSavedViews("development.pull-requests.merged", MERGED_PR_VIEWS, { defaultViewId: "recent" });
   const [previews, setPreviews] = useState<Map<string, string>>(() => new Map());
   const [claudeCode, setClaudeCode] = useState<OpenPrTableRow | null>(null);
   useBusinessEvents(
@@ -242,13 +246,13 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
         footer={<span>Merges follow the business mode: automatic when the checks are green in Assisted and Automated, your approval in Augmented.</span>}
       >
         <div className="min-w-0">
-          <DataTable<OpenPrTableRow> data={openRows} columns={openColumns} views={OPEN_PR_VIEWS} defaultViewId="open" rowActions={openActions} onRowOpen={(r) => navigate(planHref(r.taskId))} height={Math.min(320, Math.max(3, openRows.length) * 28 + 42)} exportFileName="open-pull-requests" empty={{ icon: GitPullRequest, children: "Pull requests appear here when an agent's task passes its acceptance tests and enters review.", action: { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } }} aria-label="Open pull requests" className="border-0" />
+          <DataTable<OpenPrTableRow> data={openRows} columns={openColumns} {...openSavedViews} defaultViewId="open" rowActions={openActions} onRowOpen={(r) => navigate(planHref(r.taskId))} height={Math.min(320, Math.max(3, openRows.length) * 28 + 42)} exportFileName="open-pull-requests" empty={{ icon: GitPullRequest, children: "Pull requests appear here when an agent's task passes its acceptance tests and enters review.", action: { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } }} aria-label="Open pull requests" className="border-0" />
         </div>
       </Panel>
 
       <Panel span={12} title="Merged" flush loading={prs.isLoading} error={prs.error ? prs.error.message : undefined} onRetry={prs.refetch} meta={mergedRows.length ? <span>{mergedRows.length} merged</span> : undefined}>
         <div className="min-w-0">
-          <DataTable<MergedPrTableRow> data={mergedRows} columns={mergedColumns} views={MERGED_PR_VIEWS} defaultViewId="recent" rowActions={mergedActions} height={mergedRows.length ? 360 : 240} exportFileName="merged-pull-requests" empty={{ icon: GitMerge, children: "Merged pull requests are listed here as the merge queue lands them.", action: openRows.length ? { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } : undefined }} aria-label="Merged pull requests" className="border-0" />
+          <DataTable<MergedPrTableRow> data={mergedRows} columns={mergedColumns} {...mergedSavedViews} defaultViewId="recent" rowActions={mergedActions} height={mergedRows.length ? 360 : 240} exportFileName="merged-pull-requests" empty={{ icon: GitMerge, children: "Merged pull requests are listed here as the merge queue lands them.", action: openRows.length ? { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } : undefined }} aria-label="Merged pull requests" className="border-0" />
         </div>
       </Panel>
 

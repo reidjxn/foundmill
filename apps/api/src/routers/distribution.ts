@@ -1,12 +1,23 @@
 /** distribution.recommend / channels.* / campaigns.* / assets.* (BUILD §11.7; AC-11.7.2 enable/disable re-scores). */
 import { CreateCampaignInput, UpdateCampaignInput, repos } from "@foundmill/db";
 import { HOUSE_STYLE } from "@foundmill/agents";
-import { CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, ChannelKey, type ChannelLine } from "@foundmill/shared";
+import { CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, CHANNEL_WINDOW_DAYS, ChannelKey, dayKeyIn, type ChannelLine } from "@foundmill/shared";
 import { z } from "zod";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { modelLimited } from "../services/model-limits";
 import { Id, audit, emit, router, sectionRead, sectionWrite } from "../trpc";
+
+/**
+ * The channel window every screen labels "last 35 days": the business's today (its time zone, 0041; UTC without one)
+ * and the CHANNEL_WINDOW_DAYS − 1 days before it, as the inclusive day range the repos take (a `from` of today − 35
+ * would count 36 days).
+ */
+export function channelWindow(now: Date = new Date(), timeZone?: string | null): { from: string; to: string } {
+  const to = dayKeyIn(now, timeZone);
+  const from = new Date(Date.parse(`${to}T00:00:00.000Z`) - (CHANNEL_WINDOW_DAYS - 1) * 86_400_000).toISOString().slice(0, 10);
+  return { from, to };
+}
 
 const read = sectionRead("distribution");
 const write = sectionWrite("distribution");
@@ -54,7 +65,7 @@ export const distributionRouter = router({
   channels: router({
     list: read.query(({ ctx }) =>
       ctx.rls(async (tx) => {
-        const [channels, summary] = await Promise.all([repos.channels.list(tx, ctx.businessId), repos.channels.metricsSummary(tx, ctx.businessId, { from: new Date(Date.now() - 35 * 86_400_000).toISOString().slice(0, 10) })]);
+        const [channels, summary] = await Promise.all([repos.channels.list(tx, ctx.businessId), repos.channels.metricsSummary(tx, ctx.businessId, channelWindow(new Date(), ctx.business.timeZone))]);
         const lines = Object.fromEntries(CHANNEL_LINES.map((l) => [l, [] as string[]])) as Record<ChannelLine, string[]>;
         for (const c of channels) lines[c.line].push(c.channelKey);
         return { channels: channels.map((c) => ({ ...c, meta: CHANNEL_META[c.channelKey], form: summary.channels.find((s) => s.channelId === c.id) ?? null })), lines, blended: summary.blended };

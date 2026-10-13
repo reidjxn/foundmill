@@ -27,5 +27,13 @@ describe("RelationshipGraph", () => {
     fireEvent.click(node);
     expect(onOpen).toHaveBeenCalledWith("a1");
     expect(r.container.querySelector("[data-relationship-graph]")?.getAttribute("data-nodes")).toBe("2");
+    // Buttons are never nested in an image: with clickable nodes the drawing is a named group.
+    expect(r.getByRole("group", { name: "Acme Skincare: 2 relationships" })).toBeTruthy();
+    expect(r.queryByRole("img")).toBeNull();
+  });
+  it("is one image when nothing in it is interactive", () => {
+    const r = render(<RelationshipGraph centre={{ id: "e1", name: "Acme Skincare", kind: "organisation" }} nodes={[{ id: "p1", name: "Ana Lind", kind: "person", type: "works_at", strength: 14 }]} />);
+    expect(r.getByRole("img", { name: "Acme Skincare: 1 relationship" })).toBeTruthy();
+    expect(r.queryByRole("button")).toBeNull();
   });
 });

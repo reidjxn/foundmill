@@ -110,17 +110,19 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
       >
         <ul className="flex flex-col divide-y divide-subtle/50" aria-label="Pinned blocks">
           {pinned.map((b) => (
-            <li key={b.id}>
-              <button type="button" onClick={() => openBlock(b.id)} className="flex w-full flex-col gap-1 px-panel-pad py-2.5 text-left outline-none hover:bg-white/4 focus-visible:outline-2 focus-visible:outline-link" data-pinned-block={b.id}>
+            // The block opens from its own button; the author's link sits beside it, never inside it (a link inside a
+            // button is unreachable for assistive tech, and its click would open the block instead of the agent).
+            <li key={b.id} className="flex flex-col gap-1 px-panel-pad py-2.5 hover:bg-white/4">
+              <button type="button" onClick={() => openBlock(b.id)} className="flex w-full flex-col gap-1 text-left outline-none focus-visible:outline-2 focus-visible:outline-link" data-pinned-block={b.id}>
                 <span className="text-pretty break-words text-body-strong text-primary">{b.section}</span>
                 {/* The block's own words, so the panel says what is pinned rather than a cut-off title. */}
                 <span className="line-clamp-3 text-small text-secondary">{pmExcerpt(b.content, 220) || blockTitle(b)}</span>
-                <span className="flex flex-wrap items-center gap-x-2 text-small text-secondary tabular-nums">
-                  <AuthorRef kind={b.authoredByKind} id={b.authoredBy} />
-                  <span>· version {b.version}</span>
-                  {b.updatedAt ? <span>· {formatRelative(b.updatedAt)}</span> : null}
-                </span>
               </button>
+              <span className="flex flex-wrap items-center gap-x-2 text-small text-secondary tabular-nums" data-pinned-block-meta>
+                <AuthorRef kind={b.authoredByKind} id={b.authoredBy} />
+                <span>· version {b.version}</span>
+                {b.updatedAt ? <span>· {formatRelative(b.updatedAt)}</span> : null}
+              </span>
             </li>
           ))}
         </ul>

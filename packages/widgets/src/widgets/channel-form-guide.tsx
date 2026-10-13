@@ -8,11 +8,11 @@ import { z } from "zod";
 import { Megaphone } from "lucide-react";
 import { CHANNEL_META, type ChannelKey } from "@foundmill/shared/constants";
 import { FormGuide, MiniTable, ProvenanceChip, RatingFigure, formatMoney, formatNumber, type FormCell, type MiniTableColumn } from "@foundmill/dugout";
-import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
+import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { moduleHref, useDepartments } from "../shared/departments";
 import { WidgetFrame } from "../shared/frame";
-import { addDays, dayKey, weekKey } from "../shared/time";
+import { addDays, weekKey } from "../shared/time";
 import type { ChannelMetricRow, ChannelRow, ChannelsListResponse } from "../shared/types";
 
 export const ChannelFormGuideSettings = z.object({
@@ -92,7 +92,7 @@ export function buildFormRows(channels: readonly ChannelRow[], metrics: readonly
 
 function ChannelFormGuideWidget({ settings }: WidgetProps<ChannelFormGuideSettings>) {
   const { businessId, navigate, currency } = useWidgetData();
-  const today = dayKey();
+  const today = useToday();
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
   const metrics = useWidgetQuery<ChannelMetricRow[]>("distribution.channels.metrics", { from: addDays(today, -7 * FORM_WEEKS), to: today });
   const departments = useDepartments();

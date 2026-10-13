@@ -87,6 +87,25 @@ describe("WageBillScreen", () => {
   it("shows the team's cost and its wage caps in US dollars, keeps them apart from staff payroll in the business's currency", () => {
     const usdWages = { ...wages, currency: "USD", rows: wages.rows.map((r) => ({ ...r, wageCapCurrency: "USD" })) };
     const fake = createFakeSource({ businessId: BID, currency: "GBP", responses: { ...dataResponses, "finance.wages": usdWages } });
+  });
+
+  it("tells a member walled from Finance they have no access, instead of zeros labeled Estimate", () => {
+    const forbidden = () => Object.assign(new Error("You do not have read access to finance"), { data: { code: "FORBIDDEN" } });
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "finance.wages": forbidden(), "finance.pnl": forbidden() } });
+    renderScreen(fake, <WageBillScreen {...props} />);
+    const strip = screen.getByRole("region", { name: "Payroll summary" });
+    expect(strip.textContent).not.toMatch(/€0\.00|Estimate/);
+    expect(within(strip).getByText("Team payroll").parentElement!.parentElement!.textContent).toContain("No access");
+    expect(within(strip).getByText("Human payroll").parentElement!.parentElement!.textContent).toContain("No access");
+    expect(within(strip).getByText("Total payroll").parentElement!.parentElement!.textContent).toContain("No access");
+    expect(strip.textContent).toContain("Your role has no access to Finance");
+    // No made-up "0 agents · €0.00" footer under the refusal.
+    expect(screen.queryByText(/agents · €0\.00/)).toBeNull();
+    expect(screen.getByText(/Payroll: Your role has no access to Finance/)).toBeTruthy();
+  });
+
+  it("shows the team's cost in US dollars, keeps it apart from staff payroll in the business's currency, and shows no cap share across currencies", () => {
+    const fake = createFakeSource({ businessId: BID, currency: "GBP", responses: { ...dataResponses, "finance.wages": { ...wages, currency: "USD" } } });
     renderScreen(fake, <WageBillScreen {...props} />);
     const strip = screen.getByRole("region", { name: "Payroll summary" });
     expect(within(strip).getByText("Team payroll").parentElement!.parentElement!.textContent).toContain("$545.00");

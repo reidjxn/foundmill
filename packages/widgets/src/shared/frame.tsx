@@ -3,9 +3,10 @@
  * The frame every widget renders inside: a Dugout Panel with the three states the gallery requires (loading skeleton,
  * empty state, error state with retry) and a provenance footer. Widgets never draw a spinner (DESIGN §7).
  */
-import type { ReactNode } from "react";
+import { Children, Fragment, cloneElement, isValidElement, type ReactNode } from "react";
 import { Panel, type EmptyStateProps, type IconComponent, type PanelMenu } from "@foundmill/dugout";
-import type { QueryState } from "../data";
+import { useGlossary, type QueryState } from "../data";
+import { usePinToHomeMenu, useWidgetInstance } from "./pin";
 
 export interface WidgetEmpty {
   icon?: IconComponent;
@@ -43,12 +44,36 @@ export function combineQueries(queries: readonly QueryState<unknown>[]): { isLoa
   };
 }
 
+/**
+ * The body of a widget on the grid: a column that scrolls inside its cell when the content is taller than the cell (a
+ * founder's resize, a long feed, a wide-to-narrow reflow), so it never paints under the footer or past the panel.
+ */
+export const WIDGET_BODY_CLASS = "flex min-h-0 flex-col overflow-y-auto overflow-x-hidden";
+
+/**
+ * A caption in the business's words: strings are renamed, and so is the text inside plain elements (`<span>…</span>`) and
+ * fragments, which is what footers are. Components are left as they are (their children are not always text).
+ */
+export function glossNode(node: ReactNode, g: (text: string) => string): ReactNode {
+  if (typeof node === "string") return g(node);
+  if (Array.isArray(node)) return Children.map(node, (child) => glossNode(child, g));
+  if (isValidElement<{ children?: ReactNode }>(node) && (typeof node.type === "string" || node.type === Fragment) && node.props.children !== undefined) {
+    return cloneElement(node, undefined, ...Children.toArray(node.props.children).map((child) => glossNode(child, g)));
+  }
+  return node;
+}
+
 function errorText(error: Error | string): string {
   if (typeof error === "string") return error;
   return error.message && error.message.length < 160 ? error.message : "The data for this panel could not be loaded.";
 }
 
 export function WidgetFrame({ title, queries = [], loading, error, onRetry, empty, actions, footer, menu, flush, bodyClassName, className, children, ...rest }: WidgetFrameProps) {
+  // Captions in the business's words (Settings › Glossary): a string title and the text of a footer are renamed.
+  const g = useGlossary();
+  // Away from Home (a department screen) the caret menu offers Pin to Home for this widget (audit #394).
+  const pin = usePinToHomeMenu(useWidgetInstance());
+  const panelMenu = pin ? { ...pin, ...menu } : menu;
   const combined = combineQueries(queries);
   const isLoading = loading ?? combined.isLoading;
   const err = error ?? combined.error;
@@ -56,16 +81,16 @@ export function WidgetFrame({ title, queries = [], loading, error, onRetry, empt
   const emptyProps = !isLoading && !err && empty ? { icon: empty.icon, title: empty.title, action: empty.action, children: empty.text } : undefined;
   return (
     <Panel
-      title={title}
-      menu={menu}
+      title={typeof title === "string" ? g(title) : title}
+      menu={panelMenu}
       actions={actions}
       loading={isLoading}
       error={err ? errorText(err) : undefined}
       onRetry={retry}
       empty={emptyProps}
-      footer={footer}
+      footer={glossNode(footer, g)}
       flush={flush}
-      bodyClassName={bodyClassName ?? "flex min-h-0 flex-col"}
+      bodyClassName={bodyClassName ?? WIDGET_BODY_CLASS}
       className={className ? `h-full ${className}` : "h-full"}
       data-widget={rest["data-widget"]}
     >

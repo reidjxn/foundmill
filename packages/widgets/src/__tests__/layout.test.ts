@@ -43,6 +43,21 @@ describe("presets", () => {
     expect(f.widgets.find((w) => w.key === "squad_pulse")!.w).toBe(8);
     expect(f.widgets.find((w) => w.key === "inbox_preview")).toMatchObject({ w: 4, settings: { rows: 4 } });
   });
+  it.each(DASHBOARD_PRESET_IDS)("%s gives every widget at least its content height, so no footer is drawn over content", (id) => {
+    for (const w of DASHBOARD_PRESETS[id].layout.widgets) {
+      // The Ribbon's 15 rows are its designed 300 px plus the header (DECISIONS 2026-10-07); every other widget's
+      // registry default is sized to its content.
+      if (w.key === "journey_ribbon") continue;
+      expect(w.h, w.i).toBeGreaterThanOrEqual(getWidget(w.key)!.defaultSize.h);
+    }
+  });
+  it("custom metrics in presets name only queries the API catalog has", () => {
+    // apps/api services/metrics.ts METRICS (dashboard.customMetric.list); "mrr" and "active_customers" are not in it.
+    const catalog = ["cash", "net_burn", "runway_months", "revenue_30d", "customers_30d", "signups_30d", "activation_rate_30d", "tasks_running", "tasks_done", "agents_active", "spend_30d", "cpa_blended", "channels_enabled"];
+    const ids = DASHBOARD_PRESET_IDS.flatMap((id) => DASHBOARD_PRESETS[id].layout.widgets.filter((w) => w.key === "custom_metric").map((w) => w.settings.queryId));
+    expect(ids.length).toBeGreaterThan(0);
+    for (const q of ids) expect(catalog).toContain(q);
+  });
   it("presetLayout returns a fresh copy", () => {
     const a = presetLayout("builder");
     a.widgets[0]!.x = 99;

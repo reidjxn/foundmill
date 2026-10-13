@@ -253,6 +253,13 @@
       "when": 1793535120000,
       "tag": "0040_design_system",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1793621520000,
+      "tag": "0041_widgets_modules",
+      "breakpoints": true
     }
   ]
 }

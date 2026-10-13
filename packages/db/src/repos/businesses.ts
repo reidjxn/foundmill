@@ -1,5 +1,5 @@
 /** businesses — the business record (BUILD §7.2 "Accounts and businesses", routers business.*). */
-import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, DEFAULT_BUSINESS_CURRENCY, GAME_MODES, MODEL_BILLING, PLAN_TIERS, slugify, uuid, type AgentStopReason } from "@foundmill/shared";
+import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, DEFAULT_BUSINESS_CURRENCY, GAME_MODES, MODEL_BILLING, PLAN_TIERS, ValidationError, slugify, uuid, type AgentStopReason } from "@foundmill/shared";
 import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { auditLog, businesses, memberships, type Business } from "../schema";
@@ -8,6 +8,9 @@ import { Currency, defined, Id, IsoDateInput, maybeOne, MinorAmount, one, parseI
 const HexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/, "brand colors are #RRGGBB");
 /** ISO 4217: three letters (0025 holds the column to the same shape). */
 const BusinessCurrency = Currency.regex(/^[A-Z]{3}$/, "a currency is a 3-letter ISO 4217 code");
+
+/** An IANA time zone name ("Europe/London", "America/Los_Angeles", "UTC"); 0041's check on businesses.time_zone. */
+export const TimeZoneName = z.string().regex(/^[A-Za-z][A-Za-z0-9_+/-]{0,63}$/, "a time zone such as Europe/London");
 
 export const CreateBusinessInput = z.object({
   /** Supply the id when the caller must know it before RETURNING is possible (RLS bootstrap, seeds). */
@@ -143,6 +146,7 @@ export const businessesRepo = {
       createdBy: v.createdBy ?? null,
       agentsStoppedAt: null,
       agentsStoppedReason: null,
+      timeZone: null,
       createdAt: new Date(),
       updatedAt: new Date(),
       archivedAt: null,
@@ -208,6 +212,17 @@ export const businessesRepo = {
   async lockOwnerBusinesses(db: Executor, userId: string): Promise<void> {
     const id = parseInput(Id, userId, "user id");
     await db.execute(sql`select pg_advisory_xact_lock(hashtext('business_allowance'), hashtext(${id}::text))`);
+  },
+
+  /**
+   * The business time zone (0041): Home's "today", week and month and the Journey's days follow it. Only an IANA name
+   * Postgres knows is stored (anything else would read as UTC when the Journey is rebuilt), so a typo fails here.
+   */
+  async setTimeZone(db: Executor, businessId: string, timeZone: string): Promise<Business> {
+    const zone = parseInput(TimeZoneName, timeZone, "time zone");
+    const known = rowsOf<{ known: boolean }>(await db.execute(sql`select exists (select 1 from pg_timezone_names where name = ${zone}) as known`))[0]?.known;
+    if (!known) throw new ValidationError(`Unknown time zone "${zone}"`);
+    return one(await db.update(businesses).set({ timeZone: zone }).where(and(eq(businesses.id, businessId), notArchived)).returning(), "business", businessId);
   },
 
   /** The founder's "Spend cap per action" (Settings › Mode); null removes the business cap. */

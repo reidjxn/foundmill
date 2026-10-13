@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { CircleCheck, CircleDashed, Compass, LoaderCircle } from "lucide-react";
 import { Avatar, Chip, EntityLink, FoundationsStatus, Icon, LiveRun, Panel, ProvenanceChip, StatusPill, cn, foundationsNeedsAttention, useDateFormat, type GridSpan, type LiveRunItem, type LiveRunStep } from "@foundmill/dugout";
 import type { DeptColourToken, RoadmapHorizon } from "@foundmill/shared";
-import { moduleHref, routes, useDepartments, useHostStreamOpen, useWidgetData, useWidgetQuery, type QueryState } from "@foundmill/widgets";
+import { failedWithoutData, isForbidden, moduleHref, routes, useDepartments, useHostStreamOpen, useWidgetData, useWidgetQuery, type QueryState } from "@foundmill/widgets";
 import { PlainDoc } from "./PlainDoc";
 import { errorMessage, useAction } from "./shared";
 import type { FoundationsProgress, FoundationsResponse, FoundationsVision } from "./types";
@@ -96,7 +96,11 @@ export function FoundationsBanner({ foundations, span = 12, showReady = false, d
   const departments = useDepartments({ enabled: showReady });
   const retry = useAction();
   const f = foundations.data;
-  if (!f) return null;
+  if (!f) {
+    // A failed read is not "no foundations": say so with Try again (a person walled from Product sees nothing here).
+    if (failedWithoutData(foundations) && !isForbidden(foundations.error)) return <Panel span={span} title="Foundations" error={`The vision, specification and roadmap could not be loaded. ${errorMessage(foundations.error)}`} onRetry={foundations.refetch} className={className} data-testid="foundations-status" />;
+    return null;
+  }
   const state = foundationsDisplayState(f);
   const readyNews = showReady && state === "ready" && foundations.sawDrafting;
   if (state === "none" || (!foundationsNeedsAttention(state) && !readyNews)) return null;

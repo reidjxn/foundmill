@@ -1,11 +1,13 @@
 "use client";
 /**
- * Today in the founder's own time zone, for the top bar's date chip. The server renders in UTC, and on a US evening
- * UTC is already tomorrow ("Oct 11" on the server, "Oct 10" in the browser), so a date rendered on both sides fails
- * hydration. The day is only known in the browser: null on the server and during hydration, the local day after it.
- * It moves on at local midnight (checked once a minute), without re-rendering in between.
+ * Today for the top bar's date chip: the business's day once it has a time zone (businesses.time_zone, audit #196, so
+ * the chip names the same day as Home's tiles and the Journey), the founder's own day before that. The server renders
+ * in UTC, and on a US evening UTC is already tomorrow ("Oct 11" on the server, "Oct 10" in the browser), so a date
+ * rendered on both sides fails hydration. The day is only known in the browser: null on the server and during
+ * hydration, the day after it. It moves on at midnight (checked once a minute), without re-rendering in between.
  */
-import { useMemo, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { dayKeyIn, isValidTimeZone } from "@foundmill/shared/time-zone";
 
 /** "2026-10-10" for the local calendar day of `now`. */
 export function localDayKey(now: Date = new Date()): string {
@@ -26,10 +28,35 @@ function subscribe(onChange: () => void): () => void {
 
 const getServerDay = (): string | null => null;
 
-/** Today in the browser's time zone, or null on the server and while hydrating. */
-export function useClientToday(): Date | null {
-  const key = useSyncExternalStore(subscribe, localDayKey, getServerDay);
+/** The day key for the chip: the business's calendar day when its zone is known, else the browser's. */
+export function todayKey(now: Date, timeZone?: string | null): string {
+  return isValidTimeZone(timeZone) ? dayKeyIn(now, timeZone) : localDayKey(now);
+}
+
+/** Today in the business's time zone (the browser's while it has none), or null on the server and while hydrating. */
+export function useClientToday(timeZone?: string | null): Date | null {
+  const read = useCallback(() => todayKey(new Date(), timeZone), [timeZone]);
+  const key = useSyncExternalStore(subscribe, read, getServerDay);
   return useMemo(() => (key ? dateOfDayKey(key) : null), [key]);
+}
+
+/** The browser's IANA zone ("America/New_York"), or null when the runtime does not say. */
+export function browserTimeZone(): string | null {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return isValidTimeZone(zone) ? zone : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The zone to set on a business that has none yet (audit #196): the browser's, when an owner or admin opens it. Others,
+ * and a business that has a zone, leave it alone; Settings › Business changes it later.
+ */
+export function timeZoneToClaim(current: string | null | undefined, role: string | null | undefined, browser: string | null): string | null {
+  if (current || !browser) return null;
+  return role === "owner" || role === "admin" ? browser : null;
 }
 
 const MINUTE_MS = 60_000;

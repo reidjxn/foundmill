@@ -30,10 +30,12 @@ import {
   type RowAction,
   type SavedView,
 } from "@foundmill/dugout";
-import { CHANNEL_LINES, type ChannelKey } from "@foundmill/shared/constants";
-import { addDays, dayKey } from "@foundmill/widgets/shared/time";
+import { CHANNEL_LINES, CHANNEL_WINDOW_DAYS, type ChannelKey } from "@foundmill/shared/constants";
+import { addDays } from "@foundmill/widgets/shared/time";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
-import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
+import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import type { ModuleScreenProps } from "../registry";
 import { buildChannelViews, channelStatus, ENGINE_STARTING_HINT, type ChannelView } from "./channel-data";
 import { METRICS_WINDOW_DAYS } from "./FormationScreen";
@@ -123,7 +125,7 @@ export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColum
       cell: ({ row }) => <CostPerCustomer view={row.original} />,
       meta: { numeric: true, label: "Cost per customer (Estimate)" },
     },
-    { id: "cpaActual", accessorFn: (r) => r.form?.cpaMinor ?? null, header: "Cost per customer, 35 days", size: sizes.cpaActual, cell: ({ row }) => <EstimatedMoney amountMinor={row.original.form?.cpaMinor ?? null} currency={row.original.currency} spendMinor={row.original.form?.spendMinor ?? null} />, meta: { numeric: true, label: "Cost per customer, 35 days (Estimate)" } },
+    { id: "cpaActual", accessorFn: (r) => r.form?.cpaMinor ?? null, header: `Cost per customer, ${CHANNEL_WINDOW_DAYS} days`, size: sizes.cpaActual, cell: ({ row }) => <EstimatedMoney amountMinor={row.original.form?.cpaMinor ?? null} currency={row.original.currency} spendMinor={row.original.form?.spendMinor ?? null} />, meta: { numeric: true, label: `Cost per customer, ${CHANNEL_WINDOW_DAYS} days (Estimate)` } },
     { id: "budget", accessorFn: (r) => r.budgetMinor, header: "Monthly budget", size: sizes.budget, cell: ({ row }) => <span className="tabular-nums">{row.original.persisted ? formatMoney({ amountMinor: row.original.budgetMinor, currency: row.original.currency }) : "—"}</span>, meta: { numeric: true } },
     {
       id: "status",
@@ -149,8 +151,8 @@ export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColum
       cell: ({ row }) => (row.original.kitMode ? <Chip tone="info" className="whitespace-nowrap">{OFFLINE_TRACKING_LABEL}</Chip> : <span className="text-secondary">Connected</span>),
       meta: { filter: "boolean", label: "Offline tracking" },
     },
-    { id: "leads", accessorFn: (r) => r.form?.leads ?? 0, header: "Leads, 35 days", size: sizes.leads, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue() ?? 0), { digits: 0 })}</span>, meta: { numeric: true } },
-    { id: "customers", accessorFn: (r) => r.form?.customers ?? 0, header: "Customers, 35 days", size: sizes.customers, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue() ?? 0), { digits: 0 })}</span>, meta: { numeric: true } },
+    { id: "leads", accessorFn: (r) => r.form?.leads ?? 0, header: `Leads, ${CHANNEL_WINDOW_DAYS} days`, size: sizes.leads, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue() ?? 0), { digits: 0 })}</span>, meta: { numeric: true } },
+    { id: "customers", accessorFn: (r) => r.form?.customers ?? 0, header: `Customers, ${CHANNEL_WINDOW_DAYS} days`, size: sizes.customers, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue() ?? 0), { digits: 0 })}</span>, meta: { numeric: true } },
   ];
 }
 
@@ -174,13 +176,16 @@ export interface ChannelsScreenProps extends ModuleScreenProps {
 
 export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_MS }: ChannelsScreenProps) {
   const { navigate, currency } = useWidgetData();
-  const today = dayKey();
+  const today = useToday();
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
+  // Pin to Home (audit #394): the channels are the gallery's Channel performance widget.
+  const pinMenu = usePinToHomeMenu({ key: "channel_form_guide" });
   const campaigns = useWidgetQuery<Page<CampaignRow>>("distribution.campaigns.list", { limit: 200 });
-  const metrics = useWidgetQuery<ChannelMetricRow[]>("distribution.channels.metrics", { from: addDays(today, -METRICS_WINDOW_DAYS) });
+  const metrics = useWidgetQuery<ChannelMetricRow[]>("distribution.channels.metrics", { from: addDays(today, -(METRICS_WINDOW_DAYS - 1)) });
   const departments = useDepartments();
   const action = useAction();
-  const [views, setViews] = useState<SavedView[]>(CHANNEL_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("distribution.channels", CHANNEL_VIEWS, { defaultViewId: "all" });
   const [recommendation, setRecommendation] = useState<RecommendationRow[] | null>(null);
   const [highlight] = useState<string | null>(() => searchParam("channel"));
   const [budgetFor, setBudgetFor] = useState<ChannelView | null>(null);
@@ -256,6 +261,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
     <Screen name="distribution/channels">
       <Panel
         title="Channels"
+        menu={pinMenu}
         span={12}
         loading={channels.isLoading}
         error={channels.error ? channels.error.message : undefined}
@@ -287,8 +293,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
           data={rows}
           columns={columns}
           getRowId={(r) => r.channelKey}
-          views={views}
-          onViewsChange={setViews}
+          {...savedViews}
           defaultViewId="all"
           rowActions={rowActions}
           onRowOpen={(r) => openProfile(r.channelKey)}

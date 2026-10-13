@@ -61,6 +61,7 @@ describe("journal", () => {
       "0036_agents_orchestration",
       "0039_money_billing",
       "0040_design_system",
+      "0041_widgets_modules",
     ]);
     // strictly increasing `when` so drizzle applies them in order
     const whens = ours.map((m) => m.when);

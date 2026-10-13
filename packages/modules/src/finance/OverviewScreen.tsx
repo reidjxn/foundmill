@@ -35,6 +35,8 @@ import {
 import { Screen, fmtAxisMoney, fmtMoney, fmtMonths, useCurrency, useNow } from "./shared";
 import type { ChannelsListResponse, FinanceOverview, PnlResponse } from "./types";
 import { runwayWords } from "@foundmill/widgets/shared/runway";
+import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
+import { CHANNEL_WINDOW_DAYS } from "@foundmill/shared/constants";
 
 const TRAILING = 3;
 const HISTORY = 6;
@@ -133,6 +135,8 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
   const { navigate } = useWidgetData();
   const range = useMemo(() => ({ from: monthStart(now, -TRAILING).toISOString(), to: monthStart(now, 0).toISOString() }), [now]);
   const overview = useWidgetQuery<FinanceOverview>("finance.overview", {});
+  // Pin to Home (audit #394): the Cash panel is the gallery's Cash and runway widget.
+  const pinMenu = usePinToHomeMenu({ key: "cash_runway" });
   const pnl = useWidgetQuery<PnlResponse>("finance.pnl", range);
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
 
@@ -187,6 +191,7 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
       </section>
       <Panel
         title="Cash"
+        menu={pinMenu}
         meta={`last ${HISTORY} months and the Base forecast`}
         span={8}
         loading={overview.isLoading}

@@ -19,3 +19,4 @@ export * from "./brand";
 export * from "./foundations";
 export * from "./conversations";
 export * from "./payments";
+export * from "./table-views";

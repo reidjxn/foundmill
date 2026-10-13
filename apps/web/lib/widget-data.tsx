@@ -20,6 +20,8 @@ export interface WidgetSourceOptions {
   glossary: Record<string, string>;
   gameMode: GameMode;
   currency: string;
+  /** The business time zone (businesses.time_zone); null reads as UTC, like the Journey's daily rows. */
+  timeZone?: string | null;
   client: UntypedApiClient;
   queryClient: QueryClient;
   navigate: (href: string) => void;
@@ -66,6 +68,7 @@ export function createWidgetSource(opts: WidgetSourceOptions): WidgetDataSource 
     glossary: opts.glossary,
     gameMode: opts.gameMode,
     currency: opts.currency,
+    timeZone: opts.timeZone ?? null,
     navigate: opts.navigate,
     subscribe: opts.subscribe ?? ((channel, handler) => getStreamClient().subscribe(channel, handler)),
     // While this business's event channel is live the shell refetches on events (INVALIDATE_ON_EVENT); screens poll
@@ -99,17 +102,18 @@ export interface WidgetDataHostProps {
   gameMode: GameMode;
   /** The business's own currency (`businesses.currency`, 0025): every widget formats business money with it. */
   currency: string;
+  timeZone?: string | null;
   children: ReactNode;
 }
 
 /** Wraps every business page (ARCHITECTURE §18). */
-export function WidgetDataHost({ businessId, glossary, gameMode, currency, children }: WidgetDataHostProps) {
+export function WidgetDataHost({ businessId, glossary, gameMode, currency, timeZone = null, children }: WidgetDataHostProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const client = useUntypedApi();
   const source = useMemo(
-    () => createWidgetSource({ businessId, glossary, gameMode, currency, client, queryClient, navigate: (href) => router.push(href) }),
-    [businessId, glossary, gameMode, currency, client, queryClient, router],
+    () => createWidgetSource({ businessId, glossary, gameMode, currency, timeZone, client, queryClient, navigate: (href) => router.push(href) }),
+    [businessId, glossary, gameMode, currency, timeZone, client, queryClient, router],
   );
   return <WidgetDataProvider source={source}>{children}</WidgetDataProvider>;
 }

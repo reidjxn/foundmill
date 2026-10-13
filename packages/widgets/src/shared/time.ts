@@ -29,6 +29,12 @@ export function weekKey(day: string): string {
   return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
+/** The Monday that starts the ISO week holding `day`. */
+export function weekStart(day: string): string {
+  const dow = new Date(`${day}T00:00:00.000Z`).getUTCDay() || 7;
+  return addDays(day, 1 - dow);
+}
+
 export function monthKey(day: string): string {
   return day.slice(0, 7);
 }

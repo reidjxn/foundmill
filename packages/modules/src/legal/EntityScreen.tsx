@@ -8,8 +8,10 @@
 import { useId, useMemo, useState } from "react";
 import { Building2, Download, ExternalLink, Landmark, Search, Users } from "lucide-react";
 import { Button, Chip, DataTable, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, SimpleSelect, Timeline, useFormatters, type DataTableColumn, type RowAction, type SavedView, type TimelineEvent } from "@foundmill/dugout";
+import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
 import { INCORPORATION_STATUS_WORD, ROUTE_META, entityTypeLabel, formatAddress, jurisdictionName, officerRows, readSteps, type OfficerRow } from "./legal-data";
 import { DateText } from "../dates";
@@ -85,11 +87,13 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
   const now = useNow();
   const currency = useCurrency();
   const { navigate } = useWidgetData();
+  const departments = useDepartments();
   const id = useId();
   const status = useLegalStatus();
   const officers = useWidgetQuery<OfficersResponse>("crm.roles.byRole", OFFICERS_INPUT);
   const action = useAction();
-  const [views, setViews] = useState<SavedView[]>(OFFICER_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("legal.entity.officers", OFFICER_VIEWS, { defaultViewId: "all" });
   const [country, setCountry] = useState<"gb" | "se" | "other">("gb");
   const [regNo, setRegNo] = useState("");
   const [jurisdictionCode, setJurisdictionCode] = useState("");
@@ -175,7 +179,7 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
         loading={loading}
         error={status.error ? status.error.message : undefined}
         onRetry={status.refetch}
-        empty={noEntity ? { icon: Building2, title: "No legal entity yet", children: "Import an existing company on the right, or start an incorporation on the Incorporate tab; the entity's facts appear here.", action: { label: "Incorporate", icon: Landmark, onClick: () => navigate(routes.department(businessId, "legal", "incorporate")) } } : undefined}
+        empty={noEntity ? { icon: Building2, title: "No legal entity yet", children: "Import an existing company on the right, or start an incorporation on the Incorporate tab; the entity's facts appear here.", action: { label: "Incorporate", icon: Landmark, onClick: () => navigate(moduleTabHref(businessId, departments.data, "legal", "incorporate")) } } : undefined}
         footer={entity ? <span>Legal name and address feed the contract templates and the generated policies. Officers are CRM people with the officer role.</span> : undefined}
       >
         {entity ? <KeyValueList aria-label="Entity facts" items={facts} layout="grid" /> : null}
@@ -282,7 +286,7 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
         footer={<span>Right-click an officer to open them in the CRM.</span>}
       >
         <div className="min-w-0">
-          <DataTable<OfficerRow> aria-label="Officers" data={rows} columns={columns} getRowId={(r) => r.key} views={views} onViewsChange={setViews} defaultViewId="all" height={fitTableHeight(rows.length, { minRows: 3, maxRows: 10 })} exportFileName="officers" rowActions={officerActions} onRowOpen={(r) => r.entityId && navigate(routes.crm(businessId, r.entityId))} />
+          <DataTable<OfficerRow> aria-label="Officers" data={rows} columns={columns} getRowId={(r) => r.key} {...savedViews} defaultViewId="all" height={fitTableHeight(rows.length, { minRows: 3, maxRows: 10 })} exportFileName="officers" rowActions={officerActions} onRowOpen={(r) => r.entityId && navigate(routes.crm(businessId, r.entityId))} />
         </div>
       </Panel>
 

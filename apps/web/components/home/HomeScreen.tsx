@@ -38,6 +38,7 @@ import {
 } from "@foundmill/dugout";
 import { FoundationsBanner, useFoundations } from "@foundmill/modules/product/foundations";
 import { DASHBOARD_PRESET_LIST, fromGridLayout, prepareLayout, routes, toGridLayout, toScreenLayout, type DashboardPresetId } from "@foundmill/widgets";
+import { useToday } from "@foundmill/widgets/data";
 import { recentRibbonInput } from "@foundmill/widgets/shared/ribbon";
 import { usePageShortcuts } from "@/lib/keys";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
@@ -358,10 +359,12 @@ function HomeFoundations() {
 
 function DayOne({ businessId, currency }: { businessId: string; currency: string }) {
   const trpc = useTRPC();
+  const glossary = useBusiness().data.business.glossary;
   // The last 30 days, slim: the same query as the status strip and the department cards (one request for all of them).
-  const ribbon = useQuery(trpc.journey.ribbon.queryOptions({ businessId, ...recentRibbonInput() }, { staleTime: 60_000, retry: false }));
+  // In the business time zone (audit #196), so the key is the one the widgets ask for.
+  const ribbon = useQuery(trpc.journey.ribbon.queryOptions({ businessId, ...recentRibbonInput(useToday()) }, { staleTime: 60_000, retry: false }));
   const dayOne = ribbon.data ? isDayOne({ conversions: ribbon.data.conversionCount, milestones: ribbon.data.milestones.length }) : false;
-  const cards = useMemo(() => ghostedMilestones(currency), [currency]);
+  const cards = useMemo(() => ghostedMilestones(currency, glossary), [currency, glossary]);
   if (!dayOne) return null;
   return (
     <Panel title="Day one" span={12} data-testid="day-one" footer={<span>Milestones light up as customers and revenue arrive; department cards show the staffed team and its first tasks.</span>}>

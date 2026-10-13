@@ -73,4 +73,10 @@ describe("day one", () => {
     expect(cards.find((c) => c.key === "customer_1")?.label).toBe("First customer");
     expect(cards.find((c) => c.key === "mrr_1k")?.label).toContain("MRR");
   });
+
+  it("names the day-one milestones in the business's words", () => {
+    const cards = ghostedMilestones("GBP", { customer: "client" });
+    expect(cards.find((c) => c.key === "customer_1")?.label).toBe("First client");
+    expect(cards.find((c) => c.key === "customer_1")?.description).toBe("The first paying client.");
+  });
 });

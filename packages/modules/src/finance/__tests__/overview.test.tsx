@@ -1,7 +1,8 @@
 import "./setup";
 import { describe, expect, it } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
-import { formatMoney } from "@foundmill/dugout";
+import userEvent from "@testing-library/user-event";
+import { TooltipProvider, formatMoney } from "@foundmill/dugout";
 import { OverviewScreen, forecastRunway, overviewTiles } from "../OverviewScreen";
 import { NOW, createFakeSource, renderScreen } from "./fake-source";
 import { BID, channels, dataResponses, emptyResponses, overview, overviewBlocking, pnl } from "./fixtures";
@@ -100,5 +101,22 @@ describe("OverviewScreen", () => {
     expect(screen.getByText("The finance overview could not be loaded.")).toBeTruthy();
     fireEvent.click(screen.getAllByRole("button", { name: "Try again" })[0]!);
     expect(failing.refetches["finance.overview"]).toBe(1);
+  });
+});
+
+describe("Pin to Home (audit #394)", () => {
+  it("offers Pin to Home on the Cash panel and puts the Cash and runway widget on the active Home dashboard", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "dashboard.get": { id: "dash-1", layout: { widgets: [] } } } });
+    renderScreen(
+      fake,
+      <TooltipProvider>
+        <OverviewScreen {...props} />
+      </TooltipProvider>,
+    );
+    within(screen.getByRole("region", { name: "Cash" })).getByRole("button", { name: "Panel menu" }).focus();
+    await user.keyboard("{Enter}");
+    await user.click(await screen.findByRole("menuitem", { name: "Pin to Home" }));
+    expect(fake.mutations).toEqual([{ path: "dashboard.update", input: { dashboardId: "dash-1", layout: { widgets: [expect.objectContaining({ key: "cash_runway", x: 0, y: 0 })] } } }]);
   });
 });

@@ -12,6 +12,7 @@ import { Button, Chip, DataTable, DeptChip, ModelChip, Panel, ProvenanceChip, Te
 import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleKey } from "@foundmill/shared/constants";
 import { fitColumns, fitToGrow, humanise, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
@@ -81,8 +82,9 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
   const departments = useDepartments();
   const rows = useMemo(() => toCatalogueRows(catalogue.data, agentsQuery.data?.agents), [catalogue.data, agentsQuery.data]);
   const team = useMemo(() => (agentsQuery.data?.agents ?? []).filter((a) => !a.archivedAt), [agentsQuery.data]);
-  const [catalogueViews, setCatalogueViews] = useState<SavedView[]>(CATALOGUE_VIEWS);
-  const [movesViews, setMovesViews] = useState<SavedView[]>(MOVES_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const catalogueSavedViews = useSavedViews("team.recruitment.catalog", CATALOGUE_VIEWS, { defaultViewId: "all" });
+  const movesSavedViews = useSavedViews("team.recruitment.moves", MOVES_VIEWS, { defaultViewId: "all" });
   const [hire, setHire] = useState<{ template: TemplateRow; name?: string } | null>(null);
   const [release, setRelease] = useState<AgentRow | null>(null);
   const [clone, setClone] = useState<AgentRow | null>(null);
@@ -276,7 +278,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         footer={notice ? <span data-testid="recruitment-notice" className="text-secondary">{notice}</span> : "Double-click or right-click a template to hire it into a department. Wage caps are estimates."}
       >
         <div className="min-w-0">
-          <DataTable<CatalogueRow> aria-label="Catalog" data={rows} columns={catalogueColumns} views={catalogueViews} onViewsChange={setCatalogueViews} defaultViewId="all" rowActions={catalogueActions} onRowOpen={(row) => setHire({ template: row })} height={Math.min(480, Math.max(240, rows.length * 34 + 44))} density="comfortable" exportFileName="catalogue" className="border-0" />
+          <DataTable<CatalogueRow> aria-label="Catalog" data={rows} columns={catalogueColumns} {...catalogueSavedViews} defaultViewId="all" rowActions={catalogueActions} onRowOpen={(row) => setHire({ template: row })} height={Math.min(480, Math.max(240, rows.length * 34 + 44))} density="comfortable" exportFileName="catalogue" className="border-0" />
         </div>
       </Panel>
 
@@ -291,7 +293,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         footer="Release stops running tasks and keeps the history. Clone copies instructions, tools, model and skills. Loan adds a department; move replaces it."
       >
         <div className="min-w-0">
-          <DataTable<AgentRow> aria-label="Team moves" data={team} columns={movesColumns} views={movesViews} onViewsChange={setMovesViews} defaultViewId="all" rowActions={movesActions} onRowOpen={(a) => open(a.id)} height={Math.min(420, Math.max(200, team.length * 28 + 44))} exportFileName="team-moves" className="border-0" />
+          <DataTable<AgentRow> aria-label="Team moves" data={team} columns={movesColumns} {...movesSavedViews} defaultViewId="all" rowActions={movesActions} onRowOpen={(a) => open(a.id)} height={Math.min(420, Math.max(200, team.length * 28 + 44))} exportFileName="team-moves" className="border-0" />
         </div>
       </Panel>
 

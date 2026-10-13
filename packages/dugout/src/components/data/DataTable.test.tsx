@@ -171,6 +171,17 @@ describe("DataTable", () => {
     expect(screen.getByRole("columnheader", { name: /Owner/ })).toBeTruthy();
   });
 
+  it("applies the open view again when its definition arrives changed (a stored copy loading after the default)", () => {
+    const all = LEAD_VIEWS.find((v) => v.id === "all")!;
+    const { rerender } = render(<DataTable data={leads} columns={columns} views={LEAD_VIEWS} activeViewId="all" onViewsChange={() => {}} />);
+    expect(screen.getByRole("columnheader", { name: /Owner/ })).toBeTruthy();
+    // The person's saved copy of "All leads" (same id) hides Owner and Country.
+    const stored = LEAD_VIEWS.map((v) => (v.id === "all" ? { ...all, columns: all.columns.filter((c) => c !== "owner" && c !== "country") } : v));
+    rerender(<DataTable data={leads} columns={columns} views={stored} activeViewId="all" onViewsChange={() => {}} />);
+    expect(screen.queryByRole("columnheader", { name: /Owner/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "View: All leads" })).toBeTruthy();
+  });
+
   it("exports the visible columns of the filtered, sorted rows as CSV", async () => {
     const user = userEvent.setup();
     const onExportCsv = vi.fn();
