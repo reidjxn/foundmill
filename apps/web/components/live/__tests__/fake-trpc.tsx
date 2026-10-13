@@ -31,6 +31,23 @@ export function fakeTrpc(api: FakeApi, path: string[] = []): unknown {
           return { queryKey: [path, { input, type: "query" }], queryFn: async () => (api.calls.push({ path: name, input }), api.handlers[name]?.(input)), ...opts, refetchInterval: false };
         };
       }
+      if (prop === "infiniteQueryOptions") {
+        // Paged lists: the page param travels as `cursor` in the input, as tRPC's own infiniteQueryOptions sends it.
+        return (input: unknown, opts: Record<string, unknown> = {}) => {
+          const name = path.join(".");
+          return {
+            queryKey: [path, { input, type: "infinite" }],
+            initialPageParam: opts.initialCursor ?? null,
+            queryFn: async ({ pageParam }: { pageParam?: unknown }) => {
+              const full = { ...(input as object), cursor: pageParam ?? null };
+              api.calls.push({ path: name, input: full });
+              return api.handlers[name]?.(full);
+            },
+            ...opts,
+            refetchInterval: false,
+          };
+        };
+      }
       if (prop === "mutationOptions") {
         return (opts: Record<string, unknown> = {}) => {
           const name = path.join(".");

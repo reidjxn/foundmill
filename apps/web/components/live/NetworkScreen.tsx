@@ -5,7 +5,7 @@
  * DataTable, message threads with a reply box, and the profile visibility control. Everything here is between people:
  * agents never send a human-to-human message; only the founder's own Send does.
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { StatusStrip, useToast, type MetricTileProps } from "@foundmill/dugout";
@@ -19,6 +19,9 @@ import { PersonalNotice, usePeople } from "./shared";
 import { useLiveViewer } from "./viewer";
 import { VisibilityPanel } from "./VisibilityPanel";
 
+/** Conversations per page; "Show more conversations" asks for the next. */
+const THREADS_PAGE = 50;
+
 export function NetworkScreen() {
   const viewer = useLiveViewer();
   const router = useRouter();
@@ -29,11 +32,16 @@ export function NetworkScreen() {
   useShellChrome({ title: "Network" });
 
   const connectionsQ = useQuery(trpc.live.connections.list.queryOptions(undefined, { staleTime: 15_000 }));
-  const threadsQ = useQuery(trpc.live.messages.threads.queryOptions({ limit: 100 }, { staleTime: 10_000, refetchInterval: 30_000 }));
+  const threadsQ = useInfiniteQuery(
+    trpc.live.messages.threads.infiniteQueryOptions({ limit: THREADS_PAGE }, { getNextPageParam: (last) => last.nextCursor ?? undefined, initialCursor: null, staleTime: 10_000, refetchInterval: 30_000 }),
+  );
   const unreadQ = useQuery(trpc.live.messages.unread.queryOptions(undefined, { staleTime: 10_000, refetchInterval: 30_000 }));
 
   const rows = useMemo<ConnectionRow[]>(() => connectionsQ.data ?? [], [connectionsQ.data]);
-  const threads = useMemo(() => threadsQ.data?.items ?? [], [threadsQ.data]);
+  const threads = useMemo(() => {
+    const seen = new Set<string>();
+    return (threadsQ.data?.pages ?? []).flatMap((p) => p.items).filter((t) => !seen.has(t.id) && !!seen.add(t.id));
+  }, [threadsQ.data]);
   const groups = useMemo(() => groupConnections(rows, viewer.userId), [rows, viewer.userId]);
   const peopleIds = useMemo(() => [...rows.map((c) => counterpartId(c, viewer.userId)), ...threads.flatMap((t) => otherParticipants(t, viewer.userId))], [rows, threads, viewer.userId]);
   const people = usePeople(peopleIds);
@@ -99,6 +107,9 @@ export function NetworkScreen() {
           loading={threadsQ.isLoading}
           error={threadsQ.error ? errorMessage(threadsQ.error) : undefined}
           onRetry={() => void threadsQ.refetch()}
+          hasMoreThreads={threadsQ.hasNextPage}
+          onLoadMoreThreads={() => void threadsQ.fetchNextPage()}
+          loadingMoreThreads={threadsQ.isFetchingNextPage}
         />
         <ConnectionsPanel rows={[...groups.accepted, ...groups.blocked]} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} onBlock={handlers.onBlock} onRemove={handlers.onRemove} onMessage={handlers.onMessage} onFind={findFounders} />
       </div>

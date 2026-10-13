@@ -1,10 +1,11 @@
 "use client";
-import { useEffect, useRef, type HTMLAttributes, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type HTMLAttributes, type ReactNode } from "react";
 import { MessageSquare } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { formatRelative } from "../../lib/format";
 import { useFormatters } from "../foundation/DateFormatProvider";
 import { Avatar } from "../foundation/Avatar";
+import { Button } from "../foundation/Button";
 import { EmptyState } from "../foundation/EmptyState";
 import { ErrorState } from "../foundation/ErrorState";
 import { SkeletonText } from "../foundation/Skeleton";
@@ -37,20 +38,40 @@ export interface ConversationProps extends Omit<HTMLAttributes<HTMLDivElement>, 
   /** Small note under the field. */
   note?: ReactNode;
   disabled?: boolean;
+  /** Older messages exist than the ones in `messages`: a "Load earlier messages" control tops the log. */
+  hasEarlier?: boolean;
+  onLoadEarlier?: () => void;
+  loadingEarlier?: boolean;
 }
 
 /**
  * A message thread (BUILD §11.14): the log on top, newest at the bottom and kept in view, the composer underneath.
  * The log is a polite live region, focusable so the arrow keys scroll it. Messages are plain text.
  */
-export function Conversation({ messages, onSend, label, sending, loading, error, onRetry, empty, placeholder = "Write a message", note, disabled, className, ...rest }: ConversationProps) {
+export function Conversation({ messages, onSend, label, sending, loading, error, onRetry, empty, placeholder = "Write a message", note, disabled, hasEarlier, onLoadEarlier, loadingEarlier, className, ...rest }: ConversationProps) {
   const { formatDateTime } = useFormatters();
   const logRef = useRef<HTMLDivElement>(null);
   const last = messages[messages.length - 1]?.id;
+  const first = messages[0]?.id;
+  // Where the log was when earlier messages were asked for, so they open above without moving what is being read.
+  const anchor = useRef<{ height: number; top: number } | null>(null);
+  // Keyed on the newest message only: older messages arriving at the top must not pull the log to the bottom.
   useEffect(() => {
     const el = logRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [last, messages.length]);
+  }, [last]);
+  useLayoutEffect(() => {
+    const el = logRef.current;
+    if (el && anchor.current) {
+      el.scrollTop = anchor.current.top + (el.scrollHeight - anchor.current.height);
+      anchor.current = null;
+    }
+  }, [first]);
+  const loadEarlier = () => {
+    const el = logRef.current;
+    if (el) anchor.current = { height: el.scrollHeight, top: el.scrollTop };
+    onLoadEarlier?.();
+  };
 
   let body: ReactNode;
   if (loading) body = <SkeletonText lines={4} className="p-panel-pad" />;
@@ -59,6 +80,13 @@ export function Conversation({ messages, onSend, label, sending, loading, error,
   else
     body = (
       <ol className="flex flex-col gap-0.5 px-panel-pad py-3">
+        {hasEarlier ? (
+          <li className="flex justify-center pb-2">
+            <Button size="sm" variant="ghost" loading={loadingEarlier} onClick={loadEarlier}>
+              Load earlier messages
+            </Button>
+          </li>
+        ) : null}
         {messages.map((m, i) => {
           const prev = messages[i - 1];
           // Consecutive messages from one person within five minutes read as one group: one name, one face.

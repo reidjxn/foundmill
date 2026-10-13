@@ -88,6 +88,36 @@ describe("/network", () => {
     await waitFor(() => expect((field as HTMLTextAreaElement).value).toBe(""));
   });
 
+  it("a long conversation pages upward: 'Load earlier messages' asks for the next page and puts it above, oldest first (audit LS2-13)", async () => {
+    seed({
+      "live.messages.list": (v) => ((v as { cursor?: string | null }).cursor ? { items: [message("m1", ids.ana, "The very first message.", 300), message("m0", ids.me, "Before that.", 400)], nextCursor: null } : { items: [message("m3", ids.ana, "Thursday at 3?", 2), message("m2", ids.me, "Sounds good", 20)], nextCursor: "cur-1" }),
+    });
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: /Fintech ops intro/ }));
+    const log = await screen.findByRole("log", { name: "Conversation with Fintech ops intro" });
+    const bodies = () => Array.from(log.querySelectorAll("li p")).map((p) => p.textContent);
+    await waitFor(() => expect(bodies()).toEqual(["Sounds good", "Thursday at 3?"]));
+    expect(callsTo(api, "live.messages.list")[0]).toMatchObject({ threadId: "t-ana", limit: 50, cursor: null });
+
+    fireEvent.click(within(log).getByRole("button", { name: "Load earlier messages" }));
+    await waitFor(() => expect(bodies()).toEqual(["Before that.", "The very first message.", "Sounds good", "Thursday at 3?"]));
+    expect(callsTo(api, "live.messages.list").at(-1)).toMatchObject({ threadId: "t-ana", cursor: "cur-1" });
+    // Nothing older is left: the control goes away.
+    expect(within(log).queryByRole("button", { name: "Load earlier messages" })).toBeNull();
+  });
+
+  it("more conversations than one page: 'Show more conversations' loads the next page of threads", async () => {
+    seed({ "live.messages.threads": (v) => ((v as { cursor?: string | null }).cursor ? { items: [THREAD_BEN], nextCursor: null } : { items: [THREAD_ANA], nextCursor: "t-cur" }) });
+    mount();
+    const panel = await screen.findByTestId("messages-panel");
+    await within(panel).findByRole("button", { name: /Fintech ops intro/ });
+    expect(within(panel).queryByRole("button", { name: /Ben Okoye/ })).toBeNull();
+    fireEvent.click(within(panel).getByRole("button", { name: "Show more conversations" }));
+    await within(panel).findByRole("button", { name: /Ben Okoye/ });
+    expect(callsTo(api, "live.messages.threads").at(-1)).toMatchObject({ cursor: "t-cur" });
+    expect(within(panel).queryByRole("button", { name: "Show more conversations" })).toBeNull();
+  });
+
   it("Accept and Block answer the request that was pressed", async () => {
     mount();
     const requests = await screen.findByTestId("requests-panel");
