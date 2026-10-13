@@ -16,7 +16,7 @@ import { CREDITS_CURRENCY, PRICE_TBA_LABEL, TIERS } from "@foundmill/config";
 import { MOCK_TOP_UP_LABEL, periodRange, platformCredits, repos, settleCreditCheckout } from "@foundmill/db";
 import { AppError, PLAN_TIERS, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
-import { emitResumed, restartEngines } from "../services/killswitch";
+import { emitResumed, restartAfterResume } from "../services/killswitch";
 import { modelLimited } from "../services/model-limits";
 import { assertTierAvailable, checkoutView, MOCK_PAYMENTS_OFF_MESSAGE, mockPaymentsAllowed, startCreditCheckout, tierAvailability, TOP_UP_MAX_MINOR, TOP_UP_MIN_MINOR, TOP_UP_OPTIONS_MINOR, topUpAvailability } from "../services/payments";
 import { audit, Id, ownerProcedure, router, sectionRead } from "../trpc";
@@ -112,7 +112,7 @@ export const billingRouter = router({
       if (settled.outcome === "granted" && settled.resumed) {
         const agentIds = settled.resumed.agentIds;
         await ctx.rls((tx) => emitResumed(tx, ctx, agentIds, "Resumed: credits topped up"));
-        await restartEngines(ctx);
+        await restartAfterResume(ctx);
       }
       const balance = settled.outcome === "granted" ? settled.balance : await repos.usage.creditBalance(ctx.db, ctx.businessId, currentPeriod());
       return { checkout: checkoutView(settled.checkout), balance, granted: settled.outcome === "granted", resumed: settled.outcome === "granted" && settled.resumed ? { reason: settled.resumed.reason, agents: settled.resumed.agentIds.length } : null, label: MOCK_TOP_UP_LABEL };

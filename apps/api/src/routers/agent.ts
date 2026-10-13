@@ -217,7 +217,8 @@ export const agentRouter = router({
      * Change the model for the agent, every agent of its type, or all; locked routes are skipped; retests are queued
      * (AC-11.10.5). The change applies at once; each changed agent's retest scores a draft copy of its live version on
      * the new model (never the live version itself, AC-11.10.1), which Promote makes live. Its earlier retests not yet
-     * decided are withdrawn (`superseded`), and a change back to the model its live version runs on queues none.
+     * decided are withdrawn (`superseded`), and a change back to the model its live version runs on queues none. While
+     * the team is stopped the retests stay queued (`retestsWaitForResume`) and start when the agents resume.
      */
     set: write.input(z.object({ agentId: Id, modelKey: z.enum(MODEL_KEYS), applyScope: ApplyScope.default("agent") })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
       const targets = await scopedAgents(ctx, input.agentId, input.applyScope);
@@ -246,8 +247,13 @@ export const agentRouter = router({
       });
       // Earlier retests of a model these agents no longer run were canceled above; those still running stop too.
       if (superseded.length) await ctx.temporal.signalMany(superseded.map((runId) => workflowIds.training(runId)), SIGNALS.stop);
-      const workflows = await Promise.all(retests.map((runId) => ctx.temporal.start(WORKFLOWS.trainingRun, { workflowId: workflowIds.training(runId), args: [{ businessId: ctx.businessId, trainingRunId: runId }] })));
-      return { updated, skipped, warnings, retests: retests.map((runId, i) => ({ runId, workflow: workflows[i]! })), superseded };
+      // The model itself changes while the team is stopped (it costs nothing), but a retest spends credits: it waits,
+      // queued, until the agents resume (Resume agents, a new key or a top-up start it; killswitch.ts).
+      const waitForResume = retests.length > 0 && (await repos.businesses.agentsStopped(ctx.db, ctx.businessId));
+      const workflows = waitForResume
+        ? retests.map((runId) => ({ queued: false, workflowId: workflowIds.training(runId), reason: "agents are stopped; the retest starts when they resume" }))
+        : await Promise.all(retests.map((runId) => ctx.temporal.start(WORKFLOWS.trainingRun, { workflowId: workflowIds.training(runId), args: [{ businessId: ctx.businessId, trainingRunId: runId }] })));
+      return { updated, skipped, warnings, retests: retests.map((runId, i) => ({ runId, workflow: workflows[i]! })), superseded, retestsWaitForResume: waitForResume };
     }),
   }),
 

@@ -9,13 +9,18 @@
  * `training.completed`; `failTrainingRun` ends a run that could not start as failed, so no run stays queued. A run the
  * founder canceled (agent.training.cancel) stays canceled whatever lands later. The live version is never touched
  * here; Promote is the founder's button (apps/api).
+ *
+ * Training spends model credits, so it honours the team-wide stop (0023) on its own, whether or not Stop all agents'
+ * signal reached the workflow (a revoked key or used-up credits signal nothing): a run that loads while the team is
+ * stopped, and a skill whose next test would start while it is, end the run canceled with the reason; the tests already
+ * run are booked. A run that ended stays ended: its remaining skills run no test, even after the agents resume.
  */
 import { AgentInstructions, buildSystemPrompt, detectClubRuleViolation, getPrompt, getSkillDefinition, getSkillTests, ratingFromTested, runDeterministicChecks, type AgentTemplate, type SkillTest } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { ACTIVE_TRAINING_STATUSES, repos } from "@foundmill/db";
 import { SkillGradeOutput, resolveModel } from "@foundmill/models";
 import { MockSandboxProvider, RECORDINGS, type MockSandbox } from "@foundmill/sandbox";
-import { NotFoundError, type ModelKey } from "@foundmill/shared";
+import { NotFoundError, type AgentStopReason, type ModelKey } from "@foundmill/shared";
 import { ApplicationFailure } from "@temporalio/common";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
@@ -34,6 +39,8 @@ const STARTABLE = ["queued", "running"] as const;
 
 const MODEL_NAMES: Record<ModelKey, string> = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
 
+const STOP_WORDS: Record<AgentStopReason, string> = { kill_switch: "Stop all agents", key_revoked: "the Anthropic key was revoked", credits_exhausted: "the credits ran out" };
+
 export function scoreTest(graderScore: number, checks: readonly { passed: boolean }[]): number {
   const failed = checks.some((c) => !c.passed);
   const s = failed ? Math.min(graderScore, FAILED_CHECK_SCORE_CAP) : graderScore;
@@ -49,6 +56,29 @@ function flagsFor(before: Record<string, unknown> | null, after: Record<string, 
 }
 
 export function createTrainingActivities(deps: OrchestratorDeps) {
+  /** The canceled run's summary while the team is stopped (or the business archived); null while it may work. */
+  async function stoppedSummary(businessId: string): Promise<string | null> {
+    const stop = await repos.businesses.stopState(deps.db, businessId);
+    if (!stop.stopped) return null;
+    return `Training canceled: ${stop.archived ? "the business is archived" : STOP_WORDS[stop.reason ?? "kill_switch"]}. Train again once the agents resume.`;
+  }
+
+  /** Ends the run canceled for the stop, unless it already ended (a founder's cancel, Stop all agents' own cancel). */
+  async function cancelForStop(input: TrainingRunInput, coachSummaryMd: string): Promise<void> {
+    await repos.training.transition(deps.db, input.businessId, input.trainingRunId, ACTIVE_TRAINING_STATUSES, { status: "cancelled", coachSummaryMd, endedAt: deps.clock.now() });
+  }
+
+  /**
+   * Why the next test must not start, or null while it may: the team is stopped (`cancelWith` is the summary the run
+   * ends canceled with), or the run already ended (a founder's cancel, or a stop that canceled it and was lifted since;
+   * no signal may have reached the workflow, and a canceled run's remaining skills never spend once the agents resume).
+   */
+  async function haltFor(input: TrainingRunInput): Promise<{ cancelWith: string | null } | null> {
+    const [stopped, run] = await Promise.all([stoppedSummary(input.businessId), repos.training.get(deps.db, input.businessId, input.trainingRunId)]);
+    if (stopped) return { cancelWith: stopped };
+    return (ACTIVE_TRAINING_STATUSES as readonly string[]).includes(run.status) ? null : { cancelWith: null };
+  }
+
   async function graderFor(skill: string, test: SkillTest, output: string, checks: { kind: string; passed: boolean; detail?: string }[], attribution: { businessId: string; agentId: string }) {
     const prompt = getPrompt("skill_grader").render({});
     const payload = {
@@ -66,7 +96,8 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
     /**
      * Reads the run and moves it to running. A run that can never start (its candidate is the live version, it has no
      * draft, a row is gone, it was canceled) fails with a non-retryable `TrainingRunError` whose message the workflow
-     * stores on the run, so it ends failed instead of staying queued.
+     * stores on the run, so it ends failed instead of staying queued. While the team is stopped the run ends canceled
+     * with the reason before anything is spent.
      */
     async loadTrainingRun(input: TrainingRunInput): Promise<LoadedTrainingRun> {
       const { db } = deps;
@@ -80,6 +111,11 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       };
       const run = await permanent(repos.training.get(db, input.businessId, input.trainingRunId));
       if (!(STARTABLE as readonly string[]).includes(run.status)) throw cannotStart("The run had already ended before it started.");
+      const stopped = await stoppedSummary(input.businessId);
+      if (stopped) {
+        await cancelForStop(input, stopped);
+        throw cannotStart(stopped);
+      }
       if (!run.toVersionId) throw cannotStart("The run has no draft version to test.");
       const [agent, draft] = await permanent(Promise.all([repos.agents.get(db, input.businessId, run.agentId), repos.agents.getVersion(db, input.businessId, run.toVersionId)]));
       if (draft.state !== "draft") throw cannotStart(draft.state === "live" ? "The candidate is the live version; training only ever scores a draft." : "The candidate is no longer a draft.");
@@ -134,7 +170,12 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       return { status: "failed", skillDeltas: [], eventId };
     },
 
-    /** One skill's test set against the draft version, in the mock sandbox with mock tools only. */
+    /**
+     * One skill's test set against the draft version, in the mock sandbox with mock tools only. The stop flag and the
+     * run are read before each test: once the team is stopped no further test starts and the run ends canceled; once the
+     * run has ended (canceled by the founder or by a stop lifted since) no further test starts either. The tests already
+     * run are booked.
+     */
     async runSkillTests(input: TrainingRunInput & { agentId: string; draftVersionId: string; skillKey: string; modelKey: "opus" | "sonnet" | "haiku" }): Promise<SkillTestsOutcome> {
       const { db } = deps;
       const [agent, draft, business] = await Promise.all([repos.agents.get(db, input.businessId, input.agentId), repos.agents.getVersion(db, input.businessId, input.draftVersionId), repos.businesses.get(db, input.businessId)]);
@@ -165,10 +206,18 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       const attribution = { businessId: input.businessId, agentId: agent.id, kind: "training" };
       const CONCURRENCY = 4;
       const queue = [...tests];
+      /** Set once the team stopped or the run ended mid-skill: no further test starts. */
+      let halted: { cancelWith: string | null } | null = null;
       const worker = async () => {
         for (;;) {
+          if (halted) return;
           const test = queue.shift();
           if (!test) return;
+          const halt = await haltFor(input);
+          if (halt) {
+            halted = halt;
+            return;
+          }
           // 1. the candidate answers with mock tools only (no real email or spend can happen here)
           const answer = await deps.models.complete({
             route: template.route,
@@ -210,10 +259,14 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
         }
       };
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tests.length) }, worker));
-      const meanScore = scores.reduce((a, b) => a + b, 0) / Math.max(1, scores.length);
-      const tested = ratingFromTested(meanScore);
-      await repos.usage.record(db, input.businessId, { agentId: agent.id, kind: "training", quantity: tests.length, unit: "tests", costMinor: Math.max(0, costMinor), occurredAt: deps.clock.now(), details: { trainingRunId: input.trainingRunId, skillKey: input.skillKey, label: "Estimate" } });
-      return { skillKey: input.skillKey, group, testsRun: tests.length, meanScore: Math.round(meanScore * 1000) / 1000, tested, previousTested, costMinor, checksFailed };
+      const stoppedWith = (halted as { cancelWith: string | null } | null)?.cancelWith;
+      if (stoppedWith) await cancelForStop(input, stoppedWith);
+      const testsRun = scores.length;
+      const meanScore = scores.reduce((a, b) => a + b, 0) / Math.max(1, testsRun);
+      // Stopped before any test ran: the rating stands where it was.
+      const tested = testsRun > 0 ? ratingFromTested(meanScore) : (previousTested ?? template.baselineRating);
+      if (testsRun > 0 || costMinor > 0) await repos.usage.record(db, input.businessId, { agentId: agent.id, kind: "training", quantity: testsRun, unit: "tests", costMinor: Math.max(0, costMinor), occurredAt: deps.clock.now(), details: { trainingRunId: input.trainingRunId, skillKey: input.skillKey, label: "Estimate" } });
+      return { skillKey: input.skillKey, group, testsRun, meanScore: Math.round(meanScore * 1000) / 1000, tested, previousTested, costMinor, checksFailed };
     },
 
     /** Persist results on the run (never on the live version) and narrate through `training.completed`. */

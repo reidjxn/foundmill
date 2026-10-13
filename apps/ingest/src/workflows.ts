@@ -1,18 +1,22 @@
 /**
  * Starting the orchestrator's workflows from ingest (docs/ARCHITECTURE.md §10): `journeyBuild` for a conversion that won a
- * customer and `playbook` for a founder playbook whose trigger an ingested event matches. Same shape as apps/api's
+ * customer, `playbook` for a founder playbook whose trigger an ingested event matches, and, after a paid top-up lifted a
+ * stop for used-up credits, the `channelEngine`s and queued `trainingRun`s a resume starts again. Same shape as apps/api's
  * Temporal service: the connection opens lazily, an unreachable server is remembered for `retryAfterMs` and reported as
  * `started: false` (a delivery is never failed because Temporal is down), and a workflow id that is already running
- * counts as started, so a vendor's retry never runs the same work twice. Ids are deterministic: `journey:{conversionId}`
- * and `playbook:{playbookId}:{eventId}`.
+ * counts as started, so a vendor's retry never runs the same work twice. Ids are deterministic: `journey:{conversionId}`,
+ * `playbook:{playbookId}:{eventId}`, and apps/api's `engine:{channelId}` and `training:{runId}`.
  */
 import type { IngestLogger } from "./types";
 
-export const INGEST_WORKFLOWS = { journeyBuild: "journeyBuild", playbook: "playbook" } as const;
+export const INGEST_WORKFLOWS = { journeyBuild: "journeyBuild", playbook: "playbook", channelEngine: "channelEngine", trainingRun: "trainingRun" } as const;
 
 export const ingestWorkflowIds = {
   journey: (conversionId: string) => `journey:${conversionId}`,
   playbook: (playbookId: string, eventId: string) => `playbook:${playbookId}:${eventId}`,
+  /** Same ids as apps/api `workflowIds` (services/temporal.ts), so a start that is already running is not repeated. */
+  engine: (channelId: string) => `engine:${channelId}`,
+  training: (runId: string) => `training:${runId}`,
 } as const;
 
 export interface WorkflowStartResult {

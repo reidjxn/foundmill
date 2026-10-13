@@ -231,6 +231,14 @@ describe("model", () => {
     expect(describeModelSet(result({ superseded: ["r2", "r3"] }), "sonnet")).toBe("Model set to Sonnet for 1 agent · 2 earlier retests canceled");
     expect(describeModelSet(result({}), "sonnet")).toBe("Model set to Sonnet for 1 agent");
   });
+
+  it("says the retests wait for Resume agents while the team is stopped", () => {
+    const result = (over: Partial<ModelSetResult>): ModelSetResult => ({ updated: ["a1", "a2"], skipped: [], warnings: [], retests: [], superseded: [], retestsWaitForResume: false, ...over }) as ModelSetResult;
+    const retest = (runId: string) => ({ runId, workflow: { queued: true, workflowId: `training:${runId}` } });
+    expect(describeModelSet(result({ retests: [retest("r1"), retest("r2")] }), "haiku")).toBe("Model set to Haiku for 2 agents · 2 retests queued");
+    expect(describeModelSet(result({ retests: [retest("r1")], retestsWaitForResume: true }), "haiku")).toBe("Model set to Haiku for 2 agents · 1 retest queued (starts when the agents resume)");
+    expect(describeModelSet(result({ retests: [retest("r1"), retest("r2")], retestsWaitForResume: true }), "opus")).toMatch(/2 retests queued \(start when the agents resume\)$/);
+  });
 });
 
 describe("autonomy and negotiation forms", () => {

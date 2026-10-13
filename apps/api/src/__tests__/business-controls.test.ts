@@ -4,6 +4,7 @@
  * admin resumes, a new key or a top-up lifts the stop it caused (never the kill switch), and a task start is claimed once.
  */
 import { repos, stopBusinessAgents } from "@foundmill/db";
+import { MODEL_KEYS } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
@@ -57,7 +58,48 @@ describe("Stop all agents cannot be undone by a member; resume is an owner's or 
     await expect(owner().business.startHoliday({ businessId: A(), until: { kind: "return" } })).rejects.toMatchObject({ code: "CONFLICT" });
     const draft = await repos.agents.createVersion(hz.db, A(), hz.A.agentId, { state: "draft" });
     await expect(member().agent.training.run({ businessId: A(), agentId: hz.A.agentId, versionId: draft.id })).rejects.toMatchObject({ code: "CONFLICT" });
+
+    // Campaigns the stop paused stay paused: no member sets one (or creates one) live before the agents resume.
+    expect((await repos.campaigns.get(hz.db, A(), hz.A.campaignId)).status).toBe("paused");
+    await expect(member().distribution.campaigns.setStatus({ businessId: A(), campaignId: hz.A.campaignId, status: "live" })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/live campaign cannot start/) });
+    await expect(member().distribution.campaigns.create({ businessId: A(), channelId: hz.A.channelId, name: "Launched while stopped", status: "live" })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect((await repos.campaigns.get(hz.db, A(), hz.A.campaignId)).status).toBe("paused");
+    // Pausing, ending or drafting stays allowed.
+    const drafted = await member().distribution.campaigns.create({ businessId: A(), channelId: hz.A.channelId, name: "Drafted while stopped" });
+    expect((await member().distribution.campaigns.setStatus({ businessId: A(), campaignId: drafted.id, status: "ended" })).status).toBe("ended");
     expect(temporal.starts).toEqual([]);
+  });
+
+  it("while stopped a model change applies but its retest waits, queued, until Resume agents starts it; a hire starts paused and comes back with the others", async () => {
+    await owner().business.stopAllAgents({ businessId: A() });
+    const agent = await repos.agents.get(hz.db, A(), hz.A.agentId);
+    const target = MODEL_KEYS.find((m) => m !== agent.modelKey)!;
+    const set = await member().agent.model.set({ businessId: A(), agentId: agent.id, modelKey: target });
+    expect(set).toMatchObject({ updated: [agent.id], retestsWaitForResume: true });
+    expect(set.retests).toHaveLength(1);
+    const runId = set.retests[0]!.runId;
+    expect(set.retests[0]!.workflow).toMatchObject({ queued: false, workflowId: `training:${runId}`, reason: expect.stringMatching(/resume/) });
+    expect((await repos.agents.get(hz.db, A(), agent.id)).modelKey).toBe(target);
+    expect(await repos.training.get(hz.db, A(), runId)).toMatchObject({ status: "queued" });
+
+    const hired = await member().team.agents.hire({ businessId: A(), templateKey: "docs_writer", departmentId: hz.A.departmentId });
+    expect(hired).toMatchObject({ status: "paused", pausedReason: "kill_switch" });
+    expect(temporal.starts).toEqual([]);
+
+    const res = await owner().business.resumeAgents({ businessId: A() });
+    expect(res.training).toEqual([{ queued: true, workflowId: `training:${runId}` }]);
+    expect(temporal.starts.filter((s) => s.type === "trainingRun")).toEqual([{ type: "trainingRun", workflowId: `training:${runId}`, args: [{ businessId: A(), trainingRunId: runId }] }]);
+    expect((await repos.agents.get(hz.db, A(), hired.id)).status).toBe("idle");
+
+    // Running again: the next model change (to a third model: a change back to the live version's own model queues no
+    // retest) starts its retest at once, and withdraws the earlier one.
+    temporal.starts.length = 0;
+    const third = MODEL_KEYS.find((m) => m !== agent.modelKey && m !== target)!;
+    const back = await member().agent.model.set({ businessId: A(), agentId: agent.id, modelKey: third });
+    expect(back.retestsWaitForResume).toBe(false);
+    expect(temporal.starts.map((s) => s.type)).toEqual(["trainingRun"]);
+    await repos.training.cancelActive(hz.db, A(), { coachSummaryMd: "test cleanup" });
+    await repos.agents.release(hz.db, A(), hired.id);
   });
 
   it("only an owner or admin resumes: agents back to idle, the flag cleared, health events and the audit written, engines restarted", async () => {

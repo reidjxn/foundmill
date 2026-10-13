@@ -1,7 +1,7 @@
 import { LIMITS } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
 describe("business.stopAllAgents (kill switch, BUILD §14)", () => {
@@ -45,6 +45,22 @@ describe("business.stopAllAgents (kill switch, BUILD §14)", () => {
     await expect(hz.caller({ userId: hz.A.memberId }).business.stopAllAgents({ businessId: hz.A.businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(hz.caller({ userId: hz.B.ownerId }).business.stopAllAgents({ businessId: hz.A.businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
+
+  it("a failure while listing the workflows to signal neither hides nor undoes the stop: it is reported and audited (SEC3)", async () => {
+    const { businessId, ownerId } = hz.B;
+    const list = vi.spyOn(repos.plans, "list").mockRejectedValueOnce(new Error("connection reset"));
+    try {
+      const result = await hz.caller({ userId: ownerId }).business.stopAllAgents({ businessId });
+      expect(result.pausedAgents).toBeGreaterThanOrEqual(1);
+      expect(result.workflows).toMatchObject({ queued: false, signalled: [], reason: expect.stringMatching(/^workflows not signaled: connection reset/) });
+    } finally {
+      list.mockRestore();
+    }
+    expect(await repos.businesses.stopState(hz.db, businessId)).toMatchObject({ stopped: true, reason: "kill_switch" });
+    const audit = (await repos.audit.list(hz.db, businessId, { action: "business.stop_all_agents" })).items;
+    expect(audit).toHaveLength(1);
+    expect(audit[0]!.details).toMatchObject({ temporalQueued: false, temporalReason: expect.stringMatching(/connection reset/), lateSessions: 0 });
+  });
 });
 
 describe("business.stopAllAgents with Temporal reachable", () => {
@@ -77,5 +93,53 @@ describe("business.stopAllAgents with Temporal reachable", () => {
     expect(temporal.signals.every((s) => s.signal === "stop")).toBe(true);
     // The stop is recorded on the business: nothing starts work until an owner or admin resumes.
     expect(await repos.businesses.stopState(hz.db, businessId)).toMatchObject({ stopped: true, reason: "kill_switch" });
+  });
+});
+
+describe("business.stopAllAgents writes the stop before it signals (SEC3)", () => {
+  let hz: ApiHarness;
+  const temporal = fakeTemporalClient();
+  /** What the business's stop flag said when each signal went out. */
+  const atSignal: { workflowId: string; stopped: boolean }[] = [];
+  let lateSessionId: string | null = null;
+  const record = temporal.workflow.getHandle;
+  temporal.workflow.getHandle = (workflowId) => ({
+    async signal(signal, ...args) {
+      atSignal.push({ workflowId, stopped: await repos.businesses.agentsStopped(hz.db, hz.A.businessId) });
+      // A dispatch that read the flag just before it was written opens its session while the signals go out.
+      if (lateSessionId === null) {
+        lateSessionId = "opening";
+        lateSessionId = (await repos.agents.createSession(hz.db, hz.A.businessId, { agentId: hz.A.agentId, taskId: hz.A.task2Id, modelKey: "sonnet" })).id;
+      }
+      await record(workflowId).signal(signal, ...args);
+    },
+  });
+  beforeAll(async () => {
+    hz = await createApiHarness({ prefix: "stopall3", temporalClient: temporal });
+  }, 120_000);
+  afterAll(() => hz.close());
+
+  it("the flag is set before the first signal, training runs in flight are canceled and signalled, and a session opened meanwhile is signalled too", async () => {
+    const { businessId, ownerId, agentId } = hz.A;
+    const draft = await repos.agents.createVersion(hz.db, businessId, agentId, { state: "draft" });
+    const queued = await repos.training.create(hz.db, businessId, { agentId, toVersionId: draft.id, status: "queued" });
+    const running = await repos.training.create(hz.db, businessId, { agentId, toVersionId: draft.id, status: "running" });
+    const decided = await repos.training.create(hz.db, businessId, { agentId, toVersionId: draft.id, status: "awaiting_decision" });
+
+    const result = await hz.caller({ userId: ownerId }).business.stopAllAgents({ businessId });
+    expect(atSignal.length).toBeGreaterThan(0);
+    expect(atSignal.every((s) => s.stopped)).toBe(true);
+    expect(result.cancelledTraining).toBe(2);
+    expect(result.workflows).toMatchObject({ queued: true, failed: [] });
+
+    const ids = temporal.signals.map((s) => s.workflowId);
+    expect(ids).toEqual(expect.arrayContaining([`training:${queued.id}`, `training:${running.id}`, `session:${hz.A.sessionId}`, `session:${lateSessionId}`]));
+    expect(ids).not.toContain(`training:${decided.id}`);
+    expect(result.workflows.signalled).toContain(`session:${lateSessionId}`);
+    for (const run of [queued, running]) expect(await repos.training.get(hz.db, businessId, run.id)).toMatchObject({ status: "cancelled", coachSummaryMd: expect.stringMatching(/^Training canceled: Stop all agents/) });
+    expect((await repos.training.get(hz.db, businessId, decided.id)).status).toBe("awaiting_decision");
+
+    const audit = (await repos.audit.list(hz.db, businessId, { action: "business.stop_all_agents" })).items[0]!;
+    expect(audit.details).toMatchObject({ cancelledTraining: 2, lateSessions: 1, temporalQueued: true });
   });
 });

@@ -127,6 +127,20 @@ export const trainingRepo = {
   },
 
   /**
+   * Stop all agents (BUILD §14): every run of the business still in flight (queued, running or grading) is canceled
+   * with `coachSummaryMd`, in one statement; the caller stops their workflows. A worker's late write never overwrites
+   * the cancel (`transition`), and what the tests already cost is kept by `finalizeTrainingRun`.
+   */
+  async cancelActive(db: Executor, businessId: string, input: { coachSummaryMd: string }): Promise<TrainingRun[]> {
+    const v = parseInput(z.object({ coachSummaryMd: z.string().min(1) }), input, "training cancel");
+    return db
+      .update(trainingRuns)
+      .set({ status: "cancelled", endedAt: new Date(), coachSummaryMd: v.coachSummaryMd })
+      .where(and(eq(trainingRuns.businessId, businessId), isNull(trainingRuns.archivedAt), inArray(trainingRuns.status, [...ACTIVE_TRAINING_STATUSES])))
+      .returning();
+  },
+
+  /**
    * A model change's retest (AC-11.10.5): a draft copy of the live version (instructions and tools) on the new model,
    * created by the system, and a queued run that scores it against the live version. The live version itself is never
    * the candidate (AC-11.10.1); promoting the run makes the copy live on the new model. The agent's earlier retests are

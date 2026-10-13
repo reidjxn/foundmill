@@ -2,7 +2,7 @@
  * Plan executor on PGlite: hard gates never execute (AC-11.3.5), deny is recorded, ask opens an approval and waits,
  * allow runs the typed handler. Also the pure policy evaluation per action type and business mode.
  */
-import { repos } from "@foundmill/db";
+import { repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { PLAN_ACTION_TYPES } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPlanActivities, evaluateAction, HARD_GATE_ACTIONS } from "../activities/plan";
@@ -123,6 +123,45 @@ describe("executePlanAction on PGlite", () => {
       expect(t.gateway.calls.length).toBe(callsBefore);
     } finally {
       await repos.businesses.setBusinessMode(t.db, t.businessId, "assisted");
+    }
+  });
+
+  it("while the team is stopped a message or a meeting fails with the reason (no gateway call, no approval); a hire starts paused; internal actions still run", async () => {
+    await stopBusinessAgents(t.db, t.businessId, { reason: "kill_switch" });
+    try {
+      const plan = await repos.plans.create(t.db, t.businessId, {
+        origin: "free_text",
+        actions: [
+          { type: "send_message", params: { to: "cfo@example.com", subject: "Hello", body: "Hi" }, agentId: t.chiefId },
+          { type: "schedule_meeting", params: { title: "Intro", attendees: ["x@example.com"] }, agentId: t.chiefId },
+          { type: "hire_agent", params: { template_key: "docs_writer" } },
+          { type: "update_roadmap", params: { title: "Written while stopped" } },
+        ],
+      });
+      const [message, meeting, hire, roadmap] = plan.actions.map((a) => a.id);
+      const calls = t.gateway.calls.length;
+      const minted = t.gateway.minted.length;
+      const approvals = (await repos.approvals.list(t.db, t.businessId, { limit: 200 })).items.length;
+      for (const actionId of [message!, meeting!]) {
+        const r = await acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId, workflowId: "plan:test" });
+        expect(r).toMatchObject({ status: "failed", result: { error: expect.stringMatching(/agents are stopped/) } });
+        expect((await repos.plans.getAction(t.db, t.businessId, actionId)).status).toBe("failed");
+      }
+      // An approved retry (the founder approved before the stop) is refused the same way.
+      const approved = await acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId: message!, workflowId: "plan:test", approved: true });
+      expect(approved.status).toBe("failed");
+      expect(t.gateway.calls.length).toBe(calls);
+      expect(t.gateway.minted.length).toBe(minted);
+      expect((await repos.approvals.list(t.db, t.businessId, { limit: 200 })).items.length).toBe(approvals);
+
+      const hired = await acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId: hire!, workflowId: "plan:test" });
+      expect(hired.status).toBe("done");
+      const agentId = (hired.result as { agentId: string }).agentId;
+      expect(await repos.agents.get(t.db, t.businessId, agentId)).toMatchObject({ status: "paused", pausedReason: "kill_switch" });
+      expect((await acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId: roadmap!, workflowId: "plan:test" })).status).toBe("done");
+      await repos.agents.release(t.db, t.businessId, agentId);
+    } finally {
+      await resumeBusinessAgents(t.db, t.businessId);
     }
   });
 

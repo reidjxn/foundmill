@@ -6,12 +6,16 @@
  * re-reads that state on every call and refuses before Cedar is consulted, so no permit can out-vote it:
  *
  *   business.archivedAt set        → deny `business-archived`
+ *   business.agentsStoppedAt set   → deny `agents-stopped`     (Stop all agents, key revoked, credits used up: 0023)
  *   agent.archivedAt set           → deny `agent-archived`     (released)
- *   agent.status === "paused"      → deny `agent-paused`       (Stop all agents, key revoked, manual pause)
+ *   agent.status === "paused"      → deny `agent-paused`       (manual pause, wage cap)
  *   BYOK club, key-bearing tool,
  *   no live Anthropic credential   → deny `key-revoked`
  *
- * The agent and business rows are loaded for the Cedar request anyway, so the first three checks cost nothing
+ * The business's stop flag is read, not only the agents' pause, because an agent can be idle while the team is stopped
+ * (hired, or set idle by a path that missed the stop) and the plan executor calls tools as the acting agent.
+ *
+ * The agent and business rows are loaded for the Cedar request anyway, so the first four checks cost nothing
  * and take effect on the very next call. The credential check needs two more queries, so its verdict is cached
  * per session for at most `STATE_CACHE_TTL_MS` (DECISIONS "Policy hot-path test budgets": treat a tool call as
  * a 1–20 ms budget and never add queries to the hot path without a cache).
@@ -19,15 +23,17 @@
 import { repos, type Agent, type Business, type Db } from "@foundmill/db";
 
 export const AGENT_PAUSED_POLICY_ID = "agent-paused";
+export const AGENTS_STOPPED_POLICY_ID = "agents-stopped";
 export const AGENT_ARCHIVED_POLICY_ID = "agent-archived";
 export const BUSINESS_ARCHIVED_POLICY_ID = "business-archived";
 export const KEY_REVOKED_POLICY_ID = "key-revoked";
 
-export type StatePolicyId = typeof AGENT_PAUSED_POLICY_ID | typeof AGENT_ARCHIVED_POLICY_ID | typeof BUSINESS_ARCHIVED_POLICY_ID | typeof KEY_REVOKED_POLICY_ID;
+export type StatePolicyId = typeof AGENT_PAUSED_POLICY_ID | typeof AGENTS_STOPPED_POLICY_ID | typeof AGENT_ARCHIVED_POLICY_ID | typeof BUSINESS_ARCHIVED_POLICY_ID | typeof KEY_REVOKED_POLICY_ID;
 
 /** Error codes used by `POST /v1/session-tokens` when it refuses to mint for the same reasons. */
 export const STATE_ERROR_CODES: Readonly<Record<StatePolicyId, string>> = {
   [AGENT_PAUSED_POLICY_ID]: "agent_paused",
+  [AGENTS_STOPPED_POLICY_ID]: "agents_stopped",
   [AGENT_ARCHIVED_POLICY_ID]: "agent_archived",
   [BUSINESS_ARCHIVED_POLICY_ID]: "business_archived",
   [KEY_REVOKED_POLICY_ID]: "key_revoked",
@@ -46,16 +52,25 @@ export interface StateDenial {
   reasons: string[];
 }
 
-/** Pure: the denial the loaded rows imply, or null when the agent may work. Order: club, then release, then pause. */
-export function stateDenial(business: Pick<Business, "archivedAt">, agent: Pick<Agent, "status" | "archivedAt" | "name">): StateDenial | null {
+const STOP_WORDS: Record<NonNullable<Business["agentsStoppedReason"]>, string> = {
+  kill_switch: "Stop all agents",
+  key_revoked: "the Anthropic key was revoked",
+  credits_exhausted: "the credits ran out",
+};
+
+/** Pure: the denial the loaded rows imply, or null when the agent may work. Order: club (archived, stopped), then release, then pause. */
+export function stateDenial(business: Pick<Business, "archivedAt" | "agentsStoppedAt" | "agentsStoppedReason">, agent: Pick<Agent, "status" | "archivedAt" | "name">): StateDenial | null {
   if (business.archivedAt) {
     return { policyId: BUSINESS_ARCHIVED_POLICY_ID, reasons: ["This business is archived; its team cannot call tools"] };
+  }
+  if (business.agentsStoppedAt) {
+    return { policyId: AGENTS_STOPPED_POLICY_ID, reasons: [`Agents are stopped for this business (${STOP_WORDS[business.agentsStoppedReason ?? "kill_switch"]}); tool calls are refused until an owner or admin resumes them`] };
   }
   if (agent.archivedAt) {
     return { policyId: AGENT_ARCHIVED_POLICY_ID, reasons: [`${agent.name} has been released from the team; tool calls are refused`] };
   }
   if (agent.status === "paused") {
-    return { policyId: AGENT_PAUSED_POLICY_ID, reasons: [`${agent.name} is paused (Stop all agents, key revoked or paused by the founder); tool calls are refused until the team is resumed`] };
+    return { policyId: AGENT_PAUSED_POLICY_ID, reasons: [`${agent.name} is paused (Stop all agents, key revoked, wage cap or paused by the founder); tool calls are refused until the agent is resumed`] };
   }
   return null;
 }

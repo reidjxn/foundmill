@@ -8,12 +8,12 @@
  * agent, a run the platform cancels (a deploy) is not a Stop (its task runs again), and a Redis outage never takes a
  * session (or the worker) down.
  */
-import { repos } from "@foundmill/db";
+import { repos, resumeBusinessAgents } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
 import { LongLivedCredentialError, MockSandboxProvider, RECORDINGS, findRecording } from "@foundmill/sandbox";
 import { MockActivityEnvironment } from "@temporalio/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { buildSandboxEnv, createSessionActivities, mcpToolNames, recordingForTask, toolRefs } from "../activities/session";
+import { AGENTS_STOPPED_REASON, buildSandboxEnv, createSessionActivities, mcpToolNames, recordingForTask, STOP_CHECK_MS, toolRefs } from "../activities/session";
 import type { SessionResult } from "../activities/types";
 import { FakeClock } from "../clock";
 import type { SessionControlBus } from "../control-bus";
@@ -421,6 +421,79 @@ describe("a paused agent stays paused (O-06)", () => {
     } finally {
       create.mockRestore();
       await repos.agents.setStatus(t.db, t.businessId, t.workerId, "idle");
+    }
+  });
+
+  it("a run whose team was stopped while it waited for a slot ends stopped before creating anything, even with its agent not paused (SEC3)", async () => {
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = await acts.prepareSession(input);
+    const create = vi.spyOn(t.sandbox, "create");
+    // Stop all agents committed after prepareSession; its signal never reached this session.
+    await repos.businesses.setAgentsStopped(t.db, t.businessId, { reason: "kill_switch" });
+    try {
+      const result = await acts.runAgentSession(input, launch);
+      expect(result).toMatchObject({ outcome: "stopped", reason: AGENTS_STOPPED_REASON, blockedReason: "stopped" });
+      expect(create).not.toHaveBeenCalled();
+      expect((await repos.agents.get(t.db, t.businessId, t.workerId)).status).toBe("idle");
+    } finally {
+      create.mockRestore();
+      await resumeBusinessAgents(t.db, t.businessId);
+    }
+  });
+
+  it("a pause that lands after the run read its agent idle is never overwritten by marking it working: the run ends before anything starts (SEC3)", async () => {
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = await acts.prepareSession(input);
+    const idle = await repos.agents.get(t.db, t.businessId, t.workerId);
+    expect(idle.status).toBe("idle");
+    // The run reads the agent idle; the pause (Stop all agents committing, a wage cap) is written right after.
+    const read = vi.spyOn(repos.agents, "get").mockResolvedValueOnce(idle);
+    await repos.agents.setStatus(t.db, t.businessId, t.workerId, "paused", { pausedReason: "wage_cap" });
+    const create = vi.spyOn(t.sandbox, "create");
+    try {
+      const result = await acts.runAgentSession(input, launch);
+      expect(result).toMatchObject({ outcome: "stopped", reason: "agent paused", blockedReason: "stopped" });
+      expect(create).not.toHaveBeenCalled();
+      expect(await repos.agents.get(t.db, t.businessId, t.workerId)).toMatchObject({ status: "paused", pausedReason: "wage_cap" });
+      const changes = await repos.events.list(t.db, t.businessId, { type: "agent.health_changed", limit: 20 });
+      expect(changes.items.some((e) => (e.payload as { sessionId?: string }).sessionId === sessionId)).toBe(false);
+    } finally {
+      read.mockRestore();
+      create.mockRestore();
+      await repos.agents.setStatus(t.db, t.businessId, t.workerId, "idle");
+    }
+  });
+
+  it("a running session re-reads the stop flag and stops itself once the team is stopped, with no signal; the task waits paused (SEC3)", async () => {
+    const clock = new FakeClock();
+    const deps = { ...t.deps, clock, sandbox: async () => ({ provider: clockedProvider(clock), mode: "mock" as const, fellBackFrom: null }) };
+    const localActs = createSessionActivities(deps);
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = { ...(await localActs.prepareSession(input)), recordingKey: "ledgerly-webhook-retry" };
+    const recording = findRecording("ledgerly-webhook-retry")!;
+    expect(recording.events.at(-1)!.tMs).toBeGreaterThan(2 * STOP_CHECK_MS);
+    const run = localActs.runAgentSession(input, launch);
+    await vi.waitFor(async () => {
+      if ((await readSessionEvents(t.redis, sessionId)).length < 2) throw new Error("not started");
+    }, { timeout: 5_000, interval: 25 });
+    // A credits stop (or a revoked key) signals nothing: only the flag changes.
+    await repos.businesses.setAgentsStopped(t.db, t.businessId, { reason: "credits_exhausted" });
+    try {
+      await clock.advance(STOP_CHECK_MS);
+      await wait(600); // two control polls: the check is due
+      const result = await drive(clock, run);
+      expect(result).toMatchObject({ outcome: "stopped", reason: AGENTS_STOPPED_REASON });
+      // Stopped at the first check, about 5 s into a 19 s recording: most of it never played.
+      expect(result.eventsEmitted).toBeLessThan(recording.events.length / 2);
+      await repos.tasks.setStatus(t.db, t.businessId, t.codeTaskId, "running", { force: true });
+      const finish = await localActs.finishSession(input, launch, result);
+      expect(finish.taskStatus).toBe("paused");
+    } finally {
+      await resumeBusinessAgents(t.db, t.businessId);
+      await repos.tasks.setStatus(t.db, t.businessId, t.codeTaskId, "ready", { force: true });
     }
   });
 

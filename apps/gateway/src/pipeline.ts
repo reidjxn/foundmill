@@ -140,7 +140,7 @@ export class SessionStateDenied extends Error {
 export const SESSION_SCOPE_POLICY_ID = "session-scope";
 export const HARD_GATE_POLICY_ID = "hard-gate";
 export const AUDIT_ACTION_TOOL_CALL = "tool.call";
-export { AGENT_ARCHIVED_POLICY_ID, AGENT_PAUSED_POLICY_ID, BUSINESS_ARCHIVED_POLICY_ID, KEY_REVOKED_POLICY_ID } from "./state";
+export { AGENT_ARCHIVED_POLICY_ID, AGENT_PAUSED_POLICY_ID, AGENTS_STOPPED_POLICY_ID, BUSINESS_ARCHIVED_POLICY_ID, KEY_REVOKED_POLICY_ID } from "./state";
 
 /** Finance-module connectors: read-only in v1 (BUILD §11.8, AC-11.8.5). The policy forbids any of their tools that would spend. */
 export const FINANCE_CONNECTORS: ReadonlySet<string> = new Set(["tink", "plaid", "ecb_rates"]);

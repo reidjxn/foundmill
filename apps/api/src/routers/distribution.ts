@@ -87,13 +87,15 @@ export const distributionRouter = router({
         return { campaign, assets };
       }),
     ),
-    create: write.input(CreateCampaignInput).mutation(({ ctx, input }) =>
-      ctx.rls(async (tx) => {
+    create: write.input(CreateCampaignInput).mutation(async ({ ctx, input }) => {
+      // A campaign created live spends at once: never while the team is stopped (setStatus below).
+      if (input.status === "live") await assertAgentsRunning(ctx, "a live campaign");
+      return ctx.rls(async (tx) => {
         const campaign = await repos.campaigns.create(tx, ctx.businessId, input);
         await audit(tx, ctx, { action: "distribution.campaigns.create", target: { kind: "campaign", id: campaign.id }, details: { channelId: campaign.channelId, budgetMinor: campaign.budgetMinor } });
         return campaign;
-      }),
-    ),
+      });
+    }),
     update: write.input(z.object({ campaignId: Id, patch: UpdateCampaignInput })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const campaign = await repos.campaigns.update(tx, ctx.businessId, input.campaignId, input.patch);
@@ -101,9 +103,14 @@ export const distributionRouter = router({
         return campaign;
       }),
     ),
-    /** Status changes; launching a campaign emits `campaign.launched`. Spend above caps is gated by the engine, not here. */
-    setStatus: write.input(z.object({ campaignId: Id, status: z.enum(CAMPAIGN_STATUSES) })).mutation(({ ctx, input }) =>
-      ctx.rls(async (tx) => {
+    /**
+     * Status changes; launching a campaign emits `campaign.launched`. Spend above caps is gated by the engine, not here.
+     * Going live is refused while the team is stopped: Stop all agents paused the live campaigns, and no member sets one
+     * spending again before an owner or admin resumes the agents (pausing or ending stays allowed).
+     */
+    setStatus: write.input(z.object({ campaignId: Id, status: z.enum(CAMPAIGN_STATUSES) })).mutation(async ({ ctx, input }) => {
+      if (input.status === "live") await assertAgentsRunning(ctx, "a live campaign");
+      return ctx.rls(async (tx) => {
         const before = await repos.campaigns.get(tx, ctx.businessId, input.campaignId);
         const campaign = await repos.campaigns.setStatus(tx, ctx.businessId, input.campaignId, input.status);
         if (input.status === "live" && before.status !== "live") {
@@ -116,8 +123,8 @@ export const distributionRouter = router({
         }
         await audit(tx, ctx, { action: "distribution.campaigns.set_status", target: { kind: "campaign", id: campaign.id }, details: { from: before.status, to: input.status } });
         return campaign;
-      }),
-    ),
+      });
+    }),
   }),
 
   assets: router({

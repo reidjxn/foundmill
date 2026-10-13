@@ -11,7 +11,8 @@
  *   3. `checkout.session.completed` or `checkout.session.async_payment_succeeded` with `payment_status: "paid"` settles
  *      the checkout named in the session's metadata through `settleCreditCheckout` (packages/db): the USD credits are
  *      granted once and audited; a duplicate, a session that disagrees with the checkout, or a checkout this database
- *      does not know (another environment on the same Stripe account) is acknowledged without granting anything.
+ *      does not know (another environment on the same Stripe account) is acknowledged without granting anything. A
+ *      grant that lifted a stop for used-up credits restarts the engines and queued training runs (followups.ts).
  *      `checkout.session.expired` closes the checkout, and `checkout.session.async_payment_failed` (a bank debit that
  *      bounced) closes it as failed. Everything else is acknowledged and ignored.
  */
@@ -60,7 +61,7 @@ function checkoutOf(session: BillingSession): { checkoutId: string; businessId: 
   return { checkoutId, businessId };
 }
 
-export async function handleBillingWebhook(deps: Pick<IngestDeps, "db" | "log" | "now" | "nonces" | "nonceTtlMs" | "replayWindowSeconds" | "billingWebhookSecret">, req: Request): Promise<BillingWebhookResult> {
+export async function handleBillingWebhook(deps: Pick<IngestDeps, "db" | "log" | "now" | "nonces" | "nonceTtlMs" | "replayWindowSeconds" | "billingWebhookSecret" | "followups">, req: Request): Promise<BillingWebhookResult> {
   const secret = deps.billingWebhookSecret ?? null;
   if (!secret) return refuse(503, "billing_webhook_unconfigured", "STRIPE_BILLING_WEBHOOK_SECRET is not set on ingest; no billing delivery is accepted");
   const body = await req.text();
@@ -111,6 +112,9 @@ export async function handleBillingWebhook(deps: Pick<IngestDeps, "db" | "log" |
     if (settled.outcome === "mismatch") deps.log.warn({ eventId, checkoutId: named.checkoutId, reason: settled.reason }, "billing webhook: the paid session does not match its checkout; nothing granted");
     if (settled.outcome === "unknown") deps.log.warn({ eventId, checkoutId: named.checkoutId }, "billing webhook: no such checkout here (another environment on the same Stripe account?)");
     if (settled.outcome === "granted") deps.log.info({ eventId, checkoutId: named.checkoutId, businessId: named.businessId, amountMinor: Number(settled.checkout.amountMinor) }, "credits granted for a paid checkout");
+    // The grant lifted a stop for used-up credits: the engines it ended and the retests queued meanwhile start again,
+    // as after every other way back (apps/api killswitch.ts `restartAfterResume`). After the commit, never awaited.
+    if (settled.outcome === "granted" && settled.resumed) deps.followups.resumed(named.businessId);
     return ok(settled.outcome);
   } catch (e) {
     await deps.nonces.release(nonce);
