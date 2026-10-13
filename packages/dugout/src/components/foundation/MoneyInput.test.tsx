@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MoneyInput } from "./MoneyInput";
+import { MoneyInput, rawCaret } from "./MoneyInput";
 
 function Controlled({ initial = "60000", onRaw }: { initial?: string; onRaw?: (v: string) => void }) {
   const [v, setV] = useState(initial);
@@ -67,6 +67,34 @@ describe("MoneyInput", () => {
     expect(onRaw).toHaveBeenLastCalledWith("75000");
     await userEvent.tab();
     expect(el.value).toBe("75,000");
+  });
+
+  it("maps a caret in the grouped text to the same place in the raw text", () => {
+    expect(rawCaret("12,000", "12000", 3)).toBe(2); // just after the comma: between 2 and 0
+    expect(rawCaret("12,000", "12000", 2)).toBe(2);
+    expect(rawCaret("1,205,001", "1205001", 2)).toBe(1);
+    expect(rawCaret("1,205,001", "1205001", 6)).toBe(4);
+    expect(rawCaret("60,000.50", "60000.50", 8)).toBe(7);
+    expect(rawCaret("12,000", "12,000", 3)).toBe(3); // typed with its comma: the comma is still there
+    expect(rawCaret("12.000", "12000", 3, "de-DE")).toBe(2);
+    // A shorthand is not the same text grouped: the caret goes to the end.
+    expect(rawCaret("25,000", "25k", 4)).toBe(3);
+  });
+
+  it("a click keeps its caret beside the digit under the pointer when the grouping goes (GTM-33)", async () => {
+    const onRaw = vi.fn();
+    const user = userEvent.setup();
+    render(<Controlled initial="12000" onRaw={onRaw} />);
+    const el = screen.getByRole("textbox", { name: "Budget" }) as HTMLInputElement;
+    expect(el.value).toBe("12,000");
+    // Click just after the comma, then type 5: the digit lands there, giving 125,000 (not 120,500).
+    await user.pointer({ keys: "[MouseLeft]", target: el, offset: 3 });
+    await waitFor(() => expect(el.value).toBe("12000"));
+    expect([el.selectionStart, el.selectionEnd]).toEqual([2, 2]);
+    await user.keyboard("5");
+    expect(onRaw).toHaveBeenLastCalledWith("125000");
+    await user.tab();
+    expect(el.value).toBe("125,000");
   });
 
   it("leaves text it cannot read as a number alone", () => {

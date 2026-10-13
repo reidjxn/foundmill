@@ -91,6 +91,30 @@ describe("ContinueButton", () => {
     }
   });
 
+  it("keeps keyboard focus while its action is pending and across a change of state (WCAG 2.4.3)", async () => {
+    const user = userEvent.setup();
+    const onContinue = vi.fn();
+    const onComeBack = vi.fn();
+    const { rerender } = render(<ContinueButton state={{ kind: "idle" }} onContinue={onContinue} onComeBack={onComeBack} />);
+    const button = screen.getByRole("button", { name: "Continue" });
+    button.focus();
+    await user.keyboard("{Enter}");
+    expect(onContinue).toHaveBeenCalledTimes(1);
+    // The cycle is starting: the button is busy and refuses a second press, but it still has focus.
+    rerender(<ContinueButton state={{ kind: "idle" }} pending onContinue={onContinue} onComeBack={onComeBack} />);
+    expect(document.activeElement).toBe(button);
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    await user.keyboard("{Enter}");
+    expect(onContinue).toHaveBeenCalledTimes(1);
+    rerender(<ContinueButton state={{ kind: "processing" }} onContinue={onContinue} onComeBack={onComeBack} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Pause the running cycle" }));
+    // Vacation wraps the button with its caption (a new element): focus follows it there and back.
+    rerender(<ContinueButton state={{ kind: "holiday", until: "2026-10-21" }} onContinue={onContinue} onComeBack={onComeBack} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Come back" }));
+    rerender(<ContinueButton state={{ kind: "idle" }} onContinue={onContinue} onComeBack={onComeBack} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Continue" }));
+  });
+
   it("does not act when disabled", async () => {
     const user = userEvent.setup();
     const onContinue = vi.fn();

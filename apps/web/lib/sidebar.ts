@@ -18,6 +18,8 @@ export interface SidebarDepartment {
   colourToken: DeptColourToken;
   position: number;
   hidden?: boolean;
+  /** The stored G-chord letter (departments.shortcut); null until the API settles one. */
+  shortcut?: string | null;
   squad?: readonly { id: string }[];
   tabs: readonly { slug: string; position: number }[];
 }
@@ -79,7 +81,7 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
     { id: SIDEBAR_IDS.inbox, label: "Inbox", icon: Inbox, href: routes.inbox(bid), group: "main", fixed: "inbox", badge: respond || undefined, badgeTone: "bad" },
   ];
   for (const d of orderedVisibleDepartments(input.departments)) {
-    items.push({ id: d.id, label: d.name, icon: iconByName(d.icon) as LucideIcon, href: departmentHref(bid, d), group: "department", dept: d.colourToken, badge: badges.get(d.id) || undefined });
+    items.push({ id: d.id, label: d.name, icon: iconByName(d.icon) as LucideIcon, href: departmentHref(bid, d), group: "department", dept: d.colourToken, shortcut: d.shortcut ?? null, badge: badges.get(d.id) || undefined });
   }
   items.push({ id: SIDEBAR_IDS.crm, label: "CRM", icon: Users, href: routes.crm(bid), group: "main", fixed: "crm" });
   items.push({ id: SIDEBAR_IDS.milestones, label: "Milestones", icon: Trophy, href: `/b/${bid}/milestones`, group: "main" });

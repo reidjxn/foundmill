@@ -1,12 +1,13 @@
 "use client";
 /**
- * Settings › Departments (BUILD §11.13): rename, reorder, hide, merge, split, archive, reset to the archetype's
- * defaults. Every change goes through department.* and re-renders the sidebar (AC-11.13.1, AC-11.13.2).
+ * Settings › Departments (BUILD §11.13): rename, reorder, hide, choose the G shortcut, merge, split, archive, reset to
+ * the archetype's defaults. Every change goes through department.* and re-renders the sidebar (AC-11.13.1, AC-11.13.2).
+ * Each department keeps its stored letter, so renaming one never moves another's chord.
  */
 import { useMutation } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Check, GitMerge, Pencil, RotateCcw, Scissors, Trash2, X } from "lucide-react";
 import { useState } from "react";
-import { Button, Checkbox, Chip, DeptChip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, Label, SimpleSelect, Switch, departmentLetters } from "@foundmill/dugout";
+import { Button, Checkbox, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, Label, SimpleSelect, Switch, DEPARTMENT_SHORTCUT_LETTERS, departmentLetters } from "@foundmill/dugout";
 import { MODULE_KEYS, type ModuleKey } from "@foundmill/shared/constants";
 import { MODULE_WORDS, moduleList } from "@/lib/format";
 import { useTRPC } from "@/lib/trpc-react";
@@ -30,9 +31,23 @@ export function DepartmentsTab() {
   const split = useMutation(trpc.department.split.mutationOptions({ onSuccess: after("Department split"), onError: (e) => t.failed(e) }));
   const archive = useMutation(trpc.department.archive.mutationOptions({ onSuccess: after("Department archived"), onError: (e) => t.failed(e) }));
   const reset = useMutation(trpc.department.resetDefaults.mutationOptions({ onSuccess: after("Defaults restored"), onError: (e) => t.failed(e) }));
+  const setShortcut = useMutation(trpc.department.setShortcut.mutationOptions({ onSuccess: after("Shortcut saved"), onError: (e) => t.failed(e) }));
 
   const ordered = departments.slice().sort((a, b) => a.position - b.position);
-  const letters = departmentLetters(orderedVisibleDepartments(departments).map((d) => ({ id: d.id, name: d.name })));
+  const letters = departmentLetters(orderedVisibleDepartments(departments).map((d) => ({ id: d.id, name: d.name, shortcut: d.shortcut })));
+  // Which department holds each letter, so the picker can say what a choice swaps with.
+  const holderOf = new Map<string, DepartmentRow>();
+  for (const d of ordered) {
+    const l = letters.get(d.id) ?? d.shortcut;
+    if (l) holderOf.set(l, d);
+  }
+  const shortcutOptions = (d: DepartmentRow) => [
+    { value: "auto", label: letters.get(d.id) && !d.shortcutChosen ? `Automatic (G ${letters.get(d.id)})` : "Automatic" },
+    ...DEPARTMENT_SHORTCUT_LETTERS.map((l) => {
+      const holder = holderOf.get(l);
+      return { value: l, label: holder && holder.id !== d.id ? `G ${l} (swaps with ${holder.name})` : `G ${l}` };
+    }),
+  ];
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [mergeFrom, setMergeFrom] = useState<DepartmentRow | null>(null);
@@ -61,7 +76,18 @@ export function DepartmentsTab() {
                 <IconButton label="Move up" icon={ArrowUp} size="sm" disabled={i === 0 || reorder.isPending} onClick={() => move(i, -1)} />
                 <IconButton label="Move down" icon={ArrowDown} size="sm" disabled={i === ordered.length - 1 || reorder.isPending} onClick={() => move(i, 1)} />
               </span>
-              <DeptChip dept={d.colourToken}>{letters.get(d.id) ? `G ${letters.get(d.id)}` : "—"}</DeptChip>
+              <SimpleSelect
+                aria-label={`Shortcut for ${d.name}`}
+                controlSize="sm"
+                className="w-auto shrink-0"
+                value={d.shortcutChosen && d.shortcut ? d.shortcut : "auto"}
+                onValueChange={(v) => setShortcut.mutate({ businessId, departmentId: d.id, letter: v === "auto" ? null : v })}
+                // Not turned off while the choice saves: the picker keeps keyboard focus (a disabled trigger drops it to
+                // <body>). A hidden department has no chord until it is shown again.
+                disabled={d.hidden}
+                options={shortcutOptions(d)}
+                data-shortcut={letters.get(d.id) ?? ""}
+              />
               {editingId === d.id ? (
                 <form
                   className="flex flex-1 items-center gap-1"

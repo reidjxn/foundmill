@@ -129,6 +129,19 @@ describe("AppShell", () => {
     expect(onNavigate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "home" }));
   });
 
+  it("honors a department's stored letter in the sidebar, the chord and the help overlay", async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    // Finance stores Q (chosen in Settings › Departments): the name would give N.
+    const sidebar = NORTHWIND_SIDEBAR.map((i) => (i.id === "d-finance" ? { ...i, shortcut: "Q" } : i));
+    expect(withSidebarKeys(sidebar).find((i) => i.id === "d-finance")?.keys).toEqual(["G", "Q"]);
+    render(<AppShell {...shellProps({ onNavigate, sidebar: { items: sidebar, collapsed: false, onCollapsedChange: () => {} } })} />);
+    expect(screen.getByRole("link", { name: "Finance" }).getAttribute("aria-keyshortcuts")).toBe("G Q");
+    document.body.focus();
+    await user.keyboard("gq");
+    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: "d-finance" }));
+  });
+
   it("Space continues, / opens the palette, ? opens help, Esc closes them in order", async () => {
     const user = userEvent.setup();
     const onContinue = vi.fn();

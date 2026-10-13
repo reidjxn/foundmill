@@ -55,7 +55,10 @@ export function FeedPost({ author, badge, status, actions, at, children, replyCo
         </time>
         {actions ? <span className="-my-1 flex shrink-0 items-center">{actions}</span> : null}
       </header>
-      <div className="pl-8 text-body text-primary">{children}</div>
+      {/* A long unbroken word or URL wraps instead of running past the panel's edge (where it was clipped). */}
+      <div className="min-w-0 pl-8 text-body text-primary wrap-anywhere" data-feed-post-body>
+        {children}
+      </div>
       {onReply || onToggleReplies ? (
         <footer className="flex items-center gap-1 pl-7">
           {onToggleReplies ? (

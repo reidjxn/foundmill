@@ -3,6 +3,7 @@ import { forwardRef, type ComponentPropsWithoutRef, type ElementRef, type ReactN
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "../../lib/cn";
+import { joinDescribedBy, useFieldAria } from "./Label";
 import { Icon } from "./Icon";
 import { menuContentClass, menuItemClass, menuLabelClass, menuSeparatorClass } from "./menuStyles";
 
@@ -28,10 +29,12 @@ export const SelectTrigger = forwardRef<ElementRef<typeof SelectPrimitive.Trigge
   { className, children, controlSize = "md", invalid, ...props },
   ref,
 ) {
+  const field = useFieldAria(props.id);
   return (
     <SelectPrimitive.Trigger
       ref={ref}
-      aria-invalid={invalid || undefined}
+      aria-invalid={invalid || field?.invalid || undefined}
+      aria-required={field?.required || undefined}
       data-size={controlSize}
       className={cn(
         "group field-well flex w-full min-w-0 items-center justify-between gap-2 rounded-sm text-body text-primary",
@@ -41,6 +44,7 @@ export const SelectTrigger = forwardRef<ElementRef<typeof SelectPrimitive.Trigge
         className,
       )}
       {...props}
+      aria-describedby={joinDescribedBy(props["aria-describedby"], field?.describedBy)}
     >
       {children}
       <SelectPrimitive.Icon asChild>

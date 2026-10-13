@@ -24,6 +24,14 @@ describe("VisionScreen", () => {
     expect(within(now).getByText("Done")).toBeTruthy();
   });
 
+  it("gives each outline row a 24 px target (WCAG 2.5.8; they were 19 px, stacked)", () => {
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "department.list": departments } });
+    const { container } = renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />);
+    const rows = Array.from(container.querySelectorAll("[data-outline-section]"));
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) expect(row.className).toContain("min-h-target");
+  });
+
   it("navigates to the block in the Specification tab from a pinned block", () => {
     const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "department.list": departments } });
     renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />);

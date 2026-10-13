@@ -96,7 +96,9 @@ export function generateJourneyFixture(opts: { days?: number; today?: string; se
     const key = day(d);
     const ramp = 0.3 + 0.7 * (1 - Math.exp(-i / 45));
     const growth = 1 + 0.6 * (i / days);
-    const dow = d.getUTCDay();
+    // The weekday of the local calendar day `d` stands for (parseISO and format are local too): getUTCDay() read the
+    // day before east of UTC, so the example business showed different figures in different time zones.
+    const dow = d.getDay();
     const weekly = dow === 0 || dow === 6 ? 0.55 : 1;
     const season = 1 + 0.12 * Math.sin((2 * Math.PI * (i + 40)) / 365);
     let launchBoost = 1;

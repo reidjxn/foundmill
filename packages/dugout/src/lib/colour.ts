@@ -144,24 +144,35 @@ export const ON_KIT_LIGHT = "#FFFFFF";
 export const ON_KIT_DARK = "#0F1318";
 /** DESIGN §5: text on kit colour must pass APCA Lc >= 75. */
 export const KIT_MIN_LC = 75;
+/** DESIGN §2 "WCAG AA is the floor": text on kit colour also reaches 4.5 : 1 (APCA alone let white on #3F7FE0 through). */
+export const KIT_MIN_WCAG = 4.5;
 
 export interface KitOnPrimaryResult {
   colour: string;
   lc: number;
-  /** False when neither candidate reaches Lc 75; the better one is still returned. */
+  /** WCAG 2 contrast of the chosen colour on the kit colour. */
+  ratio: number;
+  /** False when neither candidate reaches both Lc 75 and 4.5 : 1; the safer one is still returned. */
   passes: boolean;
 }
 
-/** Detailed variant of kitOnPrimary. */
+/**
+ * Detailed variant of kitOnPrimary. A candidate passes when it reaches both APCA Lc 75 and WCAG 4.5 : 1 (white first).
+ * When neither does, the one that still reaches the WCAG floor wins, else the one with the higher ratio, so text on a
+ * brand colour never drops below AA when one of the two could keep it there.
+ */
 export function kitOnPrimaryDetail(kitPrimaryHex: string): KitOnPrimaryResult {
-  const light = Math.abs(apcaLc(ON_KIT_LIGHT, kitPrimaryHex));
-  const dark = Math.abs(apcaLc(ON_KIT_DARK, kitPrimaryHex));
-  if (light >= KIT_MIN_LC) return { colour: ON_KIT_LIGHT, lc: light, passes: true };
-  if (dark >= KIT_MIN_LC) return { colour: ON_KIT_DARK, lc: dark, passes: true };
-  return light >= dark ? { colour: ON_KIT_LIGHT, lc: light, passes: false } : { colour: ON_KIT_DARK, lc: dark, passes: false };
+  const [light, dark] = [ON_KIT_LIGHT, ON_KIT_DARK].map((colour) => ({ colour, lc: Math.abs(apcaLc(colour, kitPrimaryHex)), ratio: contrastRatio(colour, kitPrimaryHex) })) as [
+    Omit<KitOnPrimaryResult, "passes">,
+    Omit<KitOnPrimaryResult, "passes">,
+  ];
+  const ok = [light, dark].find((c) => c.lc >= KIT_MIN_LC && c.ratio >= KIT_MIN_WCAG);
+  if (ok) return { ...ok, passes: true };
+  const floor = [light, dark].find((c) => c.ratio >= KIT_MIN_WCAG);
+  return { ...(floor ?? (light.ratio >= dark.ratio ? light : dark)), passes: false };
 }
 
-/** White or near-black for text on a kit colour, chosen by APCA (prefers white when both pass). */
+/** White or near-black for text on a kit colour: APCA Lc 75 and WCAG 4.5 : 1 (prefers white when both pass). */
 export function kitOnPrimary(kitPrimaryHex: string): string {
   return kitOnPrimaryDetail(kitPrimaryHex).colour;
 }

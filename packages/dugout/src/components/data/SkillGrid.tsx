@@ -54,15 +54,17 @@ export function toggleFocus(
   return [...selected, id];
 }
 
+/**
+ * The change in a skill since the last test. The words are screen-reader text beside the glyphs (an aria-label on a
+ * role-less span is ignored by assistive tech), so the no-value state is announced too.
+ */
 function DeltaArrow({ delta }: { delta: number | undefined }) {
   if (delta === undefined || delta === 0 || !Number.isFinite(delta)) {
     return (
-      <span
-        className="inline-flex w-10 items-center justify-end gap-0.5 text-small text-secondary tabular-nums"
-        aria-label={delta === 0 ? "No change" : "No previous value"}
-      >
+      <span className="inline-flex w-10 items-center justify-end gap-0.5 text-small text-secondary tabular-nums" data-skill-delta>
         <Icon icon={Minus} size={12} />
-        {delta === 0 ? "0" : ""}
+        <span className="sr-only">{delta === 0 ? "No change" : "No previous value"}</span>
+        {delta === 0 ? <span aria-hidden>0</span> : null}
       </span>
     );
   }
@@ -73,10 +75,11 @@ function DeltaArrow({ delta }: { delta: number | undefined }) {
         "inline-flex w-10 items-center justify-end gap-0.5 text-small tabular-nums",
         up ? "text-status-good" : "text-status-bad",
       )}
-      aria-label={`${up ? "Up" : "Down"} ${Math.abs(delta)}`}
+      data-skill-delta
     >
       <Icon icon={up ? TrendingUp : TrendingDown} size={12} />
-      {up ? "▲" : "▼"}
+      <span aria-hidden>{up ? "▲" : "▼"}</span>
+      <span className="sr-only">{up ? "Up" : "Down"} </span>
       {Math.abs(delta)}
     </span>
   );

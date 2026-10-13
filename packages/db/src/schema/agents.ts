@@ -91,10 +91,15 @@ export const departments = pgTable(
     currency: businessCurrency(),
     approvers: jsonb("approvers").$type<unknown[]>().notNull().default(emptyList),
     hidden: boolean("hidden").notNull().default(false),
+    /** The G-chord letter (0040): settled by departmentsRepo on every change, so one rename never moves another's. */
+    shortcut: text("shortcut"),
+    /** The founder chose the letter in Settings › Departments: it survives a rename. */
+    shortcutChosen: boolean("shortcut_chosen").notNull().default(false),
     ...timestampsWithArchive(),
   },
   (t) => [
     uniqueIndex("departments_business_id_slug_key").on(t.businessId, t.slug),
+    uniqueIndex("departments_business_id_shortcut_key").on(t.businessId, t.shortcut).where(sql`${t.shortcut} is not null and ${t.archivedAt} is null`),
     index("departments_business_id_idx").on(t.businessId, t.position),
     index("departments_lead_agent_id_idx").on(t.leadAgentId),
   ],

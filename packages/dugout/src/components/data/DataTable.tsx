@@ -744,6 +744,15 @@ export function DataTable<T>(props: DataTableProps<T>) {
           table.resetRowSelection();
         }
         break;
+      case "ContextMenu":
+      case "F10":
+        // The Menu key or Shift+F10 (WCAG 2.1.1): the focused row's actions, as a right-click on it would open.
+        if (e.key === "F10" && !e.shiftKey) break;
+        if (!rowActions) break;
+        // Prevented, so the browser does not also fire its own contextmenu at the grid for the same key.
+        e.preventDefault();
+        openRowMenu(focusIndex < 0 ? 0 : focusIndex);
+        break;
       default:
         break;
     }
@@ -777,6 +786,29 @@ export function DataTable<T>(props: DataTableProps<T>) {
     setFocusIndex(index);
     anchorRef.current = index;
     if (!r.getIsSelected() && (selectable || onSelectionChange || selectedIds)) selectOnly(index);
+  };
+  /**
+   * Opens the row menu for a row from the keyboard. The grid keeps focus itself (rows are aria-activedescendant), so a
+   * keyboard contextmenu lands on the grid, where no row is known; this re-aims it at the row, which records the row
+   * (as a right-click does) and opens the menu beside it rather than wherever the browser placed the event.
+   */
+  const openRowMenu = (index: number) => {
+    const r = rows[index];
+    if (!r || typeof document === "undefined") return;
+    const rowEl = document.getElementById(rowIdAttr(r));
+    const target = rowEl ?? scrollRef.current?.querySelector("tbody");
+    if (!target) return;
+    if (!rowEl) onRowContextMenu(index);
+    const box = target.getBoundingClientRect();
+    target.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: box.left + 16, clientY: rowEl ? box.bottom : box.top }));
+  };
+  const onGridContextMenu = (e: MouseEvent<HTMLTableElement>) => {
+    // Only the keyboard's contextmenu reaches the grid itself (a screen reader's, or a browser's for the Menu key); a
+    // right-click starts on a row's cell.
+    if (e.target !== e.currentTarget || !rowActions || rows.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openRowMenu(focusIndex < 0 ? 0 : focusIndex);
   };
 
   // ---- CSV -----------------------------------------------------------------------------------------------------------
@@ -979,7 +1011,9 @@ export function DataTable<T>(props: DataTableProps<T>) {
         aria-rowcount={rows.length + 1}
         aria-multiselectable
         aria-activedescendant={activeDescendant}
+        aria-keyshortcuts={rowActions ? "Shift+F10" : undefined}
         onKeyDown={onKeyDown}
+        onContextMenu={onGridContextMenu}
         onFocus={(e) => {
           if (e.target === e.currentTarget) {
             setFocusWithin(true);
@@ -1281,7 +1315,8 @@ export function DataTable<T>(props: DataTableProps<T>) {
       {rowActions ? (
         <ContextMenu onOpenChange={(o) => (o ? null : setMenuRow(null))}>
           <ContextMenuTrigger asChild>{cuedBody}</ContextMenuTrigger>
-          <ContextMenuContent aria-label="Row actions">
+          {/* A browser that fires its own contextmenu on the key's release (focus is in the menu by then) shows nothing. */}
+          <ContextMenuContent aria-label="Row actions" onContextMenu={(e) => e.preventDefault()}>
             {menuActions.length === 0 ? (
               <ContextMenuItem disabled>No actions</ContextMenuItem>
             ) : (

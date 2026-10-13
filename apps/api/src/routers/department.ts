@@ -57,6 +57,18 @@ export const departmentRouter = router({
     }),
   ),
 
+  /**
+   * The G-chord letter for a department (BUILD §11.13 "placement: order, visibility, shortcut"): a letter the founder
+   * chooses (swapped with the department that had it), or null for the automatic one from its name.
+   */
+  setShortcut: adminProcedure.input(z.object({ departmentId: Id, letter: z.string().trim().length(1).nullable() })).mutation(({ ctx, input }) =>
+    ctx.rls(async (tx) => {
+      const dept = await repos.departments.setShortcut(tx, ctx.businessId, input.departmentId, input.letter);
+      await audit(tx, ctx, { action: "department.set_shortcut", target: { kind: "department", id: dept.id }, details: { letter: dept.shortcut, chosen: dept.shortcutChosen } });
+      return dept;
+    }),
+  ),
+
   /** Merge `fromId` into `intoId`: one sidebar item containing both modules' tabs (AC-11.13.2). */
   merge: adminProcedure.input(z.object({ fromId: Id, intoId: Id })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {

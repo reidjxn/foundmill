@@ -6,9 +6,12 @@ import {
   addWidget,
   mergeRglLayout,
   nextRow,
+  nudgeAnnouncement,
   nudgeItem,
   toRglLayout,
+  useWidgetInstanceLabel,
   WidgetGrid,
+  widgetInstanceName,
 } from "./WidgetGrid";
 import { Panel } from "../shell/Panel";
 import { DEMO_WIDGET_REGISTRY, FOUNDERS_VIEW_LAYOUT, WIDGET_PRESETS } from "./fixtures";
@@ -152,6 +155,49 @@ describe("WidgetGrid", () => {
     expect(onChange.mock.calls.at(-1)?.[0].find((it: { i: string }) => it.i === "inbox").h).toBe(
       31,
     );
+  });
+
+  it("names each control after its instance and reads out keyboard moves and resizes (A11Y-18)", async () => {
+    const user = userEvent.setup();
+    function Labelled({ name }: { name: string }) {
+      useWidgetInstanceLabel(name);
+      return <div>{name}</div>;
+    }
+    const cardRegistry = [
+      ...registry,
+      { key: "dept", title: "Department card", defaultSize: { w: 4, h: 20 }, settings: [{ key: "slot", label: "Slot", kind: "number" as const }], render: ({ settings }: { settings: Record<string, unknown> }) => (settings.named ? <Labelled name={String(settings.named)} /> : <div>unnamed</div>) },
+    ];
+    const layout: WidgetLayout = [
+      { i: "d1", widget: "dept", x: 0, y: 0, w: 4, h: 20, settings: { named: "Product" } },
+      { i: "d2", widget: "dept", x: 4, y: 0, w: 4, h: 20, settings: { named: "Finance" } },
+      { i: "d3", widget: "dept", x: 8, y: 0, w: 4, h: 20, settings: {} },
+    ];
+    function Grid() {
+      const [l, setL] = useState<WidgetLayout>(layout);
+      return <WidgetGrid layout={l} registry={cardRegistry} width={1200} defaultEditing onChange={setL} />;
+    }
+    render(<Grid />);
+    // Told apart by department, or by order when a card has no name yet; never six identical names.
+    const handle = await screen.findByRole("button", { name: /^Move Department card: Product\./ });
+    expect(screen.getByRole("button", { name: /^Move Department card: Finance\./ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Move Department card 3 of 3\./ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Department card: Finance settings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove Department card: Product" })).toBeTruthy();
+    handle.focus();
+    await user.keyboard("{ArrowDown}");
+    const status = document.querySelector("[data-widget-grid-status]")!;
+    expect(status.getAttribute("aria-live")).toBe("polite");
+    expect(status.textContent).toBe("Department card: Product moved to column 1, row 2");
+    await user.keyboard("{Shift>}{ArrowLeft}{/Shift}");
+    expect(status.textContent).toBe("Department card: Product resized to 3 columns by 20 rows");
+  });
+
+  it("builds instance names and move announcements", () => {
+    expect(widgetInstanceName("Department card", "Product", 0, 6)).toBe("Department card: Product");
+    expect(widgetInstanceName("Department card", undefined, 1, 6)).toBe("Department card 2 of 6");
+    expect(widgetInstanceName("Journey Ribbon", undefined, 0, 1)).toBe("Journey Ribbon");
+    expect(nudgeAnnouncement("Inbox preview", "right", { i: "x", widget: "inbox", x: 2, y: 4, w: 4, h: 10 })).toBe("Inbox preview moved to column 3, row 5");
+    expect(nudgeAnnouncement("Inbox preview", "taller", { i: "x", widget: "inbox", x: 2, y: 4, w: 4, h: 11 })).toBe("Inbox preview resized to 4 columns by 11 rows");
   });
 
   it("applies presets and resets to the default layout", async () => {

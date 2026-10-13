@@ -245,7 +245,8 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
   useKeyboardMap({
     enabled: dialog === null,
     onEscape: () => setSelection([]),
-    onContinue: goCompare,
+    // Space compares only when there is something to compare; otherwise it stays the page's (or the focused control's).
+    onContinue: canCompare ? goCompare : undefined,
   });
 
   // Stable handlers, so a streamed card (or a ticking timer) re-renders only what changed, not every card in the deck.

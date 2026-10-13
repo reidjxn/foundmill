@@ -31,7 +31,7 @@ describe("FoundationsStatus", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it("ready: the summary and the way in; retrying disables the button", async () => {
+  it("ready: the summary and the way in; retrying makes the button busy", async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();
     const { rerender } = render(<FoundationsStatus state="ready" summary="10 sections · 11 roadmap items" onOpen={onOpen} />);
@@ -40,7 +40,9 @@ describe("FoundationsStatus", () => {
     await user.click(screen.getByRole("button", { name: "Open the vision" }));
     expect(onOpen).toHaveBeenCalledTimes(1);
     rerender(<FoundationsStatus state="failed" onRetry={() => {}} retrying />);
-    expect((screen.getByRole("button", { name: "Try again" }) as HTMLButtonElement).disabled).toBe(true);
+    // Busy, not disabled: it refuses presses but keeps keyboard focus (Button `loading`).
+    const retry = screen.getByRole("button", { name: "Try again" });
+    expect([retry.getAttribute("aria-busy"), retry.getAttribute("aria-disabled")]).toEqual(["true", "true"]);
   });
 
   it("only pending, drafting and failed need attention", () => {

@@ -11,7 +11,7 @@ import { z } from "zod";
 import { LayoutGrid } from "lucide-react";
 import type { AgentStatus, EntityKind, ModuleKey } from "@foundmill/shared";
 import { MODULE_KEYS } from "@foundmill/shared/constants";
-import { DepartmentCard, formatDate, formatMoney, formatNumber, useDateFormat, type DateFormatPrefs, type DepartmentCardData, type DepartmentMetric, type DepartmentQuietLine, type HealthTone, type SquadMember } from "@foundmill/dugout";
+import { DepartmentCard, formatDate, formatMoney, formatNumber, useDateFormat, useWidgetInstanceLabel, type DateFormatPrefs, type DepartmentCardData, type DepartmentMetric, type DepartmentQuietLine, type HealthTone, type SquadMember } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type QueryState } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { primaryModule, resolveDepartment, useDepartments } from "../shared/departments";
@@ -217,6 +217,8 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
   const datePrefs = useDateFormat();
   const departments = useDepartments();
   const dept = resolveDepartment(departments.data, settings);
+  // The grid's edit controls name this card by its department ("Move Department card: Product").
+  useWidgetInstanceLabel(dept?.name);
   const enabled = !!dept;
   const metricKey = metricKeyFor(settings, dept);
 

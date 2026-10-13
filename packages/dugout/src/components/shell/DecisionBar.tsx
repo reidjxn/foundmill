@@ -1,5 +1,5 @@
 "use client";
-import { forwardRef, useId, useState, type CSSProperties, type FormEvent, type HTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type HTMLAttributes, type ReactNode } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { CircleCheck, MessageCircle, Play, RotateCcw, ThumbsUp, TriangleAlert } from "lucide-react";
 import type { Money } from "@foundmill/shared";
@@ -11,6 +11,8 @@ import { Icon } from "../foundation/Icon";
 import { Input } from "../foundation/Input";
 import { Kbd } from "../foundation/Kbd";
 import { StatusPill } from "../foundation/StatusPill";
+
+const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /** One option from the Composer schema (BUILD §11.3 `decision.options`). */
 export interface DecisionOption {
@@ -146,8 +148,36 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
 ) {
   const shown = options.slice(0, DECISION_OPTIONS_MAX);
   const [text, setText] = useState("");
+  const [chosenId, setChosenId] = useState<string | null>(null);
   const baseId = useId();
   const locked = !!disabled || !!executing || !!answered;
+  // While the choice is being carried out the options refuse presses but keep keyboard focus (aria-disabled, not
+  // `disabled`): a control that turns disabled under the keyboard drops focus to <body> (WCAG 2.4.3).
+  const busy = !!executing && !disabled && !answered;
+  const choose = (option: DecisionOption) => {
+    setChosenId(option.id);
+    onChoose(option);
+  };
+
+  // Once the decision is recorded the options give way to the "Decided" line; when one of them had focus, the line
+  // takes it, so the founder keeps their place. Whether focus was inside is read at render, before the swap commits.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const summaryRef = useRef<HTMLDivElement | null>(null);
+  const setRootRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      rootRef.current = node;
+      if (typeof ref === "function") ref(node);
+      else if (ref) ref.current = node;
+    },
+    [ref],
+  );
+  const isAnswered = !!answered;
+  const focusInside = typeof document !== "undefined" && !!rootRef.current?.contains(document.activeElement);
+  useIsoLayoutEffect(() => {
+    if (!isAnswered || !focusInside) return;
+    const active = document.activeElement;
+    if (!active || active === document.body || !rootRef.current?.contains(active)) summaryRef.current?.focus({ preventScroll: true });
+  }, [isAnswered, focusInside]);
   const showKeys = keyHints ?? hotkeys;
   const leftLine = deadline ?? note;
   const trailingNote = deadline !== undefined && deadline !== null ? note : undefined;
@@ -159,7 +189,7 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
       const option = shown[n - 1];
       if (!option || option.disabled) return;
       e.preventDefault();
-      onChoose(option);
+      choose(option);
     },
     { enabled: hotkeys && !locked },
     [shown, onChoose, hotkeys, locked],
@@ -177,7 +207,7 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
 
   return (
     <div
-      ref={ref}
+      ref={setRootRef}
       role="group"
       aria-label="Decision"
       data-testid="decision-bar"
@@ -186,7 +216,7 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
       {...rest}
     >
       {answered ? (
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+        <div ref={summaryRef} tabIndex={-1} className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 rounded-sm outline-none focus-visible:shadow-ring" data-decision-summary>
           <StatusPill tone="good" icon={CircleCheck}>
             Decided
           </StatusPill>
@@ -224,8 +254,10 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
                     <HoverCardTrigger asChild>
                       <Button
                         variant={o.recommended ? "primary" : "default"}
-                        disabled={locked || o.disabled}
-                        onClick={() => onChoose(o)}
+                        disabled={!!disabled || o.disabled}
+                        loading={busy && chosenId === o.id}
+                        aria-disabled={busy || undefined}
+                        onClick={busy ? undefined : () => choose(o)}
                         aria-describedby={descId}
                         aria-keyshortcuts={hotkeys || showKeys ? String(i + 1) : undefined}
                         data-option-id={o.id}
@@ -287,7 +319,8 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   placeholder={freeTextPlaceholder}
-                  disabled={locked}
+                  disabled={!!disabled || !!answered}
+                  readOnly={busy}
                   aria-label="Free-text instruction"
                   wrapperClassName="min-w-0 flex-1"
                 />

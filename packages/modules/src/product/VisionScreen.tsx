@@ -153,7 +153,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
             <ol className="grid grid-cols-2 gap-x-3 gap-y-0.5">
               {groups.map((g) => (
                 <li key={g.section} className="min-w-0">
-                  <button type="button" onClick={() => openBlock(g.blocks[0]!.id)} className="flex w-full items-baseline gap-1.5 rounded-xs py-0.5 text-left text-small text-secondary outline-none hover:text-primary focus-visible:outline-2 focus-visible:outline-link" data-outline-section={g.section}>
+                  <button type="button" onClick={() => openBlock(g.blocks[0]!.id)} className="flex min-h-target w-full items-center gap-1.5 rounded-xs py-1 text-left text-small text-secondary outline-none hover:text-primary focus-visible:outline-2 focus-visible:outline-link" data-outline-section={g.section}>
                     <span className="min-w-0 break-words">{g.section}</span>
                     {g.blocks.length > 1 ? <span className="tabular-nums text-tertiary">{g.blocks.length}</span> : null}
                   </button>

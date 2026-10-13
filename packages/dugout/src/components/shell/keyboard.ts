@@ -1,69 +1,68 @@
 "use client";
 /**
  * The keyboard map (BUILD §5.5):
- * Space = Continue · R = refresh Inbox · G then letter = go to section (G H Home, G I Inbox, G C CRM; departments get
- * letters from their names, de-duplicated) · / or Cmd-K = search · J/K = next/prev inbox item · 1–4 = choose decision
- * option · E = edit layout · Esc = close overlay.
+ * Space = Continue (unless a control has focus: then Space is the control's) · R = refresh Inbox · G then letter = go to
+ * section (G H Home, G I Inbox, G C CRM; departments keep their stored letter, or get one from their name,
+ * de-duplicated) · / or Cmd-K = search · J/K = next/prev inbox item · 1–4 = choose decision option · E = edit layout ·
+ * Esc = close overlay.
  *
- * `departmentLetters` is pure and tested; `useKeyboardMap` binds the keys with react-hotkeys-hook. The G chord is
- * tracked here rather than with the library's `g>h` sequences because a department letter may coincide with a
- * single-key shortcut (R, J, K, E) and the chord must win while it is pending.
+ * `departmentLetters` (in @foundmill/shared, so the API stores the same letters) is pure and tested; `useKeyboardMap`
+ * binds the keys with react-hotkeys-hook. The G chord is tracked here rather than with the library's `g>h` sequences
+ * because a department letter may coincide with a single-key shortcut (R, J, K, E) and the chord must win while it is
+ * pending.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
+import { CHORD_LETTER, RESERVED_SECTION_LETTERS, departmentLetters, type DepartmentForKeys } from "@foundmill/shared";
 
-/** Letters the chord reserves for fixed surfaces. G is excluded so "G G" never restarts the chord. */
-export const RESERVED_SECTION_LETTERS: Readonly<Record<string, "home" | "inbox" | "crm">> = { H: "home", I: "inbox", C: "crm" };
-const CHORD_LETTER = "G";
+// The letter rules are pure and shared with the API, which stores each department's letter (departments.shortcut).
+export { CHORD_LETTER, DEPARTMENT_SHORTCUT_LETTERS, RESERVED_SECTION_LETTERS, departmentLetters, isDepartmentShortcut, letterCandidates, type DepartmentForKeys } from "@foundmill/shared";
+
 /** Milliseconds a pending G chord waits for its letter. */
 export const CHORD_TIMEOUT_MS = 1000;
 
-export interface DepartmentForKeys {
-  id: string;
-  name: string;
-}
-
-function asciiLetters(name: string): string[] {
-  return Array.from(name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase()).filter((c) => /^[A-Z]$/.test(c));
-}
-
-/** Candidate letters for a name: initials of each word first, then the remaining letters in order. */
-export function letterCandidates(name: string): string[] {
-  const words = name
-    .split(/[^\p{L}\p{N}]+/u)
-    .map((w) => asciiLetters(w))
-    .filter((w) => w.length > 0);
-  const initials = words.map((w) => w[0] as string);
-  const rest = words.flatMap((w) => w.slice(1));
-  const out: string[] = [];
-  for (const c of [...initials, ...rest]) if (!out.includes(c)) out.push(c);
-  return out;
-}
+/** Elements whose own behavior Space drives: it presses buttons, toggles boxes, opens summaries, types into fields. */
+const SPACE_TAGS = new Set(["BUTTON", "A", "SUMMARY", "INPUT", "SELECT", "TEXTAREA", "OPTION", "AUDIO", "VIDEO", "IFRAME"]);
+/** ARIA widgets that take Space (WAI-ARIA APG): activation, selection or toggling. */
+const SPACE_ROLES = new Set([
+  "button",
+  "checkbox",
+  "switch",
+  "radio",
+  "radiogroup",
+  "tab",
+  "tablist",
+  "option",
+  "listbox",
+  "menu",
+  "menubar",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "link",
+  "treeitem",
+  "tree",
+  "grid",
+  "gridcell",
+  "row",
+  "slider",
+  "spinbutton",
+  "combobox",
+  "textbox",
+  "searchbox",
+]);
 
 /**
- * Assign one letter per department for the G chord, in the founder's order, de-duplicated.
- * Reserved letters (H, I, C, G) are never used. A department whose name offers no free letter takes the first free
- * letter of the alphabet; when the alphabet is exhausted it gets none.
+ * True when Space belongs to the focused element rather than to Continue: a native control (button, link, summary, form
+ * field), anything editable, or an ARIA widget. Continue (and any page-level Space) fires only when focus is on the page
+ * or on plain content; otherwise a keyboard user toggling a checkbox or a switch would start a cycle instead.
  */
-export function departmentLetters(departments: readonly DepartmentForKeys[]): Map<string, string> {
-  const used = new Set<string>([...Object.keys(RESERVED_SECTION_LETTERS), CHORD_LETTER]);
-  const out = new Map<string, string>();
-  for (const d of departments) {
-    const pick = letterCandidates(d.name).find((c) => !used.has(c));
-    if (pick) {
-      used.add(pick);
-      out.set(d.id, pick);
-    }
-  }
-  const alphabet = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i));
-  for (const d of departments) {
-    if (out.has(d.id)) continue;
-    const fallback = alphabet.find((c) => !used.has(c));
-    if (!fallback) continue;
-    used.add(fallback);
-    out.set(d.id, fallback);
-  }
-  return out;
+export function spaceBelongsTo(target: EventTarget | null): boolean {
+  if (typeof Element === "undefined" || !(target instanceof Element)) return false;
+  if (SPACE_TAGS.has(target.tagName)) return true;
+  if ((target as HTMLElement).isContentEditable || target.matches('[contenteditable]:not([contenteditable="false"])')) return true;
+  const role = target.getAttribute("role");
+  return role ? role.split(/\s+/).some((r) => SPACE_ROLES.has(r)) : false;
 }
 
 export type GoToTarget = { kind: "home" } | { kind: "inbox" } | { kind: "crm" } | { kind: "department"; id: string };
@@ -150,7 +149,8 @@ export function useKeyboardMap(ctx: KeyboardMapContext): KeyboardMapResult {
       e.preventDefault();
       ctxRef.current.onContinue();
     },
-    { enabled: single },
+    // Space stays with a focused control (it presses the button, ticks the box); Continue only takes it from the page.
+    { enabled: (e) => single(e) && !spaceBelongsTo(e.target) },
   );
   useHotkeys(
     "r",

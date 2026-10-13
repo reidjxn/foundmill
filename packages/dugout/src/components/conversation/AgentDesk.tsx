@@ -16,6 +16,7 @@ import { Button } from "../foundation/Button";
 import { useDateFormat } from "../foundation/DateFormatProvider";
 import { Skeleton } from "../foundation/Skeleton";
 import { Icon } from "../foundation/Icon";
+import { FocusOrigin, useReturnFocus } from "../foundation/ReturnFocus";
 import { DeskPresence } from "./DeskPresence";
 import { QuickReplies, isTypingTarget, type QuickReplyKeyModifier } from "./QuickReplies";
 import { Reaction } from "./Reaction";
@@ -148,6 +149,8 @@ export function AgentDesk(props: AgentDeskProps) {
         : OPENING_FALLBACK_REPLIES
       : offered;
 
+  // The sheet hands focus back to whatever opened it when it closes.
+  const returnFocus = useReturnFocus();
   // Keyboard continuity: a reply pressed from the keyboard unmounts with the strip; keep focus in the conversation.
   const threadRef = useRef<HTMLDivElement>(null);
   const focusInStrip = useRef(false);
@@ -218,11 +221,13 @@ export function AgentDesk(props: AgentDeskProps) {
               e.preventDefault();
               (e.currentTarget as HTMLElement | null)?.focus();
             }}
+            onCloseAutoFocus={returnFocus.onCloseAutoFocus}
             onEscapeKeyDown={(e) => {
               // Escape in the Write field closes the field, not the sheet.
               if (isTypingTarget(e.target)) e.preventDefault();
             }}
           >
+            <FocusOrigin origin={returnFocus.origin} />
             <DialogPrimitive.Title className="sr-only">{label}</DialogPrimitive.Title>
             <DeskPresence persona={persona} replying={replying} layout="band" surface="surface-3" />
             {subject ? (

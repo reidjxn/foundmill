@@ -48,8 +48,11 @@ describe("SkillGrid", () => {
     expect(
       within(screen.getByRole("region", { name: "Execution" })).getAllByRole("listitem"),
     ).toHaveLength(5);
-    expect(screen.getAllByLabelText("Up 2")).toHaveLength(2); // API design, Reliability
-    expect(screen.getByLabelText("Down 3")).toBeTruthy();
+    // Read as words beside the glyphs (screen-reader text), not as aria-labels on role-less spans.
+    const deltas = Array.from(document.querySelectorAll("[data-skill-delta]")).map((d) => d.textContent);
+    expect(deltas.filter((t) => t === "▲Up 2")).toHaveLength(2); // API design, Reliability
+    expect(deltas).toContain("▼Down 3");
+    expect(document.querySelectorAll("[data-skill-delta][aria-label]")).toHaveLength(0);
     expect(screen.getAllByText("Drop")).toHaveLength(2); // drops > 1 point: Debugging −2, Cost efficiency −3
     expect(skillHoverText(BACKEND_SKILLS[0]!)).toBe(
       "Tested 14 · Proven 16 · 45 tasks · Potential 18",
@@ -176,7 +179,13 @@ describe("MetricTile and StatusStrip", () => {
     );
     expect(screen.getByText("Runway")).toBeTruthy();
     expect(screen.getByText("11.4")).toBeTruthy();
-    expect(screen.getByLabelText("down 0.6 vs last month").getAttribute("data-tone")).toBe("bad");
+    // The change is read as words and figure, never as an aria-label on a role-less span (which readers ignore).
+    const delta = screen.getByText("vs last month").closest("[data-delta]")!;
+    expect(delta.getAttribute("data-tone")).toBe("bad");
+    expect(delta.textContent).toBe("down 0.6vs last month");
+    expect(delta.querySelector(".sr-only")?.textContent).toBe("down ");
+    expect(delta.hasAttribute("aria-label")).toBe(false);
+    expect(delta.querySelectorAll("[aria-hidden=true]:not(svg)")).toHaveLength(0);
     expect(screen.getByText("Forecast")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /Where this number comes from: Finance forecast/ }),
@@ -209,6 +218,12 @@ describe("MetricTile and StatusStrip", () => {
     fireEvent.click(screen.getByRole("button", { name: /Where this number comes from: Bank balances/ }));
     expect(opened).toEqual(["cash", "runway"]);
     expect(screen.getAllByRole("button")).toHaveLength(3);
+  });
+  it("a clickable tile's name carries its change, and its info button is a 24 px target", () => {
+    render(<StatusStrip tiles={[{ label: "Customers this week", value: 55, delta: { value: 19, label: "vs last week" }, provenance: { source: "Payments" }, onClick: () => {} }]} />);
+    expect(screen.getByRole("button", { name: "Customers this week 55, up 19 vs last week" })).toBeTruthy();
+    const info = screen.getByRole("button", { name: /Where this number comes from/ });
+    expect(info.className).toContain("size-target");
   });
 });
 

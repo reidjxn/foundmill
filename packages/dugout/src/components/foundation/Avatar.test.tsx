@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Avatar, AvatarStack, avatarGeometry, deptPalette, generateAvatar, ringForStatus } from "./Avatar";
+import { Avatar, AvatarStack, avatarGeometry, deptPalette, generateAvatar, ringForStatus, statusGlyph } from "./Avatar";
 
 describe("generateAvatar", () => {
   it("is deterministic and seed-sensitive", () => {
@@ -102,10 +102,32 @@ describe("Avatar", () => {
     expect(el.className).toContain("tone-status-info");
   });
 
+  it("names the status in its own words and adds a shape to the colour (VA11Y-X1, A11Y-17)", () => {
+    const { rerender, container } = render(<Avatar name="Certification Specialist" agent={{ seed: "c", dept: "dept-2" }} status="degraded" size={26} />);
+    let el = screen.getByRole("img", { name: "Certification Specialist, degraded" });
+    expect(el.getAttribute("data-ring")).toBe("warn");
+    expect(container.querySelector("[data-glyph='degraded'] svg")).not.toBeNull();
+    rerender(<Avatar name="PR Engine" agent={{ seed: "p", dept: "dept-3" }} status="paused" size={26} />);
+    el = screen.getByRole("img", { name: "PR Engine, paused" });
+    expect(el.getAttribute("data-ring")).toBe("idle");
+    expect(el.querySelector(".avatar-ring")?.hasAttribute("data-dashed")).toBe(true);
+    expect(container.querySelector("[data-glyph='paused']")).not.toBeNull();
+    rerender(<Avatar name="Scout" agent={{ seed: "s", dept: "dept-3" }} status="injured" size={26} />);
+    expect(screen.getByRole("img", { name: "Scout, down" }).getAttribute("data-ring")).toBe("bad");
+    expect(container.querySelector("[data-glyph='injured']")).not.toBeNull();
+    rerender(<Avatar name="Scout" agent={{ seed: "s", dept: "dept-3" }} status="idle" size={26} />);
+    expect(screen.getByRole("img", { name: "Scout, idle" }).querySelector(".avatar-ring")?.hasAttribute("data-dashed")).toBe(true);
+    expect(container.querySelector("[data-glyph]")).toBeNull();
+    rerender(<Avatar name="Scout" agent={{ seed: "s", dept: "dept-3" }} status="healthy" size={26} />);
+    expect(screen.getByRole("img", { name: "Scout, healthy" }).querySelector(".avatar-ring")?.hasAttribute("data-dashed")).toBe(false);
+    expect(container.querySelector("[data-glyph]")).toBeNull();
+    expect([statusGlyph("failing"), statusGlyph("healthy")].map((g) => g !== null)).toEqual([true, false]);
+  });
+
   it("maps statuses to rings", () => {
     expect(ringForStatus("healthy")).toBe("good");
     expect(ringForStatus("degraded")).toBe("warn");
-    expect(ringForStatus("paused")).toBe("warn");
+    expect(ringForStatus("paused")).toBe("idle"); // neutral, as its pill is
     expect(ringForStatus("failing")).toBe("bad");
     expect(ringForStatus("injured")).toBe("bad");
     expect(ringForStatus("idle")).toBe("idle");
