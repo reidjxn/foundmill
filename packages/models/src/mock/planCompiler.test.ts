@@ -1,4 +1,4 @@
-import { PLAN_ACTION_TYPES } from "@foundmill/shared";
+import { CreatePlaybookParams, PLAN_ACTION_TYPES, describePlaybook } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { PlanOutput } from "../schemas";
 import { MockModelClient, compilePlanRuleBased, detectAmounts, detectChannels, detectHardGates } from "./index";
@@ -78,7 +78,7 @@ describe("plan compiler rules (BUILD §12.3)", () => {
     expect(types(compilePlanRuleBased("schedule a call with Alder next week"))).toEqual(["schedule_meeting"]);
     expect(types(compilePlanRuleBased("update the spec to add two-factor login"))).toEqual(["update_spec"]);
     expect(types(compilePlanRuleBased("push the retail portal milestone to next quarter"))).toEqual(["update_roadmap"]);
-    expect(types(compilePlanRuleBased("whenever a customer churns, create a win-back task"))).toContain("create_playbook");
+    expect(types(compilePlanRuleBased("whenever someone signs up, create a welcome task"))).toContain("create_playbook");
   });
 
   it("emits a single reply_only with one question for ambiguous or interrogative text", () => {
@@ -124,5 +124,51 @@ describe("plan compiler rules (BUILD §12.3)", () => {
     expect(r.json.actions[0]!.agent_id).toBe(AGENT_PRIYA);
     const gated = await client.complete({ route: "planCompiler", messages: [{ role: "user", content: "pay the supplier invoice" }], schema: PlanOutput });
     expect(types(gated.json)).toEqual(["request_human_action"]);
+  });
+});
+
+describe("playbooks (BUILD §11.13, AC-11.13.4, audit AC-07)", () => {
+  const playbookOf = (text: string) => {
+    const plan = compilePlanRuleBased(text, { agents: [] });
+    const actions = plan.actions.filter((a) => a.type === "create_playbook");
+    expect(actions, text).toHaveLength(1);
+    return CreatePlaybookParams.parse(actions[0]!.params);
+  };
+
+  it("compiles the acceptance sentence into a trigger, steps and an approval, with no one-off actions beside it", () => {
+    for (const text of ["When a lead replies positively, draft a reply and book a call; I approve the first message.", "Every time a lead replies positively, draft a reply and book a call; I approve the first message."]) {
+      const plan = compilePlanRuleBased(text, { agents: [] });
+      expect(types(plan), text).toEqual(["create_playbook"]);
+      const pb = playbookOf(text);
+      expect(pb.trigger).toEqual({ event: "lead.replied", where: { sentiment: "positive" } });
+      expect(pb.steps.map((s) => s.action.type)).toEqual(["create_task", "schedule_meeting"]);
+      expect(pb.approvals).toEqual([expect.objectContaining({ step: 0, scope: "first_run" })]);
+      expect(pb.source_text).toBe(text);
+      expect(describePlaybook(pb).steps[0]).toMatchObject({ text: "Draft a reply", approval: "You approve the first run" });
+    }
+  });
+
+  it("reads steps, approvals and a stop condition in other words", () => {
+    const pb = playbookOf("Whenever someone signs up, send a welcome email to the lead, then create a task to check their setup, at most 5 times; I approve every message.");
+    expect(pb.trigger.event).toBe("signup.created");
+    expect(pb.steps.length).toBeGreaterThanOrEqual(1);
+    expect(pb.stop).toEqual({ max_runs: 5 });
+    expect(pb.approvals[0]?.scope).toBe("every_run");
+  });
+
+  it("asks which event starts a rule that names none, instead of making up a trigger", () => {
+    const plan = compilePlanRuleBased("whenever the weather changes, create a win-back task", { agents: [] });
+    expect(types(plan)).toEqual(["reply_only"]);
+    expect(String(plan.actions[0]!.params.question)).toMatch(/which event/i);
+  });
+
+  it("never compiles a gated step into a running playbook", () => {
+    const plan = compilePlanRuleBased("Whenever a payment arrives, pay the supplier", { agents: [] });
+    expect(types(plan)).toEqual(["request_human_action"]);
+  });
+
+  it("keeps one-off instructions beside a standing rule apart", () => {
+    const plan = compilePlanRuleBased("Pause paid ads. Whenever a customer converts, create a thank-you task.", { agents: [] });
+    expect(types(plan).sort()).toEqual(["create_playbook", "disable_channel"]);
   });
 });

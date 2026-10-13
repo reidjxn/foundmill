@@ -14,6 +14,7 @@ import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 import { fitColumns, fitToGrow, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
+import { PlaybooksPanel } from "./PlaybooksPanel";
 import { AGENT_GATED_DECISIONS, DECISION_DESCRIPTIONS, DECISION_LABELS, InlineError, Screen, agentDept, agentEntity, agentHref, memberEntity, memberName, readMe, useAction, useAgents, useHumans, useMe, type Me } from "./shared";
 import type { AgentRow, HandlerKind, MembershipRow, ResponsibilitiesResponse, ResponsibilityHandler } from "./types";
 
@@ -394,6 +395,8 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
           />
         </Panel>
       ) : null}
+
+      <PlaybooksPanel />
 
       <DelegateDialog
         row={delegate}

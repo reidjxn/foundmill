@@ -344,7 +344,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     departmentId: squad.departmentBySlug.get("distribution")?.id ?? null,
     name: "Trial-ending nudge",
     sourceText: "When a trial has three days left and the account has not connected Stripe, send the 'connect Stripe' how-to from the lifecycle agent and tell lead generation to book a call if the account is in the ICP.",
-    compiled: { trigger: { event: "activation.reached", condition: "trial_days_left == 3 && !stripe_connected" }, steps: [{ type: "send_message", params: { template: "connect-stripe-howto" } }, { type: "create_task", params: { kind: "channel", title: "Book a call" } }], approvals: [], stop: { condition: "account connects Stripe" } },
+    compiled: { trigger: { event: "activation.reached", condition: "trial_days_left == 3 && !stripe_connected" }, steps: [{ action: { type: "send_message", params: { template: "connect-stripe-howto" } }, label: "Send the connect Stripe how-to" }, { action: { type: "create_task", params: { kind: "channel", title: "Book a call" } }, label: "Ask lead generation to book a call" }], approvals: [], stop: { event: "payment.received" } },
     enabled: true,
     createdBy: ctx.owner.userId,
   });

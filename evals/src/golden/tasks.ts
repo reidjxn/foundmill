@@ -51,6 +51,33 @@ const RAW_TASKS: GoldenTask[] = [
       "Summary reads as what will happen, in plain words.",
     ],
   }),
+  t({
+    id: "chief_of_staff.playbook_compile",
+    templateKey: "chief_of_staff",
+    title: "Compile a standing rule into one playbook",
+    prompt: `Compile this founder reply into a Plan. Allowed action types: create_task, enable_channel, disable_channel, set_budget, approve_spend, update_spec, update_roadmap, send_message, schedule_meeting, hire_agent, train_agent, set_agent_model, create_playbook, request_human_action, reply_only. A standing rule ("when X happens, do Y") is ONE create_playbook action with params {source_text, name, trigger: {event, where?}, steps: [{action: {type, params}, label}], approvals: [{step, scope: first_run|every_run}], stop: {max_runs?}}; never one-off actions. ${MANIFEST}\n\nFounder reply: "When a lead replies positively, draft a reply and book a call. I approve the first message."\n\nReturn JSON {summary, actions:[{type, params, agent_id}]}.`,
+    schemaKey: "plan",
+    checks: [CHECK.all("create_playbook", "lead.replied", "first_run"), CHECK.none("request_human_action")],
+    rubric: [
+      "Returns exactly one create_playbook action, not a set of one-off create_task or schedule_meeting actions.",
+      "The trigger event is lead.replied narrowed to positive sentiment; the steps are a drafted reply and a booked call, in that order.",
+      "The founder's approval of the first message is an approval on the drafting step with scope first_run, not an extra action.",
+      "Nothing in the playbook moves money, signs or files; the summary says in plain words when it will run and that it starts switched off.",
+    ],
+  }),
+  t({
+    id: "chief_of_staff.idle_cycle",
+    templateKey: "chief_of_staff",
+    title: "Say what is in the way when nothing can start",
+    prompt: `Plan the next cycle. State: concurrency limit 3 agents; budget remaining £120 (Estimate). Open tasks: tsk_8 "Ship the billing page" (code, blocked by tsk_7, which is not done); tsk_9 "Fix the signup email" (code, failed twice; its next automatic retry is in 40 minutes). Roadmap items with no tasks: rm_4 "Pricing experiment". Agents: ag_backend, ag_frontend. Return JSON matching the cycle plan schema. If nothing can start, start nothing and say exactly what is in the way.`,
+    schemaKey: "cycle_plan",
+    checks: [CHECK.all("rm_4")],
+    rubric: [
+      "Starts no task: tsk_8 waits on an unfinished dependency and tsk_9 is waiting for its retry.",
+      "The summary names what is in the way (the dependency, the retry time, the roadmap item with no tasks) instead of a generic 'everything is blocked'.",
+      "Points the founder to Development > Plan to turn rm_4 into tasks.",
+    ],
+  }),
   // ------------------------------------------------------------------------------------------------ leads
   t({
     id: "product_lead.change_proposal",

@@ -320,7 +320,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     departmentId: squad.departmentBySlug.get("operations")?.id ?? null,
     name: "Monday stock check",
     sourceText: "Every Monday at 9, check stock at the 3PL for each SKU; if any SKU is under four weeks of cover, open a reorder task for sourcing and tell me in the Inbox.",
-    compiled: { trigger: { cron: "0 9 * * 1" }, steps: [{ type: "create_task", params: { kind: "specialist", title: "Reorder check" } }], approvals: [{ capability: "purchase_order" }], stop: { condition: "any SKU under four weeks of cover" } },
+    compiled: { trigger: { event: "task.completed", where: { kind: "specialist" } }, steps: [{ action: { type: "create_task", params: { kind: "specialist", title: "Reorder check" } }, label: "Open a reorder check for sourcing" }], approvals: [{ step: 0, scope: "every_run", note: "A purchase order is always your decision" }], stop: {} },
     enabled: true,
     createdBy: ctx.owner.userId,
   });
