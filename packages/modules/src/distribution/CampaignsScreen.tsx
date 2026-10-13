@@ -5,7 +5,7 @@
  * state → `distribution.assets.approve/reject`. Status changes go through `distribution.campaigns.setStatus`.
  */
 import { useCallback, useMemo, useState } from "react";
-import { Check, CircleStop, ExternalLink, Pause, Play, Rocket, X } from "lucide-react";
+import { Check, CircleStop, ExternalLink, Pause, Pencil, Play, Plus, Rocket, X } from "lucide-react";
 import {
   Button,
   Chip,
@@ -26,7 +26,8 @@ import { ASSET_KINDS, CAMPAIGN_STATUSES, type CampaignStatus } from "@foundmill/
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
-import { APPROVAL_WORDS, CAMPAIGN_STATUS_WORDS, assetCounts, canTransition } from "./channel-data";
+import { APPROVAL_WORDS, CAMPAIGN_STATUS_WORDS, assetCounts, canTransition, launchBlocked, resumeStatus } from "./channel-data";
+import { CampaignDialog, EndCampaignDialog } from "./CampaignDialogs";
 import { ASSET_KIND_WORD } from "./channel-data";
 import { DateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
@@ -107,7 +108,7 @@ export function campaignColumns(sizes: Record<CampaignColumnId, number> = fitCol
 }
 
 export function CampaignsScreen({ businessId }: ModuleScreenProps) {
-  const { navigate } = useWidgetData();
+  const { navigate, currency } = useWidgetData();
   const campaigns = useWidgetQuery<Page<CampaignRow>>("distribution.campaigns.list", { limit: 200 });
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
   const assets = useWidgetQuery<AssetRow[]>("distribution.assets.list", {});
@@ -139,8 +140,19 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
     async (row: CampaignRow, status: CampaignStatus) => {
       const ok = await action.run("distribution.campaigns.setStatus", { campaignId: row.id, status }, { key: `status:${row.id}:${status}` });
       if (ok !== undefined) campaigns.refetch();
+      return ok !== undefined;
     },
     [action, campaigns],
+  );
+  // New / Edit (null = closed; "new" = a new campaign) and the End confirmation.
+  const [editing, setEditing] = useState<CampaignRow | "new" | null>(null);
+  const [ending, setEnding] = useState<CampaignRow | null>(null);
+  const onBoard = useMemo(() => (channels.data?.channels ?? []).filter((c) => c.enabled && c.id), [channels.data]);
+  const confirmEnd = useCallback(
+    async (row: CampaignRow) => {
+      if (await setStatus(row, "ended")) setEnding(null);
+    },
+    [setStatus],
   );
   const decideAsset = useCallback(
     async (asset: AssetRow, decision: "approve" | "reject") => {
@@ -150,13 +162,16 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
     [action, assets],
   );
 
+  // The same rules as the detail panel and the API: a first launch needs an approved asset, Resume restores what the
+  // pause interrupted, and End (final) asks first.
   const rowActions = useCallback(
     (row: CampaignTableRow): RowAction<CampaignTableRow>[] => [
       { id: "open", label: "Open", icon: ExternalLink, onSelect: (r) => setSelectedId(r.id) },
-      { id: "launch", label: "Launch", icon: Rocket, onSelect: (r) => void setStatus(r, "live"), disabled: row.status === "paused" || !canTransition(row.status, "live"), separatorBefore: true },
+      { id: "edit", label: "Edit…", icon: Pencil, onSelect: (r) => setEditing(r), disabled: row.status === "ended" },
+      { id: "launch", label: "Launch", icon: Rocket, onSelect: (r) => void setStatus(r, "live"), disabled: row.status === "paused" || !canTransition(row.status, "live") || launchBlocked(row, assetCounts(row.assets).approved), separatorBefore: true },
       { id: "pause", label: "Pause", icon: Pause, onSelect: (r) => void setStatus(r, "paused"), disabled: !canTransition(row.status, "paused") },
-      { id: "resume", label: "Resume", icon: Play, onSelect: (r) => void setStatus(r, "live"), disabled: row.status !== "paused" },
-      { id: "end", label: "End campaign", icon: CircleStop, variant: "danger", onSelect: (r) => void setStatus(r, "ended"), disabled: !canTransition(row.status, "ended"), separatorBefore: true },
+      { id: "resume", label: "Resume", icon: Play, onSelect: (r) => void setStatus(r, resumeStatus(r)), disabled: row.status !== "paused" },
+      { id: "end", label: "End campaign…", icon: CircleStop, variant: "danger", onSelect: (r) => setEnding(r), disabled: !canTransition(row.status, "ended"), separatorBefore: true },
     ],
     [setStatus],
   );
@@ -172,7 +187,12 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
         error={campaigns.error ? campaigns.error.message : undefined}
         onRetry={campaigns.refetch}
         meta={rows.length ? `${rows.length} campaign${rows.length === 1 ? "" : "s"} · ${live} live · ${awaiting} awaiting approval` : undefined}
-        footer={<span>Right-click a campaign to launch, pause, resume or end it. Launch needs at least one approved asset.</span>}
+        actions={
+          <Button size="sm" icon={Plus} onClick={() => setEditing("new")} disabled={onBoard.length === 0} title={onBoard.length === 0 ? "Put a channel on the board first" : undefined} data-new-campaign>
+            New campaign
+          </Button>
+        }
+        footer={<span>Right-click a campaign to edit, launch, pause, resume or end it. Launch needs at least one approved asset.</span>}
         flush
       >
         <InlineError error={action.error} className="px-panel-pad pt-2" />
@@ -207,23 +227,43 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
           ) : null
         }
       >
-        {selected ? <CampaignDetail row={selected} agents={agents.data} businessId={businessId} pending={action.pending} onStatus={(s) => setStatus(selected, s)} onDecide={decideAsset} onOpenAsset={(a) => navigate(`${routes.department(businessId, "distribution", "creative")}?asset=${a.id}`)} /> : null}
+        {selected ? <CampaignDetail row={selected} agents={agents.data} businessId={businessId} pending={action.pending} onStatus={(s) => void setStatus(selected, s)} onEnd={() => setEnding(selected)} onEdit={() => setEditing(selected)} onDecide={decideAsset} onOpenAsset={(a) => navigate(`${routes.department(businessId, "distribution", "creative")}?asset=${a.id}`)} /> : null}
       </Panel>
+      <CampaignDialog
+        open={editing !== null}
+        campaign={editing === "new" ? null : editing}
+        channels={onBoard}
+        currency={currency ?? onBoard[0]?.currency ?? "USD"}
+        onClose={() => setEditing(null)}
+        onSaved={(c) => {
+          campaigns.refetch();
+          setSelectedId(c.id);
+        }}
+      />
+      <EndCampaignDialog campaign={ending} pending={!!ending && action.pending === `status:${ending.id}:ended`} onConfirm={(c) => void confirmEnd(c)} onClose={() => setEnding(null)} />
     </Screen>
   );
 }
 
-function CampaignDetail({ row, agents, businessId, pending, onStatus, onDecide }: { row: CampaignTableRow; agents: readonly AgentRow[] | undefined; businessId: string; pending: string | null; onStatus: (s: CampaignStatus) => void; onDecide: (a: AssetRow, d: "approve" | "reject") => void; onOpenAsset: (a: AssetRow) => void }) {
+function CampaignDetail({ row, agents, businessId, pending, onStatus, onEnd, onEdit, onDecide }: { row: CampaignTableRow; agents: readonly AgentRow[] | undefined; businessId: string; pending: string | null; onStatus: (s: CampaignStatus) => void; onEnd: () => void; onEdit: () => void; onDecide: (a: AssetRow, d: "approve" | "reject") => void; onOpenAsset: (a: AssetRow) => void }) {
   const { formatDate } = useFormatters();
   const counts = assetCounts(row.assets);
-  const launchBlocked = canTransition(row.status, "live") && counts.total > 0 && counts.approved === 0;
+  // A first launch needs an approved asset, also when the campaign has none at all yet (the API refuses the same).
+  const blocked = launchBlocked(row, counts.approved);
   const agentName = (id: string) => agents?.find((a) => a.id === id)?.name ?? "Agent";
-  const transitions: Array<{ status: CampaignStatus; label: string; icon: typeof Rocket; variant: "default" | "primary" | "danger" }> = [
-    { status: "pending_approval", label: "Submit for approval", icon: Check, variant: "default" },
-    { status: "live", label: row.status === "paused" ? "Resume" : "Launch", icon: row.status === "paused" ? Play : Rocket, variant: "primary" },
-    { status: "paused", label: "Pause", icon: Pause, variant: "default" },
-    { status: "ended", label: "End campaign", icon: CircleStop, variant: "danger" },
-  ];
+  const transitions: Array<{ status: CampaignStatus; label: string; icon: typeof Rocket; variant: "default" | "primary" | "danger"; onClick?: () => void }> =
+    row.status === "paused"
+      ? [
+          // Resume restores what the pause interrupted: a campaign paused while scheduled stays scheduled.
+          { status: resumeStatus(row), label: "Resume", icon: Play, variant: "primary" },
+          { status: "ended", label: "End campaign…", icon: CircleStop, variant: "danger", onClick: onEnd },
+        ]
+      : [
+          { status: "pending_approval", label: "Submit for approval", icon: Check, variant: "default" },
+          { status: "live", label: "Launch", icon: Rocket, variant: "primary" },
+          { status: "paused", label: "Pause", icon: Pause, variant: "default" },
+          { status: "ended", label: "End campaign…", icon: CircleStop, variant: "danger", onClick: onEnd },
+        ];
   return (
     <div className="flex flex-col gap-3" data-campaign-detail={row.id}>
       <KeyValueList
@@ -243,15 +283,23 @@ function CampaignDetail({ row, agents, businessId, pending, onStatus, onDecide }
         </section>
       ) : null}
       <div className="flex flex-wrap gap-1.5" role="group" aria-label="Campaign actions">
+        {row.status !== "ended" ? (
+          <Button size="sm" variant="ghost" icon={Pencil} onClick={onEdit}>
+            Edit
+          </Button>
+        ) : null}
         {transitions
           .filter((t) => canTransition(row.status, t.status))
-          .map((t) => (
-            <Button key={t.status} size="sm" variant={t.variant} icon={t.icon} loading={pending === `status:${row.id}:${t.status}`} disabled={t.status === "live" && launchBlocked} onClick={() => onStatus(t.status)} title={t.status === "live" && launchBlocked ? "Approve at least one asset before launch" : undefined}>
-              {t.label}
-            </Button>
-          ))}
+          .map((t) => {
+            const off = t.status === "live" && row.status !== "paused" && blocked;
+            return (
+              <Button key={t.status} size="sm" variant={t.variant} icon={t.icon} loading={pending === `status:${row.id}:${t.status}`} disabled={off} onClick={t.onClick ?? (() => onStatus(t.status))} title={off ? "Approve at least one asset before launch" : undefined}>
+                {t.label}
+              </Button>
+            );
+          })}
       </div>
-      {launchBlocked ? <p className="text-small text-status-warn">Launch needs at least one approved asset.</p> : null}
+      {blocked ? <p className="text-small text-status-warn">Launch needs at least one approved asset.</p> : null}
       <section aria-label="Assets" className="flex flex-col gap-1 border-t border-subtle pt-2">
         <p className="flex items-baseline gap-2">
           <span className="t-title text-primary">Assets</span>

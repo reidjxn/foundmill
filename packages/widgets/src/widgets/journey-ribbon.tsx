@@ -114,12 +114,16 @@ export function forecastCone(forecasts: FinanceOverview["forecasts"] | undefined
 /**
  * Where a payment marker navigates. The Ribbon only knows conversion ids; when the API's conversion row carries its
  * `journeyId` the Customer Update opens in one request, otherwise the route takes the conversion id and apps/web
- * resolves it (components/journey/JourneyScreen.tsx).
+ * resolves it (components/journey/JourneyScreen.tsx). `from` (the page the Ribbon sits on) is where the replay's back
+ * button returns.
  */
-export function journeyHref(businessId: string, conversions: readonly RibbonResponse["conversions"][number][] | undefined, conversionId: string): string {
+export function journeyHref(businessId: string, conversions: readonly RibbonResponse["conversions"][number][] | undefined, conversionId: string, from?: string): string {
   const row = conversions?.find((c) => c.id === conversionId && c.journeyId) ?? conversions?.find((c) => c.id === conversionId);
-  return routes.journey(businessId, row?.journeyId ?? conversionId);
+  return routes.journey(businessId, row?.journeyId ?? conversionId, from);
 }
+
+/** The app path of the page a widget is on (the replay's way back), or nothing outside a business page. */
+const herePath = (): string | undefined => (typeof window !== "undefined" && window.location.pathname.startsWith("/b/") ? window.location.pathname : undefined);
 
 export function roadmapFlags(items: RoadmapListResponse["items"] | undefined, today: string): RoadmapFlag[] {
   return (items ?? [])
@@ -217,7 +221,7 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
           horizonMonths={settings.horizonMonths}
           zoom={zoom}
           onZoomChange={onZoomChange}
-          onOpenJourney={(conversionId) => navigate(journeyHref(businessId, knownConversions, conversionId))}
+          onOpenJourney={(conversionId) => navigate(journeyHref(businessId, knownConversions, conversionId, herePath()))}
           onOpenDay={(day) => setDigestDay(day)}
           onHoverDay={setHoverDay}
           dayConversions={dayConversions}
@@ -233,7 +237,7 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
             <DayDigest
               summary={digest}
               currency={currency}
-              onOpenJourney={(conversionId) => navigate(journeyHref(businessId, knownConversions, conversionId))}
+              onOpenJourney={(conversionId) => navigate(journeyHref(businessId, knownConversions, conversionId, herePath()))}
               onOpenEntity={(id) => navigate(routes.crm(businessId, id))}
               onPrevDay={() => setDigestDay(addDays(digest.day, -1))}
               onNextDay={digest.isToday ? undefined : () => setDigestDay(addDays(digest.day, 1))}

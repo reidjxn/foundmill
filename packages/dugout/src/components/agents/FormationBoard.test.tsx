@@ -227,4 +227,18 @@ describe("ChannelProfileCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open channel" }));
     expect(onOpenChannel).toHaveBeenCalledWith("paid_ads");
   });
+
+  it("shows Offline tracking from the channel's own setting, falling back to its default", () => {
+    const paid = channels.find((c) => c.key === "paid_ads")!;
+    // Outdoor is connected by default; set to offline tracking, its card says so (as the Channels table does).
+    const { unmount } = render(<ChannelProfileCard channel={{ ...paid, key: "outdoor", kitMode: true }} />);
+    expect(screen.getByText("Offline tracking")).toBeTruthy();
+    unmount();
+    // Print is offline by default; turned off, the card no longer claims it.
+    const off = render(<ChannelProfileCard channel={{ ...paid, key: "print", kitMode: false }} />);
+    expect(screen.queryByText("Offline tracking")).toBeNull();
+    off.unmount();
+    render(<ChannelProfileCard channel={{ ...paid, key: "print" }} />);
+    expect(screen.getByText("Offline tracking")).toBeTruthy();
+  });
 });

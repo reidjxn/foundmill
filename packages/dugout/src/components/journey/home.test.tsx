@@ -137,6 +137,21 @@ describe("TrophyCabinet", () => {
     expect(onShare).toHaveBeenCalledWith("customer_1");
     expect(screen.queryByRole("button", { name: /1,000th customer/ })).toBeNull();
   });
+
+  it("lays each card and its Share button out as one column of the row (the button never overflows under the next card)", () => {
+    const { container } = render(<TrophyCabinet trophies={trophyFixtures()} onOpen={() => {}} onShare={() => {}} />);
+    const share = screen.getByRole("button", { name: "Share First customer" });
+    const cell = share.closest("[data-trophy]")!;
+    // The cell is a flex column: the card takes the row's spare height (flex-1, not h-full of the row) and the button
+    // sits under it inside the cell, so the grid row is sized to hold both.
+    expect(cell.className).toMatch(/\bflex\b/);
+    expect(cell.className).toMatch(/\bflex-col\b/);
+    const card = cell.firstElementChild!;
+    expect(card.className).toMatch(/\bflex-1\b/);
+    expect(card.className).not.toMatch(/\bh-full\b/);
+    expect(cell.lastElementChild).toBe(share);
+    for (const c of container.querySelectorAll("[data-trophy]")) expect(c.firstElementChild!.className).not.toMatch(/\bh-full\b/);
+  });
 });
 
 describe("DayDigest", () => {

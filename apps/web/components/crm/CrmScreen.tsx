@@ -8,7 +8,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Building2, Database, Download, GitMerge, Search, Shield, Sparkles, UserRound, UserRoundPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Avatar, Button, Chip, DataTable, ENTITY_KIND_ICONS, EntityLink, FilterChips, Icon, Input, Kbd, Panel, Popover, PopoverAnchor, PopoverContent, StatusPill, formatRelative, type DataTableColumn, type FilterChipValue, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { EntityKind } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -17,10 +17,10 @@ import { errorMessage } from "@/lib/trpc";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { MergeDialog, NewEntityDialog } from "./dialogs";
-import { CRM_VIEWS, KIND_WORD, LAWFUL_BASIS_LABEL, RETENTION_COPY, STAGE_TONE, groupByForView, groupCounts, groupLabel, roleWord, sourceWord, stageWord, type CrmRow, type OwnerRef } from "./logic";
+import { CRM_VIEWS, KIND_WORD, LAWFUL_BASIS_LABEL, RETENTION_COPY, STAGE_TONE, groupByForView, groupCounts, groupLabel, loadedSummary, nextActiveHit, roleWord, sourceWord, stageWord, type CrmRow, type OwnerRef } from "./logic";
 import { plainWords } from "@/lib/format";
 import { KIND_LABELS, chip, chipsToOperators, crmFilterFields, mergeChips, operatorValueWord, parseCrmQuery, type CrmFilterField } from "./search";
-import { CRM_LIST_LIMIT, useEntityIndex } from "./useEntityIndex";
+import { useEntityIndex } from "./useEntityIndex";
 
 const IMPORTERS = [
   { key: "affinity", name: "Affinity" },
@@ -31,6 +31,8 @@ const IMPORTERS = [
 ] as const;
 const SYNCS = ["Gmail", "Outlook", "Google Calendar"];
 const DEBOUNCE_MS = 150;
+/** Hits listed per kind in the typeahead. */
+const TYPEAHEAD_PER_KIND = 5;
 
 export function CrmScreen() {
   const { businessId, departments, data } = useBusiness();
@@ -66,6 +68,18 @@ export function CrmScreen() {
   // Typeahead: raw text (operators stripped) against crm.search, grouped by kind.
   const parsedLive = useMemo(() => parseCrmQuery(typeahead, { departments: departmentNames }), [typeahead, departmentNames]);
   const typeaheadQ = useQuery(trpc.crm.search.queryOptions({ businessId, q: parsedLive.text || "-", limit: 12 }, { enabled: open && parsedLive.text.length > 0, staleTime: 10_000, retry: false, placeholderData: (p) => p }));
+  // The typeahead is a combobox: the input keeps focus, ArrowUp/ArrowDown move the active hit (aria-activedescendant),
+  // Enter opens it (or commits the search when none is active).
+  const listboxId = useId();
+  const typeaheadGroups = useMemo(() => typeaheadQ.data?.groups ?? [], [typeaheadQ.data]);
+  const typeaheadHits = useMemo(() => typeaheadGroups.flatMap((g) => g.hits.slice(0, TYPEAHEAD_PER_KIND)), [typeaheadGroups]);
+  const [activeHit, setActiveHit] = useState(-1);
+  const popoverOpen = open && parsedLive.text.length > 0;
+  const activeHitId = popoverOpen && activeHit >= 0 && activeHit < typeaheadHits.length ? `${listboxId}-${typeaheadHits[activeHit]!.entity.id}` : undefined;
+  useEffect(() => setActiveHit(-1), [typeahead, popoverOpen]);
+  useEffect(() => {
+    if (activeHitId) document.getElementById(activeHitId)?.scrollIntoView?.({ block: "nearest" });
+  }, [activeHitId]);
 
   const commit = () => {
     const parsed = parseCrmQuery(raw, { departments: departmentNames });
@@ -128,14 +142,13 @@ export function CrmScreen() {
     { id: "export", label: "Export data", icon: Download, onSelect: () => router.push(`${routes.crm(businessId, row.id)}?export=1`) },
   ];
 
-  const typeaheadGroups = typeaheadQ.data?.groups ?? [];
   const live = data.business.gameMode === "live";
 
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="crm-screen" data-mode={index.mode}>
       {/* search ------------------------------------------------------------------------------------------------------ */}
       <div className="col-span-12 flex flex-col gap-2" data-testid="crm-search">
-        <Popover open={open && parsedLive.text.length > 0} onOpenChange={setOpen}>
+        <Popover open={popoverOpen} onOpenChange={setOpen}>
           <PopoverAnchor asChild>
             <div className="flex items-center gap-2">
               <Input
@@ -148,9 +161,14 @@ export function CrmScreen() {
                 }}
                 onFocus={() => setOpen(true)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
+                  if ((e.key === "ArrowDown" || e.key === "ArrowUp") && popoverOpen && typeaheadHits.length > 0) {
                     e.preventDefault();
-                    commit();
+                    setActiveHit((i) => nextActiveHit(i, e.key === "ArrowDown" ? 1 : -1, typeaheadHits.length));
+                  } else if (e.key === "Enter") {
+                    e.preventDefault();
+                    const hit = activeHit >= 0 ? typeaheadHits[activeHit] : undefined;
+                    if (hit) open_(hit.entity.id);
+                    else commit();
                   } else if (e.key === "Escape") {
                     setOpen(false);
                     if (!raw) clear();
@@ -158,6 +176,11 @@ export function CrmScreen() {
                 }}
                 placeholder='Search people and organizations · try "churned customers owned by Mara" or kind:organization role:supplier'
                 aria-label="Search the CRM"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={popoverOpen}
+                aria-controls={popoverOpen ? listboxId : undefined}
+                aria-activedescendant={activeHitId}
                 wrapperClassName="flex-1"
                 trailing={
                   <span className="inline-flex items-center gap-1">
@@ -185,24 +208,37 @@ export function CrmScreen() {
             </div>
             {typeaheadQ.isLoading && !typeaheadQ.data ? <p className="p-3 text-small text-secondary">Searching…</p> : null}
             {typeaheadQ.data && typeaheadGroups.length === 0 ? <p className="p-3 text-small text-secondary">No records match “{parsedLive.text}”. Press Enter to add it as a search.</p> : null}
-            {typeaheadGroups.map((g) => (
-              <section key={g.kind} aria-label={KIND_LABELS[g.kind]}>
-                <h3 className="t-label flex items-center gap-1 bg-panel-alt px-3 py-1">
-                  <Icon icon={ENTITY_KIND_ICONS[g.kind]} size={12} /> {KIND_LABELS[g.kind]} <span className="text-secondary">· {g.hits.length}</span>
-                </h3>
-                <ul>
-                  {g.hits.slice(0, 5).map((h) => (
-                    <li key={h.entity.id}>
-                      <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-body text-primary hover:bg-white/4" onClick={() => open_(h.entity.id)}>
+            <div role="listbox" id={listboxId} aria-label="Matching records">
+              {typeaheadGroups.map((g) => (
+                <div key={g.kind} role="group" aria-label={KIND_LABELS[g.kind]}>
+                  <h3 className="t-label flex items-center gap-1 bg-panel-alt px-3 py-1" aria-hidden="true">
+                    <Icon icon={ENTITY_KIND_ICONS[g.kind]} size={12} /> {KIND_LABELS[g.kind]} <span className="text-secondary">· {g.hits.length}</span>
+                  </h3>
+                  {g.hits.slice(0, TYPEAHEAD_PER_KIND).map((h) => {
+                    const index = typeaheadHits.findIndex((x) => x.entity.id === h.entity.id);
+                    const active = index === activeHit;
+                    return (
+                      <button
+                        key={h.entity.id}
+                        id={`${listboxId}-${h.entity.id}`}
+                        type="button"
+                        role="option"
+                        aria-selected={active}
+                        tabIndex={-1}
+                        data-active={active || undefined}
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-body text-primary hover:bg-white/4 ${active ? "bg-white/8" : ""}`}
+                        onMouseMove={() => !active && setActiveHit(index)}
+                        onClick={() => open_(h.entity.id)}
+                      >
                         <Avatar size={20} name={h.entity.displayName} />
                         <span className="flex-1 truncate">{h.entity.displayName}</span>
                         <span className="text-small text-secondary">{typeof h.entity.identifiers.email === "string" ? h.entity.identifiers.email : typeof h.entity.identifiers.domain === "string" ? h.entity.identifiers.domain : h.matchedOn}</span>
                       </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
             {live ? <p className="border-t border-subtle px-3 py-1.5 text-small text-secondary">Public profiles on the network appear here labeled "On Foundmill".</p> : null}
           </PopoverContent>
         </Popover>
@@ -239,11 +275,21 @@ export function CrmScreen() {
         onRetry={index.refetch}
         empty={!index.loading && !index.error && index.rows.length === 0 ? { icon: Database, children: index.mode === "search" ? "Nothing matches. Try fewer words, an email or a domain, or clear the filters." : "People and organizations arrive from imports, integrations and agents' work. Add one by hand or connect an importer.", action: { label: "New record", icon: UserRoundPlus, onClick: () => setNewOpen(true) } } : undefined}
         footer={
-          index.mode === "search"
-            ? "Matches names, emails and domains, notes and documents, and meaning."
-            : index.truncated
-              ? `The ${CRM_LIST_LIMIT.toLocaleString("en-US")} newest records${chips.length ? " that match the filters" : ""}. Filter by role, stage or owner, or type above to search, to reach the rest.`
-              : "Everyone the business works with. Type above to search names, emails, notes and documents."
+          <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="tabular-nums text-primary" data-testid="crm-loaded">
+              {loadedSummary({ mode: index.mode, loaded: index.rows.length, total: index.total, hasMore: index.hasMore })}
+            </span>
+            {index.hasMore ? (
+              index.loadingMore && !index.loadMoreFailed ? (
+                <span role="status">Loading more…</span>
+              ) : (
+                <Button size="sm" variant="ghost" onClick={index.loadMore} data-testid="crm-load-more">
+                  {index.loadMoreFailed ? "Try loading more again" : "Load more"}
+                </Button>
+              )
+            ) : null}
+            <span>{index.mode === "search" ? "Matches names, emails and domains, notes and documents, and meaning." : "Everyone the business works with. Type above to search names, emails, notes and documents."}</span>
+          </span>
         }
         data-testid="crm-table-panel"
       >

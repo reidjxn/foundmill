@@ -10,17 +10,16 @@ import {
   channelPaused,
   channelStatus,
   funnelStages,
-  isPartialJourney,
   lawfulBasisLabel,
-  modelInUse,
   potentialStars,
   suppressionOf,
+  summaryResults,
   toChannelToken,
   totalBudget,
   weeklyForm,
 } from "../channel-data";
 import { groupAssets } from "../CreativeScreen";
-import { AGENT, CHANNEL, TODAY, agents, assets, campaigns, channels, channelsList, journeys, leads, metrics, recommendResponse } from "./fixtures";
+import { AGENT, CHANNEL, TODAY, agents, assets, campaigns, channels, channelsList, leads, metrics, recommendResponse } from "./fixtures";
 
 describe("potentialStars", () => {
   it("reads stored stars×20 and plain stars, rounding to halves", () => {
@@ -97,6 +96,20 @@ describe("tokens and status", () => {
     expect(token.results?.map((r) => r.label)).toContain("Cost per customer (Estimate)");
   });
 
+  it("carries the channel's own offline tracking and says No spend like the Channels table", () => {
+    const print = views.find((v) => v.channelKey === "print")!;
+    expect(toChannelToken(print).kitMode).toBe(true);
+    // Outdoor is not offline-tracked by default; a channel set that way still says so on its card.
+    const outdoor = { ...views.find((v) => v.channelKey === "paid_ads")!, channelKey: "outdoor" as const, kitMode: true };
+    expect(toChannelToken(outdoor).kitMode).toBe(true);
+    expect(toChannelToken({ ...print, kitMode: false }).kitMode).toBe(false);
+    // Customers but no spend (cpa() returns 0): "No spend", never "€0.00" next to an Estimate label.
+    const free = summaryResults({ ...print.form!, spendMinor: 0, customers: 10, cpaMinor: 0 }, "GBP");
+    expect(free.find((r) => r.label === "Cost per customer (Estimate)")?.value).toBe("No spend");
+    expect(summaryResults({ ...print.form!, spendMinor: 5000, customers: 2, cpaMinor: 2500 }, "GBP").find((r) => r.label === "Cost per customer (Estimate)")?.value).toBe("£25.00");
+    expect(summaryResults({ ...print.form!, customers: 0, cpaMinor: null }, "GBP").find((r) => r.label === "Cost per customer (Estimate)")?.value).toBe("No customers yet");
+  });
+
   it("finds agents by owner id and by role text, owner first", () => {
     expect(channelAgents({ ownerAgentId: AGENT.otis, channelKey: "social" }, agents).map((a) => a.id)).toEqual([AGENT.otis]);
     expect(channelAgents({ ownerAgentId: null, channelKey: "paid_ads" }, agents).map((a) => a.id)).toEqual([AGENT.mara]);
@@ -130,19 +143,6 @@ describe("campaigns and assets", () => {
 });
 
 describe("attribution", () => {
-  it("picks the model by labelled wins against the configured threshold", () => {
-    expect(modelInUse(2)).toEqual({ model: "position_based_40_20_40", threshold: 200, remaining: 198 });
-    expect(modelInUse(200).model).toBe("data_driven_markov");
-    expect(modelInUse(500).remaining).toBe(0);
-  });
-
-  it("flags partial journeys from the builder's flag, missing weights or no touches", () => {
-    expect(isPartialJourney(journeys[0]!)).toBe(false);
-    expect(isPartialJourney(journeys[1]!)).toBe(true);
-    expect(isPartialJourney({ touchIds: [], weights: {} })).toBe(true);
-    expect(isPartialJourney({ touchIds: ["a"], weights: {}, partialJourney: false })).toBe(false);
-  });
-
   it("builds channel rows with share of measured customers and partial labels for offline channels", () => {
     const rows = attributionRows(buildChannelViews({ channels }), channelsList.blended);
     expect(rows.map((r) => r.channelKey)).toEqual(["paid_ads", "social", "email_automation", "print"]);

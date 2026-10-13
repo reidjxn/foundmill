@@ -345,6 +345,11 @@ export interface ChannelTokenData {
   /** Share of the monthly distribution budget, 0–1. */
   budgetShare?: number;
   paused?: boolean;
+  /**
+   * Offline tracking (bookings go through a founder task, never an API) as this channel is set, which can differ from
+   * the channel's default; absent means the default (`CHANNEL_META[key].kitModeByDefault`).
+   */
+  kitMode?: boolean;
   results?: Array<{ label: string; value: string }>;
 }
 

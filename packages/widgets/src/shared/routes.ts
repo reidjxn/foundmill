@@ -2,8 +2,11 @@
 export const routes = {
   home: (bid: string, dashboardId?: string) => (dashboardId ? `/b/${bid}/home/${dashboardId}` : `/b/${bid}/home`),
   inbox: (bid: string, itemId?: string) => (itemId ? `/b/${bid}/inbox/${itemId}` : `/b/${bid}/inbox`),
-  /** The Customer Update (replay) for a journey. apps/web also accepts a conversion id here and forwards. */
-  journey: (bid: string, journeyId: string) => `/b/${bid}/journey/${journeyId}`,
+  /**
+   * The Customer Update (replay) for a journey. apps/web also accepts a conversion id here and forwards. `from` is the
+   * in-app path the founder opened it from; the replay's back button and breadcrumb return there (the Inbox without it).
+   */
+  journey: (bid: string, journeyId: string, from?: string) => `/b/${bid}/journey/${journeyId}${from ? `?from=${encodeURIComponent(from)}` : ""}`,
   department: (bid: string, deptSlug: string, tabSlug: string) => `/b/${bid}/d/${deptSlug}/${tabSlug}`,
   agent: (bid: string, agentId: string, tab = "overview") => `/b/${bid}/agents/${agentId}/${tab}`,
   crm: (bid: string, entityId?: string, tab = "overview") => (entityId ? `/b/${bid}/crm/${entityId}/${tab}` : `/b/${bid}/crm`),

@@ -37,13 +37,15 @@ export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, classNam
         {trophies.map((t) => {
           const achieved = !!t.achievedAt;
           const Wrapper = onOpen && achieved ? "button" : "div";
+          // The card grows to the row's height inside a column with the Share button under it, so the button is part of
+          // the row (never overflowing into the next row or the panel footer, where they would catch its clicks).
           return (
-            <li key={t.key} data-trophy={t.key} data-achieved={achieved || undefined}>
+            <li key={t.key} data-trophy={t.key} data-achieved={achieved || undefined} className="flex min-w-0 flex-col gap-1">
               <Wrapper
                 type={Wrapper === "button" ? "button" : undefined}
                 onClick={Wrapper === "button" ? () => onOpen?.(t.key) : undefined}
                 className={cn(
-                  "relative flex h-full w-full flex-col gap-2 overflow-hidden rounded-panel border p-panel-pad text-left",
+                  "relative flex w-full flex-1 flex-col gap-2 overflow-hidden rounded-panel border p-panel-pad text-left",
                   achieved ? "border-gold/45 bg-surface-1 shadow-elev-1 inset-shadow-rim" : "dashed-edge bg-canvas/40",
                   Wrapper === "button" && "outline-none transition-[border-color,filter] duration-micro ease-dugout hover:border-gold hover:brightness-110 focus-visible:outline-2 focus-visible:outline-link",
                 )}
@@ -84,7 +86,7 @@ export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, classNam
                 )}
               </Wrapper>
               {achieved && onShare && t.shareable ? (
-                <Button size="sm" variant="ghost" icon={Share2} className="mt-1 px-1.5" onClick={() => onShare(t.key)} aria-label={`Share ${t.label}`}>
+                <Button size="sm" variant="ghost" icon={Share2} className="self-start px-1.5" onClick={() => onShare(t.key)} aria-label={`Share ${t.label}`} data-trophy-share>
                   Share
                 </Button>
               ) : null}

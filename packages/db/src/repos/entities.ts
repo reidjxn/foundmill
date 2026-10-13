@@ -75,6 +75,8 @@ export const SearchInput = z.object({
   limit: z.number().int().min(1).max(100).default(20),
   /** Minimum score to return (0–1). */
   minScore: z.number().min(0).max(1).default(0.2),
+  /** Hits to skip (best first): page through every match with `limit` and the result's `nextOffset`. */
+  offset: z.number().int().min(0).max(100_000).default(0),
 });
 export type SearchInput = z.input<typeof SearchInput>;
 
@@ -93,7 +95,10 @@ export interface SearchHit {
 export interface SearchResult {
   hits: SearchHit[];
   groups: { kind: EntityKind; hits: SearchHit[] }[];
+  /** Hits in this page. */
   total: number;
+  /** The `offset` of the next page; null when these hits were the last. */
+  nextOffset: number | null;
 }
 
 export const AddRoleInput = z.object({
@@ -366,28 +371,37 @@ function roleFilter(businessId: string, f: { role?: string; stage?: string; owne
   return sql`exists (select 1 from entity_roles r where ${sql.join(conds, sql` and `)})`;
 }
 
+/** The filters `list`, `listWithRoles` and `count` share. */
+function listConditions(businessId: string, f: z.output<typeof EntityListFilter>): SQL | undefined {
+  const kinds = toArray(f.kind);
+  return and(
+    eq(entities.businessId, businessId),
+    f.includeArchived ? undefined : isNull(entities.archivedAt),
+    f.includeMerged ? undefined : isNull(entities.mergedIntoId),
+    kinds?.length ? inArray(entities.kind, kinds) : undefined,
+    f.visibility ? eq(entities.visibility, f.visibility) : undefined,
+    roleFilter(businessId, f),
+  );
+}
+
 export const entitiesRepo = {
   async list(db: Executor, businessId: string, filter: EntityListFilter = {}): Promise<Page<Entity>> {
     const f = parseInput(EntityListFilter, filter, "entity filter");
     const ks = timeKeyset<Entity>(entities.createdAt, entities.id, (r) => ({ at: r.createdAt, id: r.id }));
-    const kinds = toArray(f.kind);
     const rows = await db
       .select()
       .from(entities)
-      .where(
-        and(
-          eq(entities.businessId, businessId),
-          f.includeArchived ? undefined : isNull(entities.archivedAt),
-          f.includeMerged ? undefined : isNull(entities.mergedIntoId),
-          kinds?.length ? inArray(entities.kind, kinds) : undefined,
-          f.visibility ? eq(entities.visibility, f.visibility) : undefined,
-          roleFilter(businessId, f),
-          ks.after(f.cursor),
-        ),
-      )
+      .where(and(listConditions(businessId, f), ks.after(f.cursor)))
       .orderBy(...ks.orderBy)
       .limit(f.limit + 1);
     return toPage(rows, f, ks);
+  },
+
+  /** How many entities `list` pages through for these filters: the CRM's true total (cursor and limit are ignored). */
+  async count(db: Executor, businessId: string, filter: EntityListFilter = {}): Promise<number> {
+    const f = parseInput(EntityListFilter, filter, "entity filter");
+    const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(entities).where(listConditions(businessId, f));
+    return Number(row?.n ?? 0);
   },
 
   /** `list` with each entity's active roles (role, stage, owner): what the CRM list, its views and its filters read. */
@@ -551,21 +565,26 @@ export const entitiesRepo = {
       .from(entities)
       .where(and(eq(entities.businessId, businessId), live, v.kinds?.length ? inArray(entities.kind, v.kinds) : undefined, roleFilter(businessId, v), candidate))
       .orderBy(desc(score), asc(entities.displayName), asc(entities.id))
-      .limit(v.limit);
+      .limit(v.limit + 1)
+      .offset(v.offset);
 
+    // One row past the page says another page follows (hits below `minScore` rank last, so they end the list).
+    const more = rows.length > v.limit;
     const scored = rows
+      .slice(0, v.limit)
       .map((r) => {
         const s = Number(r.score);
         const matchedOn: SearchMatch = r.identifier ? "identifier" : r.prefix ? "prefix" : Number(r.vec) * 0.9 >= s - 1e-9 && Number(r.vec) > 0 ? "meaning" : Number(r.nameSim) >= s - 1e-9 ? "name" : Number(r.aliasSim) >= s - 1e-9 ? "alias" : "text";
         return { entity: r.entity, score: Math.round(s * 1000) / 1000, matchedOn };
       })
       .filter((h) => h.score >= v.minScore);
+    const nextOffset = more && scored.length === v.limit ? v.offset + v.limit : null;
     const roles = await entitiesRepo.activeRoles(db, businessId, scored.map((h) => h.entity.id));
     const hits: SearchHit[] = scored.map((h) => ({ ...h, roles: roles.get(h.entity.id) ?? [] }));
     const byKind = new Map<EntityKind, SearchHit[]>();
     for (const h of hits) byKind.set(h.entity.kind, [...(byKind.get(h.entity.kind) ?? []), h]);
     const groups = ENTITY_KINDS.filter((k) => byKind.has(k)).map((kind) => ({ kind, hits: byKind.get(kind)! }));
-    return { hits, groups, total: hits.length };
+    return { hits, groups, total: hits.length, nextOffset };
   },
 
   // roles -------------------------------------------------------------------------------------------------------------

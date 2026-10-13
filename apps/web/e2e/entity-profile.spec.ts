@@ -57,6 +57,32 @@ test.describe("entity profile", () => {
     await expect(page.getByTestId("journey-list")).toBeVisible({ timeout: LONG });
   });
 
+  test("Re-watch opens the win's own replay (never 'No replay for this id'); Activity shows payments as money", async ({ page }) => {
+    // A customer of the seed: its payment has a Customer Update, its older signup and activation may not.
+    await openBusiness(page, "crm");
+    await page.getByTestId("crm-search-input").fill("role:customer");
+    await page.keyboard.press("Enter");
+    const link = page.getByRole("grid", { name: "CRM records" }).getByRole("row").nth(1).getByRole("link").first();
+    await expect(link).toBeVisible({ timeout: LONG });
+    await link.click();
+    await expect(page.getByTestId("entity-profile")).toBeVisible({ timeout: LONG });
+    await page.getByRole("tab", { name: "Journey" }).click();
+    const list = page.getByTestId("journey-list");
+    await expect(list).toBeVisible({ timeout: LONG });
+    const rewatch = list.getByTestId("rewatch").last();
+    if (await rewatch.count()) {
+      await rewatch.click();
+      await expect(page.getByTestId("journey-screen")).toBeVisible({ timeout: LONG });
+      await expect(page.getByTestId("journey-not-found")).toHaveCount(0);
+      await page.getByTestId("journey-back").click();
+    }
+    await page.getByRole("tab", { name: "Activity" }).click();
+    const timeline = page.getByTestId("activity-timeline");
+    await expect(timeline).toBeVisible({ timeout: LONG });
+    // "35349.99 GBP" was the hand-rolled format; payments now read "£35,349.99".
+    await expect(timeline).not.toContainText(/\d+\.\d{2} [A-Z]{3}\b/);
+  });
+
   test("data duties: export shows the JSON; deletion is queued, never immediate", async ({ page }) => {
     await openFirstEntity(page);
     await page.getByTestId("entity-export").click();

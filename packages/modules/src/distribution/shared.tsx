@@ -163,6 +163,13 @@ export function searchParam(key: string): string | null {
   }
 }
 
+/** The app path of the current screen (`/b/…`), for links that come back here (a Customer Update's back button). */
+export function herePath(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const path = window.location.pathname;
+  return path.startsWith("/b/") ? path : undefined;
+}
+
 export function shortId(id: string): string {
   return id.slice(0, 8);
 }

@@ -49,15 +49,50 @@ export const AssetListFilter = z.object({
 });
 export type AssetListFilter = z.input<typeof AssetListFilter>;
 
-/** Allowed status moves (BUILD §11.7 engine: plan → create → approve → launch → measure → learn). */
+/**
+ * Allowed status moves (BUILD §11.7 engine: plan → create → approve → launch → measure → learn). A paused campaign
+ * resumes to the status it was paused from (`config.pausedFrom`): live again, or still scheduled.
+ */
 export const CAMPAIGN_TRANSITIONS: Record<CampaignStatus, readonly CampaignStatus[]> = {
   draft: ["pending_approval", "scheduled", "ended"],
   pending_approval: ["draft", "scheduled", "live", "ended"],
   scheduled: ["live", "paused", "draft", "ended"],
   live: ["paused", "ended"],
-  paused: ["live", "ended"],
+  paused: ["live", "scheduled", "ended"],
   ended: [],
 };
+
+/** The bookkeeping `setStatus` keeps in a campaign's `config`. */
+export interface CampaignLaunchState {
+  /** When the campaign first went live (set once; a resume never sets it again). */
+  launchedAt?: string;
+  /** The status a paused campaign was paused from (`live` or `scheduled`), restored on resume. */
+  pausedFrom?: CampaignStatus;
+}
+
+function launchState(c: Pick<Campaign, "config">): CampaignLaunchState {
+  const config = (c.config ?? {}) as Record<string, unknown>;
+  return {
+    launchedAt: typeof config.launchedAt === "string" ? config.launchedAt : undefined,
+    pausedFrom: typeof config.pausedFrom === "string" && (CAMPAIGN_STATUSES as readonly string[]).includes(config.pausedFrom) ? (config.pausedFrom as CampaignStatus) : undefined,
+  };
+}
+
+/**
+ * Whether the campaign has ever gone live. Going live after that is a resume, not a launch: no new
+ * `campaign.launched`, and the approved-asset rule (checked at the first launch) is not asked again. A campaign paused
+ * before this bookkeeping existed counts as launched unless it was paused while scheduled.
+ */
+export function hasLaunched(c: Pick<Campaign, "status" | "config">): boolean {
+  const s = launchState(c);
+  if (s.launchedAt || c.status === "live") return true;
+  return c.status === "paused" && s.pausedFrom !== "scheduled";
+}
+
+/** Where Resume takes a paused campaign: back to scheduled when it was paused before it went live, else live. */
+export function resumeStatus(c: Pick<Campaign, "status" | "config">): CampaignStatus {
+  return launchState(c).pausedFrom === "scheduled" ? "scheduled" : "live";
+}
 
 const scoped = (businessId: string, campaignId: string) => and(eq(campaigns.businessId, businessId), eq(campaigns.id, campaignId));
 const scopedAsset = (businessId: string, assetId: string) => and(eq(assets.businessId, businessId), eq(assets.id, assetId));
@@ -136,10 +171,14 @@ export const campaignsRepo = {
         throw new ValidationError(`Campaign cannot move from ${current.status} to ${s}`, { campaignId, from: current.status, to: s });
       }
       const now = new Date();
+      // Launch bookkeeping: when it first went live, and what a pause interrupted (so Resume restores it).
+      const { pausedFrom: _resumed, ...config } = (current.config ?? {}) as Record<string, unknown>;
+      if (s === "paused") config.pausedFrom = current.status;
+      if (s === "live" && typeof config.launchedAt !== "string" && !hasLaunched(current)) config.launchedAt = now.toISOString();
       return one(
         await tx
           .update(campaigns)
-          .set({ status: s, ...(s === "live" && !current.startsAt ? { startsAt: now } : {}), ...(s === "ended" ? { endsAt: current.endsAt && current.endsAt < now ? current.endsAt : now } : {}) })
+          .set({ status: s, config, ...(s === "live" && !current.startsAt ? { startsAt: now } : {}), ...(s === "ended" ? { endsAt: current.endsAt && current.endsAt < now ? current.endsAt : now } : {}) })
           .where(scoped(businessId, campaignId))
           .returning(),
         "campaign",

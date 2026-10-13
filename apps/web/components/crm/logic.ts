@@ -4,6 +4,7 @@
  * paths, activity/document/commercial derivations, the data-duties export and the merge banner. Unit-tested.
  */
 import type { FilterChipValue, SavedView } from "@foundmill/dugout";
+import { formatMoney } from "@foundmill/dugout/lib/format";
 import type { EntityKind } from "@foundmill/shared";
 import type { RouterOutputs } from "@/lib/trpc";
 import { formatDate, plainWords } from "@/lib/format";
@@ -144,6 +145,22 @@ export function groupCounts(rows: readonly CrmRow[], by: GroupBy): { key: string
   return [...counts.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
 }
 
+const usNumber = (n: number) => n.toLocaleString("en-US");
+
+/** What the list holds against what matches: "4,519 records", "500 of 4,519 records", "100+ matches" while more load. */
+export function loadedSummary({ mode, loaded, total, hasMore }: { mode: "list" | "search"; loaded: number; total: number | null; hasMore: boolean }): string {
+  if (mode === "search") return hasMore ? `${usNumber(loaded)} matches so far` : `${usNumber(loaded)} ${loaded === 1 ? "match" : "matches"}`;
+  const word = (total ?? loaded) === 1 ? "record" : "records";
+  if (total !== null && (hasMore || loaded < total)) return `${usNumber(loaded)} of ${usNumber(total)} ${word}`;
+  return `${usNumber(total ?? loaded)} ${word}`;
+}
+
+/** The typeahead's active hit after an arrow key: -1 is the text box itself; Down stops at the last hit, Up at the box. */
+export function nextActiveHit(current: number, step: 1 | -1, count: number): number {
+  if (count <= 0) return -1;
+  return Math.max(-1, Math.min(count - 1, current + step));
+}
+
 export const CRM_VIEWS: SavedView[] = [
   { id: "all", name: "All", builtIn: true, columns: ["name", "kind", "roles", "stage", "owner", "email", "updatedAt"], sort: [{ id: "updatedAt", desc: true }], filters: [] },
   { id: "by-kind", name: "By kind", builtIn: true, columns: ["kind", "name", "roles", "stage", "owner", "updatedAt"], sort: [{ id: "kind", desc: false }, { id: "name", desc: false }], filters: [] },
@@ -278,7 +295,11 @@ export interface ActivityItem {
   href?: string;
 }
 
-export function activityItems(get: Pick<EntityGet, "interactions" | "mentions" | "conversions">, links: { inbox: (id: string) => string; journey: (conversionId: string) => string }): ActivityItem[] {
+/**
+ * The profile's Activity timeline, newest first. A win links to its Customer Update by journey id (no link when the win
+ * has none) and a payment reads in its own currency with the narrow symbol ("£35,349.99"), as on the Journey tab.
+ */
+export function activityItems(get: Pick<EntityGet, "interactions" | "mentions" | "conversions">, links: { inbox: (id: string) => string; journey: (journeyId: string) => string }): ActivityItem[] {
   const items: ActivityItem[] = [];
   for (const i of get.interactions) {
     items.push({ id: `i-${i.id}`, at: toIso(i.occurredAt) ?? new Date(0).toISOString(), kind: i.kind, title: `${i.kind.charAt(0).toUpperCase() + i.kind.slice(1)}${i.direction ? ` · ${i.direction}` : ""}`, description: i.summary || undefined, direction: i.direction, agentId: i.agentId });
@@ -287,7 +308,7 @@ export function activityItems(get: Pick<EntityGet, "interactions" | "mentions" |
     items.push({ id: `m-${m.id}`, at: toIso(m.createdAt) ?? new Date(0).toISOString(), kind: "mention", title: `Mentioned in ${containerWord(m.containerKind)}`, href: m.containerKind === "inbox_item" ? links.inbox(m.containerId) : undefined });
   }
   for (const c of get.conversions) {
-    items.push({ id: `c-${c.id}`, at: toIso(c.occurredAt) ?? new Date(0).toISOString(), kind: "conversion", title: c.kind === "payment" ? "Payment" : c.kind === "activation" ? "Activated" : "Signed up", description: c.kind === "payment" ? `${(Number(c.amountMinor) / 100).toFixed(2)} ${c.currency}` : undefined, href: links.journey(c.id) });
+    items.push({ id: `c-${c.id}`, at: toIso(c.occurredAt) ?? new Date(0).toISOString(), kind: "conversion", title: c.kind === "payment" ? "Payment" : c.kind === "activation" ? "Activated" : "Signed up", description: c.kind === "payment" ? formatMoney({ amountMinor: Number(c.amountMinor), currency: c.currency }) : undefined, href: c.journeyId ? links.journey(c.journeyId) : undefined });
   }
   return items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }

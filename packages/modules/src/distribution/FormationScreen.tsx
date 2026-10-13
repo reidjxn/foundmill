@@ -14,7 +14,7 @@ import { moduleHref, useDepartments } from "@foundmill/widgets/shared/department
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { ChannelProfileDrawer } from "./ChannelProfileDrawer";
-import { buildChannelViews, toChannelToken, totalBudget, type ChannelView } from "./channel-data";
+import { buildChannelViews, resumeStatus, toChannelToken, totalBudget, type ChannelView } from "./channel-data";
 import { InlineError, Screen, searchParam, useAction } from "./shared";
 import { localScores, RESCORE_DEBOUNCE_MS, useDebouncedRun } from "./rescore";
 import type { AgentRow, CampaignRow, ChannelMetricRow, ChannelsListResponse, Page, RecommendResponse, RecommendationRow } from "./types";
@@ -105,7 +105,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
       const view = views.find((v) => v.channelKey === key);
       if (!view) return;
       const targets = view.campaigns.filter((c) => (paused ? c.status === "live" || c.status === "scheduled" : c.status === "paused"));
-      for (const c of targets) await action.run("distribution.campaigns.setStatus", { campaignId: c.id, status: paused ? "paused" : "live" }, { key: `pause:${key}` });
+      for (const c of targets) await action.run("distribution.campaigns.setStatus", { campaignId: c.id, status: paused ? "paused" : resumeStatus(c) }, { key: `pause:${key}` });
       campaigns.refetch();
     },
     [views, action, campaigns],

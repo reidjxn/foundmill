@@ -37,6 +37,33 @@ describe("crm", () => {
     expect(search.hits.find((h) => h.entity.id === customer.id)?.roles.map((r) => r.stage)).toEqual(["churned"]);
     // Another business's member sees none of it.
     await expect(hz.caller({ userId: hz.B.ownerId }).crm.entity.list({ businessId, limit: 10 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(hz.caller({ userId: hz.B.ownerId }).crm.entity.count({ businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("pages the list with a cursor and the search with an offset, and counts every record the filters match", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const { businessId } = hz.A;
+    for (const n of ["Pagetest Alpha", "Pagetest Beta", "Pagetest Gamma"]) await owner.crm.entity.create({ businessId, kind: "person", displayName: n });
+    const { total } = await owner.crm.entity.count({ businessId });
+    // Walk the list two at a time: every record, once, and the count says how many there are.
+    const walked: string[] = [];
+    let cursor: string | null | undefined;
+    do {
+      const page = await owner.crm.entity.list({ businessId, limit: 2, cursor });
+      walked.push(...page.items.map((e) => e.id));
+      cursor = page.nextCursor;
+    } while (cursor);
+    expect(walked).toHaveLength(total);
+    expect(new Set(walked).size).toBe(total);
+    expect((await owner.crm.entity.count({ businessId, role: "no-such-role" })).total).toBe(0);
+    // The search walks past its first page the same way.
+    const first = await owner.crm.search({ businessId, q: "Pagetest", limit: 2 });
+    expect(first.hits).toHaveLength(2);
+    expect(first.nextOffset).toBe(2);
+    const second = await owner.crm.search({ businessId, q: "Pagetest", limit: 2, offset: first.nextOffset! });
+    expect(second.hits).toHaveLength(1);
+    expect(second.nextOffset).toBeNull();
+    expect(new Set([...first.hits, ...second.hits].map((h) => h.entity.displayName))).toEqual(new Set(["Pagetest Alpha", "Pagetest Beta", "Pagetest Gamma"]));
   });
 
   it("unmerge keeps the founder's later edits and a later merge; a merge a later one relies on is refused with the reason", async () => {

@@ -7,7 +7,7 @@ import { LIMITS } from "@foundmill/config";
 import { formatMoney, type ChannelTokenData, type FormCell } from "@foundmill/dugout";
 import { CHANNEL_KEYS, CHANNEL_META, type ApprovalState, type CampaignStatus, type ChannelKey, type ChannelLine } from "@foundmill/shared/constants";
 import { weekKey } from "@foundmill/widgets/shared/time";
-import type { AgentRow, AssetRow, BlendedSummary, CampaignRow, ChannelMetricRow, ChannelRow, ChannelSummaryRow, JourneyRow, RecommendationRow } from "./types";
+import type { AgentRow, AssetRow, BlendedSummary, CampaignRow, ChannelMetricRow, ChannelRow, ChannelSummaryRow, RecommendationRow } from "./types";
 
 /* ---------- Roster ---------- */
 
@@ -176,6 +176,8 @@ export function toChannelToken(view: ChannelView, opts: TokenOptions = {}): Chan
     agents,
     budgetShare: total > 0 ? view.budgetMinor / total : undefined,
     paused: view.paused,
+    // The channel's own setting, as the Channels table shows it (not the channel's default).
+    kitMode: !!view.kitMode,
     results,
   };
 }
@@ -187,7 +189,8 @@ export function summaryResults(form: ChannelSummaryRow, currency: string): Array
     { label: "Signups", value: String(form.signups) },
     { label: "Customers", value: String(form.customers) },
     { label: "Spend", value: money(form.spendMinor) },
-    { label: "Cost per customer (Estimate)", value: form.cpaMinor === null ? "No customers yet" : money(form.cpaMinor) },
+    // As the Channels table says it (EstimatedMoney): a channel that spent nothing has no cost to estimate.
+    { label: "Cost per customer (Estimate)", value: form.cpaMinor === null ? "No customers yet" : form.cpaMinor === 0 && !form.spendMinor ? "No spend" : money(form.cpaMinor) },
   ];
 }
 
@@ -239,9 +242,30 @@ export const CAMPAIGN_TRANSITIONS: Record<CampaignStatus, readonly CampaignStatu
   pending_approval: ["draft", "scheduled", "live", "ended"],
   scheduled: ["live", "paused", "draft", "ended"],
   live: ["paused", "ended"],
-  paused: ["live", "ended"],
+  paused: ["live", "scheduled", "ended"],
   ended: [],
 };
+
+/**
+ * Whether the campaign ever went live (`config.launchedAt`, packages/db `hasLaunched`): going live after that is a
+ * resume, which neither needs an approved asset again nor counts as a launch. A campaign paused before this was
+ * recorded counts as launched unless it was paused while scheduled.
+ */
+export function campaignLaunched(c: Pick<CampaignRow, "status" | "config">): boolean {
+  const config = c.config ?? {};
+  if (typeof config.launchedAt === "string" || c.status === "live") return true;
+  return c.status === "paused" && config.pausedFrom !== "scheduled";
+}
+
+/** Where Resume takes a paused campaign: back to Scheduled when it was paused before it went live, else Live. */
+export function resumeStatus(c: Pick<CampaignRow, "config">): CampaignStatus {
+  return c.config?.pausedFrom === "scheduled" ? "scheduled" : "live";
+}
+
+/** "Launch needs at least one approved asset" (the API refuses the same): a first launch without one is blocked. */
+export function launchBlocked(c: Pick<CampaignRow, "status" | "config">, approvedAssets: number): boolean {
+  return canTransition(c.status, "live") && c.status !== "paused" && !campaignLaunched(c) && approvedAssets === 0;
+}
 
 export const CAMPAIGN_STATUS_WORDS: Record<CampaignStatus, { word: string; tone: "good" | "warn" | "bad" | "info" | "neutral" }> = {
   draft: { word: "Draft", tone: "neutral" },
@@ -288,20 +312,6 @@ export const APPROVAL_WORDS: Record<ApprovalState, { word: string; tone: "good" 
 export type AttributionModelKey = "position_based_40_20_40" | "data_driven_markov";
 
 export const MODEL_LABELS: Record<AttributionModelKey, string> = { position_based_40_20_40: "Position-based 40/20/40", data_driven_markov: "Data-driven (Markov removal effect)" };
-
-/** Position-based until the configured number of labelled wins, data-driven from then on (packages/journey `chooseModel`). */
-export function modelInUse(winCount: number): { model: AttributionModelKey; threshold: number; remaining: number } {
-  const threshold = LIMITS.attributionPositionBasedUntilConversions;
-  const model: AttributionModelKey = winCount < threshold ? "position_based_40_20_40" : "data_driven_markov";
-  return { model, threshold, remaining: Math.max(0, threshold - winCount) };
-}
-
-/** A journey is partial when consent removed touches: the builder's flag, or fewer weighted touches than touch ids, or no touches at all. */
-export function isPartialJourney(row: Pick<JourneyRow, "touchIds" | "weights" | "partialJourney">): boolean {
-  if (typeof row.partialJourney === "boolean") return row.partialJourney;
-  if (!row.touchIds.length) return true;
-  return Object.keys(row.weights ?? {}).length < row.touchIds.length;
-}
 
 export const OFFLINE_LINE: ChannelLine = "wings";
 

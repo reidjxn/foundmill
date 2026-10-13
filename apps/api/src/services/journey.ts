@@ -9,11 +9,43 @@
  * the models were stored gets the label the conversion count implies, as before.
  */
 import { LIMITS } from "@foundmill/config";
-import { repos, type Executor, type JourneyDetail } from "@foundmill/db";
-import { Journey, JourneyAgent, Touch, XcPoint, channelWeights, chooseModel, shouldPlayFullMatchDay, type ConsentState, type JourneyCaptain, type Journey as JourneyRecord, type Touch as JourneyTouch } from "@foundmill/journey";
-import type { ChannelKey } from "@foundmill/shared";
+import { isPartialConsent, repos, type Executor, type JourneyDetail } from "@foundmill/db";
+import { Journey, JourneyAgent, Touch, XcPoint, channelWeights, chooseModel, shouldPlayFullMatchDay, type AttributionModel, type ConsentState, type JourneyCaptain, type Journey as JourneyRecord, type Touch as JourneyTouch } from "@foundmill/journey";
+import type { ChannelKey, ConversionKind } from "@foundmill/shared";
 
 const HOUR_MS = 3_600_000;
+
+/**
+ * The labeled conversions `chooseModel` counts: every first conversion of each kind (signups, activations, first
+ * payments, …), repeat payments left out (`countConversions`). The journey builder, `journey.get` and the Attribution
+ * screen all count on this one basis, so the model a replay names is the model the screen says is in use.
+ */
+export function labeledConversionCount(counts: Readonly<Record<ConversionKind, number>>): number {
+  return Object.values(counts).reduce((s, n) => s + n, 0);
+}
+
+export interface AttributionSummary {
+  /** Labeled conversions over the business's whole history (the basis `chooseModel` reads). */
+  conversionCount: number;
+  byKind: Record<ConversionKind, number>;
+  /** The model new Customer Updates are weighted with. */
+  attributionModel: AttributionModel;
+  /** Labeled conversions from which the data-driven model takes over. */
+  threshold: number;
+  /** Labeled conversions still to come before it does (0 once it has). */
+  remaining: number;
+  /** Every Customer Update, and how many are partial (consent other than granted). */
+  journeys: number;
+  partialJourneys: number;
+}
+
+/** The Attribution screen's "Model in use" panel, counted over every conversion and journey, never a page of them. */
+export async function attributionSummary(db: Executor, businessId: string): Promise<AttributionSummary> {
+  const [counts, consent] = await Promise.all([repos.journeys.countConversions(db, businessId), repos.journeys.consentSummary(db, businessId)]);
+  const conversionCount = labeledConversionCount(counts);
+  const threshold = LIMITS.attributionPositionBasedUntilConversions;
+  return { conversionCount, byKind: counts, attributionModel: chooseModel(conversionCount), threshold, remaining: Math.max(0, threshold - conversionCount), journeys: consent.journeys, partialJourneys: consent.partialJourneys };
+}
 
 function hasClickIds(source: Record<string, unknown>): boolean {
   const ids = source.clickIds;
@@ -75,25 +107,19 @@ export async function buildJourneyRecord(db: Executor, businessId: string, detai
   const touches = toJourneyTouches(detail.touches);
   const agents = parseAgents(detail.agents);
   const weights = detail.weights ?? {};
-  const [counts, nthOfKind, p75, cpa] = await Promise.all([
+  const [counts, nthOfKind, p75, cpa, consentById] = await Promise.all([
     repos.journeys.countConversions(db, businessId),
     repos.journeys.nthOfKind(db, businessId, detail.conversionId),
     detail.conversion.kind === "payment" ? repos.journeys.paymentPercentile75(db, businessId) : Promise.resolve(null),
     repos.channels.metricsSummary(db, businessId).catch(() => null),
+    repos.journeys.consentForJourneys(db, businessId, [detail.id]),
   ]);
-  const conversionCount = Object.values(counts).reduce((s, n) => s + n, 0);
+  const conversionCount = labeledConversionCount(counts);
 
-  // Consent from the visitor the touches were stitched through (first-party only without consent, BUILD §11.4).
-  let consent: ConsentState = "unknown";
-  const visitorId = touches.find((t) => t.visitorId)?.visitorId ?? detail.touches.find((t) => t.visitorId)?.visitorId ?? null;
-  if (visitorId) {
-    try {
-      consent = (await repos.journeys.getVisitor(db, businessId, visitorId)).consentState;
-    } catch {
-      consent = "unknown";
-    }
-  }
-  const partialJourney = consent !== "granted";
+  // Consent from the visitor the touches were stitched through (first-party only without consent, BUILD §11.4); the
+  // same reading journey.list and the Attribution summary use, so the replay and the screen agree on what is partial.
+  const consent: ConsentState = consentById.get(detail.id) ?? "unknown";
+  const partialJourney = isPartialConsent(consent);
 
   const cpaByChannel = new Map<ChannelKey, number>();
   for (const c of cpa?.channels ?? []) if (c.cpaMinor !== null) cpaByChannel.set(c.channelKey, c.cpaMinor);

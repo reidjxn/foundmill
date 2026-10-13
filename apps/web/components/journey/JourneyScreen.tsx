@@ -8,7 +8,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Route, UserRound } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Chip, EmptyState, JourneyStage, Panel, ProvenanceChip, formatMoney, type ReplaySpeed } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -18,7 +18,7 @@ import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
-import { customerFactsFor, entityKindsFor, journeyIdForConversion, stageAgentMeta, stageJourneyFromRecord, toStageTouches } from "./mapping";
+import { customerFactsFor, entityKindsFor, replayOrigin, stageAgentMeta, stageJourneyFromRecord, toStageTouches } from "./mapping";
 import { readReplaySpeed, writeReplaySpeed } from "./speed";
 
 export interface JourneyScreenProps {
@@ -32,15 +32,20 @@ export function JourneyScreen({ journeyId }: JourneyScreenProps) {
   const router = useRouter();
   const userId = data.membership.userId;
 
+  // Back and the breadcrumb return to where the replay was opened from (`?from=`), the Inbox otherwise.
+  const from = useSearchParams().get("from");
+  const origin = useMemo(() => replayOrigin(from, businessId, departments), [from, businessId, departments]);
+
   const journeyQ = useQuery(trpc.journey.get.queryOptions({ businessId, journeyId }, { staleTime: 60_000, retry: false }));
   const notFound = journeyQ.error ? trpcErrorCode(journeyQ.error) === "NOT_FOUND" : false;
 
-  // A Ribbon marker links by conversion id (the widget only knows the marker): look the journey up and forward.
-  const lookupQ = useQuery(trpc.journey.list.queryOptions({ businessId, limit: 200 }, { enabled: notFound, staleTime: 30_000, retry: false }));
-  const forwardTo = useMemo(() => (notFound ? journeyIdForConversion(journeyId, lookupQ.data?.items) : null), [notFound, journeyId, lookupQ.data?.items]);
+  // A link that only knows the win (a Ribbon marker, an older link) carries the conversion id: resolve it server-side,
+  // whatever the age of the win, and forward.
+  const lookupQ = useQuery(trpc.journey.forConversion.queryOptions({ businessId, conversionId: journeyId }, { enabled: notFound, staleTime: 30_000, retry: false }));
+  const forwardTo = notFound ? (lookupQ.data?.journeyId ?? null) : null;
   useEffect(() => {
-    if (forwardTo) router.replace(routes.journey(businessId, forwardTo));
-  }, [forwardTo, router, businessId]);
+    if (forwardTo) router.replace(routes.journey(businessId, forwardTo, from ?? undefined));
+  }, [forwardTo, router, businessId, from]);
 
   const row = journeyQ.data ?? null;
   const entityId = row?.entity?.id ?? row?.conversion.entityId ?? null;
@@ -72,17 +77,18 @@ export function JourneyScreen({ journeyId }: JourneyScreenProps) {
   const entityKinds = useMemo(() => (row && journey ? entityKindsFor(row, journey.agents) : {}), [row, journey]);
 
   const title = customer ? `Customer Update · ${customer.name}` : "Customer Update";
-  useShellChrome({ title: "Customer Update", breadcrumbs: [{ label: "Inbox", href: routes.inbox(businessId) }, { label: customer?.name ?? "Replay" }] }, [businessId, customer?.name]);
+  useShellChrome({ title: "Customer Update", breadcrumbs: [{ label: origin.label, href: origin.href }, { label: customer?.name ?? "Replay" }] }, [origin.label, origin.href, customer?.name]);
 
   const openEntity = useCallback((id: string) => router.push(id === entityId || !/^[0-9a-f-]{36}$/i.test(id) ? routes.crm(businessId, entityId ?? id) : departments.some((d) => d.squad.some((a) => a.id === id)) ? routes.agent(businessId, id) : routes.crm(businessId, id)), [router, businessId, entityId, departments]);
-  const back = useCallback(() => router.push(routes.inbox(businessId)), [router, businessId]);
+  const back = useCallback(() => router.push(origin.href), [router, origin.href]);
+  const backLabel = origin.label === "Inbox" ? "Back to the Inbox" : `Back to ${origin.label}`;
 
   if (journeyQ.error && !notFound) return <ErrorPanel title="Customer Update" message={errorMessage(journeyQ.error)} onRetry={() => void journeyQ.refetch()} />;
   if (notFound && !forwardTo && !lookupQ.isLoading) {
     return (
       <div className="p-gutter" data-testid="journey-not-found">
         <Panel title="Customer Update" span={12}>
-          <EmptyState icon={Route} title="No replay for this id" action={{ label: "Back to the Inbox", icon: ArrowLeft, onClick: back }}>
+          <EmptyState icon={Route} title="No replay for this id" action={{ label: backLabel, icon: ArrowLeft, onClick: back }}>
             The replay appears once the win is recorded; Customer Update notes in the Inbox link straight to it.
           </EmptyState>
         </Panel>
@@ -94,8 +100,8 @@ export function JourneyScreen({ journeyId }: JourneyScreenProps) {
   return (
     <div className="flex min-h-full flex-col" data-testid="journey-screen" data-journey-id={row.id} data-conversion-id={row.conversionId} data-speed={speed} data-nth={journey.nthOfKind} data-consent={journey.consent}>
       <div className="rule-under flex flex-wrap items-center gap-2 px-gutter py-1.5" data-testid="journey-toolbar">
-        <Button size="sm" variant="ghost" icon={ArrowLeft} onClick={back} data-testid="journey-back">
-          Inbox
+        <Button size="sm" variant="ghost" icon={ArrowLeft} onClick={back} data-testid="journey-back" data-back-href={origin.href}>
+          {origin.label}
         </Button>
         <span className="t-title text-primary">{title}</span>
         {journey.partialJourney ? <Chip tone="neutral">Consented touches only</Chip> : null}
@@ -132,7 +138,7 @@ export function JourneyScreen({ journeyId }: JourneyScreenProps) {
         entityKinds={entityKinds}
         currency={row.conversion.currency}
         onClose={back}
-        closeLabel="Back to the Inbox"
+        closeLabel={backLabel}
         className="flex-1"
       />
     </div>

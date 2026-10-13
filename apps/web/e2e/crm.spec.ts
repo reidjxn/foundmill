@@ -72,6 +72,30 @@ test.describe("crm", () => {
     await expect(roles.filter({ hasNotText: "Customer" })).toHaveCount(0);
   });
 
+  test("the typeahead is a combobox: arrow keys move through the hits and Enter opens one", async ({ page }) => {
+    const input = page.getByTestId("crm-search-input");
+    await input.fill("pennine");
+    await expect(page.getByRole("option", { name: /Pennine Contract Cosmetics/ })).toBeVisible({ timeout: LONG });
+    await expect(input).toHaveAttribute("aria-expanded", "true");
+    await input.press("ArrowDown");
+    // Focus stays in the box; the active hit is announced through aria-activedescendant.
+    await expect(input).toBeFocused();
+    const active = page.getByRole("option", { selected: true });
+    await expect(active).toHaveCount(1);
+    await expect(input).toHaveAttribute("aria-activedescendant", (await active.getAttribute("id")) ?? "");
+    await input.press("Enter");
+    await expect(page.getByTestId("entity-profile")).toBeVisible({ timeout: LONG });
+  });
+
+  test("the list pages through every record and says how many there are", async ({ page }) => {
+    const summary = page.getByTestId("crm-loaded");
+    await expect(summary).toHaveText(/^[\d,]+( of [\d,]+)? records?$/, { timeout: LONG });
+    // Pages keep loading until everything is here (or the automatic limit): the count settles on the true total.
+    await expect(page.getByTestId("crm-load-more")).toHaveCount(0, { timeout: LONG });
+    const text = (await summary.textContent()) ?? "";
+    expect(text, "no partial 'N of M' left once everything is loaded").not.toContain(" of ");
+  });
+
   test("new record dialog and the merge flow from a row", async ({ page }) => {
     await page.getByTestId("crm-new").click();
     await expect(page.getByTestId("new-entity-dialog")).toBeVisible();

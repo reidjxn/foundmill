@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildReplaySchedule } from "@foundmill/dugout";
 import type { Journey as JourneyRecord } from "@foundmill/journey";
-import { customerFactsFor, entityKindsFor, journeyIdForConversion, stageAgentMeta, stageJourneyFromRecord, toStageTouches, type JourneyRowLike } from "../mapping";
+import { CHANNEL_META } from "@foundmill/shared";
+import { customerFactsFor, entityKindsFor, replayOrigin, stageAgentMeta, stageJourneyFromRecord, toStageTouches, type JourneyRowLike } from "../mapping";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const AG1 = id(901);
@@ -113,9 +114,26 @@ describe("journey.get → JourneyStage (AC-11.4.3 deterministic)", () => {
     expect(entityKindsFor(row, j.agents)).toEqual({ [ENT]: "organisation", [AG1]: "agent", [AG2]: "agent" });
   });
 
-  it("resolves a Ribbon marker's conversion id to its journey", () => {
-    expect(journeyIdForConversion(id(2), [{ id: "j1", conversionId: id(2) }])).toBe("j1");
-    expect(journeyIdForConversion(id(9), [{ id: "j1", conversionId: id(2) }])).toBeNull();
-    expect(journeyIdForConversion(id(2), undefined)).toBeNull();
+  it("reads stored keys as words in the customer rail: the role and the first channel by its name", () => {
+    const touches = toStageTouches(touchRows);
+    const j = stageJourneyFromRecord(record, row);
+    const facts = customerFactsFor(row, j, touches, { roles: [{ role: "design_partner" }] });
+    expect(facts.facts.find((f) => f.label === "Role")?.value).toBe("Design partner");
+    expect(facts.facts.find((f) => f.label === "First touch")?.value).toBe(CHANNEL_META[touches[0]!.channelKey!].label);
+    const seo = toStageTouches([{ ...touchRows[0]!, channelKey: "seo" }]);
+    expect(customerFactsFor(row, j, seo, { roles: [{ role: "customer" }] }).facts.map((f) => f.value)).toEqual(expect.arrayContaining(["Customer", "SEO"]));
+    expect(customerFactsFor(row, j, [], null).facts.find((f) => f.label === "First touch")?.value).toBe("Direct");
+  });
+
+  it("goes back to where the replay was opened from, and only inside this business", () => {
+    const B = "b1e5e5e5-0000-4000-8000-000000000001";
+    const departments = [{ slug: "growth", tabs: [{ slug: "attribution", title: "Attribution" }] }];
+    expect(replayOrigin(null, B)).toEqual({ href: `/b/${B}/inbox`, label: "Inbox" });
+    expect(replayOrigin(`/b/${B}/crm/${id(1)}/journey`, B)).toEqual({ href: `/b/${B}/crm/${id(1)}/journey`, label: "CRM profile" });
+    expect(replayOrigin(`/b/${B}/milestones`, B)).toEqual({ href: `/b/${B}/milestones`, label: "Milestones" });
+    expect(replayOrigin(`/b/${B}/home`, B).label).toBe("Home");
+    expect(replayOrigin(`/b/${B}/d/growth/attribution`, B, departments)).toEqual({ href: `/b/${B}/d/growth/attribution`, label: "Attribution" });
+    // Anything unknown, foreign or absolute falls back to the Inbox: the from path is never an open redirect.
+    for (const bad of [`/b/${B}/d/growth/unknown`, `/b/other/crm`, "https://evil.example/b/x", `//evil.example/b/${B}/crm`, `/b/${B}//evil.example`, `/b/${B}/crm\\x`]) expect(replayOrigin(bad, B, departments)).toEqual({ href: `/b/${B}/inbox`, label: "Inbox" });
   });
 });

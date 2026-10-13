@@ -261,7 +261,7 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
 // --- tabs -------------------------------------------------------------------------------------------------------------
 
 function ActivityTab({ get, businessId, squad }: { get: EntityGet; businessId: string; squad?: { id: string; name: string; avatarSeed: string; departments: { colourToken: string }[] }[] }) {
-  const items = useMemo(() => activityItems(get, { inbox: (id) => routes.inbox(businessId, id), journey: (id) => routes.journey(businessId, id) }), [get, businessId]);
+  const items = useMemo(() => activityItems(get, { inbox: (id) => routes.inbox(businessId, id), journey: (id) => routes.journey(businessId, id, routes.crm(businessId, get.entity.id, "activity")) }), [get, businessId]);
   const events: TimelineEvent[] = items.map((i) => {
     const agent = i.agentId ? squad?.find((a) => a.id === i.agentId) : undefined;
     return {
@@ -431,16 +431,23 @@ function JourneyTab({ get, businessId }: { get: EntityGet; businessId: string })
   const router = useRouter();
   const wins = get.conversions.slice().sort((a, b) => Date.parse(String(b.occurredAt)) - Date.parse(String(a.occurredAt)));
   return (
-    <Panel title="Customer Updates" span={12} empty={wins.length === 0 ? { icon: Play, children: "Each win (sign-up, activation, payment) has a replay: first touch, who was involved, the win moment and the debrief." } : undefined} footer="Replays open the Customer Update for that win." data-testid="journey-list">
+    <Panel title="Customer Updates" span={12} empty={wins.length === 0 ? { icon: Play, children: "Each win (sign-up, activation, payment) has a replay: first touch, who was involved, the win moment and the debrief." } : undefined} footer="Re-watch opens the Customer Update for that win." data-testid="journey-list">
       <ul className="flex flex-col divide-y divide-subtle">
         {wins.map((c) => (
           <li key={c.id} className="flex items-center gap-3 py-2 text-body">
             <StatusPill tone={c.kind === "payment" ? "good" : "info"}>{c.kind === "payment" ? "Payment" : c.kind === "activation" ? "Activation" : "Sign-up"}</StatusPill>
             <span className="text-secondary">{formatDateTime(c.occurredAt)}</span>
             {c.kind === "payment" ? <span className="tabular-nums">{formatMoney({ amountMinor: Number(c.amountMinor), currency: c.currency })}</span> : null}
-            <Button size="sm" icon={Play} className="ml-auto" onClick={() => router.push(routes.journey(businessId, c.id))} data-testid="rewatch">
-              Re-watch
-            </Button>
+            {/* Re-watch opens the win's own Customer Update; a win recorded without one has nothing to replay. */}
+            {c.journeyId ? (
+              <Button size="sm" icon={Play} className="ml-auto" onClick={() => c.journeyId && router.push(routes.journey(businessId, c.journeyId, routes.crm(businessId, get.entity.id, "journey")))} data-testid="rewatch">
+                Re-watch
+              </Button>
+            ) : (
+              <span className="ml-auto text-small text-secondary" data-testid="no-replay">
+                No replay recorded
+              </span>
+            )}
           </li>
         ))}
       </ul>
