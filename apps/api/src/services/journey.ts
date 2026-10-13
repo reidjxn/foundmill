@@ -10,7 +10,7 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { repos, type Executor, type JourneyDetail } from "@foundmill/db";
-import { Journey, JourneyAgent, Touch, XcPoint, channelWeights, chooseModel, shouldPlayFullMatchDay, type ConsentState, type JourneyCaptain, type Journey as JourneyRecord, type Touch as JourneyTouch } from "@foundmill/journey";
+import { Journey, JourneyAgent, Touch, XcPoint, channelWeights, positionBased4020, shouldPlayFullMatchDay, type ConsentState, type JourneyCaptain, type Journey as JourneyRecord, type Touch as JourneyTouch } from "@foundmill/journey";
 import type { ChannelKey } from "@foundmill/shared";
 
 const HOUR_MS = 3_600_000;
@@ -60,6 +60,19 @@ export function captainOf(touches: readonly JourneyTouch[], weights: Record<stri
   const named = best.source.agentId;
   const owner = named ?? agents.find((a) => a.touchIds.includes(best!.id))?.agentId ?? null;
   return { touchId: best.id, channelKey: best.channelKey, agentId: owner, weight: weights[best.id] ?? 0 };
+}
+
+/**
+ * The model behind a stored journey. Rows carry it (`journeys.attribution_model`, written when the journey is built);
+ * for a row stored before that, it is read from the weights themselves: the 40 / 20 / 40 split of its touches is
+ * position-based, anything else was data-driven. Never today's count of conversions, which says nothing about how an
+ * earlier win was weighed (audit #330).
+ */
+export function inferAttributionModel(touches: readonly JourneyTouch[], weights: Record<string, number>): "position_based_40_20_40" | "data_driven_markov" {
+  if (touches.length === 0) return "position_based_40_20_40";
+  const split = positionBased4020(touches);
+  const same = touches.every((t) => Math.abs((weights[t.id] ?? 0) - (split[t.id] ?? 0)) < 1e-6);
+  return same ? "position_based_40_20_40" : "data_driven_markov";
 }
 
 export interface JourneyRecordResult {
@@ -126,7 +139,7 @@ export async function buildJourneyRecord(db: Executor, businessId: string, detai
     channels: channelWeights(touches, weights),
     captain: captainOf(touches, weights, agents),
     playerOfTheMatch: agents[0]?.agentId ?? null,
-    attributionModel: detail.attributionModel ?? chooseModel(conversionCount),
+    attributionModel: detail.attributionModel ?? inferAttributionModel(touches, weights),
     xcModelSource: detail.xcModelSource ?? (conversionCount >= LIMITS.xcArchetypePriorUntilConversions ? "trained" : "archetype_prior"),
     consent,
     partialJourney,

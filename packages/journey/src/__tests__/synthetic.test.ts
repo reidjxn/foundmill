@@ -74,7 +74,7 @@ describe("generateSyntheticJourneyData — two years", () => {
     // The daily rows agree with the conversion list.
     expect(t.signups).toBe(data.conversions.filter((c) => c.kind === "signup").length);
     expect(t.activations).toBe(data.conversions.filter((c) => c.kind === "activation").length);
-    expect(t.payments).toBe(data.conversions.filter((c) => c.kind === "payment").length);
+    expect(t.payments).toBe(data.conversions.filter((c) => c.kind === "payment" && c.firstPayment).length);
     expect(data.series.customersByDay.at(-1)).toBe(t.payments);
     expect(data.series.mrrMinorByDay).toHaveLength(730);
     expect(data.series.mrrMinorByDay.every((v) => v >= 0)).toBe(true);
@@ -297,5 +297,55 @@ describe("generateSyntheticConversionPath — Match Day replays", () => {
 
   it("differs across seeds", () => {
     expect(generateSyntheticConversionPath("x").conversion.id).not.toBe(generateSyntheticConversionPath("y").conversion.id);
+  });
+});
+
+describe("generateSyntheticJourneyData — nothing is dated after now (audit #159)", () => {
+  // Mid-afternoon on the last day: the rest of that day has not happened yet.
+  const now = Date.parse("2025-06-30T14:20:00.000Z");
+  const data = generateSyntheticJourneyData(opts({ days: 400, startDate: "2024-06-01", today: "2025-06-30", now: new Date(now), volumeScale: 0.4 }));
+
+  it("dates no conversion, touch, visitor or signup later than now", () => {
+    expect(data.conversions.length).toBeGreaterThan(100);
+    expect(data.conversions.filter((c) => Date.parse(c.occurredAt) > now)).toEqual([]);
+    expect(data.touches.filter((t) => Date.parse(t.occurredAt) > now)).toEqual([]);
+    expect(data.visitors.filter((v) => Date.parse(v.lastSeen) > now)).toEqual([]);
+    expect(data.customers.filter((c) => Date.parse(c.signupAt) > now)).toEqual([]);
+  });
+
+  it("leaves an activation or payment that would fall after now un-happened, on the customer too", () => {
+    for (const c of data.customers) {
+      if (c.activatedAt) expect(Date.parse(c.activatedAt)).toBeLessThanOrEqual(now);
+      if (c.paidAt) expect(Date.parse(c.paidAt)).toBeLessThanOrEqual(now);
+      if (c.paidAt) expect(c.activatedAt).not.toBeNull();
+    }
+    // Every customer's stage is backed by a conversion row.
+    const kinds = new Map<string, Set<string>>();
+    for (const c of data.conversions) kinds.set(c.entityId ?? "", (kinds.get(c.entityId ?? "") ?? new Set()).add(c.kind));
+    for (const c of data.customers) {
+      expect(kinds.get(c.entityId)?.has("signup")).toBe(true);
+      expect(kinds.get(c.entityId)?.has("activation") ?? false).toBe(c.activatedAt !== null);
+      expect(kinds.get(c.entityId)?.has("payment") ?? false).toBe(c.paidAt !== null);
+    }
+  });
+
+  it("emits each renewal as a payment that is not a new customer, so the daily revenue is the revenue of the records", () => {
+    const renewals = data.conversions.filter((c) => c.kind === "payment" && !c.firstPayment);
+    expect(renewals.length).toBeGreaterThan(0);
+    const firstPaid = new Set(data.conversions.filter((c) => c.kind === "payment" && c.firstPayment).map((c) => c.entityId));
+    for (const r of renewals) expect(firstPaid.has(r.entityId)).toBe(true);
+    const recordRevenue = data.conversions.filter((c) => c.kind === "payment").reduce((n, c) => n + c.amountMinor, 0);
+    const dailyRevenue = data.daily.filter((r) => r.departmentId === null).reduce((n, r) => n + r.revenueMinor, 0);
+    expect(recordRevenue).toBe(dailyRevenue);
+    // Paying customers count first payments only.
+    expect(data.series.customersByDay.at(-1)).toBe(data.conversions.filter((c) => c.kind === "payment" && c.firstPayment).length);
+  });
+
+  it("marks the MRR milestones of a business without subscriptions as an estimate", () => {
+    const dtc = generateSyntheticJourneyData(opts({ archetype: "dtc_physical", days: 500, startDate: "2024-06-01" }));
+    expect(dtc.meta.recurring).toBe(false);
+    for (const m of dtc.milestones.filter((x) => x.trophyKey?.startsWith("mrr_"))) expect(m.ref).toMatchObject({ estimate: true });
+    const saas = generateSyntheticJourneyData(opts({ days: 500, startDate: "2024-06-01" }));
+    for (const m of saas.milestones.filter((x) => x.trophyKey?.startsWith("mrr_"))) expect(m.ref?.estimate).toBeUndefined();
   });
 });

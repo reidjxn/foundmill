@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { COMMENTARY_TONES } from "@foundmill/models";
 import { PLAN_ACTION_TYPES } from "@foundmill/shared";
 import { PROMPTS, PROMPT_LIST, getPrompt } from "../prompts";
 import { PromptRenderError, definePrompt, extractPlaceholders, formatVariable } from "../prompts/template";
@@ -55,6 +56,16 @@ describe("prompt templates (BUILD §12)", () => {
     const cos = getPrompt("chief_of_staff_planner").render({ business_name: "Ledgerly", max_agents: 16, budget: "£1,200.00 (Estimate)", capacity: "40 req/min" });
     expect(cos).toContain("Plan the next cycle for Ledgerly.");
     expect(cos).toContain("Respect concurrency 16, budget remaining £1,200.00 (Estimate), and rate-limit capacity 40 req/min.");
+  });
+
+  it("the journey commentary prompt describes the enforced output: null for the two unanchored lines, a headline, and every tone (audit #332)", () => {
+    const text = getPrompt("journey_commentary").render({ business_name: "Ledgerly", matchday_level: "standard", customer_term: "client", touch_count: 3 });
+    expect(text).toContain('"touch_index": number | null');
+    expect(text).toContain("never a number");
+    expect(text).toContain("headline");
+    for (const tone of COMMENTARY_TONES) expect(text).toContain(tone);
+    // The tone that the replay highlights is defined as the win moment.
+    expect(text).toMatch(/goal \(the win moment/);
   });
 
   it("the Inbox Composer and quarantined reader are routed to their locked models", () => {

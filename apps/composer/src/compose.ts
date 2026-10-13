@@ -121,8 +121,12 @@ export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record
     glossary: ctx.glossary,
   };
   switch (brief.mode) {
-    case "events":
-      return { ...base, events: brief.events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt.toISOString(), actor: e.actor, entity_ids: e.entityIds, payload: e.payload })) };
+    case "events": {
+      const events = brief.events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt.toISOString(), actor: e.actor, entity_ids: e.entityIds, payload: e.payload }));
+      // Wins the volume rule rolled up: one results note for the day, not a story per win.
+      const rolled = brief.events.length > 0 && brief.events.every((e) => e.type === "customer.converted" && (e.payload as { fullMatchDay?: unknown } | null)?.fullMatchDay === false);
+      return rolled ? { ...base, events, note: "These wins were rolled up into the day's results table (volume rule): write one short results note that counts them by kind, names no more than three customers from the manifest, and does not narrate any journey." } : { ...base, events };
+    }
     case "insight":
       return {
         ...base,

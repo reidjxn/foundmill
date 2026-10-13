@@ -137,6 +137,13 @@ describe("TrophyCabinet", () => {
     expect(onShare).toHaveBeenCalledWith("customer_1");
     expect(screen.queryByRole("button", { name: /1,000th customer/ })).toBeNull();
   });
+
+  it("labels a reached milestone whose figure is an estimate (an MRR milestone of a business without subscriptions)", () => {
+    const { container } = render(<TrophyCabinet trophies={trophyFixtures().map((t) => (t.key === "customer_1" ? { ...t, estimate: true } : t))} />);
+    const estimated = container.querySelectorAll("[data-trophy] [data-provenance='estimate']");
+    expect(estimated.length).toBe(1);
+    expect(container.querySelector("[data-trophy='customer_1'] [data-provenance='estimate']")).toBeTruthy();
+  });
 });
 
 describe("DayDigest", () => {
@@ -155,5 +162,23 @@ describe("DayDigest", () => {
     await user.click(replay);
     expect(onOpenJourney).toHaveBeenCalledWith(summary.conversions[0]!.id);
     expect(screen.getByText(/won today/)).toBeTruthy();
+  });
+
+  it("moves the wins the volume rule rolled up out of the Wins list and into the day's results table (audit #342)", async () => {
+    const user = userEvent.setup();
+    const data = generateJourneyFixture({ days: 40, seed: "digest" });
+    const index = indexDailyRows(data.rows, RIBBON_DEPARTMENTS);
+    const day = data.conversions.find((c) => c.kind === "payment")!.occurredAt.slice(0, 10);
+    const summary = summariseDay(day, { index, departments: RIBBON_DEPARTMENTS, conversions: data.conversions, milestones: data.milestones, chapters: data.chapters, today: data.today });
+    const rolled = summary.conversions[0]!;
+    const onOpenJourney = vi.fn();
+    const row = { conversionId: rolled.id, kind: rolled.kind, level: "friendly" as const, customerName: rolled.entityName ?? null, entityId: rolled.entityId, channelKey: null, amountMinor: rolled.amountMinor, currency: rolled.currency, occurredAt: rolled.occurredAt };
+    const { container } = render(<DayDigest summary={summary} roundup={[row]} onOpenJourney={onOpenJourney} />);
+    expect(container.querySelector("[data-roundup]")).toBeTruthy();
+    expect(container.querySelector(`[data-roundup-row='${rolled.id}']`)).toBeTruthy();
+    // The rolled-up win has its row in the table, not a second entry in the Wins list.
+    expect(screen.queryAllByRole("button", { name: /Open the Customer Update/ }).length).toBe(Math.min(8, summary.conversions.length - 1));
+    await user.click(container.querySelector(`[data-roundup-row='${rolled.id}'] button`) as HTMLElement);
+    expect(onOpenJourney).toHaveBeenCalledWith(rolled.id);
   });
 });

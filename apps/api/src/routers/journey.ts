@@ -1,6 +1,6 @@
 /** journey.get/list/markViewed + daily rows and milestones for the Ribbon (BUILD §11.2, §11.4). */
 import { JourneyListFilter, NO_DEPARTMENT_ID, repos } from "@foundmill/db";
-import { buildChapters } from "@foundmill/journey";
+import { buildChapters, compareByTimeThenId, shouldPlayFullMatchDay } from "@foundmill/journey";
 import { buildJourneyRecord } from "../services/journey";
 import { z } from "zod";
 import { Id, businessProcedure, router } from "../trpc";
@@ -63,7 +63,17 @@ export const journeyRouter = router({
       const conversions = await repos.journeys.listConversions(tx, ctx.businessId, { from, to, firstPayment: true, limit: 500 });
       // Every conversion of one day, named, for the Ribbon's hover card and day digest (the ribbon query only carries the latest 500).
       const labelled = await repos.journeys.labelConversions(tx, ctx.businessId, conversions.items);
-      return { day: input.day, conversions: labelled.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })) };
+      // The volume rule (BUILD §11.4): after the 100th of a kind, a win below the 75th percentile (and not high-value) rolls
+      // into the day's results table instead of getting a full Customer Update. Numbered from what the business had before the day.
+      const [before, p75] = await Promise.all([repos.journeys.countConversions(tx, ctx.businessId, { to: new Date(from.getTime() - 1) }), repos.journeys.paymentPercentile75(tx, ctx.businessId)]);
+      const counts = { ...before };
+      const rolledUp: string[] = [];
+      const named = labelled.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() }));
+      for (const c of [...named].sort(compareByTimeThenId)) {
+        counts[c.kind] += 1;
+        if (!shouldPlayFullMatchDay(c.kind, counts[c.kind], c.amountMinor, c.kind === "payment" ? p75 : null, false)) rolledUp.push(c.id);
+      }
+      return { day: input.day, conversions: named, rolledUp };
     }),
   ),
 });

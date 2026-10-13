@@ -22,6 +22,7 @@ import {
   type JourneyRibbonHandle,
   type RibbonEvent,
   type RoadmapFlag,
+  type RoundupRow,
   type ZoomLevel,
 } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type WidgetEvent } from "../data";
@@ -178,6 +179,16 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
     [updateSettings],
   );
 
+  // The day's wins that were rolled into the results table, as its rows.
+  const digestRoundupRows = useMemo<RoundupRow[]>(() => {
+    const r = digestRoundup.data;
+    if (!digestDay || !r || r.day !== digestDay || !r.rolledUp?.length) return [];
+    const rolled = new Set(r.rolledUp);
+    return r.conversions
+      .filter((c) => rolled.has(c.id))
+      .map((c) => ({ conversionId: c.id, kind: c.kind, level: "friendly" as const, customerName: c.entityName ?? null, entityId: c.entityId, channelKey: null, amountMinor: c.amountMinor, currency: c.currency, occurredAt: c.occurredAt, replayAvailable: !!c.journeyId }));
+  }, [digestDay, digestRoundup.data]);
+
   const digest = useMemo(() => {
     if (!digestDay || !data) return null;
     const index = indexDailyRows(data.rows, depts, { kickoff: data.kickoff, last: data.today });
@@ -232,6 +243,7 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
           {digest ? (
             <DayDigest
               summary={digest}
+              roundup={digestRoundupRows}
               currency={currency}
               onOpenJourney={(conversionId) => navigate(journeyHref(businessId, knownConversions, conversionId))}
               onOpenEntity={(id) => navigate(routes.crm(businessId, id))}

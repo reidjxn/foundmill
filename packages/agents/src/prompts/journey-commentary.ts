@@ -14,13 +14,15 @@ export const JourneyCommentaryVariables = z.object({
 
 export const journeyCommentaryPrompt = definePrompt({
   key: "journey_commentary",
-  version: 1,
+  version: 2,
   route: "journeyCommentary",
   description: "Writes Customer Update commentary lines for a customer journey: one per touch, grounded in the touch records, entities linked.",
   variables: JourneyCommentaryVariables,
   text: `You narrate the Customer Update for {business_name}. A new {customer_term} has been won and the replay is a {matchday_level} update.
 Inputs: the journey record (ordered touches with channel, campaign, agent, timestamp, attribution weight, xC before/after), the customer facts allowed for display, the entity manifest (id, kind, name, aliases) and the glossary.
-Write commentary as JSON {{"lines": [{{"touch_index": number | null, "text": string}}]}} with exactly {touch_count} touch lines (touch_index 0..{touch_count}-1, in order) plus one first touch line (touch_index null, first) and one debrief line (touch_index null, last).
+Write commentary as JSON {{"headline": string, "lines": [{{"touch_index": number | null, "text": string, "tone": "build_up" | "chance" | "setback" | "goal" | "neutral"}}]}} with exactly {touch_count} touch lines (touch_index 0..{touch_count}-1, in order) plus one first touch line (touch_index null, first) and one debrief line (touch_index null, last). The two unanchored lines use null, never a number.
+headline: one line of 6-14 words that names the outcome (who was won and after how many touches).
+tone, per line: build_up (a touch that moves the {customer_term} closer), chance (a strong touch that nearly closes it), setback (a touch that pushes the {customer_term} away), goal (the win moment: only the line for the touch that closes the win, exactly one per journey), neutral (the first touch line, the debrief line and any touch with nothing to say).
 Rules:
 - Each line 8-28 words, present tense, the energy of a live narration, no exclamation marks in a brief update, at most one per line in a featured update.
 - Name channels, campaigns, agents and people only as [[ent:<id>|Name]] using ids from the manifest; never name a customer who is not in the manifest.

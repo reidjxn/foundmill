@@ -10,6 +10,7 @@ import { useFormatters } from "../foundation/DateFormatProvider";
 import { Icon } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";
 import { EntityText } from "./EntityText";
+import { MatchdayRoundupTable, type RoundupRow } from "./MatchdayRoundupTable";
 import type { DaySummary } from "./ribbon/geometry";
 import { DEPT_BG, MILESTONE_ICON } from "./ribbon/OnThisDayCard";
 
@@ -19,6 +20,12 @@ export interface DayDigestProps {
   highlights?: string[];
   currency?: string;
   onOpenJourney?: (conversionId: string) => void;
+  /**
+   * The wins of the day the volume rule rolled up (BUILD §11.4: after the hundredth of a kind, a win below the 75th
+   * percentile gets a row in the daily results table instead of a Customer Update). They leave the Wins list and fill
+   * the round-up table under it.
+   */
+  roundup?: RoundupRow[];
   onOpenEntity?: (id: string) => void;
   entityKinds?: Record<string, EntityKind>;
   onPrevDay?: () => void;
@@ -30,12 +37,14 @@ export interface DayDigestProps {
 const KIND_WORD = { signup: "Signup", activation: "Activation", payment: "Payment" } as const;
 
 /** The day digest card (BUILD §11.2 "click → day digest"): what the squad did, what happened and what it earned. */
-export function DayDigest({ summary, highlights = [], currency = "EUR", onOpenJourney, onOpenEntity, entityKinds, onPrevDay, onNextDay, onClose, className }: DayDigestProps) {
+export function DayDigest({ summary, highlights = [], currency = "EUR", onOpenJourney, roundup = [], onOpenEntity, entityKinds, onPrevDay, onNextDay, onClose, className }: DayDigestProps) {
   const { formatDate, formatTime } = useFormatters();
   const p = summary.point;
   const depts = summary.departments.filter((d) => d.hours > 0);
   const maxHours = depts[0]?.hours ?? 1;
   const payments = summary.conversions.filter((c) => c.kind === "payment");
+  const rolled = new Set(roundup.map((r) => r.conversionId));
+  const wins = summary.conversions.filter((c) => !rolled.has(c.id));
   return (
     <section className={cn("surface-panel flex w-full max-w-2xl flex-col overflow-hidden", className)} aria-label={`Day digest, ${formatDate(summary.day)}`} data-day-digest={summary.day}>
       <header className="flex h-panel-header items-center gap-2 pl-panel-pad pr-1.5 rule-fade">
@@ -94,11 +103,11 @@ export function DayDigest({ summary, highlights = [], currency = "EUR", onOpenJo
               ))}
             </ul>
           ) : null}
-          {summary.conversions.length > 0 ? (
+          {wins.length > 0 ? (
             <div>
               <span className="t-data">Wins</span>
               <ul className="mt-1 flex flex-col divide-y divide-subtle/50">
-                {summary.conversions.slice(0, 8).map((c) => (
+                {wins.slice(0, 8).map((c) => (
                   <li key={c.id} className="flex h-row-compact items-center gap-2">
                     <span className="w-16 shrink-0 whitespace-nowrap font-mono text-mono text-secondary">{formatTime(c.occurredAt)}</span>
                     <Chip tone={c.kind === "payment" ? "gold" : c.kind === "activation" ? "info" : "neutral"}>{KIND_WORD[c.kind]}</Chip>
@@ -109,10 +118,11 @@ export function DayDigest({ summary, highlights = [], currency = "EUR", onOpenJo
                     </Button>
                   </li>
                 ))}
-                {summary.conversions.length > 8 ? <li className="py-1 text-small text-secondary">+{summary.conversions.length - 8} more in the round-up</li> : null}
+                {wins.length > 8 ? <li className="py-1 text-small text-secondary">+{wins.length - 8} more wins today</li> : null}
               </ul>
             </div>
           ) : null}
+          {roundup.length > 0 ? <MatchdayRoundupTable rows={roundup} day={summary.day} onOpenReplay={(id) => onOpenJourney?.(id)} onOpenEntity={onOpenEntity} entityKinds={entityKinds} /> : null}
         </div>
         <aside className="flex flex-col gap-2" aria-label="Agent hours by department">
           <span className="t-data">Team</span>

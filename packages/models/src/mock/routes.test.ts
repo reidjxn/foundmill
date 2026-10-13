@@ -135,6 +135,12 @@ describe("coach (BUILD §12.6, AC-11.10.4)", () => {
 });
 
 describe("journey commentary (BUILD §11.4)", () => {
+  it("lets the first touch and debrief lines carry no touch (touch_index null), and refuses a negative index (audit #332)", () => {
+    const line = (touch_index: number | null) => ({ touch_index, text: "A line", tone: "neutral" });
+    expect(CommentaryOutput.safeParse({ headline: "Ana is won after 2 touches", lines: [line(null), line(0), line(1), line(null)] }).success).toBe(true);
+    expect(CommentaryOutput.safeParse({ headline: "Ana is won", lines: [line(-1)] }).success).toBe(false);
+  });
+
   it("writes one line per touch, ends on the win moment and links only manifest ids", async () => {
     const r = await client.complete({
       route: "journeyCommentary",

@@ -323,8 +323,10 @@ export const COMMENTARY_TONES = ["build_up", "chance", "setback", "goal", "neutr
 export const CommentaryTone = z.enum(COMMENTARY_TONES);
 
 export const CommentaryLine = z.object({
-  touch_index: z.number().int().nonnegative(),
+  /** The touch (0-based, in order) the line narrates; null for the first touch line and the debrief line, which belong to no single touch. */
+  touch_index: z.number().int().nonnegative().nullable(),
   text: z.string().min(1),
+  /** `goal` is the win moment (the line for the touch that closes the win); it is the one the replay highlights. */
   tone: CommentaryTone,
 });
 

@@ -253,6 +253,42 @@ describe("seedDemo on PGlite", () => {
     expect((await repos.training.latestForAgent(db, LEDGERLY_BUSINESS_ID, backend.id))?.decision).toBe("promoted");
   });
 
+  it("keeps the demo data consistent: nothing dated after the seed, CRM stages backed by wins, one record per email or domain, renewals as revenue (audit #159 #331)", async () => {
+    const rows = async (q: ReturnType<typeof sql>) => ((await db.execute(q)) as unknown as { rows: Record<string, unknown>[] }).rows;
+    const now = TODAY.toISOString();
+    for (const businessId of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
+      // No touch, conversion or agent session is later than the instant the seed ran at.
+      for (const [table, column] of [["touches", "occurred_at"], ["conversions", "occurred_at"], ["agent_sessions", "started_at"]] as const) {
+        const [{ n }] = (await rows(sql.raw(`select count(*)::int as n from ${table} where business_id = '${businessId}' and ${column} > '${now}'`))) as { n: number }[];
+        expect(n, `${table} after the seed in ${businessId}`).toBe(0);
+      }
+      // A customer or churned stage has a first payment; an activated one has an activation win.
+      const [{ n: noPayment }] = (await rows(
+        sql.raw(`select count(*)::int as n from entity_roles r where r.business_id = '${businessId}' and r.role = 'customer' and r.stage in ('customer','churned') and exists (select 1 from conversions c where c.entity_id = r.entity_id and c.kind = 'signup') and not exists (select 1 from conversions c where c.entity_id = r.entity_id and c.kind = 'payment' and c.first_payment)`),
+      )) as { n: number }[];
+      expect(noPayment, `customer stages without a payment in ${businessId}`).toBe(0);
+      const [{ n: noActivation }] = (await rows(
+        sql.raw(`select count(*)::int as n from entity_roles r where r.business_id = '${businessId}' and r.role = 'customer' and r.stage = 'activated' and exists (select 1 from conversions c where c.entity_id = r.entity_id and c.kind = 'signup') and not exists (select 1 from conversions c where c.entity_id = r.entity_id and c.kind = 'activation')`),
+      )) as { n: number }[];
+      expect(noActivation, `activated stages without an activation in ${businessId}`).toBe(0);
+      // A strong identifier belongs to one live record.
+      const [{ n: sharedEmail }] = (await rows(
+        sql.raw(`select count(*)::int as n from (select identifiers->>'email' as e from entities where business_id = '${businessId}' and identifiers ? 'email' and archived_at is null group by 1 having count(*) > 1) d`),
+      )) as { n: number }[];
+      expect(sharedEmail, `shared emails in ${businessId}`).toBe(0);
+      const [{ n: sharedDomain }] = (await rows(
+        sql.raw(`select count(*)::int as n from (select identifiers->>'domain' as d from entities where business_id = '${businessId}' and identifiers ? 'domain' and archived_at is null group by 1 having count(*) > 1) d`),
+      )) as { n: number }[];
+      expect(sharedDomain, `shared domains in ${businessId}`).toBe(0);
+    }
+    // The subscription business's renewals are payments that are not new customers: its revenue is the records' revenue.
+    const [{ n: renewals }] = (await rows(sql.raw(`select count(*)::int as n from conversions where business_id = '${LEDGERLY_BUSINESS_ID}' and kind = 'payment' and not first_payment`))) as { n: number }[];
+    expect(renewals).toBeGreaterThan(0);
+    // Northwind has no subscriptions: its "MRR" milestones are trailing 30-day revenue and say Estimate.
+    const mrr = await db.select().from(s.milestones).where(eq(s.milestones.businessId, NORTHWIND_BUSINESS_ID));
+    for (const m of mrr.filter((x) => String((x.ref as Record<string, unknown>)?.trophyKey ?? "").startsWith("mrr_"))) expect(m.ref).toMatchObject({ estimate: true });
+  }, 120_000);
+
   it("RLS: the demo owner sees both businesses and their journey_daily rows; a stranger sees none", async () => {
     const stranger = await h.createUser("stranger@test.local");
     const mine = await h.asUser(result.owner.userId).run((tx) => repos.businesses.listForUser(tx, result.owner.userId));

@@ -49,6 +49,7 @@ export function trophyCards(milestones: readonly MilestoneRowLike[] | undefined,
       amountMinor: typeof ref.amountMinor === "number" ? ref.amountMinor : null,
       currency,
       shareable: live && !!won && SHAREABLE_VISIBILITY.has(won.visibility ?? "private"),
+      estimate: !!won && ref.estimate === true,
     };
   });
 }

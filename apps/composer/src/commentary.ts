@@ -113,8 +113,9 @@ export async function composeCommentary(deps: { db: Db; models: ModelClient; log
       stripped += v.unknownIds.length + v.invisibleIds.length + v.malformed.length;
       text = stripInvalidMentions(l.text, manifest);
     }
-    const touch = journey.touches[l.touch_index];
-    return { text, touchId: touch?.id ?? null, touchIndex: touch ? l.touch_index : null, tone: l.tone, highlight: l.tone === "goal" };
+    // A null index is the first touch or debrief line: anchored to no touch.
+    const touch = l.touch_index === null ? undefined : journey.touches[l.touch_index];
+    return { text, touchId: touch?.id ?? null, touchIndex: touch && l.touch_index !== null ? l.touch_index : null, tone: l.tone, highlight: l.tone === "goal" };
   });
   if (stripped > 0) deps.log.warn({ businessId, journeyId, stripped }, "commentary mentioned ids outside the manifest; demoted to plain text");
 

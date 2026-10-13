@@ -19,7 +19,7 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { repos, type ComposerBufferRow, type ComposerItem, type Db, type InboxItem } from "@foundmill/db";
-import type { ModelClient, ModelLogger } from "@foundmill/models";
+import { stableHash, type ModelClient, type ModelLogger } from "@foundmill/models";
 import { composeNote, type ComposeBrief, type ComposedNote, type ComposeSlot } from "./compose";
 import { loadContext, type ComposeContext } from "./context";
 import { nextBestDecision } from "./decisions";
@@ -222,7 +222,10 @@ export class RefreshEngine {
     if (decisionVariant !== start) this.decisionVariant.set(ctx.businessId, decisionVariant);
 
     const slots: Slot[] = [];
-    ctx.unnarrated.forEach((e, i) => slots.push({ key: `event:${e.id}`, priority: 300 - i, brief: { mode: "events", events: [e] } }));
+    // Wins the volume rule rolled up (`fullMatchDay: false`) are not narrated one by one: each day's become one round-up note.
+    const { single, roundups } = splitRoundups(ctx.unnarrated);
+    single.forEach((e, i) => slots.push({ key: `event:${e.id}`, priority: 300 - i, brief: { mode: "events", events: [e] } }));
+    roundups.forEach((events, i) => slots.push({ key: `event:roundup:${stableHash(events.map((e) => e.id))}`, priority: 250 - i, brief: { mode: "events", events } }));
     for (const insight of insights) if (!served.has(insight.key)) slots.push({ key: insight.key, priority: 200 - insight.rank, brief: { mode: "insight", insight } });
     slots.push({ key: decision.key, priority: 100, brief: { mode: "decision", decision } });
     return { slots, keys: new Set(slots.map((s) => s.key)), decisionVariant };
@@ -282,6 +285,32 @@ export class RefreshEngine {
     }
     return written;
   }
+}
+
+/** The most wins one round-up note covers. */
+const ROUNDUP_MAX_EVENTS = 50;
+
+/**
+ * Separates the un-narrated events into the ones narrated singly and the daily round-ups (BUILD §11.4 volume rules): a
+ * `customer.converted` the rule rolled up (`fullMatchDay: false`) joins the round-up of its UTC day, oldest day first.
+ * Events stay in the order given within a group.
+ */
+export function splitRoundups<E extends { id: string; type: string; occurredAt: Date; payload: unknown }>(events: readonly E[]): { single: E[]; roundups: E[][] } {
+  const single: E[] = [];
+  const byDay = new Map<string, E[]>();
+  for (const e of events) {
+    const rolled = e.type === "customer.converted" && (e.payload as { fullMatchDay?: unknown } | null)?.fullMatchDay === false;
+    if (!rolled) {
+      single.push(e);
+      continue;
+    }
+    const day = e.occurredAt.toISOString().slice(0, 10);
+    byDay.set(day, [...(byDay.get(day) ?? []), e]);
+  }
+  const roundups = [...byDay.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, list]) => list.slice(0, ROUNDUP_MAX_EVENTS));
+  return { single, roundups };
 }
 
 export function slotKind(key: string): ComposeSlot {

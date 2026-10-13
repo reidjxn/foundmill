@@ -3,7 +3,7 @@ import { Lock, Share2, Trophy } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { formatMoney } from "../../lib/format";
 import { Button } from "../foundation/Button";
-import { Chip } from "../foundation/Chip";
+import { Chip, ProvenanceChip } from "../foundation/Chip";
 import { useFormatters } from "../foundation/DateFormatProvider";
 import { Icon } from "../foundation/Icon";
 import type { TrophyCard } from "./types";
@@ -54,7 +54,10 @@ export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, classNam
                   <span className={cn("inline-flex size-9 shrink-0 items-center justify-center rounded-full", achieved ? "bg-gold/15 text-gold shadow-glow-gold" : "bg-white/5 text-tertiary")}>
                     <Icon icon={achieved ? Trophy : Lock} size="lg" />
                   </span>
-                  {achieved ? <Chip tone="gold">Reached</Chip> : <Chip tone="neutral">Not yet</Chip>}
+                  <span className="inline-flex items-center gap-1.5">
+                    {achieved && t.estimate ? <ProvenanceChip kind="estimate" /> : null}
+                    {achieved ? <Chip tone="gold">Reached</Chip> : <Chip tone="neutral">Not yet</Chip>}
+                  </span>
                 </div>
                 <div className="min-w-0">
                   <span className={cn("t-display-sm block break-words", achieved ? "text-primary" : "text-secondary")}>{t.label}</span>

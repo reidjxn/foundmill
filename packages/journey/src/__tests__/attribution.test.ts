@@ -83,6 +83,23 @@ describe("parseTouchSource — UTM, referrer and click ids", () => {
     expect(press.medium).toBe("referral");
   });
 
+  it("matches referrer hosts by label, not by substring (audit #341)", () => {
+    const channel = (referrer: string) => parseTouchSource({ url: "https://northwind.example/", referrer }).channelKey;
+    // Press and company sites whose names merely contain a social or search host's letters.
+    for (const host of ["washingtonpost.com", "independent.co.uk", "ft.com", "trustpilot.com", "learn.microsoft.com", "venturebeat.com", "dropbox.com", "netflix.com", "huffpost.com"]) {
+      expect(channel(`https://${host}/a`), host).toBe("pr");
+    }
+    // A host and its subdomains still match, and so does a brand across its country domains.
+    expect(channel("https://t.co/abc")).toBe("social");
+    expect(channel("https://l.facebook.com/l.php")).toBe("social");
+    expect(channel("https://x.com/home")).toBe("social");
+    expect(channel("https://www.google.co.uk/")).toBe("seo");
+    expect(channel("https://news.google.com/")).toBe("seo");
+    expect(channel("https://notgoogle.com/")).not.toBe("seo");
+    expect(channel("https://fakepinterest.com/")).not.toBe("social");
+    expect(channel("https://pinterest.fr/pin/1")).toBe("social");
+  });
+
   it("ignores self-referrals from the business's own hosts and reports direct", () => {
     const p = parseTouchSource({ url: "https://northwind.example/pricing", referrer: "https://shop.northwind.example/cart", registry: REGISTRY });
     expect(p.channelKey).toBeNull();
