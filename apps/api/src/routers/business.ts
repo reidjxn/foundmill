@@ -4,7 +4,7 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { repos, UpdateBusinessInput } from "@foundmill/db";
-import { BUSINESS_MODES, DECISION_TYPES, EVENT_TYPES, GAME_MODES } from "@foundmill/shared";
+import { BUSINESS_MODES, DECISION_TYPES, EVENT_TYPES, GAME_MODES, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
 import { assertAgentsRunning, resumeAgents, stopAllAgents } from "../services/killswitch";
@@ -75,13 +75,19 @@ export const businessRouter = router({
     }),
   ),
 
-  setGameMode: adminProcedure.input(z.object({ gameMode: z.enum(GAME_MODES), reason: z.string().max(500).optional() })).mutation(async ({ ctx, input }) => {
+  /**
+   * Personal ⇄ LIVE. Going LIVE puts a person and a business on a network of other founders, so it is for adults only
+   * (BUILD §11.14 "18+ only"): the caller must attest `confirmAdult` (the go-live review asks for it) and the audit log
+   * records the attestation. Staying LIVE or going Personal asks for nothing.
+   */
+  setGameMode: adminProcedure.input(z.object({ gameMode: z.enum(GAME_MODES), reason: z.string().max(500).optional(), confirmAdult: z.boolean().optional() })).mutation(async ({ ctx, input }) => {
+    if (input.gameMode === "live" && ctx.business.gameMode !== "live" && input.confirmAdult !== true) throw new ValidationError("Confirm that you are 18 or older to go live; the network is for adults only");
     const business = await ctx.rls(async (tx) => {
       const from = ctx.business.gameMode;
       const changed = await repos.businesses.setGameMode(tx, ctx.businessId, input.gameMode);
       if (from !== input.gameMode) {
         await emit(tx, ctx, { type: "mode.changed", payload: { scope: "game", from, to: input.gameMode, reason: input.reason ?? null } });
-        await audit(tx, ctx, { action: "business.set_game_mode", target: { kind: "business", id: ctx.businessId }, details: { from, to: input.gameMode } });
+        await audit(tx, ctx, { action: "business.set_game_mode", target: { kind: "business", id: ctx.businessId }, details: { from, to: input.gameMode, ...(input.gameMode === "live" ? { confirmedAdult: true } : {}) } });
       }
       return changed;
     });

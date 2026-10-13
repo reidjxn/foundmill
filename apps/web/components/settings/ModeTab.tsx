@@ -7,7 +7,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { Globe, Lock, Palmtree } from "lucide-react";
 import { useState } from "react";
-import { BUSINESS_MODE_INFO, Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, HolidayDialog, KeyValueList, MoneyInput, RadioCard, RadioGroup, StatusPill, useDateFormat, type HolidaySettings } from "@foundmill/dugout";
+import { BUSINESS_MODE_INFO, Button, Checkbox, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, HolidayDialog, KeyValueList, MoneyInput, RadioCard, RadioGroup, StatusPill, useDateFormat, type HolidaySettings } from "@foundmill/dugout";
 import { BUSINESS_MODES, type BusinessMode, type GameMode } from "@foundmill/shared/constants";
 import { parseSpendCapMinor } from "@/components/new/commit/naming";
 import { formatDate, formatMoney, plainWords } from "@/lib/format";
@@ -19,7 +19,7 @@ import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
 
 /** What a game-mode switch changes (BUILD §7.3, §11.14); the wizard shows it before the switch. */
 export const GAME_MODE_REVIEW: Record<GameMode, string[]> = {
-  live: ["Your business profile and logo become visible on the network.", "Verified metrics can rank on leaderboards; self-reported numbers never rank.", "Connections, communities and human messages open up.", "Search also shows public profiles, labeled with the product name."],
+  live: ["Your business profile and logo become visible on the network.", "Verified metrics can rank on leaderboards; self-reported numbers never rank.", "Connections, communities and human messages open up.", "Search also shows public profiles, labeled with the product name.", "The network is for people 18 or older: you confirm that before going live."],
   personal: ["The business leaves search and leaderboards within 15 minutes.", "Connections and communities are hidden; nothing is deleted.", "Agents keep working exactly as before."],
 };
 
@@ -66,8 +66,10 @@ export function ModeTab() {
   const b = data.business;
   const [reviewTarget, setReviewTarget] = useState<GameMode | null>(null);
   const [holidayOpen, setHolidayOpen] = useState(false);
+  // Going live is for adults (BUILD §11.14): the founder confirms it in the review, and the API refuses without it.
+  const [adult, setAdult] = useState(false);
 
-  const setGameMode = useMutation(trpc.business.setGameMode.mutationOptions({ onSuccess: (_r, v) => (void invalidate(["business", "live"]), setReviewTarget(null), t.saved(v.gameMode === "live" ? "The business is live" : "The business is personal again")), onError: (e) => t.failed(e) }));
+  const setGameMode = useMutation(trpc.business.setGameMode.mutationOptions({ onSuccess: (_r, v) => (void invalidate(["business", "live"]), setReviewTarget(null), setAdult(false), t.saved(v.gameMode === "live" ? "The business is live" : "The business is personal again")), onError: (e) => t.failed(e) }));
   const setBusinessMode = useMutation(trpc.business.setBusinessMode.mutationOptions({ onSuccess: () => (void invalidate(["business"]), t.saved("Business mode changed")), onError: (e) => t.failed(e) }));
   const startHoliday = useMutation(trpc.business.startHoliday.mutationOptions({ onSuccess: (r) => (void invalidate(["business", "inbox"]), setHolidayOpen(false), t.saved("Vacation started", r.workflow.queued ? "The Chief of Staff is in charge." : `Recorded; the workflow is not running: ${r.workflow.reason ?? "orchestrator unavailable"}.`)), onError: (e) => t.failed(e) }));
   const endHoliday = useMutation(trpc.business.endHoliday.mutationOptions({ onSuccess: () => (void invalidate(["business", "inbox"]), t.saved("Welcome back")), onError: (e) => t.failed(e) }));
@@ -89,7 +91,7 @@ export function ModeTab() {
             {b.gameMode === "live" ? "Switch to Personal" : "Go live"}
           </Button>
         </div>
-        <Dialog open={reviewTarget !== null} onOpenChange={(o) => !o && setReviewTarget(null)}>
+        <Dialog open={reviewTarget !== null} onOpenChange={(o) => !o && (setReviewTarget(null), setAdult(false))}>
           <DialogContent size="md">
             <DialogHeader>
               <DialogTitle>{reviewTarget === "live" ? "Review before going live" : "Review before switching to Personal"}</DialogTitle>
@@ -97,12 +99,18 @@ export function ModeTab() {
             </DialogHeader>
             <DialogBody>
               <ul className="flex list-disc flex-col gap-1 pl-5 text-body">{(reviewTarget ? GAME_MODE_REVIEW[reviewTarget] : []).map((line) => <li key={line}>{line}</li>)}</ul>
+              {reviewTarget === "live" ? (
+                <label className="mt-4 flex items-start gap-2 text-body" htmlFor="confirm-adult">
+                  <Checkbox id="confirm-adult" checked={adult} onCheckedChange={(v) => setAdult(v === true)} data-testid="confirm-adult" />
+                  <span>I am 18 or older.</span>
+                </label>
+              ) : null}
             </DialogBody>
             <DialogFooter>
-              <Button variant="ghost" onClick={() => setReviewTarget(null)}>
+              <Button variant="ghost" onClick={() => (setReviewTarget(null), setAdult(false))}>
                 Cancel
               </Button>
-              <Button variant="primary" loading={setGameMode.isPending} onClick={() => reviewTarget && setGameMode.mutate({ businessId, gameMode: reviewTarget, reason: "settings" })}>
+              <Button variant="primary" disabled={reviewTarget === "live" && !adult} loading={setGameMode.isPending} onClick={() => reviewTarget && setGameMode.mutate({ businessId, gameMode: reviewTarget, reason: "settings", ...(reviewTarget === "live" ? { confirmAdult: true } : {}) })}>
                 Confirm
               </Button>
             </DialogFooter>

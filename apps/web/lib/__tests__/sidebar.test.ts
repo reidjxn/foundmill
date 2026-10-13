@@ -73,6 +73,7 @@ describe("sidebar items", () => {
     expect(activeSidebarId(`/communities/${BID}`, BID, depts)).toBe("communities");
     expect(activeSidebarId("/leaderboards", BID, depts)).toBe("leaderboards");
     expect(activeSidebarId(`/leaderboards/${BID}`, BID, depts)).toBe("leaderboards");
+    expect(activeSidebarId(`/profiles/founder/${BID}`, BID, depts)).toBe("network");
     expect(activeSidebarId("/networking", BID, depts)).toBeUndefined();
   });
 });

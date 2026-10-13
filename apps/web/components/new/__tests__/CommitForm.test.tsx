@@ -108,11 +108,18 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect((screen.getByLabelText(/Business name/) as HTMLInputElement).value).toBe(suggested);
     fireEvent.click(document.querySelector<HTMLElement>('[data-option="live"] button[role="radio"]')!);
     fireEvent.change(screen.getByTestId("kit-primary-hex"), { target: { value: "#1b4fd8" } });
+    // Going live asks for "I am 18 or older" first (the network is for adults); nothing is sent without it.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge-bottom"));
+    });
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("alert").some((a) => /18 or older/.test(a.textContent ?? ""))).toBe(true);
+    fireEvent.click(screen.getByTestId("commit-confirm-adult"));
     await act(async () => {
       fireEvent.click(screen.getByTestId("take-charge-bottom"));
     });
     expect(onCommit).toHaveBeenCalledTimes(1);
-    expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: suggested, gameMode: "live", archetype: "b2b_saas", businessMode: "assisted", currency: "EUR", spendCapMinor: 25_000, kit: { primary: "#1b4fd8" } });
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: suggested, gameMode: "live", confirmAdult: true, archetype: "b2b_saas", businessMode: "assisted", currency: "EUR", spendCapMinor: 25_000, kit: { primary: "#1b4fd8" } });
   });
 
   it("starts with the initials mark (no shield), generates four marks, picks one, takes its colours and commits it", async () => {

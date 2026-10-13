@@ -235,6 +235,8 @@ export const ideaRouter = router({
         ideaId: Id,
         name: z.string().trim().min(1).max(120),
         gameMode: z.enum(GAME_MODES).default("personal"),
+        /** "I am 18 or older": required to start LIVE, since the network is for adults only (BUILD §11.14). */
+        confirmAdult: z.boolean().optional(),
         archetype: z.enum(ARCHETYPES),
         businessMode: z.enum(BUSINESS_MODES).default("assisted"),
         kit: z.object({ primary: Hex, secondary: Hex }).optional(),
@@ -247,6 +249,7 @@ export const ideaRouter = router({
     .mutation(async ({ ctx, input }) => {
       const profile = await repos.founders.get(ctx.db, ctx.userId);
       if (!profile) throw new ValidationError("Complete your founder profile before taking charge of a business");
+      if (input.gameMode === "live" && input.confirmAdult !== true) throw new ValidationError("Confirm that you are 18 or older to go live; the network is for adults only");
       // A logo is an upload check like any other (the SVG check is CPU work).
       if (input.logo) await takeLogoCheck(ctx.limits, ctx.userId);
       return commitIdea(ctx.db, ctx.temporal, ctx.userId, input, () => importJobKey(ctx.env));

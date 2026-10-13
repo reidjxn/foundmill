@@ -15,7 +15,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { ARCHETYPE_LABELS, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { Avatar, Button, Chip, ConceptCard, EmptyState, Field, Input, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, cn, formatMoney, useToast, type Kit } from "@foundmill/dugout";
+import { Avatar, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Input, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, cn, formatMoney, useToast, type Kit } from "@foundmill/dugout";
 import { plainWords, plural } from "@/lib/format";
 import { useSingleFlight } from "@/lib/single-flight";
 import { errorMessage, tierLimitOf, type RouterOutputs } from "@/lib/trpc";
@@ -331,6 +331,14 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
                 <ModeCardOption key={m.value} id={`game-${m.value}`} value={m.value} label={m.label} tagline={m.tagline} details={m.details} selected={form.gameMode === m.value} icon={m.value === "live" ? Globe : Lock} />
               ))}
             </RadioGroup>
+            {form.gameMode === "live" ? (
+              <Field htmlFor="commit-adult" label="Going live" error={show("confirmAdult")} className="mt-3">
+                <label className="flex items-start gap-2 text-body" htmlFor="commit-adult">
+                  <Checkbox id="commit-adult" checked={form.confirmAdult} onCheckedChange={(v) => set("confirmAdult", v === true)} data-testid="commit-confirm-adult" />
+                  <span>I am 18 or older. The network is for adults only.</span>
+                </label>
+              </Field>
+            ) : null}
           </Panel>
 
           <Panel title="Archetype" data-testid="archetype-panel">

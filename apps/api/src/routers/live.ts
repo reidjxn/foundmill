@@ -2,7 +2,7 @@
  * live.connections.* / messages.* / communities.* / leaderboards.* / profile.visibility.* (BUILD §11.14, Phase 4
  * skeleton). Human messages are sent by humans only; agents may draft but never call `messages.send`.
  */
-import { MAX_MESSAGE_RECIPIENTS, repos, type Business, type Executor } from "@foundmill/db";
+import { MAX_MESSAGE_RECIPIENTS, PUBLIC_PROFILE_KINDS, repos, type Business, type Executor, type PublicProfile } from "@foundmill/db";
 import { ForbiddenError, NotFoundError, ValidationError, VISIBILITY, WRITE_ROLES } from "@foundmill/shared";
 import { z } from "zod";
 import { Id, businessProcedure, effectivePermission, emit, protectedProcedure, router, sectionWrite } from "../trpc";
@@ -32,6 +32,11 @@ async function speakingAs(ctx: Ctx, businessId: string | null | undefined): Prom
   const business = await repos.businesses.get(ctx.db, businessId, { includeArchived: true });
   if (!isListed(business)) throw new ValidationError("Only a LIVE, committed business can speak on the network");
   return businessId;
+}
+
+/** A public profile as the page shows it: only what the `public_profiles` view carries (no logo image: the retired crest URL stays out). */
+function publicCard(p: PublicProfile) {
+  return { kind: p.kind, businessId: p.businessId, userId: p.userId, name: p.displayName, slug: p.slug, archetype: p.archetype, kitPrimary: p.kitPrimary, kitSecondary: p.kitSecondary, region: p.region, since: p.committedAt };
 }
 
 /** Which of these business ids the viewer may be shown: listed businesses, and their own in any mode. Others read as null. */
@@ -164,13 +169,40 @@ export const liveRouter = router({
   people: router({
     /** Display names and logos for ids a page shows (people follow their profile visibility; see repos.social.lookupPeople). */
     lookup: protectedProcedure.input(z.object({ userIds: z.array(Id).max(200).default([]), businessIds: z.array(Id).max(200).default([]) })).query(({ ctx, input }) => repos.social.lookupPeople(ctx.db, ctx.userId, input)),
+    /**
+     * "On {APP_NAME}": founders and businesses found by name among the public profiles (LIVE businesses, and founders who
+     * made their name public). Only public-profile fields leave here; the viewer's own row and blocked people do not turn up.
+     */
+    search: protectedProcedure.input(z.object({ q: z.string().trim().min(2).max(120), limit: z.number().int().min(1).max(20).default(10) })).query(async ({ ctx, input }) => {
+      const rows = await repos.social.searchPublicFor(ctx.db, ctx.userId, input.q, { limit: input.limit });
+      return { hits: rows.map(publicCard) };
+    }),
+    /** One public profile page: the card, who is behind the business or which businesses a founder runs, and the viewer's connection to the founder. */
+    profile: protectedProcedure.input(z.object({ kind: z.enum(PUBLIC_PROFILE_KINDS), id: Id })).query(async ({ ctx, input }) => {
+      const found = await repos.social.publicProfileOf(ctx.db, input.kind, input.id);
+      if (!found) throw new NotFoundError("profile", input.id);
+      let connection: { id: string; status: "requested" | "accepted" | "blocked"; direction: "incoming" | "outgoing" } | null = null;
+      const founderId = found.profile.kind === "founder" ? found.profile.userId : null;
+      if (founderId && founderId !== ctx.userId) {
+        const row = (await repos.social.listConnections(ctx.db, ctx.userId)).find((c) => (c.fromUser === founderId && c.toUser === ctx.userId) || (c.fromUser === ctx.userId && c.toUser === founderId));
+        if (row) connection = { id: row.id, status: row.status, direction: row.toUser === ctx.userId ? "incoming" : "outgoing" };
+      }
+      return {
+        profile: publicCard(found.profile),
+        businesses: found.businesses.map(publicCard),
+        founders: found.founders.map(publicCard),
+        isSelf: founderId === ctx.userId,
+        connection,
+      };
+    }),
   }),
 
   profile: router({
     visibility: router({
       get: protectedProcedure.query(async ({ ctx }) => {
-        const profile = await repos.founders.get(ctx.db, ctx.userId);
-        return { visibility: profile?.visibility ?? "private", publicProfile: null };
+        const [profile, listed] = await Promise.all([repos.founders.get(ctx.db, ctx.userId), repos.social.publicProfileOf(ctx.db, "founder", ctx.userId)]);
+        // `publicProfile`: how the founder is listed right now ("On {APP_NAME}"), null while the name is not public.
+        return { visibility: profile?.visibility ?? "private", publicProfile: listed ? { ...publicCard(listed.profile), businesses: listed.businesses.map(publicCard) } : null };
       }),
       set: protectedProcedure.input(z.object({ visibility: z.enum(VISIBILITY) })).mutation(({ ctx, input }) => repos.founders.update(ctx.db, ctx.userId, { visibility: input.visibility })),
     }),

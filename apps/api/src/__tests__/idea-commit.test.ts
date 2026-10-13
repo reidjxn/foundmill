@@ -168,6 +168,18 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(again.business).toMatchObject({ planTier: "free", spendCapMinor: null });
   });
 
+  it("starting LIVE needs the 18+ attestation (the network is for adults only); Personal asks for nothing (audit GLS2F-09)", async () => {
+    const userId = await hz.h.createUser("adult@test.local");
+    const caller = hz.caller({ userId, email: "adult@test.local" });
+    await caller.founder.profile.update({ displayName: "Ana", experience: "first-time", skills: { sales: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
+    const [idea] = (await caller.idea.generate({ prompt: "bookkeeping for tattoo studios" })).ideas;
+    await expect(caller.idea.commit({ ideaId: idea!.id, name: "Adult Co", archetype: "b2b_saas", gameMode: "live" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.idea.commit({ ideaId: idea!.id, name: "Adult Co", archetype: "b2b_saas", gameMode: "live", confirmAdult: false })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect((await repos.businesses.listForUser(hz.db, userId)).length).toBe(0);
+    const result = await caller.idea.commit({ ideaId: idea!.id, name: "Adult Co", archetype: "b2b_saas", gameMode: "live", confirmAdult: true });
+    expect(result.business.gameMode).toBe("live");
+  });
+
   it("preview lists what an archetype seeds, labelled Estimate", async () => {
     const userId = await hz.h.createUser("preview@test.local");
     const preview = await hz.caller({ userId }).idea.preview({ archetype: "dtc_physical" });

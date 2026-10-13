@@ -349,6 +349,70 @@ describe("messages and connections", () => {
   });
 });
 
+describe("public profiles: search and profile pages, \"On Foundmill\" (audit GLS2F-09, LS2-06)", () => {
+  it("finds LIVE businesses and public founders by name and serves their profile; Personal businesses, private founders, oneself and blocked people do not turn up", async () => {
+    await goLive(hz.A.businessId);
+    const bizName = (await repos.businesses.get(hz.db, hz.A.businessId)).name;
+    await repos.founders.upsert(hz.db, hz.A.adminId, { displayName: "Ada Adminson", visibility: "public" });
+    const seeker = as(hz.B.memberId);
+
+    const byBusiness = await seeker.live.people.search({ q: bizName });
+    expect(byBusiness.hits).toContainEqual(expect.objectContaining({ kind: "business", businessId: hz.A.businessId, name: bizName, userId: null }));
+    const byFounder = await seeker.live.people.search({ q: "Ada Admin" });
+    expect(byFounder.hits).toContainEqual(expect.objectContaining({ kind: "founder", userId: hz.A.adminId, businessId: hz.A.businessId, name: "Ada Adminson" }));
+    // Only the public card leaves: no email, no id of anything private.
+    expect(Object.keys(byFounder.hits[0]!).sort()).toEqual(["archetype", "businessId", "kind", "kitPrimary", "kitSecondary", "name", "region", "since", "slug", "userId"]);
+
+    // The profile page: a founder with the businesses they run, a business with its public founders.
+    const founder = await seeker.live.people.profile({ kind: "founder", id: hz.A.adminId });
+    expect(founder).toMatchObject({ profile: { name: "Ada Adminson", userId: hz.A.adminId }, isSelf: false, connection: null });
+    expect(founder.businesses.map((b) => b.businessId)).toContain(hz.A.businessId);
+    const business = await seeker.live.people.profile({ kind: "business", id: hz.A.businessId });
+    expect(business.profile).toMatchObject({ kind: "business", name: bizName });
+    expect(business.founders.map((f) => f.userId)).toContain(hz.A.adminId);
+    // The founder sees how they are listed, and that it is themselves.
+    expect((await as(hz.A.adminId).live.people.profile({ kind: "founder", id: hz.A.adminId })).isSelf).toBe(true);
+    expect((await as(hz.A.adminId).live.profile.visibility.get()).publicProfile).toMatchObject({ name: "Ada Adminson", businesses: [expect.objectContaining({ businessId: hz.A.businessId })] });
+    // ...and is not shown to themselves in search.
+    expect((await as(hz.A.adminId).live.people.search({ q: "Ada Admin" })).hits.filter((h) => h.kind === "founder")).toEqual([]);
+
+    // A request in flight is shown on the profile; a block either way hides the person.
+    const request = await repos.social.requestConnection(hz.db, hz.B.memberId, hz.A.adminId);
+    expect((await seeker.live.people.profile({ kind: "founder", id: hz.A.adminId })).connection).toEqual({ id: request.id, status: "requested", direction: "outgoing" });
+    await repos.social.respondConnection(hz.db, hz.A.adminId, request.id, "blocked");
+    expect((await seeker.live.people.search({ q: "Ada Admin" })).hits.filter((h) => h.kind === "founder")).toEqual([]);
+    await repos.social.removeConnection(hz.db, hz.A.adminId, request.id);
+    expect((await seeker.live.people.search({ q: "Ada Admin" })).hits.filter((h) => h.kind === "founder")).toHaveLength(1);
+
+    // A founder who keeps their name private is not listed; a Personal business is not either.
+    await repos.founders.upsert(hz.db, hz.A.adminId, { displayName: "Ada Adminson", visibility: "private" });
+    expect((await seeker.live.people.search({ q: "Ada Admin" })).hits).toEqual([]);
+    await expect(seeker.live.people.profile({ kind: "founder", id: hz.A.adminId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect((await as(hz.A.adminId).live.profile.visibility.get()).publicProfile).toBeNull();
+    await repos.businesses.setGameMode(hz.db, hz.A.businessId, "personal");
+    expect((await seeker.live.people.search({ q: bizName })).hits.filter((h) => h.businessId === hz.A.businessId)).toEqual([]);
+    await expect(seeker.live.people.profile({ kind: "business", id: hz.A.businessId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    await expect(seeker.live.people.search({ q: "a" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(hz.caller(null).live.people.search({ q: "Ada" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await goLive(hz.A.businessId);
+  });
+
+  it("going live needs the 18+ attestation, and the audit log records it; going Personal asks for nothing", async () => {
+    const { businessId } = hz.A;
+    await repos.businesses.setGameMode(hz.db, businessId, "personal");
+    const owner = as(hz.A.ownerId);
+    await expect(owner.business.setGameMode({ businessId, gameMode: "live" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(owner.business.setGameMode({ businessId, gameMode: "live", confirmAdult: false })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect((await repos.businesses.get(hz.db, businessId)).gameMode).toBe("personal");
+
+    expect((await owner.business.setGameMode({ businessId, gameMode: "live", confirmAdult: true })).gameMode).toBe("live");
+    expect((await repos.audit.list(hz.db, businessId, { action: "business.set_game_mode", limit: 1 })).items[0]?.details).toMatchObject({ from: "personal", to: "live", confirmedAdult: true });
+    expect((await owner.business.setGameMode({ businessId, gameMode: "personal" })).gameMode).toBe("personal");
+    await goLive(businessId);
+  });
+});
+
 describe("leaderboards and profile visibility", () => {
   it("H1: entries are served only for listed businesses; a business that goes Personal leaves every board (PoC 1)", async () => {
     // A is a Personal business: its number takes no position and a stranger sees nothing of it.

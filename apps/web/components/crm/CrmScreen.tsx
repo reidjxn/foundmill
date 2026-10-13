@@ -21,6 +21,7 @@ import { CRM_VIEWS, KIND_WORD, LAWFUL_BASIS_LABEL, RETENTION_COPY, STAGE_TONE, g
 import { plainWords } from "@/lib/format";
 import { KIND_LABELS, chip, chipsToOperators, crmFilterFields, mergeChips, operatorValueWord, parseCrmQuery, type CrmFilterField } from "./search";
 import { CRM_LIST_LIMIT, useEntityIndex } from "./useEntityIndex";
+import { OnNetworkResults } from "@/components/live/public-search";
 
 const IMPORTERS = [
   { key: "affinity", name: "Affinity" },
@@ -203,7 +204,7 @@ export function CrmScreen() {
                 </ul>
               </section>
             ))}
-            {live ? <p className="border-t border-subtle px-3 py-1.5 text-small text-secondary">Public profiles on the network appear here labeled "On Foundmill".</p> : null}
+            {live ? <OnNetworkResults text={parsedLive.text} /> : null}
           </PopoverContent>
         </Popover>
         <div className="flex flex-wrap items-center gap-2">

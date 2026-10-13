@@ -252,6 +252,8 @@ export interface CommitForm {
   /** The chosen logo (uploaded or generated, already checked by the server), or null for the initials mark. */
   logo: LogoDraft | null;
   gameMode: GameMode;
+  /** "I am 18 or older": the network is for adults, so going live asks for it (BUILD §11.14). */
+  confirmAdult: boolean;
   archetype: Archetype | null;
   businessMode: BusinessMode;
   /** Major units as typed. */
@@ -265,6 +267,7 @@ export function initialCommitForm(idea: { title: string; archetype: Archetype | 
     kit,
     logo: null,
     gameMode: "personal",
+    confirmAdult: false,
     archetype: idea.archetype,
     businessMode: "assisted",
     spendCap: String(DEFAULT_SPEND_CAP_MINOR.assisted / 100),
@@ -285,6 +288,7 @@ export function validateCommitForm(form: CommitForm): CommitErrors {
   const errors: CommitErrors = {};
   if (form.name.trim().length === 0) errors.name = "Give the business a name.";
   if (form.name.trim().length > 120) errors.name = "Keep the name under 120 characters.";
+  if (form.gameMode === "live" && !form.confirmAdult) errors.confirmAdult = "Confirm that you are 18 or older to go live.";
   if (!isValidKit(form.kit)) errors.kit = "Both brand colors need a 6-digit hex value.";
   if (!form.archetype) errors.archetype = "Pick the archetype that fits best; it seeds departments and agents.";
   const cap = parseSpendCapMinor(form.spendCap);
@@ -303,6 +307,7 @@ export function commitInput(ideaId: string, form: CommitForm) {
     ideaId,
     name: form.name.trim(),
     gameMode: form.gameMode,
+    ...(form.gameMode === "live" ? { confirmAdult: true as const } : {}),
     archetype: form.archetype as Archetype,
     businessMode: form.businessMode,
     kit: { primary: normaliseHex(form.kit.primary) ?? DEFAULT_KIT.primary, secondary: normaliseHex(form.kit.secondary) ?? DEFAULT_KIT.secondary },

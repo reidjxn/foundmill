@@ -47,6 +47,21 @@ test.describe("live pages from the sidebar", () => {
     await expect(page.getByTestId("error-panel")).toHaveCount(0);
   });
 
+  test("Network: Find on Foundmill searches public profiles by name and opens a profile page", async ({ page }) => {
+    await page.goto("/network");
+    const panel = page.getByTestId("people-search");
+    await expect(panel).toBeVisible({ timeout: LONG });
+    await panel.getByTestId("people-search-input").fill("Ledgerly");
+    // Ledgerly is LIVE and committed, so it is among the public profiles; each hit carries the product label.
+    const hit = panel.getByTestId("people-search-results").getByRole("button", { name: /Ledgerly/ }).first();
+    await expect(hit).toBeVisible({ timeout: LONG });
+    await expect(hit).toContainText("On Foundmill");
+    await hit.click();
+    await expect(page).toHaveURL(/\/profiles\/business\/[0-9a-f-]{36}$/, { timeout: LONG });
+    await expect(page.getByTestId("profile-screen")).toContainText("Ledgerly", { timeout: LONG });
+    await expect(nav(page).getByRole("link", { name: "Network" })).toHaveAttribute("aria-current", "page");
+  });
+
   test("Network: the profile visibility control offers the four levels and saves a change (then restores it)", async ({ page }) => {
     await page.goto("/network");
     const panel = page.getByTestId("visibility-panel");

@@ -15,6 +15,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ConnectionsPanel, RequestsPanel, SentRequestsPanel, type ConnectionRow } from "./ConnectionPanels";
 import { MessagesPanel, type Selection } from "./MessagesPanel";
+import { PeopleSearchPanel } from "./PeopleSearchPanel";
 import { PersonalNotice, usePeople } from "./shared";
 import { useLiveViewer } from "./viewer";
 import { VisibilityPanel } from "./VisibilityPanel";
@@ -92,6 +93,7 @@ export function NetworkScreen() {
       <StatusStrip className="col-span-12" tiles={tiles} aria-label="Network at a glance" data-testid="network-strip" />
       {/* One way on from an empty network, not three: only Connections offers "Browse communities". */}
       <div className="col-span-4 flex min-w-0 flex-col gap-gutter">
+        <PeopleSearchPanel />
         <RequestsPanel rows={groups.incoming} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} busyId={busyId} onAccept={handlers.onAccept} onBlock={handlers.onBlock} />
         <SentRequestsPanel rows={groups.outgoing} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} busyId={busyId} onRemove={handlers.onRemove} />
         <VisibilityPanel />
