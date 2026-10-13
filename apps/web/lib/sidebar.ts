@@ -1,6 +1,7 @@
 /**
  * Sidebar items for the shell (BUILD §5.3, DESIGN §8): Home, Inbox (badge: items to respond to), departments in the
- * founder's order (badge: unread items from that department's agents), CRM, the LIVE block, foot items.
+ * founder's order (badge: unread items from that department's agents), CRM, the LIVE block (Network in every mode,
+ * badged with what waits for the founder), foot items.
  * Pure and unit-tested; the layout feeds it `department.list` + `inbox.list`.
  */
 import { Globe, Home, Inbox, KeyRound, LogOut, Settings, Trophy, Users, Users2, type LucideIcon } from "lucide-react";
@@ -34,6 +35,11 @@ export interface SidebarInput {
   /** First page of inbox items; unread ones from a department's agents badge that department. */
   inboxItems?: readonly SidebarInboxItem[];
   live: boolean;
+  /**
+   * The founder's LIVE counts from `live.summary`: `total` (unread messages, requests and invitations) badges Network
+   * in every mode, `moderation` (posts waiting in communities they moderate) badges Communities.
+   */
+  network?: { total: number; moderation: number };
 }
 
 export const SIDEBAR_IDS = { home: "home", inbox: "inbox", crm: "crm", milestones: "milestones", settings: "settings", keys: "keys", signOut: "sign-out", network: "network", communities: "communities", leaderboards: "leaderboards" } as const;
@@ -77,9 +83,12 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
   }
   items.push({ id: SIDEBAR_IDS.crm, label: "CRM", icon: Users, href: routes.crm(bid), group: "main", fixed: "crm" });
   items.push({ id: SIDEBAR_IDS.milestones, label: "Milestones", icon: Trophy, href: `/b/${bid}/milestones`, group: "main" });
+  // Network is the founder's own (their connections, messages and invitations), so it is there in every mode with its
+  // badge: a request or a message must reach a founder whichever business they have open. Communities and Leaderboards
+  // are about the business on the network, so they appear once it is LIVE.
+  items.push({ id: SIDEBAR_IDS.network, label: "Network", icon: Globe, href: "/network", group: "live", badge: input.network?.total || undefined });
   if (input.live) {
-    items.push({ id: SIDEBAR_IDS.network, label: "Network", icon: Globe, href: "/network", group: "live" });
-    items.push({ id: SIDEBAR_IDS.communities, label: "Communities", icon: Users2, href: "/communities", group: "live" });
+    items.push({ id: SIDEBAR_IDS.communities, label: "Communities", icon: Users2, href: "/communities", group: "live", badge: input.network?.moderation || undefined });
     items.push({ id: SIDEBAR_IDS.leaderboards, label: "Leaderboards", icon: Trophy, href: "/leaderboards", group: "live" });
   }
   items.push({ id: SIDEBAR_IDS.settings, label: "Settings", icon: Settings, href: routes.settings(bid, "business"), group: "foot" });

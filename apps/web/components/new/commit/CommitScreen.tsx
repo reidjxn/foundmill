@@ -15,7 +15,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { ARCHETYPE_LABELS, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { Avatar, Button, Chip, ConceptCard, EmptyState, Field, Input, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, cn, formatMoney, useToast, type Kit } from "@foundmill/dugout";
+import { Avatar, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, cn, fieldDescribedBy, formatMoney, useToast, type Kit } from "@foundmill/dugout";
 import { plainWords, plural } from "@/lib/format";
 import { useSingleFlight } from "@/lib/single-flight";
 import { errorMessage, tierLimitOf, type RouterOutputs } from "@/lib/trpc";
@@ -72,6 +72,8 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
   const ideaQ = useQuery(trpc.idea.get.queryOptions({ ideaId }));
   const [archetype, setArchetype] = useState<Archetype | null>(null);
   const previewQ = useQuery(trpc.idea.preview.queryOptions({ archetype: archetype ?? "b2b_saas" }, { enabled: archetype !== null, staleTime: 60_000 }));
+  // Whether the founder's 18+ confirmation is on record (a LIVE start asks for it otherwise).
+  const summaryQ = useQuery(trpc.live.summary.queryOptions(undefined, { staleTime: 60_000, retry: false }));
   const client = useTRPCClient();
   const prepareLogo = useMutation(trpc.idea.logo.prepare.mutationOptions());
   const { mutateAsync: prepareAsync } = prepareLogo;
@@ -154,6 +156,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
       committing={commit.isPending || commit.isSuccess}
       error={commit.error ? errorMessage(commit.error) : null}
       upgradeHref={upgradeHrefOf(commit.error)}
+      adultConfirmed={summaryQ.data?.adultConfirmed === true}
       onCommit={onCommit}
       logoApi={logoApi}
       back={back}
@@ -178,6 +181,8 @@ export interface CommitFormProps {
   error?: string | null;
   /** Where the plan changes when the commit was refused by the plan's business limit (an upgrade prompt). */
   upgradeHref?: string | null;
+  /** The founder's 18+ confirmation is on record already (`live.summary`), so a LIVE start does not ask again. */
+  adultConfirmed?: boolean;
   onCommit: (input: ReturnType<typeof commitInput>) => void;
   /** Upload checks and logo generation (idea.logo.*). */
   logoApi: CommitLogoApi;
@@ -192,7 +197,7 @@ export function upgradeHrefOf(err: unknown): string | null {
 
 const DEBOUNCE_MS = 350;
 
-export function CommitForm({ idea, viewer, currency, initialName, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, onCommit, logoApi, back }: CommitFormProps) {
+export function CommitForm({ idea, viewer, currency, initialName, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, adultConfirmed = false, onCommit, logoApi, back }: CommitFormProps) {
   const concept = useMemo(() => toConcept(idea), [idea]);
   // The idea's seed only picks the starting brand colours now; the logo is uploaded or generated.
   const ideaSeed = String(readMeta(idea.current?.research).crest_seed ?? idea.id);
@@ -202,7 +207,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
   });
   const [capTouched, setCapTouched] = useState(false);
   const [touched, setTouched] = useState(false);
-  const errors = useMemo(() => validateCommitForm(form), [form]);
+  const errors = useMemo(() => validateCommitForm(form, { adultOnRecord: adultConfirmed }), [form, adultConfirmed]);
   const valid = Object.keys(errors).length === 0;
   const set = <K extends keyof CommitFormValues>(key: K, value: CommitFormValues[K]) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -331,6 +336,17 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
                 <ModeCardOption key={m.value} id={`game-${m.value}`} value={m.value} label={m.label} tagline={m.tagline} details={m.details} selected={form.gameMode === m.value} icon={m.value === "live" ? Globe : Lock} />
               ))}
             </RadioGroup>
+            {/* A LIVE business is on the network from the start, and the network is for adults: asked once (Settings › Mode asks the same). */}
+            {form.gameMode === "live" && !adultConfirmed ? (
+              <Field htmlFor="commit-adult" label="The network is for adults" error={show("adult")} className="mt-3">
+                <span className="flex items-start gap-2" data-testid="commit-adult">
+                  <Checkbox id="commit-adult" checked={form.adult} onCheckedChange={(v) => set("adult", v === true)} className="mt-0.5" aria-describedby={fieldDescribedBy("commit-adult", { error: Boolean(show("adult")) })} />
+                  <Label htmlFor="commit-adult" className="normal-case tracking-normal text-body text-primary">
+                    I am 18 or older. You confirm this once.
+                  </Label>
+                </span>
+              </Field>
+            ) : null}
           </Panel>
 
           <Panel title="Archetype" data-testid="archetype-panel">

@@ -35,6 +35,7 @@ import {
   type DecisionOption,
 } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
+import { humanSender, NETWORK_SENDER } from "@foundmill/widgets/shared/note-tags";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { usePageShortcuts } from "@/lib/keys";
 import { useHydrated } from "@/lib/today";
@@ -115,7 +116,10 @@ interface BodyProps {
 
 function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps) {
   const { item, decisions, plan: storedPlan, fromAgent, entities, approval } = data;
-  const { businessId } = useBusiness();
+  const { businessId, data: biz } = useBusiness();
+  // A person's note: the founder's own ("You"), or another founder's words that Network filed here, never "You".
+  const sender = humanSender(item.fromUserId, biz.membership.userId);
+  const senderName = sender === "self" ? "You" : sender === "other" ? NETWORK_SENDER : "Team";
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -272,14 +276,14 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
     <article className="flex min-h-0 flex-1 flex-col" data-testid="inbox-item" data-item-id={item.id} data-type={item.type} data-state={isAnswered ? "answered" : item.state}>
       {/* header */}
       <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-subtle bg-panel px-gutter py-2.5" data-testid="inbox-item-header">
-        {persona ? <Avatar size={40} name={persona.name} agent={{ seed: persona.seed, dept: persona.dept as DeptColourToken }} /> : <Avatar size={40} name={item.fromUserId ? "You" : "Team"} />}
+        {persona ? <Avatar size={40} name={persona.name} agent={{ seed: persona.seed, dept: persona.dept as DeptColourToken }} /> : <Avatar size={40} name={senderName} />}
         {/* The persona column keeps a 16rem basis, so the tags wrap under it instead of crushing it. */}
         <div className="flex min-w-0 flex-[1_1_16rem] flex-col gap-0.5">
           <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
             {fromAgent ? (
               <EntityLink entity={{ id: fromAgent.id, kind: "agent", name: fromAgent.name, href: routes.agent(businessId, fromAgent.id) }} onOpen={() => router.push(routes.agent(businessId, fromAgent.id))} hoverCard={false} contextMenu={false} className="text-body-strong text-primary" data-testid="persona-link" />
             ) : (
-              <span className="text-body-strong text-primary">{item.fromUserId ? "You" : "Team"}</span>
+              <span className="text-body-strong text-primary" data-testid="human-sender">{senderName}</span>
             )}
             {roleLine ? <span className="text-small text-secondary" data-testid="persona-role">{roleLine}</span> : null}
           </p>

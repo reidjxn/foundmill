@@ -12,6 +12,7 @@ import { conceptPersona, conceptStarters, replyAboutConcept } from "../services/
 import { linkableImportJob } from "../services/foundations";
 import { draftEventStream, draftIdeas, isMeta, readMeta, takeIdeationAllowance, withMeta, type DraftEvent } from "../services/ideation";
 import { importJobKey } from "../services/import";
+import { requireAdultToGoLive } from "../services/live";
 import { LogoChoice, takeLogoCheck } from "../services/logo";
 import { modelLimited } from "../services/model-limits";
 import { ideaLogoRouter } from "./logo";
@@ -242,6 +243,8 @@ export const ideaRouter = router({
         logo: LogoChoice.nullable().optional(),
         currency: z.string().length(3).default("EUR"),
         spendCapMinor: z.number().int().nonnegative().nullable().default(null),
+        /** The founder's 18+ confirmation, asked when they take charge of a LIVE business (the network is for adults). */
+        confirmAdult: z.boolean().optional(),
       }),
     )
     // A new business drafts its foundations and runs its first cycle on the platform key (SEC-13).
@@ -249,6 +252,8 @@ export const ideaRouter = router({
     .mutation(async ({ ctx, input }) => {
       const profile = await repos.founders.get(ctx.db, ctx.userId);
       if (!profile) throw new ValidationError("Complete your founder profile before taking charge of a business");
+      // A LIVE business is on the network from its first minute, so taking charge of one asks what Go live asks.
+      if (input.gameMode === "live") await requireAdultToGoLive(ctx.db, ctx.userId, input.confirmAdult);
       // A logo is an upload check like any other (the SVG check is CPU work).
       if (input.logo) await takeLogoCheck(ctx.limits, ctx.userId);
       return commitIdea(ctx.db, ctx.temporal, ctx.userId, input, () => importJobKey(ctx.env));

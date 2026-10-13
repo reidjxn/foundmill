@@ -90,6 +90,8 @@ export interface ThreadLike {
   id: string;
   participantIds: readonly string[];
   subject: string | null;
+  /** `group` for a thread started with two or more people, even once it is down to two (0027). */
+  kind?: "direct" | "group";
 }
 
 export function otherParticipants(thread: Pick<ThreadLike, "participantIds">, viewerId: string): string[] {
@@ -103,12 +105,50 @@ export function threadTitle(thread: ThreadLike, viewerId: string, nameOf: (userI
   return joinNames(otherParticipants(thread, viewerId).map(nameOf));
 }
 
-/** The one-to-one thread between the viewer and another person, if there is one. */
+/**
+ * The one-to-one thread between the viewer and another person, if there is one. A group that shrank to the two of them
+ * (the others left) is not it: the server keeps the pair's direct thread apart, and a Send to the person goes there.
+ */
 export function findDirectThread<T extends ThreadLike>(threads: readonly T[], viewerId: string, otherId: string): T | undefined {
   return threads.find((t) => {
+    if (t.kind === "group") return false;
     const others = new Set(otherParticipants(t, viewerId));
     return others.size === 1 && others.has(otherId);
   });
+}
+
+/** Where the viewer stands with another person, for "Ask to connect" (audit #66). */
+export type ConnectState = "self" | "connected" | "requested" | "incoming" | "blocked" | "none";
+
+/**
+ * The viewer's state with `otherId` from their own connection rows (`live.connections.list`): connected, a request they
+ * sent ("requested"), one waiting for them ("incoming"), a block they set, or nothing yet. A block the other person set
+ * is never in the viewer's rows, so it reads as "none" (and the request is refused without saying why).
+ */
+export function connectStateOf(rows: readonly ConnectionLike[], viewerId: string, otherId: string): ConnectState {
+  if (otherId === viewerId) return "self";
+  const row = rows.find((c) => counterpartId(c, viewerId) === otherId);
+  if (!row) return "none";
+  if (row.status === "accepted") return "connected";
+  if (row.status === "blocked") return "blocked";
+  return row.fromUser === viewerId ? "requested" : "incoming";
+}
+
+/**
+ * What a sent request came to (`live.connections.request` returns the pair's one row): the viewer's own request, new or
+ * already waiting ("sent"); a connection that already stood ("connected"); or the other person's request, already
+ * waiting for the viewer's answer ("incoming"). A leaderboard row cannot know the owner beforehand, so this tells.
+ */
+export function requestOutcome(row: Pick<ConnectionLike, "fromUser" | "status">, viewerId: string): "sent" | "connected" | "incoming" {
+  if (row.status === "accepted") return "connected";
+  return row.fromUser === viewerId ? "sent" : "incoming";
+}
+
+/** The group a thread is with: "Ana, Ben and Cal left" style notes for people who left. */
+export function leftNote(leftIds: readonly string[], nameOf: (userId: string) => PersonCardLike | undefined): string | null {
+  if (!leftIds.length) return null;
+  const who = joinNames(leftIds.map(nameOf));
+  return `${who} left this conversation`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -131,6 +171,61 @@ export function canSpeakAsBusiness(input: {
   if (membership.role === "owner") return true;
   const explicit = membership.sectionPermissions?.live;
   return explicit ? explicit === "write" : true;
+}
+
+/**
+ * Why "Ask to connect" cannot be pressed from the current business, or null when it can: a request is asked from a LIVE
+ * business the founder may speak for (the API's `live.connections.request` rule).
+ */
+export function askToConnectBlocker(input: Parameters<typeof canSpeakAsBusiness>[0]): string | null {
+  if (input.business.gameMode !== "live") return "Connection requests are sent from a LIVE business. Open one, or make this business LIVE in Settings › Mode.";
+  if (!canSpeakAsBusiness(input)) return "Your role in this business cannot send connection requests for it.";
+  return null;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Communities and moderation
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Report reasons, in the order the report dialog lists them (the API's POST_REPORT_REASONS). */
+export const REPORT_REASONS = [
+  { value: "spam", label: "Spam or self-promotion" },
+  { value: "harassment", label: "Harassment or abuse" },
+  { value: "personal_data", label: "Someone's personal data" },
+  { value: "scam", label: "A scam or fraud" },
+  { value: "off_topic", label: "Off topic" },
+  { value: "other", label: "Something else" },
+] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number]["value"];
+
+export function reportReasonLabel(reason: string): string {
+  return REPORT_REASONS.find((r) => r.value === reason)?.label ?? reason;
+}
+
+/**
+ * Why the viewer cannot leave a community, or null when they can: the owner of a community joined by invitation stays,
+ * since nobody could let them back in (the API refuses it too).
+ */
+export function leaveBlocker(community: { role: string | null; visibility: string }): string | null {
+  return community.role === "owner" && community.visibility !== "public" ? "You own this community and it is joined by invitation only, so you stay its member." : null;
+}
+
+/** Community kinds (BUILD §11.14) for the create dialog. Private is a visibility, chosen beside the kind. */
+export const COMMUNITY_KIND_OPTIONS = [
+  { value: "category", label: "Category", description: "Founders in the same kind of business." },
+  { value: "cohort", label: "Cohort", description: "A group that started together." },
+  { value: "geography", label: "Geography", description: "Founders in one place." },
+] as const;
+
+/**
+ * How a post's status reads to the people who can see it: its author (their own held post) and the moderators. Null
+ * for a visible post.
+ */
+export function postStatusLabel(status: string): string | null {
+  if (status === "pending_review") return "Held for review";
+  if (status === "hidden") return "Hidden by a moderator";
+  if (status === "removed") return "Removed";
+  return null;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

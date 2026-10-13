@@ -95,6 +95,18 @@ describe("commit screen: form (AC-11.1.6, AC-11.1.7)", () => {
     expect(validateCommitForm({ ...form, name: "Ledgerly", archetype: "services", kit: DEFAULT_KIT, spendCap: "" })).toEqual({});
   });
 
+  it("asks a LIVE start for the founder's 18+ confirmation unless it is on record, and sends it only for LIVE", () => {
+    const form = { ...initialCommitForm({ title: "Ledgerly", archetype: "b2b_saas" }, DEFAULT_KIT, "EUR"), gameMode: "live" as const };
+    expect(form.adult).toBe(false);
+    expect(Object.keys(validateCommitForm(form))).toEqual(["adult"]);
+    expect(validateCommitForm(form, { adultOnRecord: true })).toEqual({});
+    expect(validateCommitForm({ ...form, adult: true })).toEqual({});
+    expect(validateCommitForm({ ...form, gameMode: "personal" })).toEqual({});
+    expect(commitInput(IDEA, { ...form, adult: true }).confirmAdult).toBe(true);
+    expect(commitInput(IDEA, form)).not.toHaveProperty("confirmAdult");
+    expect(commitInput(IDEA, { ...form, gameMode: "personal", adult: true })).not.toHaveProperty("confirmAdult");
+  });
+
   it("builds the idea.commit input", () => {
     const form = initialCommitForm({ title: "Ledgerly", archetype: "b2b_saas" }, { primary: "1B4FD8", secondary: "#f5c400" }, "SEK");
     expect(form.logo).toBeNull();

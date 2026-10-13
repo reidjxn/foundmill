@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { eventFrame } from "../connection";
 import { parseClientFrame } from "../frames";
-import { businessChannel, isErrorFrame, isEventFrame, isPongFrame, isSubscribedFrame, parseChannel, sessionChannel } from "../protocol";
+import { businessChannel, isErrorFrame, isEventFrame, isPongFrame, isSubscribedFrame, parseChannel, sessionChannel, userChannel } from "../protocol";
 import { BUSINESS_A, SESSION_A } from "./helpers";
 
 describe("protocol", () => {
   it("parses ev:/as: channels with uuid ids and rejects anything else", () => {
     expect(parseChannel(businessChannel(BUSINESS_A))).toEqual({ kind: "business", id: BUSINESS_A, streamKey: `ev:${BUSINESS_A}` });
     expect(parseChannel(sessionChannel(SESSION_A))).toEqual({ kind: "session", id: SESSION_A, streamKey: `as:${SESSION_A}` });
+    expect(parseChannel(userChannel(BUSINESS_A))).toEqual({ kind: "user", id: BUSINESS_A, streamKey: `u:${BUSINESS_A}` });
+    expect(parseChannel("u:someone")).toBeNull();
     expect(parseChannel("ev:not-a-uuid")).toBeNull();
     expect(parseChannel(`dlq:${BUSINESS_A}`)).toBeNull();
     expect(parseChannel(`ev:${BUSINESS_A} `)).toBeNull();

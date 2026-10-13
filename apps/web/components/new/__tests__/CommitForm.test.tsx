@@ -108,11 +108,31 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect((screen.getByLabelText(/Business name/) as HTMLInputElement).value).toBe(suggested);
     fireEvent.click(document.querySelector<HTMLElement>('[data-option="live"] button[role="radio"]')!);
     fireEvent.change(screen.getByTestId("kit-primary-hex"), { target: { value: "#1b4fd8" } });
+    // A LIVE start asks the founder to confirm that they are 18 or older (the network is for adults) before it goes.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge-bottom"));
+    });
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("alert").some((a) => /18 or older/.test(a.textContent ?? ""))).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox", { name: /I am 18 or older/ }));
     await act(async () => {
       fireEvent.click(screen.getByTestId("take-charge-bottom"));
     });
     expect(onCommit).toHaveBeenCalledTimes(1);
-    expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: suggested, gameMode: "live", archetype: "b2b_saas", businessMode: "assisted", currency: "EUR", spendCapMinor: 25_000, kit: { primary: "#1b4fd8" } });
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: suggested, gameMode: "live", confirmAdult: true, archetype: "b2b_saas", businessMode: "assisted", currency: "EUR", spendCapMinor: 25_000, kit: { primary: "#1b4fd8" } });
+  });
+
+  it("does not ask again for a LIVE start once the founder's 18+ confirmation is on record, and never for Personal", async () => {
+    const onCommit = renderForm(vi.fn(), { adultConfirmed: true });
+    expect(screen.queryByTestId("commit-adult")).toBeNull();
+    fireEvent.click(document.querySelector<HTMLElement>('[data-option="live"] button[role="radio"]')!);
+    expect(screen.queryByTestId("commit-adult")).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge-bottom"));
+    });
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ gameMode: "live" });
+    expect(onCommit.mock.calls[0]![0]).not.toHaveProperty("confirmAdult");
   });
 
   it("starts with the initials mark (no shield), generates four marks, picks one, takes its colours and commits it", async () => {

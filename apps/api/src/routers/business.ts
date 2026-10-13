@@ -8,6 +8,7 @@ import { BUSINESS_MODES, DECISION_TYPES, EVENT_TYPES, GAME_MODES } from "@foundm
 import { z } from "zod";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
 import { assertAgentsRunning, resumeAgents, stopAllAgents } from "../services/killswitch";
+import { requireAdultToGoLive } from "../services/live";
 import { archiveBusiness, cancelDeletion, deletionState, exportBusiness, requestDeletion, restoreBusiness } from "../services/lifecycle";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { modelLimited } from "../services/model-limits";
@@ -81,7 +82,10 @@ export const businessRouter = router({
     }),
   ),
 
-  setGameMode: adminProcedure.input(z.object({ gameMode: z.enum(GAME_MODES), reason: z.string().max(500).optional() })).mutation(async ({ ctx, input }) => {
+  setGameMode: adminProcedure.input(z.object({ gameMode: z.enum(GAME_MODES), reason: z.string().max(500).optional(), confirmAdult: z.boolean().optional() })).mutation(async ({ ctx, input }) => {
+    // Going LIVE puts the business on the network, which is for adults (BUILD §11.14): the founder confirms once that
+    // they are 18 or older (0027; the Go live dialog asks), or has already.
+    if (input.gameMode === "live" && ctx.business.gameMode !== "live") await requireAdultToGoLive(ctx.db, ctx.userId, input.confirmAdult);
     const business = await ctx.rls(async (tx) => {
       const from = ctx.business.gameMode;
       const changed = await repos.businesses.setGameMode(tx, ctx.businessId, input.gameMode);

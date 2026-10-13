@@ -29,6 +29,7 @@ export function postPreview(bodyMd: string, max = 140): string {
   return plain.length > max ? `${plain.slice(0, max - 1)}…` : plain;
 }
 
+/** The feed as a timeline. The founder's own post that moderation holds says so (only they see it in the feed). */
 export function postsToTimeline(posts: readonly CommunityPostRow[]): TimelineEvent[] {
   return posts.map((p) => ({
     id: p.id,
@@ -36,7 +37,8 @@ export function postsToTimeline(posts: readonly CommunityPostRow[]): TimelineEve
     title: p.authorName ?? "A member",
     description: postPreview(p.bodyMd),
     icon: MessageCircle,
-    tone: "neutral" as const,
+    tone: p.status === "pending_review" ? ("warn" as const) : ("neutral" as const),
+    ...(p.status === "pending_review" ? { statusWord: "Held for review" } : {}),
     actor: { name: p.authorName ?? "Member" },
     children: p.replyCount ? <span className="text-small text-secondary">{p.replyCount} replies</span> : undefined,
   }));

@@ -3,14 +3,38 @@
  * Messages on /network: the founder's threads on the left (with an unread count each), the open thread on the right
  * with a reply box. Messages are human to human: only the signed-in founder's own Send writes one (`live.messages.send`);
  * agents may draft, never send. Opening a thread marks it read on the server, then the counts are refreshed.
+ *
+ * The thread pane says who is in it (and who left) and has a More menu: mute (no badge, no Inbox note), leave, ask a
+ * person in it they are not connected with to connect (after a removed connection, the way back), and block any person
+ * in it, connected or not (`live.connections.block`). A thread the founder can no longer write to (a removed connection,
+ * a group member they are not connected with, a block) shows why in place of the reply box.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Mail, MailCheck, MessageSquare, SquarePen } from "lucide-react";
+import { Ban, BellOff, BellRing, Lock, LogOut, Mail, MailCheck, MessageSquare, MoreHorizontal, SquarePen, UserPlus } from "lucide-react";
 import { useEffect, useMemo, useRef, type KeyboardEvent } from "react";
-import { Avatar, Chip, Conversation, EmptyState, Icon, Panel, cn, formatRelative, useToast, type ConversationMessage } from "@foundmill/dugout";
-import { otherParticipants, threadTitle } from "@/lib/live";
+import {
+  Avatar,
+  Button,
+  Chip,
+  Conversation,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  EmptyState,
+  Icon,
+  Panel,
+  cn,
+  formatRelative,
+  useToast,
+  type ConversationMessage,
+} from "@foundmill/dugout";
+import { joinNames, leftNote, otherParticipants, threadTitle } from "@/lib/live";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { useAskToConnect, useConnectStates } from "./connect";
 import type { People } from "./shared";
 
 export type ThreadRow = RouterOutputs["live"]["messages"]["threads"]["items"][number];
@@ -31,7 +55,14 @@ export interface MessagesPanelProps {
 }
 
 const NIL_THREAD = "00000000-0000-0000-0000-000000000000";
-const REFRESH = ["live.messages.threads", "live.messages.unread", "live.messages.list"] as const;
+const REFRESH = ["live.messages.threads", "live.messages.unread", "live.messages.list", "live.messages.thread", "live.summary"] as const;
+
+/** Why the reply box is gone (`live.messages.thread` closedReason). Blocked and not connected read the same. */
+const CLOSED_COPY: Record<string, string> = {
+  closed: "You can no longer write here: everyone in a conversation has to be connected with you. Past messages stay readable.",
+  alone: "Everyone else has left this conversation.",
+  archived: "This conversation is closed.",
+};
 
 export function MessagesPanel({ viewerId, threads, unreadTotal, people, selection, onSelect, loading, error, onRetry }: MessagesPanelProps) {
   const trpc = useTRPC();
@@ -41,13 +72,14 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
   const thread = selection?.kind === "thread" ? threads.find((t) => t.id === selection.threadId) : undefined;
   const threadId = selection?.kind === "thread" ? selection.threadId : NIL_THREAD;
   const messagesQ = useQuery(trpc.live.messages.list.queryOptions({ threadId, limit: 200 }, { enabled: selection?.kind === "thread", staleTime: 5_000, refetchInterval: 15_000, retry: false }));
+  const paneQ = useQuery(trpc.live.messages.thread.queryOptions({ threadId }, { enabled: selection?.kind === "thread", staleTime: 5_000, retry: false }));
 
   const refresh = (paths: readonly string[]) => Promise.all(paths.map((p) => qc.invalidateQueries({ queryKey: trpcPathPrefix(p) as unknown[] })));
 
   // Fetching a thread's messages marks it read on the server; once they have arrived, refresh the counts.
   const unreadHere = thread?.unread ?? 0;
   useEffect(() => {
-    if (messagesQ.dataUpdatedAt > 0 && unreadHere > 0) void refresh(["live.messages.threads", "live.messages.unread"]);
+    if (messagesQ.dataUpdatedAt > 0 && unreadHere > 0) void refresh(["live.messages.threads", "live.messages.unread", "live.summary"]);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per arrival of messages for a thread with unread ones
   }, [messagesQ.dataUpdatedAt, threadId]);
 
@@ -57,13 +89,42 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
         void refresh(REFRESH);
         if (selection?.kind === "new") onSelect({ kind: "thread", threadId: message.threadId });
       },
-      onError: (err) => toast({ title: "Message not sent", description: errorMessage(err), tone: "bad" }),
+      onError: (err) => {
+        void refresh(["live.messages.thread"]);
+        toast({ title: "Message not sent", description: errorMessage(err), tone: "bad" });
+      },
     }),
   );
   const onSend = async (body: string) => {
     if (!selection) return;
     await (selection.kind === "thread" ? send.mutateAsync({ threadId: selection.threadId, body }) : send.mutateAsync({ toUserIds: [selection.userId], body }));
   };
+
+  // --- the thread's own controls: mute, leave, block a person in it ----------------------------------------------------
+  const failed = (title: string) => (err: unknown) => toast({ title, description: errorMessage(err), tone: "bad" });
+  const mute = useMutation(trpc.live.messages.mute.mutationOptions({ onSuccess: () => void refresh(REFRESH), onError: failed("Not changed") }));
+  const leave = useMutation(
+    trpc.live.messages.leave.mutationOptions({
+      onSuccess: () => {
+        onSelect(null);
+        void refresh(REFRESH);
+        toast({ title: "You left the conversation", description: "Its messages no longer reach you.", tone: "info" });
+      },
+      onError: failed("Could not leave"),
+    }),
+  );
+  const block = useMutation(
+    trpc.live.connections.block.mutationOptions({
+      onSuccess: () => void Promise.all([refresh(REFRESH), refresh(["live.connections"])]),
+      onError: failed("Not blocked"),
+    }),
+  );
+  const pane = paneQ.data;
+  const muted = pane?.thread.muted ?? thread?.muted ?? false;
+  // People here the founder is not connected with and has no request or block with: "Ask to connect" from the menu.
+  const connect = useAskToConnect();
+  const connectStates = useConnectStates();
+  const askable = connect.blocker ? [] : (pane?.participants ?? []).filter((p) => !p.connected && !p.blockedByMe && connectStates.stateOf(p.userId) === "none");
 
   const messages = useMemo<ConversationMessage[]>(
     () => [...(messagesQ.data?.items ?? [])].reverse().map((m) => ({ id: m.id, author: people.name(m.fromUser), self: m.fromUser === viewerId, body: m.body, at: m.createdAt })),
@@ -72,6 +133,8 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
 
   const titleOf = (t: ThreadRow) => threadTitle(t, viewerId, (id) => people.person(id));
   const withName = selection?.kind === "new" ? people.name(selection.userId) : thread ? titleOf(thread) : "";
+  const leftLine = thread ? leftNote(thread.leftIds ?? [], (id) => people.person(id)) : null;
+  const closed = selection?.kind === "thread" && pane && !pane.canSend ? (CLOSED_COPY[pane.closedReason ?? "closed"] ?? CLOSED_COPY.closed) : null;
 
   // Arrow keys move through the thread list.
   const listRef = useRef<HTMLUListElement>(null);
@@ -133,10 +196,11 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
                   >
                     <Avatar size={24} name={people.name(others[0] ?? "")} />
                     <span className="min-w-0 flex-1">
-                      <span className={cn("block truncate text-primary", t.unread > 0 ? "t-body-strong" : "text-body")}>{titleOf(t)}</span>
+                      <span className={cn("block truncate text-primary", t.unread > 0 && !t.muted ? "t-body-strong" : "text-body")}>{titleOf(t)}</span>
                       <span className="block truncate text-small text-secondary">{t.lastMessageAt ? formatRelative(t.lastMessageAt) : "No messages yet"}</span>
                     </span>
-                    {t.unread > 0 ? <Chip tone="info">{t.unread} new</Chip> : null}
+                    {t.muted ? <Icon icon={BellOff} size="inline" className="text-tertiary" label="Muted" /> : null}
+                    {t.unread > 0 ? <Chip tone={t.muted ? "neutral" : "info"}>{t.unread} new</Chip> : null}
                   </button>
                 </li>
               );
@@ -149,7 +213,56 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
               <div className="flex h-8 shrink-0 items-center gap-2 border-b border-subtle px-panel-pad">
                 <span className="t-body-strong min-w-0 truncate text-primary">{withName}</span>
                 {thread?.subject && thread.subject.trim() && thread.subject !== withName ? <span className="truncate text-small text-secondary">{thread.subject}</span> : null}
+                {pane && pane.participants.length > 1 ? <span className="truncate text-small text-secondary" data-testid="thread-people">With {joinNames(pane.participants.map((p) => people.person(p.userId)))}</span> : null}
+                {muted ? <Chip tone="neutral" icon={BellOff}>Muted</Chip> : null}
+                {selection.kind === "thread" && pane ? (
+                  <span className="ml-auto flex shrink-0 items-center">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" icon={MoreHorizontal} aria-label="Conversation options" data-testid="thread-menu" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => mute.mutate({ threadId: selection.threadId, muted: !muted })}>
+                          <Icon icon={muted ? BellRing : BellOff} size="inline" /> {muted ? "Unmute" : "Mute"}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem variant="danger" onSelect={() => leave.mutate({ threadId: selection.threadId })}>
+                          <Icon icon={LogOut} size="inline" /> Leave conversation
+                        </DropdownMenuItem>
+                        {askable.length ? (
+                          <>
+                            <DropdownMenuSeparator />
+                            {askable.map((p) => (
+                              <DropdownMenuItem key={p.userId} onSelect={() => connect.ask({ userId: p.userId, name: people.name(p.userId) })}>
+                                <Icon icon={UserPlus} size="inline" /> Ask {people.name(p.userId)} to connect
+                              </DropdownMenuItem>
+                            ))}
+                          </>
+                        ) : null}
+                        {pane.participants.some((p) => !p.blockedByMe) ? (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel>Block someone here</DropdownMenuLabel>
+                            {pane.participants
+                              .filter((p) => !p.blockedByMe)
+                              .map((p) => (
+                                <DropdownMenuItem
+                                  key={p.userId}
+                                  variant="danger"
+                                  onSelect={() =>
+                                    block.mutate({ userId: p.userId }, { onSuccess: () => toast({ title: `Blocked ${people.name(p.userId)}`, description: "Neither of you can message the other or ask to connect. Unblock them from the Blocked view.", tone: "info" }) })
+                                  }
+                                >
+                                  <Icon icon={Ban} size="inline" /> Block {people.name(p.userId)}
+                                </DropdownMenuItem>
+                              ))}
+                          </>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </span>
+                ) : null}
               </div>
+              {leftLine ? <p className="border-b border-subtle px-panel-pad py-1 text-small text-secondary">{leftLine}.</p> : null}
               <Conversation
                 className="flex-1"
                 label={selection.kind === "new" ? `New message to ${withName}` : `Conversation with ${withName}`}
@@ -161,6 +274,15 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
                 placeholder={`Write to ${withName}`}
                 sending={send.isPending}
                 onSend={onSend}
+                disabled={!!closed}
+                note={
+                  closed ? (
+                    <span className="inline-flex items-start gap-1.5" data-testid="thread-closed">
+                      <Icon icon={Lock} size="inline" className="mt-0.5 shrink-0" />
+                      {closed}
+                    </span>
+                  ) : undefined
+                }
               />
             </>
           ) : (
@@ -170,6 +292,7 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
           )}
         </div>
       </div>
+      {connect.dialog}
     </Panel>
   );
 }

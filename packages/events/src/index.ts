@@ -7,6 +7,7 @@ export * from "./outbox/writer";
 export * from "./outbox/relay";
 export * from "./consume";
 export * from "./session-stream";
+export * from "./user-stream";
 export {
   MemoryRedis,
   MemoryStore,

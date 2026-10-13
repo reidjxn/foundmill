@@ -237,6 +237,63 @@ describe("communities, community_members, posts", () => {
     expect((await h.service().run((tx) => tx.select().from(s.posts).where(eq(s.posts.id, post!.id))))[0]!.status).toBe("hidden");
     expect((await h.service().run((tx) => tx.select().from(s.communityMembers).where(eq(s.communityMembers.userId, B.ownerId))))[0]).toMatchObject({ status: "muted", role: "member" });
   });
+
+  it("0027: an author reads their own held post, a muted member still reads, an invitee sees the private community it is for", async () => {
+    const [room] = await h.service().run((tx) => tx.insert(s.communities).values({ name: "Private 27", slug: "private-27", visibility: "private", createdBy: A.adminId }).returning());
+    await h.service().run((tx) =>
+      tx.insert(s.communityMembers).values([
+        { communityId: room!.id, userId: A.adminId, role: "owner" },
+        { communityId: room!.id, userId: B.adminId, status: "muted" },
+        { communityId: room!.id, userId: B.memberId, status: "invited", invitedBy: A.adminId },
+      ]),
+    );
+    const [held] = await h.service().run((tx) => tx.insert(s.posts).values({ communityId: room!.id, authorUserId: B.adminId, bodyMd: "held", status: "pending_review" }).returning());
+    await h.service().run((tx) => tx.insert(s.posts).values({ communityId: room!.id, authorUserId: A.adminId, bodyMd: "visible" }));
+    // The muted member reads the feed and their own held post; the invitee sees the community but not its feed.
+    expect((await h.asUser(B.adminId).run((tx) => tx.select().from(s.posts).where(eq(s.posts.communityId, room!.id)))).map((p) => p.bodyMd).sort()).toEqual(["held", "visible"]);
+    expect(await h.asUser(B.memberId).run((tx) => tx.select().from(s.communities).where(eq(s.communities.id, room!.id)))).toHaveLength(1);
+    expect(await h.asUser(B.memberId).run((tx) => tx.select().from(s.posts).where(eq(s.posts.communityId, room!.id)))).toHaveLength(0);
+    expect(await h.asUser(outsiderId).run((tx) => tx.select().from(s.communities).where(eq(s.communities.id, room!.id)))).toHaveLength(0);
+    // The owner (a moderator) sees the held post too; nobody else outside does.
+    expect((await h.asUser(A.adminId).run((tx) => tx.select().from(s.posts).where(eq(s.posts.id, held!.id))))).toHaveLength(1);
+    expect(await h.asUser(outsiderId).run((tx) => tx.select().from(s.posts).where(eq(s.posts.id, held!.id)))).toHaveLength(0);
+  });
+
+  it("post_reports (0027): the reporter and the community's moderators read a report; nobody writes one directly", async () => {
+    const [room] = await h.service().run((tx) => tx.insert(s.communities).values({ name: "Reports 27", slug: "reports-27", createdBy: A.memberId }).returning());
+    await h.service().run((tx) =>
+      tx.insert(s.communityMembers).values([
+        { communityId: room!.id, userId: A.memberId, role: "owner" },
+        { communityId: room!.id, userId: B.viewerId },
+        { communityId: room!.id, userId: A.viewerId },
+      ]),
+    );
+    const [post] = await h.service().run((tx) => tx.insert(s.posts).values({ communityId: room!.id, authorUserId: A.viewerId, bodyMd: "spam" }).returning());
+    await h.service().run((tx) => tx.insert(s.postReports).values({ postId: post!.id, communityId: room!.id, reporterUserId: B.viewerId, reason: "spam" }));
+    expect(await h.asUser(B.viewerId).run((tx) => tx.select().from(s.postReports))).toHaveLength(1);
+    expect(await h.asUser(A.memberId).run((tx) => tx.select().from(s.postReports).where(eq(s.postReports.communityId, room!.id)))).toHaveLength(1);
+    // The author of the reported post and outsiders never learn who reported it.
+    expect(await h.asUser(A.viewerId).run((tx) => tx.select().from(s.postReports))).toHaveLength(0);
+    expect(await h.asUser(outsiderId).run((tx) => tx.select().from(s.postReports))).toHaveLength(0);
+    const denied = /permission denied/;
+    await expect(h.asUser(B.viewerId).run((tx) => tx.insert(s.postReports).values({ postId: post!.id, communityId: room!.id, reporterUserId: B.viewerId, reason: "scam" }))).rejects.toThrow(denied);
+    await expect(h.asUser(A.memberId).run((tx) => tx.update(s.postReports).set({ resolution: "dismissed", resolvedAt: new Date() }).where(eq(s.postReports.postId, post!.id)))).rejects.toThrow(denied);
+    await expect(h.asUser(A.memberId).run((tx) => tx.delete(s.postReports).where(eq(s.postReports.postId, post!.id)))).rejects.toThrow(denied);
+    await expect(h.anon().run((tx) => tx.select().from(s.postReports))).rejects.toThrow(denied);
+  });
+});
+
+describe("network_attestations (0027)", () => {
+  it("network_attestations: a person reads only their own 18+ confirmation; only the api writes one", async () => {
+    await h.service().run((tx) => tx.insert(s.networkAttestations).values({ userId: A.ownerId }));
+    expect((await h.asUser(A.ownerId).run((tx) => tx.select().from(s.networkAttestations))).map((r) => r.userId)).toEqual([A.ownerId]);
+    expect(await h.asUser(B.ownerId).run((tx) => tx.select().from(s.networkAttestations))).toHaveLength(0);
+    const denied = /permission denied/;
+    await expect(h.asUser(B.ownerId).run((tx) => tx.insert(s.networkAttestations).values({ userId: B.ownerId }))).rejects.toThrow(denied);
+    await expect(h.asUser(A.ownerId).run((tx) => tx.update(s.networkAttestations).set({ adultConfirmedAt: new Date(0) }).where(eq(s.networkAttestations.userId, A.ownerId)))).rejects.toThrow(denied);
+    await expect(h.asUser(A.ownerId).run((tx) => tx.delete(s.networkAttestations).where(eq(s.networkAttestations.userId, A.ownerId)))).rejects.toThrow(denied);
+    await expect(h.anon().run((tx) => tx.select().from(s.networkAttestations))).rejects.toThrow(denied);
+  });
 });
 
 describe("leaderboards and public views (LIVE only)", () => {

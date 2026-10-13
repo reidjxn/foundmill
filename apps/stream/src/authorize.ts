@@ -1,6 +1,7 @@
 /**
  * Per-subscription membership checks (docs/ARCHITECTURE.md §12): `ev:<businessId>` needs a membership of that
- * business (not archived); `as:<sessionId>` needs a membership of the business the session belongs to and read access
+ * business (not archived); `u:<userId>` is the person's own channel, open to that signed-in user only (no database
+ * lookup, no section walls: it carries content-free LIVE signals); `as:<sessionId>` needs a membership of the business the session belongs to and read access
  * to every section the session's work belongs to (`sessionSections`: Development plus its department's modules, the
  * same wall as dev.sessions.* in apps/api). An allowed decision carries the business and the membership: the server
  * filters business events through the membership's section walls (walls.ts). The service role reaches the database
@@ -46,6 +47,10 @@ export interface RepoAuthorizerOptions {
   now?: () => number;
 }
 
+/** `u:<userId>`: a person reads only their own signals. User ids are compared case-insensitively (they are uuids). */
+const ownChannel = (userId: string, channelUserId: string): AuthorizationResult =>
+  userId.toLowerCase() === channelUserId.toLowerCase() ? { ok: true } : deny("forbidden", "this is another person's channel");
+
 /** Repo-backed authorizer used in production. */
 export function createRepoAuthorizer(db: Db, opts: RepoAuthorizerOptions = {}): Authorizer {
   const now = opts.now ?? (() => Date.now());
@@ -84,6 +89,7 @@ export function createRepoAuthorizer(db: Db, opts: RepoAuthorizerOptions = {}): 
     async canSubscribe(userId, channel) {
       const parsed = parseChannel(channel);
       if (!parsed) return deny("invalid_channel", `unknown channel "${channel}"`);
+      if (parsed.kind === "user") return ownChannel(userId, parsed.id);
       try {
         const scope = parsed.kind === "business" ? { businessId: parsed.id, moduleKeys: null } : await findScope(userId, parsed.id);
         if (!scope) return deny("forbidden", "session is not in one of your businesses");
@@ -177,6 +183,7 @@ export function createMemoryAuthorizer(input: {
     async canSubscribe(userId, channel) {
       const parsed = parseChannel(channel);
       if (!parsed) return deny("invalid_channel", `unknown channel "${channel}"`);
+      if (parsed.kind === "user") return ownChannel(userId, parsed.id);
       const businesses = input.members[userId] ?? [];
       if (parsed.kind === "business") return businesses.includes(parsed.id) ? allow(parsed.id, membershipOf(userId, parsed.id)) : deny("forbidden", "not a member of this business");
       const businessId = input.sessions?.[parsed.id];

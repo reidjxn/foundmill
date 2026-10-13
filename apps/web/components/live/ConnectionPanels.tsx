@@ -1,9 +1,10 @@
 "use client";
 /**
- * The three connection lists on /network: requests waiting for the founder (accept or block), requests the founder
- * sent (withdraw), and the connections themselves in a DataTable with saved views and a right-click menu.
+ * The connection lists on /network: requests waiting for the founder (accept, ignore or block), requests the founder
+ * sent (withdraw), community invitations (join or decline), and the connections themselves in a DataTable with saved
+ * views and a right-click menu.
  */
-import { Ban, Check, Clock, MessageSquare, UserCheck, UserMinus, UserRound, Users, UsersRound } from "lucide-react";
+import { Ban, Check, Clock, LogIn, MailOpen, MessageSquare, UserCheck, UserMinus, UserRound, Users, UsersRound, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Avatar, Button, DataTable, Panel, StatusPill, formatRelative, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { People } from "./shared";
@@ -43,7 +44,8 @@ const findAction = (onFind?: () => void) => (onFind ? { label: "Browse communiti
 
 const otherUser = (row: ConnectionRow, viewerId: string) => (row.fromUser === viewerId ? row.toUser : row.fromUser);
 
-export function RequestsPanel({ rows, viewerId, people, loading, error, onRetry, busyId, onAccept, onBlock, onFind }: CommonProps) {
+/** Requests waiting for the founder: Accept, Ignore (the request goes, nobody is told) or Block. */
+export function RequestsPanel({ rows, viewerId, people, loading, error, onRetry, busyId, onAccept, onRemove, onBlock, onFind }: CommonProps) {
   return (
     <Panel
       title="Requests"
@@ -69,6 +71,9 @@ export function RequestsPanel({ rows, viewerId, people, loading, error, onRetry,
               </div>
               <Button size="sm" icon={Check} aria-label={`Accept ${name}`} disabled={busyId === row.id} onClick={() => onAccept?.(row)}>
                 Accept
+              </Button>
+              <Button size="sm" variant="ghost" icon={X} aria-label={`Ignore ${name}`} disabled={busyId === row.id} onClick={() => onRemove?.(row)}>
+                Ignore
               </Button>
               <Button size="sm" variant="ghost" icon={Ban} aria-label={`Block ${name}`} disabled={busyId === row.id} onClick={() => onBlock?.(row)}>
                 Block
@@ -109,6 +114,53 @@ export function SentRequestsPanel({ rows, viewerId, people, loading, error, onRe
             </li>
           );
         })}
+      </ul>
+    </Panel>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Community invitations
+// ---------------------------------------------------------------------------------------------------------------------
+
+export interface InvitationRow {
+  community: { id: string; name: string; visibility: string };
+  invitedBy: string | null;
+  invitedAt: Date;
+}
+
+/** Invitations to communities (the only way into one that is not public): join it, or decline. */
+export function InvitationsPanel({ rows, people, loading, error, onRetry, busyId, onJoin, onDecline }: { rows: readonly InvitationRow[]; people: People; loading?: boolean; error?: string; onRetry?: () => void; busyId?: string | null; onJoin: (row: InvitationRow) => void; onDecline: (row: InvitationRow) => void }) {
+  if (!loading && !error && rows.length === 0) return null;
+  return (
+    <Panel
+      title="Invitations"
+      flush
+      loading={loading}
+      error={error}
+      onRetry={onRetry}
+      actions={rows.length ? <StatusPill tone="info" icon={MailOpen}>{rows.length} waiting</StatusPill> : undefined}
+      data-testid="invitations-panel"
+    >
+      <ul>
+        {rows.map((row) => (
+          <li key={row.community.id} className="flex items-center gap-3 border-b border-line-faint px-panel-pad py-2 last:border-b-0" data-testid="invitation-row">
+            <Avatar size={32} name={row.community.name} />
+            <div className="min-w-0 flex-1">
+              <p className="t-body-strong truncate text-primary">{row.community.name}</p>
+              <p className="truncate text-small text-secondary">
+                {row.invitedBy ? `From ${people.name(row.invitedBy)}, ` : ""}
+                {formatRelative(row.invitedAt)}
+              </p>
+            </div>
+            <Button size="sm" icon={LogIn} aria-label={`Join ${row.community.name}`} disabled={busyId === row.community.id} onClick={() => onJoin(row)}>
+              Join
+            </Button>
+            <Button size="sm" variant="ghost" icon={X} aria-label={`Decline ${row.community.name}`} disabled={busyId === row.community.id} onClick={() => onDecline(row)}>
+              Decline
+            </Button>
+          </li>
+        ))}
       </ul>
     </Panel>
   );

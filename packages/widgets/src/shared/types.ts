@@ -126,7 +126,7 @@ export interface InboxListResponse extends Page<InboxItemRow> {
 
 /* founder.profile.get (only what the widgets read) */
 export interface FounderProfileResponse {
-  profile: { displayName?: string } | null;
+  profile: { userId?: string; displayName?: string } | null;
 }
 
 /* distribution.channels.list */
@@ -275,6 +275,8 @@ export interface CommunityPostRow {
   bodyMd: string;
   createdAt: Iso;
   replyCount?: number;
+  /** `pending_review`: the founder's own post, held by moderation (nobody else sees it until a moderator approves it). */
+  status?: string;
 }
 
 /* dashboard.customMetric.* (custom-metric widget contract; see custom-metric.tsx) */

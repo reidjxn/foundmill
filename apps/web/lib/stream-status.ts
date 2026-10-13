@@ -65,6 +65,17 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+/** True while the channel (`ev:<businessId>`, `u:<userId>`) is live. */
+export function isChannelLive(channel: string): boolean {
+  return liveSince.has(channel);
+}
+
+/** True while the channel is live; re-renders when that changes. False on the server and for no channel. */
+export function useChannelLive(channel: string | null): boolean {
+  const read = useCallback(() => (channel ? isChannelLive(channel) : false), [channel]);
+  return useSyncExternalStore(subscribe, read, () => false);
+}
+
 /** True while the business's event channel is live; re-renders when that changes. False on the server. */
 export function useBusinessLive(businessId: string): boolean {
   const read = useCallback(() => isBusinessLive(businessId), [businessId]);
@@ -72,8 +83,8 @@ export function useBusinessLive(businessId: string): boolean {
 }
 
 /**
- * How often to poll something the stream also keeps current: `everyMs` while the business's channel is not live, and
- * a slow safety net (`SAFETY_POLL_MS`) while it is, for changes that publish no event and for a link that stalls.
+ * How often to poll something the stream also keeps current: `everyMs` while its channel (the business's, or the
+ * person's own `u:<userId>`) is not live, and a slow safety net (`SAFETY_POLL_MS`) while it is, for changes that publish no event and for a link that stalls.
  */
 export function streamPollInterval(live: boolean, everyMs: number, safetyMs: number = SAFETY_POLL_MS): number {
   return live ? Math.max(everyMs, safetyMs) : everyMs;

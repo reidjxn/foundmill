@@ -21,6 +21,10 @@ test.describe("commit", () => {
     // The choice is named in plain words ("Personal or live"), not the internal "game mode".
     await expect(page.getByRole("radiogroup", { name: "Personal or live" })).toBeVisible();
     await expect(page.getByLabel(/Spend cap per action/)).toHaveValue("250");
+    // A LIVE start asks for the 18+ confirmation only until it is on record; the seeded founder has given it.
+    await page.locator('[data-option="live"] button[role="radio"]').click();
+    await expect(page.locator('[data-option="live"]')).toHaveAttribute("data-selected", "true");
+    await expect(page.getByTestId("commit-adult")).toHaveCount(0);
   });
 
   test("name suggestions, live domain availability and the trademark screen with its caveat", async ({ page }) => {

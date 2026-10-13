@@ -50,6 +50,7 @@ describe("journal", () => {
       "0023_business_controls",
       "0024_billing_enforcement",
       "0026_membership_guards",
+      "0027_live_social_delivery",
       "0030_approvals_inbox",
       "0031_settings_lifecycle",
       "0033_payments",

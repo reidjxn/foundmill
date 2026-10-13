@@ -10,16 +10,21 @@
  */
 import { communities, communityMembers, leaderboardEntries, repos } from "@foundmill/db";
 import { and, eq, sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as events from "../services/events";
+import { liveLimiter } from "../services/live";
 import { internalErrorMessage, pgErrorCode } from "../trpc";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
 beforeAll(async () => {
   hz = await createApiHarness({ prefix: "live" });
+  // Everyone here has confirmed that they are 18 or older (the gate itself is pinned in live-social.test.ts).
+  for (const f of [hz.A, hz.B]) for (const userId of [f.ownerId, f.adminId, f.memberId, f.viewerId]) await repos.social.confirmAdult(hz.db, userId);
 }, 120_000);
 afterAll(() => hz.close());
+// Each test starts with fresh per-person limits (posts, messages, requests).
+beforeEach(() => liveLimiter.reset());
 
 const as = (userId: string) => hz.caller({ userId });
 const NOBODY = "00000000-0000-4000-8000-0000000000ff";
@@ -152,14 +157,16 @@ describe("communities", () => {
     await goLive(hz.A.businessId);
   });
 
-  it("L1: a muted member stays muted when they join again; only someone who left comes back", async () => {
+  it("L1: a muted member stays muted when they join again (they read, never post); only someone who left comes back", async () => {
     const community = await repos.social.createCommunity(hz.db, { name: "Mod room", slug: "live-mod", createdBy: hz.A.ownerId });
     const member = as(hz.B.adminId);
     await member.live.communities.join({ communityId: community.id });
-    await hz.db.update(communityMembers).set({ status: "muted" }).where(and(eq(communityMembers.communityId, community.id), eq(communityMembers.userId, hz.B.adminId)));
-    expect((await failure(member.live.communities.join({ communityId: community.id }))).code).toBe("BAD_REQUEST");
+    await hz.db.update(communityMembers).set({ status: "muted", mutedAt: new Date() }).where(and(eq(communityMembers.communityId, community.id), eq(communityMembers.userId, hz.B.adminId)));
+    expect(await member.live.communities.join({ communityId: community.id })).toMatchObject({ status: "muted" });
     expect((await failure(member.live.communities.post({ communityId: community.id, bodyMd: "unmuted?" }))).code).toBe("BAD_REQUEST");
-    expect((await member.live.communities.get({ communityId: community.id })).isMember).toBe(false);
+    expect(await member.live.communities.get({ communityId: community.id })).toMatchObject({ isMember: true, canPost: false, status: "muted" });
+    await member.live.communities.leave({ communityId: community.id });
+    expect(await member.live.communities.join({ communityId: community.id })).toMatchObject({ status: "muted" });
     // Someone who left may return.
     const other = as(hz.B.memberId);
     await other.live.communities.join({ communityId: community.id });
@@ -318,6 +325,8 @@ describe("messages and connections", () => {
 
   it("L4 and L6: a request to a person who does not exist is a clean not-found, and a request and its event commit together", async () => {
     await goLive(hz.A.businessId);
+    // The recipient speaks for a listed business, so the request writes its event (and Inbox note) there.
+    await goLive(hz.B.businessId);
     const owner = as(hz.A.ownerId);
     const unknown = await failure(owner.live.connections.request({ businessId: hz.A.businessId, toUserId: NOBODY }));
     expect(unknown.code).toBe("NOT_FOUND");

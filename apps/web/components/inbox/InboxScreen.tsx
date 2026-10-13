@@ -13,6 +13,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, EmptyState, Kbd, useToast } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
+import { humanSender } from "@foundmill/widgets/shared/note-tags";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { usePageShortcuts } from "@/lib/keys";
 import { streamAwareStaleTime } from "@/lib/query-client";
@@ -74,6 +75,7 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
   // The founder's own notes carry the founder's initials ("JR"), never the letters of "You".
   const founderQ = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
   const founderName = founderQ.data?.profile?.displayName?.trim() || undefined;
+  const viewerId = data.membership.userId;
   const rows = useMemo<InboxListRow[]>(() => {
     const seen = new Set<string>();
     const out: InboxListRow[] = [];
@@ -82,11 +84,13 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
         if (seen.has(item.id)) continue;
         seen.add(item.id);
         const agent = item.fromAgentId ? agents.get(item.fromAgentId) : undefined;
-        out.push({ ...rowModel(item), agent: agent ? { ...agent, dept: agent.dept as DeptColourToken } : undefined, fromUser: !!item.fromUserId });
+        // The founder's own note, or another founder's words that Network filed here (never "You" for someone else).
+        const sender = humanSender(item.fromUserId, viewerId);
+        out.push({ ...rowModel(item), agent: agent ? { ...agent, dept: agent.dept as DeptColourToken } : undefined, fromUser: sender === "self", fromPerson: sender === "other" });
       }
     }
     return out;
-  }, [pages, agents]);
+  }, [pages, agents, viewerId]);
   const ids = useMemo(() => rows.map((r) => r.id), [rows]);
   const counts = pages?.[0]?.counts;
   const invalidate = useCallback((routers: readonly string[]) => Promise.all(routers.map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] }))), [queryClient]);
