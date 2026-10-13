@@ -1,6 +1,8 @@
 /** inbox (Composer shape validation, tabs, decide, buffer), plans (create → confirm → actions → roll-up) and cursor pagination. */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import { repos, type ComposerItem } from "../../repos";
+import { businesses } from "../../schema";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
 
 let r: RepoHarness;
@@ -62,6 +64,34 @@ describe("inbox.createItem validates the Composer schema", () => {
     await expect(repos.inbox.createItem(r.db, r.A.businessId, note({ from_agent_id: r.B.agentId }))).rejects.toThrow(/not an agent of this business/);
     await expect(repos.inbox.createItem(r.db, r.A.businessId, note({ source_event_ids: [r.B.eventIds[0]!] }))).rejects.toThrow(/events of this business/);
     await expect(repos.inbox.createItem(r.db, r.A.businessId, note({ entity_ids: [r.B.entityId] }))).rejects.toThrow(/entities of this business/);
+  });
+});
+
+describe("inbox.createItem stores notes in the business's own words (Settings › Glossary, AC-11.13.6)", () => {
+  const setGlossary = (glossary: Record<string, string>) => r.db.update(businesses).set({ glossary }).where(eq(businesses.id, r.B.businessId));
+  afterAll(() => setGlossary({}));
+
+  it("renames nouns in the subject, body and decision options of composed and templated notes", async () => {
+    await setGlossary({ customer: "client", team: "crew" });
+    const item = await repos.inbox.createItem(r.db, r.B.businessId, {
+      ...note({ from_agent_id: r.B.agentId, type: "decision", subject: "Customers this week", body_md: "The team keeps working; the customers week stands at 0. [[ent:" + r.B.entityId + "|Customer Co]] is the first customer." }),
+      decision: { options: [{ id: "a", label: "Call the customer", recommended: true, consequence: "The team calls today", cost_minor: 0, reversible: true }, { id: "b", label: "Wait", recommended: false, consequence: "Nothing", cost_minor: 0, reversible: true }], free_text: false, expires_at: null },
+      entity_ids: [r.B.entityId],
+    });
+    expect(item.subject).toBe("Clients this week");
+    expect(item.bodyMd).toBe(`The crew keeps working; the clients week stands at 0. [[ent:${r.B.entityId}|Customer Co]] is the first client.`);
+    expect((item.decision as { options: { label: string; consequence: string }[] }).options[0]).toMatchObject({ label: "Call the client", consequence: "The crew calls today" });
+    // Another business's notes keep the default words.
+    expect((await repos.inbox.createItem(r.db, r.A.businessId, note({ subject: "Customers this week" }))).subject).toBe("Customers this week");
+  });
+
+  it("never rewrites a person's own message, and keeps the subject within its limit", async () => {
+    await setGlossary({ customer: "client relationship" });
+    const human = await repos.inbox.createHumanMessage(r.db, r.B.businessId, { fromUserId: r.B.ownerId, subject: "About the customer", bodyMd: "The customer called." });
+    expect([human.subject, human.bodyMd]).toEqual(["About the customer", "The customer called."]);
+    const long = await repos.inbox.createItem(r.db, r.B.businessId, note({ from_agent_id: r.B.agentId, subject: `${"x".repeat(70)} customer` }));
+    expect(long.subject.length).toBeLessThanOrEqual(80);
+    expect(long.subject.endsWith("…")).toBe(true);
   });
 });
 

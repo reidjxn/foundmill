@@ -4,7 +4,7 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { repos, UpdateBusinessInput } from "@foundmill/db";
-import { BUSINESS_MODES, DECISION_TYPES, EVENT_TYPES, GAME_MODES } from "@foundmill/shared";
+import { BUSINESS_MODES, DECISION_TYPES, EVENT_TYPES, GAME_MODES, isValidTimeZone } from "@foundmill/shared";
 import { z } from "zod";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
 import { assertAgentsRunning, resumeAgents, stopAllAgents } from "../services/killswitch";
@@ -117,6 +117,23 @@ export const businessRouter = router({
       return business;
     }),
   ),
+
+  /**
+   * The business time zone (0041): Home's "today", week and month, the Journey's days and the top bar's date follow it.
+   * The app sets it from an owner's or admin's browser the first time they open the business; Settings › Business
+   * changes it. The Journey's daily rows are rebuilt in the new zone right away.
+   */
+  setTimeZone: adminProcedure.input(z.object({ timeZone: z.string().min(1).max(64).refine(isValidTimeZone, "Pick a time zone such as America/New_York") })).mutation(async ({ ctx, input }) => {
+    const business = await ctx.rls(async (tx) => {
+      const from = ctx.business.timeZone;
+      const updated = await repos.businesses.setTimeZone(tx, ctx.businessId, input.timeZone);
+      if (from !== input.timeZone) await audit(tx, ctx, { action: "business.set_time_zone", target: { kind: "business", id: ctx.businessId }, details: { from, to: input.timeZone } });
+      return updated;
+    });
+    // Best effort: the nightly refresh (and every later one) buckets in the new zone anyway.
+    if (ctx.business.timeZone !== input.timeZone) await repos.journeys.refreshDaily(ctx.db).catch(() => undefined);
+    return business;
+  }),
 
   /** Holiday = Automated mode with the Chief of Staff in charge (BUILD §9.6). */
   startHoliday: adminProcedure

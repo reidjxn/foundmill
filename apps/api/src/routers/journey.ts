@@ -1,6 +1,7 @@
 /** journey.get/list/markViewed + daily rows and milestones for the Ribbon (BUILD §11.2, §11.4). */
 import { JourneyListFilter, NO_DEPARTMENT_ID, repos } from "@foundmill/db";
 import { buildChapters } from "@foundmill/journey";
+import { dayKeyIn, dayRangeIn } from "@foundmill/shared";
 import { buildJourneyRecord } from "../services/journey";
 import { z } from "zod";
 import { Id, businessProcedure, router } from "../trpc";
@@ -33,9 +34,11 @@ export const journeyRouter = router({
    */
   ribbon: businessProcedure.input(z.object({ from: DayKey.optional(), to: DayKey.optional(), departmentId: Id.optional(), slim: z.boolean().optional() })).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
-      const from = input.from ?? new Date(Date.now() - 365 * 86_400_000).toISOString().slice(0, 10);
-      const to = input.to ?? new Date().toISOString().slice(0, 10);
-      const range = { from: new Date(from), to: new Date(`${to}T23:59:59.999Z`) };
+      // Days are the business's own (0041): "today" and the conversion window follow its time zone, as journey_daily does.
+      const zone = ctx.business.timeZone;
+      const from = input.from ?? dayKeyIn(Date.now() - 365 * 86_400_000, zone);
+      const to = input.to ?? dayKeyIn(new Date(), zone);
+      const range = dayRangeIn(from, to, zone);
       const [rows, conversions, milestones, counts] = await Promise.all([
         repos.journeys.dailyRange(tx, ctx.businessId, { from, to, departmentId: input.departmentId }),
         // Customers won (and signups, activations): a renewal or a repeat order is revenue in the daily rows, not a marker.
@@ -44,7 +47,7 @@ export const journeyRouter = router({
         repos.journeys.countConversions(tx, ctx.businessId, range),
       ]);
       const conversionCount = Object.values(counts).reduce((n, c) => n + c, 0);
-      const firstDay = (ctx.business.committedAt ?? ctx.business.createdAt).toISOString().slice(0, 10);
+      const firstDay = dayKeyIn(ctx.business.committedAt ?? ctx.business.createdAt, zone);
       const chapters = buildChapters({ startDay: firstDay, today: to, horizonQuarters: 2 });
       // `kickoff` is the wave-2 key the Ribbon reads; `firstDay` is the vocabulary-rule name.
       // The Ribbon (packages/dugout journey types) reads ISO strings; drizzle hands back Date objects for tstz columns.
@@ -58,8 +61,7 @@ export const journeyRouter = router({
 
   roundup: businessProcedure.input(z.object({ day: DayKey })).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
-      const from = new Date(`${input.day}T00:00:00.000Z`);
-      const to = new Date(`${input.day}T23:59:59.999Z`);
+      const { from, to } = dayRangeIn(input.day, input.day, ctx.business.timeZone);
       const conversions = await repos.journeys.listConversions(tx, ctx.businessId, { from, to, firstPayment: true, limit: 500 });
       // Every conversion of one day, named, for the Ribbon's hover card and day digest (the ribbon query only carries the latest 500).
       const labelled = await repos.journeys.labelConversions(tx, ctx.businessId, conversions.items);

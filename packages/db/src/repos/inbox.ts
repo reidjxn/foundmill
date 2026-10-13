@@ -3,12 +3,14 @@
  *
  * `createItem` accepts the Composer output shape verbatim (snake_case, BUILD §11.3 "Composer output schema"),
  * validates it with Zod and checks that every referenced agent, event and entity belongs to the business,
- * so a note can never carry an id from another club.
+ * so a note can never carry an id from another business. Every note an agent or the product writes is stored in the
+ * business's own words (Settings › Glossary, AC-11.13.6): `applyGlossary` runs on its subject, body and decision
+ * options here, the one place every composed and templated note passes through.
  */
-import { EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, ValidationError, type InboxItemType, type InboxState } from "@foundmill/shared";
+import { EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, ValidationError, applyGlossary, type InboxItemType, type InboxState } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { agents, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItems, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
+import { agents, businesses, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItems, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
 import { Currency, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
 
 // --- Composer output schema (BUILD §11.3) ------------------------------------------------------------------------------
@@ -58,6 +60,28 @@ export const CreateItemOptions = z.object({
   state: z.enum(INBOX_STATES).default("unread"),
 });
 export type CreateItemOptions = z.input<typeof CreateItemOptions>;
+
+type ParsedComposerItem = z.output<typeof ComposerItem>;
+
+/** The business's glossary (empty when it has none). */
+async function businessGlossary(db: Executor, businessId: string): Promise<Record<string, string>> {
+  const rows = await db.select({ glossary: businesses.glossary }).from(businesses).where(eq(businesses.id, businessId)).limit(1);
+  return rows[0]?.glossary ?? {};
+}
+
+/** A rename never breaks the shape's limits: a longer word trims the text at the limit with an ellipsis. */
+const clampText = (text: string, max: number) => (text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`);
+
+/** The note in the business's own words: subject, body and decision options (ids, costs and flags unchanged). */
+export function inBusinessWords(v: ParsedComposerItem, glossary: Record<string, string>): ParsedComposerItem {
+  const g = (text: string) => applyGlossary(text, glossary);
+  return {
+    ...v,
+    subject: clampText(g(v.subject), 80),
+    body_md: g(v.body_md),
+    decision: v.decision ? { ...v.decision, options: v.decision.options.map((opt) => ({ ...opt, label: clampText(g(opt.label), 120), consequence: g(opt.consequence) })) } : null,
+  };
+}
 
 /** Tabs of the Inbox list (BUILD §11.3 layout). */
 export const INBOX_TABS = ["all", "respond", "customers", "updates", "messages", "archive"] as const;
@@ -175,11 +199,15 @@ export const inboxRepo = {
     return Object.fromEntries(INBOX_TABS.map((tab) => [tab, Number(row[tab] ?? 0)])) as Record<InboxTab, number>;
   },
 
-  /** Persists one Composer note. Validates the §11.3 shape and that every referenced id belongs to the business. */
+  /**
+   * Persists one Composer note. Validates the §11.3 shape and that every referenced id belongs to the business, then
+   * renames nouns with the business glossary (a person's own message is theirs and is stored as written).
+   */
   async createItem(db: Executor, businessId: string, item: ComposerItem, options: CreateItemOptions = {}): Promise<InboxItem> {
-    const v = parseInput(ComposerItem, item, "composer item");
+    const parsed = parseInput(ComposerItem, item, "composer item");
     const o = parseInput(CreateItemOptions, options, "inbox item options");
-    await assertOwnedIds(db, businessId, v);
+    await assertOwnedIds(db, businessId, parsed);
+    const v = parsed.type === "human_message" ? parsed : inBusinessWords(parsed, await businessGlossary(db, businessId));
     return one(
       await db
         .insert(inboxItems)

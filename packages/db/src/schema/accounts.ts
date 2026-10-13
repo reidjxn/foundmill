@@ -73,6 +73,12 @@ export const businesses = pgTable(
      */
     agentsStoppedAt: tstz("agents_stopped_at"),
     agentsStoppedReason: text("agents_stopped_reason", { enum: AGENT_STOP_REASONS }),
+    /**
+     * 0041 — the business's IANA time zone: Home's "today", week and month, the Journey's days and the top bar's date
+     * follow it. Null until an owner or admin first opens the business (set from their browser) or picks one; null reads
+     * as UTC.
+     */
+    timeZone: text("time_zone"),
     ...timestampsWithArchive(),
   },
   (t) => [
