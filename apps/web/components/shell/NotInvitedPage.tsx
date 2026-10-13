@@ -6,8 +6,9 @@
  */
 import { MailX } from "lucide-react";
 import { APP_NAME } from "@foundmill/config";
-import { Button, EmptyState } from "@foundmill/dugout";
+import { EmptyState } from "@foundmill/dugout";
 import { BrandFrame } from "./BrandFrame";
+import { SignOutButton } from "./SignOutButton";
 
 export function NotInvitedPage({ message, email }: { message: string; email?: string | null }) {
   return (
@@ -17,9 +18,7 @@ export function NotInvitedPage({ message, email }: { message: string; email?: st
           {message}
         </EmptyState>
         <div className="mt-3 flex justify-end">
-          <Button variant="default" size="sm" asChild>
-            <a href="/auth/signout">Sign out</a>
-          </Button>
+          <SignOutButton variant="default" />
         </div>
       </div>
     </BrandFrame>

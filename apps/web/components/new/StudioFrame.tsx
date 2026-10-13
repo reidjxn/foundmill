@@ -10,7 +10,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { APP_NAME } from "@foundmill/config";
 import { Icon, ToastPlacement, Wordmark, cn } from "@foundmill/dugout";
-import { LinkButton } from "./LinkButton";
+import { SignOutButton } from "../shell/SignOutButton";
 
 export type StudioStep = "profile" | "new" | "ideate" | "import" | "compare" | "commit";
 
@@ -99,9 +99,7 @@ export function StudioFrame({ step, steps = STUDIO_STEPS, title, lede, actions, 
         </nav>
         <div className="ml-auto flex shrink-0 items-center gap-3">
           {viewer?.email ? <span className="font-mono text-mono text-tertiary">{viewer.email}</span> : null}
-          <LinkButton variant="ghost" size="sm" icon={LogOut} href="/auth/signout" external>
-            Sign out
-          </LinkButton>
+          <SignOutButton icon={LogOut} />
         </div>
       </header>
       <main className={cn("mx-auto w-full flex-1 px-gutter pb-10 pt-8", width === "wide" ? "first-run-wide" : "first-run-measure")}>

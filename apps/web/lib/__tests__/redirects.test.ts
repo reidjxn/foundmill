@@ -51,9 +51,30 @@ describe("proxy redirect rules", () => {
     }
     expect(decideRedirect({ pathname: "/login", search: "?next=%2F%5Cevil.example", authenticated: true })).toEqual({ kind: "redirect", to: "/" });
     expect(decideRedirect({ pathname: "/login", search: "?next=%2F%09%2Fevil.example", authenticated: true })).toEqual({ kind: "redirect", to: "/" });
-    // In-app paths with a query keep working, spaces included (searchParams.get decodes %20).
-    expect(safeNextPath("/b/abc/inbox?q=a b")).toBe("/b/abc/inbox?q=a b");
+    // In-app paths with a query keep working, spaces included (searchParams.get decodes %20; the answer re-encodes it).
+    expect(safeNextPath("/b/abc/inbox?q=a b")).toBe("/b/abc/inbox?q=a%20b");
     expect(safeNextPath("/b/abc/team/agents")).toBe("/b/abc/team/agents");
+    expect(safeNextPath("/b/abc/crm/x#notes")).toBe("/b/abc/crm/x#notes");
+  });
+
+  it("refuses paths whose dot segments collapse into a protocol-relative path (audit PAS-1)", () => {
+    // `new URL("/.//evil.com", base).pathname` is "//evil.com": returning the raw string let the proxy answer
+    // Location https://foundmill.com//evil.com, which Next relativizes to "//evil.com" and the browser follows off-site.
+    for (const raw of ["/.//evil.com", "/..//evil.com", "/.//evil.com/phish", "/%2e%2e//evil.com", "/%2E//evil.com", "/a/..//evil.com/phish?a=1", "/././/evil.com"]) {
+      expect(safeNextPath(raw), raw).toBe("/");
+      expect(new URL(safeNextPath(raw), "https://foundmill.com/login").origin, raw).toBe("https://foundmill.com");
+    }
+    for (const search of ["?next=/.//evil.com/phish", "?next=%2F..%2F%2Fevil.com%2Fphish%3Fa%3D1", "?next=/%2e%2e//evil.com"]) {
+      expect(decideRedirect({ pathname: "/login", search, authenticated: true }), search).toEqual({ kind: "redirect", to: "/" });
+    }
+    // Harmless dot segments still land on the page they name, normalized.
+    expect(safeNextPath("/b/abc/./inbox")).toBe("/b/abc/inbox");
+    expect(safeNextPath("/b/abc/x/../inbox?tab=1")).toBe("/b/abc/inbox?tab=1");
+    // Encoded slashes are path characters, not a host: they stay on the site.
+    expect(safeNextPath("/%2f%2fevil.com")).toBe("/%2f%2fevil.com");
+    // A dot segment cannot smuggle the sign-in page back in either.
+    expect(safeNextPath("/b/../login?next=/x")).toBe("/");
+    expect(safeNextPath("/loginx")).toBe("/loginx");
   });
 
   it("classifies paths", () => {
