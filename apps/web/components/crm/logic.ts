@@ -75,8 +75,20 @@ export interface RowFocus {
   stage?: string;
 }
 
+/**
+ * How far along the customer journey a stage is: the most advanced active role speaks for a record (merging a
+ * signed-up duplicate into a paying customer must not turn it into "Signed up"). Unknown stages rank lowest.
+ */
+const STAGE_RANK: Record<string, number> = { champion: 8, customer: 7, churned: 6, negotiating: 5, activated: 4, shortlisted: 3, qualified: 3, signed_up: 2, new: 1 };
+const stageRank = (stage: string | null | undefined) => STAGE_RANK[stage ?? ""] ?? 0;
+
+/** A record's active roles, the most advanced stage first and the newest first among equals. */
+function activeRoles<R extends Pick<EntityRoleRecord, "stage" | "startedAt" | "endedAt">>(roles: readonly R[]): R[] {
+  return roles.filter((r) => !r.endedAt).sort((a, b) => stageRank(b.stage) - stageRank(a.stage) || ms(b.startedAt) - ms(a.startedAt));
+}
+
 export function rowFromEntity(e: EntityLike, roles: readonly RoleLike[] = [], focus: RowFocus = {}): CrmRow {
-  const active = roles.filter((r) => !r.endedAt).sort((a, b) => ms(b.startedAt) - ms(a.startedAt));
+  const active = activeRoles(roles);
   const same = (a: string | null | undefined, b: string | undefined) => !b || (a ?? "").toLowerCase() === b.toLowerCase();
   const primary = active.find((r) => (focus.role || focus.stage) && same(r.role, focus.role) && same(r.stage, focus.stage)) ?? active[0];
   return {
@@ -191,7 +203,7 @@ export function leadScore(roles: readonly Pick<EntityRoleRecord, "role" | "stage
   const active = roles.filter((r) => !r.endedAt);
   const reasons: string[] = [];
   let score = 0;
-  const stage = active.map((r) => r.stage ?? "").find((s) => STAGE_SCORE[s] !== undefined);
+  const stage = active.map((r) => r.stage ?? "").filter((s) => STAGE_SCORE[s] !== undefined).sort((x, y) => STAGE_SCORE[y]! - STAGE_SCORE[x]!)[0];
   if (stage) {
     score += STAGE_SCORE[stage]!;
     reasons.push(`Stage: ${plainWords(stage).toLowerCase()}`);
@@ -231,8 +243,9 @@ export function introPaths(entityName: string, relationships: readonly Relations
     .slice(0, max);
 }
 
+/** The role a record's header speaks for: the most advanced active stage, the newest as the tie-break (audit #160). */
 export function primaryRole(roles: readonly EntityRoleRecord[]): EntityRoleRecord | null {
-  return roles.filter((r) => !r.endedAt).sort((a, b) => ms(b.startedAt) - ms(a.startedAt))[0] ?? null;
+  return activeRoles(roles)[0] ?? null;
 }
 
 export const STAGE_TONE: Record<string, "good" | "warn" | "bad" | "info" | "neutral"> = { customer: "good", champion: "good", activated: "info", signed_up: "info", churned: "bad", negotiating: "warn", shortlisted: "info", qualified: "info" };

@@ -86,4 +86,26 @@ test.describe("crm", () => {
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("merge-dialog")).toBeHidden();
   });
+
+  test("a new record with an email another record holds is offered the existing one (audit #331)", async ({ page }) => {
+    const tag = Date.now().toString(36);
+    const email = `dup.${tag}@merge.example`;
+    const add = async (name: string) => {
+      await page.getByTestId("crm-new").click();
+      const dialog = page.getByTestId("new-entity-dialog");
+      await dialog.getByLabel("Name").fill(name);
+      await dialog.getByLabel("Email").fill(email);
+      await page.getByTestId("new-entity-save").click();
+    };
+    await add(`Dup First ${tag}`);
+    await expect(page.getByTestId("entity-profile")).toBeVisible({ timeout: LONG });
+    await openBusiness(page, "crm");
+    await add(`Dup Second ${tag}`);
+    // Refused with the record that holds the email: open it, or add anyway.
+    const notice = page.getByTestId("new-entity-duplicate");
+    await expect(notice).toContainText(`Dup First ${tag}`, { timeout: LONG });
+    await expect(page.getByTestId("new-entity-open-existing")).toBeVisible();
+    await page.getByTestId("new-entity-add-anyway").click();
+    await expect(page.getByTestId("profile-header")).toContainText(`Dup Second ${tag}`, { timeout: LONG });
+  });
 });

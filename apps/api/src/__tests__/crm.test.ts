@@ -71,4 +71,20 @@ describe("crm", () => {
     await owner.crm.entity.unmerge({ businessId, mergeLogId: early.log.id });
     expect((await owner.crm.entity.get({ businessId, entityId: p.id })).entity.identifiers).toEqual({});
   });
+  it("refuses a new record whose email or domain a live record already holds, unless the founder confirms (audit #331)", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const { businessId } = hz.A;
+    const first = await owner.crm.entity.create({ businessId, kind: "person", displayName: "Dana Dup", identifiers: { email: "dana@dup.example" } });
+    await expect(owner.crm.entity.create({ businessId, kind: "person", displayName: "Dana Again", identifiers: { email: "DANA@dup.example" } })).rejects.toMatchObject({
+      code: "CONFLICT",
+      cause: { code: "duplicate_entity", details: { existing: { id: first.id, displayName: "Dana Dup" }, identifier: "email" } },
+    });
+    const org = await owner.crm.entity.create({ businessId, kind: "organisation", displayName: "Dup Co", identifiers: { domain: "dup.example" } });
+    await expect(owner.crm.entity.create({ businessId, kind: "organisation", displayName: "Dup Co 2", identifiers: { domain: "dup.example" } })).rejects.toMatchObject({ code: "CONFLICT", cause: { details: { existing: { id: org.id } } } });
+    // A weak identifier is no match; confirming adds the second record anyway.
+    await owner.crm.entity.create({ businessId, kind: "person", displayName: "Phone Only", identifiers: { phone: "+15550100" } });
+    await owner.crm.entity.create({ businessId, kind: "person", displayName: "Phone Only 2", identifiers: { phone: "+15550100" } });
+    const second = await owner.crm.entity.create({ businessId, kind: "person", displayName: "Dana Again", identifiers: { email: "dana@dup.example" }, allowDuplicate: true });
+    expect(second.id).not.toBe(first.id);
+  });
 });

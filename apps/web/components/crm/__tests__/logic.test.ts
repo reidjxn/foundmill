@@ -1,10 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { activityItems, applyChipFilters, commercialSummary, deletionRequestNote, documentItems, exportEntityJson, groupByForView, groupCounts, introPaths, isEntityTab, leadScore, mergeBanner, relationshipStrength, rowFromEntity, rowsFromSearch, strengthRating, CRM_VIEWS, type EntityGet, type RelationshipRecord } from "../logic";
+import { activityItems, applyChipFilters, commercialSummary, deletionRequestNote, documentItems, exportEntityJson, groupByForView, groupCounts, introPaths, isEntityTab, leadScore, mergeBanner, primaryRole, relationshipStrength, rowFromEntity, rowsFromSearch, strengthRating, CRM_VIEWS, type EntityGet, type RelationshipRecord } from "../logic";
 import { parseCrmQuery } from "../search";
 
 const entity = (over: Record<string, unknown> = {}) => ({ id: "e1", businessId: "b", kind: "person", displayName: "Ana Lind", aliases: [], avatarUrl: null, identifiers: { email: "ana@example.com" }, lawfulBasis: "contract", source: "stripe", embedding: null, search: null, visibility: "private", agentId: null, mergedIntoId: null, createdAt: new Date("2026-01-10"), updatedAt: new Date("2026-09-01"), archivedAt: null, ...over });
 const role = (over: Record<string, unknown> = {}) => ({ id: "r1", businessId: "b", entityId: "e1", role: "customer", stage: "customer", ownerRef: { kind: "agent", id: "a1" }, startedAt: new Date("2026-02-01"), endedAt: null, createdAt: new Date("2026-02-01"), updatedAt: new Date("2026-02-01"), ...over });
 const rel = (over: Partial<RelationshipRecord> & { other?: Partial<RelationshipRecord["other"]> } = {}): RelationshipRecord => ({ id: "x", businessId: "b", fromEntity: "e1", toEntity: "e2", type: "works_with", strength: "0.5", createdAt: new Date(), updatedAt: new Date(), ...over, other: { id: "e2", kind: "person", displayName: "Bo", ...(over.other ?? {}) } }) as RelationshipRecord;
+
+describe("a merged record's status (audit #160)", () => {
+  const merged = [role({ id: "r1", role: "customer", stage: "customer", startedAt: new Date("2024-10-25") }), role({ id: "r2", role: "customer", stage: "signed_up", startedAt: new Date("2025-09-23") })];
+  it("speaks for the most advanced stage, not the newest role", () => {
+    expect(primaryRole(merged as never)?.stage).toBe("customer");
+    expect(rowFromEntity(entity() as never, merged as never).stage).toBe("customer");
+  });
+  it("uses recency only among equal stages, and skips ended roles", () => {
+    const equal = [role({ id: "a", stage: "qualified", startedAt: new Date("2026-01-01") }), role({ id: "b", stage: "qualified", startedAt: new Date("2026-03-01") }), role({ id: "c", stage: "customer", startedAt: new Date("2026-04-01"), endedAt: new Date("2026-05-01") })];
+    expect(primaryRole(equal as never)?.id).toBe("b");
+    expect(primaryRole([] as never)).toBeNull();
+  });
+  it("scores the lead by its most advanced stage whatever the role order", () => {
+    const reversed = [...merged].reverse();
+    expect(leadScore(reversed as never, [], 1).stars).toBe(leadScore(merged as never, [], 1).stars);
+    expect(leadScore(merged as never, [], 1).stars).toBe(4.5);
+  });
+});
 
 describe("rows", () => {
   it("builds a row with the primary active role's stage and owner", () => {

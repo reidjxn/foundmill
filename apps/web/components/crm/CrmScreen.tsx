@@ -301,7 +301,7 @@ export function CrmScreen() {
         </Panel>
       </div>
 
-      <NewEntityDialog businessId={businessId} open={newOpen} onOpenChange={setNewOpen} onCreated={(e) => open_(e.id)} />
+      <NewEntityDialog businessId={businessId} open={newOpen} onOpenChange={setNewOpen} onCreated={(e) => open_(e.id)} onOpenExisting={open_} />
       {mergeSource ? <MergeDialog businessId={businessId} source={{ id: mergeSource.id, displayName: mergeSource.name, kind: mergeSource.kind }} open onOpenChange={(o) => !o && setMergeSource(null)} onMerged={(keptId) => open_(keptId)} /> : null}
     </div>
   );

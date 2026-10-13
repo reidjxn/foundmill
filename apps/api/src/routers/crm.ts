@@ -1,5 +1,6 @@
 /** crm.search/entity.list/get/update/merge/unmerge/create/requestDeletion/notes/roles (BUILD §11.12; AC-11.12.2 via RLS, AC-11.12.3 merge/unmerge). */
-import { AddRoleInput, EntityListFilter, SearchInput, UpdateEntityInput, repos } from "@foundmill/db";
+import { AddRoleInput, EntityListFilter, STRONG_IDENTIFIERS, SearchInput, UpdateEntityInput, repos } from "@foundmill/db";
+import { AppError } from "@foundmill/shared";
 import { z } from "zod";
 import { Id, audit, router, sectionRead, sectionWrite } from "../trpc";
 
@@ -74,8 +75,21 @@ export const crmRouter = router({
         return result;
       }),
     ),
-    create: write.input(z.object({ kind: z.enum(["person", "organisation", "venue"]), displayName: z.string().min(1).max(200), identifiers: z.record(z.string(), z.string()).default({}), aliases: z.array(z.string()).default([]), lawfulBasis: z.string().max(80).nullable().default(null) })).mutation(({ ctx, input }) =>
+    /**
+     * A new record. A strong identifier (email, domain, LinkedIn, company number, Stripe customer) that a live record
+     * already holds is a duplicate (BUILD §11.12 "strong identifiers first"): the call is refused with a CONFLICT
+     * (`duplicate_entity`, `details.existing` names the record) unless the founder confirms with `allowDuplicate`.
+     */
+    create: write.input(z.object({ kind: z.enum(["person", "organisation", "venue"]), displayName: z.string().min(1).max(200), identifiers: z.record(z.string(), z.string()).default({}), aliases: z.array(z.string()).default([]), lawfulBasis: z.string().max(80).nullable().default(null), allowDuplicate: z.boolean().default(false) })).mutation(({ ctx, input: { allowDuplicate, ...input } }) =>
       ctx.rls(async (tx) => {
+        if (!allowDuplicate) {
+          for (const key of STRONG_IDENTIFIERS) {
+            const value = input.identifiers[key]?.trim();
+            if (!value) continue;
+            const existing = await repos.entities.findByIdentifier(tx, ctx.businessId, key, value);
+            if (existing) throw new AppError("duplicate_entity", `${existing.displayName} already has this ${key === "email" ? "email address" : key}.`, 409, { existing: { id: existing.id, displayName: existing.displayName, kind: existing.kind }, identifier: key });
+          }
+        }
         const entity = await repos.entities.create(tx, ctx.businessId, { ...input, source: "user" });
         await audit(tx, ctx, { action: "crm.entity.create", target: { kind: "entity", id: entity.id }, details: { kind: input.kind } });
         return entity;
