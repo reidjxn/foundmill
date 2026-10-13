@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LIMITS } from "@foundmill/config";
-import { ARCHETYPE_CARDS, BUSINESS_MODE_CARDS, DEFAULT_KIT, DEFAULT_SPEND_CAP_MINOR, commitInput, KNOWN_MARKS, TRADEMARK_STATUS_WORDS, domainCandidates, extractPalette, initialCommitForm, isValidKit, keywordsOf, kitContrast, nameSuggestions, normaliseHex, parseSpendCapMinor, screenDomain, trademarkScreen, validateCommitForm } from "../commit/naming";
+import { ARCHETYPE_CARDS, BUSINESS_MODE_CARDS, DEFAULT_KIT, DEFAULT_SPEND_CAP_MINOR, DOMAIN_NOTE, DOMAIN_STATUS_WORDS, commitInput, couldNotCheck, KNOWN_MARKS, TRADEMARK_STATUS_WORDS, domainCandidates, domainProvenanceWord, extractPalette, initialCommitForm, isValidKit, keywordsOf, kitContrast, nameSuggestions, normaliseHex, parseSpendCapMinor, trademarkScreen, validateCommitForm } from "../commit/naming";
 
 const IDEA = "11111111-1111-4111-8111-111111111111";
 
@@ -22,13 +22,19 @@ describe("commit screen: names, domains, trademarks", () => {
     expect(keywordsOf("The quick brown foxes jump over lazy dogs")).toEqual(["quick", "brown", "foxes", "jump", "over", "lazy"]);
   });
 
-  it("screens domains deterministically and labels them estimates", () => {
+  it("makes domain candidates from the name and invents no status for a domain nobody answered (audit #458)", () => {
     expect(domainCandidates("Ledgerly HQ")).toEqual(["ledgerlyhq.com", "ledgerlyhq.io", "ledgerlyhq.co", "ledgerlyhq.app", "ledgerlyhq.ai"]);
     expect(domainCandidates("   ")).toEqual([]);
-    const a = screenDomain("ledgerlyhq.com");
-    expect(a).toEqual(screenDomain("ledgerlyhq.com"));
-    expect(a.provenance).toBe("Estimate");
-    expect(screenDomain("app.com").status).toBe("taken");
+    // A name with no Latin letters or digits is not turned into "untitled.com".
+    expect(domainCandidates("日本")).toEqual([]);
+    const rows = couldNotCheck(["ledgerlyhq.com", "app.com"]);
+    expect(rows.map((r) => r.status)).toEqual(["unknown", "unknown"]);
+    expect(rows.every((r) => r.provenance === null && r.checkedAt === null && !r.estimate && r.reason)).toBe(true);
+    expect(DOMAIN_STATUS_WORDS).toEqual({ available: "Available", taken: "Taken", unknown: "Couldn't check" });
+    expect(domainProvenanceWord("Registry")).toBe("Registry");
+    expect(domainProvenanceWord("DNS")).toBe("DNS (Estimate)");
+    expect(domainProvenanceWord("Mock")).toBe("Mock");
+    expect(DOMAIN_NOTE).toBe("Availability is a snapshot; registering the domain happens at a registrar. We never buy domains for you.");
   });
 
   it("flags known marks and always carries the caveat", () => {

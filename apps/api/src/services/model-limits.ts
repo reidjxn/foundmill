@@ -2,8 +2,8 @@
  * Per-person and per-business allowances on every procedure that calls a model on the platform key (SEC-13): Ideation
  * and Ask, logos, conversations, Inbox Refresh, plan previews and free-text decisions, task planning, the legal and
  * distribution recommenders, foundations retries, training runs, Continue, starting a task (an agent session) and
- * Take charge (a new business drafts its foundations); and on the two that call a vendor per press, registry lookups
- * and checkout sessions. Each procedure spends one hit from its own rule and one from
+ * Take charge (a new business drafts its foundations); and on the three that call a vendor per press, registry lookups,
+ * domain checks and checkout sessions. Each procedure spends one hit from its own rule and one from
  * `SHARED_MODEL_LIMITS`, the ceiling across all of them, so a stuck key, a script or a member looping one button cannot
  * drain the platform's credits; a refusal is TOO_MANY_REQUESTS with a sentence the founder can act on (naming what they
  * pressed, whichever window is full), and nothing is called.
@@ -63,6 +63,8 @@ export const MODEL_LIMITS = {
   commit: { what: "Taking charge of a business", user: [{ limit: 10, windowMs: HOUR }, { limit: 30, windowMs: DAY }] },
   /** legal.import.lookup: a registry call to a vendor. */
   lookup: { what: "Registry lookup", user: [{ limit: 30, windowMs: HOUR }], business: [{ limit: 100, windowMs: DAY }] },
+  /** idea.domainCheck: up to eight registry requests through the gateway, which limits each founder's calls too. */
+  domains: { what: "Domain check", user: [{ limit: 20, windowMs: MINUTE }, { limit: 200, windowMs: HOUR }] },
   /** billing.topUp: a Stripe Checkout session on the platform account. */
   checkout: { what: "Checkout", user: [{ limit: 10, windowMs: HOUR }], business: [{ limit: 30, windowMs: DAY }] },
 } as const satisfies Record<string, ModelLimitRule>;

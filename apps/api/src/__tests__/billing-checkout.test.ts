@@ -29,6 +29,9 @@ const gateway: ApiGatewayClient = {
   health: async () => {
     throw new Error("not in these tests");
   },
+  checkDomains: async () => {
+    throw new Error("not in these tests");
+  },
   async createCheckout(input) {
     asked.push(input);
     if (failWith) throw failWith;

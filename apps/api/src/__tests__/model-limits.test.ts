@@ -73,6 +73,7 @@ describe("each model-backed procedure is limited", () => {
     { name: "session", who: "user", call: () => as(hz.A.ownerId).dev.tasks.start({ businessId: A(), taskId: crypto.randomUUID() }) },
     { name: "session", who: "business", call: () => as(hz.A.memberId).dev.tasks.start({ businessId: A(), taskId: crypto.randomUUID() }) },
     { name: "commit", who: "user", call: () => as(hz.A.ownerId).idea.commit({ ideaId: crypto.randomUUID(), name: "Acme", archetype: "b2b_saas" }) },
+    { name: "domains", who: "user", call: () => as(hz.A.ownerId).idea.domainCheck({ name: "Ledgerly" }) },
   ];
   for (const c of cases) {
     it(`${c.name} (${c.who})`, async () => {

@@ -1,21 +1,22 @@
 "use client";
 /**
  * /new/commit/[ideaId] — the Commit screen (BUILD §11.1; AC-11.1.6, AC-11.1.7). Name with suggestions, live domain
- * availability and the USPTO/EUIPO quick screen ("Screen, not legal clearance"), the logo (upload a real one or
+ * availability (the registry's answer through `idea.domainCheck`) and the trademark quick screen ("Screen, not legal
+ * clearance"), the logo (upload a real one or
  * generate marks; `idea.logo.*`) and brand colours, game mode LIVE / Personal, archetype cards, business mode
  * (Augmented / Assisted default / Automated) with the default spend cap, the team the archetype seeds (idea.preview),
  * then "Take charge" → idea.commit (with the chosen logo) → the Board item in the Inbox.
  *
- * `CommitForm` is pure apart from the local domain/trademark screens and the logo calls it is handed (`logoApi`);
- * `CommitScreen` loads the idea, wires those calls to tRPC and commits.
+ * `CommitForm` is pure apart from the local trademark screen and the logo and domain calls it is handed (`logoApi`,
+ * `domainApi`); `CommitScreen` loads the idea, wires those calls to tRPC and commits.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Check, Globe, Lock, Scale, SearchX, ThumbsUp } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Globe, Lock, RotateCw, Scale, SearchX, ThumbsUp } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype, type BusinessMode, type DeptColourToken, type GameMode } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { Avatar, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, cn, fieldDescribedBy, formatMoney, useToast, type Kit } from "@foundmill/dugout";
+import { Avatar, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, cn, fieldDescribedBy, formatMoney, useFormatters, useToast, type Kit } from "@foundmill/dugout";
 import { plainWords, plural } from "@/lib/format";
 import { useSingleFlight } from "@/lib/single-flight";
 import { errorMessage, tierLimitOf, trpcErrorCode, type RouterOutputs } from "@/lib/trpc";
@@ -31,17 +32,21 @@ import {
   ARCHETYPE_CARDS,
   BUSINESS_MODE_CARDS,
   DEFAULT_SPEND_CAP_MINOR,
+  DOMAIN_NOTE,
+  DOMAIN_STATUS_WORDS,
   GAME_MODE_CARDS,
   TRADEMARK_STATUS_WORDS,
   commitInput,
+  couldNotCheck,
   domainCandidates,
+  domainProvenanceWord,
   initialCommitForm,
   nameSuggestions,
-  screenDomain,
   trademarkScreen,
   validateCommitForm,
   type CommitForm as CommitFormValues,
   type DomainCheck,
+  type DomainProvenance,
   type TrademarkScreen,
 } from "./naming";
 import { kitFromSeed } from "../ideate/concepts";
@@ -59,6 +64,12 @@ export interface CommitLogoApi {
   prepare(dataUrl: string): Promise<{ dataUrl: string; colours: string[] }>;
   /** A set, streamed (`idea.logo.stream`): `onProgress` gets each mark as it passes the server's check. */
   generate(input: { name: string; colours: Kit; archetype: Archetype | null; round: number }, onProgress?: (progress: LogoProgress) => void, signal?: AbortSignal): Promise<GeneratedLogoSet>;
+}
+
+/** The domain calls the Commit form makes (bound to `idea.domainCheck` by CommitScreen; faked in tests). */
+export interface CommitDomainApi {
+  /** The registry's answer for a business name's candidate domains, or for the given domains (a Retry); `signal` cancels a stale request. */
+  check(input: { name: string } | { domains: string[] }, signal?: AbortSignal): Promise<DomainCheck[]>;
 }
 
 /** How long after a successful commit the screen waits for the client-side move before loading the Inbox outright. */
@@ -89,6 +100,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
     }),
     [ideaId, prepareAsync, client],
   );
+  const domainApi = useMemo<CommitDomainApi>(() => ({ check: (input, signal) => client.idea.domainCheck.mutate(input, { signal }) }), [client]);
   const commit = useMutation(
     trpc.idea.commit.mutationOptions({
       onSuccess: (res) => {
@@ -184,6 +196,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
       liveOpen={featuresQ.data?.features.liveMode ?? false}
       onCommit={onCommit}
       logoApi={logoApi}
+      domainApi={domainApi}
       back={back}
     />
   );
@@ -217,6 +230,8 @@ export interface CommitFormProps {
   onCommit: (input: ReturnType<typeof commitInput>) => void;
   /** Upload checks and logo generation (idea.logo.*). */
   logoApi: CommitLogoApi;
+  /** Domain availability (idea.domainCheck). */
+  domainApi: CommitDomainApi;
   back?: ReactNode;
 }
 
@@ -249,7 +264,7 @@ export function upgradeHrefOf(err: unknown): string | null {
 
 const DEBOUNCE_MS = 350;
 
-export function CommitForm({ idea, viewer, currency, initialName, suggestedArchetype, steps, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, adultConfirmed = false, liveOpen = true, onCommit, logoApi, back }: CommitFormProps) {
+export function CommitForm({ idea, viewer, currency, initialName, suggestedArchetype, steps, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, adultConfirmed = false, liveOpen = true, onCommit, logoApi, domainApi, back }: CommitFormProps) {
   const concept = useMemo(() => toConcept(idea), [idea]);
   // The idea's seed only picks the starting brand colours now; the logo is uploaded or generated.
   const ideaSeed = String(readMeta(idea.current?.research).crest_seed ?? idea.id);
@@ -267,18 +282,75 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
     onArchetypeChange?.(form.archetype);
   }, [form.archetype, onArchetypeChange]);
 
-  // Live screens, debounced on the name.
-  const [screened, setScreened] = useState<{ name: string; domains: DomainCheck[]; marks: TrademarkScreen[] } | null>(null);
+  // The trademark quick screen is local and instant; it settles with the name like the domain list does.
+  const [screened, setScreened] = useState<{ name: string; marks: TrademarkScreen[] } | null>(null);
   useEffect(() => {
     const name = form.name.trim();
     if (!name) {
       setScreened(null);
       return;
     }
-    const t = setTimeout(() => setScreened({ name, domains: domainCandidates(name).map(screenDomain), marks: trademarkScreen(name) }), DEBOUNCE_MS);
+    const t = setTimeout(() => setScreened({ name, marks: trademarkScreen(name) }), DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [form.name]);
   const screening = form.name.trim().length > 0 && screened?.name !== form.name.trim();
+
+  // Domains: the registry's answer for the name's candidates, asked once the name settles. A newer name cancels the
+  // request in flight and an answer for an older name is dropped, so a slow reply never overwrites a newer list.
+  const [domainList, setDomainList] = useState<{ name: string; rows: DomainCheck[] } | null>(null);
+  const [retrying, setRetrying] = useState<ReadonlySet<string>>(new Set());
+  const { formatTime } = useFormatters();
+  useEffect(() => {
+    const name = form.name.trim();
+    setRetrying(new Set());
+    if (!name) {
+      setDomainList(null);
+      return;
+    }
+    const candidates = domainCandidates(name);
+    if (candidates.length === 0) {
+      setDomainList({ name, rows: [] });
+      return;
+    }
+    const controller = new AbortController();
+    const t = setTimeout(() => {
+      domainApi.check({ name }, controller.signal).then(
+        (rows) => {
+          if (!controller.signal.aborted) setDomainList({ name, rows });
+        },
+        // The call itself failed (not one registry): every row says so, nothing is guessed.
+        () => {
+          if (!controller.signal.aborted) setDomainList({ name, rows: couldNotCheck(candidates) });
+        },
+      );
+    }, DEBOUNCE_MS);
+    return () => {
+      clearTimeout(t);
+      controller.abort();
+    };
+  }, [form.name, domainApi]);
+  const checkingDomains = form.name.trim().length > 0 && domainList?.name !== form.name.trim();
+
+  /** Ask again for one domain that could not be checked; the answer replaces its row if the name has not changed since. */
+  function retryDomain(domain: string) {
+    const name = domainList?.name;
+    if (!name) return;
+    setRetrying((r) => new Set(r).add(domain));
+    const settle = (row: DomainCheck) => {
+      setDomainList((cur) => (cur && cur.name === name ? { name, rows: cur.rows.map((r) => (r.domain === domain ? row : r)) } : cur));
+      setRetrying((r) => {
+        const next = new Set(r);
+        next.delete(domain);
+        return next;
+      });
+    };
+    domainApi.check({ domains: [domain] }).then(
+      (rows) => settle(rows.find((r) => r.domain === domain) ?? couldNotCheck([domain], "The checker gave no answer for this name.")[0]!),
+      () => settle(couldNotCheck([domain], "The domain checker did not answer.")[0]!),
+    );
+  }
+  const domainProvenances = (["Registry", "DNS", "Mock"] as const).filter((p) => domainList?.rows.some((r) => r.provenance === p));
+  const lastChecked = domainList?.rows.reduce<string | null>((latest, r) => (r.checkedAt && (!latest || r.checkedAt > latest) ? r.checkedAt : latest), null) ?? null;
 
   const suggestions = useMemo(() => nameSuggestions(idea.current?.title ?? idea.title, idea.current?.pitch ?? idea.pitch, idea.archetype), [idea]);
   const generateWith = useCallback<LogoActions["generate"]>((round, onProgress, signal) => logoApi.generate({ name: form.name, colours: form.kit, archetype: form.archetype, round }, onProgress, signal), [logoApi, form.name, form.kit, form.archetype]);
@@ -332,29 +404,53 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                 ))}
               </div>
               <div className="grid grid-cols-2 gap-gutter border-t border-line pt-3">
-                <div data-testid="domain-checks" aria-busy={screening || undefined}>
-                  <div className="mb-1.5 flex items-center gap-2">
+                <div data-testid="domain-checks" aria-busy={checkingDomains || undefined}>
+                  <div className="mb-1.5 flex flex-wrap items-center gap-2">
                     <Globe size={14} className="text-secondary" aria-hidden />
                     <span className="t-label">Domains</span>
-                    {(screened?.domains[0]?.provenance ?? "Estimate") === "Estimate" ? <ProvenanceChip kind="estimate" /> : <Chip>{screened?.domains[0]?.provenance}</Chip>}
+                    {domainProvenances.map((p) => (
+                      <DomainProvenanceChip key={p} provenance={p} />
+                    ))}
                   </div>
-                  {screened && !screening ? (
-                    <ul className="flex flex-col gap-1">
-                      {screened.domains.map((d) => (
-                        <li key={d.domain} className="flex items-center justify-between gap-2 text-body" data-domain={d.domain} data-status={d.status}>
-                          <span className="font-mono text-mono">{d.domain}</span>
-                          <StatusPill tone={d.status === "available" ? "good" : d.status === "premium" ? "warn" : "bad"}>{d.status === "available" ? "Available" : d.status === "premium" ? "Premium" : "Taken"}</StatusPill>
-                        </li>
-                      ))}
-                    </ul>
+                  {domainList && !checkingDomains ? (
+                    domainList.rows.length ? (
+                      <ul className="flex flex-col gap-1">
+                        {domainList.rows.map((d) => (
+                          <li key={d.domain} className="flex flex-wrap items-center justify-between gap-x-2 text-body" data-domain={d.domain} data-status={d.status} data-provenance={d.provenance ?? "none"} title={d.status === "taken" && d.registrar ? `Registered with ${d.registrar}${d.expires ? `, expires ${d.expires}` : ""}` : undefined}>
+                            <span className="font-mono text-mono">{d.domain}</span>
+                            <span className="flex items-center gap-1.5">
+                              {d.status === "unknown" ? (
+                                <Button type="button" size="sm" variant="ghost" icon={RotateCw} loading={retrying.has(d.domain)} onClick={() => retryDomain(d.domain)} aria-label={`Retry ${d.domain}`} data-testid="domain-retry">
+                                  Retry
+                                </Button>
+                              ) : null}
+                              <StatusPill tone={d.status === "available" ? "good" : d.status === "taken" ? "bad" : "neutral"}>{DOMAIN_STATUS_WORDS[d.status]}</StatusPill>
+                            </span>
+                            {d.reason && (d.status === "unknown" || d.estimate) ? (
+                              <span className="basis-full text-small text-secondary" data-testid="domain-reason">
+                                {d.reason}
+                              </span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-small text-secondary">Add letters or numbers to the name to check domains.</p>
+                    )
                   ) : (
                     <p className="text-small text-secondary">{form.name.trim() ? "Checking…" : "Type a name to check domains."}</p>
                   )}
+                  {domainList && !checkingDomains && domainList.rows.length ? (
+                    <p className="mt-1.5 text-small text-secondary" data-testid="domain-note">
+                      {lastChecked ? <span data-testid="domain-checked">Checked {formatTime(lastChecked)}. </span> : null}
+                      {DOMAIN_NOTE}
+                    </p>
+                  ) : null}
                 </div>
                 <div data-testid="trademark-screen">
                   <div className="mb-1.5 flex items-center gap-2">
                     <Scale size={14} className="text-secondary" aria-hidden />
-                    <span className="t-label">USPTO / EUIPO quick screen</span>
+                    <span className="t-label">Trademark quick screen (Estimate, not legal clearance)</span>
                     {(screened?.marks[0]?.provenance ?? "Estimate") === "Estimate" ? <ProvenanceChip kind="estimate" data-testid="trademark-provenance" /> : <Chip>{screened?.marks[0]?.provenance}</Chip>}
                   </div>
                   {screened && !screening ? (
@@ -373,7 +469,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                     <p className="text-small text-secondary">{form.name.trim() ? "Screening…" : "Type a name to screen it."}</p>
                   )}
                   <p className="mt-1.5 text-small text-secondary" data-testid="trademark-caveat">
-                    Checked against a list of well-known marks, not a registry search. Screen, not legal clearance: a lawyer or an attorney search confirms it.
+                    A heuristic: the name is checked against a list of well-known marks, not a registry search. Screen, not legal clearance: a lawyer or an attorney search confirms it.
                   </p>
                 </div>
               </div>
@@ -564,5 +660,14 @@ function ModeCardOption({ id, value, label, tagline, details, selected, badge, i
         </ul>
       </label>
     </div>
+  );
+}
+
+/** "Registry", "DNS (Estimate)" or "Mock": where the domain answers came from. Only a DNS answer is an estimate. */
+function DomainProvenanceChip({ provenance }: { provenance: DomainProvenance }) {
+  return (
+    <Chip data-testid="domain-provenance" data-source={provenance}>
+      {domainProvenanceWord(provenance)}
+    </Chip>
   );
 }

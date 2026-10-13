@@ -38,6 +38,8 @@ export const THIRD_PARTY_CONNECTOR_KEYS = [
   "e2b",
   "dropbox_sign",
   "ecb_rates",
+  /** Domain availability from the registry (RDAP); the Commit screen asks it through the gateway, agents may too. */
+  "domains",
   // Phase 2
   "stripe",
   "sendgrid",
