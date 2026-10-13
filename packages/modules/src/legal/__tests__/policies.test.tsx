@@ -69,4 +69,14 @@ describe("PoliciesScreen", () => {
     act(() => fake.setResponse("business.get", new Error("business unavailable")));
     expect(screen.getByText("business unavailable")).toBeTruthy();
   });
+
+  it("names the Changes tab by the department over the Product module ('Editorial › Changes' on Content / media)", () => {
+    const editorial = [{ id: "d-ed", name: "Editorial", slug: "product", colourToken: "dept-1", position: 0, hidden: false, moduleKeys: ["product"], tabs: [{ id: "t-ch", slug: "changes", title: "Changes", position: 3 }] }];
+    const fake = createFakeSource({ businessId: BID, responses: { ...emptyResponses, "department.list": editorial } });
+    renderScreen(fake, <PoliciesScreen {...props} />);
+    expect(screen.getByText(/it appears here and in Editorial › Changes\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Editorial › Changes" }));
+    expect(fake.navigations[0]).toBe(`/b/${BID}/d/product/changes`);
+    expect(screen.queryByText(/Product › Changes/)).toBeNull();
+  });
 });

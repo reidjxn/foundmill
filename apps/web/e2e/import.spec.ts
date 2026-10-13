@@ -35,6 +35,11 @@ test.describe("import", () => {
     await expect(page.getByTestId("never-pushed")).toHaveText(/Nothing was pushed/);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Import report: Ledgerly");
     expect(await page.getByTestId("roadmap-seeds").locator("li").count()).toBeGreaterThanOrEqual(3);
+    // At 1280 a long repository name stays inside the panel: the seed source label never overflows its row.
+    for (const li of await page.getByTestId("roadmap-seeds").locator("li").all()) {
+      const [row, label] = [await li.boundingBox(), await li.locator("[data-seed-source]").boundingBox()];
+      if (row && label) expect(label.x + label.width).toBeLessThanOrEqual(row.x + row.width + 1);
+    }
     await expect(page.getByTestId("first-decisions").locator("[data-recommended]")).toHaveCount(1);
     await expect(report.getByText("Estimate").first()).toBeVisible();
 

@@ -37,7 +37,7 @@ const CONTRACT_INITIALISMS = new Set(["nda", "dpa", "msa", "safe", "sow", "ip", 
 export function contractKindLabel(kind: string | null | undefined): string {
   if (!kind) return "";
   const key = kind.trim().toLowerCase();
-  if (CONTRACT_KIND_WORDS[key]) return CONTRACT_KIND_WORDS[key]!;
+  if (Object.hasOwn(CONTRACT_KIND_WORDS, key)) return CONTRACT_KIND_WORDS[key]!;
   const words = plainWords(key).split(" ").map((w) => (CONTRACT_INITIALISMS.has(w.toLowerCase()) ? w.toUpperCase() : w));
   return words.join(" ");
 }
@@ -64,7 +64,7 @@ const ENTITY_TYPE_WORDS: Record<string, string> = {
 export function entityTypeLabel(entityType: string | null | undefined): string {
   if (!entityType) return "";
   const key = entityType.trim().toLowerCase().replace(/\s+/g, "_");
-  if (ENTITY_TYPE_WORDS[key]) return ENTITY_TYPE_WORDS[key]!;
+  if (Object.hasOwn(ENTITY_TYPE_WORDS, key)) return ENTITY_TYPE_WORDS[key]!;
   return /[_]/.test(entityType) || entityType === entityType.toLowerCase() ? plainWords(entityType) : entityType;
 }
 
@@ -487,6 +487,17 @@ export const DATA_FLOWS: Record<string, Omit<DataFlow, "connectorKey">> = {
   opencorporates: { processor: "OpenCorporates", purpose: "Company registry lookups", data: ["company public records"], cookies: [] },
 };
 
+/**
+ * A purpose written to start a sentence ("AI agents that draft…", "Email correspondence synced into the CRM"), continued
+ * after a colon: only the first letter is lowered, never an acronym ("AI", "DNS") or a name ("OpenCorporates"), and the
+ * rest keeps its capitals ("the CRM", "(Stripe)").
+ */
+export function midSentence(text: string): string {
+  const first = text.split(/\s/, 1)[0] ?? "";
+  if (/^[A-Z0-9]{2,}/.test(first) || /[A-Z]/.test(first.slice(1))) return text;
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
+
 export const ACTIVE_INTEGRATION_STATUSES: readonly IntegrationRow["status"][] = ["connected", "degraded", "mock"];
 
 export function dataFlows(integrations: readonly IntegrationRow[] | undefined, catalogue?: readonly { key: string; displayName: string }[]): DataFlow[] {
@@ -575,7 +586,7 @@ export function generatePrivacyPolicy(p: PolicyInput): string {
   if (p.flows.length === 0) lines.push(`We do not share personal data with third-party processors.`);
   else {
     lines.push(`We use the following processors, each under a data processing agreement:`, ``);
-    for (const f of p.flows) lines.push(`- **${f.processor}**: ${f.purpose.toLowerCase()}${f.data.length ? ` (${f.data.join(", ")})` : ""}.`);
+    for (const f of p.flows) lines.push(`- **${f.processor}**: ${midSentence(f.purpose)}${f.data.length ? ` (${f.data.join(", ")})` : ""}.`);
   }
   lines.push(``, `## AI agents`, ``, `Parts of our operations are carried out by AI agents under human supervision. Agents never make payments, sign agreements or change security settings; a person in our team approves those actions.`, ``);
   lines.push(`## How long we keep it`, ``, `Account data for as long as you have an account and for 24 months after; billing records for the period our accounting law requires; prospect data that never converted is deleted after 24 months.`, ``);

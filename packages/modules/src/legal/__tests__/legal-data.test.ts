@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CONTRACT_NEXT, DATA_FLOWS, calendarMonths, calendarRows, dataFlows, daysToNextDeadline, detectSectors, founderCanTakeOver, gateState, generatePolicies, officerRows, readObligations, routeForJurisdiction, screenTrademark, stepRows } from "../legal-data";
+import { CONTRACT_NEXT, DATA_FLOWS, calendarMonths, calendarRows, dataFlows, daysToNextDeadline, detectSectors, founderCanTakeOver, gateState, generatePolicies, midSentence, officerRows, readObligations, routeForJurisdiction, screenTrademark, stepRows } from "../legal-data";
 import { NOW } from "./fake-source";
 import { compliance, contractMsa, incorporationAbandoned, incorporationAwaiting, integrations, legalEntity, officers } from "./fixtures";
 
@@ -95,6 +95,19 @@ describe("policies", () => {
     const none = generatePolicies({ businessName: "Blank", legalName: null, jurisdiction: null, entityType: null, regNo: null, address: "", region: "us", archetype: null, flows: [], today: "2026-10-07" });
     expect(none.privacy).toContain("We do not share personal data with third-party processors.");
     expect(none.privacy).toContain("opt out of the sale");
+  });
+
+  it("keeps acronyms and names in processor purposes ('AI agents', 'DNS', 'the CRM', a connector's name)", () => {
+    const flow = (connectorKey: string) => ({ connectorKey, ...DATA_FLOWS[connectorKey]! });
+    const mystery = { connectorKey: "mystery_tool", processor: "Mystery Tool", purpose: "Connected service (Mystery Tool)", data: [], cookies: [] };
+    const p = generatePolicies({ businessName: "Ledgerly", legalName: "Ledgerly AB", jurisdiction: "se", entityType: "ab", regNo: null, address: "", region: "eu", archetype: "b2b_saas", flows: [flow("anthropic"), flow("cloudflare_dns"), flow("gmail"), flow("sendgrid"), mystery], today: "2026-10-09" });
+    expect(p.privacy).toContain("- **Anthropic**: AI agents that draft, research and classify");
+    expect(p.privacy).toContain("- **Cloudflare**: DNS and edge delivery for the website");
+    expect(p.privacy).toContain("- **Google (Gmail)**: email correspondence synced into the CRM");
+    expect(p.privacy).toContain("- **Twilio SendGrid**: transactional and marketing email");
+    expect(p.privacy).toContain("- **Mystery Tool**: connected service (Mystery Tool).");
+    expect(p.privacy).not.toMatch(/\bai agents\b|\bdns\b|\bthe crm\b/);
+    expect(midSentence("OpenCorporates lookups")).toBe("OpenCorporates lookups");
   });
 });
 

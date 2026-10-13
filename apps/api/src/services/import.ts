@@ -12,7 +12,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { repos, type Db, type Source } from "@foundmill/db";
 import { createSeededRng, type SeededRng } from "@foundmill/journey";
-import { AppError, NotFoundError, ValidationError, type Archetype, type Env, type SourceKind } from "@foundmill/shared";
+import { AppError, NotFoundError, ValidationError, countOf, type Archetype, type Env, type SourceKind } from "@foundmill/shared";
 import { z } from "zod";
 import type { TemporalService } from "./temporal";
 import { WORKFLOWS } from "./temporal";
@@ -250,28 +250,28 @@ export function decodeJobId(key: string, jobId: string): JobToken {
   throw new NotFoundError("import job", jobId.slice(0, 24));
 }
 
-function sourceSummary(key: ImportSourceKey, value: string): string {
+export function sourceSummary(key: ImportSourceKey, value: string): string {
   const rng = createSeededRng(`import:${key}:${value}`);
   switch (key) {
     case "github":
-      return `${rng.int(80, 420)} files read, ${rng.int(6, 60)} tests ${rng.bool(0.8) ? "passing" : "with failures"}, ${rng.int(3, 24)} open issues, nothing pushed`;
+      return `${countOf(rng.int(80, 420), "file")} read, ${countOf(rng.int(6, 60), "test")} ${rng.bool(0.8) ? "passing" : "with failures"}, ${countOf(rng.int(3, 24), "open issue")}, nothing pushed`;
     case "google_drive":
-      return `${rng.int(4, 30)} documents read`;
+      return `${countOf(rng.int(4, 30), "document")} read`;
     case "notion":
-      return `${rng.int(6, 40)} pages read`;
+      return `${countOf(rng.int(6, 40), "page")} read`;
     case "linear":
     case "jira":
-      return `${rng.int(8, 60)} open issues read`;
+      return `${countOf(rng.int(8, 60), "open issue")} read`;
     case "website":
-      return `${rng.int(4, 40)} pages crawled within robots.txt`;
+      return `${countOf(rng.int(4, 40), "page")} crawled within robots.txt`;
     case "stripe":
-      return `${rng.int(5, 400)} customers, ${rng.int(1, 24)} months of revenue`;
+      return `${countOf(rng.int(5, 400), "customer")}, ${countOf(rng.int(1, 24), "month")} of revenue`;
     case "shopify":
-      return `${rng.int(20, 3000)} orders, ${rng.int(3, 120)} products`;
+      return `${countOf(rng.int(20, 3000), "order")}, ${countOf(rng.int(3, 120), "product")}`;
     case "bank":
-      return `${rng.int(1, 3)} accounts, 24 months of transactions`;
+      return `${countOf(rng.int(1, 3), "account")}, 24 months of transactions`;
     case "registry":
-      return `entity found, ${rng.int(1, 4)} officers, ${rng.int(1, 3)} upcoming deadlines`;
+      return `entity found, ${countOf(rng.int(1, 4), "officer")}, ${countOf(rng.int(1, 3), "upcoming deadline")}`;
   }
 }
 
@@ -450,12 +450,12 @@ export function buildScoutingReport(configs: readonly SourceConfig[], job?: Impo
   if (any(CODE_SOURCES)) {
     strengths.push("A working codebase with a test suite: agents can start from real code, not a blank repo.");
     weaknesses.push(rng.bool(0.5) ? "No deployment pipeline was found; releases look manual." : "README is out of date with the code; the Specification should be rebuilt from the repository.");
-  } else whatIsMissing.push("No code source: the Development department starts from the Specification.");
+  } else whatIsMissing.push("No code source: the engineering work starts from the Specification.");
   if (any(REVENUE_SOURCES)) {
     strengths.push("Real revenue history: forecasts start from actuals rather than archetype priors.");
     if (has("bank")) strengths.push("Cash position is known, so runway is a measurement, not an estimate.");
     else whatIsMissing.push("No bank connection: runway stays an estimate until one is added.");
-  } else whatIsMissing.push("No revenue source: Finance starts with a management P&L and labeled estimates.");
+  } else whatIsMissing.push("No revenue source: the finances start with a management P&L and labeled estimates.");
   if (any(TRACKING_SOURCES)) strengths.push("A backlog exists: the first roadmap is seeded from your open issues.");
   else whatIsMissing.push("No work tracking: the first roadmap comes from the Board's proposals.");
   if (has("website")) strengths.push("Public positioning and pricing exist and can be tested against competitors.");

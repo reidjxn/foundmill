@@ -5,7 +5,7 @@
 import { useMemo } from "react";
 import { z } from "zod";
 import { Inbox } from "lucide-react";
-import type { DeptColourToken } from "@foundmill/shared";
+import { notePreview, type DeptColourToken } from "@foundmill/shared";
 import { APP_NAME } from "@foundmill/config";
 import { Avatar, Button, Chip, cn, formatRelative } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
@@ -23,15 +23,9 @@ export const InboxPreviewSettings = z.object({
 });
 export type InboxPreviewSettings = z.infer<typeof InboxPreviewSettings>;
 
-/** First sentence of the note as the preview line (markup stripped). */
+/** First sentence of the note as the preview line: the Inbox list's rule (markup stripped, a leading heading skipped). */
 export function previewLine(bodyMd: string): string {
-  const plain = bodyMd
-    .replace(/\[\[ent:[^|\]]+\|([^\]]+)\]\]/g, "$1")
-    .replace(/[#*_>`]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const end = plain.search(/[.!?](\s|$)/);
-  return end > 0 ? plain.slice(0, end + 1) : plain.slice(0, 120);
+  return notePreview(bodyMd);
 }
 
 function InboxPreviewWidget({ settings }: WidgetProps<InboxPreviewSettings>) {

@@ -126,8 +126,9 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
     const last = p.series.at(-1);
     return [
       { label: "Runway", value: <span className="flex items-center gap-1 tabular-nums">{p.runwayMonths === null ? `Beyond ${drafts[s].horizonMonths} months` : fmtMonths(p.runwayMonths)} <ProvenanceChip kind="forecast" /></span>, numeric: true },
-      { label: "Cash out", value: p.zeroMonth ? formatMonth(p.zeroMonth, datePrefs) : "Not within horizon", numeric: true },
-      { label: last ? `Cash, ${formatMonth(last.month, datePrefs)}` : "Cash at horizon", value: fmtMoney(last?.cashMinor ?? null, cur, { compact: true }), numeric: true },
+      // Every figure here is projected from the drivers, so each one carries its Forecast chip (CLAUDE.md).
+      { label: "Cash out", value: <span className="flex items-center gap-1 tabular-nums">{p.zeroMonth ? formatMonth(p.zeroMonth, datePrefs) : "Not within horizon"} <ProvenanceChip kind="forecast" /></span>, numeric: true },
+      { label: last ? `Cash, ${formatMonth(last.month, datePrefs)}` : "Cash at horizon", value: <span className="flex items-center gap-1 tabular-nums">{fmtMoney(last?.cashMinor ?? null, cur, { compact: true })} <ProvenanceChip kind="forecast" /></span>, numeric: true },
     ];
   };
 
@@ -148,7 +149,7 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
       >
         <LineChart label="Cash forecast by scenario" series={series} height={320} yFormat={(v) => fmtAxisMoney(v, cur)} zeroBased={false} markX={monthStart(now, 0)} markLabel="Now" />
       </Panel>
-      <Panel title="Runway warnings" span={4} loading={loading} error={error ? error.message : undefined} footer={<span>Warnings at 12, 9 and 6 months; under {RUNWAY_BLOCK_MONTHS} months is red and blocks Continue until acknowledged in the Inbox.</span>}>
+      <Panel title="Runway warnings" span={4} loading={loading} error={error ? error.message : undefined} actions={<ProvenanceChip kind="forecast" />} footer={<span>Warnings at 12, 9 and 6 months; under {RUNWAY_BLOCK_MONTHS} months is red and blocks Continue until acknowledged in the Inbox.</span>}>
         <ul className="flex flex-col gap-3" aria-label="Runway by scenario">
           {FORECAST_SCENARIOS.map((s) => {
             const months = projections[s].runwayMonths;
@@ -221,8 +222,8 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
             <Button type="button" variant="ghost" icon={Undo2} disabled={!dirty.has(scenario)} onClick={reset}>
               Reset
             </Button>
-            <span className="text-small text-secondary tabular-nums">
-              {SCENARIO_META[scenario].label} runway with these drivers: {projections[scenario].runwayMonths === null ? `beyond ${draft.horizonMonths} months` : fmtMonths(projections[scenario].runwayMonths)}
+            <span className="flex items-center gap-1 text-small text-secondary tabular-nums" data-driver-runway>
+              {SCENARIO_META[scenario].label} runway with these drivers: {projections[scenario].runwayMonths === null ? `beyond ${draft.horizonMonths} months` : fmtMonths(projections[scenario].runwayMonths)} <ProvenanceChip kind="forecast" />
             </span>
             <InlineError error={action.error} className="ml-auto" />
           </div>

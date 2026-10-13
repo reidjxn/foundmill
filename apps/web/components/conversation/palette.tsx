@@ -6,6 +6,7 @@
 import type { ReactNode } from "react";
 import type { PaletteItem } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
+import { MODULE_TABS, type ModuleKey } from "@foundmill/shared/constants";
 import { routes } from "@foundmill/widgets/shared/routes";
 
 export interface PaletteAgent {
@@ -27,7 +28,7 @@ interface DepartmentForPalette {
   moduleKeys: readonly string[];
   lead?: { id: string; name: string; role: string | null; avatarSeed: string | null } | null;
   squad: readonly { id: string; name: string; role: string | null; avatarSeed: string | null }[];
-  tabs: readonly { slug: string; position: number }[];
+  tabs: readonly { slug: string; position: number; title?: string }[];
 }
 
 /** Every agent of the visible departments once, leads first. */
@@ -91,19 +92,25 @@ export function agentOfAskItem(item: Pick<PaletteItem, "id">, agents: readonly P
   return item.id.startsWith("ask:") ? (agents.find((a) => a.id === item.id.slice(4)) ?? null) : null;
 }
 
-function moduleTabHref(businessId: string, departments: readonly DepartmentForPalette[], moduleKey: string, tabSlug: string): string | null {
+/**
+ * A module tab as the founder named it: the href and "<department> › <tab>" from the department that owns the module
+ * ("Retail Partnerships › Board" once Distribution is renamed), never a hard-coded department name.
+ */
+function moduleTab(businessId: string, departments: readonly DepartmentForPalette[], moduleKey: ModuleKey, tabSlug: string): { href: string; where: string } | null {
   const d = departments.find((x) => !x.hidden && x.moduleKeys.includes(moduleKey));
   if (!d) return null;
   const tab = d.tabs.find((t) => t.slug === tabSlug);
-  return tab ? routes.department(businessId, d.slug, tab.slug) : null;
+  if (!tab) return null;
+  const title = tab.title ?? MODULE_TABS[moduleKey].find((t) => t.slug === tabSlug)?.title ?? tabSlug;
+  return { href: routes.department(businessId, d.slug, tab.slug), where: `${d.name} › ${title}` };
 }
 
 /** The Generate rows: where a real model call drafts something, each opening the surface with its generate control. */
 export function generatePaletteItems(businessId: string, departments: readonly DepartmentForPalette[]): PaletteItem[] {
   const rows: PaletteItem[] = [{ id: "generate:logos", kind: "generate", label: "Generate logos", description: "Four marks from the logo designer · Settings › Business", keywords: ["logo", "mark", "brand", "draft"], href: routes.settings(businessId, "business") }];
-  const plan = moduleTabHref(businessId, departments, "development", "plan");
-  if (plan) rows.push({ id: "generate:task-graph", kind: "generate", label: "Build a task graph", description: "The Planner drafts tasks from a roadmap item or a goal · Development › Plan", keywords: ["plan", "tasks", "planner", "draft"], href: plan });
-  const board = moduleTabHref(businessId, departments, "distribution", "formation");
-  if (board) rows.push({ id: "generate:channels", kind: "generate", label: "Recommend channels", description: "Scores every channel for this business · Distribution › Board", keywords: ["channels", "distribution", "recommend", "board"], href: board });
+  const plan = moduleTab(businessId, departments, "development", "plan");
+  if (plan) rows.push({ id: "generate:task-graph", kind: "generate", label: "Build a task graph", description: `The Planner drafts tasks from a roadmap item or a goal · ${plan.where}`, keywords: ["plan", "tasks", "planner", "draft"], href: plan.href });
+  const board = moduleTab(businessId, departments, "distribution", "formation");
+  if (board) rows.push({ id: "generate:channels", kind: "generate", label: "Recommend channels", description: `Scores every channel for this business · ${board.where}`, keywords: ["channels", "distribution", "recommend", "board"], href: board.href });
   return rows;
 }

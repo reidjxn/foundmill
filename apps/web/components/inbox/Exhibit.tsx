@@ -9,6 +9,7 @@ import { Bot, ImageOff } from "lucide-react";
 import { useMemo } from "react";
 import { AgentStatusPill, Avatar, BarChart, Chip, DiffView, EmptyState, EntityCard, FunnelChart, LineChart, MiniTable, Panel, ProgressRing, ProvenanceChip, formatMoney, formatNumber, type EntityDetails, type MiniTableColumn } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
+import { moduleTabLabel } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
@@ -166,13 +167,15 @@ function hunkText(v: Record<string, unknown> | null | undefined): string {
 }
 
 function DiffExhibit({ proposalId }: { proposalId: string | null }) {
-  const { businessId } = useBusiness();
+  const { businessId, departments } = useBusiness();
+  // "Editorial › Changes" on a Content / media business: the department over the Product module, as the founder named it.
+  const changesTab = moduleTabLabel(departments, "product", "changes") ?? "Changes";
   const trpc = useTRPC();
   const q = useQuery(trpc.product.proposals.get.queryOptions({ businessId, proposalId: proposalId ?? businessId }, { enabled: !!proposalId, staleTime: 30_000, retry: false }));
   if (!proposalId) return <Unavailable title="Change proposal" reason="The note references no change proposal." />;
   const hunk = q.data?.hunks[0];
   return (
-    <Panel title="Change proposal" span={12} loading={q.isLoading} error={q.error ? "Could not load the proposal." : undefined} onRetry={() => void q.refetch()} empty={q.data && !hunk ? { children: "The proposal has no hunks." } : undefined} footer={q.data ? <span>{q.data.hunks.length} hunk{q.data.hunks.length === 1 ? "" : "s"} · decide them in Product › Changes</span> : undefined} data-testid="exhibit" data-exhibit="diff">
+    <Panel title="Change proposal" span={12} loading={q.isLoading} error={q.error ? "Could not load the proposal." : undefined} onRetry={() => void q.refetch()} empty={q.data && !hunk ? { children: "The proposal has no hunks." } : undefined} footer={q.data ? <span>{q.data.hunks.length} hunk{q.data.hunks.length === 1 ? "" : "s"} · decide them in {changesTab}</span> : undefined} data-testid="exhibit" data-exhibit="diff">
       {hunk ? <DiffView original={hunkText(hunk.ours)} proposed={hunkText(hunk.theirs)} base={hunk.base ? hunkText(hunk.base) : undefined} readOnly maxHeight={320} labels={{ original: "Current", proposed: "Proposed", base: "Base" }} /> : null}
     </Panel>
   );

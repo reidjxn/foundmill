@@ -166,6 +166,13 @@ describe("navigation", () => {
     (container.querySelector("[data-inbox-row]") as HTMLButtonElement).click();
     expect(fake.navigations[0]).toMatch(new RegExp(`^/b/${BID}/inbox/`));
   });
+  it("Channel performance's empty state opens the Channel Board by its name, not 'Formation'", () => {
+    const { fake } = mount(getWidget("channel_form_guide")!, emptyResponses());
+    expect(screen.queryByText(/Formation/)).toBeNull();
+    expect(screen.getByText(/Put starters on the Channel Board/)).toBeTruthy();
+    screen.getByRole("button", { name: "Open Channel Board" }).click();
+    expect(fake.navigations[0]).toMatch(/\/distribution\/formation$|\/home$/);
+  });
 });
 
 describe("dates in the signed-in person's format", () => {

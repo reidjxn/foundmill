@@ -10,7 +10,7 @@
 import { useMemo, useState } from "react";
 import { Cookie, FileDiff, FileText, RefreshCw, Scale, ShieldCheck } from "lucide-react";
 import { Button, Chip, DiffView, Markdown, MiniTable, Panel, applyDecisions, buildHunks, diffLines, summariseDiff, useFormatters, type HunkDecisionState, type HunkDecisions, type IconComponent } from "@foundmill/dugout";
-import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
+import { moduleHref, moduleTabLabel, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { pmTitle, pmToText, textToPm } from "../product/prosemirror";
@@ -95,6 +95,8 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
 
   const policyProposals = (proposals.data?.items ?? []).filter((p) => POLICY_RE.test(p.title));
   const changesHref = moduleHref(businessId, departments.data, "product", "changes") ?? routes.department(businessId, "product", "changes");
+  // "Editorial › Changes" on a Content / media business: the department over the Product module, as named.
+  const changesTab = moduleTabLabel(departments.data, "product", "changes") ?? "Changes";
   const loading = integrations.isLoading || business.isLoading || status.isLoading || spec.isLoading;
   const error = integrations.error ?? business.error ?? spec.error ?? null;
   const retry = integrations.error ? integrations.refetch : business.error ? business.refetch : spec.refetch;
@@ -182,7 +184,7 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
         />
       </Panel>
 
-      <Panel title="Open change proposals" span={12} loading={proposals.isLoading} error={proposals.error ? proposals.error.message : undefined} onRetry={proposals.refetch} empty={!proposals.isLoading && policyProposals.length === 0 ? "When an integration or data flow changes, the Source Watcher raises a change proposal for the policies; it appears here and in Product › Changes." : undefined} actions={<Button size="sm" variant="ghost" icon={FileDiff} onClick={() => navigate(changesHref)}>Product › Changes</Button>}>
+      <Panel title="Open change proposals" span={12} loading={proposals.isLoading} error={proposals.error ? proposals.error.message : undefined} onRetry={proposals.refetch} empty={!proposals.isLoading && policyProposals.length === 0 ? `When an integration or data flow changes, the Source Watcher raises a change proposal for the policies; it appears here and in ${changesTab}.` : undefined} actions={<Button size="sm" variant="ghost" icon={FileDiff} onClick={() => navigate(changesHref)}>{changesTab}</Button>}>
         <ul aria-label="Policy proposals" className="flex flex-col gap-1">
           {policyProposals.map((p) => (
             <li key={p.id} className="flex items-center gap-2">

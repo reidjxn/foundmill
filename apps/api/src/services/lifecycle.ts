@@ -12,7 +12,7 @@
  */
 import { APP_NAME } from "@foundmill/config";
 import { repos, type Business, type Executor, type InboxItem } from "@foundmill/db";
-import { AppError, ValidationError } from "@foundmill/shared";
+import { AppError, ValidationError, usDate } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit } from "../trpc";
 import { stopAllAgents, type StopAllResult } from "./killswitch";
@@ -244,12 +244,13 @@ export interface RequestDeletionResult {
   inboxItem: InboxItem | null;
 }
 
-/** Deletion copy shown by the UI; the API is the source of truth for the delay. */
+/** Deletion copy shown by the UI and written to the Inbox; the API is the source of truth for the delay. */
 export function deletionCopy(business: Pick<Business, "name">, scheduledFor: string): { title: string; body: string } {
-  const when = scheduledFor.slice(0, 10);
+  // A US date ("Oct 18, 2026"), read in UTC like every date the product prints; never the ISO day.
+  const when = usDate(scheduledFor);
   return {
     title: `Deletion scheduled for ${when}`,
-    body: `${business.name} and everything in it (spec, roadmap, tasks, CRM, journeys, finance, audit log, agent instructions) will be permanently deleted on ${when}, ${DELETION_DELAY_DAYS} days from now. Until then the business keeps working and any owner can cancel from Settings › Danger zone. This cannot be undone after that date.`,
+    body: `${business.name} and everything in it (spec, roadmap, tasks, CRM, journeys, finance, audit log, agent instructions) is scheduled for deletion on ${when}, ${DELETION_DELAY_DAYS} days from now. The request is recorded; until then the business keeps working and any owner can cancel from Settings › Danger zone.`,
   };
 }
 

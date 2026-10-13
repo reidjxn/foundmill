@@ -58,6 +58,14 @@ describe("Settings › Danger zone (BUILD §11.15): export, deletion request, ar
     expect(result.copy.body).toContain("7 days");
     expect(result.copy.body).toContain("cancel");
     expect(result.inboxItem?.type).toBe("warning");
+    // US dates in the title, the Inbox subject and the body: "Oct 18, 2026", never "2026-10-18".
+    const usDay = new Date(scheduled).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+    expect(result.copy.title).toBe(`Deletion scheduled for ${usDay}`);
+    expect(result.inboxItem?.subject).toBe(`Deletion scheduled for ${usDay}`);
+    expect(result.copy.body).toContain(`scheduled for deletion on ${usDay},`);
+    // Until the deletion job exists the copy promises a recorded request, never a deletion that nothing performs yet.
+    expect(result.copy.body).not.toMatch(/permanently/);
+    for (const text of [result.copy.title, result.copy.body, result.inboxItem?.bodyMd ?? ""]) expect(text).not.toMatch(/\d{4}-\d{2}-\d{2}/);
 
     // Visible on business.get; a second request is idempotent; cancel clears it.
     const got = await owner.business.get({ businessId });

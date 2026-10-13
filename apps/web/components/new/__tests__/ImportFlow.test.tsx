@@ -110,6 +110,13 @@ describe("ImportFlow (BUILD §11.1 Door B, AC-11.1.5)", () => {
     expect(screen.getByTestId("never-pushed").textContent).toMatch(/Nothing was pushed/);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Import report: Ledgerly");
     expect(screen.getByTestId("roadmap-seeds").querySelectorAll("li").length).toBeGreaterThanOrEqual(3);
+    // A long repository name truncates with the whole name on hover, so seed titles keep the row (VIE-X3).
+    for (const label of screen.getByTestId("roadmap-seeds").querySelectorAll("[data-seed-source]")) {
+      expect(label.className).toMatch(/\btruncate\b/);
+      expect(label.className).toMatch(/\bmin-w-0\b/);
+      expect(label.className).not.toMatch(/\bshrink-0\b/);
+      expect(label.getAttribute("title")).toBe(label.textContent);
+    }
     expect(screen.getByTestId("first-decisions").querySelectorAll("[data-recommended]")).toHaveLength(1);
     expect(document.querySelectorAll('[data-source-progress][data-status="done"]')).toHaveLength(2);
     expect(document.querySelectorAll('[data-source-progress="github"] [data-step-status="done"]')).toHaveLength(6);

@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, Copy, ExternalLink, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
-import { Button, Chip, DataTable, DeptChip, ModelChip, Panel, ProvenanceChip, Textarea, formatMoney, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Button, Chip, DataTable, DeptChip, ModelChip, Panel, ProvenanceChip, Textarea, formatMoney, formatPercent, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
@@ -235,7 +235,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
                   <span className="flex min-w-0 items-start justify-between gap-2">
                     <span className="min-w-0 text-body-strong">{s.template.name}</span>
                     <Chip tone={s.score >= 0.5 ? "good" : "neutral"} className="shrink-0">
-                      {Math.round(s.score * 100)} % fit
+                      {formatPercent(s.score, { digits: 0 })} fit
                     </Chip>
                   </span>
                   <span className="text-small text-secondary">

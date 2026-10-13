@@ -126,7 +126,8 @@ export function plainWords(key: string | null | undefined): string {
     key
       .split(/[_\s-]+/)
       .filter(Boolean)
-      .map((w, i) => WORDS[w.toLowerCase()] ?? (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w.toLowerCase()))
+      // Own keys only: "constructor" or "toString" in a stored key must not find Object.prototype's members.
+      .map((w, i) => (Object.hasOwn(WORDS, w.toLowerCase()) ? WORDS[w.toLowerCase()] : undefined) ?? (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w.toLowerCase()))
       .join(" "),
   );
 }

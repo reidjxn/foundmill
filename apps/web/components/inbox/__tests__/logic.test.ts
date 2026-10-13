@@ -63,6 +63,10 @@ describe("rows (DESIGN §9)", () => {
     expect(previewLine(base.bodyMd)).toBe("We need €500 for LinkedIn ads.");
     expect(previewLine("x".repeat(200))).toHaveLength(120);
   });
+  it("skips a leading bold heading so the preview is the first real sentence, not 'Vision.' (FR-21)", () => {
+    expect(previewLine("**Vision.** Month-end close software for small finance teams. Next, the market.")).toBe("Month-end close software for small finance teams.");
+    expect(previewLine("**Atlas** needs a yes. Then more.")).toBe("Atlas needs a yes.");
+  });
   it("red dot for unanswered decisions, gold edge for won customers, nothing once answered", () => {
     expect(rowModel({ ...base, type: "decision", state: "unread", blocksContinue: true })).toMatchObject({ needsAnswer: true, won: false, unread: true, tone: "bad" });
     expect(rowModel({ ...base, type: "customer_won", state: "read", blocksContinue: true })).toMatchObject({ needsAnswer: true, won: true, unread: false });

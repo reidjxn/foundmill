@@ -110,7 +110,11 @@ for (const width of [1280, 1440]) {
       await expect(draft).toBeVisible({ timeout: LONG });
       await expect(draft).toBeDisabled();
       await page.getByRole("textbox", { name: "Describe the agent" }).fill("an agent who writes our weekly customer newsletter");
-      await expect(page.getByRole("list", { name: "Suggested templates" })).toBeVisible();
+      const suggestions = page.getByRole("list", { name: "Suggested templates" });
+      await expect(suggestions).toBeVisible();
+      // en-US percent: "60% fit", never "60 % fit".
+      await expect(suggestions.getByText(/^\d+% fit$/).first()).toBeVisible();
+      expect(await suggestions.innerText()).not.toMatch(/\d\s%/);
       await expect(draft).toBeEnabled();
       await draft.click();
       const dialog = page.getByTestId("hire-dialog");

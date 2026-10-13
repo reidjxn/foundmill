@@ -87,6 +87,17 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(page.getByRole("form", { name: "Upside drivers" })).toBeVisible();
   });
 
+  test("finance: every projected figure on Runway carries a Forecast label", async ({ page }) => {
+    await openTab(page, "finance", "runway");
+    const warnings = page.getByRole("region", { name: /Runway warnings/ });
+    // The panel itself, and the cash-out and cash-at-horizon figures, are projections from the drivers.
+    await expect(warnings.getByText("Forecast", { exact: true }).first()).toBeVisible();
+    const cash = page.getByRole("list", { name: "Runway by scenario" }).getByText(/^Cash, /).first();
+    await expect(cash.locator("..").getByText("Forecast", { exact: true })).toBeVisible();
+    // The driver summary under the form says so too.
+    await expect(page.locator("[data-driver-runway]").getByText("Forecast", { exact: true })).toBeVisible();
+  });
+
   test("distribution: channel names are never squeezed by the recommendation mark and £0 is not an estimate", async ({ page }) => {
     await openTab(page, "distribution", "channels");
     const table = page.getByRole("grid", { name: "Channels" });

@@ -82,7 +82,7 @@ export function RelationshipGraph({ centre, nodes, onOpen, width = 640, height =
         <ul>
           {nodes.map((n) => (
             <li key={n.id}>
-              {n.name} ({ENTITY_KIND_LABELS[n.kind]}) · {n.type} · strength {n.strength} of 20
+              {n.name} ({ENTITY_KIND_LABELS[n.kind]}) · {plainWords(n.type).toLowerCase()} · strength {n.strength} of 20
             </li>
           ))}
         </ul>

@@ -143,7 +143,7 @@ const WORDS: Record<string, string> = { b2b: "B2B", b2c: "B2C", saas: "SaaS", mr
 export function humanise(key: string): string {
   const words = key.split(/[_\s-]+/).filter(Boolean);
   return words
-    .map((w, i) => WORDS[w.toLowerCase()] ?? (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w.toLowerCase()))
+    .map((w, i) => (Object.hasOwn(WORDS, w.toLowerCase()) ? WORDS[w.toLowerCase()] : undefined) ?? (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w.toLowerCase()))
     .join(" ");
 }
 

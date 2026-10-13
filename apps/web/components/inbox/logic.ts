@@ -4,7 +4,7 @@
  * summary, follow-up links from plan actions, and the replay lookup for won customers.
  */
 import type { DecisionAnswer, DecisionOption, MetricTileProps, TabItem } from "@foundmill/dugout";
-import type { InboxItemType, InboxState, Money } from "@foundmill/shared";
+import { notePreview, type InboxItemType, type InboxState, type Money } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { runwayWords } from "@foundmill/widgets/shared/runway";
 import { NOTE_TYPE_TAGS, noteRowTag, type NoteTag as SharedNoteTag, type NoteTagIcon, type NoteTagTone } from "@foundmill/widgets/shared/note-tags";
@@ -58,16 +58,12 @@ export const TYPE_META: Record<InboxItemType, { word: string; tone: RowTone }> =
   human_message: { word: "Message", tone: "neutral" },
 };
 
-/** First sentence of the note as the preview line (entity markup and markdown stripped). */
+/**
+ * First sentence of the note as the preview line (entity markup and markdown stripped, a leading "**Vision.**" heading
+ * skipped). One rule with Home's Inbox widget: both read @foundmill/shared's notePreview.
+ */
 export function previewLine(bodyMd: string, max = 120): string {
-  const plain = bodyMd
-    .replace(/\[\[ent:[^|\]]+\|([^\]]+)\]\]/g, "$1")
-    .replace(/[#*_>`]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const end = plain.search(/[.!?](\s|$)/);
-  const line = end > 0 ? plain.slice(0, end + 1) : plain;
-  return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
+  return notePreview(bodyMd, max);
 }
 
 /** The tag a row and the reading pane carry (DIRECTION #8): one vocabulary with Home's preview (widgets/shared/note-tags). */

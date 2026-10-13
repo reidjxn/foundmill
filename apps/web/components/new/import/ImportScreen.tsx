@@ -346,9 +346,12 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, p
           <Panel title={`Roadmap seeds · ${report.roadmapSeeds.length}`} empty={report.roadmapSeeds.length === 0 ? "No tracker or repository was imported, so the Board proposes the first roadmap." : undefined} data-testid="roadmap-seeds">
             <ul className="flex flex-col divide-y divide-line-faint">
               {report.roadmapSeeds.map((s, i) => (
-                <li key={`${s.source}-${i}`} className="flex items-center gap-3 py-1.5 first:pt-0 last:pb-0">
-                  <span className="text-body">{s.title}</span>
-                  <span className="ml-auto shrink-0 text-small text-tertiary">{sourceByKey(s.source)?.label ?? plainWords(s.source)}</span>
+                <li key={`${s.source}-${i}`} className="flex min-w-0 items-baseline gap-3 py-1.5 first:pt-0 last:pb-0">
+                  {/* The title takes the row; a long repository name truncates (whole name on hover) instead of crushing it. */}
+                  <span className="min-w-0 flex-1 text-body">{s.title}</span>
+                  <span className="ml-auto min-w-0 max-w-48 truncate text-small text-tertiary" title={sourceByKey(s.source)?.label ?? plainWords(s.source)} data-seed-source>
+                    {sourceByKey(s.source)?.label ?? plainWords(s.source)}
+                  </span>
                 </li>
               ))}
             </ul>

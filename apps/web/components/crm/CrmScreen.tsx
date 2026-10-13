@@ -6,6 +6,7 @@
  * points, the data-duties panel, a new-record dialog and a merge flow from any row's right-click menu.
  */
 import { useQuery } from "@tanstack/react-query";
+import { APP_NAME } from "@foundmill/config";
 import { ArrowRight, Building2, Database, Download, GitMerge, Search, Shield, Sparkles, UserRound, UserRoundPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -203,7 +204,7 @@ export function CrmScreen() {
                 </ul>
               </section>
             ))}
-            {live ? <p className="border-t border-subtle px-3 py-1.5 text-small text-secondary">Public profiles on the network appear here labeled "On Foundmill".</p> : null}
+            {live ? <p className="border-t border-subtle px-3 py-1.5 text-small text-secondary">Public profiles on the network appear here labeled "On {APP_NAME}".</p> : null}
           </PopoverContent>
         </Popover>
         <div className="flex flex-wrap items-center gap-2">

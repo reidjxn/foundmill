@@ -16,6 +16,7 @@ import { simulatePanelAvailable } from "@/lib/env";
 import { formatDateTime, plainWords, plural } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { moduleTabLabel } from "@foundmill/widgets/shared/departments";
 import { useBusiness } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { useInvalidateRouters } from "./SettingsScreen";
@@ -92,7 +93,9 @@ const navigateTo = (url: string) => navigation.assign(url);
 
 export function IntegrationsTab() {
   const datePrefs = useDateFormat();
-  const { businessId } = useBusiness();
+  const { businessId, departments } = useBusiness();
+  // The Code tab by the department over the Development module, as the founder named it ("Formulation Lab › Code").
+  const codeTab = moduleTabLabel(departments, "development", "code") ?? "the Code tab";
   const trpc = useTRPC();
   const invalidate = useInvalidateRouters();
   const t = useSettingsToast();
@@ -144,7 +147,7 @@ export function IntegrationsTab() {
             {installCode && installState ? (
               <>
                 <Hint>
-                  GitHub installation {pendingInstallation} is ready. Connect it to this business so agents can push their code to their own branches. GitHub confirms you can manage it first. Then choose the repository on Development › Code.
+                  GitHub installation {pendingInstallation} is ready. Connect it to this business so agents can push their code to their own branches. GitHub confirms you can manage it first. Then choose the repository on {codeTab}.
                 </Hint>
                 <Button variant="primary" icon={FolderGit2} loading={connect.isPending} onClick={confirmInstallation}>
                   Connect installation

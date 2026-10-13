@@ -94,6 +94,12 @@ describe("skill rows", () => {
     expect(humaniseKey("categoriser")).toBe("Categorizer");
     expect(humaniseKey("holiday_read_authority")).toBe("Vacation read authority");
   });
+  it("reads keys that name Object.prototype members as words", () => {
+    expect(humaniseKey("constructor_signoff")).toBe("Constructor signoff");
+    expect(humaniseKey("to_string")).toBe("To string");
+    expect(humaniseKey("tostring_valueof")).toBe("Tostring valueof");
+    expect(humaniseKey("constructor")).toBe("Constructor");
+  });
 });
 
 describe("position map", () => {
@@ -335,6 +341,15 @@ describe("founder copy on the profile (the instructions are written to the model
     expect(founderPlain("Hard gates are routed to request_human_action (BUILD §2.2).")).toBe("Hard gates are routed to a task for you.");
     expect(founderPlain("Send an email (never claiming to be human — BUILD §2.3). Refused when unverified.")).toBe("Send an email (never claiming to be human). Refused when unverified.");
     expect(founderPlain("make sure every number has a record id; staff tasks with assignee agent ids")).toBe("make sure every number has a source record; staff tasks with assignee agents");
+    // "the founder" becomes "you" with the verb agreeing and the sentence's capital kept (Legal Lead profile, FR-21).
+    expect(founderPlain("The founder gets a two-jurisdiction headline and up to 6 cards.")).toBe("You get a two-jurisdiction headline and up to 6 cards.");
+    expect(founderPlain("Build the jurisdiction recommendation from the founder profile and business.")).toBe("Build the jurisdiction recommendation from your profile and business.");
+    expect(founderPlain("the founder clicks final submit and pays.")).toBe("you click final submit and pay.");
+    expect(founderPlain("Print and outdoor: the founder books and signs.")).toBe("Print and outdoor: you book and sign.");
+    expect(founderPlain("so the founder only has to read the Inbox")).toBe("so you only have to read the Inbox");
+    expect(founderPlain("while the founder is on vacation")).toBe("while you are on vacation");
+    expect(founderPlain("The founder approves every booking; ask the founder to sign.")).toBe("You approve every booking; ask you to sign.");
+    expect(founderPlain("the founder pushes and applies")).toBe("you push and apply");
   });
   it("puts the playbook in the agent's own voice", () => {
     expect(firstPerson("Load the brief through tools.")).toBe("I load the brief through tools.");

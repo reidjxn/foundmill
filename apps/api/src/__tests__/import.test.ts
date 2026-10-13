@@ -1,6 +1,6 @@
 import { repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { buildScoutingReport, decodeJobId, importJobKey, sourceUri, validateConfigs, webUri } from "../services/import";
+import { IMPORT_SOURCE_KEYS, buildScoutingReport, decodeJobId, importJobKey, sourceSummary, sourceUri, validateConfigs, webUri } from "../services/import";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -133,5 +133,21 @@ describe("import.start / import.status — Door B (BUILD §11.1, AC-11.1.5)", ()
     const list = await hz.caller({ userId: hz.A.ownerId }).import.sources();
     expect(list.map((s) => s.key)).toContain("github");
     expect(list.every((s) => s.readOnly)).toBe(true);
+  });
+});
+
+describe("import source summaries", () => {
+  it("count in US English: '1 month', '1 account', '1 officer', '1,674 orders', never '1 months' or '1674 orders'", () => {
+    const values = ["", "acme", "ledgerly", "09876543", "northwind", "https://github.com/acme/app", "x", "y", "z"];
+    const all = IMPORT_SOURCE_KEYS.flatMap((k) => values.map((v) => sourceSummary(k, v)));
+    for (const text of all) {
+      expect(text, text).not.toMatch(/(?<![\d,])1 (?:months|accounts|officers|customers|orders|products|files|tests|pages|documents|open issues|upcoming deadlines)\b/);
+      expect(text, text).not.toMatch(/\d{4,}/); // thousands are grouped: "1,674"
+    }
+    // Stripe and Bank take no value, so every founder who imports them gets the seed "import:<key>:".
+    expect(sourceSummary("stripe", "")).toMatch(/^\d+ customers?, \d+ months? of revenue$/);
+    expect(sourceSummary("bank", "")).toMatch(/^\d accounts?, 24 months of transactions$/);
+    expect(sourceSummary("registry", "09876543")).toMatch(/^entity found, \d officers?, \d upcoming deadlines?$/);
+    expect(all.some((t) => /\b1 (?:month|account|officer|upcoming deadline)\b/.test(t))).toBe(true);
   });
 });

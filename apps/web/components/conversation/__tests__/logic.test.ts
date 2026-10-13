@@ -106,6 +106,14 @@ describe("the command palette's Ask and Generate rows", () => {
     expect(rows.every((r) => r.kind === "generate" && r.href)).toBe(true);
     expect(generatePaletteItems("b1", []).map((r) => r.id)).toEqual(["generate:logos"]);
   });
+
+  it("names the department as the founder named it, never a hard-coded 'Distribution › Board' (AC-11.13.1)", () => {
+    const rows = generatePaletteItems("b1", departments);
+    expect(rows.find((r) => r.id === "generate:channels")?.description).toBe("Scores every channel for this business · Retail Partnerships › Board");
+    expect(rows.find((r) => r.id === "generate:task-graph")?.description).toMatch(/· Development › Plan$/);
+    const renamed = departments.map((d) => (d.id === "d2" ? { ...d, name: "Formulation Lab", tabs: [{ slug: "plan", position: 1, title: "Roadmap plan" }] } : d));
+    expect(generatePaletteItems("b1", renamed).find((r) => r.id === "generate:task-graph")?.description).toMatch(/· Formulation Lab › Roadmap plan$/);
+  });
 });
 
 describe("when a send fails (adversarial: api down, model error, limits, stale chips)", () => {

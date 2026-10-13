@@ -59,10 +59,18 @@ function matchCase(original: string, us: string): string {
   return us;
 }
 
+/**
+ * The US form of one lowercase word, or undefined. Own keys only: a plain-object lookup would also find inherited
+ * members, so "constructor" (Object.prototype.constructor) or "toString" would come back as a function.
+ */
+export function usWord(lower: string): string | undefined {
+  return Object.hasOwn(US_WORDS, lower) ? US_WORDS[lower] : undefined;
+}
+
 /** "Organisation" → "Organization", "uncategorised items" → "uncategorized items"; anything else is unchanged. */
 export function usSpelling(text: string): string {
   return text.replace(/[A-Za-z]+/g, (word) => {
-    const us = US_WORDS[word.toLowerCase()];
+    const us = usWord(word.toLowerCase());
     return us ? matchCase(word, us) : word;
   });
 }

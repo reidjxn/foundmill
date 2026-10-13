@@ -8,7 +8,7 @@
  */
 import { classifyFounderText } from "@foundmill/agents";
 import { repos, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
-import { ValidationError } from "@foundmill/shared";
+import { ValidationError, endSentence } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
@@ -176,7 +176,8 @@ async function writeFollowUp(tx: DbTx, ctx: BusinessContext, item: InboxItem, pl
   const from = item.fromAgentId ?? (await repos.agents.chiefOfStaff(tx, ctx.businessId))?.id ?? null;
   if (!from) return null;
   const lines = plan.actions.map((a) => `- ${describeAction(a.type, a.params as Record<string, unknown>)} — ${a.status}${a.policyOutcome === "ask" ? " (confirmed by you)" : ""}`);
-  const body = [`Decided: ${item.subject}.`, "", summary, "", ...lines, "", executed > 0 || deferred > 0 ? `${executed} done now, ${deferred} handed to the team.` : "Nothing further to run."].join("\n");
+  // A question subject keeps its own mark: "Decided: Where should the first customer come from?" (never "?.").
+  const body = [`Decided: ${endSentence(item.subject)}`,"", summary, "", ...lines, "", executed > 0 || deferred > 0 ? `${executed} done now, ${deferred} handed to the team.` : "Nothing further to run."].join("\n");
   return repos.inbox.createItem(
     tx,
     ctx.businessId,

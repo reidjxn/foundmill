@@ -51,7 +51,7 @@ function FunnelWidget({ settings }: WidgetProps<FunnelSettings>) {
       title={title}
       data-widget="funnel"
       queries={[channels]}
-      empty={channels.data && total === 0 ? { icon: Filter, text: settings.channelKey ? "No activity on this channel in the last 35 days." : "The funnel fills as channels run. Enable channels on the Channel board." } : null}
+      empty={channels.data && total === 0 ? { icon: Filter, text: settings.channelKey ? "No activity on this channel in the last 35 days." : "The funnel fills as channels run. Enable channels on the Channel Board." } : null}
       footer={<span>Last 35 days · {settings.channelKey ? "one channel" : "all channels"} · {formatNumber(stages.at(-1)?.value ?? 0, { maxDigits: 0 })} customers</span>}
     >
       <FunnelChart stages={stages} label={`${title}, last 35 days`} />

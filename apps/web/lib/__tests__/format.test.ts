@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDate, formatDateTime, formatDayMonth, formatMoney, formatMonthYear, formatNumber, plural } from "../format";
+import { formatDate, formatDateTime, formatDayMonth, formatMoney, formatMonthYear, formatNumber, plainWords, plural } from "../format";
 
 // 23:45 UTC on Oct 7: the day before or after in most zones, so a local-time format would show a different date.
 const LATE = "2026-10-07T23:45:00Z";
@@ -55,5 +55,19 @@ describe("US English formats (founder, 2026-10-10)", () => {
     expect(formatMoney({ amountMinor: 124_000, currency: "USD" })).toBe("$1,240.00");
     expect(formatMoney({ amountMinor: 124_050, currency: "EUR" })).toBe("€1,240.50");
     expect(formatMoney(null)).toBe("—");
+  });
+});
+
+describe("plainWords", () => {
+  it("reads stored keys as US English words with their acronyms", () => {
+    expect(plainWords("private_limited_company")).toBe("Private limited company");
+    expect(plainWords("api_key")).toBe("API key");
+    expect(plainWords("organisation")).toBe("Organization");
+  });
+  it("reads keys that name Object.prototype members as words, not as functions (CRM stage 'constructor_signoff')", () => {
+    expect(plainWords("constructor_signoff")).toBe("Constructor signoff");
+    expect(plainWords("awaiting constructor")).toBe("Awaiting constructor");
+    expect(plainWords("tostring valueOf")).toBe("Tostring valueof");
+    expect(plainWords("constructor")).not.toMatch(/function|native code/);
   });
 });

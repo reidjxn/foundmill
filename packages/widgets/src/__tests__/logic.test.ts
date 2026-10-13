@@ -1,6 +1,7 @@
 /** Pure helpers behind the widgets. */
 import { describe, expect, it } from "vitest";
 import { readWidgetEvent } from "../data";
+import { moduleTabLabel } from "../shared/departments";
 import { addDays, dailySeries, daysUntil, lastDays, weekKey } from "../shared/time";
 import { agentRows, pickAgent } from "../widgets/agent-of-the-week";
 import { buildFormRows, formCells } from "../widgets/channel-form-guide";
@@ -243,6 +244,7 @@ describe("text helpers", () => {
   it("writes previews and event lines in plain words", () => {
     expect(previewLine("Atlas needs a yes. The migration touches [[ent:x|Nordic]] data.")).toBe("Atlas needs a yes.");
     expect(previewLine("**No full stop here**")).toBe("No full stop here");
+    expect(previewLine("**Vision.** Month-end close software for small finance teams. More.")).toBe("Month-end close software for small finance teams.");
     expect(postPreview("# Hello  *world*", 5)).toBe("Hell…");
     // The feed is for members: the chosen community if joined, else the first joined one, never one the founder is not in.
     const communities = [{ id: "a", name: "A", role: null }, { id: "b", name: "B", role: "member" }, { id: "c", name: "C", role: "owner" }];
@@ -254,6 +256,38 @@ describe("text helpers", () => {
     expect(pickCommunity(undefined, null)).toBeUndefined();
     expect(describeEvent({ type: "task.completed", payload: { title: "X", outcome: "partial" } })).toMatchObject({ title: "Done: X", statusWord: "Partial", tone: "warn" });
     expect(describeEvent({ type: "payment.received", payload: { amount: { amountMinor: 4900, currency: "EUR" }, firstPayment: true } }).title).toBe("Payment received · €49.00");
-    expect(describeEvent({ type: "something.odd", payload: {} }).title).toBe("something odd");
+    // An unknown type gets a generic label, never its raw key.
+    expect(describeEvent({ type: "something.odd", payload: {} }).title).toBe("Business update");
+  });
+
+  it("the live feed reads events in product words, never enum keys (Down, Vacation, a signup is not a customer)", () => {
+    expect(describeEvent({ type: "agent.health_changed", payload: { to: "injured", reason: "Loop detected" } })).toMatchObject({ title: "Agent down", statusWord: "Down", tone: "bad" });
+    expect(describeEvent({ type: "agent.health_changed", payload: { to: "healthy" } })).toMatchObject({ title: "Agent healthy again", statusWord: "Healthy", tone: "good" });
+    expect(describeEvent({ type: "holiday.started", payload: {} }).title).toBe("Vacation started");
+    expect(describeEvent({ type: "holiday.ended", payload: {} }).title).toBe("Vacation ended");
+    expect(describeEvent({ type: "customer.converted", payload: { kind: "signup" } })).toMatchObject({ title: "New signup", statusWord: undefined });
+    expect(describeEvent({ type: "customer.converted", payload: { kind: "payment", amount: { amountMinor: 4900, currency: "USD" } } })).toMatchObject({ title: "New paying customer", description: "$49.00", statusWord: "Win" });
+    expect(describeEvent({ type: "approval.resolved", payload: { outcome: "approved" } })).toMatchObject({ title: "Approved", statusWord: "Approved", tone: "good" });
+    expect(describeEvent({ type: "approval.resolved", payload: { outcome: "expired" } }).title).toBe("Approval expired");
+    expect(describeEvent({ type: "cycle.completed", payload: { cycleNumber: 3, outcome: "time_box", tasksCompleted: 1 } })).toMatchObject({ title: "Cycle 3 reached its time box", description: "1 task done" });
+    expect(describeEvent({ type: "task.progressed", payload: { phase: "implementing", progress: 0.45 } }).title).toBe("Implementing: 45%");
+    expect(describeEvent({ type: "mode.changed", payload: { scope: "business" } }).title).toBe("Business mode changed");
+    expect(describeEvent({ type: "constructor", payload: {} }).title).toBe("Business update");
+    for (const type of ["agent.health_changed", "holiday.started", "customer.converted", "approval.resolved", "mode.changed", "cycle.completed"]) {
+      const d = describeEvent({ type, payload: { to: "injured", kind: "signup", outcome: "approved", scope: "business" } });
+      expect(`${d.title} ${d.statusWord ?? ""}`, type).not.toMatch(/injured|holiday|Customer won|Approval approved|_|\./);
+    }
+  });
+});
+
+describe("moduleTabLabel", () => {
+  it("names a screen by the department that owns the module and the tab's own title, never a hard-coded name", () => {
+    const tabs = [{ id: "t1", slug: "plan", title: "Plan", position: 0 }];
+    const dept = (name: string, moduleKeys: string[], hidden = false) => ({ id: name, name, slug: name.toLowerCase(), colourToken: "dept-1", position: 0, moduleKeys, hidden, tabs }) as never;
+    expect(moduleTabLabel([dept("Formulation Lab", ["development"])], "development", "plan")).toBe("Formulation Lab › Plan");
+    // A tab the department does not list falls back to the module's default title.
+    expect(moduleTabLabel([dept("Editorial", ["product"])], "product", "changes")).toBe("Editorial › Changes");
+    expect(moduleTabLabel([dept("Hidden", ["team"], true)], "team", "recruitment")).toBeNull();
+    expect(moduleTabLabel(undefined, "team", "recruitment")).toBeNull();
   });
 });

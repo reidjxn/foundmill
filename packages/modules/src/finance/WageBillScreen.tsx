@@ -8,6 +8,7 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, Bot, GraduationCap, UserRound, Users } from "lucide-react";
 import { AgentStatusPill, Chip, DataTable, DeptChip, EntityLink, MiniTable, Panel, StatusPill, StatusStrip, SimpleSelect, currencySymbol, formatCompact, formatNumber, formatPercent, useFormatters, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
+import { moduleHref, moduleTabLabel, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
@@ -175,6 +176,7 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
   const [period, setPeriod] = useState(periods[0]!);
   const wages = useWidgetQuery<WagesResponse>("finance.wages", { period });
   const agents = useWidgetQuery<TeamAgentRow[] | { agents: TeamAgentRow[] }>("team.agents.list", { includeArchived: true });
+  const departments = useDepartments();
   const tasks = useWidgetQuery<TasksListResponse>("dev.tasks.list", { status: "done", limit: 500 });
   const humans = useWidgetQuery<MembershipRow[]>("team.humans.list", {});
   const range = useMemo(() => {
@@ -215,6 +217,9 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
 
   const loading = wages.isLoading || agents.isLoading;
   const error = wages.error ?? agents.error;
+  // The Team module's screens by the department that owns it, as the founder named it (never a hard-coded "Team").
+  const recruitment = { label: moduleTabLabel(departments.data, "team", "recruitment") ?? "the Recruitment tab", href: moduleHref(businessId, departments.data, "team", "recruitment") };
+  const staffTab = moduleTabLabel(departments.data, "team", "staff") ?? "the Staff tab";
 
   return (
     <Screen name="finance/wage-bill">
@@ -231,7 +236,7 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
           wages.refetch();
           agents.refetch();
         }}
-        empty={wages.data && agents.data && rows.length === 0 ? { icon: Users, title: "No agents hired yet", children: "Hire agents from Team › Recruitment and their monthly cost appears here against each wage cap.", action: { label: "Open recruitment", icon: Users, onClick: () => navigate(routes.department(businessId, "team", "recruitment")) } } : undefined}
+        empty={wages.data && agents.data && rows.length === 0 ? { icon: Users, title: "No agents hired yet", children: `Hire agents from ${recruitment.label} and their monthly cost appears here against each wage cap.`, action: recruitment.href ? { label: "Open recruitment", icon: Users, onClick: () => navigate(recruitment.href ?? routes.home(businessId)) } : undefined } : undefined}
         actions={
           <div className="flex items-center gap-2">
             {overCap.length ? (
@@ -248,7 +253,7 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
           <DataTable<WageBillRow> aria-label="Team payroll" data={rows} columns={columns} getRowId={(r) => r.agentId} views={views} onViewsChange={setViews} defaultViewId="all" height={480} exportFileName={`wage-bill-${period}`} rowActions={rowActions} onRowOpen={(r) => navigate(routes.agent(businessId, r.agentId))} />
         </div>
       </Panel>
-      <Panel title="Staff" span={4} loading={humans.isLoading || pnl.isLoading} error={humans.error ? humans.error.message : undefined} onRetry={humans.refetch} empty={humans.data && staff.length === 0 ? { icon: UserRound, children: "Invite staff from Team › Staff; their payroll shows here from bank transactions." } : undefined} footer={<span>Payroll is the month's bank outflows categorized Payroll or Contractors.</span>}>
+      <Panel title="Staff" span={4} loading={humans.isLoading || pnl.isLoading} error={humans.error ? humans.error.message : undefined} onRetry={humans.refetch} empty={humans.data && staff.length === 0 ? { icon: UserRound, children: `Invite staff from ${staffTab}; their payroll shows here from bank transactions.` } : undefined} footer={<span>Payroll is the month's bank outflows categorized Payroll or Contractors.</span>}>
         <MiniTable<MembershipRow>
           aria-label="Staff"
           rows={staff}
