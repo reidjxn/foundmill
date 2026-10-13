@@ -200,7 +200,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const today = useClientToday(business.timeZone);
   const logoSrc = useBusinessLogoSrc(businessId, data.logo);
   const live = business.gameMode === "live";
-  const currency = financeQ.data?.cash.currency ?? "EUR";
+  // A member walled from Finance gets no finance.overview: the currency the business was committed with answers (audit #193).
+  const currency = financeQ.data?.cash.currency ?? business.glossary?.currency ?? "EUR";
 
   const agentDepartment = useCallback(
     (agentId: string) => departments.find((d) => d.squad.some((a) => a.id === agentId) || d.leadAgentId === agentId)?.id ?? null,

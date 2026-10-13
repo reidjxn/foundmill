@@ -31,9 +31,9 @@ import {
   type SavedView,
 } from "@foundmill/dugout";
 import { CHANNEL_LINES, CHANNEL_WINDOW_DAYS, type ChannelKey } from "@foundmill/shared/constants";
-import { addDays, dayKey } from "@foundmill/widgets/shared/time";
+import { addDays } from "@foundmill/widgets/shared/time";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
-import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import type { ModuleScreenProps } from "../registry";
@@ -176,7 +176,7 @@ export interface ChannelsScreenProps extends ModuleScreenProps {
 
 export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_MS }: ChannelsScreenProps) {
   const { navigate, currency } = useWidgetData();
-  const today = dayKey();
+  const today = useToday();
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
   // Pin to Home (audit #394): the channels are the gallery's Channel performance widget.
   const pinMenu = usePinToHomeMenu({ key: "channel_form_guide" });

@@ -10,9 +10,9 @@ import { RefreshCw, Sparkles } from "lucide-react";
 import { Button, Chip, FormationBoard, GridCell, Panel, ProvenanceChip, formatMoney } from "@foundmill/dugout";
 import type { ChannelKey } from "@foundmill/shared";
 import { CHANNEL_WINDOW_DAYS } from "@foundmill/shared/constants";
-import { addDays, dayKey } from "@foundmill/widgets/shared/time";
+import { addDays } from "@foundmill/widgets/shared/time";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
-import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { ChannelProfileDrawer } from "./ChannelProfileDrawer";
 import { buildChannelViews, toChannelToken, totalBudget, type ChannelView } from "./channel-data";
@@ -32,7 +32,7 @@ export const METRICS_WINDOW_DAYS = CHANNEL_WINDOW_DAYS;
 
 export function FormationScreen({ businessId, departmentId, animateEntrance = true, rescoreDelayMs = RESCORE_DEBOUNCE_MS }: FormationScreenProps) {
   const { navigate, currency } = useWidgetData();
-  const today = dayKey();
+  const today = useToday();
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
   const campaigns = useWidgetQuery<Page<CampaignRow>>("distribution.campaigns.list", { limit: 200 });
   const metrics = useWidgetQuery<ChannelMetricRow[]>("distribution.channels.metrics", { from: addDays(today, -(METRICS_WINDOW_DAYS - 1)) });

@@ -185,6 +185,11 @@ describe("Home captions in the business's words (Settings › Glossary, AC-11.13
     expect(mountGlossed("trophy_cabinet").container.textContent).toMatch(/First client/);
     expect(mountGlossed("department_card", { slot: 0, metric: "squad_health" }).container.textContent).toContain("Crew health");
   });
+  it("renames nouns in a widget's footer text too, once (a swap does not undo itself)", () => {
+    expect(mountGlossed("trophy_cabinet").container.textContent).toContain("Client names show only when permission is recorded");
+    expect(mountGlossed("revenue_customers").container.textContent).toContain("clients = first payments");
+    expect(mountGlossed("funnel").container.textContent).toMatch(/all channels · \d+ clients/);
+  });
   it("leaves every caption alone with an empty glossary", () => {
     const { container } = mount(getWidget("status_strip")!, dataResponses());
     expect(container.textContent).toContain("Customers this week");

@@ -94,7 +94,7 @@ function RevenueCustomersWidget({ settings }: WidgetProps<RevenueCustomersSettin
       queries={queries}
       flush
       empty={loaded && !hasData ? { icon: TrendingUp, text: "Revenue and customers appear once Stripe, Shopify or a bank is connected and the first customer is won.", action: { label: "Open integrations", onClick: () => navigate(routes.settings(businessId, "integrations")) } } : null}
-      footer={<span>{finance.data?.revenue.label ?? "Revenue on a cash basis"} · {g("customers")} = first payments</span>}
+      footer={<span>{finance.data?.revenue.label ?? "Revenue on a cash basis"} · customers = first payments</span>}
     >
       <div className="flex h-full min-h-0 flex-col">
         <div className="grid grid-cols-2 gap-px border-b border-subtle bg-subtle">
