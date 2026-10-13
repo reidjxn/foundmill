@@ -120,11 +120,6 @@ export const businessesRepo = {
   },
 
   /**
-   * Whether work may start for the business (0023): false while the team is stopped (Stop all agents, a revoked key,
-   * used-up credits) or the business is archived. Every path that starts a session, a cycle, an engine or a training
-   * run asks this first; `resumeBusinessAgents` is the only way back.
-   */
-  /**
    * Committed, live businesses in Automated mode (service role, across tenants): the orchestrator keeps an autopilot
    * workflow running for each (BUILD §11.3 "In Automated mode Continue auto-runs"). A stopped team is listed too; its
    * autopilot waits for the resume.
@@ -139,6 +134,11 @@ export const businessesRepo = {
       .limit(limit);
   },
 
+  /**
+   * Whether work may start for the business (0023): false while the team is stopped (Stop all agents, a revoked key,
+   * used-up credits) or the business is archived. Every path that starts a session, a cycle, an engine or a training
+   * run asks this first; `resumeBusinessAgents` is the only way back.
+   */
   async agentsStopped(db: Executor, businessId: string): Promise<boolean> {
     const state = await businessesRepo.stopState(db, businessId);
     return state.stopped;
