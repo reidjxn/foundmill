@@ -4,6 +4,8 @@
  * source counts as imported only when the tool answered ok, and every outcome (a refusal, a failed tool, a thrown
  * error) is written to the row so the import job can finish.
  */
+import { createDefaultRegistry } from "@foundmill/connectors";
+import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { repos } from "@foundmill/db";
 import { IMPORT_SOURCE_KEYS, importCallFor } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -76,6 +78,19 @@ describe("importSource", () => {
     }
     expect(importCallFor("github", "not-a-repo")).toBeNull();
     expect(importCallFor("registry", "x")).toBeNull();
+  });
+
+  it("every call it builds passes the real tool's argument schema (the connector mocks answer invalid_args to arguments a tool rejects)", async () => {
+    const registry = createDefaultRegistry();
+    const values: Record<string, string> = { github: "acme/ledgerly", website: "https://ledgerlyhq.com", registry: "12345678" };
+    for (const key of IMPORT_SOURCE_KEYS) {
+      const call = importCallFor(key, values[key] ?? "");
+      if (!call) continue;
+      const mock = registry.get(call.connector, "mock");
+      expect(mock.tools.map((t) => t.name), `${call.connector} has the tool ${call.tool}`).toContain(call.tool);
+      const result = await mock.callTool(call.tool, call.args, makeToolContext(mock));
+      expect(result.error?.code, `${call.connector}.${call.tool}`).not.toBe("invalid_args");
+    }
   });
 
   it("a tool that answered not ok is not imported, whatever the policy said", async () => {
