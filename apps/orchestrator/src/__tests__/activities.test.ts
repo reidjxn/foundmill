@@ -4,7 +4,7 @@
  * refresh, channel engine steps, journey
  * build and the credential expiry scan. Everything runs in mock mode without a network.
  */
-import { getSkillTests } from "@foundmill/agents";
+import { getSkillTests, storedCustomTest } from "@foundmill/agents";
 import { openApprovalItem, periodOf, repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { createModelClient } from "@foundmill/models";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -512,6 +512,40 @@ describe("health refresh (BUILD §9.10)", () => {
     expect(third.changed.find((c) => c.agentId === t.workerId)).toBeUndefined();
     await repos.agents.setStatus(t.db, t.businessId, t.workerId, "idle");
   });
+
+  it("an agent down for an expired credential says which one to reconnect (TPD-08)", async () => {
+    const acts = createHealthActivities(t.deps);
+    const agent = await repos.agents.create(t.db, t.businessId, { name: "Billing clerk", agentType: "finance_ops", status: "idle", initialVersion: { tools: [{ connectorKey: "stripe", tools: ["list_payments"] }] } });
+    await repos.credentials.setExpiry(t.db, t.businessId, t.fixture.credentialId, new Date(t.clock.nowMs() - 86_400_000));
+    try {
+      const result = await acts.refreshAgentHealth({ businessId: t.businessId });
+      expect(result.changed.find((c) => c.agentId === agent.id)).toMatchObject({ to: "injured", reason: "The Stripe credential it depends on has expired; reconnect it in Settings › Integrations" });
+      const event = (await repos.events.latestPerAgent(t.db, t.businessId, "agent.health_changed", [agent.id])).get(agent.id);
+      expect(event?.payload).toMatchObject({ to: "injured", signals: { credentialExpired: true }, reason: expect.stringMatching(/Stripe credential/) });
+    } finally {
+      await repos.credentials.setExpiry(t.db, t.businessId, t.fixture.credentialId, null);
+      await repos.agents.release(t.db, t.businessId, agent.id);
+    }
+  });
+});
+
+describe("custom skills in training (AC-08)", () => {
+  it("a custom skill is scored on the tests the founder reviewed, held-out ones included, never on drafts", async () => {
+    const acts = createTrainingActivities(t.deps);
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const live = await repos.agents.getVersion(t.db, t.businessId, agent.currentVersionId!);
+    const def = await repos.skills.createCustomDefinition(t.db, t.businessId, { agentType: agent.agentType, skillKey: "custom_grant_writing", name: "Grant writing", group: "craft" });
+    const test = (title: string, heldOut: boolean, reviewed: boolean) =>
+      repos.skills.createTest(t.db, t.businessId, { skillDefinitionId: def.id, ...storedCustomTest({ title, prompt: "Write a 300-word summary of the grant application for the innovation fund.", rubric: ["Follows the funder's word limit", "States the outcome first"], checks: [], mockTools: [], heldOut }), reviewed });
+    await test("Visible reviewed test", false, true);
+    await test("Held-out reviewed test", true, true);
+    await test("Draft nobody reviewed", false, false);
+    const draft = await repos.agents.createVersion(t.db, t.businessId, agent.id, { instructions: live.instructions as never, tools: live.tools, modelKey: "sonnet", state: "draft", createdByKind: "user" });
+    const run = await repos.training.create(t.db, t.businessId, { agentId: agent.id, fromVersionId: live.id, toVersionId: draft.id });
+    const outcome = await acts.runSkillTests({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, skillKey: "custom_grant_writing", modelKey: "sonnet" });
+    expect(outcome.testsRun).toBe(2);
+    expect(outcome.tested).toBeGreaterThanOrEqual(1);
+  });
 });
 
 describe("channel engine steps (BUILD §11.7)", () => {
@@ -648,6 +682,28 @@ describe("channel engine steps (BUILD §11.7)", () => {
     expect(await repos.approvals.get(t.db, t.businessId, ask.awaitingApprovalId!)).toMatchObject({ outcome: "expired", byKind: "system" });
     // The engine's next step finds the channel off the board and stops; ending again is harmless.
     expect((await acts.channelStep({ ...base, step: "launch", state: ask.state })).stop).toBe(true);
+  });
+
+  it("publishing delegated to an agent in Team › Responsibilities: the launch is approved by it and scheduled without waiting (TPD-04)", async () => {
+    const acts = createChannelActivities(t.deps);
+    const departmentId = t.fixture.departmentId;
+    await repos.departments.update(t.db, t.businessId, departmentId, { approvers: [{ decisionType: "publish_content", handler: { kind: "agent", id: t.chiefId } }] });
+    try {
+      const channel = await repos.channels.upsert(t.db, t.businessId, { channelKey: "seo", line: "midfield", enabled: true, kitMode: true, budgetMinor: 10_000, currency: "EUR", ownerAgentId: t.workerId });
+      const base = { businessId: t.businessId, channelId: channel.id, channelKey: "seo", weekIndex: 0 };
+      let state = (await acts.channelStep({ ...base, step: "plan", state: emptyChannelState() })).state;
+      state = (await acts.channelStep({ ...base, step: "create", state })).state;
+      const approve = await acts.channelStep({ ...base, step: "approve", state });
+      expect(approve.awaitingApprovalId ?? null).toBeNull();
+      expect((await repos.campaigns.get(t.db, t.businessId, approve.state.campaignId!)).status).toBe("scheduled");
+      const approval = (await repos.approvals.list(t.db, t.businessId, { agentId: t.workerId, limit: 20 })).items.find((a) => a.tool === "launch_campaign" && (a.args as { campaignId?: string }).campaignId === approve.state.campaignId);
+      expect(approval).toMatchObject({ decisionType: "publish_content", handlerKind: "agent", handlerId: t.chiefId, outcome: "approved", byKind: "agent", byId: t.chiefId });
+      const resolved = await repos.events.list(t.db, t.businessId, { type: "approval.resolved", limit: 20 });
+      expect(resolved.items.some((e) => (e.payload as { approvalId: string }).approvalId === approval!.id)).toBe(true);
+      await repos.channels.setEnabled(t.db, t.businessId, channel.id, false);
+    } finally {
+      await repos.departments.update(t.db, t.businessId, departmentId, { approvers: [] });
+    }
   });
 });
 

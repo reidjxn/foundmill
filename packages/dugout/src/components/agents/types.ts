@@ -436,8 +436,8 @@ export interface ModelOption {
   key: ModelKey;
   label: string;
   description: string;
-  /** Predicted change in the average skill rating (points, Estimate). */
-  skillDelta: number;
+  /** Predicted change in the average skill rating (points, Estimate); null when no preview run has measured it. */
+  skillDelta: number | null;
   /** Predicted monthly wage change (Estimate). */
   wageDelta: Money;
   /** Why this option is unavailable (e.g. "Inbox Composer is locked to Opus"). */

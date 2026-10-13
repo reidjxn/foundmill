@@ -16,5 +16,5 @@ export default async function OnboardingPage() {
   if (result.kind === "signed_out") redirect("/login?next=%2Fonboarding");
   if (result.kind === "unreachable") return <ApiErrorPage error={result.error} email={result.email} />;
   const { viewer } = result;
-  return <OnboardingScreen profile={viewer.profile} email={viewer.email} />;
+  return <OnboardingScreen profile={viewer.profile} email={viewer.email} accountId={viewer.userId} />;
 }

@@ -264,7 +264,8 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         return { ...empty, status: "denied", outcome: "deny", result: { reasons: verdict.reasons } };
       }
 
-      if (verdict.outcome === "ask" && !input.approved) {
+      let approved = Boolean(input.approved);
+      if (verdict.outcome === "ask" && !approved) {
         const existing = await repos.approvals.forPlanAction(db, businessId, action.id);
         if (existing && existing.outcome === null) return { ...empty, status: "awaiting_approval", outcome: "ask", approvalId: existing.id };
         if (existing?.outcome === "rejected" || existing?.outcome === "expired") {
@@ -274,19 +275,28 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         const agent = await actingAgent(businessId, action.agentId, agents);
         const amount = amountOf(params) > 0 ? { amountMinor: amountOf(params), currency: str(params.currency, business.currency).toUpperCase() } : null;
         const what = str(params.summary, str(params.title, str(params.request, JSON.stringify(params).slice(0, 200))));
-        const approval = await repos.approvals.create(db, businessId, { planActionId: action.id, agentId: agent?.id ?? null, connectorKey: ACTION_TOOLS[action.type].connector, tool: ACTION_TOOLS[action.type].name, args: params, reasons: verdict.reasons, ...(amount ?? {}) });
-        await repos.plans.updateAction(db, businessId, action.id, { status: "awaiting_approval", policyOutcome: "ask" });
-        const requested = agent
-          ? await emitEvent(db, {
-              businessId,
-              type: "approval.requested",
-              actor: { kind: "agent", id: agent.id },
-              payload: { approvalId: approval.id, planActionId: action.id, agentId: agent.id, connectorKey: ACTION_TOOLS[action.type].connector, tool: ACTION_TOOLS[action.type].name, amount, reasons: verdict.reasons, policyIds: verdict.policyIds, hardGate: false, summary: `${action.type.replace(/_/g, " ")}: ${what}`.slice(0, 1000) },
-            })
-          : null;
-        // The founder answers it in the Inbox; Approve or Reject signals `approval:<id>`, the wait this plan runs in.
-        await openApprovalNote(db, businessId, approval, { agent, taskTitle: null, argsSummary: what, sourceEventIds: requested ? [requested.id] : [] });
-        return { ...empty, status: "awaiting_approval", outcome: "ask", approvalId: approval.id };
+        // Already approved (a retry after the agent Team › Responsibilities names decided it): it runs, never asks twice.
+        const approval = existing?.outcome === "approved" ? existing : await repos.approvals.create(db, businessId, { planActionId: action.id, agentId: agent?.id ?? null, connectorKey: ACTION_TOOLS[action.type].connector, tool: ACTION_TOOLS[action.type].name, args: params, reasons: verdict.reasons, ...(amount ?? {}) });
+        // An agent the Responsibilities matrix names decides the approval the moment it opens (AC-11.9.2): the action runs,
+        // and the decision is on record like any other.
+        approved = approval.outcome === "approved";
+        if (approved && approval !== existing && approval.byKind === "agent" && approval.byId && agent) {
+          await emitEvent(db, { businessId, type: "approval.resolved", actor: { kind: "agent", id: approval.byId }, payload: { approvalId: approval.id, planActionId: action.id, agentId: agent.id, outcome: "approved", resolvedBy: { kind: "agent", id: approval.byId }, note: "Delegated in Team › Responsibilities", latencyMs: 0 } });
+        }
+        if (!approved) {
+          await repos.plans.updateAction(db, businessId, action.id, { status: "awaiting_approval", policyOutcome: "ask" });
+          const requested = agent
+            ? await emitEvent(db, {
+                businessId,
+                type: "approval.requested",
+                actor: { kind: "agent", id: agent.id },
+                payload: { approvalId: approval.id, planActionId: action.id, agentId: agent.id, connectorKey: ACTION_TOOLS[action.type].connector, tool: ACTION_TOOLS[action.type].name, amount, reasons: verdict.reasons, policyIds: verdict.policyIds, hardGate: false, summary: `${action.type.replace(/_/g, " ")}: ${what}`.slice(0, 1000) },
+              })
+            : null;
+          // The founder answers it in the Inbox; Approve or Reject signals `approval:<id>`, the wait this plan runs in.
+          await openApprovalNote(db, businessId, approval, { agent, taskTitle: null, argsSummary: what, sourceEventIds: requested ? [requested.id] : [] });
+          return { ...empty, status: "awaiting_approval", outcome: "ask", approvalId: approval.id };
+        }
       }
 
       // The founder turned down the approval the connector's own policy asked for: the action is denied, not retried.
@@ -302,9 +312,9 @@ export function createPlanActivities(deps: OrchestratorDeps) {
       await repos.plans.startAction(db, businessId, action.id);
       try {
         const handled = await handle(action, params, { businessId, business, agents, workflowId: input.workflowId, approvalId: input.approvalId ?? null });
-        const { action: finished } = await repos.plans.finishAction(db, businessId, action.id, { status: "done", result: handled.result, policyOutcome: input.approved ? "ask" : "allow" });
-        await repos.audit.append(db, businessId, { actorKind: "system", action: `plan.action.${action.type}`, target: { kind: "plan_action", id: action.id }, details: { result: handled.result, approved: Boolean(input.approved) } });
-        return { actionId: finished.id, status: "done", outcome: input.approved ? "ask" : "allow", approvalId: input.approvalId ?? null, result: handled.result, spawn: handled.spawn };
+        const { action: finished } = await repos.plans.finishAction(db, businessId, action.id, { status: "done", result: handled.result, policyOutcome: approved ? "ask" : "allow" });
+        await repos.audit.append(db, businessId, { actorKind: "system", action: `plan.action.${action.type}`, target: { kind: "plan_action", id: action.id }, details: { result: handled.result, approved } });
+        return { actionId: finished.id, status: "done", outcome: approved ? "ask" : "allow", approvalId: input.approvalId ?? null, result: handled.result, spawn: handled.spawn };
       } catch (err) {
         if (err instanceof AwaitingGatewayApproval) {
           // The connector's own policy asked (a new counterparty, augmented mode): the action waits for that approval.

@@ -10,6 +10,9 @@ import { computeHealth, errorRate, type HealthSignals } from "../health";
 import { enforceWageCaps, recoverAgents } from "./dispatch";
 import type { HealthRefreshResult } from "./types";
 
+/** A connector key as the founder reads it ("google_ads" → "Google Ads"). */
+const connectorWord = (key: string): string => key.split(/[_-]/).map((w) => (w ? w[0]!.toUpperCase() + w.slice(1) : w)).join(" ");
+
 export function createHealthActivities(deps: OrchestratorDeps) {
   return {
     async refreshAgentHealth(input: { businessId: string }): Promise<HealthRefreshResult> {
@@ -51,7 +54,8 @@ export function createHealthActivities(deps: OrchestratorDeps) {
         }
         const version = agent.currentVersionId ? await repos.agents.getVersion(db, input.businessId, agent.currentVersionId) : null;
         const connectors = Array.isArray(version?.tools) ? (version!.tools as { connectorKey?: string }[]).map((t) => t.connectorKey).filter((k): k is string => typeof k === "string") : [];
-        const credentialExpired = connectors.some((k) => expiredConnectors.has(k));
+        const lapsed = connectors.filter((k) => expiredConnectors.has(k));
+        const credentialExpired = lapsed.length > 0;
         const spend = await repos.usage.agentSpend(db, input.businessId, agent.id, period);
         const signals: HealthSignals = {
           heartbeatAgeMs,
@@ -64,7 +68,9 @@ export function createHealthActivities(deps: OrchestratorDeps) {
           active: open.items.length > 0,
           expectedReturnAt: credentialExpired ? null : spend.remainingMinor !== null && spend.remainingMinor <= 0 ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString() : null,
         };
-        const verdict = computeHealth(signals);
+        const computed = computeHealth(signals);
+        // Down for a credential: the reason names what to reconnect, so the Health card can say it.
+        const verdict = computed.status === "injured" && credentialExpired ? { ...computed, reason: `The ${lapsed.map(connectorWord).join(" and ")} credential it depends on has expired; reconnect it in Settings › Integrations` } : computed;
         if (verdict.status === agent.status) continue;
         // The wage-cap pause carries its reason so it lifts itself next period; any other verdict never lands on an
         // agent someone paused in the meantime.

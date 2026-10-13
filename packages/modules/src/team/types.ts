@@ -74,6 +74,8 @@ export interface AgentRow {
   latestUpdate?: { at: Iso; text: string } | null;
   health?: AgentHealthRow | null;
   expectedReturnAt?: Iso | null;
+  /** The business's Chief of Staff (one per business): never released or cloned. Absent on older payloads. */
+  chiefOfStaff?: boolean;
   archivedAt?: Iso | null;
   createdAt?: Iso;
   updatedAt?: Iso;
@@ -164,7 +166,9 @@ export interface ModelCompareOption {
 export interface ModelCompareResponse {
   current: ModelKey;
   locked?: boolean;
-  /** The predicted wages' currency: metered model cost, so US dollars (absent from older answers). */
+  /** What the predictions scale: this month's spend, the last 30 days, or a typical month for an agent with none. */
+  basis?: "this_month" | "last_30_days" | "typical_month";
+  /** Currency of `predictedWageMinor`: metered model cost, so US dollars (absent from older answers). */
   currency?: string;
   options: ModelCompareOption[];
 }

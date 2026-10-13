@@ -22,6 +22,7 @@ import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { continueStateFor, cycleStatus } from "./cycle";
 import { maskFinance } from "./inbox-redaction";
+import { approvalIsForViewer, assertCanResolveApproval, canResolveApproval } from "./approval-handler";
 import { assertMayResolveApproval } from "./approver";
 import { SIGNALS, WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
 
@@ -76,6 +77,8 @@ const MOVED_ON: ReadonlySet<TaskStatus> = new Set<TaskStatus>(["running", "revie
 
 export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, approval: Approval, outcome: ApprovalOutcome, note: string | null): Promise<RecordedAnswer> {
   // Owners and admins, or the member Team › Responsibilities names for this kind of decision (SEC-7).
+  // The handler Responsibilities named when the approval opened answers it (owners and admins can step in).
+  assertCanResolveApproval(approval, { userId: ctx.userId, role: ctx.role });
   await assertMayResolveApproval(tx, ctx.businessId, { userId: ctx.userId, role: ctx.role }, approval, ctx.connectors);
   const resolved = await repos.approvals.resolve(tx, ctx.businessId, approval.id, { outcome, byKind: "user", byId: ctx.userId });
   const [agent, session, stop] = await Promise.all([
@@ -198,7 +201,7 @@ export async function resolveApproval(ctx: BusinessContext, input: { approvalId:
  * too: a reader walled from Finance sees no amount (nor the arguments of a call that spends), and one who cannot read
  * the section the call changes sees no arguments.
  */
-export async function pendingApprovals(tx: DbTx, ctx: Pick<BusinessContext, "businessId" | "membership">) {
+export async function pendingApprovals(tx: DbTx, ctx: Pick<BusinessContext, "businessId" | "membership" | "userId" | "role">) {
   const rows = await repos.approvals.pending(tx, ctx.businessId);
   const agents = new Map((await repos.agents.list(tx, ctx.businessId, { limit: 500 })).items.map((a) => [a.id, a.name]));
   const financeWalled = !hasSectionAccess(ctx.membership, "finance", "read");
@@ -219,7 +222,11 @@ export async function pendingApprovals(tx: DbTx, ctx: Pick<BusinessContext, "bus
         taskTitle: await approvalTaskTitle(tx, ctx.businessId, a),
         action: approvalAction(a),
         section,
-        canAnswer: hasSectionAccess(ctx.membership, section ?? "inbox", "write"),
+        canAnswer: hasSectionAccess(ctx.membership, section ?? "inbox", "write") && canResolveApproval(a, { userId: ctx.userId, role: ctx.role }),
+        // Who the Responsibilities matrix named (the founder when nobody), and whether it waits for the person asking.
+        handler: a.handlerKind && a.handlerId ? { kind: a.handlerKind, id: a.handlerId } : { kind: "founder" as const, id: null },
+        forMe: approvalIsForViewer(a, { userId: ctx.userId, role: ctx.role }),
+        canResolve: canResolveApproval(a, { userId: ctx.userId, role: ctx.role }),
       };
     }),
   );
@@ -230,7 +237,7 @@ export async function pendingApprovals(tx: DbTx, ctx: Pick<BusinessContext, "bus
  * it would send and the amount), or null for any other item. A reader walled from Finance sees no amount, and one who
  * cannot read the section the call changes sees no arguments; `canAnswer` says whether Approve and Reject are theirs.
  */
-export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "businessId" | "membership">, itemId: string) {
+export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "businessId" | "membership" | "userId" | "role">, itemId: string) {
   const approval = await repos.approvals.forInboxItem(tx, ctx.businessId, itemId);
   if (!approval) return null;
   const [agent, task, session] = await Promise.all([
@@ -260,6 +267,6 @@ export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "busines
     task: task ? { id: task.id, title: task.title, status: task.status } : null,
     sessionWaiting: session !== null && session.endedAt === null,
     section,
-    canAnswer: hasSectionAccess(ctx.membership, section ?? "inbox", "write"),
+    canAnswer: hasSectionAccess(ctx.membership, section ?? "inbox", "write") && canResolveApproval(approval, { userId: ctx.userId, role: ctx.role }),
   };
 }

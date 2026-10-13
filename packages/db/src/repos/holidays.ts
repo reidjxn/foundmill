@@ -11,7 +11,7 @@ import { ConflictError } from "@foundmill/shared";
 import { and, asc, desc, eq, gt, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { holidayPeriods, type HolidayPeriod } from "../schema";
-import { Currency, defined, Id, JsonObject, MinorAmount, one, parseInput, sqlState, type Executor } from "./_shared";
+import { Currency, changes, defined, Id, JsonObject, MinorAmount, one, parseInput, sqlState, type Executor } from "./_shared";
 
 export const StartHolidayInput = z
   .object({
@@ -93,7 +93,7 @@ export const holidaysRepo = {
 
   async update(db: Executor, businessId: string, holidayId: string, input: UpdateHolidayInput): Promise<HolidayPeriod> {
     const v = parseInput(UpdateHolidayInput, input, "vacation update");
-    return one(await db.update(holidayPeriods).set(defined(v)).where(scoped(businessId, holidayId)).returning(), "vacation", holidayId);
+    return one(await db.update(holidayPeriods).set(changes(v, "vacation")).where(scoped(businessId, holidayId)).returning(), "vacation", holidayId);
   },
 
   /**

@@ -79,6 +79,18 @@ describe("seedFromRows / baseSession", () => {
     expect(d.progress).toBe(1);
     expect(d.endedAt).toBe("2026-10-06T15:00:00.000Z");
   });
+  it("stops the clock of a blocked task whose session ended; a running one keeps ticking (FR-18)", () => {
+    // Blocked on an approval or a dependency, its session over: the tile's elapsed time stops when the task moved.
+    const blocked = { ...bundle, status: "blocked" as const, updatedAt: "2026-10-07T09:52:00Z" };
+    expect(baseSession(seedFromRows({ task: blocked, session: null, agent }), blocked).endedAt).toBe("2026-10-07T09:52:00.000Z");
+    // With the session that ended at hand, its own end wins.
+    const ended = { ...bundleSession, endedAt: "2026-10-07T09:51:30Z" };
+    expect(baseSession(seedFromRows({ task: blocked, session: ended, agent }), blocked, ended).endedAt).toBe("2026-10-07T09:51:30.000Z");
+    // Blocked inside a session that is still open (waiting for an answer), and running: the clock runs.
+    expect(baseSession(seedFromRows({ task: blocked, session: bundleSession, agent }), blocked, bundleSession).endedAt).toBeNull();
+    const running = { ...bundle, updatedAt: "2026-10-07T09:52:00Z" };
+    expect(baseSession(seedFromRows({ task: running, session: null, agent }), running).endedAt).toBeNull();
+  });
   it("placeholder for an unassigned task reads Unassigned", () => {
     expect(toTileAgent(undefined, null).name).toBe("Unassigned");
     expect(toTileAgent(undefined, AGENT_JUNO).name).toBe("Agent");

@@ -12,7 +12,7 @@ import { Chip, DevelopmentChart, Icon, KeyValueList, Markdown, Panel, PositionMa
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import type { TabProps } from "./AgentProfileScreen";
-import { autonomyFromAgent, currentVersion, departmentColour, developmentSeries, humaniseKey, latestPromotedRun, negotiationFromAgent, parseInstructions, positionFits, toSkillRows, traitsFor, trainingSessionMarks, wageLabel, whatIDo } from "./logic";
+import { autonomyFromAgent, currentVersion, departmentColour, developmentSeries, humaniseKey, latestPromotedRun, parseInstructions, positionFits, toSkillRows, traitsFor, trainingSessionMarks, wageLabel, whatIDo } from "./logic";
 
 export function OverviewTab({ businessId, profile, currency }: TabProps) {
   const { prefs: datePrefs, formatDateTime } = useFormatters();
@@ -31,7 +31,6 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
   const coachRun = latestPromotedRun(profile.trainingRuns) ?? profile.trainingRuns.find((r) => r.coachSummaryMd) ?? null;
   const about = whatIDo(profile);
   const autonomy = autonomyFromAgent(agent.autonomy);
-  const negotiation = negotiationFromAgent(agent.negotiation);
   const schedule = (agent.schedule ?? {}) as { cron?: string; triggers?: string[] };
   const money = (minor: number | null) => (minor === null ? "No cap" : formatMoney({ amountMinor: minor, currency }));
   // The founder's "Spend cap per action" (Settings › Mode) lowers every agent's ask line, as the gateway applies it.
@@ -114,7 +113,8 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
             { label: "Spend cap per action", value: money(autonomy.spendCapMinor), numeric: true },
             { label: "Asks above", value: asksAbove, numeric: true },
             { label: "Autonomy", value: autonomy.mode === "inherit" ? "Business mode" : autonomy.mode === "lower" ? "Asks more often" : "Acts more freely" },
-            { label: "Negotiation", value: negotiation.enabled ? `On · walk-away ${money(negotiation.walkAwayMinor)}` : "Off" },
+            // No negotiation runtime yet (AC-11.14.3): whatever was stored, nothing negotiates.
+            { label: "Negotiation", value: "Not available yet" },
             { label: "Schedule", value: schedule.cron ? <span className="font-mono text-mono">{schedule.cron}</span> : schedule.triggers?.length ? `${schedule.triggers.length} ${schedule.triggers.length === 1 ? "trigger" : "triggers"}` : <span className="inline-flex items-center gap-1 text-secondary"><Icon icon={CalendarClock} size="inline" /> On demand</span> },
             { label: "Live version", value: current ? `v${current.version} · ${formatDateTime(current.createdAt)}` : "None", mono: true },
             { label: "Type", value: humaniseKey(agent.agentType) },

@@ -166,9 +166,10 @@ export const financeRouter = router({
   }),
 
   /** Wage bill: per-agent cost this period (tokens, sandbox minutes, tool costs) — metered, labelled Estimate. */
-  wages: read.input(z.object({ period: Period.default(currentPeriod()) })).query(({ ctx, input }) =>
+  wages: read.input(z.object({ period: Period.optional() })).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
-      const period = input?.period ?? currentPeriod();
+      // Evaluated per request (a zod default computed at module load froze the month the process started: RA-25).
+      const period = input.period ?? currentPeriod();
       const [wages, agents] = await Promise.all([repos.usage.wages(tx, ctx.businessId, period), repos.agents.list(tx, ctx.businessId, { limit: 500 })]);
       // The team's cost is platform spend metered in US dollars (`currency`), and a wage cap caps that spend, so it is in
       // US dollars too (DECISIONS 2026-10-12): the share of the cap used compares like with like.

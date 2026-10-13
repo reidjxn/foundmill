@@ -30,8 +30,8 @@ export function toModelOptions(compare: ModelCompareResponse, currency: string =
     key: o.modelKey,
     label: MODEL_LABELS[o.modelKey],
     description: MODEL_DESCRIPTIONS[o.modelKey],
-    skillDelta: o.predictedSkillDelta ?? 0,
-    wageDelta: { amountMinor: o.predictedWageMinor - base, currency },
+    skillDelta: o.predictedSkillDelta ?? null,
+    wageDelta: { amountMinor: o.predictedWageMinor - base, currency: compare.currency ?? currency },
     lockedReason: o.allowed ? undefined : (o.warning ?? "Locked for this agent's route."),
     warning: o.allowed && o.warning ? o.warning : undefined,
   }));

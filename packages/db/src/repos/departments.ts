@@ -2,9 +2,9 @@
 import { ConflictError, departmentLetters, DEPT_COLOUR_TOKENS, isDepartmentShortcut, MODULE_KEYS, slugify, ValidationError } from "@foundmill/shared";
 import { and, asc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { departmentMembers, departments, MEMBER_KINDS, screenDefinitions, type Department, type DepartmentMember } from "../schema";
+import { agents, departmentMembers, departments, MEMBER_KINDS, screenDefinitions, tasks, type Department, type DepartmentMember } from "../schema";
 import { assertAgentsOwned, assertDepartmentsOwned } from "./_refs";
-import { Currency, defined, Id, JsonArray, maybeOne, MinorAmount, one, parseInput, type Executor, patchSchema } from "./_shared";
+import { Currency, changes, defined, Id, JsonArray, maybeOne, MinorAmount, one, parseInput, type Executor, patchSchema } from "./_shared";
 
 export const CreateDepartmentInput = z.object({
   name: z.string().trim().min(1).max(80),
@@ -128,7 +128,7 @@ export const departmentsRepo = {
     const v = parseInput(UpdateDepartmentInput, input, "department update");
     // The lead is one of this business's agents (the foreign key knows nothing about tenants, audit RA-07).
     await assertAgentsOwned(db, businessId, [v.leadAgentId], "leadAgentId");
-    if (v.name === undefined) return one(await db.update(departments).set(defined(v)).where(and(eq(departments.businessId, businessId), eq(departments.id, departmentId))).returning(), "department", departmentId);
+    if (v.name === undefined) return one(await db.update(departments).set(changes(v, "department")).where(and(eq(departments.businessId, businessId), eq(departments.id, departmentId))).returning(), "department", departmentId);
     // A rename re-derives this department's letter from its new name (AC-11.13.1) unless the founder chose it; every
     // other department keeps the letter it has now, stored first for a business that has none stored yet.
     await settleShortcuts(db, businessId);
@@ -224,19 +224,29 @@ export const departmentsRepo = {
   },
 
   /**
-   * Merge: moves members and module keys of `fromId` into `intoId`, then archives `fromId`.
-   * Screens of the merged department are archived (the target keeps its own tabs).
+   * Merge: moves members and module keys of `fromId` into `intoId`, then archives `fromId`. Its agents move across
+   * (`agents.department_ids`, which every screen, wage total and the cycle read), its tasks follow, and its lead
+   * becomes the target's lead when the target has none. Screens of the merged department are archived (the target
+   * keeps its own tabs).
    */
   async merge(db: Executor, businessId: string, fromId: string, intoId: string): Promise<Department> {
     if (fromId === intoId) throw new ValidationError("Cannot merge a department into itself");
     return db.transaction(async (tx) => {
       const from = await departmentsRepo.get(tx, businessId, fromId);
       const into = await departmentsRepo.get(tx, businessId, intoId);
+      if (from.archivedAt || into.archivedAt) throw new ValidationError("Only live departments can be merged", { fromId, intoId });
       const moduleKeys = parseInput(z.array(z.enum(MODULE_KEYS)), Array.from(new Set([...into.moduleKeys, ...from.moduleKeys])), "module keys");
       const members = await departmentsRepo.listMembers(tx, businessId, fromId);
       for (const m of members) await departmentsRepo.addMember(tx, businessId, intoId, { memberKind: m.memberKind, memberId: m.memberId });
+      // `fromId` becomes `intoId` in each agent's departments, once, in the same place (an agent in both keeps one).
+      await tx
+        .update(agents)
+        .set({ departmentIds: sql`array(select t.d from unnest(array_replace(${agents.departmentIds}, ${fromId}::uuid, ${intoId}::uuid)) with ordinality as t(d, i) group by t.d order by min(t.i))` })
+        .where(and(eq(agents.businessId, businessId), sql`${agents.departmentIds} @> array[${fromId}::uuid]`));
+      await tx.update(tasks).set({ departmentId: intoId }).where(and(eq(tasks.businessId, businessId), eq(tasks.departmentId, fromId)));
+      const fromLead = into.leadAgentId === null && from.leadAgentId !== null ? maybeOne(await tx.select({ id: agents.id }).from(agents).where(and(eq(agents.businessId, businessId), eq(agents.id, from.leadAgentId), isNull(agents.archivedAt))).limit(1)) : null;
       await departmentsRepo.archive(tx, businessId, fromId);
-      return departmentsRepo.update(tx, businessId, intoId, { moduleKeys });
+      return departmentsRepo.update(tx, businessId, intoId, { moduleKeys, ...(fromLead ? { leadAgentId: fromLead.id } : {}) });
     });
   },
 

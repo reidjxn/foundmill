@@ -10,7 +10,7 @@ import { SECURITY_KINDS, ValidationError } from "@foundmill/shared";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { capTableEntries, entities, securities, type CapTableEntry, type Security } from "../schema";
-import { Currency, defined, Id, JsonObject, MinorAmount, numericText, one, parseInput, type Executor, patchSchema } from "./_shared";
+import { Currency, changes, defined, Id, JsonObject, MinorAmount, numericText, one, parseInput, type Executor, patchSchema } from "./_shared";
 
 export const CreateSecurityInput = z.object({
   class: z.string().trim().min(1).max(80),
@@ -79,7 +79,7 @@ export const capTableRepo = {
 
   async updateSecurity(db: Executor, businessId: string, securityId: string, input: UpdateSecurityInput): Promise<Security> {
     const v = parseInput(UpdateSecurityInput, input, "security update");
-    return one(await db.update(securities).set(defined(v)).where(scopedSecurity(businessId, securityId)).returning(), "security", securityId);
+    return one(await db.update(securities).set(changes(v, "security")).where(scopedSecurity(businessId, securityId)).returning(), "security", securityId);
   },
 
   async archiveSecurity(db: Executor, businessId: string, securityId: string): Promise<Security> {

@@ -1,10 +1,11 @@
 /** founder_profiles — account-scoped (userId first), routers founder.profile.get/update. */
 import { RESERVED_NAME_MESSAGE, isReservedName } from "@foundmill/config";
 import { VISIBILITY, ValidationError } from "@foundmill/shared";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
 import { founderProfiles, type FounderProfile } from "../schema";
-import { Currency, defined, maybeOne, MinorAmount, one, parseInput, type Executor, patchSchema } from "./_shared";
+import { Currency, changes, maybeOne, MinorAmount, one, parseInput, type Executor, patchSchema } from "./_shared";
 
 const SkillRatings = z.record(z.string(), z.number().int().min(1).max(20));
 
@@ -34,6 +35,17 @@ function assertNameFree(displayName: string | undefined): void {
 }
 
 export const foundersRepo = {
+  /**
+   * The account that signs in with this email (case-insensitive), or null: an owner or admin adds a co-founder by the
+   * email they sign in with (team.humans.invite). Reads auth.users, so it runs on the service connection.
+   */
+  async userIdByEmail(db: Executor, email: string): Promise<string | null> {
+    const e = parseInput(z.string().trim().email().max(320), email, "email");
+    const rows = await db.select({ id: authUsers.id }).from(authUsers).where(sql`lower(${authUsers.email}) = lower(${e})`).limit(2);
+    // Two accounts on one address (case variants) are ambiguous: the account ID is needed instead.
+    return rows.length === 1 ? rows[0]!.id : null;
+  },
+
   async get(db: Executor, userId: string): Promise<FounderProfile | null> {
     return maybeOne(await db.select().from(founderProfiles).where(and(eq(founderProfiles.userId, userId), isNull(founderProfiles.archivedAt))).limit(1));
   },
@@ -68,6 +80,6 @@ export const foundersRepo = {
   async update(db: Executor, userId: string, patch: FounderProfilePatch): Promise<FounderProfile> {
     assertNameFree(patch.displayName);
     const v = parseInput(FounderProfilePatch, patch, "founder profile update");
-    return one(await db.update(founderProfiles).set(defined(v)).where(eq(founderProfiles.userId, userId)).returning(), "founder profile", userId);
+    return one(await db.update(founderProfiles).set(changes(v, "founder profile")).where(eq(founderProfiles.userId, userId)).returning(), "founder profile", userId);
   },
 };

@@ -3,7 +3,7 @@ import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, ConflictError, DATA_REG
 import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { auditLog, businesses, memberships, type Business } from "../schema";
-import { Currency, defined, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, rowsOf, uniqueViolation, type Executor } from "./_shared";
+import { Currency, changes, defined, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, rowsOf, uniqueViolation, type Executor } from "./_shared";
 
 const HexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/, "brand colors are #RRGGBB");
 /** ISO 4217: three letters (0025 holds the column to the same shape). */
@@ -202,7 +202,7 @@ export const businessesRepo = {
   async update(db: Executor, businessId: string, input: UpdateBusinessInput): Promise<Business> {
     const v = parseInput(UpdateBusinessInput, input, "business update");
     try {
-      const rows = await db.update(businesses).set(defined(v)).where(and(eq(businesses.id, businessId), notArchived)).returning();
+      const rows = await db.update(businesses).set(changes(v, "business")).where(and(eq(businesses.id, businessId), notArchived)).returning();
       return one(rows, "business", businessId);
     } catch (err) {
       if (v.slug !== undefined && uniqueViolation(err)?.constraint === "businesses_slug_key") throw new ConflictError(SLUG_TAKEN, { field: "slug" });

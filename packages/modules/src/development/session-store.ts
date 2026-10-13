@@ -92,19 +92,23 @@ const PHASE_FOR_STATUS: Partial<Record<TaskStatus, TaskPhase>> = { review: "revi
 
 /**
  * A tile before any stream event: the seed plus what the task row already knows (status, stored progress, phase,
- * ETA, end time), so a tile is never blank while the stream warms up or when the session has already ended.
+ * ETA, end time), so a tile is never blank while the stream warms up or when the session has already ended. Its clock
+ * stops when the work stopped: a finished task at its end, a session that has ended at its end, and a task that is not
+ * running and has no open session (blocked, paused or in review once its session ended) when the task last moved.
  */
 export function baseSession(seed: SessionSeed, task: TaskRow, session?: SessionRow | null): AgentTileSession {
   const s = emptySession(seed);
   const phase = task.phase ?? PHASE_FOR_STATUS[task.status] ?? (task.status === "running" || task.status === "paused" || task.status === "blocked" ? "implementing" : "planning");
-  const endedAt = session?.endedAt ? toIso(session.endedAt) : task.endedAt ? toIso(task.endedAt) : null;
+  const finished = task.status === "done" || task.status === "failed" || task.status === "stopped";
+  const sessionOver = session ? !!session.endedAt : task.status !== "running";
+  const endedAt = session?.endedAt ? toIso(session.endedAt) : task.endedAt ? toIso(task.endedAt) : !session && task.updatedAt ? toIso(task.updatedAt) : null;
   return {
     ...s,
     status: task.status,
     phase,
     progress: progressValue(task.progress),
     etaAt: task.eta ? toIso(task.eta) : null,
-    endedAt: task.status === "done" || task.status === "failed" || task.status === "stopped" ? endedAt : null,
+    endedAt: finished || sessionOver ? endedAt : null,
   };
 }
 

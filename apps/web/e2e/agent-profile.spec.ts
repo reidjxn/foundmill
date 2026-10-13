@@ -164,7 +164,10 @@ test.describe("agent profile", () => {
     await page.getByRole("tab", { name: "Autonomy" }).click();
     await expect(page.getByTestId("agent-autonomy")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("save-autonomy")).toHaveText(/Save autonomy/);
-    await expect(page.getByTestId("save-negotiation")).toHaveText(/Save negotiation/);
+    // Negotiation has no runtime yet (AC-11.14.3): the switch is off and cannot be turned on; limits save as "Save limits".
+    await expect(page.getByTestId("save-negotiation")).toHaveText(/Save limits/);
+    await expect(page.locator("#negotiation-enabled")).toBeDisabled();
+    await expect(page.getByTestId("negotiation-footer")).toContainText("not available yet");
     // Tools by name in words, never "HARD GATE (BUILD §2.2)".
     await page.getByRole("tab", { name: "Tools" }).click();
     await expect(page.getByTestId("tool-grants")).toBeVisible({ timeout: LONG });
@@ -182,6 +185,35 @@ test.describe("agent profile", () => {
     await page.getByRole("tab", { name: "Logs" }).click();
     await expect(page.getByTestId("agent-logs")).toBeVisible({ timeout: LONG });
     expect(page.url()).toContain(`/b/${NORTHWIND_BUSINESS_ID}/agents/`);
+    // Sessions name their task and link to it on the Plan, never a raw task id (TPD-21).
+    await expect(page.getByTestId("agent-logs")).not.toContainText(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/);
+    const taskLink = page.getByTestId("agent-logs").locator("a[href*='/plan?task=']").first();
+    if (await taskLink.count()) await expect(taskLink).not.toHaveText(/^[0-9a-f-]{36}$/);
+  });
+
+  test("line manager: the header control opens a picker; nothing is saved until a new manager is chosen (TPD-27)", async ({ page }) => {
+    await openSquadAgent(page);
+    const header = page.getByTestId("profile-header");
+    await expect(header.getByTestId("header-line-manager")).toBeVisible({ timeout: LONG });
+    await header.getByTestId("header-change-manager").click();
+    const dialog = page.getByTestId("line-manager-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByTestId("line-manager-save")).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+  });
+
+  test("training: custom skills can be added and wait for review (AC-08)", async ({ page }) => {
+    await openSquadAgent(page);
+    await page.getByRole("tab", { name: "Training" }).click();
+    const panel = page.getByTestId("custom-skills");
+    await expect(panel).toBeVisible({ timeout: LONG });
+    await panel.getByTestId("add-custom-skill").click();
+    const dialog = page.getByTestId("add-skill-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByTestId("draft-custom-skill")).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
   });
 
   test("model costs read in US dollars on a business that keeps its books in pounds", async ({ page }) => {

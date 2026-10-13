@@ -70,6 +70,8 @@ test.describe("onboarding", () => {
     await expect(page.getByRole("slider")).toHaveCount(5);
     await expect(page.locator("[data-section-link]")).toHaveCount(5);
     await expect(page.getByTestId("studio-frame")).toHaveAttribute("data-step", "profile");
+    // A co-founder joining someone else's business finds their account ID here, before any business exists (WEB-12).
+    await expect(page.getByTestId("profile-account-id").getByTestId("account-id")).toContainText(/[0-9a-f]{8}-[0-9a-f]{4}-/);
   });
 
   test("refuses values the API would reject, inline and in plain words (audit FR-14)", async ({ page }) => {

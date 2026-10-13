@@ -67,7 +67,9 @@ export function assertMayDecide(decider: Decider, decisionType: DecisionType | n
  * connector's own hints): a contract tool is signing, a merge is merge to main, a spending tool is a spend above the
  * threshold, a tool that contacts people is messaging customers. Anything else is the founder's.
  */
-export function approvalDecisionType(approval: Pick<Approval, "connectorKey" | "tool">, connectors: Pick<ConnectorRegistry, "get"> | null): DecisionType | null {
+export function approvalDecisionType(approval: Pick<Approval, "connectorKey" | "tool"> & { decisionType?: DecisionType | null }, connectors: Pick<ConnectorRegistry, "get"> | null): DecisionType | null {
+  // The type the approval was routed under when it opened (Team › Responsibilities) is the one that counts.
+  if (approval.decisionType) return approval.decisionType;
   const key = approval.connectorKey;
   const tool = approval.tool;
   if (!key || !tool) return null;
@@ -85,7 +87,7 @@ export function approvalDecisionType(approval: Pick<Approval, "connectorKey" | "
 }
 
 /** Refuses (403) a person who may not answer this agent's approval. */
-export async function assertMayResolveApproval(db: Executor, businessId: string, decider: Decider, approval: Pick<Approval, "agentId" | "connectorKey" | "tool">, connectors: Pick<ConnectorRegistry, "get"> | null): Promise<void> {
+export async function assertMayResolveApproval(db: Executor, businessId: string, decider: Decider, approval: Pick<Approval, "agentId" | "connectorKey" | "tool"> & { decisionType?: DecisionType | null }, connectors: Pick<ConnectorRegistry, "get"> | null): Promise<void> {
   if (ADMIN_ROLES.includes(decider.role)) return;
   const decisionType = approvalDecisionType(approval, connectors);
   const [departments, agent] = await Promise.all([repos.departments.list(db, businessId), approval.agentId ? repos.agents.get(db, businessId, approval.agentId).catch(() => null) : Promise.resolve(null)]);

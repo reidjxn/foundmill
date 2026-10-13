@@ -6,7 +6,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TooltipProvider, useFormatters, type DateFormatPrefs } from "@foundmill/dugout";
+import { ToastProvider, TooltipProvider, useFormatters, type DateFormatPrefs } from "@foundmill/dugout";
 import type * as SharedModule from "../shared";
 
 let stored: DateFormatPrefs = { date: "us", time: "12h" };
@@ -20,6 +20,12 @@ const failed = vi.fn();
 vi.mock("@/lib/trpc-react", () => ({
   useTRPC: () => ({
     founder: {
+      // The account ID section reads the signed-in person's id (WEB-12).
+      profile: {
+        get: {
+          queryOptions: (_input: unknown, opts: Record<string, unknown>) => ({ queryKey: [["founder", "profile", "get"], { type: "query" }], queryFn: async () => ({ userId: "5a1e0000-0000-4000-8000-00000000fe01", profile: null, complete: true, email: "reid@northwind.example", memberships: [] }), ...opts }),
+        },
+      },
       preferences: {
         get: {
           queryKey: () => [["founder", "preferences", "get"], { type: "query" }],
@@ -56,10 +62,12 @@ describe("PreferencesTab", () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
         <TooltipProvider>
-          <DateFormatHost initial={{ date: "us", time: "12h" }} owner="dev">
-            <PreferencesTab />
-            <Elsewhere />
-          </DateFormatHost>
+          <ToastProvider>
+            <DateFormatHost initial={{ date: "us", time: "12h" }} owner="dev">
+              <PreferencesTab />
+              <Elsewhere />
+            </DateFormatHost>
+          </ToastProvider>
         </TooltipProvider>
       </QueryClientProvider>,
     );
@@ -67,6 +75,8 @@ describe("PreferencesTab", () => {
     expect(screen.getByTestId("preferences-panel").textContent).toContain("in every business");
     expect(screen.getByTestId("preferences-panel").textContent).toContain("3 min ago");
     expect(screen.getByRole("radio", { name: "US" }).getAttribute("aria-checked")).toBe("true");
+    // The signed-in person's account ID, for a co-founder to add them (WEB-12).
+    await waitFor(() => expect(screen.getByTestId("account-id").textContent).toContain("5a1e0000-0000-4000-8000-00000000fe01"));
 
     fireEvent.click(screen.getByRole("radio", { name: "Day first" }));
     await waitFor(() => expect(update).toHaveBeenCalledWith({ date: "day_first" }));
@@ -86,10 +96,12 @@ describe("PreferencesTab", () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
         <TooltipProvider>
-          <DateFormatHost initial={{ date: "us", time: "12h" }} owner="dev">
-            <PreferencesTab />
-            <Elsewhere />
-          </DateFormatHost>
+          <ToastProvider>
+            <DateFormatHost initial={{ date: "us", time: "12h" }} owner="dev">
+              <PreferencesTab />
+              <Elsewhere />
+            </DateFormatHost>
+          </ToastProvider>
         </TooltipProvider>
       </QueryClientProvider>,
     );

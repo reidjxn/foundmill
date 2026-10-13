@@ -45,13 +45,16 @@ import {
   type ProfilePatch,
   type ProfileSectionId,
 } from "./profile-form";
+import { AccountId } from "@/components/settings/AccountId";
 
 export interface OnboardingScreenProps {
   profile: ProfileLike | null;
   email: string | null;
+  /** The signed-in person's account ID, shown so a co-founder can add them to a business. */
+  accountId?: string | null;
 }
 
-export function OnboardingScreen({ profile, email }: OnboardingScreenProps) {
+export function OnboardingScreen({ profile, email, accountId = null }: OnboardingScreenProps) {
   const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -74,7 +77,7 @@ export function OnboardingScreen({ profile, email }: OnboardingScreenProps) {
     }),
   );
 
-  return <OnboardingForm profile={profile} email={email} saving={save.isPending} error={save.error ? saveErrorMessage(save.error) : null} onSubmit={(patch) => save.mutate(patch)} />;
+  return <OnboardingForm profile={profile} email={email} accountId={accountId} saving={save.isPending} error={save.error ? saveErrorMessage(save.error) : null} onSubmit={(patch) => save.mutate(patch)} />;
 }
 
 /** A refused save in the founder's words: the answers the API named, not its field names or Zod text. */
@@ -85,12 +88,13 @@ function saveErrorMessage(err: unknown): string {
 export interface OnboardingFormProps {
   profile: ProfileLike | null;
   email: string | null;
+  accountId?: string | null;
   saving?: boolean;
   error?: string | null;
   onSubmit: (patch: ProfilePatch) => void;
 }
 
-export function OnboardingForm({ profile, email, saving = false, error, onSubmit }: OnboardingFormProps) {
+export function OnboardingForm({ profile, email, accountId = null, saving = false, error, onSubmit }: OnboardingFormProps) {
   const editing = profile !== null;
   const [form, setForm] = useState<ProfileForm>(() => formFromProfile(profile, email));
   const [touched, setTouched] = useState(false);
@@ -155,6 +159,11 @@ export function OnboardingForm({ profile, email, saving = false, error, onSubmit
             <Panel title="How the team reads you" data-testid="profile-summary">
               <p className={cn("text-body [overflow-wrap:anywhere]", summary ? "text-primary" : "text-secondary")}>{summary || "Pick your experience and time to see the one-line brief every agent starts from."}</p>
             </Panel>
+            {accountId ? (
+              <Panel title="Your account ID" data-testid="profile-account-id">
+                <AccountId accountId={accountId} />
+              </Panel>
+            ) : null}
             <p className="flex items-start gap-2 px-1 text-small text-secondary">
               <Lock size={14} className="mt-px shrink-0 text-tertiary" aria-hidden />
               Your profile is private. Agents read it as context; it is never shown on the network, even when a business goes live.

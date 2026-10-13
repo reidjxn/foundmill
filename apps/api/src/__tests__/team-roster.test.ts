@@ -1,0 +1,186 @@
+/**
+ * team.* fixes (brief W19): one Chief of Staff (ARB-18), unknown templates are a 400 (ARB-25), release stops the work
+ * and leaves no dangling pointer (TPD-09, ARB-19, VTPD-X1), merge moves the agents (RA-16), a move changes the line
+ * manager (TPD-27), the Team table's Form, Tools, Latest update and Health come from real rows (TPD-08), a co-founder
+ * can be added by email (WEB-12), and Responsibilities are an admin's call, refuse unknown departments (ARB-26) and
+ * route approvals (TPD-04).
+ */
+import { repos } from "@foundmill/db";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
+
+describe("team.agents (W19)", () => {
+  let hz: ApiHarness;
+  const temporal = fakeTemporalClient();
+  beforeAll(async () => {
+    hz = await createApiHarness({ prefix: "teamw19", temporalClient: temporal });
+  }, 120_000);
+  afterAll(() => hz.close());
+
+  it("refuses to hire or clone a second Chief of Staff and never lists it in the catalog (ARB-18)", async () => {
+    const { businessId, ownerId, departmentId, agentId } = hz.A;
+    const owner = hz.caller({ userId: ownerId });
+    await expect(owner.team.agents.hire({ businessId, templateKey: "chief_of_staff", departmentId })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/one Chief of Staff/) });
+    await expect(owner.team.agents.clone({ businessId, agentId, name: "Second chief" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const catalogue = await owner.team.agents.catalogue({ businessId });
+    expect(catalogue.some((t) => t.key === "chief_of_staff" || t.family === "assistant")).toBe(false);
+    expect((await repos.agents.list(hz.db, businessId, { limit: 500 })).items.filter((a) => a.layer === "assistant")).toHaveLength(1);
+  });
+
+  it("an unknown template is a 400 that names the problem, not a 500 (ARB-25)", async () => {
+    const { businessId, ownerId, departmentId } = hz.A;
+    await expect(hz.caller({ userId: ownerId }).team.agents.hire({ businessId, templateKey: "no_such_template", departmentId })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/Unknown agent template/) });
+  });
+
+  it("a hire reports to the department's live lead; an archived department is refused", async () => {
+    const { businessId, ownerId, departmentId, agentId } = hz.A;
+    const owner = hz.caller({ userId: ownerId });
+    const hired = await owner.team.agents.hire({ businessId, templateKey: "docs_writer", departmentId, name: "Nell" });
+    expect(hired.lineManagerId).toBe(agentId);
+    const gone = await repos.departments.create(hz.db, businessId, { name: "Gone dept" });
+    await repos.departments.archive(hz.db, businessId, gone.id);
+    await expect(owner.team.agents.hire({ businessId, templateKey: "docs_writer", departmentId: gone.id })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("release hands work back, clears the lead and reports, and signals the open session to stop (TPD-09, ARB-19)", async () => {
+    const { businessId, memberId } = hz.A;
+    const lead = await repos.agents.create(hz.db, businessId, { name: "Leaving lead", agentType: "engineer" });
+    const report = await repos.agents.create(hz.db, businessId, { name: "Its report", agentType: "engineer", lineManagerId: lead.id });
+    const dept = await repos.departments.create(hz.db, businessId, { name: "Lead dept", leadAgentId: lead.id });
+    const task = await repos.tasks.create(hz.db, businessId, { kind: "code", title: "Half done", status: "running", assigneeAgentId: lead.id, departmentId: dept.id });
+    const session = await repos.agents.createSession(hz.db, businessId, { agentId: lead.id, taskId: task.id });
+    // A member who may change the team releases it; the department's lead is cleared even though members cannot write departments.
+    const released = await hz.caller({ userId: memberId }).team.agents.release({ businessId, agentId: lead.id });
+    expect(released).toMatchObject({ id: lead.id, status: "paused", handedBack: [task.id], sessions: { stopping: 1, signalled: 1 } });
+    expect(released.archivedAt).toBeInstanceOf(Date);
+    expect(temporal.signals).toContainEqual({ workflowId: `session:${session.id}`, signal: "stop", args: [{ reason: "released", by: memberId }] });
+    expect(await repos.tasks.get(hz.db, businessId, task.id)).toMatchObject({ status: "ready", assigneeAgentId: null });
+    expect((await repos.departments.get(hz.db, businessId, dept.id)).leadAgentId).toBeNull();
+    expect((await repos.agents.get(hz.db, businessId, report.id)).lineManagerId).toBeNull();
+    const health = await repos.events.latestPerAgent(hz.db, businessId, "agent.health_changed", [lead.id]);
+    expect(health.get(lead.id)?.payload).toMatchObject({ to: "paused", reason: "Leaving lead was released from the team" });
+    // Releasing again changes nothing and signals nothing.
+    const signals = temporal.signals.length;
+    expect(await hz.caller({ userId: memberId }).team.agents.release({ businessId, agentId: lead.id })).toMatchObject({ handedBack: [], sessions: { stopping: 0, signalled: 0 } });
+    expect(temporal.signals).toHaveLength(signals);
+  });
+
+  it("the Chief of Staff cannot be released; another business's agent is not found", async () => {
+    const { businessId, ownerId, agentId } = hz.A;
+    await expect(hz.caller({ userId: ownerId }).team.agents.release({ businessId, agentId })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(hz.caller({ userId: ownerId }).team.agents.release({ businessId, agentId: hz.B.agent2Id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect((await repos.agents.get(hz.db, hz.B.businessId, hz.B.agent2Id)).archivedAt).toBeNull();
+  });
+
+  it("a move makes the new department's lead the line manager; no lead means the founder (TPD-27)", async () => {
+    const { businessId, ownerId, agentId } = hz.A;
+    const owner = hz.caller({ userId: ownerId });
+    const mover = await repos.agents.create(hz.db, businessId, { name: "Mover", agentType: "engineer", lineManagerId: agentId });
+    const newLead = await repos.agents.create(hz.db, businessId, { name: "New lead", agentType: "engineer" });
+    const withLead = await repos.departments.create(hz.db, businessId, { name: "With lead", leadAgentId: newLead.id });
+    const noLead = await repos.departments.create(hz.db, businessId, { name: "No lead" });
+    expect(await owner.team.agents.loan({ businessId, agentId: mover.id, departmentId: withLead.id, move: true })).toMatchObject({ departmentIds: [withLead.id], lineManagerId: newLead.id });
+    // A loan (not a move) keeps the manager.
+    expect(await owner.team.agents.loan({ businessId, agentId: mover.id, departmentId: noLead.id })).toMatchObject({ departmentIds: [withLead.id, noLead.id], lineManagerId: newLead.id });
+    expect(await owner.team.agents.loan({ businessId, agentId: mover.id, departmentId: noLead.id, move: true })).toMatchObject({ departmentIds: [noLead.id], lineManagerId: null });
+  });
+
+  it("department.merge moves the merged department's agents (RA-16)", async () => {
+    const { businessId, ownerId } = hz.A;
+    const owner = hz.caller({ userId: ownerId });
+    const from = await repos.departments.create(hz.db, businessId, { name: "Merged away" });
+    const into = await repos.departments.create(hz.db, businessId, { name: "Merged into" });
+    const a = await repos.agents.create(hz.db, businessId, { name: "Merged agent", agentType: "engineer", departmentIds: [from.id] });
+    await owner.department.merge({ businessId, fromId: from.id, intoId: into.id });
+    expect((await repos.agents.get(hz.db, businessId, a.id)).departmentIds).toEqual([into.id]);
+    const list = await owner.team.agents.list({ businessId, departmentId: into.id });
+    expect(list.agents.map((x) => x.id)).toContain(a.id);
+  });
+
+  it("team.agents.list fills Form, Tools, Latest update, Health and the Chief of Staff flag from real rows (TPD-08)", async () => {
+    const { businessId, ownerId, agentId } = hz.A;
+    const a = await repos.agents.create(hz.db, businessId, { name: "Busy agent", agentType: "engineer", initialVersion: { tools: [{ connectorKey: "github", tools: ["open_pr", "merge_pr"] }] } });
+    const task = await repos.tasks.create(hz.db, businessId, { kind: "code", title: "Ship the export", status: "running", assigneeAgentId: a.id });
+    for (const [i, outcome] of ["done", "failed", "blocked"].entries()) {
+      const s = await repos.agents.createSession(hz.db, businessId, { agentId: a.id, taskId: task.id, startedAt: new Date(Date.now() - 600_000) });
+      await repos.agents.endSession(hz.db, businessId, s.id, { outcome, endedAt: new Date(Date.now() - 500_000 + i * 60_000) });
+    }
+    await repos.agents.createSession(hz.db, businessId, { agentId: a.id, taskId: task.id });
+    await repos.agents.setStatus(hz.db, businessId, a.id, "injured");
+    await repos.events.write(hz.db, businessId, { type: "agent.health_changed", actor: { kind: "system", id: "health" }, payload: { agentId: a.id, from: "healthy", to: "injured", reason: "The GitHub credential it depends on has expired", signals: { credentialExpired: true }, expectedReturnAt: null, sessionId: null } });
+    const { agents } = await hz.caller({ userId: ownerId }).team.agents.list({ businessId });
+    const row = agents.find((x) => x.id === a.id)!;
+    expect(row.tools).toEqual([{ connectorKey: "github", tools: ["open_pr", "merge_pr"] }]);
+    expect(row.form).toEqual(["success", "failure", "partial"]);
+    expect(row.latestUpdate).toMatchObject({ text: "Working on “Ship the export”" });
+    expect(row.health).toMatchObject({ credentialExpired: true, loopDetected: false, reason: "The GitHub credential it depends on has expired" });
+    expect(row.health.errorRate).toBeCloseTo(1 / 3);
+    expect(row.health.lastHeartbeatAt).toBeInstanceOf(Date);
+    expect(agents.find((x) => x.id === agentId)?.chiefOfStaff).toBe(true);
+    expect(row.chiefOfStaff).toBe(false);
+  });
+});
+
+describe("team.humans and team.responsibilities (W19)", () => {
+  let hz: ApiHarness;
+  beforeAll(async () => {
+    hz = await createApiHarness({ prefix: "teamw19h" });
+  }, 120_000);
+  afterAll(() => hz.close());
+
+  it("adds a co-founder by the email they sign in with; an unknown email says what to do (WEB-12)", async () => {
+    const { businessId, ownerId } = hz.A;
+    const newcomer = await hz.h.createUser("cofounder-w19@test.local");
+    const owner = hz.caller({ userId: ownerId });
+    // The fixture business already fills the free tier's one seat.
+    await owner.billing.changeTier({ businessId, tier: "scale" });
+    await expect(owner.team.humans.invite({ businessId, email: "nobody-w19@test.local" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/No account signs in with that email/) });
+    await expect(owner.team.humans.invite({ businessId })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const added = await owner.team.humans.invite({ businessId, email: "Cofounder-W19@test.local", role: "admin" });
+    expect(added).toMatchObject({ userId: newcomer, role: "admin" });
+    await expect(owner.team.humans.invite({ businessId, userId: newcomer })).rejects.toMatchObject({ code: "CONFLICT" });
+    // founder.profile.get tells a person their own account ID.
+    expect((await hz.caller({ userId: newcomer }).founder.profile.get()).userId).toBe(newcomer);
+  });
+
+  it("responsibilities.set is an owner's or admin's call, needs a named handler and a department of the business (ARB-26)", async () => {
+    const { businessId, ownerId, memberId, departmentId } = hz.A;
+    const owner = hz.caller({ userId: ownerId });
+    await expect(hz.caller({ userId: memberId }).team.responsibilities.set({ businessId, decisionType: "merge_to_main", handler: { kind: "user", id: memberId } })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(owner.team.responsibilities.set({ businessId, decisionType: "merge_to_main", handler: { kind: "user", id: null } })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const auditBefore = (await repos.audit.list(hz.db, businessId, { action: "team.responsibilities.set" })).items.length;
+    await expect(owner.team.responsibilities.set({ businessId, decisionType: "merge_to_main", handler: { kind: "founder", id: null }, departmentId: hz.B.departmentId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect((await repos.audit.list(hz.db, businessId, { action: "team.responsibilities.set" })).items).toHaveLength(auditBefore);
+    expect(await owner.team.responsibilities.set({ businessId, decisionType: "message_customers", handler: { kind: "user", id: memberId }, departmentId })).toEqual({ updated: 1 });
+  });
+
+  it("approvals are routed to the handler, who sees them as theirs; others cannot answer them (TPD-04, VARB-B4-X2)", async () => {
+    const { businessId, ownerId, memberId, departmentId, agent2Id } = hz.A;
+    await repos.agents.update(hz.db, businessId, agent2Id, { departmentIds: [departmentId] });
+    // message_customers in Product goes to the member (set in the test above).
+    const approval = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey: "gmail", tool: "send_email" });
+    expect(approval).toMatchObject({ decisionType: "message_customers", handlerKind: "user", handlerId: memberId });
+    const mine = await hz.caller({ userId: memberId }).team.approvals.pending({ businessId, forMe: true });
+    expect(mine.map((a) => a.id)).toEqual([approval.id]);
+    expect(mine[0]).toMatchObject({ handler: { kind: "user", id: memberId }, forMe: true, canResolve: true });
+    const ownersQueue = await hz.caller({ userId: ownerId }).team.approvals.pending({ businessId, forMe: true });
+    expect(ownersQueue.map((a) => a.id)).not.toContain(approval.id);
+    // Another approval for the founder: the member may not answer one delegated elsewhere.
+    await hz.caller({ userId: ownerId }).team.responsibilities.set({ businessId, decisionType: "publish_content", handler: { kind: "user", id: hz.A.adminId }, departmentId });
+    const forAdmin = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey: "x", tool: "schedule_post" });
+    await expect(hz.caller({ userId: memberId }).team.approvals.resolve({ businessId, approvalId: forAdmin.id, outcome: "approved" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect((await hz.caller({ userId: memberId }).team.approvals.resolve({ businessId, approvalId: approval.id, outcome: "approved" })).outcome).toBe("approved");
+    // An owner can always step in.
+    expect((await hz.caller({ userId: ownerId }).team.approvals.resolve({ businessId, approvalId: forAdmin.id, outcome: "rejected" })).outcome).toBe("rejected");
+  });
+
+  it("an approval delegated to an agent is decided by it as it opens (TPD-04)", async () => {
+    const { businessId, ownerId, departmentId, agent2Id } = hz.A;
+    const decider = await repos.agents.create(hz.db, businessId, { name: "Merge decider", agentType: "review_agent", departmentIds: [departmentId] });
+    await hz.caller({ userId: ownerId }).team.responsibilities.set({ businessId, decisionType: "merge_to_main", handler: { kind: "agent", id: decider.id }, departmentId });
+    const approval = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey: "github", tool: "merge_pr" });
+    expect(approval).toMatchObject({ outcome: "approved", byKind: "agent", byId: decider.id });
+    expect((await hz.caller({ userId: ownerId }).team.approvals.pending({ businessId })).map((a) => a.id)).not.toContain(approval.id);
+    await expect(hz.caller({ userId: ownerId }).team.responsibilities.set({ businessId, decisionType: "sign_contracts", handler: { kind: "agent", id: decider.id } })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});

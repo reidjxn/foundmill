@@ -300,7 +300,7 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
       log.info({ approvalId: granted.id }, "tool call runs under the founder's approval");
       return allow(deps, session, req, loaded, { ...decision, reasons: [...decision.reasons, `Approved by the founder (approval ${granted.id})`] }, args, log, now, granted.id);
     }
-    return ask(deps, session, req, loaded, decision, args, log);
+    return ask(deps, session, req, loaded, decision, args, log, now);
   }
   return allow(deps, session, req, loaded, decision, args, log, now);
 }
@@ -456,11 +456,11 @@ async function deny(deps: GatewayDeps, session: SessionToken, req: CallRequestPa
   if (securityChange) {
     // The tool itself is not hard-gated, so it is never called here: the founder's task is described from the change.
     humanAction = { connector: loaded.connector.key, tool: loaded.tool.name, title: securityChange.title, instructions: securityChange.instructions, args, reason: "hard_gate" };
-    approvalId = await queueApproval(deps, session, req, loaded, decision, args, true, humanAction);
+    approvalId = (await queueApproval(deps, session, req, loaded, decision, args, true, humanAction)).id;
   } else if (hardGate) {
     // The connector refuses hard-gated tools before any handler runs and answers with the founder's instructions.
     humanAction = await hardGateDescriptor(deps, session, loaded, args, log);
-    approvalId = await queueApproval(deps, session, req, loaded, decision, args, true, humanAction);
+    approvalId = (await queueApproval(deps, session, req, loaded, decision, args, true, humanAction)).id;
   }
   const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons: decision.reasons, policyIds: decision.policyIds, approvalId });
   log.warn({ reasons: decision.reasons, policyIds: decision.policyIds, hardGate }, "tool call denied");
@@ -502,7 +502,7 @@ function placeholderIntegration(loaded: Loaded, mode: ConnectorMode): Integratio
   return mockIntegrationRecord(loaded.connector.key, loaded.business.id, mode === "mock" ? {} : { status: "disconnected" });
 }
 
-async function queueApproval(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, hardGate: boolean, humanAction?: HumanActionDescriptor): Promise<string> {
+async function queueApproval(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, hardGate: boolean, humanAction?: HumanActionDescriptor): Promise<{ id: string; approvedByAgent: boolean }> {
   const amount = req.context.amountMinor !== undefined && req.context.amountMinor > 0 ? { amountMinor: req.context.amountMinor, currency: req.context.currency ?? loaded.agent.currency } : null;
   const summary = humanAction ? `${humanAction.title}: ${humanAction.instructions}`.slice(0, 1000) : `${loaded.agent.name} wants to run ${loaded.connector.displayName} › ${loaded.tool.name}${req.context.recipient ? ` for ${req.context.recipient}` : ""}`.slice(0, 1000);
   return deps.db.transaction(async (tx) => {
@@ -517,7 +517,20 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
       args: argsObject(args),
       reasons: decision.reasons,
       ...(amount ? { amountMinor: amount.amountMinor, currency: amount.currency } : {}),
+      // Routed by Team › Responsibilities (AC-11.9.2); a hard gate is always the founder's, never routed.
+      decisionType: hardGate ? null : decisionTypeFor(loaded, req, decision),
     });
+    // An agent the Responsibilities matrix names approved it as it opened: nothing to ask the founder, and the decision
+    // is on record like any other (`approval.resolved`, by that agent).
+    if (approval.outcome === "approved" && approval.byKind === "agent" && approval.byId) {
+      await writeGatewayEvent(tx, {
+        businessId: session.businessId,
+        type: "approval.resolved",
+        actor: { kind: "agent", id: approval.byId },
+        payload: { approvalId: approval.id, planActionId: approval.planActionId, agentId: session.agentId, outcome: "approved", resolvedBy: { kind: "agent", id: approval.byId }, note: "Delegated in Team › Responsibilities", latencyMs: 0 },
+      });
+      return { id: approval.id, approvedByAgent: true };
+    }
     const requested = await writeGatewayEvent(tx, {
       businessId: session.businessId,
       type: "approval.requested",
@@ -549,7 +562,7 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
         payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [requested.id], cost: null },
       });
     }
-    return approval.id;
+    return { id: approval.id, approvedByAgent: false };
   });
 }
 
@@ -562,11 +575,16 @@ function decisionTypeFor(loaded: Loaded, req: CallRequestParsed, decision: Evalu
   return null;
 }
 
-async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger): Promise<ToolCallResult> {
+async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date): Promise<ToolCallResult> {
   // One gated call has one approval (audit O-26): asked again while its approval is open (a retry, or the next session
   // on the task), the call waits on that one instead of queueing a second request and a second Inbox item.
   const open = await repos.approvals.claimOpen(deps.db, session.businessId, { sessionId: session.sessionId, agentId: session.agentId, connectorKey: loaded.connector.key, tool: loaded.tool.name, args: argsObject(args), amountMinor: req.context.amountMinor ?? 0, currency: req.context.currency ?? loaded.agent.currency });
-  const approvalId = open?.id ?? (await queueApproval(deps, session, req, loaded, decision, args, false));
+  const queued = open ? { id: open.id, approvedByAgent: false } : await queueApproval(deps, session, req, loaded, decision, args, false);
+  const approvalId = queued.id;
+  if (queued.approvedByAgent) {
+    log.info({ approvalId }, "approval decided by the agent Team › Responsibilities names; the call goes ahead");
+    return allow(deps, session, req, loaded, decision, args, log, now);
+  }
   const audit = await appendAudit(deps, session, req, { outcome: "ask", reasons: decision.reasons, policyIds: decision.policyIds, approvalId });
   log.info({ approvalId, reasons: decision.reasons }, "tool call needs approval");
   const body: AskResponse = { outcome: "ask", approvalId, reasons: decision.reasons, policyIds: decision.policyIds, costMinor: 0, auditId: audit.id };

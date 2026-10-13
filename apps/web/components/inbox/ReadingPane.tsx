@@ -64,6 +64,7 @@ import {
   answeredFrom,
   askChip,
   confirmationLines,
+  decisionAttribution,
   decisionDeadline,
   decisionPastDeadline,
   followUpLinks,
@@ -214,6 +215,17 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
     return answeredFrom(decisions);
   }, [result, decisions]);
   const isAnswered = !!answered || item.state === "answered" || item.state === "archived";
+  // Who answered, for whoever reads it: "Your answer" only for the viewer's own; a co-founder sees who decided.
+  const viewerId = biz.membership.userId;
+  const otherDecider = !result && decisions.some((d) => d.decidedBy && d.decidedBy !== viewerId);
+  const staffQ = useQuery(trpc.team.humans.list.queryOptions({ businessId }, { enabled: otherDecider, staleTime: 5 * 60_000, retry: false }));
+  const attribution = useMemo(() => {
+    if (result) return { label: "Your answer", by: "You", mine: true, decidedAt: result.decision.decidedAt ?? null };
+    return decisionAttribution(decisions, viewerId, (userId) => {
+      const m = staffQ.data?.find((s) => s.userId === userId) as ({ role: string; displayName?: string | null; email?: string | null } | undefined);
+      return m ? (m.displayName || m.email || `the ${m.role}`) : null;
+    });
+  }, [result, decisions, viewerId, staffQ.data]);
 
   // A decision recorded here (an option) or in the conversation ("Go with: …", an instruction typed to the agent).
   const onDecided = useCallback(
@@ -327,7 +339,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const lines: ConfirmationLine[] = useMemo(() => (pendingConfirmation && plan ? (result?.plan.id === plan.id ? confirmationLines(result.evaluations, currency) : planConfirmationLines(plan.actions, currency)) : []), [pendingConfirmation, plan, result, currency]);
   // Nothing exists yet while the plan waits, so there is nothing to open.
   const links = useMemo(() => (plan && !pendingConfirmation ? followUpLinks(plan.actions, businessId, departments) : []), [plan, pendingConfirmation, businessId, departments]);
-  const planLine = planStatusLine(plan);
+  const planLine = planStatusLine(plan, attribution && !attribution.mine ? attribution.by : "You");
   const roleLine = roleBesideName(fromAgent?.name ?? persona?.name, persona?.role);
   // An agent's record opens the agent's profile, every other record its CRM profile (audit GTM-19).
   const relatedEntities = entities.map((e) => ({ id: e.id, kind: e.kind as EntityKind, name: e.displayName, href: entityHref(businessId, e, (id) => agents.has(id)) }));
@@ -425,7 +437,8 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
             <div className="flex flex-col gap-3">
               <KeyValueList
                 items={[
-                  { label: result ? "Your answer" : answerLabel(decisions), value: answered?.optionId ? options.find((o) => o.id === answered.optionId)?.label ?? answered.optionId : answered?.text ? <q>{answered.text}</q> : "Recorded" },
+                  { label: attribution?.label ?? "Your answer", value: answered?.optionId ? options.find((o) => o.id === answered.optionId)?.label ?? answered.optionId : answered?.text ? <q>{answered.text}</q> : "Recorded" },
+                  ...(attribution && !attribution.mine ? [{ label: "Decided by", value: <span data-testid="decided-by">{attribution.by}{attribution.decidedAt && hydrated ? ` · ${formatDateTime(attribution.decidedAt)}` : ""}</span> }] : []),
                   ...(plan ? [{ label: "Plan", value: <Markdown variant="body">{plan.summaryMd || "No actions"}</Markdown> }] : []),
                 ]}
               />

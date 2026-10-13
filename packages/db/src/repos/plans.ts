@@ -11,7 +11,7 @@ import { PLAN_ACTION_TYPES, PLAN_ORIGINS, PLAN_STATUSES, POLICY_OUTCOMES, Valida
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { PLAN_ACTION_STATUSES, planActions, plans, type Plan, type PlanAction } from "../schema";
-import { defined, Id, JsonObject, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
+import { changes, Id, JsonObject, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
 
 export const PlanActionInput = z.object({
   type: z.enum(PLAN_ACTION_TYPES),
@@ -252,7 +252,7 @@ export const plansRepo = {
       patch,
       "plan action update",
     );
-    return one(await db.update(planActions).set(defined(v)).where(scopedAction(businessId, actionId)).returning(), "plan action", actionId);
+    return one(await db.update(planActions).set(changes(v, "plan action")).where(scopedAction(businessId, actionId)).returning(), "plan action", actionId);
   },
 
   /** pending/awaiting_approval → running; stamps started_at. */

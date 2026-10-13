@@ -15,7 +15,7 @@
  * stopped, and a skill whose next test would start while it is, end the run canceled with the reason; the tests already
  * run are booked. A run that ended stays ended: its remaining skills run no test, even after the agents resume.
  */
-import { AgentInstructions, buildSystemPrompt, detectClubRuleViolation, getPrompt, getSkillDefinition, getSkillTests, ratingFromTested, runDeterministicChecks, type AgentTemplate, type SkillTest } from "@foundmill/agents";
+import { AgentInstructions, buildSystemPrompt, detectClubRuleViolation, getPrompt, getSkillDefinition, getSkillTests, isCustomSkillKey, ratingFromTested, runDeterministicChecks, skillTestFromStored, type AgentTemplate, type SkillTest } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { ACTIVE_TRAINING_STATUSES, MICRO_PER_MINOR, microToMinor, repos } from "@foundmill/db";
 import { SkillGradeOutput, resolveModel } from "@foundmill/models";
@@ -188,6 +188,12 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       } catch {
         tests = [];
       }
+      // A custom skill is scored on the tests the founder reviewed (held-out ones included), never on drafts.
+      const custom = tests.length === 0 && isCustomSkillKey(input.skillKey) ? await repos.skills.findDefinition(db, input.businessId, agent.agentType, input.skillKey) : null;
+      if (custom) {
+        const stored = await repos.skills.listTests(db, input.businessId, custom.id, { includeHeldOut: true, reviewedOnly: true });
+        tests = stored.map((t) => ("task" in t ? skillTestFromStored(t, input.skillKey) : null)).filter((t): t is SkillTest => t !== null);
+      }
       const previous = (await repos.skills.listForAgent(db, input.businessId, agent.id)).find((s) => s.skillKey === input.skillKey);
       const previousTested = previous?.tested === null || previous?.tested === undefined ? null : Number(previous.tested);
       if (tests.length === 0) {
@@ -222,7 +228,7 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
           // 1. the candidate answers with mock tools only (no real email or spend can happen here)
           const answer = await deps.models.complete({
             route: template.route,
-            system: [system, `## Training\nYou are being tested on "${definition?.name ?? input.skillKey}". Available mock tools: ${test.task.mockTools.join(", ") || "none"}. Answer the task directly.`],
+            system: [system, `## Training\nYou are being tested on "${definition?.name ?? custom?.name ?? input.skillKey}". Available mock tools: ${test.task.mockTools.join(", ") || "none"}. Answer the task directly.`],
             messages: [{ role: "user", content: `${test.task.prompt}\n\n\`\`\`json\n${JSON.stringify({ task: { id: test.id, title: test.task.title, kind: template.taskKinds[0] ?? "ops" }, fixtures: test.task.fixtures })}\n\`\`\`` }],
             modelOverride: route.modelKey,
             // The agent's whole system prompt (about 3k tokens) is the same on every test: written once, then read (audit BF-15).

@@ -4,7 +4,7 @@ import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzl
 import { z } from "zod";
 import { taskEdges, tasks, type Task, type TaskEdge } from "../schema";
 import { assertAgentsOwned, assertDepartmentsOwned, assertRoadmapItemsOwned } from "./_refs";
-import { Currency, defined, Id, JsonArray, MinorAmount, numericText, one, PageInput, parseInput, rowsOf, timeKeyset, toPage, type Executor, type Page, patchSchema } from "./_shared";
+import { Currency, changes, defined, Id, JsonArray, MinorAmount, numericText, one, PageInput, parseInput, rowsOf, timeKeyset, toPage, type Executor, type Page, patchSchema } from "./_shared";
 
 export const CreateTaskInput = z.object({
   kind: z.enum(TASK_KINDS),
@@ -140,7 +140,7 @@ export const tasksRepo = {
   async update(db: Executor, businessId: string, taskId: string, input: UpdateTaskInput): Promise<Task> {
     const v = parseInput(UpdateTaskInput, input, "task update");
     await assertTaskReferences(db, businessId, v);
-    return one(await db.update(tasks).set(defined(v)).where(scoped(businessId, taskId)).returning(), "task", taskId);
+    return one(await db.update(tasks).set(changes(v, "task")).where(scoped(businessId, taskId)).returning(), "task", taskId);
   },
 
   /** Moves a task through its lifecycle, enforcing TASK_TRANSITIONS; stamps started_at / ended_at. */
@@ -208,8 +208,61 @@ export const tasksRepo = {
     );
   },
 
+  /** Title and status of some tasks (only those in the business), in one statement: an agent's sessions name their tasks. */
+  async summaries(db: Executor, businessId: string, taskIds: readonly string[]): Promise<{ id: string; title: string; status: TaskStatus; departmentId: string | null }[]> {
+    if (taskIds.length === 0) return [];
+    const ids = parseInput(z.array(Id), [...new Set(taskIds)], "task ids");
+    return db.select({ id: tasks.id, title: tasks.title, status: tasks.status, departmentId: tasks.departmentId }).from(tasks).where(and(eq(tasks.businessId, businessId), inArray(tasks.id, ids)));
+  },
+
+  /** These tasks of the business (archived ones too), in no particular order; ids of other businesses are ignored. */
+  async byIds(db: Executor, businessId: string, taskIds: readonly string[]): Promise<Task[]> {
+    if (taskIds.length === 0) return [];
+    const ids = parseInput(z.array(Id), [...new Set(taskIds)], "task ids");
+    return db.select().from(tasks).where(and(eq(tasks.businessId, businessId), inArray(tasks.id, ids)));
+  },
+
+  /**
+   * Serializes planner writes for one business until the transaction ends (dev.tasks.plan), so a plan written by a
+   * concurrent identical request is seen before a second graph is written. Call inside a transaction.
+   */
+  async lockPlanning(db: Executor, businessId: string): Promise<void> {
+    await db.execute(sql`select pg_advisory_xact_lock(hashtext('dev.tasks.plan'), hashtext(${businessId}::text))`);
+  },
+
   async reassign(db: Executor, businessId: string, taskId: string, assigneeAgentId: string | null): Promise<Task> {
     return tasksRepo.update(db, businessId, taskId, { assigneeAgentId });
+  },
+
+  /**
+   * An agent leaves the team (team.agents.release): every open task of its is unassigned, so the next cycle routes it
+   * to someone else, and the ones it was working on (running or paused) return to `ready`. Tasks in review, merging or
+   * finished keep their assignee as a record of who did the work. Returns the tasks changed with their earlier status.
+   */
+  async handBack(db: Executor, businessId: string, agentId: string): Promise<{ task: Task; from: TaskStatus }[]> {
+    const open: TaskStatus[] = ["planned", "ready", "running", "paused", "blocked", "failed", "stopped"];
+    return db.transaction(async (tx) => {
+      const before = await tx
+        .select({ id: tasks.id, status: tasks.status })
+        .from(tasks)
+        .where(and(eq(tasks.businessId, businessId), eq(tasks.assigneeAgentId, agentId), inArray(tasks.status, open)))
+        .for("update");
+      const out: { task: Task; from: TaskStatus }[] = [];
+      for (const t of before) {
+        const working = t.status === "running" || t.status === "paused";
+        const row = one(
+          await tx
+            .update(tasks)
+            .set({ assigneeAgentId: null, ...(working ? { status: "ready" as const, endedAt: null } : {}) })
+            .where(scoped(businessId, t.id))
+            .returning(),
+          "task",
+          t.id,
+        );
+        out.push({ task: row, from: t.status });
+      }
+      return out;
+    });
   },
 
   async archive(db: Executor, businessId: string, taskId: string): Promise<Task> {

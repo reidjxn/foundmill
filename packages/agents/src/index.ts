@@ -24,6 +24,7 @@ export * from "./conversation";
 export * from "./source-watcher";
 export * from "./community-screen";
 export * from "./channel-creative";
+export * from "./custom-skills";
 export * as prompts from "./prompts";
 export {
   type PromptTemplate,

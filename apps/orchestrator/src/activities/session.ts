@@ -36,7 +36,7 @@ import { bookUsage, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, t
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
 import { assertNoLongLivedCredentials, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
-import { type AgentStatus, type ModelKey, type TaskStatus } from "@foundmill/shared";
+import { isUuid, type AgentStatus, type ModelKey, type TaskStatus } from "@foundmill/shared";
 import { currentTraceparent } from "@foundmill/shared/telemetry";
 import { Context } from "@temporalio/activity";
 import { ApplicationFailure } from "@temporalio/common";
@@ -545,7 +545,9 @@ class SessionRecorder {
         return;
       }
       const approval = await deps.db.transaction(async (tx) => {
-        const row = await repos.approvals.create(tx, businessId, { agentId: ctx.agent.id, sessionId: ctx.input.sessionId, taskId: ctx.task.id, connectorKey, tool: call.tool, args: gated.args, reasons: [call.resultSummary ?? "policy asked for the founder's approval"] });
+        const row = await repos.approvals.create(tx, businessId, { agentId: ctx.agent.id, sessionId: ctx.input.sessionId, taskId: ctx.task.id, connectorKey, tool: call.tool, args: gated.args, reasons: [call.resultSummary ?? "policy asked for the founder's approval"], ...(call.approvalId && isUuid(call.approvalId) ? { decisionType: null } : {}) });
+        // Delegated to an agent in Team › Responsibilities (AC-11.9.2): it approved as the approval opened, so nothing is asked.
+        if (row.outcome === "approved" && row.byKind === "agent" && row.byId) return row;
         const requested = await emitEvent(tx, {
           businessId,
           type: "approval.requested",
@@ -555,6 +557,18 @@ class SessionRecorder {
         await openApprovalNote(tx, businessId, row, { agent: ctx.agent, taskTitle: ctx.task.title, argsSummary: call.argsSummary ?? null, sourceEventIds: [requested.id] });
         return row;
       });
+      if (approval.outcome === "approved" && approval.byKind === "agent" && approval.byId) {
+        this.track(key, approval, false);
+        await emitEvent(deps.db, {
+          businessId,
+          type: "approval.resolved",
+          actor: { kind: "agent", id: approval.byId },
+          payload: { approvalId: approval.id, agentId: ctx.agent.id, outcome: "approved", resolvedBy: { kind: "agent", id: approval.byId }, note: "Delegated in Team › Responsibilities", latencyMs: 0 },
+        });
+        // Released through the session's own control list, as a founder's decision would be, and nobody is asked.
+        await deps.control.post(ctx.input.sessionId, { kind: "decision", approvalId: approval.id, outcome: "approved", by: null });
+        return;
+      }
       this.track(key, approval, true);
     } catch (err) {
       deps.log.warn({ err: (err as Error).message }, "approval row creation failed");
@@ -844,7 +858,13 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       const cost = { amountMinor: Math.round(result.costMinor), currency: CREDITS_CURRENCY }; // model cost: US cents (DECISIONS 2026-10-12)
       // How many sessions of this task in a row ended failed or blocked, this one included (it is ended above).
       const blockedStreak = Math.max(1, failureStreak(await repos.agents.recentOutcomes(db, input.businessId, { taskIds: [task.id], limit: 12 }), ["failed", "blocked"]).failures);
-      switch (outcome) {
+      // The task was handed on while the session ran (its agent released, the task reassigned): its state now belongs
+      // to whoever has it, so the session settles only its own row, its usage and its agent.
+      const handedOver = task.assigneeAgentId !== null ? task.assigneeAgentId !== agent.id : agent.archivedAt !== null;
+      switch (handedOver ? "handed_over" : outcome) {
+        case "handed_over":
+          taskStatus = task.status;
+          break;
         case "done": {
           taskStatus = result.progress.merged ? "done" : result.progress.reviewPassed || result.progress.phase === "review" || result.progress.phase === "merge" ? "review" : "done";
           const ev = await emitEvent(db, {

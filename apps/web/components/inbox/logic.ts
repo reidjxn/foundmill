@@ -283,6 +283,29 @@ export function answeredFrom(decisions: readonly { chosenOption: string | null; 
   return undefined;
 }
 
+/** Who answered a decision, as the Decided panel words it for the person reading it. */
+export interface DecisionAttribution {
+  /** "Your answer" for the viewer's own decision, "Answer" for anyone else's. */
+  label: string;
+  /** "You", the decider's name, "the Chief of Staff", or their role ("an admin") when no name is known. */
+  by: string;
+  mine: boolean;
+  decidedAt: Date | string | null;
+}
+
+/**
+ * The newest decision's author relative to the viewer: "your" wording only for the viewer's own answer (a co-founder
+ * reading an answer someone else gave sees who gave it). `nameOf` names another member (their name, or their role).
+ */
+export function decisionAttribution(decisions: readonly { decidedBy?: string | null; decidedByKind?: string | null; decidedAt: Date | string }[] | undefined, viewerId: string | null | undefined, nameOf: (userId: string) => string | null = () => null): DecisionAttribution | null {
+  if (!decisions?.length) return null;
+  const latest = [...decisions].sort((a, b) => Date.parse(String(b.decidedAt)) - Date.parse(String(a.decidedAt)))[0]!;
+  if (latest.decidedByKind === "chief_of_staff") return { label: "Chief of Staff's answer", by: "the Chief of Staff", mine: false, decidedAt: latest.decidedAt };
+  const mine = !!viewerId && latest.decidedBy === viewerId;
+  if (mine || !latest.decidedBy) return { label: "Your answer", by: "You", mine: true, decidedAt: latest.decidedAt };
+  return { label: "Answer", by: nameOf(latest.decidedBy) ?? "another member", mine: false, decidedAt: latest.decidedAt };
+}
+
 // --- status strip ------------------------------------------------------------------------------------------------------
 
 export interface StripMetricInput {
@@ -789,8 +812,11 @@ export function isAlreadyDecidedMessage(message: string | null | undefined): boo
   return /\balready (answered|archived)\b/i.test(message ?? "");
 }
 
-/** One line for the answered strip: "Done · 3 of 3 actions" / "Awaiting your confirmation" / "Running · 1 of 3". */
-export function planStatusLine(plan: PlanLike | null | undefined): { word: string; tone: "good" | "warn" | "bad" | "info" | "neutral"; detail: string } | null {
+/**
+ * One line for the answered strip: "Done · 3 of 3 actions" / "Awaiting your confirmation" / "Running · 1 of 3". A plan
+ * someone else answered awaits their confirmation, not the viewer's (`decidedBy`: their name, "You" by default).
+ */
+export function planStatusLine(plan: PlanLike | null | undefined, decidedBy: string = "You"): { word: string; tone: "good" | "warn" | "bad" | "info" | "neutral"; detail: string } | null {
   if (!plan) return null;
   const total = plan.actions.length;
   const done = plan.actions.filter((a) => a.status === "done").length;
@@ -798,7 +824,7 @@ export function planStatusLine(plan: PlanLike | null | undefined): { word: strin
   const of = total ? `${done} of ${total} action${total === 1 ? "" : "s"} done` : "no actions";
   switch (plan.status) {
     case "pending_confirmation":
-      return { word: "Awaiting your confirmation", tone: "warn", detail: `${total} action${total === 1 ? "" : "s"} planned` };
+      return { word: decidedBy === "You" ? "Awaiting your confirmation" : `Awaiting confirmation from ${decidedBy}`, tone: "warn", detail: `${total} action${total === 1 ? "" : "s"} planned` };
     case "executing":
       return { word: "Running", tone: "info", detail: of };
     case "done":

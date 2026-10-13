@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { UserPlus, UserX } from "lucide-react";
 import { useState } from "react";
-import { Avatar, Button, Chip, Field, IconButton, Input, SimpleSelect, useDateFormat } from "@foundmill/dugout";
+import { Avatar, Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, SimpleSelect, useDateFormat } from "@foundmill/dugout";
 import { MEMBERSHIP_ROLES, type MembershipRole } from "@foundmill/shared/constants";
 import { formatDate, plural } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
@@ -26,6 +26,28 @@ const ROLE_HELP: Record<MembershipRole, string> = {
 export const ROLE_WORD: Record<MembershipRole, string> = { owner: "Owner", admin: "Admin", member: "Member", viewer: "Viewer", advisor: "Advisor" };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * What Add member sends: the account ID when one is typed, else the sign-in email (the API resolves it to the
+ * account), or null while neither is valid.
+ */
+export function inviteTarget(accountId: string, email: string): { userId: string; email?: string } | { email: string } | null {
+  const id = accountId.trim();
+  const mail = email.trim();
+  if (id) return UUID_RE.test(id) ? { userId: id, ...(EMAIL_RE.test(mail) ? { email: mail } : {}) } : null;
+  return EMAIL_RE.test(mail) ? { email: mail } : null;
+}
+
+/**
+ * How a member is named where no profile of theirs is at hand: their name or sign-in email when the staff list carries
+ * them, else their role and short account ID ("the admin with account 3f2a91c0…c91e").
+ */
+export function memberLabel(m: { userId: string; role: string; displayName?: string | null; email?: string | null }): string {
+  const name = m.displayName?.trim() || m.email?.trim();
+  if (name) return name;
+  return `the ${(ROLE_WORD[m.role as MembershipRole] ?? "member").toLowerCase()} with account ${shortId(m.userId)}`;
+}
 
 /** A long account id, short enough to read on one line ("3f2a91c0…c91e"); the full id is in the tooltip. */
 export function shortId(id: string): string {
@@ -45,6 +67,9 @@ export function MembersTab() {
   const [inviteId, setInviteId] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<MembershipRole>("member");
+  // Removing a person's access is confirmed first, naming them and their role (DESIGN: destructive actions).
+  const [removing, setRemoving] = useState<{ userId: string; name: string; role: MembershipRole } | null>(null);
+  const target = inviteTarget(inviteId, inviteEmail);
   // The founder's own name, as the team calls them (the founder profile); the "You" chip only beside a real name.
   const founder = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
   const viewerName = founder.data?.profile?.displayName?.trim() || null;
@@ -71,7 +96,7 @@ export function MembersTab() {
                   </span>
                 </span>
                 <SimpleSelect aria-label={`Role of ${isSelf ? "you" : shortId(m.userId)}`} controlSize="sm" className="w-32" value={m.role} disabled={m.role === "owner" || (!isOwner && m.role === "admin")} onValueChange={(v) => setRole.mutate({ businessId, userId: m.userId, role: v as MembershipRole })} options={MEMBERSHIP_ROLES.map((r) => ({ value: r, label: ROLE_WORD[r], disabled: r === "owner" }))} />
-                <IconButton label={`Remove ${isSelf ? "yourself" : shortId(m.userId)}`} icon={UserX} size="sm" disabled={m.role === "owner" || isSelf} onClick={() => remove.mutate({ businessId, userId: m.userId })} />
+                <IconButton label={`Remove ${isSelf ? "yourself" : shortId(m.userId)}`} icon={UserX} size="sm" disabled={m.role === "owner" || isSelf} onClick={() => setRemoving({ userId: m.userId, name: memberLabel(m), role: m.role as MembershipRole })} />
               </li>
             );
           })}
@@ -86,24 +111,51 @@ export function MembersTab() {
         </dl>
       </SettingsSection>
       <SettingsSection title="Add a member">
-        <Hint>Add a co-founder or advisor who already has an account, by the account ID shown on their profile. They sign in with their own email. Email invitations are not available yet.</Hint>
+        <Hint>Add a co-founder or advisor who already has an account: by the email they sign in with, or by the account ID shown on their founder profile and in Settings › Preferences. They sign in with their own email. No invitation email is sent.</Hint>
         <div className="grid grid-cols-12 gap-3">
-          <Field htmlFor="invite-id" label="Account ID" required className="col-span-5">
-            <Input id="invite-id" mono value={inviteId} onChange={(e) => setInviteId(e.target.value.trim())} placeholder="00000000-0000-…" invalid={inviteId.length > 0 && !UUID_RE.test(inviteId)} />
+          <Field htmlFor="invite-email" label="Sign-in email" className="col-span-4">
+            <Input id="invite-email" type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="name@company.com" invalid={inviteEmail.trim().length > 0 && !EMAIL_RE.test(inviteEmail.trim())} />
           </Field>
-          <Field htmlFor="invite-email" label="Email (optional)" className="col-span-4">
-            <Input id="invite-email" type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="name@company.com" />
+          <Field htmlFor="invite-id" label="Or account ID" className="col-span-5">
+            <Input id="invite-id" mono value={inviteId} onChange={(e) => setInviteId(e.target.value.trim())} placeholder="00000000-0000-…" invalid={inviteId.length > 0 && !UUID_RE.test(inviteId)} />
           </Field>
           <Field htmlFor="invite-role" label="Role" className="col-span-3">
             <SimpleSelect id="invite-role" value={inviteRole} onValueChange={(v) => setInviteRole(v as MembershipRole)} options={MEMBERSHIP_ROLES.filter((r) => r !== "owner").map((r) => ({ value: r, label: ROLE_WORD[r] }))} />
           </Field>
         </div>
         <div className="flex justify-end">
-          <Button variant="primary" icon={UserPlus} loading={invite.isPending} disabled={!UUID_RE.test(inviteId)} onClick={() => invite.mutate({ businessId, userId: inviteId, role: inviteRole, email: inviteEmail.trim() || undefined })}>
+          <Button variant="primary" icon={UserPlus} loading={invite.isPending} disabled={!target} onClick={() => target && invite.mutate({ businessId, role: inviteRole, ...target })} data-testid="add-member">
             Add member
           </Button>
         </div>
       </SettingsSection>
+      <Dialog open={removing !== null} onOpenChange={(o) => !o && setRemoving(null)}>
+        <DialogContent size="sm" aria-describedby="remove-member-desc" data-testid="remove-member-dialog">
+          <DialogHeader>
+            <DialogTitle>Remove {removing?.name}?</DialogTitle>
+            <DialogDescription id="remove-member-desc">
+              They lose access to this business at once: as {removing ? ROLE_WORD[removing.role].toLowerCase() : "member"}, its screens, Inbox and team. Their work and decisions stay. To add them back you need their sign-in email or account ID.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <p className="font-mono text-mono text-tertiary">Account {removing?.userId}</p>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRemoving(null)}>
+              Keep
+            </Button>
+            <Button
+              variant="danger"
+              icon={UserX}
+              loading={remove.isPending}
+              onClick={() => removing && remove.mutate({ businessId, userId: removing.userId }, { onSettled: () => setRemoving(null) })}
+              data-testid="remove-member-confirm"
+            >
+              Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AdminOnly>
   );
 }

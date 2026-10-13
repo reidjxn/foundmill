@@ -45,12 +45,27 @@ export function healthDetails(agent: AgentRow): HealthDetails {
  */
 export function healthReason(status: AgentStatus, details: HealthDetails, now: Date): string {
   const parts: string[] = [];
-  if (status === "injured") parts.push(details.expectedReturnAt ? `Expected back ${formatRelative(details.expectedReturnAt, now)}` : "Reconnect the integration to see an expected return");
+  // Down: when it is back, else the reason names what to reconnect; only with neither does the generic line show.
+  if (status === "injured") {
+    if (details.expectedReturnAt) parts.push(`Expected back ${formatRelative(details.expectedReturnAt, now)}`);
+    else if (!details.reason) parts.push("Back once its integration is reconnected in Settings › Integrations");
+  }
   if (details.reason) parts.push(details.reason);
   const loop = "Loop detected on the last session";
   if (details.loopDetected && !parts.some((p) => p.toLowerCase().includes("loop"))) parts.push(loop);
   if (status === "degraded" && typeof details.errorRate === "number" && !parts.some((p) => /error rate/i.test(p))) parts.push(`Error rate ${formatPercent(details.errorRate, { digits: 1 })} over 24 h`);
   return parts.join(" · ");
+}
+
+/**
+ * The Health headline when nobody needs the founder: how many agents are working (healthy) out of the team. All idle
+ * is not "everyone is working".
+ */
+export function healthSummary(agents: readonly Pick<AgentRow, "status">[]): { text: string; tone: "good" | "neutral" } {
+  const working = agents.filter((a) => a.status === "healthy").length;
+  if (working === 0) return { text: "No agent is working right now", tone: "neutral" };
+  if (working === agents.length) return { text: "Everyone is working", tone: "good" };
+  return { text: `${working} of ${agents.length} working`, tone: "good" };
 }
 
 const TONE_CLASS: Record<AgentStatus, string> = { failing: "text-status-bad", injured: "text-status-bad", degraded: "text-status-warn", paused: "text-secondary", idle: "text-secondary", healthy: "text-status-good" };
@@ -115,7 +130,7 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
             </span>
           )
         }
-        footer="Computed every minute: heartbeat, error rate over 24 h (above 10% is degraded), loop detection (failing), credential status (down with an expected return), rate limits and budget."
+        footer="Statuses change as sessions start, end, fail or loop, and when a credential lapses or a wage cap is reached. Heartbeat is an agent's last activity; errors are the share of its sessions that failed over 24 h."
       >
         <StatusStrip tiles={tiles} className="rounded-none border-0" aria-label="Agents by health" />
       </Panel>

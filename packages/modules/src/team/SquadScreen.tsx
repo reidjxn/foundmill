@@ -18,7 +18,7 @@ import { fitToGrow, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { CloneDialog, LoanDialog, ReleaseDialog } from "./dialogs";
 import { ModelChangeDialog, describeModelSet } from "./ModelChangeDialog";
-import { AgentCell, AgentStatusWordPill, InlineError, STATUS_WORD, Screen, agentEntity, agentHref, agentTypeNoun, taskHref, toSquadRow, useAgents, useLiveAgentStatus, useNow, useTeamOptions, withLiveStatus } from "./shared";
+import { AgentCell, AgentStatusWordPill, InlineError, STATUS_WORD, Screen, agentEntity, agentHref, agentTypeNoun, isChiefOfStaff, isChiefOfStaffType, taskHref, toSquadRow, useAgents, useLiveAgentStatus, useNow, useTeamOptions, withLiveStatus } from "./shared";
 import type { AgentRow } from "./types";
 
 /**
@@ -135,9 +135,10 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
     return [
       { id: "open", label: "Open profile", icon: ExternalLink, onSelect: () => open(row.id) },
       { id: "model", label: `Change model (${MODEL_LABELS[row.model]})`, icon: Cpu, onSelect: () => agent && setModelAgent(agent) },
-      { id: "clone", label: "Clone…", icon: Copy, separatorBefore: true, onSelect: () => agent && setClone(agent) },
+      // One Chief of Staff per business: it is never cloned, and the designated one is never released.
+      { id: "clone", label: "Clone…", icon: Copy, separatorBefore: true, disabled: agent ? isChiefOfStaffType(agent) : true, onSelect: () => agent && setClone(agent) },
       { id: "loan", label: "Loan to department…", icon: ArrowLeftRight, onSelect: () => agent && setLoan(agent) },
-      { id: "release", label: "Release", icon: UserRoundMinus, variant: "danger", separatorBefore: true, disabled: agent ? agent.agentType === "chief_of_staff" : true, onSelect: () => agent && setRelease(agent) },
+      { id: "release", label: "Release", icon: UserRoundMinus, variant: "danger", separatorBefore: true, disabled: agent ? isChiefOfStaff(agent) : true, onSelect: () => agent && setRelease(agent) },
     ];
   };
 

@@ -159,6 +159,32 @@ describe("runAgentSession (mock replay)", () => {
     await acts.finishSession(input, launch, result);
   });
 
+  it("a hold whose decision type Team › Responsibilities delegates to an agent is approved by it and the replay goes on (TPD-04)", async () => {
+    // The coupon hold waits for a decision ("wait"): only the delegated agent's approval can release it.
+    const provider = new MockSandboxProvider({ speed: Infinity, autoplay: false, holds: "wait", recordings: RECORDINGS });
+    const local = await setupOrchestratorHarness({ prefix: "delegated" });
+    try {
+      await repos.departments.update(local.db, local.businessId, local.fixture.departmentId, { approvers: [{ decisionType: "spend_above_threshold", handler: { kind: "agent", id: local.chiefId } }] });
+      const deps = { ...local.deps, sandbox: async () => ({ provider, mode: "mock" as const, fellBackFrom: null }) };
+      const localActs = createSessionActivities(deps);
+      const sessionId = await openSessionRow(local, local.workerId, local.codeTaskId);
+      const input = { businessId: local.businessId, agentId: local.workerId, taskId: local.codeTaskId, sessionId };
+      const launch = { ...(await localActs.prepareSession(input)), recordingKey: "ledgerly-annual-plan-discount" };
+      const result = await localActs.runAgentSession(input, launch);
+      // It ran past the coupon to the hard gate (accepting terms is never delegated), never waiting for the founder.
+      expect(result.blockedReason).not.toBe("awaiting_approval");
+      const mine = (await repos.approvals.list(local.db, local.businessId, { agentId: local.workerId, limit: 10 })).items.filter((a) => a.sessionId === sessionId);
+      expect(mine).toHaveLength(1);
+      expect(mine[0]).toMatchObject({ tool: "create_coupon", decisionType: "spend_above_threshold", handlerKind: "agent", handlerId: local.chiefId, outcome: "approved", byKind: "agent", byId: local.chiefId });
+      const requested = await repos.events.list(local.db, local.businessId, { type: "approval.requested", limit: 20 });
+      expect(requested.items.some((e) => (e.payload as { approvalId: string }).approvalId === mine[0]!.id)).toBe(false);
+      const resolved = await repos.events.list(local.db, local.businessId, { type: "approval.resolved", limit: 20 });
+      expect(resolved.items.find((e) => (e.payload as { approvalId: string }).approvalId === mine[0]!.id)?.payload).toMatchObject({ outcome: "approved", resolvedBy: { kind: "agent", id: local.chiefId } });
+    } finally {
+      await local.close();
+    }
+  });
+
   it("pause holds the replay and resume continues it; a Nudge appears in the log (AC-11.6.4)", async () => {
     const clock = new FakeClock("2026-10-05T08:00:00.000Z");
     const provider = new MockSandboxProvider({ speed: 1, autoplay: false, holds: { autoResolveAfterMs: 1 }, recordings: RECORDINGS, sleep: (ms, signal) => clock.sleep(ms, signal).catch(() => undefined), now: () => clock.now() });
@@ -427,6 +453,25 @@ describe("a paused agent stays paused (O-06)", () => {
       await repos.agents.setStatus(t.db, t.businessId, t.workerId, "idle");
     }
     await repos.tasks.setStatus(t.db, t.businessId, t.codeTaskId, "ready", { force: true });
+  });
+
+  it("a session whose task was handed to another agent while it ran leaves the task as it now is (TPD-09)", async () => {
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = await acts.prepareSession(input);
+    try {
+      // Released or reassigned mid-session: the task went back to ready under another agent.
+      await repos.tasks.setStatus(t.db, t.businessId, t.codeTaskId, "ready", { force: true });
+      await repos.tasks.reassign(t.db, t.businessId, t.codeTaskId, t.chiefId);
+      const finish = await acts.finishSession(input, launch, resultOf("failed", "error"));
+      expect(finish.taskStatus).toBe("ready");
+      expect(await repos.tasks.get(t.db, t.businessId, t.codeTaskId)).toMatchObject({ status: "ready", assigneeAgentId: t.chiefId });
+      // The session row still records how it ended.
+      expect((await repos.agents.getSession(t.db, t.businessId, sessionId)).outcome).toBe("failed");
+    } finally {
+      await repos.tasks.reassign(t.db, t.businessId, t.codeTaskId, t.workerId);
+      await repos.agents.setStatus(t.db, t.businessId, t.workerId, "idle");
+    }
   });
 
   it("a run whose agent was paused while it waited for a slot ends stopped before creating anything", async () => {

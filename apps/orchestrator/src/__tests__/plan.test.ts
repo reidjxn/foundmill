@@ -134,6 +134,36 @@ describe("executePlanAction on PGlite", () => {
     }
   });
 
+  it("ask delegated to an agent in Team › Responsibilities: it approves as the approval opens and the action runs (TPD-04)", async () => {
+    await repos.businesses.setBusinessMode(t.db, t.businessId, "augmented");
+    const departmentId = t.fixture.departmentId;
+    const chief = await repos.agents.get(t.db, t.businessId, t.chiefId);
+    await repos.agents.update(t.db, t.businessId, t.chiefId, { departmentIds: [departmentId] });
+    await repos.departments.update(t.db, t.businessId, departmentId, { approvers: [{ decisionType: "message_customers", handler: { kind: "agent", id: t.workerId } }] });
+    try {
+      const plan = await repos.plans.create(t.db, t.businessId, { origin: "free_text", actions: [{ type: "send_message", params: { to: "ops@example.com", subject: "Status", body: "On track" }, agentId: t.chiefId }] });
+      const actionId = plan.actions[0]!.id;
+      const result = await acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId, workflowId: "plan:test" });
+      expect(result).toMatchObject({ status: "done", outcome: "ask" });
+      expect(await repos.approvals.forPlanAction(t.db, t.businessId, actionId)).toMatchObject({ decisionType: "message_customers", handlerKind: "agent", handlerId: t.workerId, outcome: "approved", byKind: "agent", byId: t.workerId });
+      const requested = await repos.events.list(t.db, t.businessId, { type: "approval.requested", limit: 50 });
+      expect(requested.items.some((e) => (e.payload as { planActionId?: string }).planActionId === actionId)).toBe(false);
+      const resolved = await repos.events.list(t.db, t.businessId, { type: "approval.resolved", limit: 50 });
+      expect(resolved.items.find((e) => (e.payload as { planActionId?: string }).planActionId === actionId)?.payload).toMatchObject({ outcome: "approved", resolvedBy: { kind: "agent", id: t.workerId } });
+      // A retry after the approval was decided (the attempt stopped before running the action) runs it under that
+      // approval and never opens a second one.
+      const again = await repos.plans.create(t.db, t.businessId, { origin: "free_text", actions: [{ type: "send_message", params: { to: "ops@example.com", subject: "Status", body: "Still on track" }, agentId: t.chiefId }] });
+      const againId = again.actions[0]!.id;
+      await repos.approvals.create(t.db, t.businessId, { planActionId: againId, agentId: t.chiefId, connectorKey: "platform", tool: "send_message", args: {}, reasons: ["augmented"] });
+      expect(await acts.executePlanAction({ businessId: t.businessId, planId: again.id, actionId: againId, workflowId: "plan:test" })).toMatchObject({ status: "done", outcome: "ask" });
+      expect((await repos.approvals.list(t.db, t.businessId, { limit: 100 })).items.filter((a) => a.planActionId === againId)).toHaveLength(1);
+    } finally {
+      await repos.departments.update(t.db, t.businessId, departmentId, { approvers: [] });
+      await repos.agents.update(t.db, t.businessId, t.chiefId, { departmentIds: chief.departmentIds });
+      await repos.businesses.setBusinessMode(t.db, t.businessId, "assisted");
+    }
+  });
+
   it("rejected approval records the action as denied without executing", async () => {
     await repos.businesses.setBusinessMode(t.db, t.businessId, "augmented");
     try {

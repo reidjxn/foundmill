@@ -21,8 +21,9 @@ export const founderRouter = router({
     get: protectedProcedure.query(async ({ ctx }) => {
       // Three independent reads: sent together, not one after another (each is a network round trip in production).
       const [profile, memberships, businesses] = await Promise.all([repos.founders.get(ctx.db, ctx.userId), repos.memberships.listForUser(ctx.db, ctx.userId), repos.businesses.listForUser(ctx.db, ctx.userId)]);
-      // `features.liveMode`: whether LIVE is open here (the commit screen offers Live only then).
-      return { profile, complete: profile !== null, email: ctx.email, memberships, businesses, features: { liveMode: liveModeOpen(ctx.env) } };
+      // `features.liveMode`: whether LIVE is open here (the commit screen offers Live only then). `userId` is the account ID
+      // a co-founder is added by (Settings › Members); the founder can always read their own.
+      return { userId: ctx.userId, profile, complete: profile !== null, email: ctx.email, memberships, businesses, features: { liveMode: liveModeOpen(ctx.env) } };
     }),
     update: protectedProcedure.input(FounderProfilePatch).mutation(async ({ ctx, input }) => {
       const existing = await repos.founders.get(ctx.db, ctx.userId);

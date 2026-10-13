@@ -70,7 +70,7 @@ describe("RecruitmentScreen", () => {
     await user.type(within(dialog).getByLabelText("Name", { exact: false }), "Nell");
     await user.click(within(dialog).getByTestId("hire-confirm"));
     await waitFor(() => expect(fake.mutations).toEqual([{ path: "team.agents.hire", input: { templateKey: "newsletter_writer", departmentId: DEPT_TEAM, name: "Nell" } }]));
-    await waitFor(() => expect(screen.getByTestId("recruitment-notice").textContent).toBe("Nell hired. First training run queued."));
+    await waitFor(() => expect(screen.getByTestId("recruitment-notice").textContent).toBe("Nell hired. Train it from its profile to tune its skills."));
     expect(fake.refetches["team.agents.list"]).toBe(1);
   });
 

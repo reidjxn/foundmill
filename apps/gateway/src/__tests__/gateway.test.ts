@@ -138,6 +138,31 @@ describe("business modes", () => {
     expect(audit.details).toMatchObject({ outcome: "ask", approvalId: r.approvalId });
   });
 
+  it("augmented: an ask delegated to an agent in Team › Responsibilities is approved by it and runs (AC-11.9.2)", async () => {
+    await repos.businesses.setBusinessMode(g.db, g.businessId, "augmented");
+    // A call asked again while its approval is open waits on that one: start from none open.
+    for (const open of await repos.approvals.pending(g.db, g.businessId)) await repos.approvals.resolve(g.db, g.businessId, open.id, { outcome: "rejected", byKind: "system", byId: null });
+    const dept = await repos.departments.create(g.db, g.businessId, { name: "Delegated" });
+    const reviewer = await repos.agents.create(g.db, g.businessId, { name: "Reviewer", agentType: "review_agent", departmentIds: [dept.id] });
+    await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [dept.id] });
+    await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [{ decisionType: "message_customers", handler: { kind: "agent", id: reviewer.id } }] });
+    try {
+      const before = (await repos.events.list(g.db, g.businessId, { type: "approval.requested", limit: 100 })).items.length;
+      const r = asAllow(await g.client.call(await g.token(), { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "hi" } }));
+      expect(r.policyIds).toContain("augmented-ask-external");
+      expect(g.seen.map((s) => s.tool)).toEqual(["send_message"]);
+      const approvals = await repos.approvals.list(g.db, g.businessId, { agentId: g.agentId, limit: 5 });
+      expect(approvals.items[0]).toMatchObject({ decisionType: "message_customers", handlerKind: "agent", handlerId: reviewer.id, outcome: "approved", byKind: "agent", byId: reviewer.id });
+      // Nothing waits for the founder: no approval.requested event; the agent's decision is on record.
+      expect((await repos.events.list(g.db, g.businessId, { type: "approval.requested", limit: 100 })).items).toHaveLength(before);
+      const resolved = (await repos.events.list(g.db, g.businessId, { type: "approval.resolved", limit: 100 })).items.find((e) => (e.payload as { approvalId: string }).approvalId === approvals.items[0]!.id);
+      expect(resolved?.payload).toMatchObject({ outcome: "approved", resolvedBy: { kind: "agent", id: reviewer.id } });
+    } finally {
+      await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [] });
+      await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [] });
+    }
+  });
+
   it("augmented: internal work is allowed", async () => {
     await repos.businesses.setBusinessMode(g.db, g.businessId, "augmented");
     const r = asAllow(await g.client.call(await g.token(), { connector: "test", tool: "note", args: { text: "draft" } }));
