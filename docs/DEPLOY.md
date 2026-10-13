@@ -61,6 +61,7 @@ Per service:
 
 | Service | Extra variables |
 | --- | --- |
+| api (and social) | `LIVE_MODE=1` opens the LIVE surfaces (network, communities, leaderboards, Go live); leave it unset while the social layer is unfinished: LIVE is closed (`FLAGS.liveMode`), `live.*` answers 403 and Settings does not offer Go live |
 | api | `SIGNUP_ALLOWLIST` (§4 "Who can sign in"; required while sign-up is open and models are live), `COMPOSER_URL=http://composer.railway.internal:4002`, `GATEWAY_URL=http://gateway.railway.internal:4001`, `TEMPORAL_ADDRESS=temporal.railway.internal:7233`, `TEMPORAL_TASK_QUEUE=foundmill`, `SEED_ON_BOOT=1` and `SEED_OWNER_EMAILS=<the address you sign in with>` (comma-separated for several). On a database with neither demo business the api builds Northwind Skincare and Ledgerly in the background after it starts (owners through the Supabase admin API, so `SUPABASE_SERVICE_ROLE_KEY` must be set); once both exist it only adds missing owner memberships, so an address added later becomes an owner on the next boot. It never deletes: a half-built seed is logged and left for `pnpm db:seed`. `SEED_VOLUME_SCALE` (default 1, two years of history) shrinks the data. An owner without a founder profile gets the demo profile, so the first sign-in lands on Northwind's Home; edit it from the profile screen |
 | gateway | `STRIPE_SECRET_KEY` and `LIVE_CONNECTORS=stripe` when credit top-ups take real payments (§5.5); none otherwise |
 | composer | none beyond shared |
