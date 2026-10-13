@@ -211,7 +211,10 @@ describe("seedDemo on PGlite", () => {
       expect(integrations.every((i) => i.status === "mock" || i.status === "degraded")).toBe(true);
       const dashboard = await repos.dashboards.active(db, businessId, result.owner.userId);
       expect(dashboard?.preset).toBe("founder");
-      expect(dashboard?.layout.widgets.length).toBe(10);
+      // Ribbon, status strip, team pulse and inbox, plus a department card for each visible department.
+      const departments = await repos.departments.list(db, businessId);
+      expect(dashboard?.layout.widgets.filter((w) => (w as { key: string }).key === "department_card")).toHaveLength(departments.length);
+      expect(dashboard?.layout.widgets.length).toBe(departments.length + 4);
       expect(await count(s.usageLedger, businessId)).toBeGreaterThan(0);
     }
     const nwLegal = (await repos.legal.primaryEntity(db, NORTHWIND_BUSINESS_ID))!;

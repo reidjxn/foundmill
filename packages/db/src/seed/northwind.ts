@@ -89,6 +89,8 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     modelBilling: "credits",
     glossary: { customer: "customer", squad: "lab team" },
     createdBy: ctx.owner.userId,
+    // Synthetic numbers: never listed on the network for anyone outside the business (0044).
+    isDemo: true,
   });
   for (const owner of ctx.owners) await repos.memberships.add(db, businessId, { userId: owner.userId, role: "owner" });
   await repos.businesses.commit(db, businessId, { archetype: "dtc_physical", committedAt: ctx.startDate });

@@ -53,6 +53,8 @@ async function shownBusinessIds(ctx: Ctx, ids: readonly (string | null)[]): Prom
 async function visibleCommunity(ctx: Ctx, communityId: string) {
   const [community, isMember] = await Promise.all([repos.social.getCommunity(ctx.db, communityId), repos.social.isMember(ctx.db, ctx.userId, communityId)]);
   if (community.archivedAt || (community.visibility !== "public" && !isMember)) throw new NotFoundError("community", communityId);
+  // A demo business's community (synthetic posts) is there only for the demo's own members and the community's (0044).
+  if (!isMember && (await repos.social.demoBusinessesHiddenFrom(ctx.db, ctx.userId, [community.ownerBusinessId])).size) throw new NotFoundError("community", communityId);
   return { community, isMember };
 }
 
@@ -150,9 +152,12 @@ export const liveRouter = router({
   leaderboards: router({
     list: protectedProcedure.input(z.object({ period: z.string().optional(), boardKind: z.string().optional() }).optional()).query(({ ctx, input }) => repos.social.listLeaderboards(ctx.db, input ?? {})),
     get: protectedProcedure.input(z.object({ leaderboardId: Id })).query(({ ctx, input }) => repos.social.getLeaderboard(ctx.db, input.leaderboardId)),
-    /** A board's entries, each with the business's public card (name, logo inputs) when it is listed; null otherwise. */
+    /**
+     * A board's entries, each with the business's public card (name, logo inputs) when it is listed; null otherwise. A
+     * demo business's entry (synthetic numbers) is there only for its own members (0044).
+     */
     entries: protectedProcedure.input(z.object({ leaderboardId: Id, limit: z.number().int().min(1).max(500).default(100) })).query(async ({ ctx, input }) => {
-      const rows = await repos.social.leaderboardEntries(ctx.db, input.leaderboardId, input.limit);
+      const rows = await repos.social.leaderboardEntries(ctx.db, input.leaderboardId, input.limit, { viewerId: ctx.userId });
       const { businesses } = await repos.social.lookupPeople(ctx.db, ctx.userId, { businessIds: rows.map((r) => r.businessId) });
       const cards = new Map(businesses.map((b) => [b.businessId, b]));
       return rows.map((r) => ({ ...r, businessName: cards.get(r.businessId)?.name ?? null, business: cards.get(r.businessId) ?? null }));

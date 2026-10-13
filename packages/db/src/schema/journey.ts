@@ -1,7 +1,7 @@
 /** 0007 — customer journey: visitors, touches, conversions, journeys, journey_daily, milestones. */
 import { CHANNEL_KEYS, CONVERSION_KINDS, MATCHDAY_LEVELS, MILESTONE_KINDS, VISIBILITY } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
-import { bigint, boolean, date, index, integer, jsonb, numeric, pgMaterializedView, pgTable, pgView, text, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { bigint, boolean, date, index, integer, jsonb, numeric, pgMaterializedView, pgTable, pgView, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { currency, emptyArray, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
 import { businessId } from "./_refs";
 import { entities } from "./crm";
@@ -120,6 +120,25 @@ export const milestones = pgTable(
 );
 export type Milestone = typeof milestones.$inferSelect;
 export type NewMilestone = typeof milestones.$inferInsert;
+
+export const CHAPTER_MOODS = ["rising", "steady", "turbulent", "breakthrough"] as const;
+
+/** 0044 — the composer's title for a quarter that has ended (BUILD §11.2 "Chapters … titled by Opus"); written by the composer. */
+export const chapterTitles = pgTable(
+  "chapter_titles",
+  {
+    id: id(),
+    businessId: businessId(),
+    /** "2026-Q3" (packages/journey `chapterIdFor`). */
+    chapterId: text("chapter_id").notNull(),
+    title: text("title").notNull(),
+    subtitle: text("subtitle").notNull().default(""),
+    mood: text("mood", { enum: CHAPTER_MOODS }).notNull().default("steady"),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("chapter_titles_business_chapter_key").on(t.businessId, t.chapterId)],
+);
+export type ChapterTitle = typeof chapterTitles.$inferSelect;
 
 const journeyDailyColumns = {
   businessId: uuid("business_id").notNull(),

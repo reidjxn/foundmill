@@ -117,6 +117,17 @@ export function tierLimitOf(err: unknown): { limit: string; planBusinessId: stri
   return { limit: data.details?.limit ?? "businesses", planBusinessId: data.details?.planBusinessId ?? null };
 }
 
+/**
+ * The API's refusal of a value someone else already holds (`conflict` with the form field it is about, such as a
+ * business slug that is taken), for showing under that field; null for any other error.
+ */
+export function fieldConflictOf(err: unknown): { field: string; message: string } | null {
+  if (!(err instanceof TRPCClientError)) return null;
+  const data = err.data as { appCode?: string; details?: { field?: unknown } } | undefined;
+  if (data?.appCode !== "conflict" || typeof data.details?.field !== "string") return null;
+  return { field: data.details.field, message: err.message };
+}
+
 /** The query key @trpc/tanstack-react-query uses for a procedure path, so path-string queries and typed hooks share a cache. */
 export function trpcQueryKey(path: string, input?: unknown, type: "query" | "infinite" | "any" = "query"): readonly unknown[] {
   const parts = path.split(".");

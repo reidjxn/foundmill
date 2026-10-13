@@ -6,7 +6,7 @@ import { LIMITS } from "@foundmill/config";
 import { repos, type Db, type InboxItem } from "@foundmill/db";
 import { stableHash, type ModelClient, type ModelLogger } from "@foundmill/models";
 import { NotFoundError, ValidationError } from "@foundmill/shared";
-import { composeChapterTitle, quarterOf, type ChapterTitleResult } from "./chapter";
+import { composeChapterTitle, parseQuarter, quarterOf, type ChapterTitleResult } from "./chapter";
 import { composeCommentary, type CommentaryResult } from "./commentary";
 import { composeNote } from "./compose";
 import { loadContext } from "./context";
@@ -125,9 +125,18 @@ export class ComposerService {
     return composeCommentary(this.deps, businessId, journeyId);
   }
 
-  /** `POST /v1/chapter-title`; `quarter` defaults to the current one. */
-  chapterTitle(businessId: string, quarter?: string): Promise<ChapterTitleResult> {
-    return composeChapterTitle(this.deps, businessId, quarter ?? quarterOf(this.now()));
+  /**
+   * `POST /v1/chapter-title`; `quarter` defaults to the current one. The model's title for a quarter that has ended is
+   * stored (`chapter_titles`, 0044), so the Ribbon names that chapter from then on. A current quarter's facts still
+   * move, and a provisional fallback is never stored: the Ribbon keeps its own provisional title until a model title.
+   */
+  async chapterTitle(businessId: string, quarter?: string): Promise<ChapterTitleResult> {
+    const q = quarter ?? quarterOf(this.now());
+    const result = await composeChapterTitle(this.deps, businessId, q);
+    if (result.source === "model" && parseQuarter(q).to.getTime() <= this.now().getTime()) {
+      await repos.journeys.setChapterTitle(this.deps.db, businessId, { chapterId: result.quarter, title: result.title, subtitle: result.subtitle, mood: result.mood });
+    }
+    return result;
   }
 
   exhibits(): ReturnType<typeof namedQueryCatalogue> {

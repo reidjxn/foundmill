@@ -6,7 +6,7 @@
 import { useMemo } from "react";
 import { z } from "zod";
 import { TrendingUp } from "lucide-react";
-import { BarChart, LineChart, MetricTile, formatNumber, type BarDatum, type LineSeries } from "@foundmill/dugout";
+import { BarChart, LineChart, MetricTile, formatDate, formatMoney, formatNumber, type BarDatum, type LineSeries } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { WidgetFrame } from "../shared/frame";
@@ -20,9 +20,19 @@ export const RevenueCustomersSettings = z.object({
 });
 export type RevenueCustomersSettings = z.infer<typeof RevenueCustomersSettings>;
 
+/**
+ * Revenue per month for the bars: the month by name ("May", "Oct") and the amount in minor units, so the chart formats
+ * it as money in the business's currency (`revenueFormat`) whatever its minor unit.
+ */
 export function revenueBars(finance: FinanceOverview | undefined, months: number): BarDatum[] {
-  return (finance?.revenue.monthly ?? []).slice(-months).map((m) => ({ label: m.month.slice(5), value: m.inflowMinor / 100 }));
+  return (finance?.revenue.monthly ?? []).slice(-months).map((m) => {
+    const [year, month] = m.month.split("-").map(Number);
+    return { label: formatDate(new Date(year ?? 1970, (month ?? 1) - 1, 1), "MMM"), value: m.inflowMinor };
+  });
 }
+
+/** How a revenue bar's value reads (on the bar and in the chart's summary): money in the business currency, compact. */
+export const revenueFormat = (currency: string) => (minor: number) => formatMoney({ amountMinor: minor, currency }, { compact: true });
 
 /** Customers (payments) per ISO week from the business-wide daily rows, oldest first. */
 export function customersPerWeek(ribbon: RibbonResponse | undefined): { week: string; customers: number; signups: number }[] {
@@ -79,7 +89,7 @@ function RevenueCustomersWidget({ settings }: WidgetProps<RevenueCustomersSettin
           {settings.view !== "revenue" ? <MetricTile label="Customers, last 30 days" value={ribbon.data ? last30 : null} format="integer" caption={ribbon.data ? `${formatNumber(weeks.at(-1)?.customers ?? 0, { maxDigits: 0 })} this week` : undefined} spark={weeks.map((w) => w.customers)} /> : null}
         </div>
         <div className={`grid min-h-0 flex-1 gap-gutter p-panel-pad ${settings.view === "both" ? "grid-cols-2" : "grid-cols-1"}`}>
-          {settings.view !== "customers" && bars.length > 0 ? <BarChart data={bars} label="Revenue by month" height={140} format={(v) => formatNumber(v, { maxDigits: 0 })} /> : null}
+          {settings.view !== "customers" && bars.length > 0 ? <BarChart data={bars} label="Revenue by month" height={140} format={revenueFormat(cur)} /> : null}
           {settings.view !== "revenue" && weekSeries.length > 0 ? <LineChart series={weekSeries} label="Customers and signups per week" height={140} xType="linear" xFormat={(v) => `W${v}`} yFormat={(v) => formatNumber(v, { maxDigits: 0 })} /> : null}
         </div>
       </div>

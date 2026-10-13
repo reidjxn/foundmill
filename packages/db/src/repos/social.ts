@@ -8,7 +8,7 @@
  * view only selects LIVE businesses (0012), so the visibility rule is enforced in SQL, not here.
  */
 import { AppError, ARCHETYPES, DATA_REGIONS, ForbiddenError, NotFoundError, ValidationError, VISIBILITY } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
 import {
@@ -79,6 +79,14 @@ export const MAX_MESSAGE_RECIPIENTS = 20;
 
 /** A business that may appear on a board: LIVE, committed and not archived (the SQL `is_public`). */
 const publicBusiness = and(eq(businesses.gameMode, "live"), isNotNull(businesses.committedAt), isNull(businesses.archivedAt));
+
+/**
+ * True when the business behind `businessId` is a seeded demo (0044 `is_demo`) the viewer does not belong to. A demo's
+ * numbers are synthetic, so on the network it is shown only to its own members (`is_public` and `public_profiles`
+ * leave it out for everyone else); null business ids are never hidden.
+ */
+const demoHiddenFrom = (businessId: AnyColumn | SQL, viewerId: string): SQL =>
+  sql`exists (select 1 from businesses demo where demo.id = ${businessId} and demo.is_demo and not exists (select 1 from memberships dm where dm.business_id = demo.id and dm.user_id = ${viewerId}::uuid))`;
 
 /** What the viewer may know about another user: `displayName` is null when their profile visibility keeps it back. */
 export interface PersonCard {
@@ -277,14 +285,18 @@ export const socialRepo = {
     });
   },
 
+  /**
+   * A person's conversations, the latest activity first (the last message, else when the thread was opened). The
+   * cursor carries that same instant and the id, so pages never repeat or skip a thread.
+   */
   async listThreads(db: Executor, userId: string, page: PageInput = {}): Promise<Page<MessageThread>> {
     const p = parseInput(PageInput, page, "page");
-    const ks = timeKeyset<MessageThread>(messageThreads.createdAt, messageThreads.id, (r) => ({ at: r.createdAt, id: r.id }));
+    const ks = timeKeyset<MessageThread>(sql`coalesce(${messageThreads.lastMessageAt}, ${messageThreads.createdAt})`, messageThreads.id, (r) => ({ at: r.lastMessageAt ?? r.createdAt, id: r.id }));
     const rows = await db
       .select()
       .from(messageThreads)
       .where(and(isNull(messageThreads.archivedAt), sql`${messageThreads.participantIds} @> array[${userId}::uuid]`, ks.after(p.cursor)))
-      .orderBy(sql`${messageThreads.lastMessageAt} desc nulls last`, ...ks.orderBy)
+      .orderBy(...ks.orderBy)
       .limit(p.limit + 1);
     return toPage(rows, p, ks);
   },
@@ -427,7 +439,10 @@ export const socialRepo = {
   },
 
   // communities -------------------------------------------------------------------------------------------------------
-  /** With `viewerId`, only what that user may see: public communities and the ones they belong to (communities_select). */
+  /**
+   * With `viewerId`, only what that user may see: public communities and the ones they belong to (communities_select),
+   * leaving out a public community a demo business owns unless the viewer belongs to that business or the community.
+   */
   async listCommunities(db: Executor, options: { visibility?: (typeof VISIBILITY)[number]; limit?: number; viewerId?: string } = {}): Promise<Community[]> {
     return db
       .select()
@@ -438,7 +453,7 @@ export const socialRepo = {
           options.visibility ? eq(communities.visibility, options.visibility) : undefined,
           options.viewerId
             ? or(
-                eq(communities.visibility, "public"),
+                and(eq(communities.visibility, "public"), sql`not ${demoHiddenFrom(communities.ownerBusinessId, options.viewerId)}`),
                 sql`exists (select 1 from ${communityMembers} cm where cm.community_id = ${communities.id} and cm.user_id = ${options.viewerId}::uuid and cm.status = 'active')`,
               )
             : undefined,
@@ -450,6 +465,14 @@ export const socialRepo = {
 
   async getCommunity(db: Executor, communityId: string): Promise<Community> {
     return one(await db.select().from(communities).where(eq(communities.id, communityId)).limit(1), "community", communityId);
+  },
+
+  /** Which of these businesses are demo businesses (0044) the viewer does not belong to: the network does not show them. */
+  async demoBusinessesHiddenFrom(db: Executor, viewerId: string, businessIds: readonly (string | null | undefined)[]): Promise<Set<string>> {
+    const ids = [...new Set(businessIds.filter((id): id is string => !!id))];
+    if (!ids.length) return new Set();
+    const rows = await db.select({ id: businesses.id }).from(businesses).where(and(inArray(businesses.id, ids), demoHiddenFrom(businesses.id, viewerId)));
+    return new Set(rows.map((r) => r.id));
   },
 
   async getCommunityBySlug(db: Executor, slug: string): Promise<Community | null> {
@@ -470,21 +493,34 @@ export const socialRepo = {
     });
   },
 
+  /**
+   * Joins (or rejoins) as yourself or, with `businessId` (already checked by the caller: a business you may speak
+   * for), as that business; joining again changes who you speak as. `member_count` moves only when a membership turns
+   * active, and only once however many joins race: each write is conditional on the row's state, so a double-click
+   * or two tabs count one member.
+   */
   async joinCommunity(db: Executor, userId: string, communityId: string, options: { businessId?: string | null; role?: (typeof COMMUNITY_ROLES)[number] } = {}): Promise<CommunityMember> {
+    const businessId = options.businessId ?? null;
+    const mine = and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, userId));
+    const counted = (tx: Executor) => tx.update(communities).set({ memberCount: sql`${communities.memberCount} + 1` }).where(eq(communities.id, communityId));
     return db.transaction(async (tx) => {
-      const existing = await tx.select().from(communityMembers).where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, userId))).limit(1);
-      const current = existing[0];
-      if (current) {
-        if (current.status === "banned") throw new ValidationError("Banned from this community", { communityId });
-        if (current.status === "muted") throw new ValidationError("Your membership is muted; a moderator can restore it", { communityId });
-        if (current.status === "active") return current;
-        const rejoined = one(await tx.update(communityMembers).set({ status: "active", joinedAt: new Date() }).where(eq(communityMembers.id, current.id)).returning(), "community member");
-        await tx.update(communities).set({ memberCount: sql`${communities.memberCount} + 1` }).where(eq(communities.id, communityId));
-        return rejoined;
+      const inserted = await tx.insert(communityMembers).values({ communityId, userId, businessId, role: options.role ?? "member" }).onConflictDoNothing({ target: [communityMembers.communityId, communityMembers.userId] }).returning();
+      if (inserted[0]) {
+        await counted(tx);
+        return inserted[0];
       }
-      const member = one(await tx.insert(communityMembers).values({ communityId, userId, businessId: options.businessId ?? null, role: options.role ?? "member" }).returning(), "community member");
-      await tx.update(communities).set({ memberCount: sql`${communities.memberCount} + 1` }).where(eq(communities.id, communityId));
-      return member;
+      // A row exists. Rejoin only from 'left' (a racing rejoin finds it active and counts nothing); a banned or muted
+      // member stays as they are.
+      const rejoined = await tx.update(communityMembers).set({ status: "active", businessId, joinedAt: new Date() }).where(and(mine, eq(communityMembers.status, "left"))).returning();
+      if (rejoined[0]) {
+        await counted(tx);
+        return rejoined[0];
+      }
+      const current = one(await tx.select().from(communityMembers).where(mine).limit(1), "community member");
+      if (current.status === "banned") throw new ValidationError("Banned from this community", { communityId });
+      if (current.status === "muted") throw new ValidationError("Your membership is muted; a moderator can restore it", { communityId });
+      if (current.businessId === businessId) return current;
+      return one(await tx.update(communityMembers).set({ businessId }).where(and(mine, eq(communityMembers.status, "active"))).returning(), "community member");
     });
   },
 
@@ -610,13 +646,17 @@ export const socialRepo = {
       const previous = await tx.select({ businessId: leaderboardEntries.businessId, position: leaderboardEntries.position }).from(leaderboardEntries).where(eq(leaderboardEntries.leaderboardId, leaderboardId));
       const prevPos = new Map(previous.map((p) => [p.businessId, p.position]));
       // Only LIVE, committed, non-archived businesses take a position (the policy `is_public`): a Personal business's
-      // numbers are never ranked, whoever passes them in.
+      // numbers are never ranked, whoever passes them in. Demo businesses (0044) rank after every real one, so a real
+      // business's position never counts a synthetic one above it.
       const ids = [...new Set(parsed.map((e) => e.businessId))];
-      const listed = new Set(ids.length ? (await tx.select({ id: businesses.id }).from(businesses).where(and(inArray(businesses.id, ids), publicBusiness))).map((b) => b.id) : []);
-      const ranked = parsed
-        .filter((e) => e.verified && listed.has(e.businessId))
-        .sort((a, b) => b.metricValue - a.metricValue || a.businessId.localeCompare(b.businessId))
-        .map((e, i) => ({ ...e, position: i + 1 }));
+      const listed = new Map(ids.length ? (await tx.select({ id: businesses.id, isDemo: businesses.isDemo }).from(businesses).where(and(inArray(businesses.id, ids), publicBusiness))).map((b) => [b.id, b.isDemo] as const) : []);
+      const rank = (demo: boolean, before: number) =>
+        parsed
+          .filter((e) => e.verified && listed.get(e.businessId) === demo)
+          .sort((a, b) => b.metricValue - a.metricValue || a.businessId.localeCompare(b.businessId))
+          .map((e, i) => ({ ...e, position: before + i + 1 }));
+      const real = rank(false, 0);
+      const ranked = [...real, ...rank(true, real.length)];
       await tx.delete(leaderboardEntries).where(eq(leaderboardEntries.leaderboardId, leaderboardId));
       const rows = ranked.length
         ? await tx
@@ -643,13 +683,16 @@ export const socialRepo = {
     return one(await db.select().from(leaderboards).where(eq(leaderboards.id, leaderboardId)).limit(1), "leaderboard", leaderboardId);
   },
 
-  /** A board's entries for businesses that are listed (LIVE, committed, not archived: the `leaderboard_entries_select` policy). */
-  async leaderboardEntries(db: Executor, leaderboardId: string, limit = 100): Promise<LeaderboardEntry[]> {
+  /**
+   * A board's entries for businesses that are listed (LIVE, committed, not archived: the `leaderboard_entries_select`
+   * policy). With `viewerId`, a demo business's entry only for its own members (0044).
+   */
+  async leaderboardEntries(db: Executor, leaderboardId: string, limit = 100, options: { viewerId?: string } = {}): Promise<LeaderboardEntry[]> {
     const rows = await db
       .select({ entry: leaderboardEntries })
       .from(leaderboardEntries)
       .innerJoin(businesses, eq(businesses.id, leaderboardEntries.businessId))
-      .where(and(eq(leaderboardEntries.leaderboardId, leaderboardId), publicBusiness))
+      .where(and(eq(leaderboardEntries.leaderboardId, leaderboardId), publicBusiness, options.viewerId ? sql`not ${demoHiddenFrom(businesses.id, options.viewerId)}` : undefined))
       .orderBy(asc(leaderboardEntries.position))
       .limit(limit);
     return rows.map((r) => r.entry);

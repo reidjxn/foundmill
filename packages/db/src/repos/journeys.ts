@@ -11,8 +11,8 @@ import { CHANNEL_KEYS, CONVERSION_KINDS, MATCHDAY_LEVELS, MILESTONE_KINDS, Valid
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  ATTRIBUTION_MODELS, CONSENT_STATES, conversions, entities, journeyDaily, journeyDailyMv, journeys, milestones, touches, visitors, XC_MODEL_SOURCES,
-  type Conversion, type Journey, type JourneyDailyRow, type Milestone, type Touch, type Visitor,
+  ATTRIBUTION_MODELS, CHAPTER_MOODS, chapterTitles, CONSENT_STATES, conversions, entities, journeyDaily, journeyDailyMv, journeys, milestones, touches, visitors, XC_MODEL_SOURCES,
+  type ChapterTitle, type Conversion, type Journey, type JourneyDailyRow, type Milestone, type Touch, type Visitor,
 } from "../schema";
 import {
   bypassesRls, Currency, DateRange, DayRange, dayRange, Id, IsoDateInput, JsonArray, JsonObject, MinorAmount, one, PageInput, parseInput, rowsOf, timeKeyset, timeRange, toPage,
@@ -90,6 +90,14 @@ export const JourneyListFilter = PageInput.extend(DateRange.shape).extend({
 export type JourneyListFilter = z.input<typeof JourneyListFilter>;
 
 export const DailyRangeFilter = DayRange.extend({ departmentId: Id.optional() });
+
+export const SetChapterTitleInput = z.object({
+  chapterId: z.string().regex(/^\d{4}-Q[1-4]$/),
+  title: z.string().trim().min(1).max(80),
+  subtitle: z.string().max(200).default(""),
+  mood: z.enum(CHAPTER_MOODS).default("steady"),
+});
+export type SetChapterTitleInput = z.input<typeof SetChapterTitleInput>;
 export type DailyRangeFilter = z.input<typeof DailyRangeFilter>;
 
 export const CreateMilestoneInput = z.object({
@@ -324,6 +332,22 @@ export const journeysRepo = {
     return out;
   },
 
+  /**
+   * Amounts summed in SQL over a time range (half-open), one row per currency, largest total first: revenue is every
+   * payment (renewals and repeat orders included), never one page of rows, and never two currencies added together.
+   */
+  async sumConversions(db: Executor, businessId: string, filter: DateRange & { kind?: ConversionKind } = {}): Promise<{ currency: string; amountMinor: number; count: number }[]> {
+    const f = parseInput(DateRange.extend({ kind: z.enum(CONVERSION_KINDS).optional() }), filter, "conversion sum");
+    const total = sql<string>`coalesce(sum(${conversions.amountMinor}), 0)`;
+    const rows = await db
+      .select({ currency: conversions.currency, amountMinor: total, count: sql<number>`count(*)::int` })
+      .from(conversions)
+      .where(and(eq(conversions.businessId, businessId), f.kind ? eq(conversions.kind, f.kind) : undefined, timeRange(conversions.occurredAt, f)))
+      .groupBy(conversions.currency)
+      .orderBy(desc(total), asc(conversions.currency));
+    return rows.map((r) => ({ currency: r.currency, amountMinor: Number(r.amountMinor), count: Number(r.count) }));
+  },
+
   /** Which number this conversion is among its kind (1-based, by occurred_at then id); payments count first payments only. */
   async nthOfKind(db: Executor, businessId: string, conversionId: string): Promise<number> {
     const c = await journeysRepo.getConversion(db, businessId, conversionId);
@@ -475,6 +499,53 @@ export const journeysRepo = {
       byDay.set(r.day, acc);
     }
     return [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+  },
+
+  /**
+   * Business-wide totals per calendar quarter (every department folded together), summed in SQL: one row per quarter
+   * keyed by its first day, for chapter summaries over a business's whole life whatever range a screen shows.
+   */
+  async quarterTotals(db: Executor, businessId: string, range: DayRange = {}): Promise<Omit<JourneyDailyRow, "departmentId">[]> {
+    const f = parseInput(DayRange, range, "quarter range");
+    const relation = (await bypassesRls(db)) ? journeyDailyMv : journeyDaily;
+    const quarter = sql<string>`to_char(date_trunc('quarter', ${relation.day}), 'YYYY-MM-DD')`;
+    const rows = await db
+      .select({
+        day: quarter,
+        agentHours: sql<string>`coalesce(sum(${relation.agentHours}), 0)::numeric(14,3)::text`,
+        tasksDone: sql<number>`coalesce(sum(${relation.tasksDone}), 0)::int`,
+        spendMinor: sql<string>`coalesce(sum(${relation.spendMinor}), 0)::bigint`,
+        revenueMinor: sql<string>`coalesce(sum(${relation.revenueMinor}), 0)::bigint`,
+        signups: sql<number>`coalesce(sum(${relation.signups}), 0)::int`,
+        activations: sql<number>`coalesce(sum(${relation.activations}), 0)::int`,
+        payments: sql<number>`coalesce(sum(${relation.payments}), 0)::int`,
+        decisions: sql<number>`coalesce(sum(${relation.decisions}), 0)::int`,
+      })
+      .from(relation)
+      .where(and(eq(relation.businessId, businessId), dayRange(relation.day, f)))
+      .groupBy(quarter)
+      .orderBy(quarter);
+    return rows.map((r) => ({ businessId, day: r.day, agentHours: String(r.agentHours), tasksDone: Number(r.tasksDone), spendMinor: Number(r.spendMinor), revenueMinor: Number(r.revenueMinor), signups: Number(r.signups), activations: Number(r.activations), payments: Number(r.payments), decisions: Number(r.decisions) }));
+  },
+
+  // chapter titles (0044) ---------------------------------------------------------------------------------------------
+  /** The stored (Opus) title of each ended quarter, by chapter id ("2026-Q3"). */
+  async chapterTitles(db: Executor, businessId: string): Promise<Record<string, string>> {
+    const rows = await db.select({ chapterId: chapterTitles.chapterId, title: chapterTitles.title }).from(chapterTitles).where(eq(chapterTitles.businessId, businessId));
+    return Object.fromEntries(rows.map((r) => [r.chapterId, r.title]));
+  },
+
+  /** Stores (or replaces) a quarter's title: the composer's, once the quarter has ended (service role). */
+  async setChapterTitle(db: Executor, businessId: string, input: SetChapterTitleInput): Promise<ChapterTitle> {
+    const v = parseInput(SetChapterTitleInput, input, "chapter title");
+    return one(
+      await db
+        .insert(chapterTitles)
+        .values({ businessId, chapterId: v.chapterId, title: v.title, subtitle: v.subtitle, mood: v.mood })
+        .onConflictDoUpdate({ target: [chapterTitles.businessId, chapterTitles.chapterId], set: { title: v.title, subtitle: v.subtitle, mood: v.mood } })
+        .returning(),
+      "chapter title",
+    );
   },
 
   /** Rebuilds the matview (service role; `refresh_journey_daily()` is security definer). */

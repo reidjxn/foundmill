@@ -1,9 +1,9 @@
 /** businesses — the club record (BUILD §7.2 "Accounts and businesses", routers business.*). */
-import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, GAME_MODES, MODEL_BILLING, PLAN_TIERS, slugify, uuid, type AgentStopReason } from "@foundmill/shared";
+import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, ConflictError, DATA_REGIONS, GAME_MODES, MODEL_BILLING, PLAN_TIERS, slugify, uuid, type AgentStopReason } from "@foundmill/shared";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { businesses, memberships, type Business } from "../schema";
-import { defined, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, type Executor } from "./_shared";
+import { defined, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, uniqueViolation, type Executor } from "./_shared";
 
 const HexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/, "brand colors are #RRGGBB");
 
@@ -24,6 +24,8 @@ export const CreateBusinessInput = z.object({
   spendCapMinor: MinorAmount.nonnegative().nullable().default(null),
   glossary: z.record(z.string(), z.string()).default({}),
   createdBy: Id.nullable().optional(),
+  /** A seeded demo business (0044): kept off the network for everyone outside it. The demo seed sets it; nothing else does. */
+  isDemo: z.boolean().default(false),
 });
 export type CreateBusinessInput = z.input<typeof CreateBusinessInput>;
 
@@ -41,6 +43,9 @@ export const UpdateBusinessInput = z.object({
 export type UpdateBusinessInput = z.input<typeof UpdateBusinessInput>;
 
 const notArchived = isNull(businesses.archivedAt);
+
+/** What Settings › Business shows under the Slug field when another business already has the slug. */
+export const SLUG_TAKEN = "That slug is taken";
 
 export const businessesRepo = {
   /** The business, or NotFoundError. Archived businesses are not found unless `includeArchived`. */
@@ -92,6 +97,7 @@ export const businessesRepo = {
       spendCapMinor: v.spendCapMinor,
       glossary: v.glossary,
       createdBy: v.createdBy ?? null,
+      isDemo: v.isDemo,
     });
     return {
       id,
@@ -113,6 +119,7 @@ export const businessesRepo = {
       createdBy: v.createdBy ?? null,
       agentsStoppedAt: null,
       agentsStoppedReason: null,
+      isDemo: v.isDemo,
       createdAt: new Date(),
       updatedAt: new Date(),
       archivedAt: null,
@@ -140,10 +147,19 @@ export const businessesRepo = {
     return { stopped: row.stoppedAt !== null || row.archivedAt !== null, stoppedAt: row.stoppedAt, reason: row.reason, archived: row.archivedAt !== null };
   },
 
+  /**
+   * Updates the business record. Slugs are unique across every business (`businesses_slug_key`), so a slug another
+   * business holds is a ConflictError on the `slug` field ("That slug is taken"), never a database error.
+   */
   async update(db: Executor, businessId: string, input: UpdateBusinessInput): Promise<Business> {
     const v = parseInput(UpdateBusinessInput, input, "business update");
-    const rows = await db.update(businesses).set(defined(v)).where(and(eq(businesses.id, businessId), notArchived)).returning();
-    return one(rows, "business", businessId);
+    try {
+      const rows = await db.update(businesses).set(defined(v)).where(and(eq(businesses.id, businessId), notArchived)).returning();
+      return one(rows, "business", businessId);
+    } catch (err) {
+      if (v.slug !== undefined && uniqueViolation(err)?.constraint === "businesses_slug_key") throw new ConflictError(SLUG_TAKEN, { field: "slug" });
+      throw err;
+    }
   },
 
   async setGameMode(db: Executor, businessId: string, gameMode: (typeof GAME_MODES)[number]): Promise<Business> {

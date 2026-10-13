@@ -3,6 +3,7 @@
  * blocks, roadmap items, tasks in mixed states with sessions, Inbox items with validated entity links, integrations
  * in mock status, legal records and the founder's Home dashboard. The business modules supply the words.
  */
+import { presetWidgets } from "@foundmill/config";
 import { CHANNEL_KEYS, CHANNEL_META, ENTITY_MARKUP_RE, MODULE_KEYS, type ChannelKey, type InboxItemType, type TaskKind, type TaskStatus } from "@foundmill/shared";
 import { eq } from "drizzle-orm";
 import { repos, type ComposerItem } from "../repos";
@@ -372,25 +373,14 @@ export async function seedIntegrations(ctx: SeedCtx, businessId: string, specs: 
 
 // --- dashboard ---------------------------------------------------------------------------------------------------------------
 
-/** The "Founder's view" preset exactly as apps/api/src/presets.ts stores it (12-column grid, 8 px rows). */
-export const FOUNDER_PRESET_LAYOUT = {
-  widgets: [
-    { key: "journey_ribbon", x: 0, y: 0, w: 12, h: 38, settings: {} },
-    { key: "status_strip", x: 0, y: 38, w: 12, h: 12, settings: {} },
-    { key: "department_card", x: 0, y: 50, w: 4, h: 30, settings: { slot: 0 } },
-    { key: "department_card", x: 4, y: 50, w: 4, h: 30, settings: { slot: 1 } },
-    { key: "department_card", x: 8, y: 50, w: 4, h: 30, settings: { slot: 2 } },
-    { key: "department_card", x: 0, y: 80, w: 4, h: 30, settings: { slot: 3 } },
-    { key: "department_card", x: 4, y: 80, w: 4, h: 30, settings: { slot: 4 } },
-    { key: "department_card", x: 8, y: 80, w: 4, h: 30, settings: { slot: 5 } },
-    { key: "squad_pulse", x: 0, y: 110, w: 8, h: 32, settings: {} },
-    { key: "inbox_preview", x: 8, y: 110, w: 4, h: 32, settings: {} },
-  ],
-};
+/** The "Founder's view" preset as apps/api stores it (the one preset table in @foundmill/config), six department cards. */
+export const FOUNDER_PRESET_LAYOUT = { widgets: presetWidgets("founder") };
 
+/** Every owner's Home: the Founder's view with a department card for each visible department of the business. */
 export async function seedDashboards(ctx: SeedCtx, businessId: string): Promise<void> {
+  const layout = { widgets: presetWidgets("founder", { departments: (await repos.departments.list(ctx.db, businessId)).length }) };
   for (const owner of ctx.owners) {
-    await repos.dashboards.create(ctx.db, businessId, { userId: owner.userId, name: "Home", preset: "founder", layout: FOUNDER_PRESET_LAYOUT, isActive: true });
+    await repos.dashboards.create(ctx.db, businessId, { userId: owner.userId, name: "Home", preset: "founder", layout, isActive: true });
   }
 }
 

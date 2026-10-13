@@ -12,13 +12,18 @@ import { LogoPicker, type LogoActions } from "@/components/logo/LogoPicker";
 import { readLogoStream } from "@/components/logo/logo-stream";
 import { useBusinessLogoSrc } from "@/components/logo/useBusinessLogo";
 import type { LogoDraft } from "@/lib/logo";
-import type { RouterOutputs } from "@/lib/trpc";
+import { fieldConflictOf, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, FormRow, Hint, SaveBar, SettingsSection, useSettingsToast } from "./shared";
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+
+/** The message under the Slug field: the API's "That slug is taken" while the field still holds the refused slug. */
+export function slugFieldError(slug: string, taken: { slug: string; message: string } | null): string | undefined {
+  return taken && taken.slug === slug ? taken.message : undefined;
+}
 
 export function BusinessTab() {
   const { businessId, data } = useBusiness();
@@ -33,6 +38,8 @@ export function BusinessTab() {
   const [archetype, setArchetype] = useState<Archetype | "">(b.archetype ?? "");
   const [primary, setPrimary] = useState(b.kitPrimary);
   const [secondary, setSecondary] = useState(b.kitSecondary);
+  // The slug the API refused because another business has it, with its message, shown under the field until it changes.
+  const [takenSlug, setTakenSlug] = useState<{ slug: string; message: string } | null>(null);
 
   const update = useMutation(
     trpc.business.update.mutationOptions({
@@ -40,9 +47,14 @@ export function BusinessTab() {
         void invalidate(["business"]);
         t.saved("Business saved", "The top bar and the initials mark follow the new brand colors.");
       },
-      onError: (e) => t.failed(e),
+      onError: (e, vars) => {
+        const conflict = fieldConflictOf(e);
+        if (conflict?.field === "slug" && vars.slug) setTakenSlug({ slug: vars.slug, message: conflict.message });
+        else t.failed(e);
+      },
     }),
   );
+  const slugError = slugFieldError(slug, takenSlug);
 
   // --- the logo: saved at once (business.logo.*) ----------------------------------------------------------------------
   const meta = data.logo;
@@ -97,8 +109,8 @@ export function BusinessTab() {
           <Field htmlFor="biz-name" label="Name" required>
             <Input id="biz-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} />
           </Field>
-          <Field htmlFor="biz-slug" label="Slug" hint="Lower-case letters, digits and dashes.">
-            <Input id="biz-slug" mono value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase())} maxLength={80} invalid={!/^[a-z0-9-]+$/.test(slug)} />
+          <Field htmlFor="biz-slug" label="Slug" hint="Lower-case letters, digits and dashes." error={slugError}>
+            <Input id="biz-slug" mono value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase())} maxLength={80} invalid={!!slugError || !/^[a-z0-9-]+$/.test(slug)} data-testid="business-slug" />
           </Field>
         </FormRow>
         <Field htmlFor="biz-archetype" label="Archetype" hint="Drives the default departments, channels and the Board's first decisions.">
@@ -130,7 +142,7 @@ export function BusinessTab() {
         <SaveBar
           onSave={() => update.mutate({ businessId, name: name.trim(), slug, archetype: archetype || null, kitPrimary: primary, kitSecondary: secondary })}
           saving={update.isPending}
-          disabled={!dirty || !validHex || name.trim().length === 0 || !/^[a-z0-9-]+$/.test(slug)}
+          disabled={!dirty || !validHex || name.trim().length === 0 || !/^[a-z0-9-]+$/.test(slug) || !!slugError}
         />
       </SettingsSection>
     </AdminOnly>

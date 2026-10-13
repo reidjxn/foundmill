@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DASHBOARD_PRESET_IDS } from "@foundmill/widgets";
-import { dashboardTabs, editedElsewhere, ghostedMilestones, gridPresets, isDayOne, nextDashboardName, pickDashboardId, resetPresetFor, shareHref, versionConflict, type DashboardSummary } from "../dashboards";
+import { dashboardActions, dashboardTabs, editedElsewhere, ghostedMilestones, gridPresets, isDayOne, nextDashboardName, pickDashboardId, resetPresetFor, shareHref, versionConflict, type DashboardSummary } from "../dashboards";
 
 const d = (id: string, name: string, extra: Partial<DashboardSummary> = {}): DashboardSummary => ({ id, name, preset: "founder", version: 1, isActive: false, userId: "u1", ...extra });
 
@@ -12,6 +12,23 @@ describe("dashboard tabs", () => {
     expect(tabs[0]!.href).toBe("/b/biz/home/a");
     expect(tabs[2]!.label).toBe("Shared: Investor update");
     expect(dashboardTabs(list, "biz", list[1]).map((t) => t.label)).toEqual(["Home", "Seller"]);
+  });
+
+  it("the unsaved Founder's view of a read-only role is plain Home, not a Shared tab", () => {
+    const unsaved = d("00000000-0000-0000-0000-000000000000", "Home", { stored: false });
+    const tabs = dashboardTabs([], "biz", unsaved);
+    expect(tabs).toEqual([expect.objectContaining({ label: "Home", href: "/b/biz/home" })]);
+  });
+
+  it("only a role that writes edits its own dashboard, starts new ones or copies a shared one", () => {
+    const own = { stored: true, editable: true };
+    expect(dashboardActions(own, { canWrite: true, mine: true })).toEqual({ edit: true, create: true, copy: false });
+    // A co-founder's shared dashboard: read-only, and a role that writes can copy it.
+    expect(dashboardActions({ stored: true, editable: false }, { canWrite: true, mine: false })).toEqual({ edit: false, create: true, copy: true });
+    // Viewers and advisors: no edit, no New, no copy, on their unsaved Home or a shared one.
+    expect(dashboardActions({ stored: false, editable: false }, { canWrite: false, mine: false })).toEqual({ edit: false, create: false, copy: false });
+    expect(dashboardActions({ stored: true, editable: false }, { canWrite: false, mine: false })).toEqual({ edit: false, create: false, copy: false });
+    expect(dashboardActions(null, { canWrite: true, mine: false })).toEqual({ edit: false, create: true, copy: false });
   });
 
   it("picks the route id, else the active dashboard, else the first", () => {
@@ -55,6 +72,9 @@ describe("layout versions (AC-11.2.4)", () => {
   it("exposes every preset to the grid with WidgetGrid-shaped layouts", () => {
     const presets = gridPresets();
     expect(presets.map((p) => p.id)).toEqual([...DASHBOARD_PRESET_IDS]);
+    // The Founder's view has a department card for each of the business's departments (a seven-department business too).
+    const cards = (n?: number) => gridPresets(n).find((p) => p.id === "founder")!.layout.filter((it) => it.widget === "department_card").length;
+    expect([cards(), cards(7), cards(3)]).toEqual([6, 7, 3]);
     for (const p of presets) for (const it of p.layout) expect(it).toMatchObject({ i: expect.any(String), widget: expect.any(String), x: expect.any(Number), y: expect.any(Number) });
   });
 });

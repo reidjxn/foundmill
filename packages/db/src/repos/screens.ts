@@ -1,5 +1,5 @@
 /** screen_definitions — department tabs and their widget layouts (routers screen.get/update; ARCHITECTURE §18). */
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { screenDefinitions, type ScreenDefinition } from "../schema";
 import { Id, maybeOne, one, parseInput, type Executor } from "./_shared";
@@ -126,4 +126,39 @@ export const screensRepo = {
   async archive(db: Executor, businessId: string, screenId: string): Promise<ScreenDefinition> {
     return one(await db.update(screenDefinitions).set({ archivedAt: new Date() }).where(and(eq(screenDefinitions.businessId, businessId), eq(screenDefinitions.id, screenId))).returning(), "screen", screenId);
   },
+
+  /** Archives several tabs of the business at once. */
+  async archiveMany(db: Executor, businessId: string, screenIds: readonly string[]): Promise<void> {
+    if (screenIds.length === 0) return;
+    await db.update(screenDefinitions).set({ archivedAt: new Date() }).where(and(eq(screenDefinitions.businessId, businessId), inArray(screenDefinitions.id, [...screenIds])));
+  },
+
+  /** Moves tabs (layouts and all) to another department of the business, live: a split takes a module's tabs with it. */
+  async moveTo(db: Executor, businessId: string, screenIds: readonly string[], departmentId: string): Promise<ScreenDefinition[]> {
+    if (screenIds.length === 0) return [];
+    return db
+      .update(screenDefinitions)
+      .set({ departmentId, archivedAt: null })
+      .where(and(eq(screenDefinitions.businessId, businessId), inArray(screenDefinitions.id, [...screenIds])))
+      .returning();
+  },
+
+  /** Numbers a department's tabs 0, 1, 2, … in the order given (only rows whose position changes are written). */
+  async setPositions(db: Executor, businessId: string, ordered: readonly Pick<ScreenDefinition, "id" | "position">[]): Promise<void> {
+    for (const [position, s] of ordered.entries()) {
+      if (s.position === position) continue;
+      await db.update(screenDefinitions).set({ position }).where(and(eq(screenDefinitions.businessId, businessId), eq(screenDefinitions.id, s.id)));
+    }
+  },
 };
+
+/** The module a tab belongs to: the module of its first `module:<key>/<tab>` widget, or null for a tab of its own. */
+export function screenModule(layout: unknown): string | null {
+  const widgets = (layout as { widgets?: { key?: unknown }[] } | null)?.widgets;
+  if (!Array.isArray(widgets)) return null;
+  for (const w of widgets) {
+    const m = typeof w?.key === "string" ? /^module:([a-z_]+)\//.exec(w.key) : null;
+    if (m) return m[1]!;
+  }
+  return null;
+}

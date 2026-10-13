@@ -14,6 +14,7 @@ import { useId, useState } from "react";
 import { z } from "zod";
 import { Calculator, Sigma } from "lucide-react";
 import { Button, Field, Input, MetricTile, RadioGroup, RadioOption, Textarea, formatCompact, formatNumber, formatPercent, type MetricTileProps } from "@foundmill/dugout";
+import { CUSTOM_METRIC_EXAMPLE_IDS } from "@foundmill/config";
 import { useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps, type WidgetSettingsProps } from "../registry";
 import { WidgetFrame } from "../shared/frame";
@@ -32,7 +33,7 @@ export const CompiledMetricSchema = z.object({
 
 export const CustomMetricSettings = z.object({
   mode: z.enum(["query", "sentence"]).default("query"),
-  /** Named, server-defined query (e.g. "mrr", "active_customers"). */
+  /** Named, server-defined query from the api catalog (e.g. "cash", "revenue_30d", "customers_30d"). */
   queryId: z.string().max(80).nullable().default(null),
   sentence: z.string().max(400).nullable().default(null),
   /** The compiled, previewed query the founder accepted. Never edited by hand. */
@@ -142,9 +143,9 @@ export function CustomMetricSettingsEditor({ value, onChange }: WidgetSettingsPr
         <RadioOption id={`${id}-sentence`} value="sentence" label="Describe it" description="A sentence; the assistant compiles a read-only query you preview before saving." />
       </RadioGroup>
       {value.mode === "query" ? (
-        <Field htmlFor={`${id}-qid`} label="Query id" hint="For example mrr, active_customers, trial_conversion">
+        <Field htmlFor={`${id}-qid`} label="Query id" hint={`For example ${CUSTOM_METRIC_EXAMPLE_IDS.join(", ")}`}>
           <div className="flex gap-2">
-            <Input id={`${id}-qid`} mono value={value.queryId ?? ""} onChange={(e) => onChange({ ...value, queryId: e.target.value.trim() || null })} placeholder="mrr" />
+            <Input id={`${id}-qid`} mono value={value.queryId ?? ""} onChange={(e) => onChange({ ...value, queryId: e.target.value.trim() || null })} placeholder={CUSTOM_METRIC_EXAMPLE_IDS[1]} />
             <Button size="md" onClick={() => setPreviewQueryId(value.queryId)} disabled={!value.queryId}>
               Preview
             </Button>

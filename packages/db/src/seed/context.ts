@@ -66,6 +66,19 @@ export const monthDay = (key: string, n: number, hour = 10): Date => new Date(mo
 
 export const quarterKey = (d: Date): string => `${d.getUTCFullYear()}-Q${Math.floor(d.getUTCMonth() / 3) + 1}`;
 
+/**
+ * The current quarter's facts from a synthetic MRR series (one value per day from `seriesStartDay`), for boards keyed
+ * by quarter: when the quarter began, and MRR growth since the day before it began in percent (one decimal; 0 when
+ * there was no MRR then). A business younger than the quarter grows from its first day.
+ */
+export function quarterFacts(ctx: Pick<SeedCtx, "today">, seriesStartDay: string, mrrMinorByDay: readonly number[]): { startsAt: Date; mrrGrowthPct: number } {
+  const startsAt = new Date(Date.UTC(ctx.today.getUTCFullYear(), Math.floor(ctx.today.getUTCMonth() / 3) * 3, 1));
+  const index = Math.round((startsAt.getTime() - Date.parse(`${seriesStartDay}T00:00:00.000Z`)) / DAY_MS) - 1;
+  const before = mrrMinorByDay[Math.min(Math.max(0, index), mrrMinorByDay.length - 1)] ?? 0;
+  const now = mrrMinorByDay[mrrMinorByDay.length - 1] ?? 0;
+  return { startsAt, mrrGrowthPct: before > 0 ? Math.round(((now - before) / before) * 1000) / 10 : 0 };
+}
+
 export function createSeedCtx(input: {
   db: Db;
   seed: string;

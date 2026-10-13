@@ -103,7 +103,10 @@ describe("foreign-key violations", () => {
     expect(inUse.message).not.toMatch(/posts|constraint/);
     // A code we set on purpose is left alone, and a database error that is not a foreign key stays INTERNAL.
     expect(toTRPCError(new TRPCError({ code: "FORBIDDEN", message: "No", cause: Object.assign(new Error("x"), { code: "23503" }) })).code).toBe("FORBIDDEN");
-    expect(toTRPCError(new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "x", cause: Object.assign(new Error("dup"), { code: "23505" }) })).code).toBe("INTERNAL_SERVER_ERROR");
+    expect(toTRPCError(new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "x", cause: Object.assign(new Error("relation missing"), { code: "42P01" }) })).code).toBe("INTERNAL_SERVER_ERROR");
+    // A unique violation is a conflict in plain words, whatever the statement said.
+    const dup = toTRPCError(new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed query: insert …", cause: Object.assign(new Error("dup"), { code: "23505" }) }));
+    expect(dup).toMatchObject({ code: "CONFLICT", message: "That already exists" });
   });
 
   it("names the kind and the constraint for the log", () => {

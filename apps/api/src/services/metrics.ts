@@ -113,8 +113,9 @@ export const METRICS: readonly MetricDefinition[] = [
     sql: "select sum(amount_minor) from conversions where business_id = current_business() and kind = 'payment' and occurred_at >= now() - interval '30 days'",
     keywords: ["revenue", "sales", "income", "mrr", "payments"],
     async run(db, businessId, now) {
-      const page = await repos.journeys.listConversions(db, businessId, { ...last30(now), kind: "payment", limit: 1000 });
-      return { value: page.items.reduce((s, c) => s + c.amountMinor, 0), currency: page.items[0]?.currency ?? "EUR", asOf: now.toISOString() };
+      // Summed in SQL (every payment, no page cap), per currency: the business's main currency, never a mix of two.
+      const [main] = await repos.journeys.sumConversions(db, businessId, { ...last30(now), kind: "payment" });
+      return { value: main?.amountMinor ?? 0, currency: main?.currency ?? "EUR", asOf: now.toISOString() };
     },
   },
   {

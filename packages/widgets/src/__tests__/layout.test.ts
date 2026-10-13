@@ -43,6 +43,20 @@ describe("presets", () => {
     expect(f.widgets.find((w) => w.key === "squad_pulse")!.w).toBe(8);
     expect(f.widgets.find((w) => w.key === "inbox_preview")).toMatchObject({ w: 4, settings: { rows: 4 } });
   });
+  it.each([1, 3, 7, 8, 10])("Founder's view with %i departments has a card for each, in order, with nothing on top of anything", (n) => {
+    const f = presetLayout("founder", { departments: n });
+    expect(validateLayout(f, { live: false }).ok).toBe(true);
+    const cards = f.widgets.filter((w) => w.key === "department_card");
+    expect(cards.map((c) => c.settings.slot)).toEqual(Array.from({ length: n }, (_, i) => i));
+    const below = Math.max(...cards.map((c) => c.y + c.h));
+    expect(f.widgets.find((w) => w.key === "squad_pulse")!.y).toBeGreaterThanOrEqual(below);
+    for (const [i, a] of f.widgets.entries())
+      for (const b of f.widgets.slice(i + 1)) expect(a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h, `${a.i} overlaps ${b.i}`).toBe(false);
+  });
+  it("the Investor update's metric widgets name catalogue ids (the api's METRICS), not made-up ones", () => {
+    const ids = presetLayout("investor").widgets.filter((w) => w.key === "custom_metric").map((w) => w.settings.queryId);
+    expect(ids).toEqual(["revenue_30d", "customers_30d"]);
+  });
   it("presetLayout returns a fresh copy", () => {
     const a = presetLayout("builder");
     a.widgets[0]!.x = 99;

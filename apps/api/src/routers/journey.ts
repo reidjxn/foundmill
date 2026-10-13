@@ -7,6 +7,44 @@ import { Id, businessProcedure, router } from "../trpc";
 
 const DayKey = z.string().date();
 
+const DAY_MS = 86_400_000;
+/** How far the Ribbon reaches: ten years back for `from`, two years ahead for `to` (the forecast horizon is shorter). */
+export const RIBBON_MAX_PAST_DAYS = 3653;
+export const RIBBON_MAX_FUTURE_DAYS = 731;
+
+const dayOffset = (days: number, now = Date.now()) => new Date(now + days * DAY_MS).toISOString().slice(0, 10);
+
+/**
+ * A ribbon range: `from` no earlier than ten years back, `to` no later than two years ahead, and `from` not after
+ * `to`. Anything else is a BAD_REQUEST, never a chapter walk of centuries (a 500).
+ */
+export const RibbonInput = z
+  .object({ from: DayKey.optional(), to: DayKey.optional(), departmentId: Id.optional(), slim: z.boolean().optional() })
+  .superRefine((v, issue) => {
+    const earliest = dayOffset(-RIBBON_MAX_PAST_DAYS);
+    const latest = dayOffset(RIBBON_MAX_FUTURE_DAYS);
+    for (const key of ["from", "to"] as const) {
+      const day = v[key];
+      if (day && (day < earliest || day > latest)) issue.addIssue({ code: "custom", path: [key], message: `Pick a day between ${earliest} and ${latest}` });
+    }
+    if (v.from && v.to && v.from > v.to) issue.addIssue({ code: "custom", path: ["from"], message: "The start of the range comes after its end" });
+  });
+
+/** The range a ribbon reads: the last year to today unless given. */
+export function ribbonRange(input: { from?: string; to?: string }, now = Date.now()): { from: string; to: string } {
+  const to = input.to ?? dayOffset(0, now);
+  const from = input.from ?? (dayOffset(-365, now) < to ? dayOffset(-365, now) : to);
+  return { from, to };
+}
+
+/**
+ * Chapters whose quarter has ended (before `today`, whatever range is on screen) and that have no stored title yet,
+ * newest first: the ones to ask the composer about, two at a time.
+ */
+export function untitledEndedChapters(chapters: readonly { id: string; endsOn: string }[], titles: Record<string, string>, today = dayOffset(0), max = 2): { id: string }[] {
+  return chapters.filter((c) => c.endsOn < today && !titles[c.id]).reverse().slice(0, max);
+}
+
 export const journeyRouter = router({
   /**
    * One Customer Update: the stored row with its conversion, touches and entity, plus `journey`, the full
@@ -31,21 +69,32 @@ export const journeyRouter = router({
    * many conversions there were (`conversionCount`): the Home status strip, department cards and day-one check share
    * one slim query.
    */
-  ribbon: businessProcedure.input(z.object({ from: DayKey.optional(), to: DayKey.optional(), departmentId: Id.optional(), slim: z.boolean().optional() })).query(({ ctx, input }) =>
+  ribbon: businessProcedure.input(RibbonInput).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
-      const from = input.from ?? new Date(Date.now() - 365 * 86_400_000).toISOString().slice(0, 10);
-      const to = input.to ?? new Date().toISOString().slice(0, 10);
+      const { from, to } = ribbonRange(input);
       const range = { from: new Date(from), to: new Date(`${to}T23:59:59.999Z`) };
-      const [rows, conversions, milestones, counts] = await Promise.all([
+      const firstDay = (ctx.business.committedAt ?? ctx.business.createdAt).toISOString().slice(0, 10);
+      const [rows, conversions, milestones, counts, quarters, titles] = await Promise.all([
         repos.journeys.dailyRange(tx, ctx.businessId, { from, to, departmentId: input.departmentId }),
         // Customers won (and signups, activations): a renewal or a repeat order is revenue in the daily rows, not a marker.
         input.slim ? Promise.resolve({ items: [] }) : repos.journeys.listConversions(tx, ctx.businessId, { ...range, firstPayment: true, limit: 500 }),
         repos.journeys.listMilestones(tx, ctx.businessId, {}),
         repos.journeys.countConversions(tx, ctx.businessId, range),
+        // Chapters cover the business's whole life whatever range is on screen: its totals per quarter, from kick-off.
+        repos.journeys.quarterTotals(tx, ctx.businessId, { from: firstDay < to ? firstDay : to, to }),
+        repos.journeys.chapterTitles(tx, ctx.businessId),
       ]);
       const conversionCount = Object.values(counts).reduce((n, c) => n + c, 0);
-      const firstDay = (ctx.business.committedAt ?? ctx.business.createdAt).toISOString().slice(0, 10);
-      const chapters = buildChapters({ startDay: firstDay, today: to, horizonQuarters: 2 });
+      const chapters = buildChapters({
+        startDay: firstDay,
+        today: to,
+        horizonQuarters: 2,
+        daily: quarters.map((q) => ({ ...q, departmentId: null, agentHours: Number(q.agentHours) })),
+        milestones: milestones.map((m) => ({ kind: m.kind, label: m.label, achievedAt: m.achievedAt.toISOString(), ref: m.ref ?? null, visibility: m.visibility, trophyKey: null })),
+        titles,
+      });
+      // An ended quarter without its Opus title yet: ask the composer (it stores the title; this read never waits).
+      for (const c of untitledEndedChapters(chapters, titles)) ctx.composer.requestChapterTitle(ctx.businessId, c.id);
       // `kickoff` is the wave-2 key the Ribbon reads; `firstDay` is the vocabulary-rule name.
       // The Ribbon (packages/dugout journey types) reads ISO strings; drizzle hands back Date objects for tstz columns.
       // The matview keys the business-wide row by the nil uuid and returns numeric/bigint columns as strings; the

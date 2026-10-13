@@ -33,13 +33,41 @@ describe("founder_profiles", () => {
 });
 
 describe("dashboard_layouts", () => {
-  it("dashboard_layouts: a member sees only their own layout for a business they belong to", async () => {
+  const sees = (userId: string) => h.asUser(userId).run((tx) => tx.select().from(s.dashboardLayouts));
+
+  it("dashboard_layouts: every member reads a co-member's live dashboard (the shared link) but writes only their own", async () => {
+    const [shared] = await h.asUser(A.ownerId).run((tx) => tx.insert(s.dashboardLayouts).values({ businessId: A.businessId, userId: A.ownerId, name: "Shared home" }).returning());
     await h.asUser(A.memberId).run((tx) => tx.insert(s.dashboardLayouts).values({ businessId: A.businessId, userId: A.memberId, name: "Home" }));
-    await h.asUser(A.ownerId).run((tx) => tx.insert(s.dashboardLayouts).values({ businessId: A.businessId, userId: A.ownerId, name: "Home" }));
-    const mine = await h.asUser(A.memberId).run((tx) => tx.select().from(s.dashboardLayouts));
-    expect(mine.map((l) => l.userId)).toEqual([A.memberId]);
+    expect((await sees(A.memberId)).map((l) => l.name).sort()).toEqual(["Home", "Shared home"]);
+    expect((await sees(A.viewerId)).map((l) => l.id)).toContain(shared!.id);
+    // Reading is all a co-member gets: no spoofed insert, no update, no delete of someone else's row.
     await expect(h.asUser(A.memberId).run((tx) => tx.insert(s.dashboardLayouts).values({ businessId: A.businessId, userId: A.ownerId, name: "Spoof" }))).rejects.toThrow(RLS_DENIED);
+    expect(await h.asUser(A.memberId).run((tx) => tx.update(s.dashboardLayouts).set({ name: "Hacked" }).where(eq(s.dashboardLayouts.id, shared!.id)).returning())).toHaveLength(0);
+    expect(await h.asUser(A.memberId).run((tx) => tx.delete(s.dashboardLayouts).where(eq(s.dashboardLayouts.id, shared!.id)).returning())).toHaveLength(0);
+    expect((await h.db.select().from(s.dashboardLayouts).where(eq(s.dashboardLayouts.id, shared!.id)))[0]!.name).toBe("Shared home");
+  });
+
+  it("dashboard_layouts: an archived dashboard is readable only by its owner", async () => {
+    const [gone] = await h.asUser(A.ownerId).run((tx) => tx.insert(s.dashboardLayouts).values({ businessId: A.businessId, userId: A.ownerId, name: "Old", isActive: false, archivedAt: new Date() }).returning());
+    expect((await sees(A.ownerId)).map((l) => l.id)).toContain(gone!.id);
+    expect((await sees(A.memberId)).map((l) => l.id)).not.toContain(gone!.id);
+  });
+
+  it("dashboard_layouts: viewers write nothing, not even a Home of their own", async () => {
+    await expect(h.asUser(A.viewerId).run((tx) => tx.insert(s.dashboardLayouts).values({ businessId: A.businessId, userId: A.viewerId, name: "Mine" }))).rejects.toThrow(RLS_DENIED);
+  });
+
+  it("dashboard_layouts: nobody outside the business reads or writes its dashboards", async () => {
+    expect((await sees(B.ownerId)).every((l) => l.businessId === B.businessId)).toBe(true);
+    expect((await sees(outsiderId)).length).toBe(0);
     await expect(h.asUser(B.memberId).run((tx) => tx.insert(s.dashboardLayouts).values({ businessId: A.businessId, userId: B.memberId, name: "Cross" }))).rejects.toThrow(RLS_DENIED);
+  });
+
+  it("dashboard_layouts: one active dashboard per person and business (two first loads make one Home)", async () => {
+    await h.asUser(B.memberId).run((tx) => tx.insert(s.dashboardLayouts).values({ businessId: B.businessId, userId: B.memberId, name: "Home" }));
+    await expect(h.asUser(B.memberId).run((tx) => tx.insert(s.dashboardLayouts).values({ businessId: B.businessId, userId: B.memberId, name: "Home again" }))).rejects.toThrow(/dashboard_layouts_one_active_key|unique/i);
+    // Inactive and archived rows are not limited.
+    await h.asUser(B.memberId).run((tx) => tx.insert(s.dashboardLayouts).values({ businessId: B.businessId, userId: B.memberId, name: "Second", isActive: false }));
   });
 });
 

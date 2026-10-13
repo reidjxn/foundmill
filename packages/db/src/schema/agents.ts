@@ -156,7 +156,12 @@ export const dashboardLayouts = pgTable(
     isActive: boolean("is_active").notNull().default(true),
     ...timestampsWithArchive(),
   },
-  (t) => [index("dashboard_layouts_business_id_idx").on(t.businessId), index("dashboard_layouts_user_id_idx").on(t.userId, t.businessId)],
+  (t) => [
+    index("dashboard_layouts_business_id_idx").on(t.businessId),
+    index("dashboard_layouts_user_id_idx").on(t.userId, t.businessId),
+    // 0044: one active dashboard per person and business (the default Home).
+    uniqueIndex("dashboard_layouts_one_active_key").on(t.businessId, t.userId).where(sql`${t.isActive} and ${t.archivedAt} is null`),
+  ],
 );
 export type DashboardLayout = typeof dashboardLayouts.$inferSelect;
 export type NewDashboardLayout = typeof dashboardLayouts.$inferInsert;

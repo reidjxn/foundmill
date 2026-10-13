@@ -59,6 +59,24 @@ test.describe("home", () => {
     await expect(page.getByTestId("edit-layout")).toHaveAttribute("aria-pressed", "false");
   });
 
+  test("a new dashboard from New never becomes the default Home; Make default does", async ({ page }) => {
+    const first = (await page.getByTestId("home-screen").getAttribute("data-dashboard-id"))!;
+    await page.getByTestId("new-dashboard").click();
+    await page.locator("[data-preset=investor]").click();
+    await page.waitForURL(/\/home\/[0-9a-f-]{36}/, { timeout: LONG });
+    const second = await page.getByTestId("home-screen").getAttribute("data-dashboard-id");
+    expect(second).not.toBe(first);
+    // /home still opens the original dashboard.
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
+    await expect(page.getByTestId("home-screen")).toHaveAttribute("data-dashboard-id", first, { timeout: LONG });
+    // Clean up: delete the new tab.
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home/${second}`);
+    await page.getByTestId("dashboard-menu").click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
+    await page.getByTestId("confirm-delete-dashboard").click();
+    await page.waitForURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/home$`), { timeout: LONG });
+  });
+
   test("AC-11.2.4: a second dashboard works independently, persists its version and can be deleted", async ({ page }) => {
     const first = await page.getByTestId("home-screen").getAttribute("data-dashboard-id");
     await page.getByTestId("new-dashboard").click();

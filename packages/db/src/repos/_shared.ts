@@ -92,12 +92,28 @@ export interface Keyset<Row> {
   cursorOf(row: Row): string;
 }
 
+const ISO_INSTANT_RE = /^[1-9]\d{3}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
- * Keyset over a timestamptz column. Rows are ordered by the column truncated to milliseconds (the precision
- * a JavaScript Date carries) and then by id, so the cursor made from a returned row reproduces the exact
- * position in the order.
+ * The position a time cursor names, checked before it reaches SQL: an instant exactly as `cursorOf` writes it
+ * (`toISOString`, so a day such as Feb 31 that JavaScript rolls over and Postgres refuses does not pass) and a uuid.
+ * Anything else is a ValidationError (400), never a cast error from Postgres (500).
  */
-export function timeKeyset<Row>(column: AnyColumn, idColumn: AnyColumn, pick: (row: Row) => { at: Date; id: string }, direction: "asc" | "desc" = "desc"): Keyset<Row> {
+export function decodeTimeCursor(cursor: string): { at: string; id: string } {
+  const c = decodeCursor(cursor);
+  const real = ISO_INSTANT_RE.test(c.k) && !Number.isNaN(Date.parse(c.k)) && new Date(c.k).toISOString() === c.k;
+  if (!real || !UUID_RE.test(c.id)) throw new ValidationError("Malformed pagination cursor", { cursor });
+  return { at: c.k, id: c.id };
+}
+
+/**
+ * Keyset over a timestamptz column (or an expression of one, such as `coalesce(last_message_at, created_at)`): rows
+ * are ordered by it truncated to milliseconds (the precision a JavaScript Date carries) and then by id, so the cursor
+ * made from a returned row reproduces the exact position in the order. `pick` must return the same instant the
+ * expression orders by.
+ */
+export function timeKeyset<Row>(column: AnyColumn | SQL, idColumn: AnyColumn, pick: (row: Row) => { at: Date; id: string }, direction: "asc" | "desc" = "desc"): Keyset<Row> {
   const key = sql`date_trunc('milliseconds', ${column})`;
   const op = direction === "desc" ? sql`<` : sql`>`;
   const dir = direction === "desc" ? sql`desc` : sql`asc`;
@@ -105,8 +121,8 @@ export function timeKeyset<Row>(column: AnyColumn, idColumn: AnyColumn, pick: (r
     orderBy: [sql`${key} ${dir}`, sql`${idColumn} ${dir}`],
     after(cursor) {
       if (!cursor) return undefined;
-      const c = decodeCursor(cursor);
-      return sql`(${key}, ${idColumn}) ${op} (${c.k}::timestamptz, ${c.id}::uuid)`;
+      const c = decodeTimeCursor(cursor);
+      return sql`(${key}, ${idColumn}) ${op} (${c.at}::timestamptz, ${c.id}::uuid)`;
     },
     cursorOf(row) {
       const { at, id } = pick(row);
@@ -124,7 +140,7 @@ export function seqKeyset<Row>(column: AnyColumn, pick: (row: Row) => number, di
     after(cursor) {
       if (!cursor) return undefined;
       const c = decodeCursor(cursor);
-      if (!/^-?\d+$/.test(c.k)) throw new ValidationError("Malformed pagination cursor", { cursor });
+      if (!/^-?\d{1,15}$/.test(c.k)) throw new ValidationError("Malformed pagination cursor", { cursor });
       return sql`${column} ${op} ${c.k}::bigint`;
     },
     cursorOf(row) {
@@ -184,6 +200,23 @@ export function sqlState(err: unknown): string | undefined {
     e = (e as { cause?: unknown }).cause;
   }
   return undefined;
+}
+
+/**
+ * The constraint a unique violation (SQLSTATE 23505) broke, if `err` is one, looking through Drizzle's wrapper:
+ * postgres.js names it `constraint_name`, PGlite `constraint`, and both say it in the message.
+ */
+export function uniqueViolation(err: unknown): { constraint: string | undefined } | undefined {
+  if (sqlState(err) !== "23505") return undefined;
+  let e: unknown = err;
+  for (let depth = 0; depth < 4 && e && typeof e === "object"; depth++) {
+    const named = (e as { constraint_name?: unknown; constraint?: unknown }).constraint_name ?? (e as { constraint?: unknown }).constraint;
+    if (typeof named === "string" && named) return { constraint: named };
+    const quoted = /unique constraint "([^"]+)"/.exec(String((e as { message?: unknown }).message ?? ""));
+    if (quoted) return { constraint: quoted[1] };
+    e = (e as { cause?: unknown }).cause;
+  }
+  return { constraint: undefined };
 }
 
 /** Parses with a Zod schema and rethrows as the platform's ValidationError (400) with the issues attached. */
