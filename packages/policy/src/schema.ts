@@ -44,6 +44,8 @@ export const CEDAR_SCHEMA: SchemaJson<string> = {
             hardGate: bool,
             finance: bool,
             contract: bool,
+            /** This call changes a security setting (e.g. a DNS record that routes or authenticates the domain's email): a hard gate. */
+            securitySettings: bool,
           },
         },
       },

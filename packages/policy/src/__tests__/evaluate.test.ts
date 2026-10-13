@@ -97,6 +97,15 @@ describe("hard gates can never be lifted", () => {
     });
   }
 
+  it("a call flagged as a security-settings change is denied by hard-gate-security-settings in every mode, whatever the tool's hints", () => {
+    for (const mode of ["augmented", "assisted", "automated"] as const) {
+      const r = run(mode, { connector: "cloudflare_dns", name: "update_record", securitySettings: true });
+      expect(r, mode).toEqual({ outcome: "deny", reasons: ["Hard gate: this changes a security setting, which always requires a human (BUILD §2.2)"], policyIds: ["hard-gate-security-settings"] });
+    }
+    // The same tool without the flag is an ordinary call (the flag is the gateway's, per call).
+    expect(run("assisted", { connector: "cloudflare_dns", name: "update_record" }).outcome).toBe("allow");
+  });
+
   it("a hard-gated tool that is not also irreversible or spending is still denied", () => {
     const r = run("automated", { connector: "google", name: "grant_oauth_consent", hardGate: true });
     expect(r).toEqual({ outcome: "deny", reasons: ["Hard gate: this action always requires a human (BUILD §2.2)"], policyIds: ["hard-gate"] });

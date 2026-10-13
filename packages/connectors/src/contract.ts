@@ -185,6 +185,12 @@ export interface Connector<Cfg = unknown> {
   webhooks?: ConnectorWebhook[];
   rateLimits: { perMinute?: number; perDay?: number };
   costModel?: (name: string, args: unknown) => number; // minor units
+  /**
+   * What a call would cost in minor units, from the tool's own cost function or the connector's `costModel`, before it
+   * runs; null when the connector declares none or the arguments do not parse. The gateway's spend policy reads this, not
+   * a number the calling agent reports.
+   */
+  estimateCostMinor?: (name: string, args: unknown) => number | null;
   policyHints: PolicyHints;
   mock: Connector<Cfg>; // same surface, deterministic fixtures
 }

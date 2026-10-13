@@ -16,6 +16,7 @@ import { CHANNEL_KEYS, CHANNEL_META, MODEL_KEYS, TASK_KINDS, uuid, type ChannelK
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { openAgentSession } from "./dispatch";
+import { withSystemSession } from "./system-session";
 import type { LoadedPlan, PlanActionResult, PlanActionView } from "./types";
 
 /** Policy attributes per action type (same table as apps/api/src/services/plans.ts; kept in sync by the plan tests). */
@@ -88,8 +89,10 @@ export function createPlanActivities(deps: OrchestratorDeps) {
 
   /** Call a connector tool through the gateway as the acting agent (never a vendor directly). */
   async function gatewayCall(businessId: string, agent: Agent, connector: string, tool: string, args: Record<string, unknown>, context: Record<string, unknown>) {
-    const minted = await deps.gateway.mintSessionToken({ businessId, agentId: agent.id, sessionId: uuid(), allowedTools: [`${connector}:${tool}`], ttlSeconds: 300 });
-    return deps.gateway.call(minted.token, { connector, tool, args, context });
+    return withSystemSession(deps, businessId, agent, async (sessionId) => {
+      const minted = await deps.gateway.mintSessionToken({ businessId, agentId: agent.id, sessionId, allowedTools: [`${connector}:${tool}`], ttlSeconds: 300 });
+      return deps.gateway.call(minted.token, { connector, tool, args, context });
+    });
   }
 
   return {

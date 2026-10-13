@@ -10,6 +10,9 @@ export const MessageSummary = z.object({ id: z.string(), threadId: z.string(), f
 export const Message = MessageSummary.extend({ cc: z.array(z.string()), text: z.string(), messageIdHeader: z.string().nullable(), inReplyTo: z.string().nullable() });
 export type MessageT = z.infer<typeof Message>;
 
+/** One RFC 5322 msg-id (`<local@domain>`): no whitespace or line breaks, so it can never start another header. */
+export const MessageIdHeader = z.string().max(998).regex(/^<[^\s<>@]+@[^\s<>@]+>$/, "Use the message's Message-ID header, like <id@mail.example.com>");
+
 const Compose = z.object({
   to: z.array(z.email()).min(1).max(50),
   cc: z.array(z.email()).max(50).default([]),
@@ -18,7 +21,7 @@ const Compose = z.object({
   text: z.string().min(1).max(100_000),
   html: z.string().max(400_000).optional(),
   threadId: z.string().optional(),
-  inReplyToMessageId: z.string().optional(),
+  inReplyToMessageId: MessageIdHeader.optional(),
 });
 
 export const gmailTools = [

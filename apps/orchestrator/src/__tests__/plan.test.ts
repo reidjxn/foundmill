@@ -105,6 +105,10 @@ describe("executePlanAction on PGlite", () => {
       expect(third.status).toBe("done");
       expect(t.gateway.calls.some((c) => c.connector === "sendgrid" && c.tool === "send_email")).toBe(true);
       expect(t.gateway.minted.at(-1)?.allowedTools).toEqual(["sendgrid:send_email"]);
+      // The token names a real session (the gateway books usage and approvals against agent_sessions), ended when the call returned.
+      const session = await repos.agents.getSession(t.db, t.businessId, t.gateway.minted.at(-1)!.sessionId);
+      expect(session).toMatchObject({ agentId: t.chiefId, outcome: "system_call" });
+      expect(session.endedAt).not.toBeNull();
     } finally {
       await repos.businesses.setBusinessMode(t.db, t.businessId, "assisted");
     }

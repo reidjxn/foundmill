@@ -101,7 +101,7 @@ export const stripeTools = [
     description: "HARD GATE (BUILD §2.2): Stripe Connect onboarding accepts Stripe's terms and verifies the founder's identity; only the founder can complete it.",
     input: z.object({ country: z.string().length(2).default("SE"), reason: z.string().max(1000).optional() }),
     hints: { hardGate: true, irreversible: true },
-    humanAction: (a) => ({ title: "Complete Stripe onboarding yourself", instructions: `Create or connect the Stripe account for ${a.country} in the Stripe dashboard, accept the Connected Account Agreement and complete identity verification. Then paste the account id (acct_…) into Settings → Integrations → Stripe.`, url: `${STRIPE_DASHBOARD_URL}/register` }),
+    humanAction: (a) => ({ title: "Complete Stripe onboarding yourself", instructions: `Create or connect the Stripe account for ${a.country} in the Stripe dashboard, accept the Connected Account Agreement and complete identity verification. Then connect it in Settings → Integrations → Stripe with a restricted API key from that account (Developers → API keys): an account id alone is not accepted, because it does not prove the account is yours.`, url: `${STRIPE_DASHBOARD_URL}/register` }),
   }),
 ] as const;
 
@@ -118,7 +118,10 @@ export interface StInvoice {
 export interface StCheckoutSession { id: string; url?: string | null; mode: "payment" | "subscription" | "setup"; status?: string | null; payment_status: string; amount_total?: number | null; currency?: string | null; customer?: string | { id: string } | null; customer_email?: string | null; customer_details?: { email?: string | null; name?: string | null } | null; expires_at?: number | null; subscription?: string | null; payment_intent?: string | null; metadata?: Record<string, string> | null }
 export interface StSubscription { id: string; customer: string | { id: string }; status: string; created: number; trial_end?: number | null; currency?: string; items?: { data: { price?: { id?: string; nickname?: string | null; product?: string | { name?: string } | null } }[] }; metadata?: Record<string, string> }
 export interface StPayout { id: string; amount: number; currency: string; status: string; arrival_date: number; automatic: boolean; description?: string | null }
-export interface StAccount { id: string; business_profile?: { name?: string | null } | null; country?: string; default_currency?: string; charges_enabled?: boolean; payouts_enabled?: boolean; type?: string | null; settings?: { dashboard?: { display_name?: string | null } } }
+/** Metadata the platform puts on a Connect account it creates for a business: the proof an account id belongs to that business (`provenAccountFor`). */
+export const STRIPE_BUSINESS_METADATA_KEY = "foundmill_business_id";
+
+export interface StAccount { id: string; metadata?: Record<string, string> | null; business_profile?: { name?: string | null } | null; country?: string; default_currency?: string; charges_enabled?: boolean; payouts_enabled?: boolean; type?: string | null; settings?: { dashboard?: { display_name?: string | null } } }
 export interface StBalance { available: { amount: number; currency: string }[]; pending: { amount: number; currency: string }[] }
 export interface StEvent<T = unknown> { id: string; type: string; created: number; livemode?: boolean; account?: string; data: { object: T } }
 

@@ -5,12 +5,12 @@
  * `integration.externalAccountId`. Webhook secrets: per-business (`stripe_webhook_secret`) → platform.
  */
 import Stripe from "stripe";
-import { uuid } from "@foundmill/shared";
+import { AppError, uuid } from "@foundmill/shared";
 import { ConfigError, type Connector, type IntegrationRecord, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { stripeMock } from "./mock";
-import { mapAccount, mapBalance, mapCheckoutSession, mapCustomer, mapInvoice, mapPayout, STRIPE_API_VERSION, STRIPE_KEY, STRIPE_RATE_LIMITS, stripeTools, type StAccount, type StBalance, type StCheckoutSession, type StCustomer, type StInvoice, type StPayout } from "./tools";
+import { mapAccount, mapBalance, mapCheckoutSession, mapCustomer, mapInvoice, mapPayout, STRIPE_API_VERSION, STRIPE_KEY, STRIPE_BUSINESS_METADATA_KEY, STRIPE_RATE_LIMITS, stripeTools, type StAccount, type StBalance, type StCheckoutSession, type StCustomer, type StInvoice, type StPayout } from "./tools";
 import { createStripeWebhook } from "./webhooks";
 
 export function createStripeConnector(options: LiveConnectorOptions = {}): Connector {
@@ -112,11 +112,18 @@ export function createStripeConnector(options: LiveConnectorOptions = {}): Conne
         const accountId = typeof i.accountId === "string" ? i.accountId : undefined;
         if (!apiKey && !accountId) throw new ConfigError(STRIPE_KEY, "account", "connect() expects { accountId } (Connect) or { apiKey } (own account); Connect onboarding itself is a hard gate the founder completes");
         const stripe = client(apiKey ?? secrets.stripeSecretKey);
-        const acct = (accountId ? await stripe.accounts.retrieve(accountId) : await stripe.accounts.retrieve(null)) as unknown as StAccount;
+        const acct = (accountId && !apiKey ? await stripe.accounts.retrieve(accountId) : await stripe.accounts.retrieve(null)) as unknown as StAccount;
+        // An account id is a name, not a credential: the platform's own key can read any account connected to the platform, so
+        // pasting an id proves nothing. The account must be one the platform created for this business (tagged with its id), or
+        // the founder proves control with a key issued by the account itself (audit VGPC-X1: otherwise a founder could bind
+        // another business's account and read its legal name, country and currency).
+        if (accountId && !apiKey && acct.metadata?.[STRIPE_BUSINESS_METADATA_KEY] !== businessId) {
+          throw new AppError("account_not_proven", "That Stripe account is not connected to this business. Connect it with a restricted API key from the account itself (Stripe dashboard → Developers → API keys); an account id alone does not prove the account is yours.", 403);
+        }
         const createdAt = now().toISOString();
         return {
           id: uuid(), businessId, connectorKey: STRIPE_KEY, status: "connected", scopes: ["read_write"], accountLabel: mapAccount(acct).businessName ?? acct.id, externalAccountId: acct.id,
-          config: { kind: accountId ? "connect" : "own", country: acct.country ?? null, defaultCurrency: acct.default_currency?.toUpperCase() ?? null, chargesEnabled: acct.charges_enabled ?? false, payoutsEnabled: acct.payouts_enabled ?? false },
+          config: { kind: accountId && !apiKey ? "connect" : "own", country: acct.country ?? null, defaultCurrency: acct.default_currency?.toUpperCase() ?? null, chargesEnabled: acct.charges_enabled ?? false, payoutsEnabled: acct.payouts_enabled ?? false },
           credentialRef: null, expiresAt: null, lastHealthAt: createdAt, createdAt,
           ...(apiKey ? { credentialToStore: { kind: "api_key" as const, secret: apiKey } } : {}),
         };

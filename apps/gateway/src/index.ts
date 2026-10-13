@@ -17,13 +17,17 @@ import { gatewayConfig, type GatewayConfig } from "./config";
 import { prepareDb, type DbReadiness } from "./db-boot";
 import { type GatewayDeps, type GatewayLogger } from "./pipeline";
 import { MemoryRateLimitStore, RedisRateLimitStore, type RateLimitStore } from "./rate-limit";
-import { hashRecipient, UntrustedRecipientRegistry } from "./recipients";
+import { hashRecipient, RedisUntrustedRegister, UntrustedRecipientRegistry, type UntrustedRegister } from "./recipients";
+import { createReaderModelClient } from "./reader-models";
+import { createUntrustedReader, type UntrustedReader } from "./untrusted-reader";
 
 export * from "./types";
 export * from "./tokens";
 export * from "./config";
 export * from "./rate-limit";
 export * from "./recipients";
+export * from "./untrusted-reader";
+export * from "./security-settings";
 export * from "./credentials";
 export * from "./pipeline";
 export * from "./state";
@@ -38,6 +42,10 @@ export interface BuildDepsOptions {
   registry?: ConnectorRegistry;
   vault?: Vault | null;
   rateLimits?: RateLimitStore;
+  /** The register of recipients first seen in untrusted content (default: Redis when it is configured, else memory). */
+  recipients?: UntrustedRegister;
+  /** Reads untrusted content for sessions that hold outbound tools (default: the quarantined-reader route of the model client). */
+  reader?: UntrustedReader;
   log?: GatewayLogger;
 }
 
@@ -91,7 +99,10 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
     rateLimits = new MemoryRateLimitStore();
   }
 
-  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, rateLimits, recipients: new UntrustedRecipientRegistry(), log };
+  // Recipients first seen in untrusted content are one register per business, shared by every session and replica (Redis).
+  const recipients: UntrustedRegister = options.recipients ?? (redisClient ? new RedisUntrustedRegister(redisClient, { onFallback: (e) => log.warn({ err: e }, "the untrusted-recipient register fell back to this process's memory") }) : new UntrustedRecipientRegistry());
+  const reader: UntrustedReader = options.reader ?? createUntrustedReader(createReaderModelClient(env, db, log));
+  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, rateLimits, recipients, reader, log };
   // Until prepare() has run the database is assumed reachable (tests build the graph over an already-migrated PGlite).
   let readiness: DbReadiness | null = null;
   const app = createGatewayApp(deps, {

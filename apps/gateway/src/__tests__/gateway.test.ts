@@ -221,7 +221,7 @@ describe("recipients", () => {
     expect(r.policyIds).toEqual(["suppressed-recipient"]);
   });
 
-  it("a recipient first seen in untrusted content is blocked for that session only", async () => {
+  it("a recipient first seen in untrusted content is blocked for every session of that business (audit SECX-8)", async () => {
     const sessionA = await g.newSession();
     const sessionB = await g.newSession();
     const tokenA = await g.token({ sessionId: sessionA });
@@ -229,20 +229,21 @@ describe("recipients", () => {
     expect(read.result.untrusted).toBe(true);
     expect(read.result.data).toMatchObject({ untrusted: true, source: { connector: "test", kind: "email", ref: "message:m-7" } });
     expect((read.result.data as { content: { from: string } }).content.from).toBe(UNTRUSTED_EMAIL);
-    expect(g.recipients.size(sessionA)).toBeGreaterThanOrEqual(2);
+    expect(await g.recipients.size(g.businessId)).toBeGreaterThanOrEqual(2);
 
     const blocked = asDeny(await g.client.call(tokenA, { connector: "test", tool: "send_message", args: { to: UNTRUSTED_EMAIL, body: "reorder" } }));
     expect(blocked.policyIds).toEqual(["untrusted-recipient"]);
     const blockedUrl = asDeny(await g.client.call(tokenA, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "see https://untrusted.example/order-form/" } }));
     expect(blockedUrl.policyIds).toEqual(["untrusted-recipient"]);
 
-    // The same recipient from a session that never read the content is a normal contact (assisted → allowed).
-    const other = asAllow(await g.client.call(await g.token({ sessionId: sessionB }), { connector: "test", tool: "send_message", args: { to: UNTRUSTED_EMAIL } }));
-    expect(other.result.data).toEqual({ sent: true, to: UNTRUSTED_EMAIL });
-    expect(g.seen.filter((s) => s.tool === "send_message")).toHaveLength(1);
+    // Another session of the same business is told the same: what one session read is untrusted for all of them.
+    const other = asDeny(await g.client.call(await g.token({ sessionId: sessionB }), { connector: "test", tool: "send_message", args: { to: UNTRUSTED_EMAIL } }));
+    expect(other.policyIds).toEqual(["untrusted-recipient"]);
+    expect(g.seen.filter((s) => s.tool === "send_message")).toHaveLength(0);
+    await g.recipients.clear(g.businessId);
   });
 
-  it("recipients seeded at mint (files an earlier session left) are untrusted from the first call, in that session only", async () => {
+  it("recipients seeded at mint (files an earlier session left) are untrusted from the first call, for every session of the business", async () => {
     const restored = await g.newSession();
     const fresh = await g.newSession();
     const tooMany = await g.newSession();
@@ -251,21 +252,23 @@ describe("recipients", () => {
     expect(asDeny(await g.client.call(seededToken, { connector: "test", tool: "send_message", args: { to: "ops@evil.example", body: "build notes" } })).policyIds).toEqual(["untrusted-recipient"]);
     expect(asDeny(await g.client.call(seededToken, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "see https://evil.example/drop" } })).policyIds).toEqual(["untrusted-recipient"]);
     asAllow(await g.client.call(seededToken, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "hello" } }));
-    asAllow(await g.client.call(await g.token({ sessionId: fresh }), { connector: "test", tool: "send_message", args: { to: "ops@evil.example" } }));
+    // What the restored files held is the business's to distrust, not only that session's.
+    expect(asDeny(await g.client.call(await g.token({ sessionId: fresh }), { connector: "test", tool: "send_message", args: { to: "ops@evil.example" } })).policyIds).toEqual(["untrusted-recipient"]);
 
     // Too many to list: every recipient of the session is treated as untrusted.
     const allToken = (await g.client.mintSessionToken({ businessId: g.businessId, agentId: g.agentId, sessionId: tooMany, allowedTools: ["test:*"], untrusted: { all: true } })).token;
     expect(asDeny(await g.client.call(allToken, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL } })).policyIds).toEqual(["untrusted-recipient"]);
-    expect(g.seen.filter((s) => s.tool === "send_message").length - before).toBe(2);
+    expect(g.seen.filter((s) => s.tool === "send_message").length - before).toBe(1);
 
-    // The register is per process: after a restart (or on another replica) the seed is gone, and the token's
+    // After a restart without Redis (or on a replica that does not share it) the seed is gone, and the token's
     // untrustedSeeded claim makes that session fail closed, while an unseeded session is unaffected.
-    g.recipients.clear(restored);
+    await g.recipients.clear(g.businessId, restored);
     expect(asDeny(await g.client.call(seededToken, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "hello" } })).policyIds).toEqual(["untrusted-recipient"]);
     asAllow(await g.client.call(await g.token({ sessionId: fresh }), { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL } }));
     // Tools that contact nobody still work.
     asAllow(await g.client.call(seededToken, { connector: "test", tool: "note", args: { text: "x" } }));
-    expect(g.seen.filter((s) => s.tool === "send_message").length - before).toBe(3);
+    expect(g.seen.filter((s) => s.tool === "send_message").length - before).toBe(2);
+    await g.recipients.clear(g.businessId, tooMany);
 
     const audit = await repos.audit.list(g.db, g.businessId, { action: "gateway.session_token.minted" });
     const seeds = audit.items.map((a) => a.details as { untrustedSeeded?: number; untrustedAll?: boolean }).filter((d) => d.untrustedSeeded !== undefined);

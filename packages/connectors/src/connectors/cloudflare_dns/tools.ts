@@ -13,6 +13,13 @@ export const Zone = z.object({ id: z.string(), name: z.string(), status: z.strin
 export const DnsRecord = z.object({ id: z.string(), zoneId: z.string(), type: RecordType, name: z.string(), content: z.string(), ttl: z.number().int(), proxied: z.boolean(), priority: z.number().int().nullable(), modifiedOn: z.string() });
 export type DnsRecordT = z.infer<typeof DnsRecord>;
 
+/**
+ * What an agent must say about a record it changes or deletes: its type and its full name, as list_records shows them.
+ * The connector checks both against the record itself (`assertRecordIs`), so the gateway can tell from the call whether
+ * it touches mail routing or email authentication (MX, NS, CAA, SPF, DKIM, DMARC), which is a hard gate (audit GPC-08).
+ */
+const RecordTarget = { type: RecordType, recordName: z.string().min(1).max(255) };
+
 const RecordFields = { type: RecordType, name: z.string().min(1).max(255), content: z.string().min(1).max(4096), ttl: z.number().int().min(1).max(86_400).default(1), proxied: z.boolean().default(false), priority: z.number().int().min(0).max(65_535).optional() };
 
 export const cloudflareTools = [
@@ -27,22 +34,22 @@ export const cloudflareTools = [
   }),
   defineTool({
     name: "create_record",
-    description: "Create a DNS record. Used to add SPF/DKIM/DMARC/CNAME records for sending domains and preview deploys. Reversible (delete_record).",
+    description: "Create a DNS record (A, AAAA, CNAME, SRV, or a TXT that is not about email). Records that route or authenticate email or the zone (MX, NS, CAA, SPF, DKIM, DMARC) are changed by the founder, not by an agent: the gateway refuses them and queues a task.",
     input: z.object({ zoneId: ZoneId, ...RecordFields }),
     output: DnsRecord,
-    hints: {},
+    hints: { contactsThirdParty: true, irreversible: true },
   }),
   defineTool({
     name: "update_record",
-    description: "Change an existing DNS record's content, TTL, proxy flag or name.",
-    input: z.object({ zoneId: ZoneId, recordId: RecordId, name: z.string().min(1).max(255).optional(), content: z.string().min(1).max(4096).optional(), ttl: z.number().int().min(1).max(86_400).optional(), proxied: z.boolean().optional() }),
+    description: "Change an existing DNS record's content, TTL, proxy flag or name. Say the record's type and current name (as list_records shows them); they are checked against the record. MX, NS, CAA and TXT records are changed by the founder, not by an agent.",
+    input: z.object({ zoneId: ZoneId, recordId: RecordId, ...RecordTarget, name: z.string().min(1).max(255).optional(), content: z.string().min(1).max(4096).optional(), ttl: z.number().int().min(1).max(86_400).optional(), proxied: z.boolean().optional() }),
     output: DnsRecord,
-    hints: {},
+    hints: { contactsThirdParty: true, irreversible: true },
   }),
   defineTool({
     name: "delete_record",
-    description: "Delete a DNS record. Cannot be undone through the API (re-create instead); never used on NS or security-relevant records.",
-    input: z.object({ zoneId: ZoneId, recordId: RecordId }),
+    description: "Delete a DNS record. Cannot be undone through the API (re-create instead). Say the record's type and name (as list_records shows them); they are checked against the record. NS, MX, CAA and TXT records are deleted by the founder, not by an agent: the gateway refuses them.",
+    input: z.object({ zoneId: ZoneId, recordId: RecordId, ...RecordTarget }),
     output: z.object({ deleted: z.literal(true), recordId: z.string() }),
     hints: { irreversible: true },
   }),
@@ -86,4 +93,11 @@ export function analyseEmailAuth(domain: string, records: readonly DnsRecordT[],
     dmarc: { found: Boolean(dmarc), record: dmarc?.content ?? null, policy },
     ready: Boolean(spf) && dkimSelectors.length > 0 && Boolean(dmarc),
   };
+}
+
+/** The record a change names must be the record it says (type and full name, case-insensitive), or the call is refused. */
+export function assertRecordIs(record: Pick<DnsRecordT, "type" | "name">, claimed: { type: string; recordName: string }): void {
+  if (record.type !== claimed.type || record.name.toLowerCase() !== claimed.recordName.toLowerCase()) {
+    throw Object.assign(new Error(`That record is a ${record.type} record named ${record.name}, not a ${claimed.type} record named ${claimed.recordName}. Look it up with list_records and try again.`), { status: 409 });
+  }
 }

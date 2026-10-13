@@ -6,6 +6,7 @@ import { repos } from "@foundmill/db";
 import { uuid } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
+import { withSystemSession } from "./system-session";
 import type { ImportSourceResult, LoadedPlaybook } from "./types";
 
 export const INCORPORATION_STEPS = ["prepare_documents", "founder_review", "founder_submits", "record_filing", "complete"] as const;
@@ -124,8 +125,10 @@ export function createMiscActivities(deps: OrchestratorDeps) {
       }
       const tool = connector === "github" ? "read_tree" : connector === "google_drive" ? "search" : connector === "stripe" ? "get_account" : "search_companies";
       try {
-        const minted = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: chief.id, sessionId: uuid(), allowedTools: [`${connector}:${tool}`], ttlSeconds: 300 });
-        const res = await deps.gateway.call(minted.token, { connector, tool, args: { uri, query: source.title } });
+        const res = await withSystemSession(deps, input.businessId, chief, async (sessionId) => {
+          const minted = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: chief.id, sessionId, allowedTools: [`${connector}:${tool}`], ttlSeconds: 300 });
+          return deps.gateway.call(minted.token, { connector, tool, args: { uri, query: source.title } });
+        });
         const ok = res.outcome === "allow";
         await repos.product.updateSource(db, input.businessId, source.id, { fetchedAt: deps.clock.now(), relevance: { ...(source.relevance as Record<string, unknown>), imported: ok, outcome: res.outcome, connector, tool, untrusted: true } });
         return { sourceId: source.id, ok, summary: ok ? `imported through ${connector}.${tool}` : `gateway ${res.outcome}` };
