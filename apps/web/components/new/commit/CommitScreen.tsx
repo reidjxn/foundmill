@@ -15,7 +15,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { ARCHETYPE_LABELS, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { Avatar, Button, Chip, ConceptCard, EmptyState, Field, Input, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, cn, formatMoney, useToast, type Kit } from "@foundmill/dugout";
+import { Avatar, Button, Chip, ConceptCard, EmptyState, Field, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, Switch, cn, formatMoney, useToast, type Kit } from "@foundmill/dugout";
 import { plainWords, plural } from "@/lib/format";
 import { useSingleFlight } from "@/lib/single-flight";
 import { errorMessage, tierLimitOf, type RouterOutputs } from "@/lib/trpc";
@@ -373,6 +373,15 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
                   <span>Money, signatures and identity always ask.</span>
                 </p>
               </div>
+              <div className="flex items-start gap-3 border-t border-line pt-3" data-testid="autopilot-choice">
+                <Switch id="run-on-autopilot" checked={form.autopilot} onCheckedChange={(on) => set("autopilot", on)} aria-describedby="run-on-autopilot-hint" data-testid="run-on-autopilot" />
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="run-on-autopilot">Run on autopilot</Label>
+                  <p id="run-on-autopilot-hint" className="text-small text-secondary">
+                    Off by default. The team starts its own cycles, about every 4 hours, the way Continue does: every approval and hard gate still waits for you, and Autopilot pauses itself when credits run out or Inbox decisions are waiting. Change it any time in Settings › Mode.
+                  </p>
+                </div>
+              </div>
             </div>
           </Panel>
 
@@ -437,6 +446,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
                 <Chip>{BUSINESS_MODE_CARDS.find((m) => m.value === form.businessMode)?.label}</Chip>
                 {form.archetype ? <Chip>{ARCHETYPE_LABELS[form.archetype]}</Chip> : null}
                 {Number.isFinite(capMinor) && form.spendCap.trim() ? <Chip>Cap {formatMoney({ amountMinor: capMinor, currency: form.currency })}</Chip> : null}
+                {form.autopilot ? <Chip>Autopilot</Chip> : null}
               </div>
               <Button type="submit" variant="primary" icon={ThumbsUp} loading={committing} className="mt-4 w-full" data-testid="take-charge-bottom">
                 Take charge

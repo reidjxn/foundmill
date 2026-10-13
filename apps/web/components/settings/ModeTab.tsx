@@ -1,7 +1,7 @@
 "use client";
 /**
  * Settings › Mode: game mode (Live ⇄ Personal) behind a review wizard, business mode (Augmented / Assisted /
- * Automated), the spend cap per action (business.setSpendCap) and the holiday (HolidayDialog →
+ * Automated), Autopilot (business.autopilot.*), the spend cap per action (business.setSpendCap) and the holiday (HolidayDialog →
  * business.startHoliday / endHoliday). BUILD §9.6, §11.15.
  */
 import { useMutation } from "@tanstack/react-query";
@@ -14,6 +14,7 @@ import { formatDate, formatMoney, plainWords } from "@/lib/format";
 import { toStartHolidayInput } from "@/lib/holiday";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
+import { AutopilotSection } from "./AutopilotSection";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
 
@@ -118,6 +119,8 @@ export function ModeTab() {
         </RadioGroup>
         <Hint>Hard gates (money, signatures, filings, legal terms, permanent deletion, security settings, acting on untrusted content) always need you, whatever the mode.</Hint>
       </SettingsSection>
+
+      <AutopilotSection />
 
       <SettingsSection title="Spend cap per action">
         <SpendCapForm key={b.spendCapMinor ?? "none"} businessId={businessId} capMinor={b.spendCapMinor} currency={currency} />

@@ -98,8 +98,11 @@ describe("commit screen: form (AC-11.1.6, AC-11.1.7)", () => {
   it("builds the idea.commit input", () => {
     const form = initialCommitForm({ title: "Ledgerly", archetype: "b2b_saas" }, { primary: "1B4FD8", secondary: "#f5c400" }, "SEK");
     expect(form.logo).toBeNull();
-    expect(commitInput(IDEA, { ...form, spendCap: "1 250" })).toEqual({ ideaId: IDEA, name: "Ledgerly", gameMode: "personal", archetype: "b2b_saas", businessMode: "assisted", kit: { primary: "#1b4fd8", secondary: "#f5c400" }, logo: null, currency: "SEK", spendCapMinor: 125_000 });
+    expect(commitInput(IDEA, { ...form, spendCap: "1 250" })).toEqual({ ideaId: IDEA, name: "Ledgerly", gameMode: "personal", archetype: "b2b_saas", businessMode: "assisted", kit: { primary: "#1b4fd8", secondary: "#f5c400" }, logo: null, currency: "SEK", spendCapMinor: 125_000, autopilot: false });
     expect(commitInput(IDEA, { ...form, spendCap: "" }).spendCapMinor).toBeNull();
+    // Autopilot is off unless the founder chose it.
+    expect(initialCommitForm({ title: "Ledgerly", archetype: "b2b_saas" }, DEFAULT_KIT, "EUR").autopilot).toBe(false);
+    expect(commitInput(IDEA, { ...form, autopilot: true }).autopilot).toBe(true);
     expect(parseSpendCapMinor("abc")).toBeNaN();
     // The chosen logo travels as its source and data URL only (the server checks it again).
     const logo = { source: "generated" as const, dataUrl: "data:image/svg+xml;base64,PHN2Zy8+", colours: ["#1b4fd8"], label: "Orbit" };

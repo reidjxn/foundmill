@@ -47,6 +47,7 @@ import { useBusiness, useBusinessCurrency } from "@/components/shell/business-co
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
+import { HomeAutopilot } from "./HomeAutopilot";
 import { dashboardTabs, editedElsewhere, ghostedMilestones, gridPresets, isDayOne, nextDashboardName, pickDashboardId, resetPresetFor, shareHref, versionConflict } from "./dashboards";
 
 type DashboardRow = RouterOutputs["dashboard"]["get"];
@@ -203,6 +204,7 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
   return (
     <div className="flex min-h-full flex-col gap-gutter p-gutter" data-testid="home-screen" data-dashboard-id={row.id} data-dashboard-version={row.version} data-editing={editing || undefined}>
       <HomeFoundations />
+      <HomeAutopilot />
       <DayOne businessId={businessId} currency={currency} />
       <DashboardGrid
         key={row.id}

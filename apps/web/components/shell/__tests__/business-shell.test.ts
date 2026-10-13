@@ -63,3 +63,20 @@ describe("foundations progress on the stream (audit P3)", () => {
   });
 });
 
+
+describe("the Autopilot chip stays fresh on the stream", () => {
+  it("refetches business.autopilot when Autopilot changes, a cycle starts or ends, or an Inbox item that can block Continue arrives or is decided", async () => {
+    expect(INVALIDATE_ON_EVENT["autopilot.changed"]).toContain("business");
+    for (const type of ["autopilot.cycle_started", "cycle.started", "cycle.completed", "inbox.item_created", "decision.made"]) {
+      expect(INVALIDATE_ON_EVENT[type]!.some((p) => p === "business" || p === "business.autopilot")).toBe(true);
+    }
+    const qc = new QueryClient();
+    const BID = "00000000-0000-4000-8000-000000000001";
+    qc.setQueryData(trpcQueryKey("business.autopilot.get", { businessId: BID }) as unknown[], { state: "on" });
+    qc.setQueryData(trpcQueryKey("business.get", { businessId: BID }) as unknown[], { business: {} });
+    await qc.invalidateQueries({ queryKey: trpcPathPrefix("business.autopilot") as unknown[] });
+    expect(qc.getQueryState(trpcQueryKey("business.autopilot.get", { businessId: BID }) as unknown[])?.isInvalidated).toBe(true);
+    // The path is narrow: the business record itself is not refetched on every cycle.
+    expect(qc.getQueryState(trpcQueryKey("business.get", { businessId: BID }) as unknown[])?.isInvalidated).toBe(false);
+  });
+});

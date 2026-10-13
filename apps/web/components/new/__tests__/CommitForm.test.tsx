@@ -94,6 +94,22 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("75");
   });
 
+  it("offers Run on autopilot, off by default, and sends the choice with idea.commit", async () => {
+    const onCommit = renderForm();
+    const toggle = screen.getByRole("switch", { name: "Run on autopilot" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ autopilot: false });
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit.mock.calls[1]![0]).toMatchObject({ autopilot: true });
+  });
+
   it("submits the idea.commit input and blocks an empty name", async () => {
     const onCommit = renderForm();
     fireEvent.change(screen.getByLabelText(/Business name/), { target: { value: "  " } });
