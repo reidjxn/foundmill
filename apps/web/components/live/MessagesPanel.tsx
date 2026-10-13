@@ -2,8 +2,9 @@
 /**
  * Messages on /network: the founder's threads on the left (with an unread count each), the open thread on the right
  * with a reply box. A thread is named by the people in it, never by its subject: the subject is whatever the first sender
- * typed, so it is shown as secondary text and cannot pose as the platform or as someone else (audit GLS2F-06, LS2-04). Messages are human to human: only the signed-in founder's own Send writes one (`live.messages.send`);
- * agents may draft, never send. Opening a thread marks it read on the server, then the counts are refreshed.
+ * typed, so it is shown as secondary text and cannot pose as the platform or as someone else (audit GLS2F-06, LS2-04).
+ * Messages are human to human: only the signed-in founder's own Send writes one (`live.messages.send`); agents may draft,
+ * never send. Opening a thread marks it read on the server, then the counts are refreshed.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mail, MailCheck, MessageSquare, SquarePen } from "lucide-react";
