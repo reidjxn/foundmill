@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EMPTY_CYCLE, cycleFromSnapshot, reduceCycleEvent, setPaused } from "../cycle";
+import { EMPTY_CYCLE, cycleFromSnapshot, initialCycle, nextPulseKey, reduceCycleEvent, setPaused } from "../cycle";
 
 const deptOf = (agentId: string) => ({ a1: "d1", a2: "d2" })[agentId];
 
@@ -45,5 +45,22 @@ describe("cycle status", () => {
     const s = reduceCycleEvent(EMPTY_CYCLE, { type: "task.started", payload: { assigneeAgentId: "a1" } }, deptOf);
     expect(reduceCycleEvent(s, { type: "payment.received" })).toBe(s);
     expect(reduceCycleEvent(s, { type: "agents.stopped" })).toMatchObject({ running: false, activeAgentIds: [] });
+  });
+});
+
+describe("Continue's pulse (audit WEB-15: it pulsed on every load of a business with finished cycles)", () => {
+  it("starts from the snapshot the page arrived with, so finished cycles are counted from the first render", () => {
+    expect(initialCycle({ running: false, completedCount: 3 }).completedCount).toBe(3);
+    expect(initialCycle(undefined)).toBe(EMPTY_CYCLE);
+  });
+
+  it("pulses once per cycle.completed on the stream, never because a snapshot was adopted", () => {
+    let key = 0;
+    key = nextPulseKey(key, "cycle.started");
+    key = nextPulseKey(key, "task.completed");
+    expect(key).toBe(0);
+    key = nextPulseKey(key, "cycle.completed");
+    expect(key).toBe(1);
+    expect(nextPulseKey(key, "cycle.completed")).toBe(2);
   });
 });

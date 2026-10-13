@@ -71,6 +71,17 @@ describe("search ranking", () => {
     expect(customers.items.map((e) => e.id)).toEqual([ids.sarah]);
   });
 
+  it("finds records by operators alone, with no words (audit GTM-27: role:customer listed nothing)", async () => {
+    const customers = await repos.entities.search(r.db, r.A.businessId, { role: "customer" });
+    expect(customers.hits.map((h) => h.entity.id)).toEqual([ids.sarah]);
+    expect(customers.hits[0]!.matchedOn).toBe("filter");
+    expect(customers.hits[0]!.roles.map((role) => role.role)).toEqual(["customer"]);
+    const qualified = await repos.entities.search(r.db, r.A.businessId, { q: "", role: "lead", stage: "qualified" });
+    expect(qualified.hits.map((h) => h.entity.id)).toEqual([ids.sara]);
+    // Neither words nor an operator: refused, as before.
+    await expect(repos.entities.search(r.db, r.A.businessId, { q: "  " })).rejects.toThrow(/Invalid search/);
+  });
+
   it("uses the query embedding when supplied (pgvector)", async () => {
     if (!r.h.hasVector) return;
     const res = await repos.entities.search(r.db, r.A.businessId, { q: "zzzz-nothing-lexical", embedding: unit(3) });

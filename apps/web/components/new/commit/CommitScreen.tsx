@@ -10,7 +10,7 @@
  * `CommitScreen` loads the idea, wires those calls to tRPC and commits.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Check, Globe, Lock, Scale, ThumbsUp } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Globe, Lock, Scale, SearchX, ThumbsUp } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { ARCHETYPE_LABELS, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
@@ -18,7 +18,7 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { Avatar, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, cn, fieldDescribedBy, formatMoney, useToast, type Kit } from "@foundmill/dugout";
 import { plainWords, plural } from "@/lib/format";
 import { useSingleFlight } from "@/lib/single-flight";
-import { errorMessage, tierLimitOf, type RouterOutputs } from "@/lib/trpc";
+import { errorMessage, tierLimitOf, trpcErrorCode, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
 import { StudioFrame } from "../StudioFrame";
@@ -124,10 +124,23 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
       </StudioFrame>
     );
   }
-  if (ideaQ.error || !idea) {
+  // A concept that is not there (deleted, another account's, a wrong link) says so with the way back, and no Try again
+  // that can never succeed (audit IAE-16); any other failure keeps its retry.
+  if (!idea && (!ideaQ.error || trpcErrorCode(ideaQ.error) === "NOT_FOUND")) {
     return (
       <StudioFrame step="commit" title="Commit" viewer={viewer} actions={back}>
-        <Panel title="Concept" error={ideaQ.error ? errorMessage(ideaQ.error) : "This concept was not found."} onRetry={() => ideaQ.refetch()} />
+        <Panel title="Concept" data-testid="concept-not-found">
+          <EmptyState icon={SearchX} title="No such concept" actions={<LinkButton variant="primary" size="sm" icon={ArrowLeft} href="/new/ideate">Back to your concepts</LinkButton>}>
+            This concept was deleted, belongs to another account, or the link is wrong.
+          </EmptyState>
+        </Panel>
+      </StudioFrame>
+    );
+  }
+  if (!idea) {
+    return (
+      <StudioFrame step="commit" title="Commit" viewer={viewer} actions={back}>
+        <Panel title="Concept" error={errorMessage(ideaQ.error)} onRetry={() => ideaQ.refetch()} />
       </StudioFrame>
     );
   }

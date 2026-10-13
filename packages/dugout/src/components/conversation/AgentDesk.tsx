@@ -60,6 +60,11 @@ export interface AgentDeskProps {
   thinkingPhrase?: string | null;
   /** Render a bubble's Markdown and `[[ent:…]]` mentions (EntityText). Plain text without it. */
   renderBubble?: (markdown: string) => ReactNode;
+  /**
+   * Render the founder's own bubbles. What the founder typed is never entity markup: `[[ent:…]]` in it must not become a
+   * link (audit FR-23). Defaults to `renderBubble`; the app passes one without mention links.
+   */
+  renderFounderBubble?: (markdown: string) => ReactNode;
   /** inline: a page section with the presence column. sheet: a right-side sheet. compact: narrow places. */
   variant?: AgentDeskVariant;
   /** Number keys send quick replies. Default true. */
@@ -286,6 +291,7 @@ function DeskThread({
   replying = false,
   thinkingPhrase,
   renderBubble,
+  renderFounderBubble,
   variant = "inline",
   onHandOff,
   onRetry,
@@ -325,6 +331,7 @@ function DeskThread({
   }, [messages.length, lastBubbles, replying, reduced]);
 
   const render = (text: string) => (renderBubble ? renderBubble(text) : text);
+  const renderFounder = (text: string) => (renderFounderBubble ? renderFounderBubble(text) : render(text));
   const { state } = presenceWords(persona, replying);
 
   return (
@@ -424,7 +431,7 @@ function DeskThread({
                       data-testid="founder-bubble"
                     >
                       <span className="sr-only">You: </span>
-                      {render(row.bubble)}
+                      {renderFounder(row.bubble)}
                       {reaction ? (
                         <Reaction reaction={reaction} by={persona.name} dept={persona.dept} />
                       ) : null}

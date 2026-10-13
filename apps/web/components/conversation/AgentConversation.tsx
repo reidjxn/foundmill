@@ -20,10 +20,11 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
-import { AgentDesk, Button, EntityText, Markdown, Skeleton, useToast, type AgentDeskVariant, type DeskMessage, type QuickReplyItem } from "@foundmill/dugout";
+import { AgentDesk, Button, EntityText, Markdown, Skeleton, stripEntityMarkup, useToast, type AgentDeskVariant, type DeskMessage, type QuickReplyItem } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { readOnlyReason } from "@/lib/access";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import { provideAgentConversation } from "./DeskHost";
 import { ConfirmPlanDialog } from "@/components/inbox/ConfirmPlanDialog";
@@ -56,6 +57,15 @@ export type DecideResult = RouterOutputs["inbox"]["decide"];
 /** Render one bubble: mentions through EntityText (plain underlined links), Markdown only when the bubble needs it. */
 export function renderBubble(text: string): ReactNode {
   return bubbleNeedsMarkdown(text) ? <Markdown variant="body">{text}</Markdown> : <EntityText>{text}</EntityText>;
+}
+
+/**
+ * The founder's own bubble: Markdown when it needs it, and never a mention link. What the founder typed is not entity
+ * markup, so a typed `[[ent:…]]` shows as the plain name instead of a link to nothing (audit FR-23).
+ */
+export function renderFounderBubble(text: string): ReactNode {
+  const plain = stripEntityMarkup(text);
+  return bubbleNeedsMarkdown(plain) ? <Markdown variant="body" entities={false}>{plain}</Markdown> : plain;
 }
 
 export interface AgentConversationHandle {
@@ -158,7 +168,7 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
   { subject, variant = "inline", open = true, onOpenChange, keyModifier = "none", hotkeys = true, inboxReply = false, onDecision, decided = false, fallbackDept = "dept-1", subjectLine, initialText, onInitialTextSent, personaHint, opener, className },
   ref,
 ) {
-  const { businessId } = useBusiness();
+  const { businessId, data: biz, access } = useBusiness();
   const currency = useBusinessCurrency();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -565,6 +575,10 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
       onHandOff={onHandOff}
       replying={replying}
       renderBubble={renderBubble}
+      renderFounderBubble={renderFounderBubble}
+      // A viewer or advisor follows the conversation; the API refuses their messages, so the field says so instead (RUI-05).
+      disabled={!access.canChange}
+      disabledNote={access.canChange ? undefined : readOnlyReason(access)}
       variant={variant}
       hotkeys={hotkeys && !confirmOpen}
       keyModifier={keyModifier}

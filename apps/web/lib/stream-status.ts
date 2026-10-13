@@ -6,7 +6,7 @@
  * `INVALIDATE_ON_EVENT`), so its stream-kept queries stay fresh longer and polling slows to a safety net; while it is
  * not, the shell polls. An open socket says nothing about a business whose channel it does not carry.
  */
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { businessChannel, type StreamStatus } from "./stream";
 
 /** Polling while a business's channel is live: a safety net for changes that publish no event. */
@@ -80,6 +80,46 @@ export function useChannelLive(channel: string | null): boolean {
 export function useBusinessLive(businessId: string): boolean {
   const read = useCallback(() => isBusinessLive(businessId), [businessId]);
   return useSyncExternalStore(subscribe, read, () => false);
+}
+
+/** The socket's state, re-rendering when it changes. "idle" on the server. */
+export function useStreamStatus(): StreamStatus {
+  return useSyncExternalStore(subscribe, streamStatus, () => "idle");
+}
+
+/** How long a business's channel may be down before the shell says so: a blip never flashes a chip. */
+export const CONNECTION_GRACE_MS = 3_000;
+export type ConnectionNoticeState = "reconnecting" | "paused";
+
+/**
+ * What the top bar says about the live connection (audit RES-11): nothing while the business's channel is live or
+ * within the grace after it dropped; "reconnecting" while the socket is trying again; "paused" when it is not (closed,
+ * or the server refused the channel).
+ */
+export function connectionNotice(input: { live: boolean; status: StreamStatus; downForMs: number }, graceMs: number = CONNECTION_GRACE_MS): ConnectionNoticeState | null {
+  if (input.live || input.downForMs < graceMs) return null;
+  return input.status === "connecting" || input.status === "reconnecting" ? "reconnecting" : "paused";
+}
+
+/** The connection notice for a business, re-evaluated when the channel or the socket changes and once the grace runs out. */
+export function useConnectionNotice(businessId: string, graceMs: number = CONNECTION_GRACE_MS): ConnectionNoticeState | null {
+  const live = useBusinessLive(businessId);
+  const status = useStreamStatus();
+  const [downSince, setDownSince] = useState<number | null>(null);
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    if (live) {
+      setDownSince(null);
+      return;
+    }
+    const since = Date.now();
+    setDownSince(since);
+    setNow(since);
+    const t = window.setTimeout(() => setNow(Date.now()), graceMs);
+    return () => window.clearTimeout(t);
+  }, [live, businessId, graceMs]);
+  if (live || downSince === null) return null;
+  return connectionNotice({ live, status, downForMs: now - downSince }, graceMs);
 }
 
 /**

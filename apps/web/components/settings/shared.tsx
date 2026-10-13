@@ -46,9 +46,11 @@ export function AdminOnly({ children }: { children: ReactNode }) {
         Read only
       </StatusPill>
       <p className="text-body text-secondary">As {ARTICLE[data.role] ?? "a"} {(data.role ?? "member").toLowerCase()} you can read these settings; an owner or admin changes them.</p>
-      <div className="pointer-events-none opacity-60" aria-disabled>
+      {/* A disabled fieldset disables every control inside it for the keyboard as well as the pointer (a pointer-events
+          rule alone left Tab and Enter working, audit RUI-05), and the values stay readable. */}
+      <fieldset disabled className="m-0 min-w-0 border-0 p-0 opacity-60" data-testid="read-only-settings">
         {children}
-      </div>
+      </fieldset>
     </div>
   );
 }

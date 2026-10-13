@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { BUSINESS_MODES } from "@foundmill/shared";
 import { Home, Megaphone } from "lucide-react";
 import { Breadcrumbs } from "./Breadcrumbs";
+import { ConnectionChip } from "./ConnectionChip";
 import { GameModeChip, ModeChip } from "./ModeChip";
 import { kitStyle } from "./KitBar";
 import { RunwayChip } from "./RunwayChip";
@@ -35,6 +36,15 @@ export const BusinessMode: Story = {
       <GameModeChip mode="personal" />
     </div>
   ),
+};
+export const Connection: Story = {
+  render: () => (
+    <div className="flex flex-wrap items-center gap-2">
+      <ConnectionChip state="reconnecting" />
+      <ConnectionChip state="paused" detail="Live updates are paused. Screens refresh every 30 s until they resume." />
+    </div>
+  ),
+  parameters: { docs: { description: { story: "The live connection is down: icon + word in an amber ring, announced politely. Nothing moves by itself." } } },
 };
 export const Runway: Story = {
   render: () => (

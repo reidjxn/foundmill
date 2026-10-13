@@ -140,6 +140,15 @@ describe("event catalogue", () => {
     expect(() => parsePayload("message.received", { ...EVENT_FIXTURES["message.received"], preview: "x".repeat(281) })).toThrow(ValidationError);
   });
 
+  it("business.updated: the settings fields a save changed, pushed to open tabs, never narrated (audit RES-07)", () => {
+    const decl = EVENTS["business.updated"];
+    expect(decl.consumers).toEqual(["stream"]);
+    expect(decl.narratable).toBe(false);
+    expect(parsePayload("business.updated", { fields: ["name"] }).fields).toEqual(["name"]);
+    expect(() => parsePayload("business.updated", { fields: [] })).toThrow(ValidationError);
+    expect(() => parsePayload("business.updated", { fields: ["planTier"] })).toThrow(ValidationError);
+  });
+
   it("conversation.message_posted: a desk message for stream and metrics, never narrated (audit-conversation §4)", () => {
     const decl = EVENTS["conversation.message_posted"];
     expect(decl.narratable).toBe(false);

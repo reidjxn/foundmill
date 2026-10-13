@@ -8,11 +8,11 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Globe, Lock, Palmtree } from "lucide-react";
 import { useState } from "react";
-import { BUSINESS_MODE_INFO, Button, Checkbox, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, HolidayDialog, KeyValueList, Label, MoneyInput, RadioCard, RadioGroup, StatusPill, useDateFormat, type HolidaySettings } from "@foundmill/dugout";
+import { BUSINESS_MODE_INFO, Button, Checkbox, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, HolidayDialog, KeyValueList, Label, MoneyInput, RadioCard, RadioGroup, StatusPill, useFormatters, type HolidaySettings } from "@foundmill/dugout";
 import { BUSINESS_MODES, type BusinessMode, type GameMode } from "@foundmill/shared/constants";
 import { vacationUntilLabel } from "@foundmill/shared";
 import { parseSpendCapMinor } from "@/components/new/commit/naming";
-import { formatDate, formatMoney, plainWords } from "@/lib/format";
+import { formatMoney, plainWords } from "@/lib/format";
 import { toStartHolidayInput } from "@/lib/holiday";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
@@ -63,7 +63,8 @@ function SpendCapForm({ businessId, capMinor, currency }: { businessId: string; 
 }
 
 export function ModeTab() {
-  const datePrefs = useDateFormat();
+  // The vacation's end prints in the founder's own zone, like the top bar's caption (audit OL-06).
+  const { formatDate: formatLocalDate } = useFormatters();
   const { businessId, data } = useBusiness();
   const trpc = useTRPC();
   const invalidate = useInvalidateRouters();
@@ -158,7 +159,7 @@ export function ModeTab() {
             </StatusPill>
             <KeyValueList
               items={[
-                { label: "Until", value: holiday.untilAt ? formatDate(holiday.untilAt, datePrefs) : vacationUntilLabel((holiday.untilCondition as { text?: string } | null)?.text) },
+                { label: "Until", value: holiday.untilAt ? formatLocalDate(holiday.untilAt) : vacationUntilLabel((holiday.untilCondition as { text?: string } | null)?.text) },
                 { label: "Budget ceiling", value: holiday.budgetCeilingMinor === null ? "Business cap applies" : formatMoney({ amountMinor: holiday.budgetCeilingMinor, currency: holiday.currency ?? currency }), numeric: true },
                 { label: "Authority", value: <span className="flex flex-wrap gap-1">{((holiday.authority as { decisionTypes?: string[] } | null)?.decisionTypes ?? []).map((d) => <Chip key={d}>{plainWords(d)}</Chip>)}</span> },
               ]}

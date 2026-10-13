@@ -39,12 +39,16 @@ import {
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
 import { humanSender, NETWORK_SENDER } from "@foundmill/widgets/shared/note-tags";
 import { routes } from "@foundmill/widgets/shared/routes";
+import { readOnlyReason } from "@/lib/access";
+import { entityHref } from "@/lib/entity-links";
+import { isGuid } from "@/lib/ids";
 import { usePageShortcuts } from "@/lib/keys";
 import { useHydrated } from "@/lib/today";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { AgentConversation, type AgentConversationHandle } from "@/components/conversation/AgentConversation";
 import { useAgentDesk } from "@/components/conversation/DeskHost";
@@ -94,7 +98,9 @@ export function ReadingPane({ itemId, onArchived }: ReadingPaneProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const currency = useBusinessCurrency();
-  const getQ = useQuery(trpc.inbox.get.queryOptions({ businessId, itemId }, { staleTime: 10_000 }));
+  // An address that is not an id never reaches the API (it would answer 400 "itemId: Invalid GUID").
+  const validId = isGuid(itemId);
+  const getQ = useQuery(trpc.inbox.get.queryOptions({ businessId, itemId }, { staleTime: 10_000, enabled: validId }));
   const invalidate = useCallback((routers: readonly string[]) => Promise.all(routers.map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] }))), [queryClient]);
 
   // Mark read once per item (the list and the sidebar badges follow through invalidation).
@@ -105,9 +111,21 @@ export function ReadingPane({ itemId, onArchived }: ReadingPaneProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once when the item turns out to be unread
   }, [unread, businessId, itemId]);
 
-  if (getQ.error) return <ErrorPanel title="Note" message={errorMessage(getQ.error)} onRetry={() => void getQ.refetch()} />;
+  if (!validId || (loadFailed(getQ) && isMissing(getQ.error))) {
+    return (
+      <NotFoundPanel bare title="Note" heading="No such note" back={{ label: "Back to the Inbox", href: routes.inbox(businessId) }}>
+        This note was deleted, or the address is wrong. The list on the left has every note you can open.
+      </NotFoundPanel>
+    );
+  }
+  if (loadFailed(getQ)) return <ErrorPanel title="Note" message={errorMessage(getQ.error)} onRetry={() => void getQ.refetch()} />;
   if (!getQ.data) return <ScreenSkeleton rows={4} />;
-  return <ReadingPaneBody data={getQ.data} currency={currency} departments={departments} onArchived={onArchived} />;
+  return (
+    <>
+      {refreshFailed(getQ) ? <RefreshFailedNotice query={getQ} /> : null}
+      <ReadingPaneBody data={getQ.data} currency={currency} departments={departments} onArchived={onArchived} />
+    </>
+  );
 }
 
 /* ---------- body ---------- */
@@ -121,7 +139,7 @@ interface BodyProps {
 
 function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps) {
   const { item, decisions, plan: storedPlan, confirmation, fromAgent, entities, approval } = data;
-  const { businessId, data: biz } = useBusiness();
+  const { businessId, data: biz, access } = useBusiness();
   // A person's note: the founder's own ("You"), or another founder's words that Network filed here, never "You".
   const sender = humanSender(item.fromUserId, biz.membership.userId);
   const senderName = sender === "self" ? "You" : sender === "other" ? NETWORK_SENDER : "Team";
@@ -246,7 +264,9 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
     }),
   );
 
-  const locked = isAnswered || expired || decide.isPending || confirm.isPending || cannotAnswer;
+  // Viewers and advisors follow the note; deciding it is for owners, admins and members (the API refuses the rest).
+  const readOnly = !access.canChange;
+  const locked = isAnswered || expired || readOnly || decide.isPending || confirm.isPending || cannotAnswer;
   const onChoose = useCallback(
     (o: DecisionOption) => decide.mutate({ businessId, itemId: item.id, chosenOption: o.id, ...(approval && reason.trim() ? { freeText: reason.trim() } : {}) }),
     [decide, businessId, item.id, approval, reason],
@@ -286,7 +306,8 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const links = useMemo(() => (plan && !pendingConfirmation ? followUpLinks(plan.actions, businessId, departments) : []), [plan, pendingConfirmation, businessId, departments]);
   const planLine = planStatusLine(plan);
   const roleLine = roleBesideName(fromAgent?.name ?? persona?.name, persona?.role);
-  const relatedEntities = entities.map((e) => ({ id: e.id, kind: e.kind as EntityKind, name: e.displayName, href: routes.crm(businessId, e.id) }));
+  // An agent's record opens the agent's profile, every other record its CRM profile (audit GTM-19).
+  const relatedEntities = entities.map((e) => ({ id: e.id, kind: e.kind as EntityKind, name: e.displayName, href: entityHref(businessId, e, (id) => agents.has(id)) }));
   // Parts of the note the reader's section permissions hide (inbox.get masks them on the server).
   const hidden = hiddenNotice(item.redacted);
 
@@ -437,7 +458,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
             variant="inline"
             keyModifier="alt"
             // Typed words decide only an open decision that allows free text; otherwise they stay a conversation.
-            inboxReply={freeTextAllowed(item.decision) && !isAnswered && !expired}
+            inboxReply={freeTextAllowed(item.decision) && !isAnswered && !expired && !readOnly}
             onDecision={onDecided}
             // Decided here, from the DecisionBar or in another tab: no more "Go with: …".
             decided={isAnswered || expired}
@@ -456,11 +477,19 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           askLabel={`Ask ${agentName}`}
           askDescription="Talk it through first"
           deadline={decisionDeadline(item.decision) ?? undefined}
-          disabled={expired || item.state === "archived" || cannotAnswer}
+          disabled={expired || item.state === "archived" || readOnly || cannotAnswer}
           executing={decide.isPending || confirm.isPending}
           answered={answered}
           hotkeys={false}
-          note={expired && !isAnswered ? <span className="inline-flex items-center gap-1 text-small text-status-warn">This decision expired; the team moved on with the recommended option.</span> : undefined}
+          note={
+            readOnly && !isAnswered ? (
+              <span className="inline-flex items-center gap-1 text-small text-secondary" data-testid="decision-read-only">
+                {readOnlyReason(access)}
+              </span>
+            ) : expired && !isAnswered ? (
+              <span className="inline-flex items-center gap-1 text-small text-status-warn">This decision expired; the team moved on with the recommended option.</span>
+            ) : undefined
+          }
           data-testid="decision-bar"
         />
       ) : null}

@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DECISION_TYPES } from "@foundmill/shared";
 import { ApplyScopeDialog, applyScopeCopy } from "./ApplyScopeDialog";
-import { DEFAULT_WAKE_EVENTS, HolidayDialog, defaultAuthority, parseMajor, validateHolidaySettings, type HolidaySettings } from "./HolidayDialog";
+import { DEFAULT_WAKE_EVENTS, HolidayDialog, defaultAuthority, endOfLocalDay, parseMajor, validateHolidaySettings, type HolidaySettings } from "./HolidayDialog";
 import { KeyboardHelp, groupShortcuts } from "./KeyboardHelp";
 import { shortcutList } from "./keyboard";
 import { DEPARTMENTS_FOR_KEYS } from "./fixtures";
@@ -26,6 +26,19 @@ describe("HolidayDialog logic", () => {
     expect(validateHolidaySettings({ ...base, until: { kind: "date", date: "2026-10-07" } }, today)).toEqual({});
     expect(validateHolidaySettings({ ...base, until: { kind: "condition", condition: "x" } }, today).until).toMatch(/condition/);
     expect(validateHolidaySettings({ ...base, budgetCeiling: { amountMinor: -1, currency: "EUR" } }, today).budget).toMatch(/zero or more/);
+  });
+  it("reads the picked day as the end of that calendar day in the person's own zone (audit OL-06)", () => {
+    const end = endOfLocalDay("2026-10-14")!;
+    // Local fields, whatever the machine's zone: Oct 14 at 23:59:59, not midnight UTC (the evening of Oct 13 in the US).
+    expect([end.getFullYear(), end.getMonth(), end.getDate(), end.getHours(), end.getMinutes(), end.getSeconds()]).toEqual([2026, 9, 14, 23, 59, 59]);
+    expect(endOfLocalDay("2026-02-30")).toBeNull();
+    expect(endOfLocalDay("")).toBeNull();
+    expect(endOfLocalDay("Oct 14")).toBeNull();
+    // Today is a valid return date until its last second, later in the evening included.
+    const evening = new Date(2026, 9, 7, 21, 30);
+    const base: HolidaySettings = { until: { kind: "date", date: "2026-10-07" }, authority: defaultAuthority(), budgetCeiling: null, wakeEvents: [...DEFAULT_WAKE_EVENTS] };
+    expect(validateHolidaySettings(base, evening)).toEqual({});
+    expect(validateHolidaySettings({ ...base, until: { kind: "date", date: "2026-10-06" } }, evening).until).toMatch(/past/);
   });
   it("parses major units", () => {
     expect(parseMajor("")).toBeNull();

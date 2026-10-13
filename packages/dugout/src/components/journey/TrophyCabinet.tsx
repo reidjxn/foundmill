@@ -45,7 +45,7 @@ export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, classNam
                 className={cn(
                   "relative flex h-full w-full flex-col gap-2 overflow-hidden rounded-panel border p-panel-pad text-left",
                   achieved ? "border-gold/45 bg-surface-1 shadow-elev-1 inset-shadow-rim" : "dashed-edge bg-canvas/40",
-                  Wrapper === "button" && "outline-none transition-[border-color,filter] duration-micro ease-dugout hover:border-gold hover:brightness-110 focus-visible:outline-2 focus-visible:outline-link",
+                  Wrapper === "button" && "transition-[border-color,filter] duration-micro ease-dugout hover:border-gold hover:brightness-110 focus-visible:outline-2 focus-visible:outline-link",
                 )}
                 aria-label={Wrapper === "button" ? `${t.label}, reached ${formatDate(t.achievedAt as string)}` : undefined}
               >

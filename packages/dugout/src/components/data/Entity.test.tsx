@@ -94,6 +94,27 @@ describe("EntityText", () => {
     );
   });
 
+  it("never links an id the provider knows is not an entity here: it reads as its name (audit FR-23)", () => {
+    const id = ENTITY_IDS.sara;
+    const text = `Ask [[ent:${id}|Sara Lindqvist]] or [[ent:00000000-0000-4000-8000-000000000000|Fake Co]] today.`;
+    const known = (e: string) => (e === id ? true : false);
+    const { unmount } = render(
+      <EntityLinkProvider value={{ resolve: resolveFixtureEntity, exists: known }}>
+        <EntityText>{text}</EntityText>
+      </EntityLinkProvider>,
+    );
+    expect(screen.getAllByRole("link").map((a) => a.textContent)).toEqual(["Sara Lindqvist"]);
+    expect(document.querySelector("[data-entity-text]")?.textContent).toBe("Ask Sara Lindqvist or Fake Co today.");
+    unmount();
+    // Not known yet (nothing looked up): the mention still links, so it never flickers out while a lookup is under way.
+    render(
+      <EntityLinkProvider value={{ resolve: resolveFixtureEntity, exists: () => undefined }}>
+        <EntityText>{text}</EntityText>
+      </EntityLinkProvider>,
+    );
+    expect(screen.getAllByRole("link")).toHaveLength(2);
+  });
+
   it("renders an ambiguous span with a Which one? chooser and a draft with an Unverified chip", async () => {
     const user = userEvent.setup();
     const onResolve = vi.fn();

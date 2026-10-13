@@ -102,6 +102,33 @@ describe("AppShell", () => {
     expect(mark.querySelector("path")).toBeNull();
   });
 
+  it("the business name opens Home, the founder's other businesses and Start another business (audit IAE-08)", async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    const onOpenBusiness = vi.fn();
+    const onNewBusiness = vi.fn();
+    const businessMenu = { businesses: [{ id: "nw", name: "Northwind Skincare", current: true }, { id: "lg", name: "Ledgerly" }], onOpenBusiness, onNewBusiness };
+    render(<AppShell {...shellProps({ onNavigate, businessMenu })} />);
+    await user.click(screen.getByRole("button", { name: "Northwind Skincare: Home and your businesses" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Ledgerly" }));
+    expect(onOpenBusiness).toHaveBeenCalledWith("lg");
+    await user.click(screen.getByRole("button", { name: "Northwind Skincare: Home and your businesses" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Start another business/ }));
+    expect(onNewBusiness).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "Northwind Skincare: Home and your businesses" }));
+    await user.click(await screen.findByRole("menuitem", { name: /^Home$/ }));
+    expect(onNavigate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "home" }));
+  });
+
+  it("says when the live connection is down (audit RES-11)", () => {
+    const { rerender } = render(<AppShell {...shellProps({ connection: null })} />);
+    expect(screen.queryByTestId("connection-chip")).toBeNull();
+    rerender(<AppShell {...shellProps({ connection: { state: "reconnecting" } })} />);
+    expect(screen.getByTestId("connection-chip").getAttribute("aria-label")).toBe("Reconnecting…");
+    rerender(<AppShell {...shellProps({ connection: { state: "paused" } })} />);
+    expect(screen.getByRole("status", { name: "Live updates paused" })).toBeTruthy();
+  });
+
   it("hides the LIVE block and chip in Personal mode", () => {
     render(<AppShell {...shellProps({ mode: "personal" })} />);
     expect(screen.queryByRole("link", { name: "Network" })).toBeNull();

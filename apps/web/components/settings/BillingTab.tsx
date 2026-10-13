@@ -27,6 +27,7 @@ import { errorMessage, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { Hint, SettingsSection, useSettingsToast } from "./shared";
 
@@ -124,7 +125,7 @@ function CheckoutPanel({ checkoutId, canceled, onDone }: { checkoutId: string; c
     }),
   );
   const checkout = complete.data?.checkout ?? status.data?.checkout;
-  if (status.error) return <ErrorPanel title="Checkout" message={errorMessage(status.error)} onRetry={() => void status.refetch()} />;
+  if (loadFailed(status)) return <ErrorPanel title="Checkout" message={errorMessage(status.error)} onRetry={() => void status.refetch()} />;
   if (!checkout) return <SettingsSection title="Checkout" loading>{null}</SettingsSection>;
   const notice = checkoutNotice(checkout, { canceled, waitedLong });
   const payable = checkout.status === "open" && checkout.mode === "mock" && !canceled;
@@ -180,7 +181,7 @@ export function BillingTab() {
   );
   const [amount, setAmount] = useState<string>(String(TOP_UP_OPTIONS[1]));
 
-  if (plan.error) return <ErrorPanel title="Billing" message={errorMessage(plan.error)} onRetry={() => void plan.refetch()} />;
+  if (loadFailed(plan)) return <ErrorPanel title="Billing" message={errorMessage(plan.error)} onRetry={() => void plan.refetch()} />;
   const p = plan.data;
   // Credits and model costs are US dollars, never the business's currency.
   const currency = p?.creditsCurrency ?? CREDITS_CURRENCY;
@@ -191,6 +192,7 @@ export function BillingTab() {
 
   return (
     <>
+      {refreshFailed(plan) ? <RefreshFailedNotice query={plan} className="flex items-center gap-2" /> : null}
       {returnedCheckout ? <CheckoutPanel key={returnedCheckout} checkoutId={returnedCheckout} canceled={canceled} onDone={closeCheckout} /> : null}
       <SettingsSection wide title="Plan" meta={p ? periodLabel(p.period, datePrefs) : undefined} loading={plan.isLoading}>
         {p ? (

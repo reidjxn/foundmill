@@ -19,8 +19,10 @@ export default async function HomePage({ params }: { params: Promise<{ bid: stri
 
 /**
  * Home's first two queries start on the server: `dashboard.list`, and `dashboard.get` for the dashboard the client will
- * pick (the one in the URL, else the active one). Without a dashboard id the list is awaited first (one short API
- * call; the shell is already on screen behind the loading skeleton); `dashboard.get` is handed over still pending.
+ * pick (the one in the URL, else the active one). The list is awaited first (one short API call; the shell is already
+ * on screen behind the loading skeleton); `dashboard.get` is handed over still pending, and only for a dashboard the
+ * list holds: a stale, deleted or co-founder's link would hand over a query that rejects, which React logs as an
+ * uncaught server error (audit WEB-14). The browser fetches those itself and shows the not-found state.
  * Anything that fails here is simply fetched by the browser as before.
  */
 async function HomeData({ businessId, routeId, children }: { businessId: string; routeId: string | undefined; children: ReactNode }) {
@@ -28,15 +30,13 @@ async function HomeData({ businessId, routeId, children }: { businessId: string;
   if (!server) return <>{children}</>;
   const { queryClient, trpc } = createServerPrefetch(createServerClient(server.auth));
   const list = trpc.dashboard.list.queryOptions({ businessId });
-  let id = routeId;
-  if (id) void queryClient.prefetchQuery(list);
-  else {
-    try {
-      id = pickDashboardId(undefined, await queryClient.fetchQuery(list));
-    } catch {
-      return <>{children}</>;
-    }
+  let rows;
+  try {
+    rows = await queryClient.fetchQuery(list);
+  } catch {
+    return <>{children}</>;
   }
-  if (id) void queryClient.prefetchQuery(trpc.dashboard.get.queryOptions({ businessId, dashboardId: id }));
+  const id = pickDashboardId(routeId, rows);
+  if (id && rows.some((d) => d.id === id)) void queryClient.prefetchQuery(trpc.dashboard.get.queryOptions({ businessId, dashboardId: id }));
   return <Prefetched queryClient={queryClient}>{children}</Prefetched>;
 }

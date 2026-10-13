@@ -20,6 +20,7 @@ import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
 
@@ -233,13 +234,14 @@ export function IntegrationsTab() {
     installState &&
     connect.mutate({ businessId, connectorKey: "github", input: { installationId: Number(pendingInstallation), code: installCode, state: installState } }, { onSettled: () => router.replace(pathname ?? `/b/${businessId}/settings/integrations`) });
 
-  if (list.error) return <ErrorPanel title="Integrations" message={errorMessage(list.error)} onRetry={() => void list.refetch()} />;
+  if (loadFailed(list)) return <ErrorPanel title="Integrations" message={errorMessage(list.error)} onRetry={() => void list.refetch()} />;
   const rows = list.data?.catalogue ?? [];
   const keyFor = rows.find((r) => r.key === keyForKey) ?? null;
   const setKeyFor = (c: { key: string } | null) => setKeyForKey(c?.key ?? null);
 
   return (
     <AdminOnly>
+      {refreshFailed(list) ? <RefreshFailedNotice query={list} className="flex items-center gap-2" /> : null}
       {pendingInstallation ? (
         <SettingsSection title="Finish connecting GitHub">
           <div className="flex items-center gap-3" data-testid="github-installation">

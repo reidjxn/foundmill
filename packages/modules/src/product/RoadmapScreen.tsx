@@ -114,7 +114,7 @@ export function RoadmapScreen({ businessId, subView }: ModuleScreenProps) {
                   role="tab"
                   aria-selected={view === v.slug}
                   onClick={() => setView(v.slug)}
-                  className={cn("inline-flex h-6 items-center gap-1 rounded-chip px-2 text-tab outline-none transition-colors duration-micro ease-dugout focus-visible:outline-2 focus-visible:outline-link", view === v.slug ? "bg-panel-alt text-primary" : "text-secondary hover:text-primary")}
+                  className={cn("inline-flex h-6 items-center gap-1 rounded-chip px-2 text-tab transition-colors duration-micro ease-dugout focus-visible:outline-2 focus-visible:outline-link", view === v.slug ? "bg-panel-alt text-primary" : "text-secondary hover:text-primary")}
                 >
                   {v.slug === "board" ? <Columns3 size={12} aria-hidden /> : <CalendarRange size={12} aria-hidden />}
                   {v.title}

@@ -22,6 +22,39 @@ describe("StopAllAgents", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
+  it("a stop that never answers stops holding the dialog after the escape time (audit RES-13)", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn(() => new Promise<void>(() => {}));
+    render(<StopAllAgents onConfirm={onConfirm} pendingEscapeMs={40} />);
+    await user.click(screen.getByTestId("stop-all-trigger"));
+    await user.click(screen.getByRole("button", { name: "Stop all agents" }));
+    // Pending: Esc and Cancel are held while the server has its budget.
+    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    // Past it: the founder may close the dialog; the request keeps going.
+    await waitFor(() => expect(screen.getByTestId("stop-all-slow")).toBeTruthy());
+    // The dialog's own close mark and the footer button are both back.
+    const closers = screen.getAllByRole("button", { name: "Close" });
+    expect(closers.length).toBeGreaterThanOrEqual(2);
+    await user.click(closers[closers.length - 1]!);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells a member, viewer or advisor who can stop the agents instead of offering a stop the API refuses (audit RUI-05)", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    render(<StopAllAgents onConfirm={onConfirm} canStop={false} />);
+    await user.click(screen.getByTestId("stop-all-trigger"));
+    const dialog = screen.getByRole("dialog", { name: "Stop all agents" });
+    expect(dialog.textContent).toContain("Only an owner or admin");
+    expect(screen.queryByRole("button", { name: "Stop all agents" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Got it" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
   it("stays open and shows the error when the stop fails", async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn(() => Promise.reject(new Error("Temporal unreachable")));

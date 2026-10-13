@@ -63,27 +63,31 @@ export const EntityListFilter = PageInput.extend({
 });
 export type EntityListFilter = z.input<typeof EntityListFilter>;
 
-export const SearchInput = z.object({
-  q: z.string().trim().min(1).max(200),
-  kinds: z.array(z.enum(ENTITY_KINDS)).optional(),
-  /** `role:` / `stage:` / `owner:` / `department:` operators (BUILD §11.12). */
-  role: z.string().max(80).optional(),
-  stage: z.string().max(80).optional(),
-  ownerId: Id.optional(),
-  departmentId: Id.optional(),
-  /** Query embedding (1024-d) for the meaning leg; omitted = lexical only. */
-  embedding: z.array(z.number()).length(1024).optional(),
-  limit: z.number().int().min(1).max(100).default(20),
-  /** Minimum score to return (0–1). */
-  minScore: z.number().min(0).max(1).default(0.2),
-});
+export const SearchInput = z
+  .object({
+    /** The words; empty when the operators alone say what to find (`role:supplier`). */
+    q: z.string().trim().max(200).default(""),
+    kinds: z.array(z.enum(ENTITY_KINDS)).optional(),
+    /** `role:` / `stage:` / `owner:` / `department:` operators (BUILD §11.12). */
+    role: z.string().max(80).optional(),
+    stage: z.string().max(80).optional(),
+    ownerId: Id.optional(),
+    departmentId: Id.optional(),
+    /** Query embedding (1024-d) for the meaning leg; omitted = lexical only. */
+    embedding: z.array(z.number()).length(1024).optional(),
+    limit: z.number().int().min(1).max(100).default(20),
+    /** Minimum score to return (0–1). */
+    minScore: z.number().min(0).max(1).default(0.2),
+  })
+  .refine((v) => v.q.length > 0 || Boolean(v.role || v.stage || v.ownerId || v.departmentId), { message: "Search needs words or a filter such as role:customer", path: ["q"] });
 export type SearchInput = z.input<typeof SearchInput>;
 
 /** An active role as the CRM list shows it (role, stage, owner); newest first per entity. */
 export type ActiveRole = Pick<EntityRole, "id" | "role" | "stage" | "ownerRef" | "startedAt" | "endedAt">;
 export type EntityWithRoles = Entity & { roles: ActiveRole[] };
 
-export type SearchMatch = "identifier" | "prefix" | "name" | "alias" | "text" | "meaning";
+/** How a hit matched; `filter` when the operators alone found it (no words to score). */
+export type SearchMatch = "identifier" | "prefix" | "name" | "alias" | "text" | "meaning" | "filter";
 export interface SearchHit {
   entity: Entity;
   /** The entity's active roles, so a result row shows role, stage and owner like a listed one. */
@@ -446,6 +450,14 @@ function listWhere(businessId: string, f: z.output<typeof EntityListFilter>): SQ
   );
 }
 
+/** Search hits with their per-kind groups. */
+function groupHits(hits: SearchHit[]): SearchResult {
+  const byKind = new Map<EntityKind, SearchHit[]>();
+  for (const h of hits) byKind.set(h.entity.kind, [...(byKind.get(h.entity.kind) ?? []), h]);
+  const groups = ENTITY_KINDS.filter((k) => byKind.has(k)).map((kind) => ({ kind, hits: byKind.get(kind)! }));
+  return { hits, groups, total: hits.length };
+}
+
 export const entitiesRepo = {
   async list(db: Executor, businessId: string, filter: EntityListFilter = {}): Promise<Page<Entity>> {
     const f = parseInput(EntityListFilter, filter, "entity filter");
@@ -596,6 +608,17 @@ export const entitiesRepo = {
   async search(db: Executor, businessId: string, input: SearchInput): Promise<SearchResult> {
     const v = parseInput(SearchInput, input, "search");
     const q = v.q;
+    // Operators alone (`role:supplier`, `stage:won`, audit GTM-27): every matching record by name, with no text score.
+    if (!q) {
+      const rows = await db
+        .select()
+        .from(entities)
+        .where(and(eq(entities.businessId, businessId), live, v.kinds?.length ? inArray(entities.kind, v.kinds) : undefined, roleFilter(businessId, v)))
+        .orderBy(asc(entities.displayName), asc(entities.id))
+        .limit(v.limit);
+      const roles = await entitiesRepo.activeRoles(db, businessId, rows.map((e) => e.id));
+      return groupHits(rows.map((entity) => ({ entity, score: 1, matchedOn: "filter" as const, roles: roles.get(entity.id) ?? [] })));
+    }
     const tsq = sql`plainto_tsquery('simple', ${q})`;
     const nameSim = sql<number>`similarity(${entities.displayName}, ${q})`;
     const aliasSim = sql<number>`coalesce((select max(similarity(a, ${q})) from unnest(${entities.aliases}) as a), 0)`;
@@ -635,11 +658,7 @@ export const entitiesRepo = {
       })
       .filter((h) => h.score >= v.minScore);
     const roles = await entitiesRepo.activeRoles(db, businessId, scored.map((h) => h.entity.id));
-    const hits: SearchHit[] = scored.map((h) => ({ ...h, roles: roles.get(h.entity.id) ?? [] }));
-    const byKind = new Map<EntityKind, SearchHit[]>();
-    for (const h of hits) byKind.set(h.entity.kind, [...(byKind.get(h.entity.kind) ?? []), h]);
-    const groups = ENTITY_KINDS.filter((k) => byKind.has(k)).map((kind) => ({ kind, hits: byKind.get(kind)! }));
-    return { hits, groups, total: hits.length };
+    return groupHits(scored.map((h) => ({ ...h, roles: roles.get(h.entity.id) ?? [] })));
   },
 
   // roles -------------------------------------------------------------------------------------------------------------

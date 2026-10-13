@@ -20,11 +20,13 @@ import { MODULE_KEYS } from "@foundmill/shared/constants";
 import { moduleHref } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { usePageShortcuts } from "@/lib/keys";
-import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
+import { NO_ACCESS_PREFIX, errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { canOpenDepartment } from "@/lib/access";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 
 const WidgetScreen = dynamic(() => import("./WidgetScreen").then((m) => m.WidgetScreen), { loading: () => <ScreenSkeleton /> });
@@ -70,7 +72,7 @@ export function relocatedModuleHref(businessId: string, departments: Parameters<
 }
 
 export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScreenProps) {
-  const { businessId, departmentBySlug, departments, data } = useBusiness();
+  const { businessId, departmentBySlug, departments, data, access } = useBusiness();
   const department = departmentBySlug(deptSlug);
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -132,8 +134,15 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
       </div>
     );
   }
-  if (screenQ.error) return <ErrorPanel title={department.name} message={errorMessage(screenQ.error)} onRetry={() => void screenQ.refetch()} />;
+  // A department whose every module is walled for this person is not theirs to open (the sidebar does not list it): say
+  // so plainly instead of a failed load (audit RUI-05).
+  if (!canOpenDepartment(access, department)) {
+    return <ErrorPanel title={department.name} message={`${NO_ACCESS_PREFIX}${department.name}. Ask an owner or admin if you need it.`} />;
+  }
+  // A failed refetch keeps the loaded screen (with a quiet notice); only a first load that failed shows the panel.
+  if (loadFailed(screenQ)) return <ErrorPanel title={department.name} message={errorMessage(screenQ.error)} onRetry={() => void screenQ.refetch()} />;
   if (!screenQ.data) return <ScreenSkeleton />;
+  const stale = refreshFailed(screenQ) ? <RefreshFailedNotice query={screenQ} /> : null;
   if (!screenRow) {
     return (
       <div className="p-gutter">
@@ -155,22 +164,26 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
     return (
       // Each module screen pads itself (its own Screen wrapper, p-gutter), so the content gutter is 16 px as on Home.
       <div className="min-h-full" data-testid="module-screen" data-module={`${moduleScreen.moduleKey}/${moduleScreen.tabSlug}`}>
+        {stale}
         <Component businessId={businessId} departmentId={department.id} subView={subView} />
       </div>
     );
   }
 
   return (
-    <WidgetScreen
-      businessId={businessId}
-      screenId={screenRow.id}
-      rawLayout={screenRow.layout}
-      live={live}
-      editing={editing}
-      onEditingChange={setEditing}
-      onSaved={() => void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("screen") as unknown[] })}
-      onError={(message) => toast({ title: "Layout not saved", description: message, tone: "bad" })}
-    />
+    <>
+      {stale}
+      <WidgetScreen
+        businessId={businessId}
+        screenId={screenRow.id}
+        rawLayout={screenRow.layout}
+        live={live}
+        editing={editing}
+        onEditingChange={setEditing}
+        onSaved={() => void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("screen") as unknown[] })}
+        onError={(message) => toast({ title: "Layout not saved", description: message, tone: "bad" })}
+      />
+    </>
   );
 }
 

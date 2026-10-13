@@ -4,6 +4,7 @@
  * independent later merges survive, and a merge a later one relies on is refused with the reason (AC-11.12.3).
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { repos } from "@foundmill/db";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 describe("crm", () => {
@@ -43,6 +44,33 @@ describe("crm", () => {
     expect((await owner.crm.entity.list({ businessId, limit: 1 })).total).toBe(list.items.length);
     // Another business's member sees none of it.
     await expect(hz.caller({ userId: hz.B.ownerId }).crm.entity.list({ businessId, limit: 10 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("looks up mentioned records for hover cards and links, an agent's record with its agent (audit GTM-19, GTM-26)", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const { businessId, agentId } = hz.A;
+    const agentRecord = await repos.entities.create(hz.db, businessId, { kind: "agent", displayName: "Email Automation Engine", agentId });
+    const buyer = await owner.crm.entity.create({ businessId, kind: "organisation", displayName: "Pennine Contract Cosmetics", identifiers: { domain: "pennine.example" } });
+    await owner.crm.roles.add({ businessId, entityId: buyer.id, role: { role: "customer", stage: "won" } });
+    const missing = "00000000-0000-4000-8000-000000000000";
+
+    const found = await owner.crm.entity.lookup({ businessId, entityIds: [agentRecord.id, buyer.id, missing] });
+    const byId = new Map(found.map((e) => [e.id, e]));
+    expect(byId.get(agentRecord.id)).toMatchObject({ kind: "agent", displayName: "Email Automation Engine", agentId });
+    expect(byId.get(buyer.id)).toMatchObject({ kind: "organisation", agentId: null, domain: "pennine.example", roles: [{ role: "customer", stage: "won" }] });
+    expect(byId.has(missing)).toBe(false);
+    // Another business's member learns nothing.
+    await expect(hz.caller({ userId: hz.B.ownerId }).crm.entity.lookup({ businessId, entityIds: [buyer.id] })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("palette operators alone list records (audit GTM-27: role:supplier returned nothing)", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const { businessId } = hz.A;
+    const vendor = await owner.crm.entity.create({ businessId, kind: "organisation", displayName: "Operator Only Supplies" });
+    await owner.crm.roles.add({ businessId, entityId: vendor.id, role: { role: "vendor" } });
+    const res = await owner.crm.search({ businessId, role: "vendor" });
+    expect(res.hits.map((h) => h.entity.id)).toEqual([vendor.id]);
+    await expect(owner.crm.search({ businessId, q: "" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
   it("unmerge keeps the founder's later edits and a later merge; a merge a later one relies on is refused with the reason", async () => {

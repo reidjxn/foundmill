@@ -86,7 +86,7 @@ function Card({ item, blocks, dependencies, titleById, moving, onMove, onEdit, o
           }}
           onDoubleClick={onEdit}
           className={cn(
-            "group flex cursor-grab flex-col gap-1.5 rounded-panel border border-subtle bg-panel-alt p-2 outline-none transition-colors duration-micro ease-dugout hover:border-secondary/60 focus-visible:outline-2 focus-visible:outline-link active:cursor-grabbing",
+            "group flex cursor-grab flex-col gap-1.5 rounded-panel border border-subtle bg-panel-alt p-2 transition-colors duration-micro ease-dugout hover:border-secondary/60 focus-visible:outline-2 focus-visible:outline-link active:cursor-grabbing",
             moving && "opacity-60",
           )}
         >
@@ -121,7 +121,7 @@ function Card({ item, blocks, dependencies, titleById, moving, onMove, onEdit, o
                   onClick={() => onOpenBlock(b.id)}
                   title={`Open "${blockTitle(b)}" in the Specification`}
                   data-linked-block={b.id}
-                  className="flex w-full min-w-0 items-start gap-1.5 rounded-sm px-1 py-0.5 text-left text-small text-secondary outline-none transition-colors duration-micro ease-dugout hover:bg-white/4 hover:text-primary focus-visible:outline-2 focus-visible:outline-link"
+                  className="flex w-full min-w-0 items-start gap-1.5 rounded-sm px-1 py-0.5 text-left text-small text-secondary transition-colors duration-micro ease-dugout hover:bg-white/4 hover:text-primary focus-visible:outline-2 focus-visible:outline-link"
                 >
                   <Icon icon={FileText} size="inline" className="mt-0.5 shrink-0" />
                   <span className="line-clamp-2 min-w-0 flex-1 break-words">

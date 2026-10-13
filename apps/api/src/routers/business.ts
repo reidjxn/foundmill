@@ -4,8 +4,9 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { HolidayRunningError, repos, UpdateBusinessInput } from "@foundmill/db";
+import { BUSINESS_SETTINGS_FIELDS } from "@foundmill/events";
 import { PRICING_CURRENCY } from "@foundmill/models";
-import { BUSINESS_MODES, DECISION_TYPES, EVENT_TYPES, GAME_MODES, isValidTimeZone } from "@foundmill/shared";
+import { BUSINESS_MODES, ConflictError, DECISION_TYPES, EVENT_TYPES, GAME_MODES, isValidTimeZone } from "@foundmill/shared";
 import { z } from "zod";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
 import { assertAgentsRunning, resumeAgents, stopAllAgents } from "../services/killswitch";
@@ -23,6 +24,21 @@ import { businessLogoRouter } from "./logo";
  * stored keep their own currency (nothing is converted).
  */
 const BusinessSettingsInput = UpdateBusinessInput.pick({ name: true, slug: true, archetype: true, kitPrimary: true, kitSecondary: true, glossary: true, currency: true });
+
+/**
+ * What the saving form last saw for each field it changes (audit RES-07, RUI-08). When another tab or a co-founder
+ * changed one of those fields since, the save is refused (CONFLICT) instead of silently writing the old value back;
+ * fields the form does not change are never sent, so unrelated changes never conflict.
+ */
+const ExpectedBusinessFields = z.object({ name: z.string().nullable(), slug: z.string().nullable(), archetype: z.string().nullable(), kitPrimary: z.string().nullable(), kitSecondary: z.string().nullable(), currency: z.string().nullable() }).partial();
+type ExpectedBusinessFields = z.infer<typeof ExpectedBusinessFields>;
+
+const FIELD_WORDS: Record<keyof ExpectedBusinessFields, string> = { name: "the name", slug: "the address", archetype: "the archetype", kitPrimary: "the primary brand color", kitSecondary: "the secondary brand color", currency: "the currency" };
+
+/** The expected fields whose stored value is no longer what the form saw. */
+export function staleBusinessFields(current: Partial<Record<keyof ExpectedBusinessFields, string | null>>, expected: ExpectedBusinessFields): (keyof ExpectedBusinessFields)[] {
+  return (Object.keys(expected) as (keyof ExpectedBusinessFields)[]).filter((k) => (current[k] ?? null) !== (expected[k] ?? null));
+}
 
 const HolidayUntil = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("date"), date: z.coerce.date() }),
@@ -79,11 +95,21 @@ export const businessRouter = router({
   // Settings › Business and Glossary fields only. The plan and model billing change through the owner-only
   // `billing.changeTier` (audited there); the data region is not changed from here; the logo goes through
   // `business.logo.*` (crest_url is retired, 0017). Other keys are stripped by the schema.
-  update: adminProcedure.input(BusinessSettingsInput).mutation(({ ctx, input }) =>
+  update: adminProcedure.input(BusinessSettingsInput.extend({ expected: ExpectedBusinessFields.optional() })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
-      const business = await repos.businesses.update(tx, ctx.businessId, input);
-      const currency = business.currency !== ctx.business.currency ? { from: ctx.business.currency, to: business.currency } : null;
-      await audit(tx, ctx, { action: "business.update", target: { kind: "business", id: ctx.businessId }, details: { fields: Object.keys(input), ...(currency ? { currency } : {}) } });
+      const { expected, ...changes } = input;
+      if (expected) {
+        const current = await repos.businesses.get(tx, ctx.businessId);
+        const stale = staleBusinessFields(current, expected);
+        if (stale.length) throw new ConflictError(`Someone changed ${stale.map((k) => FIELD_WORDS[k]).join(" and ")} since you opened these settings. The latest values are shown now; make your change again if you still want it.`, { fields: stale });
+      }
+      const business = await repos.businesses.update(tx, ctx.businessId, changes);
+      const currencyChange = business.currency !== ctx.business.currency ? { from: ctx.business.currency, to: business.currency } : null;
+      // The input also carries `businessId`; only the settings fields count as changed.
+      const fields = BUSINESS_SETTINGS_FIELDS.filter((k) => changes[k] !== undefined);
+      await audit(tx, ctx, { action: "business.update", target: { kind: "business", id: ctx.businessId }, details: { fields, ...(currencyChange ? { currency: currencyChange } : {}) } });
+      // Every open tab refetches the business (the top bar, the settings form), so none keeps the old name.
+      if (fields.length) await emit(tx, ctx, { type: "business.updated", payload: { fields } });
       return business;
     }),
   ),

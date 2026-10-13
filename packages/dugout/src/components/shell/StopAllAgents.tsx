@@ -1,5 +1,5 @@
 "use client";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { OctagonX, Play } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { Button } from "../foundation/Button";
@@ -38,7 +38,20 @@ export interface StopAllAgentsProps {
   variant?: "icon" | "button";
   /** Set while the team is stopped: the trigger turns into Resume agents (same place, same size). */
   stopped?: AgentsStoppedState | null;
+  /**
+   * Only owners and admins stop the agents (default true). Everyone else opens the same dialog, which says who can,
+   * instead of a confirm the API would refuse (audit RUI-05).
+   */
+  canStop?: boolean;
+  /**
+   * How long a pending stop or resume holds the dialog shut (default `STOP_PENDING_ESCAPE_MS`). After that the founder
+   * may close it while the request carries on: a request that never answers must not lock the screen until a reload.
+   */
+  pendingEscapeMs?: number;
 }
+
+/** The API's kill-switch budget (30 s) plus a margin: past it a pending stop or resume no longer holds the dialog. */
+export const STOP_PENDING_ESCAPE_MS = 35_000;
 
 /**
  * The kill switch (BUILD §5.4): visible on every screen, confirms before calling the API.
@@ -50,20 +63,33 @@ export function StopAllAgents(props: StopAllAgentsProps) {
   return <StopAll {...props} />;
 }
 
-/** Shared confirm-with-loading state: closes when `action` resolves, keeps the dialog open with the error otherwise. */
-function useConfirm(action: () => void | Promise<void>, failure: string, open?: boolean, onOpenChange?: (open: boolean) => void) {
+/**
+ * Shared confirm-with-loading state: closes when `action` resolves, keeps the dialog open with the error otherwise.
+ * While the action is pending the dialog cannot be dismissed, until `escapeAfterMs` has passed (`slow`): then it can be
+ * closed and the request keeps going (audit RES-13).
+ */
+function useConfirm(action: () => void | Promise<void>, failure: string, open?: boolean, onOpenChange?: (open: boolean) => void, escapeAfterMs: number = STOP_PENDING_ESCAPE_MS) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [slow, setSlow] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!loading) return;
+    const t = window.setTimeout(() => setSlow(true), escapeAfterMs);
+    return () => window.clearTimeout(t);
+  }, [loading, escapeAfterMs]);
   const isOpen = open ?? internalOpen;
+  // Locked while the request is pending and not yet slow.
+  const locked = loading && !slow;
   const setOpen = (next: boolean) => {
-    if (loading && !next) return;
+    if (locked && !next) return;
     setInternalOpen(next);
     onOpenChange?.(next);
     if (!next) setError(null);
   };
   const confirm = async () => {
     setLoading(true);
+    setSlow(false);
     setError(null);
     try {
       await action();
@@ -73,13 +99,24 @@ function useConfirm(action: () => void | Promise<void>, failure: string, open?: 
     } catch (err) {
       setLoading(false);
       setError(err instanceof Error ? err.message : failure);
+    } finally {
+      setSlow(false);
     }
   };
-  return { isOpen, setOpen, loading, error, confirm };
+  return { isOpen, setOpen, loading, locked, slow: loading && slow, error, confirm };
 }
 
-function StopAll({ onConfirm, runningCount, open, onOpenChange, disabled, children, className, variant = "icon" }: StopAllAgentsProps) {
-  const { isOpen, setOpen, loading, error, confirm } = useConfirm(onConfirm, "The stop request failed. Try again.", open, onOpenChange);
+/** The line a slow stop or resume shows once the dialog may be closed. */
+function SlowNote({ what }: { what: "stop" | "resume" }) {
+  return (
+    <p role="status" className="text-small text-secondary" data-testid="stop-all-slow">
+      The {what} is taking longer than usual. You can close this: the request keeps going, and each agent&apos;s status shows when it {what === "stop" ? "has stopped" : "is back at work"}.
+    </p>
+  );
+}
+
+function StopAll({ onConfirm, runningCount, open, onOpenChange, disabled, children, className, variant = "icon", pendingEscapeMs, canStop = true }: StopAllAgentsProps) {
+  const { isOpen, setOpen, loading, locked, slow, error, confirm } = useConfirm(onConfirm, "The stop request failed. Try again.", open, onOpenChange, pendingEscapeMs);
 
   const count = runningCount ?? 0;
   // The icon trigger is glass on the brand slab (34 px) with the octagon in a light red; hover warms it towards red.
@@ -107,16 +144,19 @@ function StopAll({ onConfirm, runningCount, open, onOpenChange, disabled, childr
     <>
       {trigger}
       <Dialog open={isOpen} onOpenChange={setOpen}>
-        <DialogContent size="sm" hideClose={loading}>
+        <DialogContent size="sm" hideClose={locked}>
           <DialogHeader>
-            <DialogTitle>Stop all agents?</DialogTitle>
+            <DialogTitle>{canStop ? "Stop all agents?" : "Stop all agents"}</DialogTitle>
             <DialogDescription>
-              {count > 0 ? `${count} running ${count === 1 ? "session stops" : "sessions stop"} now.` : "Every running session stops now."} Tasks keep their state and nothing starts again until an owner or admin resumes the agents.
+              {canStop
+                ? `${count > 0 ? `${count} running ${count === 1 ? "session stops" : "sessions stop"} now.` : "Every running session stops now."} Tasks keep their state and nothing starts again until an owner or admin resumes the agents.`
+                : "Only an owner or admin can stop every agent at once. Ask one of them; they find the same button here."}
             </DialogDescription>
           </DialogHeader>
-          {children || error ? (
+          {children || error || slow ? (
             <DialogBody className="flex flex-col gap-2">
               {children}
+              {slow ? <SlowNote what="stop" /> : null}
               {error ? (
                 <p role="alert" className="text-small text-status-bad">
                   {error}
@@ -126,12 +166,14 @@ function StopAll({ onConfirm, runningCount, open, onOpenChange, disabled, childr
           ) : null}
           <DialogFooter>
             {/* Focus starts on Cancel, as on every destructive confirm: a stray Enter must not stop the whole team. */}
-            <Button variant="ghost" onClick={() => setOpen(false)} disabled={loading} autoFocus>
-              Cancel
+            <Button variant="ghost" onClick={() => setOpen(false)} disabled={locked} autoFocus>
+              {slow ? "Close" : canStop ? "Cancel" : "Got it"}
             </Button>
-            <Button variant="danger" icon={OctagonX} onClick={confirm} loading={loading}>
-              Stop all agents
-            </Button>
+            {canStop ? (
+              <Button variant="danger" icon={OctagonX} onClick={confirm} loading={loading}>
+                Stop all agents
+              </Button>
+            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -139,9 +181,9 @@ function StopAll({ onConfirm, runningCount, open, onOpenChange, disabled, childr
   );
 }
 
-function ResumeAgents({ stopped, open, onOpenChange, disabled, className, variant = "icon" }: StopAllAgentsProps & { stopped: AgentsStoppedState }) {
+function ResumeAgents({ stopped, open, onOpenChange, disabled, className, variant = "icon", pendingEscapeMs }: StopAllAgentsProps & { stopped: AgentsStoppedState }) {
   const { formatDateTime } = useFormatters();
-  const { isOpen, setOpen, loading, error, confirm } = useConfirm(stopped.onResume, "The resume request failed. Try again.", open, onOpenChange);
+  const { isOpen, setOpen, loading, locked, slow, error, confirm } = useConfirm(stopped.onResume, "The resume request failed. Try again.", open, onOpenChange, pendingEscapeMs);
   const since = stopped.since ? formatDateTime(stopped.since) : null;
   const label = stopped.canResume ? "Agents stopped: resume agents" : "Agents stopped";
   // Same glass square as the kill switch, with a play mark in amber: the team is waiting, the way back is here.
@@ -170,7 +212,7 @@ function ResumeAgents({ stopped, open, onOpenChange, disabled, className, varian
     <>
       {trigger}
       <Dialog open={isOpen} onOpenChange={setOpen}>
-        <DialogContent size="sm" hideClose={loading}>
+        <DialogContent size="sm" hideClose={locked}>
           <DialogHeader>
             <DialogTitle>{stopped.canResume ? "Resume agents?" : "Agents are stopped"}</DialogTitle>
             <DialogDescription>
@@ -178,9 +220,10 @@ function ResumeAgents({ stopped, open, onOpenChange, disabled, className, varian
               {stopped.canResume ? "Resuming puts every agent the stop paused back to work; the next cycle picks up the paused tasks. Campaigns the stop paused stay paused until you resume them in Distribution." : "An owner or admin resumes the agents."}
             </DialogDescription>
           </DialogHeader>
-          {stopped.hint || error ? (
+          {stopped.hint || error || slow ? (
             <DialogBody className="flex flex-col gap-2">
               {stopped.hint ? <p className="text-small text-secondary">{stopped.hint}</p> : null}
+              {slow ? <SlowNote what="resume" /> : null}
               {error ? (
                 <p role="alert" className="text-small text-status-bad">
                   {error}
@@ -189,8 +232,8 @@ function ResumeAgents({ stopped, open, onOpenChange, disabled, className, varian
             </DialogBody>
           ) : null}
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setOpen(false)} disabled={loading}>
-              {stopped.canResume ? "Cancel" : "Got it"}
+            <Button variant="ghost" onClick={() => setOpen(false)} disabled={locked}>
+              {slow ? "Close" : stopped.canResume ? "Cancel" : "Got it"}
             </Button>
             {stopped.canResume ? (
               <Button variant="primary" icon={Play} onClick={confirm} loading={loading} autoFocus>

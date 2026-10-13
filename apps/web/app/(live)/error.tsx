@@ -1,10 +1,6 @@
 "use client";
-import { useEffect } from "react";
-import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { RouteError } from "@/components/shell/RouteError";
 
-export default function LiveError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
-  useEffect(() => {
-    console.error("[web] LIVE route error", error);
-  }, [error]);
-  return <ErrorPanel title="This screen could not load" message={error.message || "Something went wrong while rendering this screen."} detail={error.digest} onRetry={reset} />;
+export default function LiveError({ error, retry }: { error: Error & { digest?: string }; retry: () => void }) {
+  return <RouteError error={error} retry={retry} scope="LIVE" />;
 }

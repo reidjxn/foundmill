@@ -6,7 +6,7 @@
 import { ArrowLeft, ArrowRight, GitFork, GitMerge, History, MessageCircleQuestionMark } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { RETRY_REPLY_ID, deskFailureOf, failureQuickReplies, failureReply } from "@/components/conversation/logic";
-import { AgentDesk, Button, Checkbox, Chip, BusinessLogo, ConceptCard, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Markdown, SkeletonText, StatusPill, Textarea, cn, currentQuickReplies, useFormatters, type DeskMessage, type DeskPersona, type QuickReplyItem } from "@foundmill/dugout";
+import { AgentDesk, Button, Checkbox, Chip, BusinessLogo, ConceptCard, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Markdown, SkeletonText, StatusPill, Textarea, cn, currentQuickReplies, stripEntityMarkup, useFormatters, type DeskMessage, type DeskPersona, type QuickReplyItem } from "@foundmill/dugout";
 import { qaBubbles, qaOf, toConcept, versionActionLabel, versionToConcept, type IdeaLike, type IdeaVersionLike } from "./concepts";
 
 /* ---------- Ask ---------- */
@@ -165,7 +165,9 @@ export function AskDialog({ idea, open, onOpenChange, persona, starters, onAsk, 
       replying={busy}
       thinkingPhrase={`reading ${name}'s card`}
       pendingReplyId={pending && !pending.failed && "quickReplyId" in pending.input ? pending.input.quickReplyId : null}
-      renderBubble={(md) => <Markdown variant="body">{md}</Markdown>}
+      // Ideation runs before any business exists: there are no records to mention, so no `[[ent:…]]` becomes a link,
+      // whoever wrote it (audit FR-23). The markup shows as its plain name.
+      renderBubble={(md) => <Markdown variant="body" entities={false}>{stripEntityMarkup(md)}</Markdown>}
       onQuickReply={(r) => {
         // "Try again" resends the kept question as it was; anything else is a new question.
         if (r.id === RETRY_REPLY_ID) return void (pending && ask(pending.input, pending.words).catch(() => undefined));

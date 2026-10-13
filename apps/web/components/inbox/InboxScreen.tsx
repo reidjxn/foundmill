@@ -23,6 +23,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { InboxList, type InboxListRow } from "./InboxList";
 import { ReadingPane } from "./ReadingPane";
 import { INBOX_TAB_LABELS, REFRESH_DEBOUNCE_MS, agentIndex, inboxTabs, itemIdFromPath, neighbourId, parseInboxTab, refreshGate, rowModel, type InboxTab } from "./logic";
@@ -49,7 +50,7 @@ export interface InboxScreenProps {
 }
 
 export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
-  const { businessId, data, departments } = useBusiness();
+  const { businessId, data, departments, access } = useBusiness();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -139,27 +140,31 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
     refresh.mutate({ businessId });
   }, [refresh, businessId, toast]);
 
-  usePageShortcuts({ onRefreshInbox: onRefresh, onNextInboxItem: onNext, onPrevInboxItem: onPrev });
+  // Refresh asks the team for a new note: viewers and advisors only read (the API refuses it for them).
+  usePageShortcuts({ onRefreshInbox: access.canChange ? onRefresh : undefined, onNextInboxItem: onNext, onPrevInboxItem: onPrev });
 
   // --- chrome ---------------------------------------------------------------------------------------------------------
   const glossary = data.business.glossary;
   const tabs = useMemo(() => inboxTabs(businessId, live, counts, glossary), [businessId, live, counts, glossary]);
+  const canRefresh = access.canChange;
   const trailing = useMemo(
-    () => (
+    () => canRefresh ? (
       <Button size="sm" variant="ghost" icon={RefreshCw} onClick={onRefresh} loading={refresh.isPending} aria-disabled={waitMs > 0 || undefined} data-testid="inbox-refresh" data-wait-ms={waitMs > 0 ? waitMs : undefined} title={waitMs > 0 ? `Settling for ${Math.ceil(waitMs / 1000)} s` : "Pull one new note"}>
         {waitMs > 0 && !refresh.isPending ? `Refreshed · ${Math.ceil(waitMs / 1000)}s` : "Refresh"}
         <Kbd>R</Kbd>
       </Button>
-    ),
-    [onRefresh, refresh.isPending, waitMs],
+    ) : undefined,
+    [onRefresh, refresh.isPending, waitMs, canRefresh],
   );
   useShellChrome({ title: "Inbox", tabs: { tabs, activeId: tab, onChange: (id) => router.push(id === "all" ? routes.inbox(businessId) : `${routes.inbox(businessId)}?tab=${id}`), trailing, "aria-label": "Inbox tabs" } }, [tabs, tab, trailing, businessId]);
 
-  if (listQ.error) return <ErrorPanel title="Inbox" message={errorMessage(listQ.error)} onRetry={() => void listQ.refetch()} />;
+  // A failed refetch keeps the loaded list on screen (with a quiet notice); only a first load that failed shows the panel.
+  if (loadFailed(listQ)) return <ErrorPanel title="Inbox" message={errorMessage(listQ.error)} onRetry={() => void listQ.refetch()} />;
 
   return (
     <div className="flex min-h-0 flex-1" data-testid="inbox-screen" data-tab={tab} data-selected={selectedId ?? undefined}>
       <aside className="flex min-h-0 shrink-0 flex-col border-r border-subtle bg-panel" style={{ width: INBOX_LIST_WIDTH }} aria-label={`${INBOX_TAB_LABELS[tab]} notes`} data-testid="inbox-pane">
+        {refreshFailed(listQ) ? <RefreshFailedNotice query={listQ} /> : null}
         <InboxList rows={rows} selectedId={selectedId} onSelect={select} loading={listQ.isLoading} hasMore={!!listQ.hasNextPage} loadingMore={listQ.isFetchingNextPage} onLoadMore={() => void listQ.fetchNextPage()} emptyText={EMPTY_TEXT[tab]} founderName={founderName} />
       </aside>
       <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Reading pane" data-testid="reading-pane">

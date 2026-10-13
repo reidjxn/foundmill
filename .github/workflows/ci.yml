@@ -45,6 +45,12 @@ jobs:
       - name: US English and US dates (British spellings, day-first dates, en-GB locales in user-facing text and code)
         if: ${{ !cancelled() }}
         run: node scripts/us-english.mjs
+      - name: Focus ring self-test
+        if: ${{ !cancelled() }}
+        run: node --test scripts/focus-visible.test.mjs
+      - name: Focus rings (no outline-none beside a focus outline width or color: Tailwind v4 would draw nothing)
+        if: ${{ !cancelled() }}
+        run: node scripts/focus-visible.mjs
       - name: Upload the vocabulary sweep
         if: ${{ always() }}
         uses: actions/upload-artifact@v4

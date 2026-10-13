@@ -14,6 +14,7 @@
 import { createTRPCClient, createTRPCUntypedClient, httpBatchLink, httpBatchStreamLink, splitLink, TRPCClientError, type TRPCLink } from "@trpc/client";
 import superjson from "superjson";
 import type { AppRouter } from "@foundmill/api/router";
+import { LIMITS } from "@foundmill/config";
 import { DEV_BEARER_TOKEN } from "@/lib/auth/constants";
 import { isDevLike, publicEnv } from "@/lib/env";
 
@@ -45,6 +46,42 @@ export function isStreamingOperation(op: { path: string }): boolean {
   return STREAMING_PROCEDURES.has(op.path);
 }
 
+/**
+ * Upper bound of a read (a query, sent as GET): long enough for a slow network, short enough that a request that never
+ * answers (a dead connection after the laptop slept) never leaves a screen spinning (audit RES-13).
+ */
+export const QUERY_TIMEOUT_MS = 45_000;
+/**
+ * Upper bound of a change (a mutation, sent as POST): above the API's own wait for the composer, so a note still being
+ * written is never cut off, and still finite, so no button spins and no dialog stays locked for good.
+ */
+export const MUTATION_TIMEOUT_MS = LIMITS.composerClientTimeoutMs + 30_000;
+/** What a timed-out request says (`errorMessage` shows it). */
+export const REQUEST_TIMEOUT_MESSAGE = "The server took too long to answer. Check your connection, then try again.";
+
+/**
+ * `fetch` with an upper bound per request: the caller's own abort (an unmounted query, a stopped draft) still applies,
+ * and after `QUERY_TIMEOUT_MS` (GET) or `MUTATION_TIMEOUT_MS` (anything else) the request is aborted with
+ * `REQUEST_TIMEOUT_MESSAGE`. Streaming answers do not use it: they are long by design and the person stops them.
+ */
+export function fetchWithTimeout(base?: typeof fetch, limits: { query: number; mutation: number } = { query: QUERY_TIMEOUT_MS, mutation: MUTATION_TIMEOUT_MS }): typeof fetch {
+  return (input, init) => {
+    const method = (init?.method ?? "GET").toUpperCase();
+    const ms = method === "GET" ? limits.query : limits.mutation;
+    const controller = new AbortController();
+    const outer = init?.signal;
+    if (outer) {
+      if (outer.aborted) controller.abort(outer.reason);
+      else outer.addEventListener("abort", () => controller.abort(outer.reason), { once: true });
+    }
+    // The timer is left to run out after an answer: aborting a settled request does nothing, and the response body is
+    // read after `fetch` resolves, so it stays bounded too. On the server it never holds the process open.
+    const timer = setTimeout(() => controller.abort(Object.assign(new Error(REQUEST_TIMEOUT_MESSAGE), { name: "TimeoutError" })), ms);
+    (timer as { unref?: () => void }).unref?.();
+    return (base ?? globalThis.fetch)(input, { ...init, signal: controller.signal });
+  };
+}
+
 export function createApiLinks(opts: { getToken: TokenGetter; url?: string; fetch?: typeof fetch }): TRPCLink<AppRouter>[] {
   const common = {
     url: opts.url ?? apiTrpcUrl(),
@@ -57,7 +94,7 @@ export function createApiLinks(opts: { getToken: TokenGetter; url?: string; fetc
   };
   // One stream per request (`maxItems: 1`): a batched request is only aborted once every operation in it is, so Stop on
   // a draft that shared a request with another stream would leave the API drafting.
-  return [splitLink({ condition: isStreamingOperation, true: httpBatchStreamLink({ ...common, maxItems: 1 }), false: httpBatchLink(common) })];
+  return [splitLink({ condition: isStreamingOperation, true: httpBatchStreamLink({ ...common, maxItems: 1 }), false: httpBatchLink({ ...common, fetch: fetchWithTimeout(opts.fetch) }) })];
 }
 
 export function createApiClient(opts: { getToken: TokenGetter; url?: string; fetch?: typeof fetch }) {
@@ -102,6 +139,35 @@ export function notInvitedReason(err: unknown): "not_listed" | "email_unconfirme
 /** What a refused TOO_MANY_REQUESTS says when the API sent no sentence of its own. */
 export const RATE_LIMITED_MESSAGE = "That's a lot of requests in a short time. Wait a minute, then try again.";
 
+/** The words a person reads for a permission section ("crm" is "CRM"). */
+export function sectionWord(section: string): string {
+  if (section === "crm") return "CRM";
+  const words = section.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** What a refusal starts with when the person has no access to a section: the screens show a "no access" state for it. */
+export const NO_ACCESS_PREFIX = "No access to ";
+
+/**
+ * A refusal (FORBIDDEN) in product words, never the API's keys and role names (audit RUI-05): "You do not have read
+ * access to finance" reads "No access to Finance. …", "Your role (viewer) cannot perform changes" reads "As a viewer you
+ * can follow this business, but not change it." Anything else keeps the API's own sentence.
+ */
+export function forbiddenMessage(message: string): string {
+  const read = /^You do not have read access to (\w+)/.exec(message);
+  if (read) return `${NO_ACCESS_PREFIX}${sectionWord(read[1]!)}. Ask an owner or admin if you need it.`;
+  const write = /^You do not have write access to (\w+)\b/.exec(message);
+  if (write && !/, and this plan would/.test(message)) return `You can read ${sectionWord(write[1]!)} but not change it. Ask an owner or admin for write access.`;
+  const role = /^Your role \((\w+)\) cannot perform (.+)$/.exec(message);
+  if (role) {
+    if (role[2] === "administration") return "Only an owner or admin can do this.";
+    if (role[2] === "owner actions") return "Only the owner can do this.";
+    if (role[1] === "viewer" || role[1] === "advisor") return `As ${role[1] === "advisor" ? "an advisor" : "a viewer"} you can follow this business, but not change it.`;
+  }
+  return message;
+}
+
 /**
  * Human-readable message for an API error (never the stack). A rate limit reads as the API's own sentence ("Refresh
  * limit reached. Try again in 2 minutes."), or a friendly line when it sent none.
@@ -109,6 +175,7 @@ export const RATE_LIMITED_MESSAGE = "That's a lot of requests in a short time. W
 export function errorMessage(err: unknown, fallback = "Something went wrong"): string {
   if (err instanceof TRPCClientError) {
     if (trpcErrorCode(err) === "TOO_MANY_REQUESTS") return /Try again/i.test(err.message) ? err.message : RATE_LIMITED_MESSAGE;
+    if (trpcErrorCode(err) === "FORBIDDEN") return forbiddenMessage(err.message) || fallback;
     return err.message || fallback;
   }
   if (err instanceof Error) return err.message || fallback;

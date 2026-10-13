@@ -256,3 +256,42 @@ describe("sweep: never links the business's own name used generically or invisib
     expect(r.drafts.map((d) => d.name)).toEqual(["Hidden Investor"]);
   });
 });
+
+describe("sweep: partial links are for names, not for words (audit FR-23)", () => {
+  const AGENT = "11111111-1111-4111-8111-111111111111";
+  const PERSON = "22222222-2222-4222-8222-222222222222";
+  const manifest = buildManifest([
+    { id: AGENT, kind: "agent", name: "Email Automation Engine", role: "Email automation" },
+    { id: PERSON, kind: "person", name: "Sara Lindqvist" },
+  ]);
+
+  it("does not link a common word that opens a sentence or a quoted task title to the agent whose name contains it", async () => {
+    const quoted = await sweep('"Email automation start first" is blocked until the key is rotated.', manifest, null, { draftUnknown: false });
+    expect(quoted.linked).toEqual([]);
+    const opening = await sweep("Email is slow this week. Growth is slow too.", manifest, null, { draftUnknown: false });
+    expect(opening.linked).toEqual([]);
+    expect(opening.text).toBe("Email is slow this week. Growth is slow too.");
+  });
+
+  it("still links the agent by its whole name, and a person by a lone first name or surname", async () => {
+    const r = await sweep("Email Automation Engine paused; Lindqvist approved and Sara will call.", manifest, null, { draftUnknown: false });
+    expect(r.linked.map((l) => [l.text, l.id])).toEqual([
+      ["Email Automation Engine", AGENT],
+      ["Lindqvist", PERSON],
+      ["Sara", PERSON],
+    ]);
+  });
+
+  it("still links an agent named like a person by a lone first name", async () => {
+    const PRIYA = "33333333-3333-4333-8333-333333333333";
+    const m = buildManifest([{ id: PRIYA, kind: "agent", name: "Priya Natarajan", role: "Distribution strategist" }, { id: AGENT, kind: "agent", name: "Email Automation Engine", role: "Email automation" }]);
+    const r = await sweep("Priya will review the launch plan.", m, null, { draftUnknown: false });
+    expect(r.linked.map((l) => [l.text, l.id])).toEqual([["Priya", PRIYA]]);
+  });
+
+  it("a lone name inside a quotation is just a word of the quotation", async () => {
+    const r = await sweep('The note "Lindqvist approved" was archived; then Lindqvist replied.', manifest, null, { draftUnknown: false });
+    expect(r.linked.map((l) => [l.text, l.id])).toEqual([["Lindqvist", PERSON]]);
+    expect(r.text.indexOf("[[ent:")).toBeGreaterThan(r.text.indexOf("then"));
+  });
+});

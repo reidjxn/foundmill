@@ -8,6 +8,7 @@ import { Globe, Home, Inbox, KeyRound, LogOut, Settings, Trophy, Users, Users2, 
 import type { SidebarBrand, SidebarItem } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
+import { canOpenDepartment, FULL_ACCESS, type Access } from "./access";
 import { iconByName } from "./icons";
 
 export interface SidebarDepartment {
@@ -20,6 +21,7 @@ export interface SidebarDepartment {
   hidden?: boolean;
   /** The stored G-chord letter (departments.shortcut); null until the API settles one. */
   shortcut?: string | null;
+  moduleKeys?: readonly string[];
   squad?: readonly { id: string }[];
   tabs: readonly { slug: string; position: number }[];
 }
@@ -42,6 +44,8 @@ export interface SidebarInput {
    * in every mode, `moderation` (posts waiting in communities they moderate) badges Communities.
    */
   network?: { total: number; moderation: number };
+  /** What the person may open (audit RUI-05): walled departments and a walled CRM are not listed. Default: everything. */
+  access?: Access;
 }
 
 export const SIDEBAR_IDS = { home: "home", inbox: "inbox", crm: "crm", milestones: "milestones", settings: "settings", keys: "keys", signOut: "sign-out", network: "network", communities: "communities", leaderboards: "leaderboards" } as const;
@@ -74,6 +78,7 @@ export function departmentBadges(departments: readonly SidebarDepartment[], item
 
 export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
   const bid = input.businessId;
+  const access = input.access ?? FULL_ACCESS;
   const respond = input.inboxCounts?.respond ?? 0;
   const badges = departmentBadges(input.departments, input.inboxItems);
   const items: SidebarItem[] = [
@@ -81,9 +86,10 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
     { id: SIDEBAR_IDS.inbox, label: "Inbox", icon: Inbox, href: routes.inbox(bid), group: "main", fixed: "inbox", badge: respond || undefined, badgeTone: "bad" },
   ];
   for (const d of orderedVisibleDepartments(input.departments)) {
+    if (!canOpenDepartment(access, d)) continue;
     items.push({ id: d.id, label: d.name, icon: iconByName(d.icon) as LucideIcon, href: departmentHref(bid, d), group: "department", dept: d.colourToken, shortcut: d.shortcut ?? null, badge: badges.get(d.id) || undefined });
   }
-  items.push({ id: SIDEBAR_IDS.crm, label: "CRM", icon: Users, href: routes.crm(bid), group: "main", fixed: "crm" });
+  if (access.canRead("crm")) items.push({ id: SIDEBAR_IDS.crm, label: "CRM", icon: Users, href: routes.crm(bid), group: "main", fixed: "crm" });
   items.push({ id: SIDEBAR_IDS.milestones, label: "Milestones", icon: Trophy, href: `/b/${bid}/milestones`, group: "main" });
   // Network is the founder's own (their connections, messages and invitations), so it is there in every mode with its
   // badge: a request or a message must reach a founder whichever business they have open. Communities and Leaderboards

@@ -41,14 +41,17 @@ import { DASHBOARD_PRESET_LIST, fromGridLayout, prepareLayout, routes, toGridLay
 import { useToday } from "@foundmill/widgets/data";
 import { recentRibbonInput } from "@foundmill/widgets/shared/ribbon";
 import { usePageShortcuts } from "@/lib/keys";
+import { shellQueryInputs } from "@/lib/shell-queries";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { gridRegistry } from "@/lib/widget-registry";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
-import { dashboardTabs, editedElsewhere, ghostedMilestones, gridPresets, isDayOne, nextDashboardName, pickDashboardId, resetPresetFor, shareHref, versionConflict } from "./dashboards";
+import { dashboardTabs, dayOneLine, editedElsewhere, ghostedMilestones, gridPresets, isDayOne, isOwnDashboard, nextDashboardName, pickDashboardId, resetPresetFor, sameLayout, shareHref, versionConflict } from "./dashboards";
+import { isGuid } from "@/lib/ids";
 
 type DashboardRow = RouterOutputs["dashboard"]["get"];
 
@@ -69,11 +72,25 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
 
   const listQ = useQuery(trpc.dashboard.list.queryOptions({ businessId }, { staleTime: 30_000 }));
   const list = useMemo(() => listQ.data ?? [], [listQ.data]);
+  // An address that is not a dashboard id (a typo, a truncated link) never reaches the API: Home shows the default
+  // dashboard and the address is corrected (audit WEB-14).
   const dashboardId = pickDashboardId(routeId, list);
+  const badRouteId = routeId !== undefined && !isGuid(routeId);
+  useEffect(() => {
+    if (badRouteId) router.replace(routes.home(businessId));
+  }, [badRouteId, router, businessId]);
   const dashboardQ = useQuery(trpc.dashboard.get.queryOptions({ businessId, dashboardId }, { enabled: listQ.isSuccess, staleTime: 15_000 }));
   const row = dashboardQ.data ?? null;
-  const mine = !!row && list.some((d) => d.id === row.id);
+  // Mine by owner, not by membership of the cached list: a first visit's Home is created by `dashboard.get` after the
+  // (empty) list was read, and must open as the person's own, editable dashboard (audit RUI-12).
+  const viewerId = data.membership?.userId ?? null;
+  const mine = !!row && isOwnDashboard(row, list, viewerId);
   const invalidate = useCallback(() => queryClient.invalidateQueries({ queryKey: trpcPathPrefix("dashboard") as unknown[] }), [queryClient]);
+  // The default Home was just created by `dashboard.get`: the list read before it does not have it yet.
+  const missingFromList = !!row && listQ.isSuccess && mine && !list.some((d) => d.id === row.id);
+  useEffect(() => {
+    if (missingFromList) void queryClient.invalidateQueries({ queryKey: trpc.dashboard.list.queryKey({ businessId }) });
+  }, [missingFromList, queryClient, trpc, businessId]);
 
   // --- Edit mode (E) ----------------------------------------------------------------------------------------------
   const [editing, setEditing] = useState(false);
@@ -94,7 +111,18 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
       onError: (err) => toast({ title: "Could not create the dashboard", description: errorMessage(err), tone: "bad" }),
     }),
   );
-  const update = useMutation(trpc.dashboard.update.mutationOptions({ onError: (err) => toast({ title: "Dashboard not saved", description: errorMessage(err), tone: "bad" }) }));
+  // Every save puts the saved row into the cache: a return to Home within the 15 s freshness window must show the saved
+  // layout, never the copy from before the edit (which the grid would then save back over it, audit WEB-09).
+  const update = useMutation(
+    trpc.dashboard.update.mutationOptions({
+      onSuccess: (saved) => {
+        queryClient.setQueriesData<DashboardRow>({ queryKey: trpcPathPrefix("dashboard.get") as unknown[] }, (old) => (old && old.id === saved.id && saved.version >= old.version ? saved : old));
+        queryClient.setQueryData(trpc.dashboard.get.queryKey({ businessId, dashboardId: saved.id }), (old: DashboardRow | undefined) => (old && old.version > saved.version ? old : saved));
+        void queryClient.invalidateQueries({ queryKey: trpc.dashboard.list.queryKey({ businessId }) });
+      },
+      onError: (err) => toast({ title: "Dashboard not saved", description: errorMessage(err), tone: "bad" }),
+    }),
+  );
   const remove = useMutation(
     trpc.dashboard.delete.mutationOptions({
       onSuccess: () => {
@@ -141,7 +169,7 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
   }, [row, create, businessId, list, update, live, invalidate, router]);
 
   // --- chrome ---------------------------------------------------------------------------------------------------------
-  const tabs = useMemo(() => dashboardTabs(list, businessId, row), [list, businessId, row]);
+  const tabs = useMemo(() => dashboardTabs(list, businessId, row, viewerId), [list, businessId, row, viewerId]);
   const trailing = useMemo(
     () => (
       <div className="flex items-center gap-1" data-testid="home-toolbar">
@@ -197,12 +225,20 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
   );
   useShellChrome({ title: "Home", tabs: tabs.length ? { tabs, activeId: row?.id ?? dashboardId ?? "", onChange: (id) => router.push(routes.home(businessId, id)), trailing, "aria-label": "Dashboards" } : undefined }, [tabs, row?.id, dashboardId, trailing]);
 
-  if (listQ.error) return <ErrorPanel title="Home" message={errorMessage(listQ.error)} onRetry={() => void listQ.refetch()} />;
-  if (dashboardQ.error) return <ErrorPanel title="Home" message={errorMessage(dashboardQ.error)} onRetry={() => void dashboardQ.refetch()} />;
+  if (loadFailed(listQ)) return <ErrorPanel title="Home" message={errorMessage(listQ.error)} onRetry={() => void listQ.refetch()} />;
+  if (loadFailed(dashboardQ) && isMissing(dashboardQ.error)) {
+    return (
+      <NotFoundPanel title="Home" heading="No such dashboard" back={{ label: "Open your Home", href: routes.home(businessId) }}>
+        This dashboard was deleted, or the link points to one you cannot open.
+      </NotFoundPanel>
+    );
+  }
+  if (loadFailed(dashboardQ)) return <ErrorPanel title="Home" message={errorMessage(dashboardQ.error)} onRetry={() => void dashboardQ.refetch()} />;
   if (!row) return <ScreenSkeleton />;
 
   return (
     <div className="flex min-h-full flex-col gap-gutter p-gutter" data-testid="home-screen" data-dashboard-id={row.id} data-dashboard-version={row.version} data-editing={editing || undefined}>
+      {refreshFailed(listQ) || refreshFailed(dashboardQ) ? <RefreshFailedNotice query={refreshFailed(dashboardQ) ? dashboardQ : listQ} className="flex items-center gap-2" /> : null}
       <HomeFoundations />
       <DayOne businessId={businessId} currency={currency} />
       <DashboardGrid
@@ -266,16 +302,26 @@ function DashboardGrid({ businessId, row, live, editable, editing, onEditingChan
   const known = useRef(row.version);
   const saving = useRef(false);
 
+  // The layout the server holds, or will hold once the save in flight lands: an edit that leaves the grid exactly there
+  // (or a re-report of it) saves nothing.
+  const serverLayout = useRef<WidgetLayout | null>(layout);
+
   // Server copy changed (a preset, a reset, or another device): adopt it unless we are mid-save.
   useEffect(() => {
     if (editedElsewhere(known.current, row.version, saving.current)) {
       known.current = row.version;
-      setLayout(toGridLayout(prepared.layout));
+      serverLayout.current = toGridLayout(prepared.layout);
+      setLayout(serverLayout.current);
     } else if (row.version === known.current && !saving.current) {
-      setLayout(toGridLayout(prepared.layout));
+      serverLayout.current = toGridLayout(prepared.layout);
+      setLayout(serverLayout.current);
     }
   }, [row.version, prepared.layout]);
 
+  const editingRef = useRef(editable && editing);
+  useEffect(() => {
+    editingRef.current = editable && editing;
+  }, [editable, editing]);
   const pending = useRef<WidgetLayout | null>(null);
   const timer = useRef<number | null>(null);
   const flush = useCallback(async () => {
@@ -284,6 +330,7 @@ function DashboardGrid({ businessId, row, live, editable, editing, onEditingChan
     pending.current = null;
     if (!next) return;
     saving.current = true;
+    serverLayout.current = next;
     try {
       const saved = await save(toScreenLayout(fromGridLayout(next)));
       if (versionConflict(known.current, saved.version)) {
@@ -291,7 +338,8 @@ function DashboardGrid({ businessId, row, live, editable, editing, onEditingChan
         onConflict();
       } else known.current = saved.version;
     } catch {
-      /* the mutation toasts */
+      // Not saved (the mutation toasts): the next edit saves whatever is on screen.
+      serverLayout.current = null;
     } finally {
       saving.current = false;
     }
@@ -299,12 +347,20 @@ function DashboardGrid({ businessId, row, live, editable, editing, onEditingChan
   const persist = useCallback(
     (next: WidgetLayout) => {
       setLayout(next);
-      if (!editable) return;
-      pending.current = next;
+      // Only the founder's own edits save. Outside Edit mode the grid only re-reports the layout it was given (its first
+      // measure, a compaction): saving that wrote whatever row it was seeded with, a stale one included, back to the
+      // server as a new version (audit WEB-09).
+      if (!editingRef.current) return;
       if (timer.current !== null) window.clearTimeout(timer.current);
+      timer.current = null;
+      if (serverLayout.current && sameLayout(next, serverLayout.current)) {
+        pending.current = null;
+        return;
+      }
+      pending.current = next;
       timer.current = window.setTimeout(() => void flush(), SAVE_DEBOUNCE_MS);
     },
-    [editable, flush],
+    [flush],
   );
   useEffect(
     () => () => {
@@ -360,18 +416,24 @@ function HomeFoundations() {
 function DayOne({ businessId, currency }: { businessId: string; currency: string }) {
   const trpc = useTRPC();
   const glossary = useBusiness().data.business.glossary;
+  const inputs = useMemo(() => shellQueryInputs(businessId), [businessId]);
   // The last 30 days, slim: the same query as the status strip and the department cards (one request for all of them).
   // In the business time zone (audit #196), so the key is the one the widgets ask for.
   const ribbon = useQuery(trpc.journey.ribbon.queryOptions({ businessId, ...recentRibbonInput(useToday()) }, { staleTime: 60_000, retry: false }));
-  const dayOne = ribbon.data ? isDayOne({ conversions: ribbon.data.conversionCount, milestones: ribbon.data.milestones.length }) : false;
-  const cards = useMemo(() => ghostedMilestones(currency, glossary), [currency, glossary]);
-  if (!dayOne) return null;
+  // The shell's own cycle and inbox reads (same keys, so no extra request): commit already starts cycle 1, and the
+  // opening Board decision blocks Continue, so the copy says what is actually true (audit FR-19, IAE-19, OL-23).
+  const cycleQ = useQuery(trpc.cycle.status.queryOptions(inputs.cycle, { staleTime: 10_000, retry: false }));
+  const inboxQ = useQuery(trpc.inbox.list.queryOptions(inputs.inbox, { staleTime: 10_000 }));
+  const dayOne = ribbon.data && cycleQ.data ? isDayOne({ conversions: ribbon.data.conversionCount, milestones: ribbon.data.milestones.length, cyclesCompleted: cycleQ.data.completedCount }) : false;
+  const cards = useMemo(() => ghostedMilestones(currency), [currency]);
+  if (!dayOne || !cycleQ.data) return null;
+  const line = dayOneLine({ running: cycleQ.data.running, cycleNumber: cycleQ.data.cycleNumber ?? null, blocking: inboxQ.data?.blocking ?? 0 });
   return (
     <Panel title="Day one" span={12} data-testid="day-one" footer={<span>Milestones light up as customers and revenue arrive; department cards show the staffed team and its first tasks.</span>}>
       <div className="flex flex-col gap-3">
-        <p className="text-body text-secondary">
+        <p className="text-body text-secondary" data-testid="day-one-line">
           <Trophy className="mr-1 inline size-3.5 text-gold" aria-hidden />
-          Nothing has happened yet. These are the milestones ahead; press Continue to start the first cycle.
+          {line}
         </p>
         <TrophyCabinet trophies={cards} columns={4} />
       </div>

@@ -805,6 +805,22 @@ const approvalResolved = declareEvent(
 // Modes and holiday
 // ---------------------------------------------------------------------------------------------------
 
+/** Settings › Business fields `business.update` changes (and the glossary). */
+export const BUSINESS_SETTINGS_FIELDS = ["name", "slug", "archetype", "kitPrimary", "kitSecondary", "currency", "glossary"] as const;
+
+const businessUpdated = declareEvent(
+  "business.updated",
+  z.object({
+    /** The fields this save changed (values are read back through `business.get`, never carried here). */
+    fields: z.array(z.enum(BUSINESS_SETTINGS_FIELDS)).min(1),
+  }),
+  {
+    doc: "An owner or admin saved Settings › Business or the glossary. apps/stream pushes it so every open tab (another tab of the same founder, a co-founder) refetches `business.get`: the top bar and the settings form show the new name and brand colors at once, and a stale form never saves over them (audit RES-07, RUI-08). Never narrated.",
+    consumers: ["stream"],
+    narratable: false,
+  },
+);
+
 const modeChanged = declareEvent(
   "mode.changed",
   z.discriminatedUnion("scope", [
@@ -1269,6 +1285,7 @@ export const EVENTS = {
   "mode.changed": modeChanged,
   "holiday.started": holidayStarted,
   "holiday.ended": holidayEnded,
+  "business.updated": businessUpdated,
   "filing.due": filingDue,
   "contract.signed": contractSigned,
   "connection.requested": connectionRequested,

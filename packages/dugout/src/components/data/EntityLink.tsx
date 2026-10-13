@@ -77,6 +77,12 @@ export function entityKindIcon(kind: EntityKind | undefined): LucideIcon {
 export interface EntityLinkContextValue {
   /** Details for the hover card; return undefined when unknown (the card then shows the name only). */
   resolve?: (id: string) => EntityDetails | undefined;
+  /**
+   * Whether an id is an entity of this business: `false` once it is known not to be (a made-up or foreign id in agent
+   * text or something a person typed), so the mention reads as its plain name and never as a link to nothing (audit
+   * FR-23); `undefined` while that is not known yet.
+   */
+  exists?: (id: string) => boolean | undefined;
   /** Default href when a node carries none (BUILD §6.2: /b/{bid}/crm/{entityId}/overview). */
   hrefFor?: (entity: EntityRef) => string | undefined;
   /** Left click. Default: follow href. */

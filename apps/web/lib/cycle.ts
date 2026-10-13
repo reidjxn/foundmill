@@ -110,3 +110,16 @@ export const CYCLE_EVENT_TYPES = ["cycle.started", "cycle.completed", "task.star
 export function setPaused(status: CycleStatus, paused: boolean): CycleStatus {
   return status.paused === paused ? status : { ...status, paused, running: paused ? status.running : true };
 }
+
+/**
+ * The shell's first cycle status: the server's snapshot when the page arrived with one (the layout prefetches
+ * `cycle.status`), so the count of finished cycles is right from the first render (audit WEB-15).
+ */
+export function initialCycle(snapshot: CycleSnapshotInput | undefined): CycleStatus {
+  return snapshot ? cycleFromSnapshot(snapshot) : EMPTY_CYCLE;
+}
+
+/** Continue pulses once per `cycle.completed` from the stream, never because a snapshot was adopted (audit WEB-15). */
+export function nextPulseKey(key: number, eventType: string): number {
+  return eventType === "cycle.completed" ? key + 1 : key;
+}
