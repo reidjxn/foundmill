@@ -14,7 +14,7 @@ describeConnectorContract("domains (mock)", {
   calls: [
     { tool: "check_domains", args: { domains: ["ledgerly.com"] }, check: (r) => expect(results(r)).toEqual([expect.objectContaining({ domain: "ledgerly.com", status: "available", provenance: "Mock", estimate: false })]) },
     { tool: "check_domains", args: { domains: ["google.com", "Apple.IO", "example.ai", "northwind.co"] }, check: (r) => expect(results(r).map((a) => a.status)).toEqual(["taken", "taken", "taken", "taken"]) },
-    { tool: "check_domains", args: { domains: ["unknown-brand.com"] }, check: (r) => expect(results(r)[0]).toMatchObject({ status: "unknown", provenance: "Mock", reason: expect.stringContaining("unknown-") }) },
+    { tool: "check_domains", args: { domains: ["unknown-brand.com"] }, check: (r) => expect(results(r)[0]).toMatchObject({ status: "unknown", provenance: "Mock", reason: expect.stringContaining("unknown") }) },
     { tool: "check_domains", args: { domains: [] }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
     { tool: "check_domains", args: { domains: ["a.com", "b.com", "c.com", "d.com", "e.com", "f.com", "g.com", "h.com", "i.com"] }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
     { tool: "check_domains", args: { domains: ["example.xyz"] }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
@@ -28,6 +28,8 @@ describe("domains mock", () => {
     for (const d of ["ledgerly.com", "google.com", "unknown-x.io"]) expect(mockDomainAnswer(d).provenance).toBe("Mock");
     expect(mockDomainAnswer("google.com")).toMatchObject({ status: "taken", registrar: "Mock Registrar" });
     expect(mockDomainAnswer("not a domain").status).toBe("unknown");
+    // The Commit screen strips hyphens from a business name, so "unknown-brand" is asked about as unknownbrand.com.
+    expect(mockDomainAnswer("unknownbrand.com")).toMatchObject({ status: "unknown", provenance: "Mock" });
   });
 });
 

@@ -136,6 +136,9 @@ describe("idea.domainCheck", () => {
       const free = await caller.idea.domainCheck({ domains: ["ledgerly.com", "unknown-x.io"] });
       expect(free.map((r) => [r.status, r.provenance])).toEqual([["available", "Mock"], ["unknown", "Mock"]]);
       expect(free[1]!.reason).toBeTruthy();
+      // By business name the label has no hyphen, and the unknown path is still reachable.
+      const byName = await caller.idea.domainCheck({ name: "unknown-brand" });
+      expect(byName.map((r) => [r.domain, r.status])).toEqual(["com", "io", "co", "app", "ai"].map((tld) => [`unknownbrand.${tld}`, "unknown"]));
     } finally {
       await mock.close();
     }

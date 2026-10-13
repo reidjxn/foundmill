@@ -52,7 +52,7 @@ test.describe("commit", () => {
     await expect(page.getByTestId("domain-note")).toContainText("Availability is a snapshot; registering the domain happens at a registrar. We never buy domains for you.");
     // A name the checker cannot answer reads "Couldn't check" with a Retry, and committing stays possible.
     await name.fill("unknown-brand");
-    const row = domains.locator('[data-domain="unknown-brand.com"]');
+    const row = domains.locator('[data-domain="unknownbrand.com"]');
     await expect(row).toHaveAttribute("data-status", "unknown", { timeout: LONG });
     await expect(row).toContainText("Couldn't check");
     await expect(row.getByTestId("domain-retry")).toBeVisible();
