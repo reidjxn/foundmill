@@ -131,7 +131,7 @@ describe("mock connectors keep one world per business", () => {
     const zoneId = CF_ZONES[1]!.id;
     const created = ok(await call(cloudflare, A, "create_record", { zoneId, type: "TXT", name: "m7.ledgerly.app", content: "verify-m7" })).data as { id: string };
     const fixture = CF_RECORDS.find((r) => r.zoneId === CF_ZONES[0]!.id)!;
-    ok(await call(cloudflare, A, "delete_record", { zoneId: fixture.zoneId, recordId: fixture.id }));
+    ok(await call(cloudflare, A, "delete_record", { zoneId: fixture.zoneId, recordId: fixture.id, type: fixture.type, recordName: fixture.name }));
     const ids = async (businessId: string, zone: string) => (ok(await call(cloudflare, businessId, "list_records", { zoneId: zone })).data as { items: { id: string }[] }).items.map((r) => r.id);
     expect(await ids(A, zoneId)).toContain(created.id);
     expect(await ids(B, zoneId)).not.toContain(created.id);

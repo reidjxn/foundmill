@@ -13,6 +13,7 @@ import { anthropicTools } from "./connectors/anthropic/tools";
 import { bolagsverketTools } from "./connectors/bolagsverket/tools";
 import { cloudflareTools } from "./connectors/cloudflare_dns/tools";
 import { companiesHouseTools } from "./connectors/companies_house/tools";
+import { domainsTools } from "./connectors/domains/tools";
 import { dropboxSignTools } from "./connectors/dropbox_sign/tools";
 import { ecbTools } from "./connectors/ecb_rates/tools";
 import { githubTools } from "./connectors/github/tools";
@@ -46,6 +47,7 @@ export const GATEWAY_TOOL_NAMES: Readonly<Record<string, readonly string[]>> = O
   cloudflare_dns: names(cloudflareTools),
   opencorporates: names(opencorporatesTools),
   bolagsverket: names(bolagsverketTools),
+  domains: names(domainsTools),
   companies_house: names(companiesHouseTools),
   e2b: names(e2bTools),
   dropbox_sign: names(dropboxSignTools),

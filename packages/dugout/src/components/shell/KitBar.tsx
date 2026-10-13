@@ -1,3 +1,5 @@
+"use client";
+
 import { forwardRef, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, House, Plus, Search, UserRound } from "lucide-react";
 import type { BusinessMode, GameMode, Money } from "@foundmill/shared";

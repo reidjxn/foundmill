@@ -1,4 +1,3 @@
-"use client";
 import type { HTMLAttributes } from "react";
 import { RefreshCw, WifiOff } from "lucide-react";
 import { cn } from "../../lib/cn";

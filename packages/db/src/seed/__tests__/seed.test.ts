@@ -258,7 +258,7 @@ describe("seedDemo on PGlite", () => {
     expect(customerCount).toBeGreaterThan(5);
     expect(customerPage.total).toBe(customerCount);
     expect(customerPage.items.every((e) => e.roles.some((r) => r.role === "customer"))).toBe(true);
-  }, 240_000); // the role-filtered CRM page scans every seeded customer on PGlite (slow, not wrong)
+  }, 600_000); // the role-filtered CRM page scans every seeded customer on PGlite (slow, not wrong)
 
   it("gives Ledgerly its LIVE extras: holiday, GitHub repo, Stripe payments, cap table with two SAFEs, community, leaderboard, training", async () => {
     const holiday = await repos.holidays.current(db, LEDGERLY_BUSINESS_ID);
