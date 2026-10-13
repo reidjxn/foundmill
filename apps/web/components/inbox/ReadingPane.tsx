@@ -51,6 +51,7 @@ import { NoteTagChip } from "./InboxList";
 import {
   agentIndex,
   answeredFrom,
+  askedActionChip,
   confirmationLines,
   decisionDeadline,
   decisionExpired,
@@ -62,7 +63,6 @@ import {
   headerTag,
   journeyForItem,
   planStatusLine,
-  actionConsentChip,
   statusStripTiles,
   stripSources,
   toDecisionOptions,
@@ -334,12 +334,12 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
               {plan?.actions.length ? (
                 <ul className="flex flex-col gap-1 text-small" data-testid="plan-actions">
                   {plan.actions.map((a) => {
-                    const consent = actionConsentChip(a, plan.status);
+                    const consent = askedActionChip(plan, a);
                     return (
                       <li key={a.id} className="flex items-center gap-2">
                         <StatusPill tone={a.status === "done" ? "good" : a.status === "failed" || a.status === "denied" ? "bad" : a.status === "awaiting_approval" || a.status === "pending" ? "warn" : "info"}>{a.status.replace(/_/g, " ")}</StatusPill>
                         <span className="truncate">{confirmationLines([{ action: { type: a.type, params: a.params as Record<string, unknown> | null }, outcome: a.policyOutcome ?? "allow" }], currency)[0]?.label}</span>
-                        {consent ? <Chip tone={consent.tone}>{consent.label}</Chip> : null}
+                        {consent ? <Chip tone={consent === "Confirmed by you" ? "neutral" : "warn"}>{consent}</Chip> : null}
                       </li>
                     );
                   })}

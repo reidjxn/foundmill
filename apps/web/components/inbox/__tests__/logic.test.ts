@@ -4,6 +4,7 @@ import {
   REFRESH_DEBOUNCE_MS,
   agentIndex,
   answeredFrom,
+  askedActionChip,
   confirmationLines,
   decisionDeadline,
   decisionExpired,
@@ -29,7 +30,6 @@ import {
   stripSources,
   toDecisionOptions,
   totalCost,
-  actionConsentChip,
 } from "../logic";
 
 const BID = "00000000-0000-4000-8000-000000000001";
@@ -251,15 +251,6 @@ describe("plans", () => {
     expect(lines.map((l) => l.cost)).toEqual([{ amountMinor: 30_000, currency: "GBP" }, { amountMinor: 20_000, currency: "USD" }, { amountMinor: 10_000, currency: "GBP" }]);
     expect(totalCost(lines)).toEqual([{ amountMinor: 40_000, currency: "GBP" }, { amountMinor: 20_000, currency: "USD" }]);
   });
-  it("says 'Confirmed by you' only once the founder confirmed: never while the plan or an approval still waits (VOL-X1)", () => {
-    const ask = { type: "set_budget", params: { amount_minor: 50_000 }, policyOutcome: "ask" };
-    expect(actionConsentChip({ ...ask, status: "pending" }, "pending_confirmation")).toEqual({ label: "Needs your go-ahead", tone: "warn" });
-    expect(actionConsentChip({ ...ask, status: "awaiting_approval" }, "executing")).toEqual({ label: "Needs your go-ahead", tone: "warn" });
-    expect(actionConsentChip({ ...ask, status: "done" }, "done")).toEqual({ label: "Confirmed by you", tone: "neutral" });
-    expect(actionConsentChip({ ...ask, status: "pending" }, "executing")).toEqual({ label: "Confirmed by you", tone: "neutral" });
-    expect(actionConsentChip({ ...ask, status: "denied" }, "done")).toBeNull();
-    expect(actionConsentChip({ ...ask, policyOutcome: "allow", status: "done" }, "done")).toBeNull();
-  });
   it("follow-up links point at the screens that hold the artefacts, de-duplicated", () => {
     const departments = [
       { slug: "growth", moduleKeys: ["distribution"], tabs: [{ slug: "channels", position: 2 }, { slug: "formation", position: 1 }] },
@@ -286,6 +277,18 @@ describe("plans", () => {
     expect(planStatusLine({ status: "executing", actions: [{ type: "a", params: null, status: "done" }, { type: "b", params: null, status: "running" }] })).toMatchObject({ word: "Running", detail: "1 of 2 actions done" });
     expect(planStatusLine({ status: "done", actions: [{ type: "a", params: null, status: "done" }, { type: "b", params: null, status: "failed" }] })).toMatchObject({ word: "Done with issues", tone: "warn" });
     expect(planStatusLine({ status: "done", actions: [] })).toMatchObject({ word: "Done", tone: "good", detail: "no actions" });
+  });
+  it("says an action left to the founder is confirmed only once it is (VOL-X1)", () => {
+    const ask = { type: "set_budget", params: null, policyOutcome: "ask" };
+    // The plan still awaits confirmation: the action has not been confirmed, whatever its own status says.
+    expect(askedActionChip({ status: "pending_confirmation" }, { ...ask, status: "pending" })).toBe("Needs your go-ahead");
+    expect(askedActionChip({ status: "executing" }, { ...ask, status: "awaiting_approval" })).toBe("Needs your go-ahead");
+    expect(askedActionChip({ status: "executing" }, { ...ask, status: "pending" })).toBe("Confirmed by you");
+    expect(askedActionChip({ status: "done" }, { ...ask, status: "done" })).toBe("Confirmed by you");
+    // Turned down or skipped (it never ran), or never left to the founder: no chip.
+    expect(askedActionChip({ status: "done" }, { ...ask, status: "denied" })).toBeNull();
+    expect(askedActionChip({ status: "done" }, { ...ask, status: "skipped" })).toBeNull();
+    expect(askedActionChip({ status: "pending_confirmation" }, { ...ask, policyOutcome: "allow", status: "pending" })).toBeNull();
   });
 });
 

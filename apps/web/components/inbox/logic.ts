@@ -620,15 +620,13 @@ export function planStatusLine(plan: PlanLike | null | undefined): { word: strin
 }
 
 /**
- * The consent chip beside a plan action in the Decided panel. Only an action outside policy (`ask`) carries one: it reads
- * "Confirmed by you" once the founder confirmed the plan and nothing else is waiting, and "Needs your go-ahead" while
- * the plan awaits confirmation or the action awaits an approval. A denied or skipped action never ran: no chip.
+ * The chip beside an action the policy left to the founder (`ask`): "Needs your go-ahead" while the plan awaits
+ * confirmation or the action still waits on an approval, "Confirmed by you" only after that; none for other actions
+ * and for one that never ran (turned down or skipped: its status says so).
  */
-export function actionConsentChip(action: PlanActionLike, planStatus: string | null | undefined): { label: string; tone: "warn" | "neutral" } | null {
-  if (action.policyOutcome !== "ask") return null;
-  if (planStatus === "pending_confirmation" || action.status === "awaiting_approval") return { label: "Needs your go-ahead", tone: "warn" };
-  if (action.status === "denied" || action.status === "skipped") return null;
-  return { label: "Confirmed by you", tone: "neutral" };
+export function askedActionChip(plan: Pick<PlanLike, "status">, action: Pick<PlanActionLike, "status" | "policyOutcome">): string | null {
+  if (action.policyOutcome !== "ask" || action.status === "denied" || action.status === "skipped") return null;
+  return plan.status === "pending_confirmation" || action.status === "awaiting_approval" ? "Needs your go-ahead" : "Confirmed by you";
 }
 
 /** The id of the item from the pathname (`/b/<bid>/inbox/<itemId>`), or null on the list route. */
