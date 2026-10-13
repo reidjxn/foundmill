@@ -9,6 +9,7 @@ export { JsonElementScanner, getAtPath, arrayAtPath, elementPathKeys, type Scann
 export { streamStructured, runStructuredStream, StreamInterruptedError, elementIndexOf, DEFAULT_PARTIAL_THROTTLE_MS, MAX_STREAM_INTERRUPTIONS, type StreamCallArgs, type StreamCallResult, type StructuredStreamDeps } from "./structured-stream";
 export * from "./rate-limit";
 export * from "./schemas";
+export * from "./planParams";
 export {
   createModelClient,
   effectiveModelMode,

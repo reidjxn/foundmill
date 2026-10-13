@@ -12,7 +12,7 @@ import { ValidationError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
-import { assertPlanSectionAccess, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, requiresConfirmation, syncChannelEngines, type ActionEvaluation, type PlanContext } from "./plans";
+import { assertPlanSectionAccess, choiceOf, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, requiresConfirmation, syncChannelEngines, type ActionEvaluation, type DecisionOption, type PlanContext } from "./plans";
 
 export interface DecideItemInput {
   itemId: string;
@@ -33,15 +33,11 @@ export interface DecideItemResult {
   followUp: InboxItem | null;
 }
 
-interface ItemOption {
-  id: string;
-  label: string;
-  consequence?: string;
-}
+type ItemOption = DecisionOption;
 
 export async function planContextFor(ctx: BusinessContext): Promise<PlanContext> {
-  const [agents, holiday] = await Promise.all([repos.agents.list(ctx.db, ctx.businessId, { limit: 200 }), repos.holidays.current(ctx.db, ctx.businessId)]);
-  return { business: ctx.business, agents: agents.items, holidayActive: holiday !== null, currency: "EUR" };
+  const [agents, holiday, roadmap] = await Promise.all([repos.agents.list(ctx.db, ctx.businessId, { limit: 200 }), repos.holidays.current(ctx.db, ctx.businessId), repos.product.listRoadmap(ctx.db, ctx.businessId)]);
+  return { business: ctx.business, agents: agents.items, holidayActive: holiday !== null, currency: "EUR", roadmap };
 }
 
 export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInput): Promise<DecideItemResult> {
@@ -68,7 +64,7 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   const option = chosenOption ? options.find((o) => o.id === chosenOption) : undefined;
   if (chosenOption && !option) throw new ValidationError("chosenOption is not one of the item's options", { chosenOption, options: options.map((o) => o.id) });
 
-  const planCtx = await planContextFor(ctx);
+  const planCtx = { ...(await planContextFor(ctx)), ...(option ? { choice: choiceOf(option) } : {}) };
   // Only free text goes to the plan compiler model (BUILD §11.3); an option click compiles in-process, so the founder
   // never waits on a model call for a pre-written answer.
   const compiled = freeText ? await compilePlan(ctx.models, freeText, planCtx) : compileOptionPlan(option!, item, planCtx);

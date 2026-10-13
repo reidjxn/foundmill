@@ -3,6 +3,7 @@
  * allow runs the typed handler. Also the pure policy evaluation per action type and business mode.
  */
 import { repos } from "@foundmill/db";
+import { compilePlanRuleBased, quarterBounds } from "@foundmill/models";
 import { PLAN_ACTION_TYPES } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPlanActivities, evaluateAction, HARD_GATE_ACTIONS } from "../activities/plan";
@@ -135,6 +136,55 @@ describe("executePlanAction on PGlite", () => {
     expect(updated).not.toContain(t.chiefId);
     expect((await repos.agents.get(t.db, t.businessId, t.workerId)).modelKey).toBe("opus");
     expect((await repos.agents.get(t.db, t.businessId, t.chiefId)).modelKey).toBe("sonnet");
+  });
+
+  it("'Switch all agents to Haiku' as the rule compiler writes it moves every agent; one that reaches no agent fails (audit verify-api-services-x1)", async () => {
+    const compiled = compilePlanRuleBased("Switch all agents to haiku");
+    expect(compiled.actions[0]).toMatchObject({ type: "set_agent_model", params: { model_key: "haiku", apply_scope: "all" } });
+    const plan = await repos.plans.create(t.db, t.businessId, { origin: "free_text", actions: compiled.actions.map((a) => ({ type: a.type, params: a.params, agentId: a.agent_id })) });
+    const result = await acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId: plan.actions[0]!.id, workflowId: "plan:test" });
+    expect(result.status).toBe("done");
+    const agents = (await repos.agents.list(t.db, t.businessId, { limit: 50 })).items;
+    expect((result.result as { updated: string[] }).updated.sort()).toEqual(agents.map((a) => a.id).sort());
+    expect(agents.every((a) => a.modelKey === "haiku")).toBe(true);
+
+    // A plan written before the names were shared (`scope`) reads the same; a lone agent action with no agent fails.
+    const legacy = await repos.plans.create(t.db, t.businessId, { origin: "free_text", actions: [{ type: "set_agent_model", params: { model_key: "sonnet", agent_id: null, scope: "all" } }, { type: "set_agent_model", params: { model_key: "opus", agent_id: null, apply_scope: "agent" } }] });
+    const [all, nobody] = legacy.actions;
+    expect((await acts.executePlanAction({ businessId: t.businessId, planId: legacy.id, actionId: all!.id, workflowId: "plan:test" })).status).toBe("done");
+    expect((await repos.agents.list(t.db, t.businessId, { limit: 50 })).items.every((a) => a.modelKey === "sonnet")).toBe(true);
+    const failed = await acts.executePlanAction({ businessId: t.businessId, planId: legacy.id, actionId: nobody!.id, workflowId: "plan:test" });
+    expect(failed.status).toBe("failed");
+    expect((await repos.plans.getAction(t.db, t.businessId, nobody!.id)).status).toBe("failed");
+  });
+
+  it("'push the retail portal milestone to next quarter' moves that item, keeps its other fields and creates nothing (audit VRB-X1)", async () => {
+    const portal = await repos.product.upsertRoadmapItem(t.db, t.businessId, { title: "Retail portal", descriptionMd: "Stores order online.", horizon: "now", confidence: 4, ownerRef: { kind: "agent", id: t.workerId }, status: "planned" });
+    await repos.product.upsertRoadmapItem(t.db, t.businessId, { title: "Partner program", horizon: "later" });
+    const before = await repos.product.listRoadmap(t.db, t.businessId);
+    // The rule compiler with the roadmap names the item; without it the orchestrator matches the words itself.
+    const named = compilePlanRuleBased("push the retail portal milestone to next quarter", { roadmap: before });
+    expect(named.actions[0]).toMatchObject({ type: "update_roadmap", params: { roadmap_item_id: portal.id } });
+    const unnamed = compilePlanRuleBased("push the retail portal milestone to next quarter");
+    for (const compiled of [named, unnamed]) {
+      const plan = await repos.plans.create(t.db, t.businessId, { origin: "free_text", actions: compiled.actions.map((a) => ({ type: a.type, params: a.params, agentId: a.agent_id })) });
+      const result = await acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId: plan.actions[0]!.id, workflowId: "plan:test" });
+      expect(result.status).toBe("done");
+      expect(result.result).toMatchObject({ roadmapItemId: portal.id });
+    }
+    const next = quarterBounds(t.clock.now(), 1);
+    const after = await repos.product.getRoadmapItem(t.db, t.businessId, portal.id);
+    expect(after).toMatchObject({ title: "Retail portal", descriptionMd: "Stores order online.", horizon: "next", targetStart: next.start, targetEnd: next.end, confidence: 4, ownerRef: { kind: "agent", id: t.workerId } });
+    expect((await repos.product.listRoadmap(t.db, t.businessId)).length).toBe(before.length);
+
+    // Nothing on the roadmap matches: the action fails and says so, and no placeholder item appears.
+    const unknown = compilePlanRuleBased("push the warehouse robots milestone to later");
+    const plan = await repos.plans.create(t.db, t.businessId, { origin: "free_text", actions: unknown.actions.map((a) => ({ type: a.type, params: a.params, agentId: a.agent_id })) });
+    const result = await acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId: plan.actions[0]!.id, workflowId: "plan:test" });
+    expect(result.status).toBe("failed");
+    expect((result.result as { error: string }).error).toMatch(/No roadmap item matches/);
+    expect((await repos.product.listRoadmap(t.db, t.businessId)).length).toBe(before.length);
+    expect((await acts.finishPlan({ businessId: t.businessId, planId: plan.id })).status).toBe("failed");
   });
 
   it("train_agent creates a draft version and a queued training run; the live version is untouched", async () => {
