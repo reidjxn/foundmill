@@ -18,7 +18,8 @@ export const founderRouter = router({
     get: protectedProcedure.query(async ({ ctx }) => {
       // Three independent reads: sent together, not one after another (each is a network round trip in production).
       const [profile, memberships, businesses] = await Promise.all([repos.founders.get(ctx.db, ctx.userId), repos.memberships.listForUser(ctx.db, ctx.userId), repos.businesses.listForUser(ctx.db, ctx.userId)]);
-      return { profile, complete: profile !== null, email: ctx.email, memberships, businesses };
+      // `userId` is the account ID a co-founder is added by (Settings › Members); the founder can always read their own.
+      return { userId: ctx.userId, profile, complete: profile !== null, email: ctx.email, memberships, businesses };
     }),
     update: protectedProcedure.input(FounderProfilePatch).mutation(async ({ ctx, input }) => {
       const existing = await repos.founders.get(ctx.db, ctx.userId);

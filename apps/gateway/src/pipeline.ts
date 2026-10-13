@@ -273,7 +273,7 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
   const decision = evaluate(policyInput, deps.policyEngine ?? getPolicyEngine());
 
   if (decision.outcome === "deny") return deny(deps, session, req, loaded, decision, args, log);
-  if (decision.outcome === "ask") return ask(deps, session, req, loaded, decision, args, log);
+  if (decision.outcome === "ask") return ask(deps, session, req, loaded, decision, args, log, now);
   return allow(deps, session, req, loaded, decision, args, log, now);
 }
 
@@ -413,7 +413,7 @@ async function deny(deps: GatewayDeps, session: SessionToken, req: CallRequestPa
   if (hardGate) {
     // The connector refuses hard-gated tools before any handler runs and answers with the founder's instructions.
     humanAction = await hardGateDescriptor(deps, session, loaded, args, log);
-    approvalId = await queueApproval(deps, session, req, loaded, decision, args, true, humanAction);
+    approvalId = (await queueApproval(deps, session, req, loaded, decision, args, true, humanAction)).id;
   }
   const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons: decision.reasons, policyIds: decision.policyIds, approvalId });
   log.warn({ reasons: decision.reasons, policyIds: decision.policyIds, hardGate }, "tool call denied");
@@ -455,7 +455,7 @@ function placeholderIntegration(loaded: Loaded, mode: ConnectorMode): Integratio
   return mockIntegrationRecord(loaded.connector.key, loaded.business.id, mode === "mock" ? {} : { status: "disconnected" });
 }
 
-async function queueApproval(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, hardGate: boolean, humanAction?: HumanActionDescriptor): Promise<string> {
+async function queueApproval(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, hardGate: boolean, humanAction?: HumanActionDescriptor): Promise<{ id: string; approvedByAgent: boolean }> {
   const amount = req.context.amountMinor !== undefined && req.context.amountMinor > 0 ? { amountMinor: req.context.amountMinor, currency: req.context.currency ?? loaded.agent.currency } : null;
   const summary = humanAction ? `${humanAction.title}: ${humanAction.instructions}`.slice(0, 1000) : `${loaded.agent.name} wants to run ${loaded.connector.displayName} › ${loaded.tool.name}${req.context.recipient ? ` for ${req.context.recipient}` : ""}`.slice(0, 1000);
   return deps.db.transaction(async (tx) => {
@@ -467,7 +467,20 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
       tool: loaded.tool.name,
       args: argsObject(args),
       reasons: decision.reasons,
+      // Routed by Team › Responsibilities (AC-11.9.2); a hard gate is always the founder's, never routed.
+      decisionType: hardGate ? null : decisionTypeFor(loaded, req, decision),
     });
+    // An agent the Responsibilities matrix names approved it as it opened: nothing to ask the founder, and the decision
+    // is on record like any other (`approval.resolved`, by that agent).
+    if (approval.outcome === "approved" && approval.byKind === "agent" && approval.byId) {
+      await writeGatewayEvent(tx, {
+        businessId: session.businessId,
+        type: "approval.resolved",
+        actor: { kind: "agent", id: approval.byId },
+        payload: { approvalId: approval.id, planActionId: approval.planActionId, agentId: session.agentId, outcome: "approved", resolvedBy: { kind: "agent", id: approval.byId }, note: "Delegated in Team › Responsibilities", latencyMs: 0 },
+      });
+      return { id: approval.id, approvedByAgent: true };
+    }
     await writeGatewayEvent(tx, {
       businessId: session.businessId,
       type: "approval.requested",
@@ -488,7 +501,7 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
         expiresAt: null,
       },
     });
-    return approval.id;
+    return { id: approval.id, approvedByAgent: false };
   });
 }
 
@@ -501,8 +514,12 @@ function decisionTypeFor(loaded: Loaded, req: CallRequestParsed, decision: Evalu
   return null;
 }
 
-async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger): Promise<ToolCallResult> {
-  const approvalId = await queueApproval(deps, session, req, loaded, decision, args, false);
+async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date): Promise<ToolCallResult> {
+  const { id: approvalId, approvedByAgent } = await queueApproval(deps, session, req, loaded, decision, args, false);
+  if (approvedByAgent) {
+    log.info({ approvalId }, "approval decided by the agent Team › Responsibilities names; the call goes ahead");
+    return allow(deps, session, req, loaded, decision, args, log, now);
+  }
   const audit = await appendAudit(deps, session, req, { outcome: "ask", reasons: decision.reasons, policyIds: decision.policyIds, approvalId });
   log.info({ approvalId, reasons: decision.reasons }, "tool call needs approval");
   const body: AskResponse = { outcome: "ask", approvalId, reasons: decision.reasons, policyIds: decision.policyIds, costMinor: 0, auditId: audit.id };
