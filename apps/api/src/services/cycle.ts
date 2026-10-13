@@ -103,13 +103,22 @@ export async function cycleStatus(ctx: CycleScope): Promise<CycleStatus> {
   };
 }
 
+/**
+ * What a vacation lasts until, as words that follow "until" ("you return", "MRR hits 10k"): the button and the top bar
+ * put "until" in front, so a stored "until I return" or a typed "until the launch ships" must not say it twice.
+ */
+export function untilWords(text: string | null | undefined): string {
+  const t = (text ?? "").trim().replace(/^until\s+/i, "");
+  return !t || /^i return$/i.test(t) ? "you return" : t;
+}
+
 /** The Continue button state (BUILD §5.4, AC-11.3.3): holiday › blocked › win waiting for its Customer Update › processing › idle. */
 export async function continueStateFor(ctx: CycleScope, status?: CycleStatus): Promise<ContinueState> {
   const { db, businessId } = ctx;
   const [holiday, blocking, wins] = await Promise.all([repos.holidays.current(db, businessId), repos.inbox.countBlocking(db, businessId), repos.inbox.list(db, businessId, { type: "customer_won", state: "unread", limit: 1 })]);
   if (holiday) {
     const condition = holiday.untilCondition as { text?: string } | null;
-    return { kind: "holiday", until: holiday.untilAt ? holiday.untilAt.toISOString() : null, untilLabel: holiday.untilAt ? null : (condition?.text ?? "until I return") };
+    return { kind: "holiday", until: holiday.untilAt ? holiday.untilAt.toISOString() : null, untilLabel: holiday.untilAt ? null : untilWords(condition?.text) };
   }
   if (blocking > 0) return { kind: "blocked", count: blocking };
   const win = wins.items[0];

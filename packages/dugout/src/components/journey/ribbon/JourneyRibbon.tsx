@@ -853,9 +853,12 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
           <g data-revenue-scale>
             {geometry.revenue.ticks
               .filter((v) => v > 0)
-              .map((v) => (
+              .map((v) => ({ v, label: `${money(v, currency)}/day` }))
+              // Two gridlines that read the same say nothing more than one.
+              .filter((t, i, all) => all.findIndex((o) => o.label === t.label) === i)
+              .map(({ v, label }) => (
                 <text key={v} x={8} y={geometry.revenue.y(v) + 14} className="chart-tick" {...HALO}>
-                  {`${money(v, currency)}/day`}
+                  {label}
                 </text>
               ))}
           </g>

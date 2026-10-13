@@ -1,5 +1,6 @@
 import { repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { untilWords } from "../services/cycle";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
 async function blockingItem(hz: ApiHarness, subject: string) {
@@ -153,5 +154,15 @@ describe("business.continue / pauseCycle with Temporal reachable", () => {
     await repos.tasks.setStatus(hz.db, businessId, hz.A.taskId, "paused", { force: true });
     const done = await owner.cycle.status({ businessId });
     expect(done).toMatchObject({ running: false, completedCount: 1, lastOutcome: "time_box", nextCycleNumber: 2 });
+  });
+});
+
+describe("untilWords (audit VOL-X2)", () => {
+  it("reads after the bar's own 'until': no 'until until I return'", () => {
+    expect(untilWords(undefined)).toBe("you return");
+    expect(untilWords("until I return")).toBe("you return");
+    expect(untilWords("you return")).toBe("you return");
+    expect(untilWords("until the launch ships")).toBe("the launch ships");
+    expect(untilWords("MRR hits 10k")).toBe("MRR hits 10k");
   });
 });

@@ -11,6 +11,7 @@ import { BUSINESS_MODE_INFO, Button, Chip, Dialog, DialogBody, DialogContent, Di
 import { BUSINESS_MODES, type BusinessMode, type GameMode } from "@foundmill/shared/constants";
 import { parseSpendCapMinor } from "@/components/new/commit/naming";
 import { formatDate, formatMoney, plainWords } from "@/lib/format";
+import { untilWords } from "@/lib/continue-state";
 import { toStartHolidayInput } from "@/lib/holiday";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
@@ -131,7 +132,7 @@ export function ModeTab() {
             </StatusPill>
             <KeyValueList
               items={[
-                { label: "Until", value: holiday.untilAt ? formatDate(holiday.untilAt, datePrefs) : ((holiday.untilCondition as { text?: string } | null)?.text ?? "until I return") },
+                { label: "Until", value: holiday.untilAt ? formatDate(holiday.untilAt, datePrefs) : untilWords((holiday.untilCondition as { text?: string } | null)?.text) },
                 { label: "Budget ceiling", value: holiday.budgetCeilingMinor === null ? "Business cap applies" : formatMoney({ amountMinor: holiday.budgetCeilingMinor, currency: holiday.currency ?? currency }), numeric: true },
                 { label: "Authority", value: <span className="flex flex-wrap gap-1">{((holiday.authority as { decisionTypes?: string[] } | null)?.decisionTypes ?? []).map((d) => <Chip key={d}>{plainWords(d)}</Chip>)}</span> },
               ]}

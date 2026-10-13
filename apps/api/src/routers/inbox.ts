@@ -14,13 +14,22 @@ const inboxWrite = sectionWrite("inbox");
 const hasFreeText = (input: unknown): boolean => typeof (input as { freeText?: unknown } | null)?.freeText === "string" && Boolean((input as { freeText: string }).freeText.trim());
 
 export const inboxRouter = router({
-  /** Notes follow the reader's Finance and CRM walls (services/inbox-redaction.ts; audit RUI-02). */
+  /**
+   * Notes follow the reader's Finance and CRM walls (services/inbox-redaction.ts; audit RUI-02). The tab counts and the
+   * blocking count describe the whole inbox, not a page, so only the first page (no cursor) carries them: a reader who
+   * has paged deep pays for them once, not once per page (audit SOAK-09).
+   */
   list: inboxRead.input(InboxListFilter).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
-      const [page, counts, blocking] = await Promise.all([repos.inbox.list(tx, ctx.businessId, input ?? {}), repos.inbox.countByTab(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId)]);
+      const firstPage = !input?.cursor;
+      const [page, tally] = await Promise.all([repos.inbox.list(tx, ctx.businessId, input ?? {}), firstPage ? Promise.all([repos.inbox.countByTab(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId)]) : null]);
       const walls = inboxWalls(ctx.membership);
       const source = await loadRedactionSource(tx, ctx.businessId, walls, page.items.flatMap(idsOfItem));
-      return { ...page, items: page.items.map((i) => redactInboxItem(i, source)), counts, blocking, continueState: blocking > 0 ? ({ kind: "blocked", count: blocking } as const) : ({ kind: "idle" } as const) };
+      const items = page.items.map((i) => redactInboxItem(i, source));
+      // The fields are present on every page so the output has one shape; later pages leave them empty.
+      if (!tally) return { ...page, items, counts: undefined, blocking: undefined, continueState: undefined };
+      const [counts, blocking] = tally;
+      return { ...page, items, counts, blocking, continueState: blocking > 0 ? ({ kind: "blocked", count: blocking } as const) : ({ kind: "idle" } as const) };
     }),
   ),
 

@@ -139,7 +139,7 @@ export const businessRouter = router({
       const holiday = await ctx.rls(async (tx) => {
         const h = await repos.holidays.start(tx, ctx.businessId, {
           untilAt: input.until.kind === "date" ? input.until.date : null,
-          untilCondition: input.until.kind === "condition" ? { text: input.until.condition } : input.until.kind === "return" ? { text: "until I return" } : null,
+          untilCondition: input.until.kind === "condition" ? { text: input.until.condition } : input.until.kind === "return" ? { text: "you return" } : null,
           authority: { decisionTypes: authority },
           budgetCeilingMinor: input.budgetCeilingMinor,
           currency: input.currency,
@@ -153,7 +153,7 @@ export const businessRouter = router({
             holidayId: h.id,
             workflowId,
             untilAt: input.until.kind === "date" ? input.until.date.toISOString() : null,
-            untilCondition: input.until.kind === "condition" ? input.until.condition : input.until.kind === "return" ? "until I return" : null,
+            untilCondition: input.until.kind === "condition" ? input.until.condition : input.until.kind === "return" ? "you return" : null,
             budgetCeiling: input.budgetCeilingMinor === null ? null : { amountMinor: input.budgetCeilingMinor, currency: input.currency },
             authority,
             wakeEvents: input.wakeEvents,

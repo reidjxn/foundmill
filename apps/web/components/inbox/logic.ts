@@ -130,6 +130,40 @@ export function neighbourId(ids: readonly string[], currentId: string | null | u
   return ids[j] ?? null;
 }
 
+// --- paging --------------------------------------------------------------------------------------------------------------
+
+export interface PagedInbox<I extends { id: string; createdAt: Date | string }> {
+  items: readonly I[];
+  nextCursor: string | null;
+}
+
+/** How long a page older than the first is reused when the list is refreshed; the first page is always fetched. */
+export const OLDER_PAGE_REUSE_MS = 60_000;
+
+/** The list's order: newest first, ties by id (the server's keyset, `timeKeyset`). Negative when `a` comes before `b`. */
+const listOrder = (a: { id: string; createdAt: Date | string }, b: { id: string; createdAt: Date | string }): number => {
+  const t = Math.trunc(new Date(b.createdAt).getTime()) - Math.trunc(new Date(a.createdAt).getTime());
+  return t !== 0 ? t : a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+};
+
+/**
+ * The first page after a refresh, folded into the first page the reader already holds. A new note costs one request
+ * however deep the reader has scrolled: the fresh page replaces the items it covers, the items older than it stay as
+ * they were, and the cursor keeps pointing past the old page, so every older page stays valid and is not fetched
+ * again. When more notes arrived than a page holds, the fresh page does not reach back to the old one; it is then
+ * taken alone and the older pages are fetched afresh (nothing between them is lost). Audit SOAK-09.
+ */
+export function mergeFirstPage<I extends { id: string; createdAt: Date | string }, P extends PagedInbox<I>>(held: P | undefined, fresh: P): P {
+  if (!held || fresh.nextCursor === null) return fresh;
+  const oldest = fresh.items[fresh.items.length - 1];
+  const newestHeld = held.items[0];
+  if (!oldest || !newestHeld) return fresh;
+  // Fresh reaches the held page when its oldest note is not newer than the held page's newest one.
+  if (listOrder(oldest, newestHeld) < 0) return fresh;
+  const older = held.items.filter((i) => listOrder(oldest, i) < 0);
+  return { ...fresh, items: [...fresh.items, ...older], nextCursor: held.nextCursor };
+}
+
 // --- refresh -----------------------------------------------------------------------------------------------------------
 
 /** The composer debounces per business (BUILD §11.3 "debounce 3 s"); the page says so instead of firing a no-op. */
@@ -217,7 +251,12 @@ export function noteOpener(type: InboxItemType, options: readonly Pick<DecisionO
   }
 }
 
-export function decisionExpired(decision: unknown, now = new Date()): boolean {
+/**
+ * True once a decision's `expires_at` has passed. Nothing on the server applies an option at that moment (agents never
+ * decide a founder's call for them outside a vacation's authority), so the decision stays open and keeps blocking
+ * Continue: the deadline is a nudge, never a lock (audit VCML-X2).
+ */
+export function decisionPastDeadline(decision: unknown, now = new Date()): boolean {
   const v = (decision as { expires_at?: unknown } | null | undefined)?.expires_at;
   if (typeof v !== "string") return false;
   const t = Date.parse(v);
@@ -248,6 +287,11 @@ export interface MetricSources {
     revenue: { monthly: readonly { month: string; inflowMinor: number; netMinor: number }[] };
     customers30d: number;
   } | null;
+  /**
+   * Revenue over the trailing three full months from the management P&L (`finance.pnl`), the figure Finance divides
+   * by three for MRR. Without it the cash inflow of the same three months stands in.
+   */
+  trailingRevenueMinor?: number | null;
   /** Conversions in the ribbon window (last 30 days). */
   conversions?: readonly { kind: string; occurredAt: Date | string }[] | null;
   tasks?: readonly { status: string }[] | null;
@@ -263,8 +307,24 @@ function countKind(conversions: MetricSources["conversions"], kind: string, days
   return conversions.filter((c) => c.kind === kind && Date.parse(String(c.occurredAt)) >= since).length;
 }
 
-function latestMonthly(f: NonNullable<MetricSources["finance"]>): { month: string; inflowMinor: number; netMinor: number } | undefined {
-  return [...f.revenue.monthly].sort((a, b) => (a.month < b.month ? 1 : -1))[0];
+/** Months the trailing revenue and MRR cover (BUILD §11.8: "average monthly revenue over the trailing 3 months"). */
+export const TRAILING_MONTHS = 3;
+
+/** The `n` full calendar months before `now`'s month ("2026-09" for the one before "2026-10"), UTC like the ledger's month keys. */
+export function trailingMonthKeys(now: Date, n = TRAILING_MONTHS): string[] {
+  return Array.from({ length: n }, (_, i) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (n - i), 1)).toISOString().slice(0, 7));
+}
+
+/**
+ * Revenue over the trailing three full months, never the current partial month (audit OL-17): the P&L revenue when the
+ * page holds it, else the cash inflow of those months. MRR is a third of it, as on Finance.
+ */
+export function trailingRevenueMinor(sources: Pick<MetricSources, "finance" | "trailingRevenueMinor">, now: Date): number | null {
+  if (typeof sources.trailingRevenueMinor === "number") return sources.trailingRevenueMinor;
+  const f = sources.finance;
+  if (!f) return null;
+  const months = new Set(trailingMonthKeys(now));
+  return f.revenue.monthly.filter((m) => months.has(m.month)).reduce((sum, m) => sum + m.inflowMinor, 0);
 }
 
 /** Plain words for where a figure comes from: never a table or query name (seed and composer sources are keys). */
@@ -385,8 +445,10 @@ export function statusStripTiles(strip: unknown, sources: MetricSources): Metric
           return { label: "Net burn", value: f ? { amountMinor: f.burn.netBurnMinor, currency } : null, estimate: "estimate", provenance: provenance(m, "Trailing 3-month average") };
         case "mrr":
         case "revenue": {
-          const latest = f ? latestMonthly(f) : undefined;
-          return { label: key === "mrr" ? "MRR" : "Revenue", value: latest ? { amountMinor: latest.inflowMinor, currency } : null, estimate: key === "mrr" ? "estimate" : undefined, caption: latest ? latest.month : undefined, provenance: provenance(m, "Cash basis, latest month") };
+          // The same definitions as Finance: revenue over the trailing 3 full months, MRR a third of it.
+          const revenue = trailingRevenueMinor(sources, now);
+          const amountMinor = revenue === null ? null : key === "mrr" ? Math.round(revenue / TRAILING_MONTHS) : revenue;
+          return { label: key === "mrr" ? "MRR" : "Revenue", value: amountMinor === null ? null : { amountMinor, currency }, estimate: key === "mrr" ? "estimate" : undefined, caption: key === "mrr" ? "per month" : `trailing ${TRAILING_MONTHS} months`, provenance: provenance(m, "Cash basis, trailing 3 months") };
         }
         case "customers_week":
           return { label: "Customers this week", value: countKind(sources.conversions, "payment", 7, now), format: "integer", provenance: provenance(m, "Conversions, last 7 days") };
@@ -610,7 +672,25 @@ export function stripSources(strip: unknown): Set<StripSource> {
 
 export interface PlanLike {
   status: string;
+  /** When the founder confirmed the plan; null while it waits (and for plans that never needed it). */
+  confirmedAt?: Date | string | null;
   actions: readonly PlanActionLike[];
+}
+
+/**
+ * What the founder has said about an action policy marked "ask": "confirmed" once the plan was confirmed (or runs
+ * and finished, which only a confirmed plan does), "needs_go_ahead" while it waits for their confirmation, and null
+ * for an action policy let through or one that was never going to run (audit FR-09, OL-24).
+ */
+export function actionConfirmation(plan: Pick<PlanLike, "status" | "confirmedAt">, action: Pick<PlanActionLike, "policyOutcome">): "confirmed" | "needs_go_ahead" | null {
+  if (action.policyOutcome !== "ask") return null;
+  if (plan.confirmedAt || plan.status === "executing" || plan.status === "done") return "confirmed";
+  return plan.status === "pending_confirmation" ? "needs_go_ahead" : null;
+}
+
+/** True when a decide or confirm was turned down because the note was already answered (another tab, another member, a double click). */
+export function isAlreadyDecidedMessage(message: string | null | undefined): boolean {
+  return /\balready (answered|archived)\b/i.test(message ?? "");
 }
 
 /** One line for the answered strip: "Done · 3 of 3 actions" / "Awaiting your confirmation" / "Running · 1 of 3". */

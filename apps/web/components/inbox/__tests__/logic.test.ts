@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 import { confirmPlanDescription } from "../ConfirmPlanDialog";
 import {
   REFRESH_DEBOUNCE_MS,
+  actionConfirmation,
   agentIndex,
+  isAlreadyDecidedMessage,
+  mergeFirstPage,
+  trailingMonthKeys,
   answeredFrom,
   confirmationLines,
   decisionDeadline,
-  decisionExpired,
+  decisionPastDeadline,
   followUpLinks,
   freeTextAllowed,
   hasAgentDesk,
@@ -129,13 +133,13 @@ describe("decisions", () => {
     expect(toDecisionOptions(null, "EUR")).toEqual([]);
     expect(toDecisionOptions({ options: "nope" }, "EUR")).toEqual([]);
   });
-  it("free text defaults on; expiry is read from expires_at", () => {
+  it("free text defaults on; a passed expires_at is a deadline, not a lock", () => {
     expect(freeTextAllowed(decision)).toBe(true);
     expect(freeTextAllowed({ free_text: false })).toBe(false);
     expect(freeTextAllowed(null)).toBe(true);
-    expect(decisionExpired(decision, new Date("2026-10-07T00:00:00Z"))).toBe(true);
-    expect(decisionExpired(decision, new Date("2026-09-01T00:00:00Z"))).toBe(false);
-    expect(decisionExpired({ expires_at: null })).toBe(false);
+    expect(decisionPastDeadline(decision, new Date("2026-10-07T00:00:00Z"))).toBe(true);
+    expect(decisionPastDeadline(decision, new Date("2026-09-01T00:00:00Z"))).toBe(false);
+    expect(decisionPastDeadline({ expires_at: null })).toBe(false);
   });
   it("the newest decision gives the answered state", () => {
     expect(answeredFrom([])).toBeUndefined();
@@ -173,7 +177,69 @@ describe("status strip (AC-11.3.6: numbers come from live queries, never the not
     expect(tiles.every((t) => !("query" in (t.provenance ?? {})))).toBe(true);
     expect(tiles[1]).toMatchObject({ label: "Runway", value: 12.5, unit: "months", estimate: "estimate" });
     expect(tiles[2]).toMatchObject({ label: "Customers this week", value: 1 });
-    expect(tiles[3]).toMatchObject({ label: "MRR", value: { amountMinor: 42_000, currency: "EUR" }, caption: "2026-09" });
+    // MRR is a third of the trailing three full months (Jul – Sep), not the newest month's cash.
+    expect(tiles[3]).toMatchObject({ label: "MRR", value: { amountMinor: 14_000, currency: "EUR" }, estimate: "estimate", caption: "per month" });
+  });
+  it("MRR and Revenue are the trailing three full months as on Finance, never this month's partial inflow; no ISO month in a caption (audit OL-17)", () => {
+    const monthly = [
+      { month: "2026-07", inflowMinor: 12_000_000, netMinor: 1 },
+      { month: "2026-08", inflowMinor: 13_500_000, netMinor: 1 },
+      { month: "2026-09", inflowMinor: 14_200_000, netMinor: 1 },
+      { month: "2026-10", inflowMinor: 1_579_739, netMinor: 1 },
+    ];
+    const grown = { ...finance, revenue: { monthly } };
+    expect(trailingMonthKeys(now)).toEqual(["2026-07", "2026-08", "2026-09"]);
+    expect(trailingMonthKeys(new Date("2026-01-15T00:00:00Z"))).toEqual(["2025-10", "2025-11", "2025-12"]);
+    const [mrr, revenue] = statusStripTiles([{ metric: "mrr", source: "x" }, { metric: "revenue", source: "x" }], { finance: grown, now });
+    expect(mrr).toMatchObject({ label: "MRR", value: { amountMinor: 13_233_333, currency: "EUR" }, caption: "per month" });
+    expect(revenue).toMatchObject({ label: "Revenue", value: { amountMinor: 39_700_000, currency: "EUR" }, caption: "trailing 3 months" });
+    // The P&L revenue Finance divides by three wins when the page holds it.
+    const [fromPnl] = statusStripTiles([{ metric: "mrr", source: "x" }], { finance: grown, trailingRevenueMinor: 40_600_000, now });
+    expect(fromPnl).toMatchObject({ value: { amountMinor: 13_533_333 } });
+    for (const t of [mrr, revenue, fromPnl]) expect(t!.caption).not.toMatch(/\d{4}-\d{2}/);
+    // No finance data yet: no figure, not a made-up zero.
+    expect(statusStripTiles([{ metric: "mrr", source: "x" }], { finance: null, now })[0]).toMatchObject({ value: null });
+  });
+  it("a refresh folds the fresh first page into the held one, so older pages are not fetched again (audit SOAK-09)", () => {
+    const note = (n: number) => ({ id: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`, createdAt: new Date(Date.UTC(2026, 9, 1, 0, n)).toISOString() });
+    // Newest first: note(9) … note(0). The held first page is note(5)…note(3); older pages start after note(3).
+    type Page = { items: { id: string; createdAt: string }[]; nextCursor: string | null; counts: Record<string, number> };
+    const held: Page = { items: [note(5), note(4), note(3)], nextCursor: "after-3", counts: { respond: 1 } };
+    // A new note (6) arrives; the fresh page of three covers note(6)…note(4).
+    const fresh: Page = { items: [note(6), note(5), note(4)], nextCursor: "after-4", counts: { respond: 2 } };
+    const merged = mergeFirstPage(held, fresh);
+    expect(merged.items.map((i) => i.id)).toEqual([note(6), note(5), note(4), note(3)].map((i) => i.id));
+    // The cursor still points past the held page: the older pages the reader loaded stay valid.
+    expect(merged.nextCursor).toBe("after-3");
+    expect(merged.counts).toEqual({ respond: 2 });
+
+    // A note answered out of the tab: the fresh page no longer holds it and the older ones stay.
+    const answered = mergeFirstPage(held, { items: [note(5), note(3)], nextCursor: "after-3", counts: { respond: 0 } });
+    expect(answered.items.map((i) => i.id)).toEqual([note(5), note(3)].map((i) => i.id));
+
+    // More notes arrived than a page holds: the fresh page does not reach back, so it stands alone (no note is skipped).
+    const flood: Page = { items: [note(9), note(8), note(7)], nextCursor: "after-7", counts: {} };
+    expect(mergeFirstPage(held, flood)).toBe(flood);
+    // Nothing held yet, or everything fits in the fresh page: the fresh page as it is.
+    expect(mergeFirstPage(undefined, fresh)).toBe(fresh);
+    const all: Page = { items: [note(6), note(5)], nextCursor: null, counts: {} };
+    expect(mergeFirstPage(held, all)).toBe(all);
+  });
+  it("an action policy marked ask reads 'Confirmed by you' only once the plan was confirmed (audit FR-09, OL-24)", () => {
+    const ask = { policyOutcome: "ask" };
+    expect(actionConfirmation({ status: "pending_confirmation", confirmedAt: null }, ask)).toBe("needs_go_ahead");
+    expect(actionConfirmation({ status: "executing", confirmedAt: "2026-10-07T10:00:00Z" }, ask)).toBe("confirmed");
+    expect(actionConfirmation({ status: "done", confirmedAt: null }, ask)).toBe("confirmed");
+    expect(actionConfirmation({ status: "failed", confirmedAt: new Date() }, ask)).toBe("confirmed");
+    expect(actionConfirmation({ status: "failed", confirmedAt: null }, ask)).toBeNull();
+    expect(actionConfirmation({ status: "pending_confirmation", confirmedAt: null }, { policyOutcome: "allow" })).toBeNull();
+    expect(actionConfirmation({ status: "done" }, { policyOutcome: null })).toBeNull();
+  });
+  it("recognizes a decision that was already recorded (another tab, a double click)", () => {
+    expect(isAlreadyDecidedMessage("Inbox item is already answered")).toBe(true);
+    expect(isAlreadyDecidedMessage("Inbox item is already archived")).toBe(true);
+    expect(isAlreadyDecidedMessage("Something went wrong")).toBe(false);
+    expect(isAlreadyDecidedMessage(null)).toBe(false);
   });
   it("unknown metrics render honestly empty; missing sources give null values", () => {
     const tiles = statusStripTiles([{ metric: "made_up", source: "x" }, { metric: "cash" }], { finance: null, conversions: null, now });

@@ -35,6 +35,7 @@ import {
 } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
+import { monthStart, pnlTotals } from "@foundmill/modules/finance/metrics";
 import { usePageShortcuts } from "@/lib/keys";
 import { useHydrated } from "@/lib/today";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
@@ -49,11 +50,12 @@ import { ConfirmPlanDialog } from "./ConfirmPlanDialog";
 import { Exhibit } from "./Exhibit";
 import { NoteTagChip } from "./InboxList";
 import {
+  actionConfirmation,
   agentIndex,
   answeredFrom,
   confirmationLines,
   decisionDeadline,
-  decisionExpired,
+  decisionPastDeadline,
   followUpLinks,
   freeTextAllowed,
   hasAgentDesk,
@@ -61,11 +63,14 @@ import {
   noteOpener,
   headerTag,
   hiddenNotice,
+  isAlreadyDecidedMessage,
   journeyForItem,
+  metricKey,
   planStatusLine,
   statusStripTiles,
   stripSources,
   toDecisionOptions,
+  TRAILING_MONTHS,
   type ConfirmationLine,
 } from "./logic";
 
@@ -125,12 +130,20 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const dates = headerDates(item, decisions[0]?.decidedAt ?? null);
   const { formatDate, formatDateTime } = useFormatters();
   const hydrated = useHydrated();
+  // The founder's own notes carry the founder's initials, as they do in the list ("AD"), never the letters of "You".
+  const founderQ = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
+  const founderName = founderQ.data?.profile?.displayName?.trim() || undefined;
 
   // --- status strip sources (only what the note needs) ---------------------------------------------------------------
   const needs = useMemo(() => stripSources(item.statusStrip), [item.statusStrip]);
   const today = dayKey(new Date());
   const from30 = dayKey(new Date(Date.now() - 30 * DAY_MS));
   const financeQ = useQuery(trpc.finance.overview.queryOptions({ businessId }, { enabled: needs.has("finance"), staleTime: 60_000, retry: false }));
+  // MRR and Revenue are the P&L revenue of the trailing three full months, as on Finance (audit OL-17).
+  const wantsRevenue = useMemo(() => (Array.isArray(item.statusStrip) ? item.statusStrip : []).some((m) => ["mrr", "revenue"].includes(metricKey(String((m as { metric?: unknown } | null)?.metric ?? "")) ?? "")), [item.statusStrip]);
+  const pnlRange = useMemo(() => ({ from: monthStart(new Date(), -TRAILING_MONTHS).toISOString(), to: monthStart(new Date(), 0).toISOString() }), []);
+  const pnlQ = useQuery(trpc.finance.pnl.queryOptions({ businessId, ...pnlRange }, { enabled: needs.has("finance") && wantsRevenue, staleTime: 60_000, retry: false }));
+  const trailingRevenue = pnlQ.data ? pnlTotals(pnlQ.data.categories).revenueMinor : null;
   const ribbonQ = useQuery(trpc.journey.ribbon.queryOptions({ businessId, from: from30, to: today }, { enabled: needs.has("conversions"), staleTime: 60_000, retry: false }));
   const tasksQ = useQuery(trpc.dev.tasks.list.queryOptions({ businessId, limit: 500 }, { enabled: needs.has("tasks"), staleTime: 30_000, retry: false }));
   const channelsQ = useQuery(trpc.distribution.channels.list.queryOptions({ businessId }, { enabled: needs.has("channels"), staleTime: 60_000, retry: false }));
@@ -138,11 +151,12 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
     () =>
       statusStripTiles(item.statusStrip, {
         finance: financeQ.data ?? null,
+        trailingRevenueMinor: trailingRevenue,
         conversions: ribbonQ.data?.conversions ?? null,
         tasks: tasksQ.data?.items ?? null,
         channelsEnabled: channelsQ.data ? channelsQ.data.channels.filter((c) => c.enabled).length : null,
-      }).map((t) => ({ ...t, loading: (needs.has("finance") && financeQ.isLoading) || (needs.has("conversions") && ribbonQ.isLoading) || (needs.has("tasks") && tasksQ.isLoading) || (needs.has("channels") && channelsQ.isLoading) })),
-    [item.statusStrip, financeQ.data, financeQ.isLoading, ribbonQ.data, ribbonQ.isLoading, tasksQ.data, tasksQ.isLoading, channelsQ.data, channelsQ.isLoading, needs],
+      }).map((t) => ({ ...t, loading: (needs.has("finance") && (financeQ.isLoading || (wantsRevenue && pnlQ.isLoading))) || (needs.has("conversions") && ribbonQ.isLoading) || (needs.has("tasks") && tasksQ.isLoading) || (needs.has("channels") && channelsQ.isLoading) })),
+    [item.statusStrip, financeQ.data, financeQ.isLoading, trailingRevenue, wantsRevenue, pnlQ.isLoading, ribbonQ.data, ribbonQ.isLoading, tasksQ.data, tasksQ.isLoading, channelsQ.data, channelsQ.isLoading, needs],
   );
 
   // --- won customer → replay ----------------------------------------------------------------------------------------
@@ -155,7 +169,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
 
   // --- decision ------------------------------------------------------------------------------------------------------
   const options = useMemo(() => toDecisionOptions(item.decision, currency), [item.decision, currency]);
-  const expired = decisionExpired(item.decision);
+  const pastDeadline = decisionPastDeadline(item.decision);
   const [result, setResult] = useState<DecideResult | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const plan = result?.plan ?? storedPlan;
@@ -183,9 +197,12 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
     trpc.inbox.decide.mutationOptions({
       onSuccess: onDecided,
       onError: (err) => {
-        // Often a view that fell behind (another member decided or archived it): show what the server has now.
+        // Often a view that fell behind (another tab or member decided or archived it): show what the server has now,
+        // and say so as news rather than as a failure.
         void invalidate(["inbox", "plan"]);
-        toast({ title: "Could not record the decision", description: errorMessage(err), tone: "bad" });
+        const message = errorMessage(err);
+        if (isAlreadyDecidedMessage(message)) toast({ id: "inbox-already-decided", title: "Already decided in another tab", description: "The note now shows the answer that was recorded.", tone: "info" });
+        else toast({ title: "Could not record the decision", description: message, tone: "bad" });
       },
     }),
   );
@@ -218,8 +235,18 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
     }),
   );
 
-  const locked = isAnswered || expired || decide.isPending || confirm.isPending;
-  const onChoose = useCallback((o: DecisionOption) => decide.mutate({ businessId, itemId: item.id, chosenOption: o.id }), [decide, businessId, item.id]);
+  // Past its deadline a decision stays open: nothing on the server answers it for the founder (audit VCML-X2).
+  const locked = isAnswered || decide.isPending || confirm.isPending;
+  // A second click can land before `isPending` reaches React, so one answer in flight is held in a ref.
+  const deciding = useRef(false);
+  const onChoose = useCallback(
+    (o: DecisionOption) => {
+      if (deciding.current) return;
+      deciding.current = true;
+      decide.mutate({ businessId, itemId: item.id, chosenOption: o.id }, { onSettled: () => { deciding.current = false; } });
+    },
+    [decide, businessId, item.id],
+  );
   // The conversation under the note (DIRECTION #6): Alt+1–4 answer the agent (1–4 stay on the options), T talks.
   const desk = useRef<AgentConversationHandle>(null);
   const showDesk = hasAgentDesk(item.type);
@@ -250,6 +277,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const lines: ConfirmationLine[] = useMemo(() => (result ? confirmationLines(result.evaluations, currency) : []), [result, currency]);
   const links = useMemo(() => (plan ? followUpLinks(plan.actions, businessId, departments) : []), [plan, businessId, departments]);
   const planLine = planStatusLine(plan);
+  const confirmation = (a: { policyOutcome?: string | null }) => (plan ? actionConfirmation(plan, a) : null);
   const pendingConfirmation = plan?.status === "pending_confirmation";
   const roleLine = roleBesideName(fromAgent?.name ?? persona?.name, persona?.role);
   const relatedEntities = entities.map((e) => ({ id: e.id, kind: e.kind as EntityKind, name: e.displayName, href: routes.crm(businessId, e.id) }));
@@ -260,7 +288,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
     <article className="flex min-h-0 flex-1 flex-col" data-testid="inbox-item" data-item-id={item.id} data-type={item.type} data-state={isAnswered ? "answered" : item.state}>
       {/* header */}
       <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-subtle bg-panel px-gutter py-2.5" data-testid="inbox-item-header">
-        {persona ? <Avatar size={40} name={persona.name} agent={{ seed: persona.seed, dept: persona.dept as DeptColourToken }} /> : <Avatar size={40} name={item.fromUserId ? "You" : "Team"} />}
+        {persona ? <Avatar size={40} name={persona.name} agent={{ seed: persona.seed, dept: persona.dept as DeptColourToken }} /> : <Avatar size={40} name={item.fromUserId ? (founderName ?? "You") : "Team"} />}
         {/* The persona column keeps a 16rem basis, so the tags wrap under it instead of crushing it. */}
         <div className="flex min-w-0 flex-[1_1_16rem] flex-col gap-0.5">
           <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -355,7 +383,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
                     <li key={a.id} className="flex items-center gap-2">
                       <StatusPill tone={a.status === "done" ? "good" : a.status === "failed" || a.status === "denied" ? "bad" : a.status === "awaiting_approval" || a.status === "pending" ? "warn" : "info"}>{a.status.replace(/_/g, " ")}</StatusPill>
                       <span className="truncate">{confirmationLines([{ action: { type: a.type, params: a.params as Record<string, unknown> | null }, outcome: a.policyOutcome ?? "allow" }], currency)[0]?.label}</span>
-                      {a.policyOutcome === "ask" ? <Chip tone="warn">Confirmed by you</Chip> : null}
+                      {confirmation(a) === "confirmed" ? <Chip tone="warn">Confirmed by you</Chip> : confirmation(a) === "needs_go_ahead" ? <Chip tone="warn">Needs your go-ahead</Chip> : null}
                     </li>
                   ))}
                 </ul>
@@ -393,12 +421,12 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
             variant="inline"
             keyModifier="alt"
             // Typed words decide only an open decision that allows free text; otherwise they stay a conversation.
-            inboxReply={freeTextAllowed(item.decision) && !isAnswered && !expired}
+            inboxReply={freeTextAllowed(item.decision) && !isAnswered}
             onDecision={onDecided}
             // Decided here, from the DecisionBar or in another tab: no more "Go with: …".
-            decided={isAnswered || expired}
+            decided={isAnswered}
             fallbackDept={(department?.colourToken as DeptColourToken | undefined) ?? "dept-1"}
-            opener={noteOpener(item.type, options, isAnswered || expired)}
+            opener={noteOpener(item.type, options, isAnswered)}
           />
         ) : null}
       </div>
@@ -412,11 +440,11 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           askLabel={`Ask ${agentName}`}
           askDescription="Talk it through first"
           deadline={decisionDeadline(item.decision) ?? undefined}
-          disabled={expired || item.state === "archived"}
+          disabled={item.state === "archived"}
           executing={decide.isPending || confirm.isPending}
           answered={answered}
           hotkeys={false}
-          note={expired && !isAnswered ? <span className="inline-flex items-center gap-1 text-small text-status-warn">This decision expired; the team moved on with the recommended option.</span> : undefined}
+          note={pastDeadline && !isAnswered ? <span className="inline-flex items-center gap-1 text-small text-status-warn" data-testid="past-deadline">This decision is past its deadline. The team is still waiting for your call, and Continue waits too.</span> : undefined}
           data-testid="decision-bar"
         />
       ) : null}

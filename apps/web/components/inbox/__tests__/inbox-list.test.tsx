@@ -49,6 +49,22 @@ describe("InboxList (DESIGN §9 rows)", () => {
     expect(onSelect).toHaveBeenCalledWith("i1");
     expect(r.getByTestId("inbox-load-more")).toBeTruthy();
   });
+  it("draws only the rows near the viewport once hundreds of notes are loaded (audit SOAK-09)", () => {
+    const rows = Array.from({ length: 400 }, (_, i) => row({ id: `n${i}`, subject: `Note ${i}` }));
+    const r = render(<InboxList rows={rows} selectedId="n300" onSelect={vi.fn()} loading={false} hasMore onLoadMore={vi.fn()} emptyText="" />);
+    const drawn = r.getAllByRole("option");
+    expect(drawn.length).toBeGreaterThan(0);
+    expect(drawn.length).toBeLessThan(60);
+    // The first rows are drawn and the list says how long it is, for assistive technology.
+    expect(drawn[0]?.getAttribute("aria-posinset")).toBe("1");
+    expect(drawn[0]?.getAttribute("aria-setsize")).toBe("400");
+    expect(r.getByTestId("inbox-list").getAttribute("data-virtual")).toBe("true");
+  });
+  it("draws every row of a short list", () => {
+    const r = render(<InboxList rows={Array.from({ length: 30 }, (_, i) => row({ id: `s${i}` }))} selectedId={null} onSelect={vi.fn()} loading={false} hasMore={false} onLoadMore={vi.fn()} emptyText="" />);
+    expect(r.getAllByRole("option")).toHaveLength(30);
+    expect(r.getByTestId("inbox-list").getAttribute("data-virtual")).toBeNull();
+  });
   it("shows a skeleton while loading and the empty line otherwise", () => {
     const a = render(<InboxList rows={[]} selectedId={null} onSelect={vi.fn()} loading hasMore={false} onLoadMore={vi.fn()} emptyText="Nothing" />);
     expect(a.getByTestId("inbox-list-loading")).toBeTruthy();
