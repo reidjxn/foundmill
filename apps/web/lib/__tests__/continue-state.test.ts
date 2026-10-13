@@ -30,8 +30,8 @@ describe("computeContinueState", () => {
   it("holiday wins over everything and carries the until", () => {
     const until = new Date("2026-11-01T00:00:00Z");
     expect(computeContinueState({ blocking: 2, items: [], cycle: { running: true }, holiday: { untilAt: until } })).toEqual({ kind: "holiday", until, untilLabel: undefined });
-    expect(computeContinueState({ blocking: 0, holiday: { untilAt: null, untilCondition: { text: "until MRR hits 10k" } } })).toEqual({ kind: "holiday", until: null, untilLabel: "until MRR hits 10k" });
-    expect(computeContinueState({ blocking: 0, holiday: { untilAt: null, untilCondition: null } })).toMatchObject({ kind: "holiday", untilLabel: "until I return" });
+    expect(computeContinueState({ blocking: 0, holiday: { untilAt: null, untilCondition: { text: "until MRR hits 10k" } } })).toEqual({ kind: "holiday", until: null, untilLabel: "MRR hits 10k" });
+    expect(computeContinueState({ blocking: 0, holiday: { untilAt: null, untilCondition: null } })).toMatchObject({ kind: "holiday", untilLabel: "you return" });
   });
 
   it("finds the first red item and the first unviewed win", () => {

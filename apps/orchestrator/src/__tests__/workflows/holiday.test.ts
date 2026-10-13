@@ -5,6 +5,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Activities, HolidayCheck, LoadedHoliday } from "../../activities";
 import { FakeClock } from "../../clock";
+import { HOLIDAY_CYCLES_PER_RUN, MAX_HOLIDAY_CYCLES } from "../../holiday-contract";
 import { holiday, stopSignal, wakeSignal } from "../../workflows";
 import { createTemporalRig, type TemporalRig } from "./temporal";
 
@@ -104,6 +105,44 @@ describe("holiday workflow", () => {
     expect(result.cyclesRun).toBe(3);
     expect(clock.now().toISOString()).toBe("2026-10-05T20:00:00.000Z");
   });
+
+  it("the founder coming back ends it as founder_returned, not as the kill switch (audit O-40)", async () => {
+    const clock = new FakeClock("2026-10-05T08:00:00.000Z");
+    const m = mockActivities(clock, null);
+    const result = await rig.run(m.acts, async (client, taskQueue) => {
+      const handle = await client.workflow.start(holiday, { workflowId: `holiday:${H}-back`, taskQueue, args: [{ businessId: B, holidayId: H }] });
+      for (let i = 0; i < 400 && m.calls.cycles < 1; i++) await new Promise((r) => setTimeout(r, 25));
+      await handle.signal(stopSignal, { reason: "founder_returned", by: "founder" });
+      return handle.result();
+    });
+    expect(result.reason).toBe("founder_returned");
+    expect(m.calls.end).toMatchObject({ reason: "founder_returned" });
+  });
+
+  it("a vacation that has run its safety limit of cycles ends as cycle_cap and says so", async () => {
+    const clock = new FakeClock("2026-10-05T08:00:00.000Z");
+    const m = mockActivities(clock, null);
+    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(holiday, { workflowId: `holiday:${H}-cap`, taskQueue, args: [{ businessId: B, holidayId: H, cyclesRun: MAX_HOLIDAY_CYCLES - 1 }] }));
+    expect(result.reason).toBe("cycle_cap");
+    expect(result.cyclesRun).toBe(MAX_HOLIDAY_CYCLES);
+    expect(m.calls.cycles).toBe(1);
+    expect(m.calls.end).toMatchObject({ reason: "cycle_cap", cyclesRun: MAX_HOLIDAY_CYCLES });
+  });
+
+  it("continues as new after a run of cycles and keeps the count, so a long vacation keeps a short history (audit SOAK-10)", async () => {
+    const clock = new FakeClock("2026-10-05T08:00:00.000Z");
+    const m = mockActivities(clock, null);
+    const total = HOLIDAY_CYCLES_PER_RUN + 2;
+    const base = m.acts.holidayCheck!;
+    m.acts.holidayCheck = async (input) => {
+      const check = await base(input);
+      return m.calls.cycles >= total ? { ...check, shouldEnd: true, reason: "until_reached" as const } : check;
+    };
+    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(holiday, { workflowId: `holiday:${H}-long`, taskQueue, args: [{ businessId: B, holidayId: H }] }));
+    expect(result.reason).toBe("until_reached");
+    expect(result.cyclesRun).toBe(total);
+    expect(m.calls.end).toMatchObject({ cyclesRun: total });
+  }, 120_000);
 
   it("the kill switch (stop) ends it as kill_switch", async () => {
     const clock = new FakeClock("2026-10-05T08:00:00.000Z");

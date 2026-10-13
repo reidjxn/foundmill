@@ -2,25 +2,35 @@
  * holiday (BUILD §9.6 "Holiday (Automated)", §9.4): while the founder is away, Continue runs itself on the cadence
  * (default every 4 agent-hours), the Chief of Staff decides blocking items within authority, hard gates queue, and the
  * holiday ends on the `until` date/condition, a wake event (checked after every cycle and delivered by the `wake`
- * signal), the budget ceiling, the kill switch (`stop`) or the founder's return. The end builds "While you were away".
+ * signal), the budget ceiling, the kill switch or the founder's return (`stop`, whose reason says which), or its safety
+ * limit of MAX_HOLIDAY_CYCLES cycles (reason `cycle_cap`). The end builds "While you were away" once.
+ *
+ * A long vacation keeps a short history: every HOLIDAY_CYCLES_PER_RUN cycles the workflow continues as new, carrying
+ * the cycles run so far (audit SOAK-10).
  */
-import { allHandlersFinished, condition, executeChild, proxyActivities, setHandler, sleep, workflowInfo } from "@temporalio/workflow";
+import { allHandlersFinished, condition, continueAsNew, executeChild, patched, proxyActivities, setHandler, sleep } from "@temporalio/workflow";
 import type { Activities, HolidayCheck, HolidayEnd, HolidayInput, WakePayload } from "../activities";
+import { HOLIDAY_CYCLES_PER_RUN, MAX_HOLIDAY_CYCLES } from "../holiday-contract";
 import { businessCycle } from "./businessCycle";
 import { stopSignal, wakeSignal } from "./signals";
 
 const acts = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", retry: { maximumAttempts: 3, initialInterval: "2 seconds" } });
 const HOUR_MS = 60 * 60 * 1000;
-/** Safety valve: a holiday never runs more cycles than this without a founder return. */
-export const MAX_HOLIDAY_CYCLES = 400;
+export { HOLIDAY_CYCLES_PER_RUN, MAX_HOLIDAY_CYCLES };
+/** Long vacations continue as new; histories recorded before this replay without. */
+export const HOLIDAY_CONTINUE_AS_NEW_PATCH = "holiday-continue-as-new";
 
 export interface HolidayResult extends HolidayEnd {
   reason: NonNullable<HolidayCheck["reason"]>;
   wakeEventType: string | null;
 }
 
+/** The end reason a `stop` signal carries: the founder's "Come back" or, for anything else, the kill switch. */
+export function stopReason(reason: string | null | undefined): "founder_returned" | "kill_switch" {
+  return reason === "founder_returned" ? "founder_returned" : "kill_switch";
+}
+
 export async function holiday(input: HolidayInput): Promise<HolidayResult> {
-  const info = workflowInfo();
   let wake: WakePayload | null = null;
   let stopped: { reason: string } | null = null;
   setHandler(wakeSignal, (w) => {
@@ -32,13 +42,16 @@ export async function holiday(input: HolidayInput): Promise<HolidayResult> {
 
   const loaded = await acts.loadHoliday(input);
   const cadenceMs = Math.max(60_000, loaded.cadenceAgentHours * HOUR_MS);
-  let cyclesRun = 0;
+  let cyclesRun = input.cyclesRun ?? 0;
+  let cyclesThisRun = 0;
   let reason: NonNullable<HolidayCheck["reason"]> | null = null;
   let wakeEventType: string | null = null;
 
-  const settle = async (): Promise<boolean> => {
-    if (stopped) {
-      reason = "kill_switch";
+  /** Signals first (they arrive between checks), then the end conditions the activity reads. */
+  const signalled = (): boolean => {
+    const stop = stopped as { reason: string } | null;
+    if (stop) {
+      reason = stopReason(stop.reason);
       return true;
     }
     if (wake) {
@@ -47,6 +60,10 @@ export async function holiday(input: HolidayInput): Promise<HolidayResult> {
       wakeEventType = w.eventType;
       return true;
     }
+    return false;
+  };
+  const settle = async (): Promise<boolean> => {
+    if (signalled()) return true;
     const check = await acts.holidayCheck({ businessId: input.businessId, holiday: loaded });
     if (check.shouldEnd && check.reason) {
       reason = check.reason;
@@ -59,8 +76,14 @@ export async function holiday(input: HolidayInput): Promise<HolidayResult> {
   for (;;) {
     if (await settle()) break;
     if (cyclesRun >= MAX_HOLIDAY_CYCLES) {
-      reason = "until_reached";
+      reason = "cycle_cap";
       break;
+    }
+    if (cyclesThisRun >= HOLIDAY_CYCLES_PER_RUN && patched(HOLIDAY_CONTINUE_AS_NEW_PATCH)) {
+      // Checked in the same turn as the hand-over, so a stop or wake that just arrived ends the vacation instead.
+      if (signalled()) break;
+      await condition(allHandlersFinished);
+      return continueAsNew<typeof holiday>({ ...input, cyclesRun });
     }
     // 1. decide what is blocking within authority, 2. run a cycle, 3. decide what the cycle raised.
     await acts.holidayAutoDecide({ businessId: input.businessId, holiday: loaded });
@@ -71,16 +94,17 @@ export async function holiday(input: HolidayInput): Promise<HolidayResult> {
       // A failed or already-running cycle must not end the holiday; the next cadence tick tries again.
     }
     cyclesRun += 1;
+    cyclesThisRun += 1;
     await acts.holidayAutoDecide({ businessId: input.businessId, holiday: loaded });
     if (await settle()) break;
     // Sleep the cadence, waking early on a wake event or the kill switch.
     await condition(() => wake !== null || stopped !== null, cadenceMs);
   }
 
-  const end = await acts.endHoliday({ businessId: input.businessId, holiday: loaded, reason: reason ?? "founder_returned", wakeEventType, cyclesRun });
+  const ending = reason ?? "founder_returned";
+  const end = await acts.endHoliday({ businessId: input.businessId, holiday: loaded, reason: ending, wakeEventType, cyclesRun });
   await condition(allHandlersFinished);
-  void info;
-  return { ...end, reason: reason ?? "founder_returned", wakeEventType };
+  return { ...end, reason: ending, wakeEventType };
 }
 
 /** Sleep helper exported for the simulation harness (keeps `sleep` referenced from workflow code). */

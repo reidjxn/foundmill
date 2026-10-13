@@ -3,7 +3,7 @@
  * stopAllAgents/resumeAgents/export/archive/requestDeletion/cancelDeletion (BUILD §9.4, §9.6, §11.15, §14).
  */
 import { LIMITS } from "@foundmill/config";
-import { repos, UpdateBusinessInput } from "@foundmill/db";
+import { HolidayRunningError, repos, UpdateBusinessInput } from "@foundmill/db";
 import { BUSINESS_MODES, DECISION_TYPES, EVENT_TYPES, GAME_MODES } from "@foundmill/shared";
 import { z } from "zod";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
@@ -92,17 +92,26 @@ export const businessRouter = router({
     return business;
   }),
 
-  setBusinessMode: adminProcedure.input(z.object({ businessMode: z.enum(BUSINESS_MODES), reason: z.string().max(500).optional() })).mutation(({ ctx, input }) =>
-    ctx.rls(async (tx) => {
-      const from = ctx.business.businessMode;
-      const business = await repos.businesses.setBusinessMode(tx, ctx.businessId, input.businessMode);
+  /**
+   * Automated runs the business by itself (BUILD §11.3): the mode change starts the business's autopilot workflow, which
+   * keeps pressing Continue and lets the Chief of Staff answer what blocks it, within Automated mode's authority; any
+   * other mode stops it. Without a reachable orchestrator the mode is still saved and the workflow reconciler starts the
+   * autopilot once one is up (audit SOAK-01).
+   */
+  setBusinessMode: adminProcedure.input(z.object({ businessMode: z.enum(BUSINESS_MODES), reason: z.string().max(500).optional() })).mutation(async ({ ctx, input }) => {
+    const from = ctx.business.businessMode;
+    const business = await ctx.rls(async (tx) => {
+      const changed = await repos.businesses.setBusinessMode(tx, ctx.businessId, input.businessMode);
       if (from !== input.businessMode) {
         await emit(tx, ctx, { type: "mode.changed", payload: { scope: "business", from, to: input.businessMode, reason: input.reason ?? null } });
         await audit(tx, ctx, { action: "business.set_business_mode", target: { kind: "business", id: ctx.businessId }, details: { from, to: input.businessMode } });
       }
-      return business;
-    }),
-  ),
+      return changed;
+    });
+    if (input.businessMode === "automated" && ctx.business.committedAt) await ctx.temporal.start(WORKFLOWS.autopilot, { workflowId: workflowIds.autopilot(ctx.businessId), args: [{ businessId: ctx.businessId }] });
+    else if (from === "automated" && input.businessMode !== "automated") await ctx.temporal.signal(workflowIds.autopilot(ctx.businessId), "stop", { reason: "mode_changed", by: ctx.userId });
+    return business;
+  }),
 
   /**
    * The "Spend cap per action" (Settings › Mode; first set on Commit), in minor units of the business currency: above it
@@ -132,41 +141,60 @@ export const businessRouter = router({
     .mutation(async ({ ctx, input }) => {
       // Signing is a hard gate: never part of the Chief of Staff's authority, whatever the dialog sent.
       const authority = input.authority.filter((d) => d !== "sign_contracts");
+      const alreadyRunning = (existing: { id: string }) => ({ holiday: existing, workflow: { queued: false, workflowId: workflowIds.holiday(existing.id), reason: "a vacation is already running" } });
       const existing = await repos.holidays.current(ctx.db, ctx.businessId);
-      if (existing) return { holiday: existing, workflow: { queued: false, workflowId: workflowIds.holiday(existing.id), reason: "a vacation is already running" } };
+      if (existing) return alreadyRunning(existing);
       // A vacation runs cycles: none starts while the team is stopped.
       await assertAgentsRunning(ctx, "a vacation");
-      const holiday = await ctx.rls(async (tx) => {
-        const h = await repos.holidays.start(tx, ctx.businessId, {
-          untilAt: input.until.kind === "date" ? input.until.date : null,
-          untilCondition: input.until.kind === "condition" ? { text: input.until.condition } : input.until.kind === "return" ? { text: "until I return" } : null,
-          authority: { decisionTypes: authority },
-          budgetCeilingMinor: input.budgetCeilingMinor,
-          currency: input.currency,
-          wakeEvents: input.wakeEvents,
-          startedBy: ctx.userId,
-        });
-        const workflowId = workflowIds.holiday(h.id);
-        await emit(tx, ctx, {
-          type: "holiday.started",
-          payload: {
-            holidayId: h.id,
-            workflowId,
-            untilAt: input.until.kind === "date" ? input.until.date.toISOString() : null,
-            untilCondition: input.until.kind === "condition" ? input.until.condition : input.until.kind === "return" ? "until I return" : null,
-            budgetCeiling: input.budgetCeilingMinor === null ? null : { amountMinor: input.budgetCeilingMinor, currency: input.currency },
-            authority,
+      // Two starts at once (a double submit, two tabs) meet the one-running-vacation index (0036): the second answers
+      // with the vacation the first started, and nothing of its own (event, audit) is kept.
+      const started = await ctx
+        .rls(async (tx) => {
+          const h = await repos.holidays.start(tx, ctx.businessId, {
+            untilAt: input.until.kind === "date" ? input.until.date : null,
+            untilCondition: input.until.kind === "condition" ? { text: input.until.condition } : input.until.kind === "return" ? { text: "you return" } : null,
+            authority: { decisionTypes: authority },
+            budgetCeilingMinor: input.budgetCeilingMinor,
+            currency: input.currency,
             wakeEvents: input.wakeEvents,
-            cadenceAgentHours: LIMITS.cycleTimeBoxAgentHours,
-          },
+            startedBy: ctx.userId,
+          });
+          const workflowId = workflowIds.holiday(h.id);
+          await emit(tx, ctx, {
+            type: "holiday.started",
+            payload: {
+              holidayId: h.id,
+              workflowId,
+              untilAt: input.until.kind === "date" ? input.until.date.toISOString() : null,
+              untilCondition: input.until.kind === "condition" ? input.until.condition : input.until.kind === "return" ? "until I return" : null,
+              budgetCeiling: input.budgetCeilingMinor === null ? null : { amountMinor: input.budgetCeilingMinor, currency: input.currency },
+              authority,
+              wakeEvents: input.wakeEvents,
+              cadenceAgentHours: LIMITS.cycleTimeBoxAgentHours,
+            },
+          });
+          await audit(tx, ctx, { action: "business.start_holiday", target: { kind: "holiday", id: h.id }, details: { until: input.until, authority, budgetCeilingMinor: input.budgetCeilingMinor } });
+          return h;
+        })
+        .catch(async (err: unknown) => {
+          if (!(err instanceof HolidayRunningError)) throw err;
+          const running = await repos.holidays.current(ctx.db, ctx.businessId);
+          if (!running) throw err;
+          return { running };
         });
-        await audit(tx, ctx, { action: "business.start_holiday", target: { kind: "holiday", id: h.id }, details: { until: input.until, authority, budgetCeilingMinor: input.budgetCeilingMinor } });
-        return h;
-      });
+      if ("running" in started) return alreadyRunning(started.running);
+      const holiday = started;
+      // Not queued (no orchestrator reachable): the row stays running and the orchestrator's reconciler starts its
+      // workflow once it is up; a dated vacation also ends by itself on its date.
       const workflow = await ctx.temporal.start(WORKFLOWS.holiday, { workflowId: workflowIds.holiday(holiday.id), args: [{ businessId: ctx.businessId, holidayId: holiday.id }] });
       return { holiday, workflow };
     }),
 
+  /**
+   * "Come back": the row ends at once (the top bar follows) and the vacation workflow is told why. A workflow that got
+   * the signal writes the "While you were away" report and `holiday.ended` (linked to the report) once; ending an
+   * already-ended row is a no-op for it (audit O-15). With no workflow behind the vacation the api records the end.
+   */
   endHoliday: adminProcedure.input(z.object({ reason: z.enum(["founder_returned", "kill_switch"]).default("founder_returned") })).mutation(async ({ ctx, input }) => {
     const current = await repos.holidays.current(ctx.db, ctx.businessId);
     if (!current) return { holiday: null, workflow: { queued: false, workflowId: "", reason: "no vacation is running" } };
@@ -174,9 +202,12 @@ export const businessRouter = router({
     const holiday = await ctx.rls(async (tx) => {
       const endedAt = new Date();
       const h = await repos.holidays.end(tx, ctx.businessId, current.id, { endedAt });
+      await audit(tx, ctx, { action: "business.end_holiday", target: { kind: "holiday", id: h.id }, details: { reason: input.reason, workflowQueued: workflow.queued } });
+      if (workflow.queued) return h;
       const range = { from: current.startedAt ?? current.createdAt, to: endedAt };
       const [counts, usage] = await Promise.all([repos.events.countByType(tx, ctx.businessId, range), repos.usage.totals(tx, ctx.businessId, range)]);
       await emit(tx, ctx, {
+        idempotencyKey: `holiday.ended:${h.id}`,
         type: "holiday.ended",
         payload: {
           holidayId: h.id,
@@ -192,7 +223,6 @@ export const businessRouter = router({
           reportInboxItemId: null,
         },
       });
-      await audit(tx, ctx, { action: "business.end_holiday", target: { kind: "holiday", id: h.id }, details: { reason: input.reason, workflowQueued: workflow.queued } });
       return h;
     });
     return { holiday, workflow };
