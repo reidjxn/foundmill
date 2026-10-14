@@ -64,7 +64,7 @@ export async function loadAutopilotFacts(db: Executor, business: Business, now: 
   const dayStart = utcDayStart(nowMs);
   const since = business.autopilotChangedAt ? business.autopilotChangedAt.getTime() : nowMs;
   const [holiday, blockingItems, cycleEvents, spent, credits] = await Promise.all([
-    repos.holidays.current(db, business.id),
+    repos.holidays.current(db, business.id, now),
     repos.inbox.countBlocking(db, business.id),
     repos.events.list(db, business.id, { type: ["cycle.started", "cycle.completed"], limit: 200 }),
     repos.usage.totals(db, business.id, { from: new Date(dayStart) }),
