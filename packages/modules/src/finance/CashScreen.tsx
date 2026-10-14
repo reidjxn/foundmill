@@ -16,7 +16,7 @@ import { PNL_CATEGORY_OPTIONS, categoryLabel, monthStart, plainWords, sectionOf,
 import { RecategoriseDialog } from "./RecategoriseDialog";
 import { DateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
-import { Screen, fmtMoney, fmtSigned, useCurrency, useNow } from "./shared";
+import { Screen, fmtMoney, fmtSigned, toDate, useCurrency, useNow } from "./shared";
 import type { AccountRow, AccountsListResponse, CategorySource, TransactionRow, TransactionsListResponse } from "./types";
 
 export const CONSENT_WARN_DAYS = 7;
@@ -105,7 +105,8 @@ export function transactionColumns(accounts: readonly AccountRow[], businessId: 
       meta: { numeric: true, csv: (r) => (r.amountMinor / 100).toFixed(2) },
     },
     { id: "account", accessorFn: (r) => accountName.get(r.accountId) ?? r.accountId.slice(0, 8), header: "Account", size: sizes.account, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue())}</span>, meta: { filter: "select", filterOptions: accounts.map((a) => ({ value: a.name, label: a.name })) } },
-    { id: "thisMonth", accessorFn: (r) => r.bookedAt >= monthStartIso, header: "This month", size: sizes.thisMonth, cell: ({ getValue }) => (getValue() ? "Yes" : "No"), meta: { filter: "boolean" } },
+    // bookedAt arrives as a Date (superjson) or an ISO string: compare instants, never a Date with a string.
+    { id: "thisMonth", accessorFn: (r) => (toDate(r.bookedAt)?.getTime() ?? Number.NEGATIVE_INFINITY) >= Date.parse(monthStartIso), header: "This month", size: sizes.thisMonth, cell: ({ getValue }) => (getValue() ? "Yes" : "No"), meta: { filter: "boolean" } },
   ];
 }
 
@@ -169,7 +170,9 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
     return [...by.entries()].map(([cur, amountMinor]) => ({ currency: cur, amountMinor }));
   }, [accounts]);
   const lapsing = accounts.filter((a) => consentState(a.consentExpiresAt, now).tone !== "good" && consentState(a.consentExpiresAt, now).tone !== "neutral");
-  const reconnect = () => navigate(routes.settings(businessId, "integrations"));
+  const connectBank = () => navigate(routes.settings(businessId, "integrations"));
+  // Renewing goes to the account's own connector row in Settings › Integrations, which offers "Renew consent" there.
+  const reconnect = (account: AccountRow) => navigate(`${routes.settings(businessId, "integrations")}?connector=${encodeURIComponent(account.provider.toLowerCase())}`);
 
   const rowActions = (row: TransactionRow): RowAction<TransactionRow>[] => [
     { id: "recat", label: "Recategorize…", icon: Tag, onSelect: (r) => setRecat(r) },
@@ -185,7 +188,7 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
         loading={accountsQ.isLoading}
         error={accountsQ.error ? accountsQ.error.message : undefined}
         onRetry={accountsQ.refetch}
-        empty={accountsQ.data && accounts.length === 0 ? { icon: Landmark, title: "No bank accounts connected", children: "Connect Tink or Plaid in Settings and every account appears here with its balance and consent expiry.", action: { label: "Connect a bank", icon: Landmark, onClick: reconnect } } : undefined}
+        empty={accountsQ.data && accounts.length === 0 ? { icon: Landmark, title: "No bank accounts connected", children: "Connect Tink or Plaid in Settings and every account appears here with its balance and consent expiry.", action: { label: "Connect a bank", icon: Landmark, onClick: connectBank } } : undefined}
         meta={accounts.length ? `${accounts.length} connected${totals.length ? ` · ${totals.map((t) => fmtMoney(t.amountMinor, t.currency)).join(" + ")}` : ""}` : undefined}
         actions={
           lapsing.length ? (
@@ -199,7 +202,7 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
         <div className={cn("grid gap-px bg-subtle", ACCOUNT_COLS[Math.min(4, Math.max(1, accounts.length))])} role="list" aria-label="Bank accounts">
           {accounts.map((a) => (
             <div key={a.id} role="listitem" className={cn(accountId === a.id && "outline outline-2 -outline-offset-2 outline-link")}>
-              <AccountCard account={a} now={now} onReconnect={reconnect} />
+              <AccountCard account={a} now={now} onReconnect={() => reconnect(a)} />
             </div>
           ))}
         </div>

@@ -35,6 +35,20 @@ export const ecbTools = [
 
 export const ECB_RATE_LIMITS = { perMinute: 10, perDay: 200 };
 
+/** Decimal places of a currency's minor unit (2 for EUR, 0 for JPY, ISK, KRW, 3 for KWD), from the platform's ICU data. */
+export function minorUnitDigits(currency: string): number {
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).resolvedOptions().maximumFractionDigits ?? 2;
+  } catch {
+    return 2;
+  }
+}
+
+/**
+ * Converts an amount in `from`'s minor units into `to`'s minor units. The rate is between whole units (one EUR in
+ * yen), so the amount is scaled by the difference of the two currencies' minor-unit digits: 10.00 EUR (1000 cents) is
+ * about 1,629 yen, not 162,910.
+ */
 export function convertWithRates(rates: Rates, amountMinor: number, from: string, to: string) {
   const f = from.toUpperCase();
   const t = to.toUpperCase();
@@ -45,7 +59,8 @@ export function convertWithRates(rates: Rates, amountMinor: number, from: string
     return r;
   };
   const rate = perEur(t) / perEur(f);
-  return { amountMinor: Math.round(amountMinor * rate), from: f, to: t, rate: Number(rate.toFixed(6)), date: rates.date, label: "Estimate" as const };
+  const scale = 10 ** (minorUnitDigits(t) - minorUnitDigits(f));
+  return { amountMinor: Math.round(amountMinor * rate * scale), from: f, to: t, rate: Number(rate.toFixed(6)), date: rates.date, label: "Estimate" as const };
 }
 
 /** Parse the ECB daily XML (`<Cube time='…'><Cube currency='USD' rate='1.08'/>…`). No XML dependency needed. */

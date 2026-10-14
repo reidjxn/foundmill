@@ -14,7 +14,7 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
-import { aktiebokRows, delawareLedgerRows, modelRound, plainWords, safeTerms, toCsv, vestingSummary, type RoundInput } from "./metrics";
+import { aktiebokRows, delawareLedgerRows, entryCurrency, holderKindWord, modelRound, safeTerms, toCsv, vestingSummary, type RoundInput } from "./metrics";
 import { DateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
 import { Screen, downloadText, fmtMoney, fmtQuantity, parseAmount, useCurrency, useNow } from "./shared";
@@ -22,14 +22,13 @@ import type { CapTableEntryRow, CapTableResponse, CapTableSummary, SecurityRow }
 
 const KIND_TONE: Record<SecurityRow["kind"], ChipTone> = { common: "neutral", preferred: "info", option: "kit", warrant: "info", safe: "gold", note: "gold" };
 const KIND_WORD: Record<SecurityRow["kind"], string> = { common: "Common", preferred: "Preferred", option: "Option", warrant: "Warrant", safe: "SAFE", note: "Note" };
+const CONVERSION_WORD: Record<"cap" | "discount" | "price", string> = { cap: "at the valuation cap", discount: "at the discount", price: "at the round price" };
 
 export function holderKind(kind: string): EntityKind {
   return kind === "organisation" || kind === "person" || kind === "team_member" || kind === "agent" ? kind : "person";
 }
 
 export type HolderRow = CapTableSummary["byHolder"][number] & { kind: string };
-
-const HOLDER_KIND_WORD: Record<string, string> = { person: "Person", organisation: "Organization", team_member: "Team member", agent: "Agent" };
 
 export function holderRows(data: CapTableResponse | undefined): HolderRow[] {
   if (!data) return [];
@@ -80,9 +79,24 @@ export type IssuanceColumnId = keyof typeof ISSUANCE_FIT;
 export function holderColumns(businessId: string, sizes: Record<HolderColumnId, number> = fitColumns<HolderColumnId>(null, HOLDER_FIT, [])): DataTableColumn<HolderRow>[] {
   return [
     { id: "name", accessorKey: "displayName", header: "Holder", size: sizes.name, cell: ({ row }) => <EntityLink entity={{ id: row.original.holderEntityId, kind: holderKind(row.original.kind), name: row.original.displayName, href: routes.crm(businessId, row.original.holderEntityId) }} />, meta: { locked: true } },
-    { id: "kind", accessorKey: "kind", header: "Kind", size: sizes.kind, cell: ({ getValue }) => <span className="text-secondary">{HOLDER_KIND_WORD[String(getValue())] ?? plainWords(String(getValue()))}</span>, meta: { filter: "select", filterOptions: ["person", "organisation", "team_member"].map((k) => ({ value: k, label: HOLDER_KIND_WORD[k] ?? k })) } },
+    { id: "kind", accessorKey: "kind", header: "Kind", size: sizes.kind, cell: ({ getValue }) => <span className="text-secondary">{holderKindWord(String(getValue()))}</span>, meta: { filter: "select", filterOptions: ["person", "organisation", "team_member"].map((k) => ({ value: k, label: holderKindWord(k) })) } },
     { id: "quantity", accessorKey: "quantity", header: "Shares", size: sizes.quantity, cell: ({ getValue }) => <span className="tabular-nums">{fmtQuantity(getValue() as number)}</span>, meta: { numeric: true } },
-    { id: "pct", accessorKey: "fullyDilutedPct", header: "Fully diluted", size: sizes.pct, cell: ({ getValue }) => <span className="text-body-strong text-primary tabular-nums">{formatPercent(getValue() as number, { ofHundred: true, digits: 2 })}</span>, meta: { numeric: true } },
+    {
+      id: "pct",
+      accessorFn: (r) => r.fullyDilutedPct ?? -1,
+      header: "Fully diluted",
+      size: sizes.pct,
+      // A holder of SAFEs or notes alone has no shares until a priced round converts them (see round modeling).
+      cell: ({ row }) =>
+        row.original.fullyDilutedPct === null ? (
+          <span className="text-secondary" title="SAFEs and notes are not shares until a priced round converts them">
+            Not converted
+          </span>
+        ) : (
+          <span className="text-body-strong text-primary tabular-nums">{formatPercent(row.original.fullyDilutedPct, { ofHundred: true, digits: 2 })}</span>
+        ),
+      meta: { numeric: true },
+    },
     {
       id: "positions",
       accessorFn: (r) => r.positions.map((p) => `${p.class} ${p.quantity}`).join(", "),
@@ -92,7 +106,7 @@ export function holderColumns(businessId: string, sizes: Record<HolderColumnId, 
       cell: ({ row }) => (
         <span className="flex min-w-0 gap-1 overflow-hidden">
           {row.original.positions.map((p) => (
-            <Chip key={p.securityId} tone="neutral" className="shrink-0 whitespace-nowrap" title={`${fmtQuantity(p.quantity)} ${p.class}`}>
+            <Chip key={p.securityId} tone="neutral" className="shrink-0 whitespace-nowrap" title={p.convertible ? `${p.class}, converts at the next priced round` : `${fmtQuantity(p.quantity)} ${p.class}`}>
               {p.class}
             </Chip>
           ))}
@@ -104,20 +118,31 @@ export function holderColumns(businessId: string, sizes: Record<HolderColumnId, 
 
 export function issuanceColumns(businessId: string, securities: readonly SecurityRow[], now: Date, sizes: Record<IssuanceColumnId, number> = fitColumns<IssuanceColumnId>(null, ISSUANCE_FIT, [])): DataTableColumn<CapTableEntryRow>[] {
   const byId = new Map(securities.map((s) => [s.id, s]));
-  // A price is denominated in its share class's currency (an entry recorded without one must not read as another currency).
-  const entryCurrency = (r: CapTableEntryRow) => byId.get(r.securityId)?.currency || r.currency;
+  // Prices and principals are denominated in their share class's currency (an entry's own column may say otherwise).
+  const currencyOf = (r: CapTableEntryRow) => entryCurrency(r, byId.get(r.securityId));
   return [
     { id: "holder", accessorFn: (r) => r.holder.displayName, header: "Holder", size: sizes.holder, cell: ({ row }) => <EntityLink entity={{ id: row.original.holderEntityId, kind: holderKind(row.original.holder.kind), name: row.original.holder.displayName, href: routes.crm(businessId, row.original.holderEntityId) }} hoverCard={false} />, meta: { locked: true } },
     { id: "class", accessorFn: (r) => r.security.class, header: "Class", size: sizes.class, cell: ({ getValue }) => <span className="text-body-strong text-primary">{String(getValue())}</span>, meta: { filter: "select", filterOptions: securities.map((s) => ({ value: s.class, label: s.class })) } },
     { id: "kind", accessorFn: (r) => r.security.kind, header: "Kind", size: sizes.kind, cell: ({ getValue }) => <Chip tone={KIND_TONE[getValue() as SecurityRow["kind"]]} className="whitespace-nowrap">{KIND_WORD[getValue() as SecurityRow["kind"]]}</Chip>, meta: { filter: "select", filterOptions: Object.entries(KIND_WORD).map(([value, label]) => ({ value, label })) } },
     { id: "quantity", accessorFn: (r) => Number(r.quantity), header: "Quantity", size: sizes.quantity, cell: ({ getValue }) => <span className="tabular-nums">{fmtQuantity(getValue() as number)}</span>, meta: { numeric: true } },
-    { id: "price", accessorFn: (r) => r.priceMinor ?? 0, header: "Price", size: sizes.price, cell: ({ row }) => <span className="tabular-nums">{row.original.priceMinor === null ? "—" : fmtMoney(row.original.priceMinor, entryCurrency(row.original))}</span>, meta: { numeric: true } },
-    { id: "consideration", accessorFn: (r) => (r.priceMinor === null ? 0 : Math.round(r.priceMinor * Number(r.quantity))), header: "Consideration", size: sizes.consideration, cell: ({ row }) => <span className="tabular-nums">{row.original.priceMinor === null ? "—" : fmtMoney(Math.round(row.original.priceMinor * Number(row.original.quantity)), entryCurrency(row.original))}</span>, meta: { numeric: true } },
+    { id: "price", accessorFn: (r) => r.priceMinor ?? 0, header: "Price", size: sizes.price, cell: ({ row }) => <span className="tabular-nums">{row.original.priceMinor === null ? "—" : fmtMoney(row.original.priceMinor, currencyOf(row.original))}</span>, meta: { numeric: true } },
+    { id: "consideration", accessorFn: (r) => (r.priceMinor === null ? 0 : Math.round(r.priceMinor * Number(r.quantity))), header: "Consideration", size: sizes.consideration, cell: ({ row }) => <span className="tabular-nums">{row.original.priceMinor === null ? "—" : fmtMoney(Math.round(row.original.priceMinor * Number(row.original.quantity)), currencyOf(row.original))}</span>, meta: { numeric: true } },
     { id: "issuedAt", accessorFn: (r) => r.issuedAt ?? "", header: "Issued", size: sizes.issuedAt, cell: ({ getValue }) => <DateText className="tabular-nums" value={getValue() ? String(getValue()) : null} />, meta: { filter: "date" } },
-    { id: "vesting", accessorFn: (r) => vestingSummary(r.vesting, r.quantity, now)?.text ?? "", header: "Vesting", size: sizes.vesting, cell: ({ getValue }) => <span className="text-secondary">{String(getValue()) || "Fully vested"}</span> },
-    { id: "vestedPct", accessorFn: (r) => vestingSummary(r.vesting, r.quantity, now)?.vestedPct ?? 100, header: "Vested", size: sizes.vestedPct, cell: ({ getValue }) => <span className="tabular-nums">{formatPercent(getValue() as number, { ofHundred: true, digits: 0 })}</span>, meta: { numeric: true } },
-    { id: "principal", accessorFn: (r) => safeTerms(r, byId.get(r.securityId))?.principalMinor ?? 0, header: "Principal", size: sizes.principal, cell: ({ row }) => { const t = safeTerms(row.original, byId.get(row.original.securityId)); return <span className="tabular-nums">{t ? fmtMoney(t.principalMinor, row.original.currency) : "—"}</span>; }, meta: { numeric: true } },
-    { id: "cap", accessorFn: (r) => safeTerms(r, byId.get(r.securityId))?.valuationCapMinor ?? 0, header: "Valuation cap", size: sizes.cap, cell: ({ row }) => { const t = safeTerms(row.original, byId.get(row.original.securityId)); return <span className="tabular-nums">{t?.valuationCapMinor ? fmtMoney(t.valuationCapMinor, row.original.currency, { compact: true }) : "—"}</span>; }, meta: { numeric: true } },
+    { id: "vesting", accessorFn: (r) => vestingSummary(r.vesting, r.quantity, now, r.issuedAt)?.text ?? "", header: "Vesting", size: sizes.vesting, cell: ({ getValue }) => <span className="text-secondary">{String(getValue()) || "Fully vested"}</span> },
+    {
+      id: "vestedPct",
+      // No schedule: vested at issue. A schedule with no start date: unknown, never "100%".
+      accessorFn: (r) => {
+        const v = vestingSummary(r.vesting, r.quantity, now, r.issuedAt);
+        return v ? (v.vestedPct ?? -1) : 100;
+      },
+      header: "Vested",
+      size: sizes.vestedPct,
+      cell: ({ getValue }) => <span className="tabular-nums">{(getValue() as number) < 0 ? "—" : formatPercent(getValue() as number, { ofHundred: true, digits: 0 })}</span>,
+      meta: { numeric: true },
+    },
+    { id: "principal", accessorFn: (r) => safeTerms(r, byId.get(r.securityId))?.principalMinor ?? 0, header: "Principal", size: sizes.principal, cell: ({ row }) => { const t = safeTerms(row.original, byId.get(row.original.securityId)); return <span className="tabular-nums">{t ? fmtMoney(t.principalMinor, currencyOf(row.original)) : "—"}</span>; }, meta: { numeric: true } },
+    { id: "cap", accessorFn: (r) => safeTerms(r, byId.get(r.securityId))?.valuationCapMinor ?? 0, header: "Valuation cap", size: sizes.cap, cell: ({ row }) => { const t = safeTerms(row.original, byId.get(row.original.securityId)); return <span className="tabular-nums">{t?.valuationCapMinor ? fmtMoney(t.valuationCapMinor, currencyOf(row.original), { compact: true }) : "—"}</span>; }, meta: { numeric: true } },
     { id: "discount", accessorFn: (r) => safeTerms(r, byId.get(r.securityId))?.discountPct ?? 0, header: "Discount", size: sizes.discount, cell: ({ row }) => { const t = safeTerms(row.original, byId.get(row.original.securityId)); return <span className="tabular-nums">{t && t.discountPct > 0 ? formatPercent(t.discountPct, { ofHundred: true, digits: 0 }) : "—"}</span>; }, meta: { numeric: true } },
   ];
 }
@@ -152,9 +177,10 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
   }, [data]);
   const convertibles = useMemo(() => {
     const byId = new Map((data?.securities ?? []).map((s) => [s.id, s]));
-    return (data?.entries ?? []).map((e) => safeTerms(e, byId.get(e.securityId))).filter((t): t is NonNullable<typeof t> => !!t);
+    return (data?.entries ?? []).filter((e) => !e.archivedAt).map((e) => ({ securityId: e.securityId, currency: entryCurrency(e, byId.get(e.securityId)), terms: safeTerms(e, byId.get(e.securityId)) })).filter((c): c is { securityId: string; currency: string; terms: NonNullable<ReturnType<typeof safeTerms>> } => !!c.terms);
   }, [data]);
-  const convertiblePrincipal = convertibles.reduce((n, t) => n + t.principalMinor, 0);
+  const convertiblePrincipal = convertibles.reduce((n, c) => n + c.terms.principalMinor, 0);
+  const principalOfClass = (securityId: string) => convertibles.filter((c) => c.securityId === securityId).reduce((n, c) => n + c.terms.principalMinor, 0);
   const lastChange = useMemo(() => (data?.entries ?? []).map((e) => e.updatedAt ?? e.createdAt ?? "").filter(Boolean).sort().at(-1) ?? null, [data]);
 
   const roundInput: RoundInput | null = useMemo(() => {
@@ -168,14 +194,14 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
 
   const exportCsv = (which: "delaware" | "aktiebok") => {
     if (!data) return;
-    const rows = which === "delaware" ? delawareLedgerRows(data.entries, now) : aktiebokRows(data.entries);
+    const rows = which === "delaware" ? delawareLedgerRows(data.entries, now, data.securities) : aktiebokRows(data.entries, data.securities);
     const csv = toCsv(rows);
     const title = which === "delaware" ? "Delaware stock ledger" : "Aktiebok";
     if (!downloadText(`${which}-${now.toISOString().slice(0, 10)}.csv`, csv)) setExportText({ title, csv });
   };
 
   const tiles: MetricTileProps[] = [
-    { label: "Fully diluted shares", value: data?.summary.totalQuantity ?? null, format: "integer", provenance: { source: "Cap table entries, every live position including options and converted instruments", query: "finance.capTable.get" } },
+    { label: "Fully diluted shares", value: data?.summary.totalQuantity ?? null, format: "integer", provenance: { source: "Cap table entries: every issued share and option", query: "finance.capTable.get", note: "SAFEs and convertible notes are left out until a priced round converts them; round modeling shows the shares they would convert into (Estimate)." } },
     { label: "Holders", value: holders.length, format: "integer", provenance: { source: "Distinct holder entities in the CRM" } },
     { label: "Option pool", value: pool.authorised ? pool.available / pool.authorised : "—", format: "percent", caption: pool.authorised ? `${fmtQuantity(pool.available)} of ${fmtQuantity(pool.authorised)} unallocated` : "No option class yet", provenance: { source: "Authorized option classes minus issued options", note: "The share of the pool still available to grant." } },
     { label: "Convertibles", value: { amountMinor: convertiblePrincipal, currency: cur }, caption: `${convertibles.length} SAFE${convertibles.length === 1 ? "" : "s"} or note${convertibles.length === 1 ? "" : "s"} outstanding`, provenance: { source: "Principal of post-money SAFEs and convertible notes", note: "Converts into shares at the next priced round (see round modeling)." } },
@@ -215,12 +241,17 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
                 <Chip tone={KIND_TONE[c.kind]} className="whitespace-nowrap">
                   {KIND_WORD[c.kind]}
                 </Chip>
-                <span className="ml-auto whitespace-nowrap text-body-strong text-primary tabular-nums" title="Fully diluted">
-                  {formatPercent(c.fullyDilutedPct, { ofHundred: true, digits: 2 })}
-                </span>
+                {c.fullyDilutedPct === null ? null : (
+                  <span className="ml-auto whitespace-nowrap text-body-strong text-primary tabular-nums" title="Fully diluted">
+                    {formatPercent(c.fullyDilutedPct, { ofHundred: true, digits: 2 })}
+                  </span>
+                )}
               </div>
               <p className="text-small text-secondary tabular-nums">
-                {fmtQuantity(c.quantity)} issued{c.authorisedQuantity === null ? "" : ` of ${fmtQuantity(c.authorisedQuantity)} authorized`} · {c.holders} holder{c.holders === 1 ? "" : "s"}
+                {c.convertible
+                  ? `${fmtMoney(principalOfClass(c.securityId), convertibles.find((x) => x.securityId === c.securityId)?.currency ?? cur)} principal · converts at the next priced round`
+                  : `${fmtQuantity(c.quantity)} issued${c.authorisedQuantity === null ? "" : ` of ${fmtQuantity(c.authorisedQuantity)} authorized`}`}{" "}
+                · {c.holders} holder{c.holders === 1 ? "" : "s"}
               </p>
             </li>
           ))}
@@ -288,11 +319,21 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
                     { label: "Price per share", value: fmtMoney(proForma.pricePerShareMinor, cur), numeric: true },
                     { label: "New shares", value: fmtQuantity(proForma.newShares), numeric: true },
                     { label: "Investor stake", value: formatPercent(proForma.investorPct, { ofHundred: true, digits: 2 }), numeric: true },
-                    { label: "SAFE shares", value: fmtQuantity(proForma.safeShares), numeric: true, hint: proForma.conversions.length ? proForma.conversions.map((c) => `${c.holder}: ${fmtQuantity(c.shares)} via ${c.method}`).join(" · ") : "No convertibles" },
+                    { label: "SAFE shares", value: fmtQuantity(proForma.safeShares), numeric: true, hint: proForma.conversions.length ? undefined : "No convertibles" },
                     { label: "Pool top-up", value: fmtQuantity(proForma.poolTopUpShares), numeric: true },
                     { label: "Post-round FD", value: fmtQuantity(proForma.postRoundFullyDiluted), numeric: true },
                   ]}
                 />
+                {proForma.conversions.length ? (
+                  // One wrapping line per conversion, under the figures (never squeezed into a figure's cell).
+                  <ul aria-label="SAFE conversions" className="mt-2 flex flex-col gap-1 border-t border-line-faint pt-2 text-small text-secondary">
+                    {proForma.conversions.map((c) => (
+                      <li key={c.entryId} className="break-words">
+                        <span className="text-primary">{c.holder}</span>: <span className="tabular-nums">{fmtQuantity(c.shares)}</span> shares {CONVERSION_WORD[c.method]}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
               </div>
               <div className="col-span-8">
                 <MiniTable<(typeof proForma.rows)[number]>

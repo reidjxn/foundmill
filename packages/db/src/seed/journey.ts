@@ -512,11 +512,7 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
     // One lead per lead role written above (the Leads tab and the Attribution counts are the same records).
     if (c.kind === "signup") bump(day, channel, { signups: 1, leads: channel && SEED_LEAD_CHANNELS.has(channel) ? 1 : 0 });
     else if (c.kind === "activation") bump(day, channel, { activations: 1 });
-    else {
-      if (c.firstPayment) bump(day, channel, { customers: 1 });
-      const mk = c.occurredAt.slice(0, 7);
-      revenueByMonth.set(mk, (revenueByMonth.get(mk) ?? 0) + c.amountMinor);
-    }
+    else if (c.firstPayment) bump(day, channel, { customers: 1 });
   }
   const spendShare = opts.channels.filter((c) => c.enabled && !c.kitMode && c.channelKey !== "paid_ads").map((c) => c.channelKey);
   const paidEnabled = channelByKey.get("paid_ads")?.enabled ?? false;
@@ -532,6 +528,26 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
     }
     const mk = row.day.slice(0, 7);
     adSpendByMonth.set(mk, (adSpendByMonth.get(mk) ?? 0) + row.spendMinor);
+  }
+  // Revenue the bank receives, month by month, from the series the journey's own MRR and MRR milestones come from, so
+  // Finance's cash-basis MRR (the last three full months of revenue ÷ 3) and the milestones describe one business: a
+  // recurring business is paid its MRR (an annual contract counts a twelfth a month, as the generator's MRR does), a
+  // one-off business what it sold in the month. Not only the first payments, which are the conversions.
+  if (data.meta.recurring) {
+    const mrr = new Map<string, { sum: number; days: number }>();
+    const start = new Date(`${data.meta.startDate}T00:00:00.000Z`).getTime();
+    data.series.mrrMinorByDay.forEach((value, i) => {
+      const mk = new Date(start + i * 86_400_000).toISOString().slice(0, 7);
+      const m = mrr.get(mk) ?? { sum: 0, days: 0 };
+      mrr.set(mk, { sum: m.sum + value, days: m.days + 1 });
+    });
+    for (const [mk, m] of mrr) revenueByMonth.set(mk, Math.round(m.sum / m.days));
+  } else {
+    for (const row of data.daily) {
+      if (row.departmentId || row.revenueMinor <= 0) continue;
+      const mk = row.day.slice(0, 7);
+      revenueByMonth.set(mk, (revenueByMonth.get(mk) ?? 0) + row.revenueMinor);
+    }
   }
   const metricRows: NewChannelMetric[] = [];
   for (const [key, m] of metric) {

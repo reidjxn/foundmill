@@ -71,10 +71,52 @@ describe("EntityScreen", () => {
     await waitFor(() => expect(fake.mutations).toHaveLength(2));
     expect(fake.mutations[1]!.path).toBe("legal.import.confirm");
     expect(fake.mutations[1]!.input).toMatchObject({ source: "companies_house", legalName: "Northwind Skincare Ltd", regNo: "12345678", jurisdiction: "england-wales", shareCapitalMinor: 2_500_000, currency: "EUR", officers: lookupResult.officers, deadlines: lookupResult.deadlines });
-    await screen.findByText("Imported · 2 officers added to the CRM");
+    await screen.findByText("Imported · 2 officers in the CRM");
     expect(screen.queryByRole("region", { name: "Lookup result" })).toBeNull();
     expect(fake.refetches["legal.incorporate.status"]).toBe(1);
     expect(fake.refetches["crm.roles.byRole"]).toBe(1);
+  });
+
+  it("says 'Updated' when the same company is imported again (#175)", async () => {
+    const fake = createFakeSource({
+      businessId: BID,
+      responses: emptyResponses,
+      onMutate: (path) => (path === "legal.import.lookup" ? lookupResult : path === "legal.import.confirm" ? { entity: { id: "e" }, people: ["p1", "p2"], created: false } : {}),
+    });
+    renderScreen(fake, <EntityScreen {...props} />);
+    const form = screen.getByRole("form", { name: "Import existing company" });
+    fireEvent.change(within(form).getByLabelText("Registration number"), { target: { value: "12345678" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Look up" }));
+    const result = await screen.findByRole("region", { name: "Lookup result" });
+    fireEvent.click(within(result).getByRole("button", { name: "Confirm and import" }));
+    await screen.findByText("Updated · 2 officers in the CRM");
+  });
+
+  it("lets the founder record the registration number and formation date a finished incorporation lacks (#166)", async () => {
+    const user = userEvent.setup();
+    const formed = { ...dataResponses["legal.incorporate.status"], entity: { ...dataResponses["legal.incorporate.status"].entity!, status: "active", regNo: null, formedAt: null } };
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "legal.incorporate.status": formed }, onMutate: () => ({}) });
+    renderScreen(fake, <EntityScreen {...props} />);
+    const form = screen.getByRole("form", { name: "Registry details" });
+    const save = within(form).getByRole("button", { name: "Save details" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+    await user.type(within(form).getByLabelText("Registration number"), "15432198");
+    fireEvent.change(within(form).getByLabelText("Date formed"), { target: { value: "2026-10-05" } });
+    await user.click(save);
+    await waitFor(() => expect(fake.mutations).toHaveLength(1));
+    expect(fake.mutations[0]).toEqual({ path: "legal.entity.update", input: { legalEntityId: formed.entity.id, regNo: "15432198", formedAt: "2026-10-05" } });
+    expect(fake.refetches["legal.incorporate.status"]).toBe(1);
+  });
+
+  it("offers no registry-details form while the entity is still forming or has both facts", () => {
+    const forming = { ...dataResponses["legal.incorporate.status"], entity: { ...dataResponses["legal.incorporate.status"].entity!, status: "forming", regNo: null, formedAt: null } };
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "legal.incorporate.status": forming } });
+    const { unmount } = renderScreen(fake, <EntityScreen {...props} />);
+    expect(screen.queryByRole("form", { name: "Registry details" })).toBeNull();
+    unmount();
+    const full = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(full, <EntityScreen {...props} />);
+    expect(screen.queryByRole("form", { name: "Registry details" })).toBeNull();
   });
 
   it("shows loading skeletons, then a retryable error", () => {

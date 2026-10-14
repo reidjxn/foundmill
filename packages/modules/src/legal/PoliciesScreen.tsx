@@ -2,13 +2,14 @@
 /**
  * Legal › Policies (BUILD §11.11): privacy policy, terms of service and cookie policy generated from the real
  * integrations and data flows (`integrations.list`), the legal entity and the archetype. The published text lives
- * as spec blocks in the "Policies" section of the product spec; a refresh is a change proposal: the generated text
+ * as spec blocks in the "Policies" section of the product spec: the first version is published from this screen (a
+ * human edit, so the block is pinned); a refresh is a change proposal: the generated text
  * is diffed against the published block hunk by hunk (the same DiffView as Product › Changes) and accepted hunks
  * are written through `product.spec.editBlock` (a human edit, so the block is pinned). Open proposals the Source
  * Watcher raised about policies are listed with a link to Product › Changes.
  */
 import { useMemo, useState } from "react";
-import { Cookie, FileDiff, FileText, RefreshCw, Scale, ShieldCheck } from "lucide-react";
+import { Cookie, FileDiff, FileText, RefreshCw, Scale, Send, ShieldCheck } from "lucide-react";
 import { Button, Chip, DiffView, Markdown, MiniTable, Panel, applyDecisions, buildHunks, diffLines, summariseDiff, useFormatters, type HunkDecisionState, type HunkDecisions, type IconComponent } from "@foundmill/dugout";
 import { moduleHref, moduleTabLabel, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -88,6 +89,17 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
       },
     });
   };
+  /** First publication: the generated text becomes the "Policies" block, written as the founder (so it is pinned). */
+  const publishFirst = async () => {
+    if (!generated || current) return;
+    await action.run("legal.policies.publish", { title: POLICY_TITLES[active], content: textToPm(proposed) }, {
+      key: `publish-${active}`,
+      then: () => {
+        setApplied(active);
+        spec.refetch();
+      },
+    });
+  };
   const acceptAll = () => {
     if (!diff) return;
     setDecisions((d) => ({ ...d, [active]: Object.fromEntries(diff.hunks.map((h) => [h.id, { decision: "accepted" as const }])) }));
@@ -118,7 +130,7 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
             ))}
           </div>
         }
-        footer={<span>Generated from {flows.length} connected integration{flows.length === 1 ? "" : "s"}, the legal entity and the archetype on {formatDate(now)}. The published text is the "{POLICIES_SECTION}" section of the product spec; accepting hunks edits that block as you.</span>}
+        footer={<span>Generated from {flows.length} connected integration{flows.length === 1 ? "" : "s"}, the legal entity and the archetype on {formatDate(now)}. The published text is the "{POLICIES_SECTION}" section of the product spec; publishing or accepting hunks writes that block as you.</span>}
       >
         {generated ? (
           current ? (
@@ -153,8 +165,12 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
                 <Chip tone="warn" icon={FileText} className="whitespace-nowrap">
                   Not yet in the spec
                 </Chip>
-                <span className="t-small text-secondary">The Product lead publishes the first version as a change proposal in the "{POLICIES_SECTION}" section; until then this preview is the generated text.</span>
+                <span className="t-small text-secondary">This preview is the generated text. Publishing adds it to the "{POLICIES_SECTION}" section of the product spec as you; later changes come back here as hunks to accept.</span>
+                <Button size="sm" variant="primary" icon={Send} loading={action.pending === `publish-${active}`} onClick={() => void publishFirst()}>
+                  Publish to the spec
+                </Button>
               </div>
+              <InlineError error={action.error} />
               <Markdown variant="body">{proposed}</Markdown>
             </section>
           )

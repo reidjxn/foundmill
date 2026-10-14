@@ -2,46 +2,64 @@
 /**
  * Legal › Regulatory (BUILD §11.11, §15 "regulated-sector gates"): the sector gates (health, finance, legal
  * services, food, cosmetics, children's products) suggested from the business profile and confirmed by the founder,
- * each with a checklist. While a gate is open the team does not perform the listed activities; identity-bound
- * steps are the founder's. Gate selections and ticks live in this window until the settings API carries them.
+ * each with a checklist. Choices and ticks are stored per business (`legal.regulatory.*`); every open gate goes into
+ * the team's brief each cycle, which tells the team not to do the listed activities and to bring them to the founder
+ * as decisions instead. Identity-bound steps are the founder's.
  */
 import { useMemo, useState } from "react";
 import { Check, ShieldAlert, ShieldCheck, ShieldOff } from "lucide-react";
 import { Checkbox, Chip, KeyValueList, Label, Panel, StatusPill, Switch, cn, type StatusTone } from "@foundmill/dugout";
 import { useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
-import { SECTOR_GATES, SECTOR_KEYS, detectSectors, gateState, type GateState, type SectorKey } from "./legal-data";
-import { FounderOnlyChip, InformationNotice, Screen, archetypeLabel } from "./shared";
-import type { BusinessGetResponse } from "./types";
+import { SECTOR_GATES, SECTOR_KEYS, detectSectors, gateState, sectorSelection, type GateState, type SectorChoice, type SectorKey } from "./legal-data";
+import { FounderOnlyChip, InformationNotice, InlineError, Screen, archetypeLabel, useAction } from "./shared";
+import type { BusinessGetResponse, RegulatoryGateRow } from "./types";
 
 const BUSINESS_INPUT: Record<string, unknown> = {};
+const GATES_INPUT: Record<string, unknown> = {};
 const REGION_WORD: Record<string, string> = { eu: "European Union", us: "United States" };
 
 const GATE_PILL: Record<GateState, { tone: StatusTone; word: string }> = { open: { tone: "warn", word: "Gate open" }, clear: { tone: "good", word: "Cleared" }, not_applicable: { tone: "neutral", word: "Not applicable" } };
 
 export function RegulatoryScreen({ businessId: _businessId }: ModuleScreenProps) {
   const business = useWidgetQuery<BusinessGetResponse>("business.get", BUSINESS_INPUT);
-  const [selected, setSelected] = useState<Set<SectorKey> | null>(null);
-  const [done, setDone] = useState<Set<string>>(() => new Set());
+  const stored = useWidgetQuery<RegulatoryGateRow[]>("legal.regulatory.list", GATES_INPUT);
+  const action = useAction();
+  // What the founder just changed, shown at once while the save and the reload catch up.
+  const [local, setLocal] = useState<Partial<Record<SectorKey, { applies?: boolean; done?: string[] }>>>({});
 
   const detected = useMemo(() => (business.data ? detectSectors({ name: business.data.business.name, archetype: business.data.business.archetype, glossary: business.data.business.glossary }) : []), [business.data]);
-  const detectedKeys = useMemo(() => new Set(detected.map((d) => d.key)), [detected]);
-  const chosen = selected ?? detectedKeys;
-  const toggle = (key: SectorKey, on: boolean) => {
-    setSelected((prev) => {
-      const next = new Set(prev ?? detectedKeys);
-      if (on) next.add(key);
-      else next.delete(key);
-      return next;
+  const detectedKeys = useMemo(() => detected.map((d) => d.key), [detected]);
+  // A sector without a stored choice follows the suggestion; the store wins, and this window's unsaved change wins over both.
+  const choices = useMemo<SectorChoice[]>(() => {
+    const byKey = new Map<string, SectorChoice>((stored.data ?? []).map((c) => [c.sector, { sector: c.sector, applies: c.applies, done: c.done }]));
+    for (const [key, change] of Object.entries(local)) {
+      const base = byKey.get(key);
+      byKey.set(key, { sector: key, applies: change.applies ?? base?.applies ?? detectedKeys.includes(key as SectorKey), done: change.done ?? base?.done ?? [] });
+    }
+    return [...byKey.values()];
+  }, [stored.data, local, detectedKeys]);
+  const { selected: chosen, done } = useMemo(() => sectorSelection(choices, detectedKeys), [choices, detectedKeys]);
+
+  const save = async (key: SectorKey, change: { applies?: boolean; done?: string[] }) => {
+    setLocal((l) => ({ ...l, [key]: { ...l[key], ...change } }));
+    await action.run("legal.regulatory.set", { sector: key, ...change }, {
+      key,
+      then: () => {
+        stored.refetch();
+        setLocal((l) => {
+          const { [key]: _saved, ...rest } = l;
+          return rest;
+        });
+      },
     });
   };
-  const tick = (id: string, on: boolean) => {
-    setDone((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
+  const toggle = (key: SectorKey, on: boolean) => void save(key, { applies: on, done: [...(choices.find((c) => c.sector === key)?.done ?? [])] });
+  const tick = (key: SectorKey, itemId: string, on: boolean) => {
+    const current = new Set(choices.find((c) => c.sector === key)?.done ?? []);
+    if (on) current.add(itemId);
+    else current.delete(itemId);
+    void save(key, { applies: chosen.has(key), done: [...current] });
   };
 
   const openGates = SECTOR_KEYS.filter((k) => gateState(k, chosen, done) === "open");
@@ -52,12 +70,13 @@ export function RegulatoryScreen({ businessId: _businessId }: ModuleScreenProps)
       <Panel
         title="Sector gates"
         span={4}
-        loading={business.isLoading}
-        error={business.error ? business.error.message : undefined}
-        onRetry={business.refetch}
+        loading={business.isLoading || stored.isLoading}
+        error={business.error ? business.error.message : stored.error ? stored.error.message : undefined}
+        onRetry={business.error ? business.refetch : stored.refetch}
         actions={openGates.length ? <StatusPill tone="warn" icon={ShieldAlert}>{openGates.length} open</StatusPill> : <StatusPill tone="good" icon={ShieldCheck}>No open gates</StatusPill>}
         footer={<span>Suggested from the business name, archetype and glossary; you confirm. Acceptable-use screening ran at Commit; a gate here adds the sector's checklist on top.</span>}
       >
+        <InlineError error={action.error} className="mb-2" />
         <ul aria-label="Sectors" className="flex flex-col gap-2">
           {SECTOR_KEYS.map((key) => {
             const gate = SECTOR_GATES[key];
@@ -96,7 +115,7 @@ export function RegulatoryScreen({ businessId: _businessId }: ModuleScreenProps)
         </ul>
       </Panel>
 
-      <Panel title="While a gate is open" span={8} empty={blocked.length === 0 ? { icon: ShieldCheck, children: "No regulated-sector gate is open. The team works under the platform's standard hard gates only." } : undefined} footer={<span>The team never performs these until the gate clears; the Chief of Staff routes them to you as decisions instead.</span>}>
+      <Panel title="While a gate is open" span={8} empty={blocked.length === 0 ? { icon: ShieldCheck, children: "No regulated-sector gate is open. The team works under the platform's standard hard gates only." } : undefined} footer={<span>Every open gate goes into the team's brief each cycle: the team is told not to do these and to bring them to you as decisions instead. Your choices here are saved for the business.</span>}>
         <ul aria-label="Blocked activities" className="flex flex-col gap-1">
           {blocked.map((b, i) => (
             <li key={`${b.gate}-${i}`} className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -122,7 +141,7 @@ export function RegulatoryScreen({ businessId: _businessId }: ModuleScreenProps)
                 const checked = done.has(itemId);
                 return (
                   <li key={item.id} className="flex items-start gap-2">
-                    <Checkbox id={itemId} checked={checked} onCheckedChange={(v) => tick(itemId, v === true)} aria-label={item.title} />
+                    <Checkbox id={itemId} checked={checked} onCheckedChange={(v) => tick(key, item.id, v === true)} aria-label={item.title} />
                     <div className="flex min-w-0 flex-1 flex-col gap-1">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <Label htmlFor={itemId} className={cn("t-body-strong", checked ? "text-secondary line-through" : "text-primary")}>

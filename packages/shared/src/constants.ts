@@ -233,6 +233,8 @@ export type ConnectorAuthKind = (typeof CONNECTOR_AUTH_KINDS)[number];
 
 export const INCORPORATION_ROUTES = ["stripe_atlas", "companies_house_web", "kit"] as const;
 export type IncorporationRoute = (typeof INCORPORATION_ROUTES)[number];
+/** Each route by the name a founder knows it ("companies_house_web" is "Companies House"), never the stored key. */
+export const INCORPORATION_ROUTE_LABELS: Record<IncorporationRoute, string> = { stripe_atlas: "Stripe Atlas", companies_house_web: "Companies House", kit: "Document pack" };
 
 export const SECURITY_KINDS = ["common", "preferred", "option", "warrant", "safe", "note"] as const;
 export type SecurityKind = (typeof SECURITY_KINDS)[number];

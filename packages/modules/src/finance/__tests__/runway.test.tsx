@@ -1,7 +1,8 @@
 import "./setup";
 import { describe, expect, it } from "vitest";
 import { act, fireEvent, screen, within } from "@testing-library/react";
-import { RunwayScreen, latestByScenario } from "../RunwayScreen";
+import userEvent from "@testing-library/user-event";
+import { RunwayScreen, latestByScenario, parseField, runwayText, scenarioHint, toField } from "../RunwayScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
 import { BID, dataResponses, emptyResponses, forecasts } from "./fixtures";
 
@@ -13,6 +14,38 @@ describe("latestByScenario", () => {
     expect(latest.base?.id).toBe("77777777-7777-4777-8777-777777777771");
     expect(latest.downside?.createdAt).toBe("2026-10-01T09:00:00.000Z");
     expect(latest.upside).toBeUndefined();
+  });
+});
+
+describe("driver fields (#172)", () => {
+  const drivers = { startingCashMinor: 150_050, monthlyRevenueMinor: 2_000_000, revenueGrowthPct: 2.5, monthlyCostsMinor: 3_500_000, costGrowthPct: 1, horizonMonths: 18 };
+
+  it("reads what is typed into a number only once it means one", () => {
+    expect(parseField("", "percent")).toBeNull();
+    expect(parseField("-", "percent")).toBeNull();
+    expect(parseField("2.", "percent")).toBe(2);
+    expect(parseField("2.5", "percent")).toBe(2.5);
+    expect(parseField(" 2.5% ", "percent")).toBe(2.5);
+    expect(parseField("18", "months")).toBe(18);
+    expect(parseField("99", "months")).toBe(60); // a horizon is held to 1 to 60 months
+    expect(parseField("0", "months")).toBe(1);
+    expect(parseField("1500.50", "money")).toBe(150_050);
+    expect(parseField("1,500.50", "money")).toBe(150_050);
+    expect(parseField("abc", "money")).toBeNull();
+  });
+
+  it("shows a stored driver with its cents and decimals, in the form it would be typed", () => {
+    expect(toField(drivers, "startingCashMinor", "money")).toBe("1500.5");
+    expect(toField(drivers, "revenueGrowthPct", "percent")).toBe("2.5");
+    expect(toField(drivers, "horizonMonths", "months")).toBe("18");
+    expect(toField(drivers, "runway_months", "months")).toBe("");
+  });
+
+  it("builds the scenario sentence and the runway words from the drivers", () => {
+    expect(scenarioHint("base", { ...drivers })).toBe("Base: what the plan says, revenue up 2.5% and costs up 1% a month, over 18 months.");
+    expect(runwayText({ kind: "beyond", horizonMonths: 24 })).toMatchObject({ pill: "Runway healthy", figure: "Beyond 24 months" });
+    expect(runwayText({ kind: "no_limit" })).toMatchObject({ pill: "No limit", figure: "No limit" });
+    expect(runwayText({ kind: "unknown", value: "Not known yet", caption: "Connect a bank to estimate it" })).toMatchObject({ pill: "Runway not known yet", tone: "neutral" });
   });
 });
 
@@ -80,6 +113,63 @@ describe("RunwayScreen", () => {
     expect(series[0]!.cashMinor).toBe(15_000_000 + 2_000_000 - 9_500_000);
     expect(fake.refetches["finance.forecast.list"]).toBe(1);
     expect((within(form).getByRole("button", { name: "Reset" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps what is typed in a driver field: 2.5 stays 2.5, horizon 18 stays 18, 1500.50 stays 1500.50 (#172)", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <RunwayScreen {...props} />);
+    const form = screen.getByRole("form", { name: "Base drivers" });
+    const growth = within(form).getByLabelText("Revenue growth") as HTMLInputElement;
+    const horizon = within(form).getByLabelText("Horizon") as HTMLInputElement;
+    const cash = within(form).getByLabelText("Starting cash") as HTMLInputElement;
+    // keyboard input after clear(): user-event's own cursor tracking resets on a click, which a person's typing does not
+    await user.clear(growth);
+    expect(growth.value).toBe(""); // clearing is not "0"
+    await user.keyboard("2.5");
+    expect(growth.value).toBe("2.5");
+    await user.clear(horizon);
+    expect(horizon.value).toBe(""); // not clamped to 1 mid-edit
+    await user.keyboard("18");
+    expect(horizon.value).toBe("18");
+    await user.clear(cash);
+    await user.keyboard("1500.50");
+    expect(cash.value).toBe("1500.50");
+    // after a field loses focus it shows the value it holds in its usual form
+    fireEvent.blur(cash);
+    expect(cash.value).toBe("1,500.5");
+    fireEvent.blur(growth);
+    expect(growth.value).toBe("2.5");
+    await act(async () => {
+      fireEvent.click(within(form).getByRole("button", { name: "Save Base forecast" }));
+    });
+    const drivers = fake.mutations[0]!.input.drivers as Record<string, number | null>;
+    expect(drivers.revenueGrowthPct).toBe(2.5);
+    expect(drivers.horizonMonths).toBe(18);
+    expect(drivers.startingCashMinor).toBe(150_050);
+    expect((fake.mutations[0]!.input.series as unknown[]).length).toBe(18);
+  });
+
+  it("says 'Not known yet' with its reason, not 'Runway healthy', for a business with no bank and nothing saved (#352)", () => {
+    const noBank = { ...emptyResponses, "finance.overview": { ...(emptyResponses["finance.overview"] as object), runway: { months: null, reason: "no_bank", label: "Estimate", warnings: [], blocksContinue: false } } };
+    const fake = createFakeSource({ businessId: BID, responses: noBank });
+    renderScreen(fake, <RunwayScreen {...props} />);
+    const list = screen.getByRole("list", { name: "Runway by scenario" });
+    for (const s of ["base", "upside", "downside"]) {
+      const row = list.querySelector(`[data-scenario='${s}']`) as HTMLElement;
+      expect(within(row).getByText("Runway not known yet")).toBeTruthy();
+      expect(within(row).getByText("Connect a bank to estimate it")).toBeTruthy();
+      expect(within(row).queryByText("Runway healthy")).toBeNull();
+      expect(within(row).queryByText(/Beyond 24 months/)).toBeNull();
+    }
+  });
+
+  it("describes each scenario from its own drivers, not fixed text (#173)", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <RunwayScreen {...props} />);
+    const form = screen.getByRole("form", { name: "Base drivers" });
+    fireEvent.change(within(form).getByLabelText("Revenue growth"), { target: { value: "7" } });
+    expect(screen.getByText(/revenue up 7% and costs up 1% a month, over 24 months/)).toBeTruthy();
   });
 
   it("switches scenario tabs and seeds an unsaved scenario from today's numbers", () => {

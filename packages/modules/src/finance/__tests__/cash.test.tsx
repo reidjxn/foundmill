@@ -1,12 +1,42 @@
 import "./setup";
 import { describe, expect, it } from "vitest";
-import { act, fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CashScreen, consentState, readAccounts } from "../CashScreen";
+import { CashScreen, consentState, readAccounts, transactionColumns } from "../CashScreen";
 import { NOW, createFakeSource, renderScreen } from "./fake-source";
 import { ACCOUNT, BID, ENTITY, TX, accounts, dataResponses, emptyResponses } from "./fixtures";
 
 const props = { businessId: BID, departmentId: "d-fin" };
+
+describe("This month view (#171)", () => {
+  const columns = transactionColumns(accounts, BID, "2026-10-01T00:00:00.000Z");
+  const thisMonth = columns.find((c) => c.id === "thisMonth")! as unknown as { accessorFn: (row: unknown) => boolean };
+  const row = (bookedAt: Date | string) => ({ id: "t", accountId: accounts[0]!.id, bookedAt, amountMinor: 1, currency: "EUR", counterparty: null, description: "", category: null, categorySource: null });
+
+  it("compares instants whether bookedAt arrives as a Date (superjson) or an ISO string", () => {
+    expect(thisMonth.accessorFn(row(new Date("2026-10-03T10:00:00.000Z")))).toBe(true);
+    expect(thisMonth.accessorFn(row("2026-10-03T10:00:00.000Z"))).toBe(true);
+    expect(thisMonth.accessorFn(row(new Date("2026-10-01T00:00:00.000Z")))).toBe(true); // the first instant of the month counts
+    expect(thisMonth.accessorFn(row(new Date("2026-09-30T23:59:59.000Z")))).toBe(false);
+    expect(thisMonth.accessorFn(row("not a date"))).toBe(false);
+  });
+
+  it("the built-in view lists this month's transactions when the rows carry Dates", async () => {
+    const user = userEvent.setup();
+    const withDates = { ...dataResponses, "finance.transactions.list": { items: (dataResponses["finance.transactions.list"] as { items: { bookedAt: string }[] }).items.map((t) => ({ ...t, bookedAt: new Date(t.bookedAt) })), nextCursor: null } };
+    const fake = createFakeSource({ businessId: BID, responses: withDates });
+    renderScreen(fake, <CashScreen {...props} />);
+    const total = within(screen.getByRole("grid", { name: "Transactions" })).getAllByRole("row").length;
+    await user.click(screen.getByRole("button", { name: /All transactions/ }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /This month/ }));
+    await waitFor(() => expect(within(screen.getByRole("grid", { name: "Transactions" })).getAllByRole("row").length).toBeLessThan(total));
+    const rows = within(screen.getByRole("grid", { name: "Transactions" })).getAllByRole("row");
+    expect(rows.length).toBeGreaterThan(1); // the header and October's rows, not "No rows match these filters"
+    expect(screen.queryByText(/No rows match these filters/)).toBeNull();
+    expect(within(screen.getByRole("grid", { name: "Transactions" })).getByText("Stripe")).toBeTruthy();
+    expect(within(screen.getByRole("grid", { name: "Transactions" })).queryByText("Payroll run")).toBeNull(); // booked in September
+  });
+});
 
 describe("consentState (AC-11.8.2)", () => {
   it("warns from 7 days before lapse and marks expired consents bad", () => {
@@ -50,7 +80,7 @@ describe("CashScreen", () => {
     fireEvent.click(within(screen.getByRole("group", { name: "Filter by account" })).getByRole("button", { name: "Ledgerly savings" }));
     expect(fake.queried.get("finance.transactions.list")).toEqual({ accountId: ACCOUNT.savings, limit: 500 });
     fireEvent.click(within(screen.getByRole("article", { name: "Ledgerly operating" })).getByRole("button", { name: /Renew consent/ }));
-    expect(fake.navigations[0]).toBe(`/b/${BID}/settings/integrations`);
+    expect(fake.navigations[0]).toBe(`/b/${BID}/settings/integrations?connector=tink`); // lands on that connector's row (#165)
     fireEvent.change(screen.getByRole("textbox", { name: "Search transactions" }), { target: { value: "figma" } });
     const table = screen.getByRole("grid", { name: "Transactions" });
     expect(within(table).getAllByText(/FIGMA/).length).toBe(2);

@@ -46,6 +46,7 @@ import { generateCategoriser, generateClassifier } from "./classifier";
 import { generateCoach } from "./coach";
 import { generateCodeReview } from "./codeReview";
 import { generateDepartmentLead } from "./departmentLead";
+import { generateJurisdictionRecommendation, isJurisdictionRequest } from "./jurisdictionRecommender";
 import { generateFoundationsSkeleton, generateIdeationSlate } from "./drafts";
 import { generateFoundations } from "./foundations";
 import { generateIdeationRoute } from "./ideation";
@@ -78,7 +79,7 @@ export const MOCK_ROUTES: Record<RouteKey, MockRouteDefinition> = {
   inboxComposer: { route: "inboxComposer", description: "One inbox note (fact → why → ask) in the from-agent's voice; Composer schema; manifest-only mentions; no invented numbers.", schema: ComposerOutput, generate: generateInboxComposer },
   planCompiler: { route: "planCompiler", description: "Founder free text → Plan of typed actions; hard gates → request_human_action; ambiguous → reply_only.", schema: PlanOutput, generate: generatePlanCompiler },
   chiefOfStaff: { route: "chiefOfStaff", description: "Cycle plan from open tasks within concurrency, budget and capacity; customer-unblocking work first.", schema: CyclePlanOutput, generate: generateChiefOfStaff },
-  departmentLead: { route: "departmentLead", description: "Department task assignments, blockers and a short report; drafts a spec change from a source for the Source Watcher.", schema: DepartmentLeadOutput, generate: (ctx) => (isSourceProposalRequest(ctx) ? generateSourceProposal(ctx) : generateDepartmentLead(ctx)) },
+  departmentLead: { route: "departmentLead", description: "Department task assignments, blockers and a short report; drafts a spec change from a source for the Source Watcher; jurisdiction cards for the Legal recommender.", schema: DepartmentLeadOutput, generate: (ctx) => (isSourceProposalRequest(ctx) ? generateSourceProposal(ctx) : isJurisdictionRequest(ctx) ? generateJurisdictionRecommendation(ctx) : generateDepartmentLead(ctx)) },
   planner: { route: "planner", description: "Roadmap items → task graph with acceptance criteria, test expectations, file-scope hints and dependencies.", schema: TaskGraphOutput, generate: generatePlanner },
   codeReview: { route: "codeReview", description: "Deterministic review of a unified diff against the platform rules.", schema: CodeReviewOutput, generate: generateCodeReview },
   ideation: { route: "ideation", description: "6–12 concept cards with 10 attributes (1–20), evidence and ≥ 2 citations, seeded by the prompt; one card (keeping the slate item's name, archetype and angle) when the schema is a single card.", schema: IdeationOutput, generate: generateIdeationRoute },

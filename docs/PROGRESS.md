@@ -924,7 +924,7 @@ W01 verification: independently reviewed the 22 issues on 9c21e37 and reproduced
 
 ## 2026-10-13 - W03 Finance and Legal (27 audit issues)
 
-Done (branch fix/W03-finance-legal, migration 0038_finance_legal):
+Done (branch fix/W03-finance-legal, migration 0057_finance_legal):
 - Finance: SAFEs out of fully diluted math; prices in the class's currency (backfill); one VestingSchedule; issuance limits locked and enforced on edit; duplicate class is a 409; round modeling solved together in whole shares; one projectForecast for seeds, Runway and Overview; Runway fields keep typed text and read 'Not known yet' without a bank; Cash 'This month' fixed; runway events only on a downward Base crossing; payroll staff named from the CRM; wages default period per request; demo seed fixes (option reserve unissued, share capital 800.00, forecast keys, bank revenue from the MRR series).
 - Legal: incorporation completes into an active entity, can be canceled, and cannot be reopened by a second submit; import is idempotent; friendly registry errors and mock register entries; policies can be published to the spec; sector gates persist and reach the team's brief; whole-word sector keywords; honest signature copy plus Dropbox Sign callback matching; one contract.signed per signature; bounded jurisdiction recommender (mock).
 - Integrations: Renew consent / Reconnect on connected rows, deep link from Cash.

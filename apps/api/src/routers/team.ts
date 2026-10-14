@@ -192,7 +192,16 @@ export const teamRouter = router({
   }),
 
   humans: router({
-    list: read.query(({ ctx }) => ctx.rls((tx) => repos.memberships.list(tx, ctx.businessId))),
+    /**
+     * Staff with their name and CRM record (`team_member` whose identifiers name the account); the signed-in member's
+     * own founder profile names them when the CRM has no record. Never an auth id dressed up as a CRM link.
+     */
+    list: read.query(({ ctx }) =>
+      ctx.rls(async (tx) => {
+        const [members, me] = await Promise.all([repos.memberships.listNamed(tx, ctx.businessId), repos.founders.get(tx, ctx.userId)]);
+        return members.map((m) => (m.displayName === null && m.userId === ctx.userId && me?.displayName ? { ...m, displayName: me.displayName } : m));
+      }),
+    ),
     /**
      * Add someone who already has an account, by their account ID (shown on their founder profile and in Settings ›
      * Preferences) or by the email they sign in with, resolved here to their account. No email is sent: invitation
