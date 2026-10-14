@@ -243,78 +243,78 @@
     {
       "idx": 34,
       "version": "7",
-      "when": 1793275920000,
-      "tag": "0037_copy_rules",
-      "breakpoints": true
-    },
-    {
-      "idx": 35,
-      "version": "7",
       "when": 1793448720000,
       "tag": "0039_money_billing",
       "breakpoints": true
     },
     {
-      "idx": 36,
+      "idx": 35,
       "version": "7",
       "when": 1793535120000,
       "tag": "0040_design_system",
       "breakpoints": true
     },
     {
-      "idx": 37,
+      "idx": 36,
       "version": "7",
       "when": 1793621520000,
       "tag": "0041_widgets_modules",
       "breakpoints": true
     },
     {
-      "idx": 38,
+      "idx": 37,
       "version": "7",
       "when": 1793880720000,
       "tag": "0044_home_api_data",
       "breakpoints": true
     },
     {
-      "idx": 39,
+      "idx": 38,
       "version": "7",
       "when": 1794053520000,
       "tag": "0046_gtm_services",
       "breakpoints": true
     },
     {
-      "idx": 40,
+      "idx": 39,
       "version": "7",
       "when": 1794226320000,
       "tag": "0048_inbox_services",
       "breakpoints": true
     },
     {
-      "idx": 41,
+      "idx": 40,
       "version": "7",
       "when": 1794571920000,
       "tag": "0052_product_development",
       "breakpoints": true
     },
     {
-      "idx": 42,
+      "idx": 41,
       "version": "7",
       "when": 1794658320000,
       "tag": "0053_production_deploy_ci",
       "breakpoints": true
     },
     {
-      "idx": 43,
+      "idx": 42,
       "version": "7",
       "when": 1794744720000,
       "tag": "0054_team",
       "breakpoints": true
     },
     {
-      "idx": 44,
+      "idx": 43,
       "version": "7",
       "when": 1794831120000,
       "tag": "0055_autopilot",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794917520000,
+      "tag": "0056_copy_rules",
       "breakpoints": true
     }
   ]

@@ -1,5 +1,5 @@
 /**
- * 0037 over data that already exists: the demo channels' "for this club" text, the first channel task and consumer-app
+ * 0056 over data that already exists: the demo channels' "for this club" text, the first channel task and consumer-app
  * Board decision with the football word, the four offline channel agents' "(wings line)" and the Chief of Staff's
  * doubled role all read the current words, and anything a founder wrote is left alone.
  */
@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readMigrations } from "../migrations";
 import { createTestDb, type TestHarness } from "../testing/pglite";
 
-const TAG = "0037_copy_rules";
+const TAG = "0056_copy_rules";
 let h: TestHarness;
 let businessId = "";
 
@@ -17,8 +17,8 @@ const one = async <T>(q: ReturnType<typeof sql>) => ((await h.db.execute(q)) as 
 beforeAll(async () => {
   const all = readMigrations();
   h = await createTestDb({ migrations: all.filter((m) => m.tag !== TAG) });
-  const owner = await h.createUser("owner@m37.test");
-  businessId = (await h.pg.query<{ id: string }>(`insert into businesses (name, slug, created_by) values ('m37', 'm37', $1) returning id`, [owner])).rows[0]!.id;
+  const owner = await h.createUser("owner@m56.test");
+  businessId = (await h.pg.query<{ id: string }>(`insert into businesses (name, slug, created_by) values ('m56', 'm56', $1) returning id`, [owner])).rows[0]!.id;
 
   await h.pg.query(`insert into channels (business_id, channel_key, line, why_md) values ($1, 'paid_ads', 'attack', 'Paid advertising: fit 16/20 for this club (Estimate). Recommended starter.')`, [businessId]);
   await h.pg.query(`insert into channels (business_id, channel_key, line, why_md) values ($1, 'seo', 'defence', 'Organic reach suits a club-sized budget, the founder says.')`, [businessId]);
@@ -35,7 +35,7 @@ beforeAll(async () => {
     h.pg.query(`insert into agent_versions (business_id, agent_id, version, instructions) values ($1, $2, $3, $4::jsonb)`, [businessId, agentId, v, JSON.stringify({ role, goals: ["x"] })]);
   await version(cos, "Chief of Staff and Chief of Staff: you run the cycle so the founder only has to read the Inbox and decide.", 1);
   await version(cos, "Chief of Staff: you run the cycle.", 2);
-  // Live prompts and profiles of agents hired before the switch (the template text 0037 brings up to date).
+  // Live prompts and profiles of agents hired before the switch (the template text 0056 brings up to date).
   const lead = await agent("engineering_lead", "I run the Development department: I take the Planner's task graph. Core metric: merges. Ship through the Development flow.");
   await version(lead, "Engineering lead for this business's Development department.", 1);
   await h.pg.query(`update agent_versions set instructions = jsonb_set(instructions, '{goals}', $2::jsonb) where agent_id = $1`, [
@@ -46,7 +46,7 @@ beforeAll(async () => {
 });
 afterAll(() => h?.close());
 
-describe("0037 applied over existing rows", () => {
+describe("0056 applied over existing rows", () => {
   it("channel Why text says business, and only the default phrase changes", async () => {
     const rows = await one<{ channel_key: string; why_md: string }>(sql`select channel_key, why_md from channels order by channel_key`);
     expect(rows.find((r) => r.channel_key === "paid_ads")?.why_md).toBe("Paid advertising: fit 16/20 for this business (Estimate). Recommended starter.");
