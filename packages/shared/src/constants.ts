@@ -287,7 +287,7 @@ export type EventType = (typeof EVENT_TYPES)[number];
  * founder is about its RECIPIENT, and a business's event log, its Inbox and its `ev:` stream are read by every member and
  * advisor with access to the sections they feed, so writing the sender's words there made a founder's private network
  * messages readable by their staff. These types stay in the vocabulary (the playbook words, the stream's walls table),
- * but they are never written to `events` (`repos.events.write` refuses them and a check constraint, 0056, holds the table
+ * but they are never written to `events` (`repos.events.write` refuses them and a check constraint, 0059, holds the table
  * to it) and never delivered on a business stream (apps/stream drops them). The recipient gets a content-free signal on
  * their own `u:{userId}` channel and reads the rest through `live.*`, which only the people in the thread can call.
  */
