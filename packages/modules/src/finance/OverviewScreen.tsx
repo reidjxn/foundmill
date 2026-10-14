@@ -15,6 +15,7 @@ import {
   acquisitionCost,
   cashHistory,
   formatMonth,
+  monthKey,
   monthStart,
   monthlySeries,
   operatingBurn,
@@ -28,6 +29,7 @@ import {
   runwayWarnings,
   runwayWord,
   seedDrivers,
+  storedProjection,
   trailingMonths,
   RUNWAY_BLOCK_MONTHS,
   type MetricKey,
@@ -150,12 +152,14 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
     if (!data) return [];
     const history = cashHistory(data.cash.amountMinor, data.revenue.monthly ?? [], months);
     const actual = months.map((m, i) => ({ x: new Date(`${m}-01T00:00:00.000Z`), y: history[i] ?? 0 }));
-    const base = data.forecasts?.base ? readSeries(data.forecasts.base.series as unknown[]) : [];
+    // The Base forecast as the Runway tab draws it: its drivers projected over its own months (one computation).
+    const fallback = seedDrivers("base", { cashMinor: data.cash.amountMinor, mrrMinor: 0, grossBurnMinor: data.burn.grossBurnMinor });
+    const base = storedProjection(data.forecasts?.base as { drivers?: unknown; series?: unknown[] } | null | undefined, fallback, monthKey(now))?.series ?? [];
     const forecast = base.slice(0, 12).map((p) => ({ x: new Date(`${p.month}-01T00:00:00.000Z`), y: p.cashMinor }));
     const series: LineSeries[] = [{ id: "cash", label: "Cash in bank", tone: "kit", data: actual, area: true }];
     if (forecast.length) series.push({ id: "base", label: "Base forecast", tone: "secondary", data: forecast, dashed: true });
     return series;
-  }, [data, months]);
+  }, [data, months, now]);
 
   const flow = useMemo(() => {
     if (!data) return [];

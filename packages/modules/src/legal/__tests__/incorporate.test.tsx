@@ -4,7 +4,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { IncorporateScreen } from "../IncorporateScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
-import { BID, ENTITY, dataResponses, emptyResponses, recommendation, statusEntityOnly } from "./fixtures";
+import { BID, ENTITY, dataResponses, emptyResponses, incorporationAwaiting, recommendation, statusActive, statusEntityOnly } from "./fixtures";
 
 const props = { businessId: BID, departmentId: "d-legal" };
 
@@ -36,7 +36,7 @@ describe("IncorporateScreen", () => {
     const session = screen.getByRole("region", { name: "Supervised session" });
     expect(within(session).getAllByText("Waiting for you").length).toBeGreaterThan(0);
     const steps = within(session).getByRole("list", { name: "Session steps" });
-    expect(Array.from(steps.querySelectorAll("li")).map((li) => li.getAttribute("data-state"))).toEqual(["done", "done", "current", "todo", "todo"]);
+    expect(Array.from(steps.querySelectorAll("li")).map((li) => li.getAttribute("data-state"))).toEqual(["done", "current", "todo", "todo", "todo"]);
     expect(within(steps).getAllByText("Founder only")).toHaveLength(2);
     expect(within(session).getByText("supervised:abc123")).toBeTruthy();
     const takeOver = within(session).getByRole("button", { name: "Take over · Open Companies House" });
@@ -67,12 +67,78 @@ describe("IncorporateScreen", () => {
     expect(within(form).getByRole("radio", { name: /Companies House/ }).getAttribute("aria-checked")).toBe("true");
     await user.click(within(form).getByRole("radio", { name: /Document pack/ }));
     expect(within(form).getByRole("radio", { name: /Document pack/ }).getAttribute("aria-checked")).toBe("true");
+    // the pack has no default: the founder names the jurisdiction and the entity type
+    expect((within(form).getByLabelText("Jurisdiction") as HTMLInputElement).value).toBe("");
+    fireEvent.change(within(form).getByLabelText("Jurisdiction"), { target: { value: "Sweden" } });
     fireEvent.change(within(form).getByLabelText("Entity type"), { target: { value: "Aktiebolag" } });
     fireEvent.change(within(form).getByLabelText("Legal name"), { target: { value: "Northwind AB" } });
     expect(start.hasAttribute("disabled")).toBe(false);
     fireEvent.click(start);
-    expect(fake.mutations[0]).toEqual({ path: "legal.incorporate.start", input: { route: "kit", jurisdiction: "United Kingdom", entityType: "Aktiebolag", legalName: "Northwind AB" } });
+    expect(fake.mutations[0]).toEqual({ path: "legal.incorporate.start", input: { route: "kit", jurisdiction: "Sweden", entityType: "Aktiebolag", legalName: "Northwind AB" } });
     await waitFor(() => expect(fake.refetches["legal.incorporate.status"]).toBe(1));
+  });
+
+  it("fills in the jurisdiction and entity type each route forms when its radio is picked (#167)", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ businessId: BID, responses: { ...emptyResponses, "legal.incorporate.status": statusEntityOnly } });
+    renderScreen(fake, <IncorporateScreen {...props} />);
+    const form = screen.getByRole("form", { name: "Incorporation route" });
+    const jurisdiction = () => (within(form).getByLabelText("Jurisdiction") as HTMLInputElement).value;
+    const entityType = () => (within(form).getByLabelText("Entity type") as HTMLInputElement).value;
+    expect([jurisdiction(), entityType()]).toEqual(["Delaware", "C-corp"]);
+    await user.click(within(form).getByRole("radio", { name: /Companies House/ }));
+    expect([jurisdiction(), entityType()]).toEqual(["United Kingdom", "Ltd"]);
+    await user.click(within(form).getByRole("radio", { name: /Stripe Atlas/ }));
+    expect([jurisdiction(), entityType()]).toEqual(["Delaware", "C-corp"]);
+  });
+
+  it("marks the founder's review as the current step while the pack waits for them (#167)", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <IncorporateScreen {...props} />);
+    const steps = within(screen.getByRole("list", { name: "Session steps" }));
+    const review = steps.getByText("Your review").closest("li")!;
+    expect(review.getAttribute("data-state")).toBe("current");
+    expect(within(review).queryByText(/^Done/)).toBeNull();
+    expect(within(review).getByText("In progress")).toBeTruthy();
+  });
+
+  it("cancels an incorporation that has not been filed, after a confirmation (#167)", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: () => ({ incorporation: { status: "abandoned" }, workflow: { queued: true } }) });
+    renderScreen(fake, <IncorporateScreen {...props} />);
+    const session = screen.getByRole("region", { name: "Supervised session" });
+    await user.click(within(session).getByRole("button", { name: "Cancel incorporation" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/Nothing has been filed/)).toBeTruthy();
+    expect(fake.mutations).toHaveLength(0); // opening the dialog cancels nothing
+    await user.click(within(dialog).getByRole("button", { name: "Yes, cancel it" }));
+    await waitFor(() => expect(fake.mutations).toHaveLength(1));
+    expect(fake.mutations[0]).toEqual({ path: "legal.incorporate.cancel", input: { incorporationId: ENTITY.inc } });
+    await waitFor(() => expect(fake.refetches["legal.incorporate.status"]).toBe(1));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("offers no cancel once the filing is submitted, and shows a cancel failure in the dialog", async () => {
+    const user = userEvent.setup();
+    const submitted = createFakeSource({ businessId: BID, responses: { ...dataResponses, "legal.incorporate.status": { ...statusActive, incorporation: { ...incorporationAwaiting, status: "submitted" } } } });
+    const { unmount } = renderScreen(submitted, <IncorporateScreen {...props} />);
+    expect(screen.queryByRole("button", { name: "Cancel incorporation" })).toBeNull();
+    unmount();
+    const failing = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: () => { throw new Error("The filing is already with the registry"); } });
+    renderScreen(failing, <IncorporateScreen {...props} />);
+    await user.click(screen.getByRole("button", { name: "Cancel incorporation" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Yes, cancel it" }));
+    expect((await within(screen.getByRole("dialog")).findByRole("alert")).textContent).toBe("The filing is already with the registry");
+  });
+
+  it("sends the registration number with 'I submitted and paid' when the founder has it (#166)", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <IncorporateScreen {...props} />);
+    await user.type(screen.getByLabelText("Registration number"), " 15432198 ");
+    await user.click(screen.getByRole("button", { name: "I submitted and paid" }));
+    await waitFor(() => expect(fake.mutations).toHaveLength(1));
+    expect(fake.mutations[0]).toEqual({ path: "legal.incorporate.founderSubmitted", input: { incorporationId: ENTITY.inc, reference: "15432198" } });
   });
 
   it("surfaces recommender and status errors inline", async () => {

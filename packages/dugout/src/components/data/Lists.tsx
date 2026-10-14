@@ -78,7 +78,7 @@ export function KeyValueList({
           className={cn(
             "flex min-w-0",
             layout === "rows"
-              ? cn("items-baseline gap-3", dense ? "py-1" : "py-1.5")
+              ? cn("items-baseline gap-x-3", it.numeric && it.hint ? "flex-wrap gap-y-0.5" : "", dense ? "py-1" : "py-1.5")
               : "flex-col gap-0.5",
           )}
         >
@@ -94,8 +94,10 @@ export function KeyValueList({
             )}
           >
             {it.value}
-            {it.hint ? <span className="ml-1.5 text-small text-secondary">{it.hint}</span> : null}
+            {it.hint && !(layout === "rows" && it.numeric) ? <span className="ml-1.5 text-small text-secondary">{it.hint}</span> : null}
           </dd>
+          {/* A numeric value is nowrap and never shrinks, so its hint sits on its own wrapping line under the row. */}
+          {it.hint && layout === "rows" && it.numeric ? <dd className="w-full min-w-0 break-words text-small text-secondary">{it.hint}</dd> : null}
         </div>
       ))}
     </dl>

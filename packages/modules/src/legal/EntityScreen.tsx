@@ -99,7 +99,8 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
   const [jurisdictionCode, setJurisdictionCode] = useState("");
   const [lookup, setLookup] = useState<LookupResult | null>(null);
   const [shareCapital, setShareCapital] = useState("");
-  const [imported, setImported] = useState<{ officers: number } | null>(null);
+  const [imported, setImported] = useState<{ officers: number; created: boolean } | null>(null);
+  const [details, setDetails] = useState<{ regNo: string; formedAt: string }>({ regNo: "", formedAt: "" });
 
   const entity = status.data?.entity ?? null;
   const rows = useMemo(() => officerRows(entity, officers.data?.items), [entity, officers.data]);
@@ -124,7 +125,7 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
   const confirmImport = async () => {
     if (!lookup) return;
     const capital = Number(shareCapital.replace(/[,\s£$€]/g, ""));
-    await action.run<{ entity: unknown; people: string[] }>(
+    await action.run<{ entity: unknown; people: string[]; created?: boolean }>(
       "legal.import.confirm",
       {
         source: lookup.source,
@@ -142,7 +143,7 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
       {
         key: "confirm",
         then: (r) => {
-          setImported({ officers: r.people.length });
+          setImported({ officers: r.people.length, created: r.created !== false });
           setLookup(null);
           setRegNo("");
           status.refetch();
@@ -150,6 +151,20 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
         },
       },
     );
+  };
+
+  // A company formed here has no registration number or formation date until the registry issues them.
+  const missingDetails = !!entity && entity.status !== "forming" && (!entity.regNo || !entity.formedAt);
+  const saveDetails = async () => {
+    if (!entity) return;
+    const regNoText = details.regNo.trim();
+    await action.run("legal.entity.update", { legalEntityId: entity.id, ...(regNoText ? { regNo: regNoText } : {}), ...(details.formedAt ? { formedAt: details.formedAt } : {}) }, {
+      key: "details",
+      then: () => {
+        setDetails({ regNo: "", formedAt: "" });
+        status.refetch();
+      },
+    });
   };
 
   const officerActions = (row: OfficerRow): RowAction<OfficerRow>[] => [
@@ -183,6 +198,30 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
         footer={entity ? <span>Legal name and address feed the contract templates and the generated policies. Officers are CRM people with the officer role.</span> : undefined}
       >
         {entity ? <KeyValueList aria-label="Entity facts" items={facts} layout="grid" /> : null}
+        {missingDetails ? (
+          <form
+            className="mt-3 flex flex-wrap items-end gap-3 border-t border-subtle pt-3"
+            aria-label="Registry details"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if ((details.regNo.trim() || details.formedAt) && action.pending !== "details") void saveDetails();
+            }}
+          >
+            {!entity?.regNo ? (
+              <Field htmlFor={`${id}-entity-regno`} label="Registration number" hint="From the registry's confirmation">
+                <Input id={`${id}-entity-regno`} value={details.regNo} onChange={(e) => setDetails((d) => ({ ...d, regNo: e.target.value }))} maxLength={60} className="w-48" />
+              </Field>
+            ) : null}
+            {!entity?.formedAt ? (
+              <Field htmlFor={`${id}-entity-formed`} label="Date formed">
+                <Input id={`${id}-entity-formed`} type="date" value={details.formedAt} max={now.toISOString().slice(0, 10)} onChange={(e) => setDetails((d) => ({ ...d, formedAt: e.target.value }))} />
+              </Field>
+            ) : null}
+            <Button type="submit" icon={Download} disabled={!details.regNo.trim() && !details.formedAt} loading={action.pending === "details"}>
+              Save details
+            </Button>
+          </form>
+        ) : null}
       </Panel>
 
       <Panel
@@ -213,7 +252,7 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
             <Button type="submit" icon={Search} disabled={!canLookup} loading={action.pending === "lookup"}>
               Look up
             </Button>
-            {imported ? <Chip tone="good">Imported · {imported.officers} officer{imported.officers === 1 ? "" : "s"} added to the CRM</Chip> : null}
+            {imported ? <Chip tone="good">{imported.created ? "Imported" : "Updated"} · {imported.officers} officer{imported.officers === 1 ? "" : "s"} in the CRM</Chip> : null}
           </div>
           <InlineError error={action.error} />
         </form>

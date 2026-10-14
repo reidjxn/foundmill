@@ -9,7 +9,7 @@
 import { ConflictError, MEMBERSHIP_ROLES, ValidationError, type MembershipRole } from "@foundmill/shared";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { businesses, memberships, type Business, type Membership } from "../schema";
+import { businesses, entities, memberships, type Business, type Membership } from "../schema";
 import { Id, maybeOne, one, parseInput, type Executor } from "./_shared";
 
 export const SectionPermissions = z.record(z.string(), z.enum(["read", "write", "none"]));
@@ -46,6 +46,26 @@ export const membershipsRepo = {
         .limit(1)
         .then((rows) => rows.map((r) => r.m)),
     );
+  },
+
+  /**
+   * Members with the person the business knows them as: the CRM `team_member` record whose `identifiers.user_id` is the
+   * member's account (its id is what an entity link points at, its name what screens show), else none. A member is
+   * never named or linked by their auth account id, which is not a CRM record.
+   */
+  async listNamed(db: Executor, businessId: string): Promise<(Membership & { displayName: string | null; entityId: string | null })[]> {
+    const rows = await db
+      .select({ membership: memberships, entityId: entities.id, displayName: entities.displayName })
+      .from(memberships)
+      .leftJoin(
+        entities,
+        and(eq(entities.businessId, memberships.businessId), eq(entities.kind, "team_member"), isNull(entities.archivedAt), isNull(entities.mergedIntoId), sql`${entities.identifiers}->>'user_id' = ${memberships.userId}::text`),
+      )
+      .where(eq(memberships.businessId, businessId))
+      .orderBy(asc(memberships.createdAt), asc(entities.createdAt));
+    const out = new Map<string, Membership & { displayName: string | null; entityId: string | null }>();
+    for (const r of rows) if (!out.has(r.membership.id)) out.set(r.membership.id, { ...r.membership, displayName: r.displayName ?? null, entityId: r.entityId ?? null });
+    return [...out.values()];
   },
 
   async get(db: Executor, businessId: string, userId: string): Promise<Membership | null> {

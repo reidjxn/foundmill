@@ -5,9 +5,10 @@
  * credit balance and usage-ledger rows for the last 30 days of sessions. Everything is labelled Estimate/Forecast.
  */
 import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
+import { DEFAULT_FORECAST_HORIZON_MONTHS, projectForecast, type ForecastDrivers } from "@foundmill/shared/forecast";
 import { repos } from "../repos";
 import { transactions, usageLedger, type NewTransaction, type NewUsageEntry } from "../schema";
-import { addDays, bulkInsert, dayKey, monthDay, monthKey, monthsBetween, type SeedCtx } from "./context";
+import { bulkInsert, dayKey, monthDay, monthKey, monthsBetween, type SeedCtx } from "./context";
 import type { RecentSession } from "./journey";
 
 export interface FixedCost {
@@ -53,8 +54,6 @@ export interface FinanceSeedOptions {
   recentSessions: RecentSession[];
   /** How the business pays for model calls (`businesses.model_billing`): its usage rows and credits follow it. */
   modelBilling: "credits" | "byok";
-  /** Monthly recurring revenue right now (for the forecast drivers). */
-  mrrMinorNow: number;
 }
 
 export interface FinanceSeedResult {
@@ -173,31 +172,23 @@ export async function seedFinance(ctx: SeedCtx, opts: FinanceSeedOptions): Promi
     });
   }
 
-  // Forecasts: 12 months of cash under three scenarios, driver-based and labelled.
+  // Forecasts: Base, Upside and Downside in the drivers contract the Runway and Overview screens read, projected from
+  // this month by the same function they use, so the stored series and the screens agree (docs/DECISIONS.md).
   const lastRevenue = monthlyNet.slice(-2, -1)[0]?.inMinor ?? 0;
   const lastOut = monthlyNet.slice(-2, -1)[0]?.outMinor ?? 0;
   const scenarios = [
-    { scenario: "base" as const, growth: 0.04, costGrowth: 0.02 },
-    { scenario: "upside" as const, growth: 0.08, costGrowth: 0.03 },
-    { scenario: "downside" as const, growth: -0.02, costGrowth: 0.01 },
+    { scenario: "base" as const, revenueGrowthPct: 4, costGrowthPct: 2 },
+    { scenario: "upside" as const, revenueGrowthPct: 8, costGrowthPct: 3 },
+    { scenario: "downside" as const, revenueGrowthPct: -2, costGrowthPct: 1 },
   ];
   for (const s of scenarios) {
-    let cash = balanceMinor;
-    let revenue = lastRevenue;
-    let out = lastOut;
-    const series: Array<Record<string, unknown>> = [];
-    for (let k = 1; k <= 12; k++) {
-      revenue = revenue * (1 + s.growth);
-      out = out * (1 + s.costGrowth);
-      cash = cash + revenue - out;
-      const month = monthKey(addDays(ctx.today, 30 * k));
-      series.push({ month, revenueMinor: round(revenue), outflowMinor: round(out), cashMinor: round(cash), runwayMonths: out > revenue ? Math.max(0, Math.round((cash / (out - revenue)) * 10) / 10) : null, label: "Forecast" });
-    }
+    const drivers: ForecastDrivers = { startingCashMinor: balanceMinor, monthlyRevenueMinor: round(lastRevenue), revenueGrowthPct: s.revenueGrowthPct, monthlyCostsMinor: round(lastOut), costGrowthPct: s.costGrowthPct, horizonMonths: DEFAULT_FORECAST_HORIZON_MONTHS };
+    const projection = projectForecast(drivers, monthKey(ctx.today));
     await repos.finance.createForecast(db, opts.businessId, {
       scenario: s.scenario,
       currency: opts.currency,
-      drivers: { label: "Forecast", startingCashMinor: balanceMinor, monthlyRevenueMinor: round(lastRevenue), revenueGrowthPct: s.growth * 100, monthlyOutflowMinor: round(lastOut), costGrowthPct: s.costGrowth * 100, mrrMinorNow: opts.mrrMinorNow },
-      series,
+      drivers: { ...drivers, runway_months: projection.runwayMonths },
+      series: projection.series.map((p) => ({ ...p, label: "Forecast" })),
       generatedByAgentId: opts.financeLeadAgentId,
     });
   }

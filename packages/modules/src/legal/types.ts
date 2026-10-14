@@ -217,3 +217,11 @@ export interface ProposalRow {
   createdAt?: DateLike;
 }
 export type ProposalsListResponse = Page<ProposalRow>;
+
+/** One stored sector choice (`legal.regulatory.list`): whether the sector applies and the checklist items done. */
+export interface RegulatoryGateRow {
+  id: string;
+  sector: string;
+  applies: boolean;
+  done: string[];
+}

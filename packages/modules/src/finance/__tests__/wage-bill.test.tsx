@@ -4,7 +4,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WageBillScreen, readAgents, wageBillRows } from "../WageBillScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
-import { AGENT, BID, agents, agentsResponse, dataResponses, emptyResponses, tasksDone, wages } from "./fixtures";
+import { AGENT, BID, ENTITY, agents, agentsResponse, dataResponses, emptyResponses, tasksDone, wages } from "./fixtures";
 
 const props = { businessId: BID, departmentId: "d-fin" };
 
@@ -48,7 +48,10 @@ describe("WageBillScreen", () => {
     expect(within(table).queryByText("opus")).toBeNull(); // the model lives in the "Usage detail" view
     expect(screen.getByText("1 near or over cap")).toBeTruthy();
     const staff = screen.getByRole("region", { name: "Staff" });
-    expect(within(staff).getByRole("link", { name: /Mara Lindqvist/ })).toBeTruthy();
+    // a member with a CRM record links to it; one without is plain text (an auth id is never dressed up as a CRM link, #356)
+    expect(within(staff).getByRole("link", { name: /Mara Lindqvist/ }).getAttribute("href")).toBe(`/b/${BID}/crm/${ENTITY.mara}/overview`);
+    expect(within(staff).getByText("Lena Okafor")).toBeTruthy();
+    expect(within(staff).queryByRole("link", { name: /Lena Okafor/ })).toBeNull();
     expect(within(staff).getByText("Owner")).toBeTruthy();
     expect(within(staff).getByText(/Payroll €16,000.00/)).toBeTruthy();
   });

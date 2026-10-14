@@ -3,6 +3,7 @@ export * from "./errors";
 export * from "./result";
 export * from "./currency";
 export * from "./money";
+export * from "./vesting";
 export * from "./us-spelling";
 export * from "./glossary";
 export * from "./time-zone";
