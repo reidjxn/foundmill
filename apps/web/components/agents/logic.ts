@@ -692,7 +692,7 @@ export function sessionRows(sessions: readonly SessionRecord[], now: Date = new 
         model: s.modelKey,
         tokens: Number(s.tokensIn ?? 0) + Number(s.tokensOut ?? 0),
         costMinor: Number(s.costMinor ?? 0),
-        currency: s.currency ?? MODEL_COST_CURRENCY,
+        currency: MODEL_COST_CURRENCY, // model costs are always dollars, whatever currency the business keeps its books in
         outcome: s.outcome ?? (endedAt ? "ended" : "running"),
         taskId: s.taskId ?? null,
         taskTitle: s.task?.title ?? null,

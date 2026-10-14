@@ -43,12 +43,14 @@ test.describe("billing", () => {
     await expect(page.getByTestId("checkout-panel")).toHaveCount(0);
   });
 
-  test("A business on its own key shows the credits that pay for its platform-key work (SEC2)", async ({ page }) => {
-    // Ledgerly runs its agents on its own Anthropic key; conversations, Refresh and planning still use credits.
+  test("A business on credits shows the credits that pay for its platform-key work (SEC2)", async ({ page }) => {
+    // Ledgerly is seeded on credits like Northwind (audit #95: no credential-less own-key integration), so its agents and
+    // its conversations, Refresh and planning all run on Foundmill's key; the own-key wording belongs to a business that
+    // has connected a key (apps/api and apps/web unit tests cover that copy).
     await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/settings/billing`);
     const screen = page.getByTestId("settings-screen");
     await expect(page.getByTestId("credits-balance")).toContainText(/\$[\d,]+\.\d{2} left of \$/, { timeout: LONG });
-    await expect(screen).toContainText("Your agents run on your own Anthropic key. Conversations, Refresh and planning run on Foundmill's key and use these credits");
+    await expect(screen).not.toContainText("Your agents run on your own Anthropic key");
     await expect(screen).not.toContainText("Not used: your own key pays for model calls");
   });
 

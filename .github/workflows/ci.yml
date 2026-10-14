@@ -119,12 +119,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @foundmill/dugout storybook:build
 
-  e2e:
-    name: Playwright (web screens + golden path)
+  e2e-shard:
+    # The screens take about two hours one after another, so they run as three shards at once, each on its own runner with
+    # its own seeded database. The required check below ("Playwright (web screens + golden path)") passes when all three do.
+    name: Playwright shard ${{ matrix.shard }} of 3
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    # The golden path (e2e/tests/golden-path.spec.ts) is green against this stack (docs/PROGRESS.md 2026-10-07), so
-    # this job gates the build like the others.
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     continue-on-error: false
     env:
       # One file-backed PGlite database, seeded below, shared by the api and the seed script (packages/db/src/pglite.ts:
@@ -150,7 +154,9 @@ jobs:
       - name: Install Chromium (replaces the preinstalled-browser step used in the build container)
         run: pnpm --filter @foundmill/web exec playwright install --with-deps chromium
       - name: Seed the PGlite database (Northwind Skincare + Ledgerly, reduced volume)
-        run: SEED_TARGET=pglite SEED_PGLITE_DIR=./.pglite/e2e SEED_VOLUME_SCALE=0.1 SEED_OWNER_PROFILE=0 pnpm --filter @foundmill/db seed
+        # Shard 1 starts without a founder profile (onboarding.spec.ts meets the gate and saves it); shards 2 and 3 start
+        # with one, so their screens do not bounce to /onboarding.
+        run: SEED_TARGET=pglite SEED_PGLITE_DIR=./.pglite/e2e SEED_VOLUME_SCALE=0.1 SEED_OWNER_PROFILE=${{ matrix.shard == 1 && '0' || '1' }} pnpm --filter @foundmill/db seed
       - name: Start apps/api against the seeded database
         # No Redis, Temporal or composer URL: the api degrades to in-process behaviour (docs/ARCHITECTURE.md §13).
         run: |
@@ -172,11 +178,20 @@ jobs:
             sleep 1
           done
           echo "apps/web did not answer within 120 s"; cat web.log; exit 1
-      - name: Playwright (apps/web screens)
-        # E2E_BASE_URL makes both configs skip their own webServer and use the servers started above.
-        run: E2E_BASE_URL=http://localhost:3000 E2E_EXPECT_PROFILE_GATE=1 pnpm --filter @foundmill/web exec playwright test
+      - name: Playwright (apps/web screens, this shard's files)
+        # E2E_BASE_URL makes both configs skip their own webServer and use the servers started above. Spec files are dealt
+        # out to the shards round-robin; onboarding.spec.ts (the profile project) always runs in shard 1, first.
+        working-directory: apps/web
+        run: |
+          mapfile -t files < <(ls e2e/*.spec.ts | grep -v '/onboarding.spec.ts$' | awk -v n="${{ matrix.shard }}" '(NR - 1) % 3 == n - 1')
+          echo "this shard runs ${#files[@]} spec files"
+          if [ "${{ matrix.shard }}" = "1" ]; then
+            E2E_BASE_URL=http://localhost:3000 E2E_EXPECT_PROFILE_GATE=1 pnpm exec playwright test e2e/onboarding.spec.ts "${files[@]}"
+          else
+            E2E_BASE_URL=http://localhost:3000 pnpm exec playwright test --project=desktop-chromium --no-deps "${files[@]}"
+          fi
       - name: Playwright (e2e/ golden path and smoke)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.shard == 1 }}
         run: E2E_BASE_URL=http://localhost:3000 pnpm --filter @foundmill/e2e test
       - name: Stop the servers
         if: ${{ always() }}
@@ -190,7 +205,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-results
+          name: playwright-results-${{ matrix.shard }}
           path: |
             apps/web/playwright-report
             apps/web/test-results
@@ -198,3 +213,16 @@ jobs:
             e2e/test-results
           if-no-files-found: ignore
           retention-days: 7
+
+  e2e:
+    # The check branch protection requires: green when every shard is.
+    name: Playwright (web screens + golden path)
+    runs-on: ubuntu-latest
+    needs: e2e-shard
+    if: ${{ always() }}
+    timeout-minutes: 5
+    steps:
+      - name: All three shards passed
+        run: |
+          echo "shards: ${{ needs.e2e-shard.result }}"
+          test "${{ needs.e2e-shard.result }}" = "success"

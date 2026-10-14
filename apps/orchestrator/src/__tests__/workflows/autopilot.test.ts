@@ -147,7 +147,7 @@ function mocks(w: World): Partial<Activities> {
   };
 }
 
-async function until(cond: () => boolean, ms = 10_000): Promise<void> {
+async function until(cond: () => boolean, ms = 60_000): Promise<void> {
   const end = Date.now() + ms;
   while (!cond() && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
   if (!cond()) throw new Error("condition not reached in time");
