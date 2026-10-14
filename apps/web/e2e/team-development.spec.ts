@@ -10,7 +10,9 @@ import { LONG, chooseTableView, openBusiness } from "./helpers";
 
 /** The department href for a sidebar label (department slugs are per business; names are labels over modules). */
 async function departmentBase(page: Page, label: RegExp): Promise<string> {
-  const link = page.locator("[data-testid=app-shell] nav a[href*='/d/']").filter({ hasText: label }).first();
+  // The link's name is its label plus a badge count ("Team, 1 item"), so the label is matched without the badge.
+  const name = new RegExp(label.source.replace(/\$$/, "(,|$)"), label.flags);
+  const link = page.locator("[data-testid=app-shell] nav").getByRole("link", { name }).first();
   await expect(link, `the seed gives Northwind a ${label} department`).toBeVisible({ timeout: LONG });
   return (await link.getAttribute("href"))!.replace(/(\/d\/[^/]+)\/.*$/, "$1");
 }

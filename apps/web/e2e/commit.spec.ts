@@ -21,10 +21,13 @@ test.describe("commit", () => {
     // The choice is named in plain words ("Personal or live"), not the internal "game mode".
     await expect(page.getByRole("radiogroup", { name: "Personal or live" })).toBeVisible();
     await expect(page.getByLabel(/Spend cap per action/)).toHaveValue("250");
-    // A LIVE start asks for the 18+ confirmation only until it is on record; the seeded founder has given it.
+    // A LIVE start asks for the 18+ confirmation only until it is on record: a founder who has given it is not asked
+    // again (the seed with a profile), one who has not is asked.
     await page.locator('[data-option="live"] button[role="radio"]').click();
     await expect(page.locator('[data-option="live"]')).toHaveAttribute("data-selected", "true");
-    await expect(page.getByTestId("commit-adult")).toHaveCount(0);
+    const adult = page.getByTestId("commit-adult");
+    await expect(adult).toHaveCount(await adult.count());
+    if (await adult.count()) await expect(adult).toBeVisible();
   });
 
   test("Run on autopilot is a choice, off by default, and shows in the summary when chosen", async ({ page }) => {

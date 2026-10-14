@@ -7,6 +7,7 @@ import { LONG, openBusiness } from "./helpers";
  */
 test.describe("live sessions", () => {
   test("a focused tile keeps its footer clear of the replay strip; costs are in pounds", async ({ page }) => {
+    test.setTimeout(180_000); // the elapsed clock ticks by the minute once a session has run for an hour
     await page.setViewportSize({ width: 1280, height: 900 });
     await openBusiness(page);
     const dev = page.locator("[data-testid=app-shell] nav a[href*='/d/']").filter({ hasText: /development/i }).first();
@@ -39,7 +40,7 @@ test.describe("live sessions", () => {
     const clock = page.locator("[data-testid=tile-footer] [title=Elapsed]").first();
     if (await clock.count()) {
       const before = await clock.textContent();
-      await expect.poll(async () => clock.textContent(), { timeout: 5_000, message: "the elapsed clock moves on its own" }).not.toBe(before);
+      await expect.poll(async () => clock.textContent(), { timeout: 70_000, message: "the elapsed clock moves on its own" }).not.toBe(before);
     }
 
     // Focus the first tile: it takes two thirds of the grid, the replay strip and Nudge appear under it.
