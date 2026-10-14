@@ -3,12 +3,12 @@
  * real workflow id, nothing starts while the team is stopped, an agent at its wage cap is paused (and comes back next
  * period), failed tasks and failing agents come back after a backoff, and a finishing session never overwrites a pause.
  */
-import { concurrencyAllowance, periodOf, repos, resumeBusinessAgents, stopBusinessAgents, type Task } from "@foundmill/db";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { concurrencyAllowance, modelBudgetState, periodOf, repos, resumeBusinessAgents, stopBusinessAgents, type Task } from "@foundmill/db";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createBriefActivities } from "../activities/brief";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
 import { createCycleActivities } from "../activities/cycle";
-import { WAGE_ALERT_ACTION, attemptSessionId, nextPeriodStart, openAgentSession, recoverAgents } from "../activities/dispatch";
+import { MODEL_BUDGET_ALERT_ACTION, WAGE_ALERT_ACTION, attemptSessionId, nextPeriodStart, openAgentSession, recoverAgents } from "../activities/dispatch";
 import { createHolidayActivities } from "../activities/holiday";
 import { createPlanActivities } from "../activities/plan";
 import { createSessionActivities } from "../activities/session";
@@ -320,5 +320,78 @@ describe("failed tasks and failing agents come back (bounded backoff)", () => {
     // The row says stopped, so the backoff never counts a stop as a failure in a row.
     expect((await repos.agents.getSession(t.db, B(), opened.sessionId!)).outcome).toBe("stopped");
     expect((await repos.agents.recentOutcomes(t.db, B(), { taskIds: [task.id] })).map((s) => s.outcome)).toEqual(["stopped"]);
+  });
+});
+
+describe("the monthly model budget at dispatch (audit #15)", () => {
+  const monthSpend = async () => (await modelBudgetState(t.db, { id: B(), modelBudgetMinor: 1_000_000_000 }, t.clock.now())).spentMinor;
+  const book = (costMinor: number, billedTo: "credits" | "byok") => repos.usage.record(t.db, B(), { agentId: t.workerId, kind: "tokens", quantity: 1, costMinor, billedTo, occurredAt: t.clock.now() });
+  const warnings = async () => (await repos.inbox.list(t.db, B(), { limit: 200 })).items.filter((i) => i.subject === "Monthly model budget used: no new work starts");
+  afterEach(async () => {
+    await repos.businesses.setModelBudget(t.db, B(), null);
+    await repos.businesses.update(t.db, B(), { modelBilling: "credits" });
+  });
+
+  it("refuses every start once the month's cost reaches the budget, on the founder's own key, tells the founder once, and starts again when the budget is raised or removed", async () => {
+    await repos.businesses.update(t.db, B(), { modelBilling: "byok" });
+    const spent = await monthSpend();
+    await book(300, "byok");
+    await repos.businesses.setModelBudget(t.db, B(), spent + 300);
+
+    const task = await readyTask();
+    const refused = await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id });
+    expect(refused).toMatchObject({ sessionId: null, refused: "model_budget" });
+    expect(refused.detail).toMatch(/monthly model budget is used up \(\$\d[\d,.]* of \$\d[\d,.]*, Estimate\)/);
+    // A refusal, not a pause: nothing is stored that has to be undone, and the task stays ready.
+    expect(await repos.agents.get(t.db, B(), t.workerId)).toMatchObject({ status: "idle", pausedReason: null });
+    expect((await repos.tasks.get(t.db, B(), task.id)).status).toBe("ready");
+    expect((await repos.agents.listSessions(t.db, B(), { taskId: task.id, limit: 5 })).items).toHaveLength(0);
+    // A plan's create_task goes through the same guard; a second refusal does not repeat the warning.
+    expect(await openAgentSession(t.deps, { businessId: B(), agentId: t.workerId, taskId: task.id })).toMatchObject({ sessionId: null, refused: "model_budget" });
+    const notes = await warnings();
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({ type: "warning" });
+    expect(notes[0]!.bodyMd).toContain(`until ${nextPeriodStart(t.clock.now()).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}`);
+    expect((await repos.audit.list(t.db, B(), { action: MODEL_BUDGET_ALERT_ACTION, limit: 10 })).items).toHaveLength(1);
+
+    // The brief shows it and the cycle drafts no plan (a plan costs money too).
+    const b = await brief.loadBrief({ businessId: B() });
+    expect(b.modelBudgetRemainingMinor).toBe(0);
+    const plan = await cycle.planCycle({ businessId: B(), cycleNumber: 21, trigger: "continue", brief: b });
+    expect(plan).toMatchObject({ starts: [], costMinor: 0, summary: expect.stringMatching(/monthly model budget is used up/) });
+    expect(plan.deferred.find((d) => d.taskId === task.id)?.reason).toBe("monthly model budget used up");
+
+    // Raised: it starts; removed: it starts; neither repeats the warning.
+    await repos.businesses.setModelBudget(t.db, B(), spent + 301);
+    expect((await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id })).sessionId).toBeTruthy();
+    await endOpenSessions();
+    await repos.businesses.setModelBudget(t.db, B(), spent + 300);
+    expect(await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id })).toMatchObject({ refused: "model_budget" });
+    await repos.businesses.setModelBudget(t.db, B(), null);
+    expect((await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id })).sessionId).toBeTruthy();
+    await endOpenSessions();
+    expect(await warnings()).toHaveLength(1);
+    expect((await brief.loadBrief({ businessId: B() })).modelBudgetRemainingMinor).toBeNull();
+  });
+
+  it("applies on credits too, warns again when a raised budget is used up in the same month, and lifts itself when the month turns", async () => {
+    await repos.businesses.update(t.db, B(), { modelBilling: "credits" });
+    const before = (await warnings()).length;
+    await book(500, "credits");
+    const spent = await monthSpend();
+    await repos.businesses.setModelBudget(t.db, B(), spent);
+    const task = await readyTask();
+    expect(await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id })).toMatchObject({ sessionId: null, refused: "model_budget" });
+    expect(await warnings()).toHaveLength(before + 1);
+    // Raised and used up again: a different budget, a new warning.
+    await repos.businesses.setModelBudget(t.db, B(), spent + 100);
+    await book(100, "credits");
+    expect(await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id })).toMatchObject({ refused: "model_budget" });
+    expect(await warnings()).toHaveLength(before + 2);
+
+    // The next month starts with nothing spent: the same budget lets work through.
+    await t.clock.set(nextPeriodStart(nextPeriodStart(t.clock.now())));
+    expect((await cycle.openSession({ businessId: B(), agentId: t.workerId, taskId: task.id })).sessionId).toBeTruthy();
+    await endOpenSessions();
   });
 });

@@ -203,6 +203,20 @@ export const businessRouter = router({
   ),
 
   /**
+   * The monthly model budget (0059, BUILD §10.4), in US cents like wages and credits: what the team's metered work may cost
+   * in a calendar month, whoever pays the model (credits or the business's own key). Once the month's cost reaches it no new
+   * session starts and a running one is held to what was left when it began. Null removes the budget.
+   */
+  setModelBudget: adminProcedure.input(z.object({ modelBudgetMinor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable() })).mutation(({ ctx, input }) =>
+    ctx.rls(async (tx) => {
+      const from = ctx.business.modelBudgetMinor;
+      const business = await repos.businesses.setModelBudget(tx, ctx.businessId, input.modelBudgetMinor);
+      if (from !== input.modelBudgetMinor) await audit(tx, ctx, { action: "business.set_model_budget", target: { kind: "business", id: ctx.businessId }, details: { from, to: input.modelBudgetMinor } });
+      return business;
+    }),
+  ),
+
+  /**
    * The business time zone (0041): Home's "today", week and month, the Journey's days and the top bar's date follow it.
    * The app sets it from an owner's or admin's browser the first time they open the business; Settings › Business
    * changes it. The Journey's daily rows are rebuilt in the new zone right away.

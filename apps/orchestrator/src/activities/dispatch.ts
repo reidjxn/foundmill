@@ -4,7 +4,8 @@
  * used-up credits; 0023), for a paused or released agent, for a task that already has an open session (no duplicate
  * sessions on one task), when every concurrent agent the plan tier holds is working (`concurrencyAllowance`, the count
  * the cycle and dev.tasks.start use) and for an agent at its wage cap, which it pauses until the next period with one
- * Inbox note (BUILD §10.4: alerts at 50 and 80 %, pause at 100 %). The row is created with its real workflow id
+ * Inbox note (BUILD §10.4: alerts at 50 and 80 %, pause at 100 %). Once the business's monthly model budget is used up
+ * (`checkModelBudget`, 0059) nothing new starts for any agent, on credits or on the founder's own key. The row is created with its real workflow id
  * (`session:<id>`) before the workflow starts, so every pause, nudge, stop and the kill switch reach the session.
  *
  * `recoverAgents` is the other half of the loop: before each cycle plans, an agent that failed rests (`retry.ts`) and
@@ -14,19 +15,21 @@
  * because the planner no longer picks a capped agent and so would never reach the dispatch check.
  */
 import { createHash } from "node:crypto";
-import { LIMITS } from "@foundmill/config";
-import { concurrencyAllowance, periodOf, repos, sessionWorkflowId, type Agent } from "@foundmill/db";
+import { CREDITS_CURRENCY, LIMITS } from "@foundmill/config";
+import { concurrencyAllowance, modelBudgetState, periodOf, repos, sessionWorkflowId, type Agent, type Business } from "@foundmill/db";
 import { formatMoney } from "@foundmill/shared";
 import { Context } from "@temporalio/activity";
 import type { OrchestratorDeps } from "../deps";
 import { agentActor, emitEvent, systemActor } from "../events";
 import { agentCooldown, failureStreak } from "../retry";
 
-export type DispatchRefusal = "agents_stopped" | "agent_paused" | "agent_archived" | "wage_cap" | "open_session" | "concurrency_limit";
+export type DispatchRefusal = "agents_stopped" | "agent_paused" | "agent_archived" | "wage_cap" | "model_budget" | "open_session" | "concurrency_limit";
 
 export type OpenSessionResult = { sessionId: string; workflowId: string; refused: null; detail: null } | { sessionId: null; workflowId: null; refused: DispatchRefusal; detail: string };
 
 export const WAGE_ALERT_ACTION = "agent.wage_alert";
+/** The audit row that records the one Inbox warning a month's used-up model budget gets (deduplicated by period and budget). */
+export const MODEL_BUDGET_ALERT_ACTION = "business.model_budget_alert";
 
 const refuse = (refused: DispatchRefusal, detail: string): OpenSessionResult => ({ sessionId: null, workflowId: null, refused, detail });
 
@@ -76,6 +79,9 @@ export async function openAgentSession(deps: OrchestratorDeps, input: { business
   if (concurrency.room <= 0) return refuse("concurrency_limit", `every agent the ${business.planTier} plan runs at once is working (${concurrency.running} of ${concurrency.limit}); it starts when one finishes`);
   const capped = await checkWageCap(deps, businessId, agent);
   if (capped) return refuse("wage_cap", capped);
+  // The business's monthly model budget (0059, audit #15), whoever pays the model: credits or the founder's own key.
+  const overBudget = await checkModelBudget(deps, businessId, business);
+  if (overBudget) return refuse("model_budget", overBudget);
 
   // One transaction: a failure part-way leaves no open row behind to block the task.
   const session = await db.transaction(async (tx) => {
@@ -128,6 +134,37 @@ export async function checkWageCap(deps: OrchestratorDeps, businessId: string, a
   }
   await repos.audit.append(deps.db, businessId, { actorKind: "agent", actorId: agent.id, action: WAGE_ALERT_ACTION, target: { kind: "agent", id: agent.id }, details: { period, percent: highest, spentMinor: spend.costMinor, capMinor: spend.wageCapMinor } });
   return null;
+}
+
+/**
+ * The monthly model budget at dispatch (BUILD §10.4, audit #15): once the month's metered cost (every agent, credits and
+ * own-key rows alike) reaches `businesses.model_budget_minor`, no new session starts until the month turns or an owner or
+ * admin raises or removes the budget. It is a refusal, not a pause: nothing is stored that has to be undone. The first
+ * refusal under a budget in a month posts one Inbox warning from the Chief of Staff. Returns why, or null when work may
+ * start (no budget set, or some of it left). A session that is already running is held to what was left when it started
+ * (`sessionBudget`).
+ */
+export async function checkModelBudget(deps: OrchestratorDeps, businessId: string, business: Pick<Business, "id" | "modelBudgetMinor">): Promise<string | null> {
+  const now = deps.clock.now();
+  const state = await modelBudgetState(deps.db, business, now);
+  if (state.budgetMinor === null || state.remainingMinor === null || state.remainingMinor > 0) return null;
+  const amount = (minor: number) => formatMoney({ amountMinor: minor, currency: CREDITS_CURRENCY });
+  const backOn = nextPeriodStart(now);
+  const sent = await repos.audit.list(deps.db, businessId, { action: MODEL_BUDGET_ALERT_ACTION, limit: 20 });
+  const alerted = sent.items.some((e) => (e.details as { period?: unknown; budgetMinor?: unknown }).period === state.period && Number((e.details as { budgetMinor?: unknown }).budgetMinor) === state.budgetMinor);
+  if (!alerted) {
+    const chief = await repos.agents.chiefOfStaff(deps.db, businessId);
+    if (chief) {
+      await postNote(deps, businessId, chief.id, {
+        type: "warning",
+        subject: "Monthly model budget used: no new work starts".slice(0, 80),
+        body: `The team has spent ${amount(state.spentMinor)} of the ${amount(state.budgetMinor)} monthly model budget (Estimate), so no new sessions start until ${shortDate(backOn)}. Sessions already running stop when they reach it. An owner or admin can raise or remove the budget to bring the team back sooner.`,
+        blocksContinue: false,
+      });
+    }
+    await repos.audit.append(deps.db, businessId, { actorKind: "system", action: MODEL_BUDGET_ALERT_ACTION, target: { kind: "business", id: businessId }, details: { period: state.period, budgetMinor: state.budgetMinor, spentMinor: state.spentMinor } });
+  }
+  return `the monthly model budget is used up (${amount(state.spentMinor)} of ${amount(state.budgetMinor)}, Estimate)`;
 }
 
 async function pauseForWageCap(deps: OrchestratorDeps, businessId: string, agent: Agent, info: { spentMinor: number; capMinor: number; backOn: Date; amount: (minor: number) => string }): Promise<void> {

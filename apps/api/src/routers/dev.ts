@@ -6,10 +6,10 @@
  */
 import { FLAGS, isSimulateEnv } from "@foundmill/config";
 import { HOUSE_STYLE } from "@foundmill/agents";
-import { TaskListFilter, assertConcurrencyRoom, codeRepositoryOf, periodOf, repos, type AgentSession, type DbTx, type Executor, type Task } from "@foundmill/db";
+import { TaskListFilter, assertConcurrencyRoom, codeRepositoryOf, modelBudgetState, periodOf, repos, type AgentSession, type DbTx, type Executor, type Task } from "@foundmill/db";
 import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
 import { TaskGraphOutput } from "@foundmill/models";
-import { AppError, ForbiddenError, NotFoundError, ValidationError, connectorMode, hasSectionAccess, sessionSections, type TaskStatus } from "@foundmill/shared";
+import { AppError, ForbiddenError, NotFoundError, ValidationError, connectorMode, formatMoney, hasSectionAccess, sessionSections, type TaskStatus } from "@foundmill/shared";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { replaySession } from "../services/replay";
@@ -208,7 +208,8 @@ export const devRouter = router({
     /**
      * Start: an agentSession workflow is started for the task. Refused (CONFLICT) while the team is stopped, while the
      * task already runs (or has a session open), is in review or done, waits on an unfinished dependency, or when its
-     * agent is paused, released or at its wage cap: a start never wakes a paused agent, so it cannot undo Stop all agents.
+     * agent is paused, released or at its wage cap, or the business's monthly model budget is used up: a start never wakes
+     * a paused agent, so it cannot undo Stop all agents.
      * Refused with `tier_limit` (the web's upgrade prompt) when every concurrent agent the plan holds is already working.
      * The task is claimed with one conditional update, so a double click starts one session; when the workflow cannot
      * be queued the claim is undone and the session row closed (SERVICE_UNAVAILABLE), so a retry is not refused.
@@ -225,6 +226,12 @@ export const devRouter = router({
       if (assignee.status === "paused") throw new TaskStartError(assignee.pausedReason === "wage_cap" ? `${assignee.name} reached its wage cap for the month and is paused. Raise the cap on its profile or reassign the task.` : `${assignee.name} is paused. Resume the agents or reassign the task first.`, { pausedReason: assignee.pausedReason });
       const spend = await repos.usage.agentSpend(ctx.db, ctx.businessId, assignee.id, periodOf(new Date()));
       if (spend.remainingMinor !== null && spend.remainingMinor <= 0) throw new TaskStartError(`${assignee.name} reached its wage cap for the month. Raise the cap on its profile or reassign the task.`);
+      // The business's monthly model budget (0059), whoever pays the model, as the orchestrator's dispatch applies it.
+      const monthly = await modelBudgetState(ctx.db, ctx.business, new Date());
+      if (monthly.budgetMinor !== null && monthly.remainingMinor !== null && monthly.remainingMinor <= 0) {
+        const usd = (amountMinor: number) => formatMoney({ amountMinor, currency: "USD" });
+        throw new TaskStartError(`The monthly model budget is used up (${usd(monthly.spentMinor)} of ${usd(monthly.budgetMinor)}, an Estimate), so no new work starts until next month. An owner or admin can raise or remove the budget.`, { period: monthly.period, budgetMinor: monthly.budgetMinor });
+      }
       // The plan tier's concurrent agents (BUILD §10.5), as the cycle's dispatch counts them (SEC2 S2).
       await assertConcurrencyRoom(ctx.db, ctx.business);
       // Exactly one start wins the task; a second (double click, another tab) finds it running and is refused.

@@ -3,7 +3,7 @@ export * from "./client";
 export * from "./schema";
 export * from "./repos";
 export { BYOK_CONNECTOR_KEY, BYOK_CREDENTIAL_KIND, LEGACY_BYOK_CREDENTIAL_KIND, StoredApiKeySchema, loadByokApiKey, type ByokApiKey } from "./byok";
-export { assertPlatformCredits, bookUsage, chargesCredits, checkPlatformCredits, creditsState, creditsUsedUp, CREDITS_EXHAUSTED_SUBJECT, includedCreditsFor, PLATFORM_CREDITS_EXHAUSTED_SUBJECT, platformCredits, type BookUsageResult, type CreditsOutcome, type PlatformCredits, type PlatformCreditsCheck } from "./billing";
+export { assertPlatformCredits, bookUsage, chargesCredits, checkPlatformCredits, creditsState, creditsUsedUp, CREDITS_EXHAUSTED_SUBJECT, includedCreditsFor, modelBudgetState, PLATFORM_CREDITS_EXHAUSTED_SUBJECT, platformCredits, type BookUsageResult, type CreditsOutcome, type ModelBudgetState, type PlatformCredits, type PlatformCreditsCheck } from "./billing";
 export { autopilotChangedPayload, loadAutopilotFacts, summarizeCycleEvents, STALE_CYCLE_MS, type AutopilotChange, type CycleEventLike, type CycleSummary } from "./autopilot";
 export { resumeBusinessAgents, stopBusinessAgents, type ResumeBusinessResult, type StopBusinessResult } from "./controls";
 export { APPROVAL_OPTIONS, approvalAction, approvalAmount, approvalArgsText, approvalItem, approvalOutcomeOf, approvalSection, approvalTaskTitle, closeApprovalItem, connectorLabel, isApprovalOption, openApprovalItem, toolWords, type ApprovalItemDetails, type ApprovalOptionId } from "./approvals";
