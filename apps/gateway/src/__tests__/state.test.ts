@@ -202,6 +202,8 @@ describe("BYOK key revoked", () => {
     expect(res.status).toBe(403);
     const r = asDeny((await res.json()) as CallResponse);
     expect(r.policyIds).toEqual([KEY_REVOKED_POLICY_ID]);
+    // The reason reaches the agent and its session log: product words only (CLAUDE.md 2026-10-08).
+    expect(r.reasons[0]).toMatch(/^This business runs on its own Anthropic key/);
     const audit = await repos.audit.get(g.db, g.businessId, r.auditId);
     expect(audit.details).toMatchObject({ outcome: "deny", policyIds: [KEY_REVOKED_POLICY_ID] });
     asAllow(await g.client.call(token, { connector: "test", tool: "note", args: {} }));

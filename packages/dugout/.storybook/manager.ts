@@ -1,11 +1,12 @@
 import { addons } from "storybook/manager-api";
 import { create } from "storybook/theming/create";
+import { APP_NAME } from "@foundmill/config";
 
 // Dark manager chrome so the stories and the frame agree (DESIGN §1: no light theme exists).
 addons.setConfig({
   theme: create({
     base: "dark",
-    brandTitle: "Foundmill design system",
+    brandTitle: `${APP_NAME} design system`,
     appBg: "#0f1318",
     appContentBg: "#171c23",
     appBorderColor: "#2a313b",

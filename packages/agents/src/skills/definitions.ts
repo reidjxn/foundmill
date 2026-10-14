@@ -3,7 +3,7 @@
  * `agentTypes` for craft skills is derived from the templates that carry the skill, so the catalogue and the templates
  * can never disagree (a test asserts every template skill exists here and every craft skill is used).
  */
-import { type SkillGroup } from "@foundmill/shared";
+import { usSpelling, type SkillGroup } from "@foundmill/shared";
 import { SkillDefinition } from "../types";
 import { ALL_TEMPLATES } from "../templates";
 
@@ -224,7 +224,20 @@ export const SKILL_DEFINITIONS: readonly SkillDefinition[] = Object.freeze([
 export const SKILL_DEFINITIONS_BY_KEY: Readonly<Record<string, SkillDefinition>> = Object.freeze(Object.fromEntries(SKILL_DEFINITIONS.map((d) => [d.key, d])));
 
 export function getSkillDefinition(key: string): SkillDefinition | undefined {
-  return SKILL_DEFINITIONS_BY_KEY[key];
+  // Own keys only: a custom skill keyed "constructor" must not find Object.prototype.constructor.
+  return Object.hasOwn(SKILL_DEFINITIONS_BY_KEY, key) ? SKILL_DEFINITIONS_BY_KEY[key] : undefined;
+}
+
+/**
+ * What a person reads for a skill key: the catalogue name ("prioritisation" → "Prioritization", "test_automation" →
+ * "Test automation"), else the key in plain US English words. Keys are identifiers and keep their spelling; prose that
+ * names a skill (coach summaries, Inbox notes) uses this, never the key.
+ */
+export function skillDisplayName(key: string): string {
+  const def = getSkillDefinition(key);
+  if (def) return def.name;
+  const words = usSpelling(key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_\-.]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase());
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /** Skill keys an agent type carries: craft skills for the type plus every judgement and execution skill. */

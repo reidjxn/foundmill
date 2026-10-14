@@ -36,6 +36,19 @@ describe("RunwayScreen", () => {
     expect(screen.queryByText(/Continue is blocked/)).toBeNull();
   });
 
+  it("labels every projected figure Forecast: runway, cash out, cash at the horizon, the panel and the driver line", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <RunwayScreen {...props} />);
+    const warnings = screen.getByRole("region", { name: "Runway warnings" });
+    // Panel header chip + three chips (Runway, Cash out, Cash at the horizon) for each of the three scenarios.
+    expect(within(warnings).getAllByText("Forecast").length).toBe(1 + 3 * 3);
+    for (const li of within(warnings).getByRole("list", { name: "Runway by scenario" }).querySelectorAll("li[data-scenario]")) {
+      expect(within(li as HTMLElement).getAllByText("Forecast")).toHaveLength(3);
+    }
+    const driverLine = document.querySelector("[data-driver-runway]") as HTMLElement;
+    expect(driverLine.textContent).toMatch(/runway with these drivers: .+Forecast$/);
+  });
+
   it("edits drivers, shows the live runway, saves a new version through finance.forecast.update and resets", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <RunwayScreen {...props} />);

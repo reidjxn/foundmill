@@ -1,5 +1,6 @@
 /** Anthropic: model listing and BYOK key validation (BUILD §10.2). Completions live in packages/models. */
 import { z } from "zod";
+import { APP_NAME } from "@foundmill/config";
 import { ModelKey } from "@foundmill/shared";
 import { defineTool } from "../../define";
 
@@ -14,7 +15,7 @@ export const ModelInfoOut = z.object({
 export const anthropicTools = [
   defineTool({
     name: "list_models",
-    description: "List the Anthropic models the configured key can use and flag the ones Founder Manager routes to (packages/models/src/routing.ts).",
+    description: `List the Anthropic models the configured key can use and flag the ones ${APP_NAME} routes to (packages/models/src/routing.ts).`,
     input: z.object({ limit: z.number().int().min(1).max(100).default(50) }),
     output: z.object({ models: z.array(ModelInfoOut), hasMore: z.boolean() }),
     hints: {},

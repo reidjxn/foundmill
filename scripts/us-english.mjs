@@ -18,7 +18,7 @@
 //
 // Business facts stay: a UK business keeps GBP, VAT and "Ltd", and a proper noun keeps its own spelling (ALLOW).
 // A line (or the line above it) carrying `us-english-allow` is skipped: for a sentence that quotes a British form on
-// purpose (a glossary entry, an enum key quoted in a prompt example), never to hide copy. Tests, e2e specs, fixtures,
+// purpose (a glossary entry, an enum key quoted in a prompt example), never to hide copy. Tests, e2e specs, `__fixtures__` (connector mock fixtures are scanned: they are mock outputs people read),
 // test helpers (`testing/`) and .d.ts files are excluded by path, as in banned-terms.
 //
 // The opt-in date formats (founder, 2026-10-11: a signed-in person may choose day-first or ISO dates and a 24-hour
@@ -71,7 +71,7 @@ const SPELLING_ROOTS = [...new Set([...VOCAB_CODE_ROOTS, ...EXTRA_ROOTS])];
 /** Every string in product code is checked for en-GB locales and day-first / 24-hour date-fns patterns. */
 const LOCALE_ROOTS = ["apps", "packages"];
 
-const TEST_PATH = /(^|\/)(__tests__|e2e|test|tests|testing|__fixtures__|__mocks__|fixtures)(\/|$)|\.(test|spec)\.[cm]?[jt]sx?$|\.d\.ts$/;
+const TEST_PATH = /(^|\/)(__tests__|e2e|test|tests|testing|__fixtures__|__mocks__)(\/|$)|\.(test|spec)\.[cm]?[jt]sx?$|\.d\.ts$/;
 const CODE_EXT = /\.(tsx?|jsx?|mjs|cjs|mts|cts)$/;
 const PROSE_EXT = /\.(md|mdx)$/;
 // Developer-facing or historical documents that quote British forms on purpose (and the build plan, written before the switch).

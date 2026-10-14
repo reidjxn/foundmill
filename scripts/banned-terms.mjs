@@ -7,9 +7,12 @@
 //  2. VOCAB — football-only words never reach anything a user can read (CLAUDE.md "Product vocabulary",
 //     docs/DECISIONS.md 2026-10-07 "Vocabulary: no football terms that cannot also be said of AI agents").
 //     Scope: string literals, template literals and JSX text in apps/web, packages/dugout, packages/widgets,
-//     packages/modules, packages/agents/src/{prompts,templates}, apps/composer, packages/journey, packages/models (its mock
-//     completions are what the founder reads in mock mode) (plus .md/.mdx there), and the prose
-//     of docs/DESIGN.md and docs/ARCHITECTURE.md. Identifiers are not scanned: import paths, object keys, enum
+//     packages/modules, packages/agents/src (templates, prompts, and the archetype tasks and Board copy every new
+//     business starts with), apps/composer, packages/journey, packages/models (its mock completions are what the founder
+//     reads in mock mode), the demo seed copy, the gateway's deny reasons, the policy reasons (Cedar `@reason`), the mock
+//     session recordings and the connectors with their mock fixtures (plus .md/.mdx there), the text of SVG files
+//     (`<text>`, `<title>`, `<desc>`, aria-label: the Open Graph card and the brand marks), and the prose of
+//     docs/DESIGN.md and docs/ARCHITECTURE.md. Identifiers are not scanned: import paths, object keys, enum
 //     members, literal types, CSS custom properties, class-name strings, data-* / className / id / href attributes,
 //     console/log arguments, and any single token that looks like an identifier (snake_case, kebab-case, camelCase,
 //     paths, lowercase words such as enum values). Tests, e2e specs and stories' test fixtures are excluded by path.
@@ -54,7 +57,7 @@ const BRAND_BANNED = [
   /\bFM2[0-9]\b/,
   /\bFM\s?21\b/,
 ];
-const BRAND_EXT = /\.(tsx?|jsx?|mjs|cjs|css|md|json|cedar|sql|html)$/;
+const BRAND_EXT = /\.(tsx?|jsx?|mjs|cjs|css|md|json|cedar|sql|html|svg)$/;
 
 function brandScan() {
   const hits = [];
@@ -96,12 +99,20 @@ const VOCAB_CODE_ROOTS = [
   "packages/dugout",
   "packages/widgets",
   "packages/modules",
-  "packages/agents/src/prompts",
-  "packages/agents/src/templates",
+  // Templates and prompts, plus the archetypes' first-cycle task goals and Board decisions every new business starts with.
+  "packages/agents/src",
   "apps/composer",
   "packages/journey",
   // Mock completions reach the founder on the MODEL_MODE=mock golden path (Inbox notes, Customer Update lines, replies).
   "packages/models",
+  // Demo seed copy (channel "why" text, Inbox notes) is what a founder reads on the demo businesses.
+  "packages/db/src/seed",
+  // Deny reasons reach the agent and its session log; a Cedar `@reason` is the deny reason the evaluator returns.
+  "apps/gateway/src",
+  "packages/policy/src",
+  // Mock session recordings replay in Live sessions; connector fixtures are the mock outputs agents and founders read.
+  "packages/sandbox/src",
+  "packages/connectors/src",
 ];
 const VOCAB_DOC_FILES = ["docs/DESIGN.md", "docs/ARCHITECTURE.md"];
 // Developer-facing or historical documents that quote the old words on purpose.
@@ -111,6 +122,10 @@ const TEST_PATH =
   /(^|\/)(__tests__|e2e|test|tests|__fixtures__|__mocks__)(\/|$)|\.(test|spec)\.[cm]?[jt]sx?$|\.d\.ts$/;
 const CODE_EXT = /\.(tsx?|jsx?|mjs|cjs|mts|cts)$/;
 const PROSE_EXT = /\.(md|mdx)$/;
+// SVG files are served as they are (the Open Graph card, icons): their <text>, <title>, <desc> and aria-label are read.
+const SVG_EXT = /\.svg$/;
+// Cedar policies: the `@reason("...")` annotation is the sentence the evaluator returns as the deny reason.
+const CEDAR_EXT = /\.cedar$/;
 const ALLOW_MARKER = /vocab-allow/;
 
 /**
@@ -129,7 +144,17 @@ const VOCAB_TERMS = [
   { term: "crest (use logo)", re: /\bcrests?\b/gi },
   { term: "shout (use nudge)", re: /\bshouts?\b/gi },
   { term: "bench (use off the board)", re: /\b(?:the|to|on)\s+bench\b/gi },
-  { term: "formation board (use Channel Board)", re: /\bformation\s+board\b/gi },
+  {
+    // The Distribution board is the Channel Board and the Development view is the Task graph. Forming a company is not
+    // football: "company formation", "formation cost", "formation and annual costs", "FORMATIONS LTD" stay.
+    term: "formation (use Channel Board / Task graph)",
+    re: /\bformations?\b/gi,
+    allow: [
+      /\b(?:company|business|entity|corporate|llc|ltd|limited[\s-]company|incorporation|registered)\s+formations?\b/gi,
+      /\bformations?\s+(?:and\s+annual\s+)?(?:costs?|fees?|times?|filings?|documents?|services?|agents?|dates?|state|jurisdictions?|requirements?|steps?|process|paperwork)\b/gi,
+      /\bFORMATIONS?\s+(?:LTD|LIMITED|LLC|INC)\b/g,
+    ],
+  },
   { term: "training ground (use Live sessions)", re: /\btraining\s+ground\b/gi },
   { term: "captain", re: /\bcaptains?\b/gi },
   { term: "assistant manager (use Chief of Staff)", re: /\bassistant\s+manager\b/gi },
@@ -166,7 +191,8 @@ const VOCAB_TERMS = [
       /\b(?:elevator|sales|investor|business|product|startup|funding|cold|outreach|email|phone)\s+pitch\b/gi,
     ],
     allowContext: [
-      /\b(?:deck|investor|investors|buyer|buyers|buying|sales|prospect|prospects|procurement|demo|objection|objections|retailer|retailers)\b/i,
+      // A concept card's pitch (ideation turns a slate item's angle into the pitch).
+      /\b(?:deck|investor|investors|buyer|buyers|buying|sales|prospect|prospects|procurement|demo|objection|objections|retailer|retailers|concept|concepts|slate)\b/i,
     ],
   },
   { term: "trophy", re: /\btroph(?:y|ies)\b/gi },
@@ -192,6 +218,19 @@ const VOCAB_TERMS = [
     ],
   },
 ];
+
+/**
+ * The product name lives in one place (APP_NAME in packages/config, CLAUDE.md "always via APP_NAME"): copy in code
+ * interpolates it, so a literal "Foundmill" (or the old working name) in a user-facing string is a hit. Prose files and
+ * SVGs are not checked for it: the docs name the product, and the brand SVGs are generated from APP_NAME.
+ */
+const PRODUCT_NAME_TERM = {
+  term: "product name (use APP_NAME from @foundmill/config)",
+  re: /\b(?:Foundmill|Founder\s+Manager)\b/g,
+  allow: [],
+  allowContext: [],
+};
+const PRODUCT_NAME_HOME = /^packages\/config\//;
 
 // JSX attributes / object keys whose values are not read by users.
 const STRUCTURAL_NAMES = new Set([
@@ -655,6 +694,11 @@ function scanCodeFile(abs, hits) {
         const offset = verdict === "story-title" ? 0 : h.start;
         record(piece, offset, h);
       }
+      if (PRODUCT_NAME_HOME.test(file)) continue;
+      const { re } = PRODUCT_NAME_TERM;
+      re.lastIndex = 0;
+      for (const m of piece.text.matchAll(re))
+        record(piece, m.index, { term: PRODUCT_NAME_TERM.term, start: m.index, end: m.index + m[0].length, match: m[0], allowContext: [] });
     }
   }
 
@@ -709,6 +753,49 @@ function scanProseFile(abs, hits) {
   });
 }
 
+// ----- SVG files (the text people and link previews read) -----
+
+const SVG_ENTITIES = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'", "&#39;": "'" };
+
+/** `<text>`, `<tspan>`, `<title>` and `<desc>` content and aria-label / aria-description values of an SVG file. */
+function scanSvgFile(abs, hits) {
+  const text = readFileSync(abs, "utf8");
+  const file = rel(abs);
+  const lines = text.split("\n");
+  const lineOf = (offset) => text.slice(0, offset).split("\n").length - 1;
+  const pieces = [];
+  for (const m of text.matchAll(/<(text|tspan|title|desc)\b[^>]*>([\s\S]*?)<\/\1>/gi))
+    pieces.push({ text: m[2], pos: m.index + m[0].indexOf(">") + 1 });
+  for (const m of text.matchAll(/\baria-(?:label|description)\s*=\s*"([^"]*)"/gi))
+    pieces.push({ text: m[1], pos: m.index + m[0].indexOf('"') + 1 });
+  for (const piece of pieces) {
+    // Nested tags (a <tspan> inside a <text>) are dropped so their words read as one sentence; entities are decoded.
+    const prose = piece.text.replace(/<[^>]*>/g, " ").replace(/&(?:amp|lt|gt|quot|apos|#39);/g, (e) => SVG_ENTITIES[e]);
+    for (const h of findTermHits(prose)) {
+      const line = lineOf(piece.pos);
+      if (lineHasAllowMarker(lines, line) || contextAllows(h, lines, line)) continue;
+      hits.push({ scan: "vocab", file, line: line + 1, term: h.term, match: h.match, snippet: prose.trim().slice(0, 140) });
+    }
+  }
+}
+
+// ----- Cedar policies (the `@reason` annotation is the deny reason) -----
+
+function scanCedarFile(abs, hits) {
+  const text = readFileSync(abs, "utf8");
+  const file = rel(abs);
+  const lines = text.split("\n");
+  lines.forEach((line, i) => {
+    if (lineHasAllowMarker(lines, i)) return;
+    for (const m of line.matchAll(/@(?:reason|description|label)\s*\(\s*"((?:[^"\\]|\\.)*)"\s*\)/g)) {
+      for (const h of findTermHits(m[1])) {
+        if (contextAllows(h, lines, i)) continue;
+        hits.push({ scan: "vocab", file, line: i + 1, term: h.term, match: h.match, snippet: line.trim().slice(0, 140) });
+      }
+    }
+  });
+}
+
 function vocabScan(roots) {
   const hits = [];
   const docFiles = new Set(VOCAB_DOC_FILES.map((f) => join(REPO_ROOT, f)));
@@ -733,6 +820,10 @@ function vocabScan(roots) {
       scanCodeFile(p, hits);
     } else if (PROSE_EXT.test(base)) {
       scanProseFile(p, hits);
+    } else if (SVG_EXT.test(base)) {
+      scanSvgFile(p, hits);
+    } else if (CEDAR_EXT.test(base)) {
+      scanCedarFile(p, hits);
     }
   }
   for (const r of roots) {
@@ -793,13 +884,15 @@ function writeSweep(path, hits, roots) {
     trophy: "Milestone(s)",
     "league table": "Leaderboard",
     "injured / injury": 'Down (with "expected back")',
-    "kit colours / kit mode / kit bar": "Brand colours / offline tracking / top bar",
+    "kit colours / kit mode / kit bar": "Brand colors / offline tracking / top bar",
+    "formation (use Channel Board / Task graph)": "Channel Board (Distribution), Task graph (Development)",
+    "product name (use APP_NAME from @foundmill/config)": "`${APP_NAME}`",
     season: "Chapter",
   };
   out.push(
     ...mdTable(
       ["Term", "Replace with", "Hits"],
-      VOCAB_TERMS.map((t) => [
+      [...VOCAB_TERMS, PRODUCT_NAME_TERM].map((t) => [
         t.term,
         replacement[t.term] ?? "",
         String(termCounts.get(t.term) ?? 0),
@@ -910,6 +1003,8 @@ export {
   vocabScan,
   scanCodeFile,
   scanProseFile,
+  scanSvgFile,
+  scanCedarFile,
   findTermHits,
   looksLikeIdentifier,
   looksLikeClassList,

@@ -96,7 +96,8 @@ describe("inbox.decide (BUILD §11.3, AC-11.3.3/4/5)", () => {
     expect(result.executed.length).toBe(result.plan.actions.length);
     expect(result.dispatch).toBeNull();
     const tasks = await repos.tasks.list(hz.db, hz.A.businessId, { kind: "channel" });
-    expect(tasks.items.some((t) => t.title.toLowerCase().includes("google ads"))).toBe(true);
+    // The title names the work by its channel ("Paid advertising campaign"); the goal keeps the founder's words.
+    expect(tasks.items.some((t) => t.title === "Paid advertising campaign" && t.goalMd.toLowerCase().includes("google ads"))).toBe(true);
   });
 
   it("AC-11.3.5: a hard-gate request compiles to request_human_action only and creates a founder task", async () => {

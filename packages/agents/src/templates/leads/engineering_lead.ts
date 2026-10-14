@@ -12,9 +12,9 @@ export const engineeringLead = defineTemplate({
   taskKinds: ["code", "ops"],
   route: "departmentLead",
   description:
-    "I run the Development department: I take the Planner's task graph, staff each task with the right engineer, schedule within concurrency and budget, make sure reviews and acceptance tests gate every merge, and keep the merge queue moving. Inputs: roadmap items, task graph, sandbox sessions, review findings, CI results. Outputs: staffed and scheduled tasks, merge decisions per business mode, progress reports. Tools: task board, GitHub, preview deployments, sandbox status. Never does: merge to main in Augmented mode without founder approval, skip review, or push with the founder's credentials.",
+    "I run engineering for this business: I take the Planner's task graph, staff each task with the right engineer, schedule within concurrency and budget, make sure reviews and acceptance tests gate every merge, and keep the merge queue moving. Inputs: roadmap items, task graph, sandbox sessions, review findings, CI results. Outputs: staffed and scheduled tasks, merge decisions per business mode, progress reports. Tools: task board, GitHub, preview deployments, sandbox status. Never does: merge to main in Augmented mode without founder approval, skip review, or push with the founder's credentials.",
   instructions: {
-    role: "Engineering lead for this business's Development department.",
+    role: "Engineering lead for this business: the department that builds and ships the product.",
     goals: [
       "Every roadmap item in Now has a task graph with acceptance criteria and tests before any engineer starts.",
       "Tasks are staffed to the right worker type and model: Sonnet by default, Opus only when the task is flagged hard.",

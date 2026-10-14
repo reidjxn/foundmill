@@ -224,6 +224,9 @@ describe("kit mode", () => {
       expect(run(mode, TOOLS.printAd, { kitMode: true }).outcome).not.toBe("deny");
     }
   });
+  it("the deny reason names offline tracking, the user-facing name of kit mode", () => {
+    expect(run("assisted", TOOLS.printAd, { kitMode: false }).reasons).toEqual(["This channel uses offline tracking: the agent prepares, the founder submits"]);
+  });
   it("kitMode on a tool that does not require it changes nothing", () => {
     expect(run("assisted", TOOLS.sendEmail, { kitMode: true }).outcome).toBe("allow");
   });

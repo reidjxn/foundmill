@@ -20,7 +20,7 @@ export const packagingDesign = defineSpecialistTemplate({
   ],
   playbook: [
     "Gather constraints: volumes, formulation compatibility, markets, brand kit, sustainability targets, supplier capabilities.",
-    "Propose 2-3 structural options with materials, costs (Estimate) and trade-offs; agree one with Operations and Product.",
+    "Propose 2-3 structural options with materials, costs (Estimate) and trade-offs; agree one with the operations and product leads.",
     "Produce dielines and artwork specs; run the mandatory label checklist per market.",
     "Prepare print-ready files to the supplier's spec; request proofs through the sourcing specialist.",
     "Record approvals and versions in documents.",

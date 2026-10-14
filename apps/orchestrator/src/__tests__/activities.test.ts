@@ -139,6 +139,25 @@ describe("training run (BUILD §11.10)", () => {
     expect(events.items.find((e) => (e.payload as { trainingRunId: string }).trainingRunId === run.id)?.payload).toMatchObject({ status: "cancelled", recommendation: null });
   });
 
+  it("the coach summary names skills as people read them (Prioritization, Test automation) and counts in US English", async () => {
+    const acts = createTrainingActivities(t.deps);
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const live = await repos.agents.getVersion(t.db, t.businessId, agent.currentVersionId!);
+    const draft = await repos.agents.createVersion(t.db, t.businessId, agent.id, { instructions: live.instructions as never, tools: live.tools, modelKey: "sonnet", state: "draft", createdByKind: "user" });
+    const run = await repos.training.create(t.db, t.businessId, { agentId: agent.id, fromVersionId: live.id, toVersionId: draft.id });
+    await acts.loadTrainingRun({ businessId: t.businessId, trainingRunId: run.id });
+    const dropped = (skillKey: string) => ({ skillKey, group: "judgement" as const, testsRun: 1, meanScore: 0.2, tested: 5, previousTested: 10, costMinor: 0, checksFailed: 0 });
+    await acts.finalizeTrainingRun({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, liveVersionId: live.id, outcomes: [dropped("prioritisation"), dropped("test_automation")], clubRuleFlags: [], startedAt: new Date().toISOString() });
+    const summary = (await repos.training.get(t.db, t.businessId, run.id)).coachSummaryMd;
+    expect(summary).toContain("2 tests across 2 skills. 0 skills up, 2 dropped by more than a point (Prioritization 10→5, Test automation 10→5).");
+    expect(summary).not.toMatch(/prioritisation|test_automation|_/);
+
+    const one = await repos.training.create(t.db, t.businessId, { agentId: agent.id, fromVersionId: live.id, toVersionId: draft.id });
+    await acts.loadTrainingRun({ businessId: t.businessId, trainingRunId: one.id });
+    await acts.finalizeTrainingRun({ businessId: t.businessId, trainingRunId: one.id, agentId: agent.id, draftVersionId: draft.id, liveVersionId: live.id, outcomes: [{ ...dropped("planning"), tested: 11, previousTested: 10 }], clubRuleFlags: [], startedAt: new Date().toISOString() });
+    expect((await repos.training.get(t.db, t.businessId, one.id)).coachSummaryMd).toMatch(/^1 test across 1 skill\. 1 skill up, 0 dropped/);
+  });
+
   it("failing a run whose results already landed changes nothing and reports them", async () => {
     const acts = createTrainingActivities(t.deps);
     const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
@@ -545,6 +564,21 @@ describe("custom skills in training (AC-08)", () => {
     const outcome = await acts.runSkillTests({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, skillKey: "custom_grant_writing", modelKey: "sonnet" });
     expect(outcome.testsRun).toBe(2);
     expect(outcome.tested).toBeGreaterThanOrEqual(1);
+  });
+
+  it("the coach summary names a custom skill by the name the founder gave it, not its stored key", async () => {
+    const acts = createTrainingActivities(t.deps);
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const live = await repos.agents.getVersion(t.db, t.businessId, agent.currentVersionId!);
+    await repos.skills.createCustomDefinition(t.db, t.businessId, { agentType: agent.agentType, skillKey: "custom_vendor_review", name: "Vendor review", group: "craft" });
+    const draft = await repos.agents.createVersion(t.db, t.businessId, agent.id, { instructions: live.instructions as never, tools: live.tools, modelKey: "sonnet", state: "draft", createdByKind: "user" });
+    const run = await repos.training.create(t.db, t.businessId, { agentId: agent.id, fromVersionId: live.id, toVersionId: draft.id });
+    await acts.loadTrainingRun({ businessId: t.businessId, trainingRunId: run.id });
+    const outcome = { group: "craft" as const, testsRun: 1, meanScore: 0.2, tested: 5, previousTested: 10, costMinor: 0, checksFailed: 0 };
+    await acts.finalizeTrainingRun({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, liveVersionId: live.id, outcomes: [{ skillKey: "custom_vendor_review", ...outcome }, { skillKey: "prioritisation", ...outcome }], clubRuleFlags: [], startedAt: new Date().toISOString() });
+    const summary = (await repos.training.get(t.db, t.businessId, run.id)).coachSummaryMd;
+    expect(summary).toContain("(Vendor review 10→5, Prioritization 10→5)");
+    expect(summary).not.toMatch(/custom_|prioritisation/);
   });
 });
 

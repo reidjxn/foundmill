@@ -7,6 +7,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { ExternalLink, ShieldCheck, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
 import { Avatar, Button, Chip, DataTable, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EmptyState, EntityLink, Field, Input, Panel, SimpleSelect, formatRelative, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { APP_NAME } from "@foundmill/config";
 import { MEMBERSHIP_ROLES, type MembershipRole } from "@foundmill/shared/constants";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
@@ -160,7 +161,7 @@ export function InviteDialog({ open, onOpenChange, onInvited }: InviteDialogProp
       <DialogContent size="lg" aria-describedby={`${id}-desc`} data-testid="invite-dialog">
         <DialogHeader>
           <DialogTitle>Invite staff</DialogTitle>
-          <DialogDescription id={`${id}-desc`}>A person with a Foundmill account joins this business with a role and, where needed, per-section permissions. Ownership is never granted by invitation: an owner grants it from Role and permissions.</DialogDescription>
+          <DialogDescription id={`${id}-desc`}>A person with a {APP_NAME} account joins this business with a role and, where needed, per-section permissions. Ownership is never granted by invitation: an owner grants it from Role and permissions.</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
           <Field htmlFor={`${id}-user`} label="Account id" required hint="Find it in Settings › Members or on the person's profile." error={userId && !validId ? "That is not an account id; it has 36 letters, digits and dashes." : undefined}>

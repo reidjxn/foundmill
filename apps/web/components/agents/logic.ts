@@ -59,7 +59,7 @@ export function humaniseKey(key: string): string {
   const text = words
     .map((w, i) => {
       const lower = w.toLowerCase();
-      if (ACRONYMS[lower]) return ACRONYMS[lower];
+      if (Object.hasOwn(ACRONYMS, lower)) return ACRONYMS[lower]; // own keys only: "constructor" is a word, not a member
       return i === 0 ? lower.charAt(0).toUpperCase() + lower.slice(1) : lower;
     })
     .join(" ");
@@ -736,6 +736,20 @@ const PLAIN_IDS: Record<string, string> = {
   "inbox.decide": "your decision",
 };
 
+/** "The" → "You", "the" → "you": the replacement keeps the sentence's capital. */
+const sameCase = (original: string, word: string): string => (original[0] === original[0]!.toUpperCase() ? word.charAt(0).toUpperCase() + word.slice(1) : word);
+
+const YOU_FORMS: Readonly<Record<string, string>> = { has: "have", is: "are", was: "were", does: "do", goes: "go" };
+/** A third-person verb in the form "you" takes ("gets" → "get", "pushes" → "push", "applies" → "apply"); anything else stays. */
+function youVerb(word: string): string {
+  const w = word.toLowerCase();
+  if (Object.hasOwn(YOU_FORMS, w)) return YOU_FORMS[w]!;
+  if (!/^[a-z]{2,}s$/.test(w) || /(?:ss|us|is)$/.test(w)) return word;
+  if (/[^aeiou]ies$/.test(w)) return `${word.slice(0, -3)}y`;
+  if (/(?:sh|ch|x|z|ss)es$/.test(w)) return word.slice(0, -2);
+  return word.slice(0, -1);
+}
+
 /**
  * Instruction prose → founder prose: build references and ids out ("(BUILD §2.2)", `request_human_action` → "a task
  * for you", other snake_case or dotted ids → words), and the model's jargon in plain words ("agent ids" → "agents").
@@ -761,8 +775,16 @@ export function founderPlain(text: string): string {
     // The profile speaks to the founder: "the founder" is "you".
     .replace(/\b(?:a|every|each) founder reply\b/gi, (m) => `${m.split(" ")[0]} reply from you`)
     .replace(/\bfounder replies\b/gi, "replies from you")
-    .replace(/\bthe founder's\b/gi, "your")
-    .replace(/\bthe founder\b/gi, "you")
+    .replace(/\b(the) founder's\b/gi, (_m, the: string) => sameCase(the, "your"))
+    // A noun after "founder" is the founder's own: "from the founder profile" → "from your profile".
+    .replace(/\b(the) founder (profile|tasks?|identity|account)\b/gi, (_m, the: string, noun: string) => `${sameCase(the, "your")} ${noun}`)
+    // The verb agrees with "you": "The founder gets" → "You get", "books and signs" → "book and sign".
+    .replace(/\b(the) founder((?: (?:only|also|then|still|never|always|first))?) ([a-z]+)\b(?:((?: [a-z]+){0,2} and )([a-z]+)\b)?/gi, (_m, the: string, adverb: string, verb: string, between: string | undefined, second: string | undefined) => {
+      const v = youVerb(verb);
+      const coordinated = between !== undefined && second !== undefined && v !== verb ? `${between}${youVerb(second)}` : `${between ?? ""}${second ?? ""}`;
+      return `${sameCase(the, "you")}${adverb} ${v}${coordinated}`;
+    })
+    .replace(/\b(the) founder\b/gi, (_m, the: string) => sameCase(the, "you"))
     .replace(/\s{2,}/g, " ")
     .replace(/\s+([.,;:])/g, "$1")
     .trim();

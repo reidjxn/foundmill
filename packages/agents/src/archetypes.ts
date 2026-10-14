@@ -125,7 +125,7 @@ const SPEC_TASK = (assignee = "product_lead"): FirstCycleTask =>
 const CHANNEL_TASK = task({
   kind: "channel",
   title: "Score the 15 channels and propose 3-6 starters",
-  goal: "Score every channel 1-20 on fit for this business and propose the starting formation with cost-per-customer ranges labeled Estimate.",
+  goal: "Score every channel 1-20 on fit for this business and propose the starting channels for the Channel Board with cost-per-customer ranges labeled Estimate.",
   acceptance: ["All 15 channels scored with a reason", "3-6 starters with fit, potential, CPA range and a three-sentence why", "Budget split proposed within the monthly distribution budget"],
   assigneeTemplateKey: "distribution_strategist",
   departmentSlug: "distribution",
@@ -288,7 +288,7 @@ const consumerApp = ArchetypeSeed.parse({
     "consumer_app",
     "Paid acquisition or organic first?",
     [
-      "The team is in place. Distribution has a formation ready; Development is planning onboarding.",
+      "The team is in place. Distribution has its Channel Board ready; Development is planning onboarding.",
       "Consumer apps live or die on cost per activated user. The Board asks how the first budget should be spent.",
     ],
     [
@@ -606,7 +606,7 @@ const hardware = ArchetypeSeed.parse({
         actions: [
           approve(THRESHOLD * 20, "A 50-unit pilot batch", "sourcing_manufacturing"),
           work("sourcing_manufacturing", "specialist", "Quote a 50-unit pilot batch", "Get comparable quotes for a 50-unit pilot batch with lead times; the founder places any order and pays any deposit."),
-          channelWork("pr", "Line up testers and press for the pilot units", "Shortlist testers and press for the pilot units and prepare the briefing they receive."),
+          channelWork("pr", "Arrange testers and press for the pilot units", "Shortlist testers and press for the pilot units and prepare the briefing they receive."),
         ],
       },
     ],

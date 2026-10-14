@@ -30,7 +30,16 @@ const MARKER: Record<ScrubberMarker["kind"], { icon: IconComponent; className: s
   error: { icon: TriangleAlert, className: "text-status-bad", word: "Error" },
 };
 
-/** The events worth a tick on the timeline (stdout and progress are too frequent). */
+/** "implementing" → "Implementing", "code_review" → "Code review". */
+const phaseWord = (phase: string): string => {
+  const words = phase.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+/**
+ * The events worth a tick on the timeline (stdout and progress are too frequent). A label is the detail only: the
+ * marker's word ("Phase", "Nudge") is put in front where the label is read, so it is never said twice.
+ */
 export function scrubberMarkers(events: readonly AgentSessionEvent[], startedAt: string): ScrubberMarker[] {
   const start = Date.parse(startedAt);
   const out: ScrubberMarker[] = [];
@@ -38,20 +47,20 @@ export function scrubberMarkers(events: readonly AgentSessionEvent[], startedAt:
     const at = Math.max(0, Date.parse(e.at) - start);
     switch (e.kind) {
       case "phase_changed":
-        out.push({ at, kind: "phase", label: `Phase: ${e.to}` });
+        out.push({ at, kind: "phase", label: phaseWord(e.to) });
         break;
       case "test_result":
-        out.push({ at, kind: e.failed > 0 ? "tests_fail" : "tests_pass", label: `${e.suite || "Tests"}: ${e.passed} passed, ${e.failed} failed` });
+        out.push({ at, kind: e.failed > 0 ? "tests_fail" : "tests_pass", label: `${e.suite ? `${e.suite}, ` : ""}${e.passed} passed, ${e.failed} failed` });
         break;
       case "note":
-        if (e.source === "shout") out.push({ at, kind: "shout", label: `Nudge: ${e.text}` });
+        if (e.source === "shout") out.push({ at, kind: "shout", label: e.text });
         else if (e.level === "error") out.push({ at, kind: "error", label: e.text });
         break;
       case "tool_call":
-        if (e.status === "awaiting_approval") out.push({ at, kind: "approval", label: `Awaiting approval: ${e.tool}` });
+        if (e.status === "awaiting_approval") out.push({ at, kind: "approval", label: `waiting on ${e.tool}` });
         break;
       case "file_changed":
-        out.push({ at, kind: "file", label: `${e.change}: ${e.path}` });
+        out.push({ at, kind: "file", label: `${e.change} ${e.path}` });
         break;
       default:
         break;

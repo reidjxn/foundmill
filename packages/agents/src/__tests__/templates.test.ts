@@ -99,6 +99,21 @@ describe("agent templates (BUILD §9.1, §9.2, §11.6, §11.7, §11.10)", () => 
     }
   });
 
+  it("never names a department by its default display name: departments are labels the founder renames (AC-11.13.1)", () => {
+    // A renamed Development ("Formulation Lab") or Content/media's "Editorial" must not leave "I run the Development
+    // department" in the profile and in every system prompt; templates speak of the function ("engineering").
+    const DEPT = "(?:Development|Distribution|Product|Finance|Legal|Operations|Team)";
+    const patterns = [
+      /\bDevelopment\b/,
+      new RegExp(`\\b${DEPT} (?:department|flow|merge flow|›)`),
+      new RegExp(`\\b(?:notify|brief|with|so) ${DEPT}\\b(?! schema)`),
+    ];
+    for (const t of ALL_TEMPLATES) {
+      const text = [t.description, JSON.stringify(t.instructions)].join("\n");
+      for (const re of patterns) expect(text, `${t.key}: ${re}`).not.toMatch(re);
+    }
+  });
+
   it("only grants tools on known connector keys (BUILD §13.2)", () => {
     for (const t of ALL_TEMPLATES) {
       for (const g of t.tools) {

@@ -59,6 +59,7 @@ describe("journal", () => {
       "0034_first_payments",
       "0035_owner_lock",
       "0036_agents_orchestration",
+      "0037_copy_rules",
       "0039_money_billing",
       "0040_design_system",
       "0041_widgets_modules",

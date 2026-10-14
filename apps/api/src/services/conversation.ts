@@ -54,6 +54,7 @@ import {
   NotFoundError,
   ValidationError,
   formatMoney,
+  usDate,
   type AgentPresence,
   type AgentReaction,
   type AgentStatus,
@@ -423,7 +424,9 @@ function promptSubject(r: Resolved, currency: string): ConversationSubjectInput 
   return { kind: "agent", id: r.agent.id, title: r.agent.name };
 }
 
-const taskInput = (t: Task | null): ConversationTaskInput | null => (t ? { id: t.id, title: t.title, status: t.status, phase: t.phase ?? null, progress: progressOf(t), eta: t.eta ? t.eta.toISOString().slice(0, 10) : null } : null);
+/** The expected date as the agent should quote it: a US date ("Oct 11"; "Jan 4, 2027" in another year), never ISO. */
+export const etaWords = (eta: Date, now = new Date()): string => usDate(eta, { year: eta.getUTCFullYear() !== now.getUTCFullYear() });
+const taskInput = (t: Task | null): ConversationTaskInput | null => (t ? { id: t.id, title: t.title, status: t.status, phase: t.phase ?? null, progress: progressOf(t), eta: t.eta ? etaWords(t.eta) : null } : null);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Views

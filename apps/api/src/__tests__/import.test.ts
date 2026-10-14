@@ -139,7 +139,7 @@ describe("import.start / import.status — Door B (BUILD §11.1, AC-11.1.5)", ()
     const report = buildScoutingReport(configs, job);
     expect(report.sources.map((s) => s.state)).toEqual(["read", "not_read", "not_read", "read"]);
     expect(report.whatExists).toEqual(["GitHub (acme/ledgerly): Read through github (read_tree), read only.", "Company registry (12345678): Read through opencorporates (search_companies), read only."]);
-    expect(report.whatIsMissing).toEqual(expect.arrayContaining(["Shopify: Not read: no connector for this uri.", "Bank (open banking): Not read: gateway deny.", "No revenue source: Finance starts with a management P&L and labeled estimates."]));
+    expect(report.whatIsMissing).toEqual(expect.arrayContaining(["Shopify: Not read: no connector for this uri.", "Bank (open banking): Not read: gateway deny.", "No revenue source: the finances start with a management P&L and labeled estimates."]));
     // No revenue or cash claim from the failed Shopify and bank; the archetype ignores the failed Shopify.
     expect(report.strengths.join(" ")).not.toMatch(/revenue|runway|cash/i);
     expect(report.strengths).toEqual(expect.arrayContaining([expect.stringMatching(/^GitHub was read through the gateway/), expect.stringMatching(/^The company registry answered/)]));

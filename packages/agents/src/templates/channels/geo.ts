@@ -21,7 +21,7 @@ export const channelGeo = defineChannelTemplate({
     "Plan: define the question set customers ask assistants; baseline the share of answers that mention the business (labeled approximate).",
     "Create: fix entity consistency (name, description, founders, pricing) across owned surfaces; add schema.org data and llms.txt; brief content that earns citations.",
     "Approve: request approval for new public pages and any statement in the founder's name.",
-    "Launch: ship through the Development flow; re-run the panels after indexing.",
+    "Launch: ship through the engineering flow; re-run the panels after indexing.",
     "Measure: answer share by question and assistant; citations earned; referral visits labeled by source.",
     "Learn and report: which questions moved, which did not, next content.",
   ],

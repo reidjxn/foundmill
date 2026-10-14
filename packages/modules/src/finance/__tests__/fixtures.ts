@@ -171,6 +171,11 @@ export const humans: MembershipRow[] = [
 /** P&L for a single month (wage bill period): payroll + contractors = €16,000. */
 export const pnlOctober: PnlResponse = { monthly: [], categories: [{ category: "Payroll", inflowMinor: 0, outflowMinor: 1_500_000, count: 1 }, { category: "Contractors", inflowMinor: 0, outflowMinor: 100_000, count: 2 }, { category: "Revenue", inflowMinor: 740_000, outflowMinor: 0, count: 1 }], snapshots: [], source: "bank_categorised", label: "Management P&L, unaudited, cash basis" };
 
+/** The founder renamed the department over the Team module ("People", slug "people"): copy and links follow it. */
+export const departments = [
+  { id: "d-people", name: "People", slug: "people", colourToken: "dept-5", position: 4, hidden: false, moduleKeys: ["team"], tabs: [{ id: "t-squad", slug: "squad", title: "Agents", position: 0 }, { id: "t-staff", slug: "staff", title: "Staff", position: 1 }, { id: "t-recruitment", slug: "recruitment", title: "Recruitment", position: 5 }] },
+];
+
 /** Everything every screen reads, keyed by procedure path. */
 export const dataResponses: Record<string, unknown> = {
   "finance.overview": overview,
@@ -184,6 +189,7 @@ export const dataResponses: Record<string, unknown> = {
   "team.agents.list": agentsResponse,
   "dev.tasks.list": tasksDone,
   "team.humans.list": humans,
+  "department.list": departments,
 };
 
 export const emptyResponses: Record<string, unknown> = {
@@ -198,4 +204,5 @@ export const emptyResponses: Record<string, unknown> = {
   "team.agents.list": { agents: [], templates: [] },
   "dev.tasks.list": { items: [], nextCursor: null },
   "team.humans.list": [],
+  "department.list": departments,
 };

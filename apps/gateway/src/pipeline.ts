@@ -137,9 +137,9 @@ const GITHUB_WRITE_TOOLS = new Set(["create_branch", "commit_files", "open_pr", 
 export function guardGithubWrite(tool: string, row: Integration | null, args: unknown): { args: unknown } | { reason: string } {
   if (!GITHUB_WRITE_TOOLS.has(tool)) return { args };
   const target = row ? codeRepositoryOf(row) : null;
-  if (!target?.writeEnabled) return { reason: "Pushing to GitHub is not turned on for this business (Development › Code)" };
+  if (!target?.writeEnabled) return { reason: "Pushing to GitHub is not turned on for this business (the Code tab)" };
   const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
-  if (`${String(a.owner)}/${String(a.repo)}`.toLowerCase() !== target.fullName.toLowerCase()) return { reason: `Agents change only ${target.fullName}, the repository chosen on Development › Code` };
+  if (`${String(a.owner)}/${String(a.repo)}`.toLowerCase() !== target.fullName.toLowerCase()) return { reason: `Agents change only ${target.fullName}, the repository chosen on the Code tab` };
   if (tool !== "commit_files") return { args };
   const message = typeof a.message === "string" ? a.message.slice(0, 4_980) : "";
   return { args: { ...a, message: message.includes("[skip ci]") ? message : `${message}\n\n[skip ci]` } };

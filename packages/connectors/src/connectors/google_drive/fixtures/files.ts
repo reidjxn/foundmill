@@ -15,7 +15,7 @@ export const DRIVE_DOCS: Record<string, GDoc> = {
     body: {
       content: [
         { endIndex: 40, paragraph: { elements: [{ textRun: { content: "Highlights\n" } }] } },
-        { endIndex: 160, paragraph: { elements: [{ textRun: { content: "MRR €8,420 (+9% MoM). 112 paying customers. Retinol serum pre-orders open 14 Oct.\n" } }] } },
+        { endIndex: 160, paragraph: { elements: [{ textRun: { content: "MRR €8,420 (+9% MoM). 112 paying customers. Retinol serum pre-orders open Oct 14.\n" } }] } },
         { endIndex: 260, paragraph: { elements: [{ textRun: { content: "Asks: intro to a DTC logistics partner in the Nordics.\n" } }] } },
       ],
     },
