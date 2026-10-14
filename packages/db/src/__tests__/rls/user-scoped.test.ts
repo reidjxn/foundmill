@@ -3,6 +3,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as s from "../../schema";
 import { createTestDb, type TestHarness } from "../../testing/pglite";
+import { postColumns, threadColumns } from "./client-columns";
 import { createBusinessFixture, RLS_DENIED, type BusinessFixture } from "./fixtures";
 
 let h: TestHarness;
@@ -240,7 +241,7 @@ describe("connections, message_threads, messages", () => {
     await h.service().run((tx) => tx.insert(s.messages).values({ threadId: thread!.id, fromUser: B.ownerId, body: "hello" }));
     expect(await h.asUser(A.ownerId).run((tx) => tx.select().from(s.messages))).toHaveLength(1);
     expect(await h.asUser(outsiderId).run((tx) => tx.select().from(s.messages))).toHaveLength(0);
-    expect(await h.asUser(outsiderId).run((tx) => tx.select().from(s.messageThreads))).toHaveLength(0);
+    expect(await h.asUser(outsiderId).run((tx) => tx.select(threadColumns).from(s.messageThreads))).toHaveLength(0);
     // Writes belong to the api (0016): a forged thread would otherwise pass for a conversation the two share.
     const denied = /permission denied/;
     await expect(h.asUser(A.ownerId).run((tx) => tx.insert(s.messageThreads).values({ participantIds: [A.ownerId, outsiderId] }))).rejects.toThrow(denied);
@@ -261,8 +262,8 @@ describe("communities, community_members, posts", () => {
     await h.service().run((tx) => tx.insert(s.communityMembers).values({ communityId: community!.id, userId: A.ownerId, role: "owner" }));
     await h.service().run((tx) => tx.insert(s.communityMembers).values({ communityId: community!.id, userId: B.ownerId }));
     const [post] = await h.service().run((tx) => tx.insert(s.posts).values({ communityId: community!.id, authorUserId: B.ownerId, bodyMd: "hi all" }).returning());
-    expect(await h.asUser(B.ownerId).run((tx) => tx.select().from(s.posts))).toHaveLength(1);
-    expect(await h.asUser(outsiderId).run((tx) => tx.select().from(s.posts))).toHaveLength(0);
+    expect(await h.asUser(B.ownerId).run((tx) => tx.select(postColumns).from(s.posts))).toHaveLength(1);
+    expect(await h.asUser(outsiderId).run((tx) => tx.select(postColumns).from(s.posts))).toHaveLength(0);
     expect(await h.asUser(outsiderId).run((tx) => tx.select().from(s.communities))).toHaveLength(1);
     expect(await h.asUser(outsiderId).run((tx) => tx.select().from(s.communityMembers))).toHaveLength(0);
 
@@ -298,13 +299,13 @@ describe("communities, community_members, posts", () => {
     const [held] = await h.service().run((tx) => tx.insert(s.posts).values({ communityId: room!.id, authorUserId: B.adminId, bodyMd: "held", status: "pending_review" }).returning());
     await h.service().run((tx) => tx.insert(s.posts).values({ communityId: room!.id, authorUserId: A.adminId, bodyMd: "visible" }));
     // The muted member reads the feed and their own held post; the invitee sees the community but not its feed.
-    expect((await h.asUser(B.adminId).run((tx) => tx.select().from(s.posts).where(eq(s.posts.communityId, room!.id)))).map((p) => p.bodyMd).sort()).toEqual(["held", "visible"]);
+    expect((await h.asUser(B.adminId).run((tx) => tx.select(postColumns).from(s.posts).where(eq(s.posts.communityId, room!.id)))).map((p) => p.bodyMd).sort()).toEqual(["held", "visible"]);
     expect(await h.asUser(B.memberId).run((tx) => tx.select().from(s.communities).where(eq(s.communities.id, room!.id)))).toHaveLength(1);
-    expect(await h.asUser(B.memberId).run((tx) => tx.select().from(s.posts).where(eq(s.posts.communityId, room!.id)))).toHaveLength(0);
+    expect(await h.asUser(B.memberId).run((tx) => tx.select(postColumns).from(s.posts).where(eq(s.posts.communityId, room!.id)))).toHaveLength(0);
     expect(await h.asUser(outsiderId).run((tx) => tx.select().from(s.communities).where(eq(s.communities.id, room!.id)))).toHaveLength(0);
     // The owner (a moderator) sees the held post too; nobody else outside does.
-    expect((await h.asUser(A.adminId).run((tx) => tx.select().from(s.posts).where(eq(s.posts.id, held!.id))))).toHaveLength(1);
-    expect(await h.asUser(outsiderId).run((tx) => tx.select().from(s.posts).where(eq(s.posts.id, held!.id)))).toHaveLength(0);
+    expect((await h.asUser(A.adminId).run((tx) => tx.select(postColumns).from(s.posts).where(eq(s.posts.id, held!.id))))).toHaveLength(1);
+    expect(await h.asUser(outsiderId).run((tx) => tx.select(postColumns).from(s.posts).where(eq(s.posts.id, held!.id)))).toHaveLength(0);
   });
 
   it("post_reports (0027): the reporter and the community's moderators read a report; nobody writes one directly", async () => {
