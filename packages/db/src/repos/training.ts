@@ -42,6 +42,13 @@ export interface ModelRetest {
   draft: AgentVersion;
 }
 
+/**
+ * A model change's retest copy: a draft the system made from the live version to put the agent on another model. The
+ * system's only other versions are an agent's first (version 1, set up with the business or a clone). Every other draft
+ * (the founder's, the Coach's, a preview on another model) changes instructions or tools, never the agent's model.
+ */
+export const isModelRetestVersion = (v: Pick<AgentVersion, "createdByKind" | "version">): boolean => v.createdByKind === "system" && v.version > 1;
+
 const scoped = (businessId: string, runId: string) => and(eq(trainingRuns.businessId, businessId), eq(trainingRuns.id, runId));
 
 export const trainingRepo = {
@@ -183,6 +190,11 @@ export const trainingRepo = {
   /**
    * Founder decision after grading: `promoted` makes the candidate version live (and starts the watch window),
    * `discarded` leaves the current version in place. Only runs awaiting a decision can be decided.
+   *
+   * Promoting changes the agent's model only for a model change's retest copy (`isModelRetestVersion`, which exists to
+   * put the agent on that model). Any other draft keeps the model it was saved with, which can be one the agent has since
+   * left (the model changed after the draft was saved, or the draft previewed another model): the agent keeps the model
+   * it runs now (FU-T2-1).
    */
   async decide(db: Executor, businessId: string, runId: string, decision: (typeof TRAINING_DECISIONS)[number], options: { watchUntil?: Date } = {}): Promise<TrainingRun> {
     const d = parseInput(z.enum(TRAINING_DECISIONS), decision, "training decision");
@@ -200,7 +212,10 @@ export const trainingRepo = {
         .returning();
       const decided = claimed[0];
       if (!decided) throw new ValidationError("Training run already decided", { runId });
-      if (d === "promoted") await agentsRepo.promoteVersion(tx, businessId, run.agentId, run.toVersionId!);
+      if (d === "promoted") {
+        const candidate = await agentsRepo.getVersion(tx, businessId, run.toVersionId!);
+        await agentsRepo.promoteVersion(tx, businessId, run.agentId, candidate.id, { keepAgentModel: !isModelRetestVersion(candidate) });
+      }
       return decided;
     });
   },

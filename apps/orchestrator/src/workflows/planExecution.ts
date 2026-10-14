@@ -4,7 +4,7 @@
  * founder tasks and never execute; `deny` is recorded. Children the handlers request (agent sessions, training runs,
  * channel engines) are started with their deterministic ids.
  */
-import { ParentClosePolicy, allHandlersFinished, condition, executeChild, proxyActivities, setHandler, startChild, workflowInfo } from "@temporalio/workflow";
+import { ParentClosePolicy, allHandlersFinished, condition, executeChild, getExternalWorkflowHandle, proxyActivities, setHandler, startChild, workflowInfo } from "@temporalio/workflow";
 import type { Activities, PlanActionResult } from "../activities";
 import { agentSession } from "./agentSession";
 import { approvalWait } from "./approvalWait";
@@ -24,6 +24,15 @@ export interface PlanExecutionResult {
   status: string;
   results: PlanActionResult[];
   spawned: string[];
+}
+
+/** Tells a workflow to stop; one that has already ended (or never started) has nothing to stop. */
+async function stopWorkflow(workflowId: string): Promise<void> {
+  try {
+    await getExternalWorkflowHandle(workflowId).signal(stopSignal, { reason: "superseded by a model change", by: null });
+  } catch {
+    // Not running.
+  }
 }
 
 export async function planExecution(input: PlanExecutionInput): Promise<PlanExecutionResult> {
@@ -50,6 +59,8 @@ export async function planExecution(input: PlanExecutionInput): Promise<PlanExec
       }
     }
     results.push(result);
+    // A model change's superseded retests stop (replays of older histories carry no `stop`, so they emit nothing new).
+    for (const id of result.stop ?? []) await stopWorkflow(id);
     for (const s of result.spawn) {
       try {
         if (s.workflow === "agentSession") await startChild(agentSession, { workflowId: s.workflowId, args: [s.args as never], parentClosePolicy: ParentClosePolicy.ABANDON });

@@ -296,6 +296,8 @@ export interface PlanActionResult {
   result: Record<string, unknown> | null;
   /** Child workflows the handler wants started (agentSession for create_task with an assignee, trainingRun...). */
   spawn: { workflow: "agentSession" | "trainingRun" | "channelEngine"; workflowId: string; args: Record<string, unknown> }[];
+  /** Workflows the handler wants stopped (a model change's superseded retests). Absent for every other action. */
+  stop?: string[];
 }
 
 export interface ApprovalDecision {

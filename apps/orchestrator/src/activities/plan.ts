@@ -15,7 +15,7 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { getTemplate, getTemplateByAgentType, initialVersionFromTemplate, type AgentTemplate } from "@foundmill/agents";
-import { repos, type Agent, type Business, type Entity, type PlanAction as PlanActionRow } from "@foundmill/db";
+import { changeAgentModels, repos, type Agent, type Business, type Entity, type PlanAction as PlanActionRow } from "@foundmill/db";
 import { PRICING_CURRENCY, resolveRoadmapItem, roadmapPatchFrom, SetAgentModelParams, UpdateRoadmapParams } from "@foundmill/models";
 import { agentPrincipal, evaluate, type ToolCtxInput } from "@foundmill/policy";
 import { CHANNEL_KEYS, CHANNEL_META, CreatePlaybookParams, MODEL_KEYS, TASK_KINDS, uuid, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
@@ -314,7 +314,7 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         const handled = await handle(action, params, { businessId, business, agents, workflowId: input.workflowId, approvalId: input.approvalId ?? null });
         const { action: finished } = await repos.plans.finishAction(db, businessId, action.id, { status: "done", result: handled.result, policyOutcome: approved ? "ask" : "allow" });
         await repos.audit.append(db, businessId, { actorKind: "system", action: `plan.action.${action.type}`, target: { kind: "plan_action", id: action.id }, details: { result: handled.result, approved } });
-        return { actionId: finished.id, status: "done", outcome: approved ? "ask" : "allow", approvalId: input.approvalId ?? null, result: handled.result, spawn: handled.spawn };
+        return { actionId: finished.id, status: "done", outcome: approved ? "ask" : "allow", approvalId: input.approvalId ?? null, result: handled.result, spawn: handled.spawn, ...(handled.stop?.length ? { stop: handled.stop } : {}) };
       } catch (err) {
         if (err instanceof AwaitingGatewayApproval) {
           // The connector's own policy asked (a new counterparty, augmented mode): the action waits for that approval.
@@ -340,7 +340,7 @@ export function createPlanActivities(deps: OrchestratorDeps) {
 
   // ---- handlers --------------------------------------------------------------------------------------------------
 
-  async function handle(action: PlanActionRow, p: Record<string, unknown>, ctx: { businessId: string; business: Business; agents: Agent[]; workflowId: string; approvalId: string | null }): Promise<{ result: Record<string, unknown>; spawn: PlanActionResult["spawn"] }> {
+  async function handle(action: PlanActionRow, p: Record<string, unknown>, ctx: { businessId: string; business: Business; agents: Agent[]; workflowId: string; approvalId: string | null }): Promise<{ result: Record<string, unknown>; spawn: PlanActionResult["spawn"]; stop?: string[] }> {
     const { db } = deps;
     const { businessId } = ctx;
     // An amount the plan did not price in a currency is in the business's own (0025).
@@ -523,13 +523,24 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         if (scope !== "all" && !target) throw new Error(`Name the agent whose model should change${scope === "type" ? " (its type is the one changed)" : ""}`);
         const targets = scope === "agent" ? [target!] : ctx.agents.filter((a) => (scope === "all" ? true : a.agentType === target?.agentType));
         if (targets.length === 0) throw new Error("No agent to change the model of");
-        const updated: string[] = [];
-        for (const a of targets) {
-          if (a.agentType === "chief_of_staff" && modelKey !== "opus") deps.log.warn({ agentId: a.id }, "Chief of Staff downgraded from Opus (BUILD §11.10 warning)");
-          await repos.agents.setModel(db, businessId, a.id, modelKey);
-          updated.push(a.id);
-        }
-        return { result: { modelKey, applyScope: scope, updated }, spawn: [] };
+        // Exactly what Agent profile › Model does (AC-11.10.5, FU-T2-2), through the same function: work locked to one model
+        // is skipped, a downgrade warns, the agent works on the new model at once, and each changed agent's retest is
+        // queued on a draft copy of its live version (the live version itself is never the candidate). The retest's run
+        // starts below as a child; the founder's Promote makes the copy live on the new model, Discard keeps the live version.
+        const change = await db.transaction((tx) => changeAgentModels(tx, businessId, targets, modelKey, null));
+        for (const warning of change.warnings) deps.log.warn({ businessId, planActionId: action.id }, warning);
+        // Nothing changed (every target runs work locked to one model): the step fails and says why, never "done".
+        if (change.updated.length === 0) throw new Error(change.skipped[0]?.reason ?? "No agent to change the model of");
+        // While the team is stopped the model changes (it costs nothing) but a retest spends credits: it stays queued and
+        // starts when the agents resume (`restartAfterResume`).
+        const waitForResume = change.retests.length > 0 && (await repos.businesses.agentsStopped(db, businessId));
+        const spawn: PlanActionResult["spawn"] = waitForResume ? [] : change.retests.map((trainingRunId) => ({ workflow: "trainingRun" as const, workflowId: `training:${trainingRunId}`, args: { businessId, trainingRunId } }));
+        return {
+          result: { modelKey, applyScope: scope, updated: change.updated, skipped: change.skipped, warnings: change.warnings, retests: change.retests, superseded: change.superseded, ...(waitForResume ? { retestsWaitForResume: true, deferred: "agents are stopped; the retests start when they resume" } : {}) },
+          spawn,
+          // Earlier retests of a model these agents no longer run were canceled above; those still running stop too.
+          stop: change.superseded.map((trainingRunId) => `training:${trainingRunId}`),
+        };
       }
       case "create_playbook": {
         // One contract (packages/shared): a plan whose playbook is incomplete fails here, loudly, instead of creating a rule
