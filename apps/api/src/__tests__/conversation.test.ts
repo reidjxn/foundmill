@@ -94,6 +94,29 @@ describe("agent.conversation.send", () => {
     expect(prompt).not.toMatch(/¥|JPY/);
   });
 
+  it("prices option costs in the business's own currency, whichever it is, never a fixed EUR fallback (#282)", async () => {
+    // Business A starts in dollars (the default); move it to pounds and Swedish kronor, the way Settings does, and back.
+    // The first option costs 25,000 minor units, so the prompt's Estimate must read $250.00, £250.00 or kr 250.00, never €250.00.
+    const item = await decisionItem("Which channel carries the spend in the business currency?");
+    const optionCost = async () => {
+      const client = recordingModels();
+      await owner().agent.conversation.send({ businessId: hz.A.businessId, subject: { kind: "inbox_item", id: item.id }, quickReplyId: "why_that_one" });
+      const prompt = String(conversationRequests(client).at(-1)!.messages[0]!.content);
+      const subject = (JSON.parse(prompt.slice(prompt.indexOf("{"), prompt.lastIndexOf("}") + 1)) as { subject: { options: { id: string; cost: string | null }[] } }).subject;
+      return subject.options.find((o) => o.id === "outbound")!.cost?.replace(/\s/g, " ");
+    };
+    try {
+      expect(await optionCost()).toBe("$250.00 (Estimate)");
+      for (const [currency, shown] of [["GBP", "£250.00 (Estimate)"], ["SEK", "kr 250.00 (Estimate)"]] as const) {
+        await repos.businesses.update(hz.db, hz.A.businessId, { currency });
+        hz.limits.reset();
+        expect(await optionCost(), currency).toBe(shown);
+      }
+    } finally {
+      await repos.businesses.update(hz.db, hz.A.businessId, { currency: "USD" });
+    }
+  });
+
   it("answers a question with the house rules first, stores both messages, emits two un-narrated events, and leaves the decision open", async () => {
     const client = recordingModels();
     const item = await decisionItem("Paid acquisition first?");
