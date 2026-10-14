@@ -164,7 +164,7 @@ test.describe("settings, plain words", () => {
   test("Glossary and Departments: no retired default words, modules named in words", async ({ page }) => {
     await page.goto(`${B}/settings/glossary`);
     await expect(page.getByTestId("glossary-rows")).toBeVisible({ timeout: LONG });
-    const terms = await page.getByRole("textbox", { name: "Default word" }).evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
+    const terms = await page.getByLabel("Default word").evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
     expect(terms.filter((t) => /^(squad|club|crest|shout)$/i.test(t))).toEqual([]);
     await page.goto(`${B}/settings/departments`);
     await expect(page.getByTestId("department-list")).toBeVisible({ timeout: LONG });

@@ -198,19 +198,23 @@ test.describe("settings › business: the time zone", () => {
 test.describe("settings › glossary: the business's own words", () => {
   async function saveGlossary(page: Page, rows: [string, string][]): Promise<void> {
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/settings/glossary`);
-    const list = page.getByTestId("glossary-rows");
+    // Scoped to the shell: while the page streams, React parks a second copy of the screen outside it (helpers.ts).
+    const screen = settingsScreen(page);
+    await expect(screen).toHaveAttribute("data-tab", "glossary", { timeout: LONG });
+    const list = screen.getByTestId("glossary-rows");
     await expect(list).toBeVisible({ timeout: LONG });
     // Clear every row, then add the wanted ones.
     while (await list.getByRole("button", { name: "Remove term" }).count()) await list.getByRole("button", { name: "Remove term" }).first().click();
     for (const [term, word] of rows) {
       await list.getByRole("button", { name: "Add term" }).click();
-      await list.getByRole("textbox", { name: "Default word" }).last().fill(term);
+      // The default word is an input with a list of the product's nouns (a combobox to the accessibility tree).
+      await list.getByLabel("Default word").last().fill(term);
       await list.getByRole("textbox", { name: "Your word" }).last().fill(word);
     }
-    const save = page.getByRole("button", { name: "Save changes" });
+    const save = screen.getByRole("button", { name: "Save changes" });
     if (await save.isEnabled()) {
       await save.click();
-      await expect(page.getByText("Glossary saved")).toBeVisible({ timeout: LONG });
+      await expect(page.getByText("Glossary saved", { exact: true })).toBeVisible({ timeout: LONG });
     }
   }
 
