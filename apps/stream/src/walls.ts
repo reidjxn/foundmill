@@ -13,9 +13,14 @@
  * Finance and the CRM wall: the stream cannot mask it the way the Inbox does, and tabs refetch the walled procedures
  * on these events anyway. The table is checked against EVENT_TYPES at compile time: a new event type needs a line
  * here. An event of a type the table does not know (a newer writer during a deploy) reaches only readers without walls.
+ *
+ * One kind of event is walled from everyone: a person-addressed one (`PERSON_ADDRESSED_EVENT_TYPES`: a connection request
+ * or a message from another founder). It is about its recipient, not the business, so it is never delivered on a business
+ * stream, not even to the owner or to a reader without walls; the api no longer writes them to a business at all (FU-S-2)
+ * and this keeps one that still arrives (an older api during a deploy, a stray writer) from reaching the staff.
  */
 import type { StreamEntry } from "@foundmill/events";
-import { SECTIONS, walledSections, type EventType, type Section, type SectionMembership } from "@foundmill/shared";
+import { isPersonAddressedEvent, PERSON_ADDRESSED_EVENT_TYPES, SECTIONS, walledSections, type EventType, type Section, type SectionMembership } from "@foundmill/shared";
 
 export interface EventWall {
   /** Sections the reader must be able to read to receive the event at all; empty for every member. */
@@ -125,6 +130,25 @@ function removePath(target: Json, path: string): boolean {
   return removed;
 }
 
+function typeInJson(json: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(json);
+    return isObject(parsed) && typeof parsed.type === "string" ? parsed.type : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether the entry is a person-addressed event (never delivered on a business stream). The relay always writes `type`
+ * beside the JSON, so that is the whole check on the fast path; an entry without it is parsed only when its text names one.
+ */
+function personAddressed(entry: StreamEntry, json: string): boolean {
+  const type = entry.fields.type;
+  if (type !== undefined) return isPersonAddressedEvent(type);
+  return PERSON_ADDRESSED_EVENT_TYPES.some((t) => json.includes(t)) && isPersonAddressedEvent(typeInJson(json));
+}
+
 function decide(json: string, typeField: string | undefined, view: EventView): string | null {
   let event: Json;
   try {
@@ -135,6 +159,7 @@ function decide(json: string, typeField: string | undefined, view: EventView): s
     return null;
   }
   const type = typeof event.type === "string" ? event.type : typeField;
+  if (isPersonAddressedEvent(type)) return null;
   const wall = type ? (EVENT_WALLS as Record<string, EventWall | undefined>)[type] : undefined;
   if (!wall) return null;
   const payload = isObject(event.payload) ? event.payload : {};
@@ -159,6 +184,7 @@ function decide(json: string, typeField: string | undefined, view: EventView): s
  */
 export function viewEvent(entry: StreamEntry, view: EventView): string | null {
   const json = entry.fields.json ?? JSON.stringify(entry.fields);
+  if (personAddressed(entry, json)) return null;
   if (view.walled.size === 0) return json;
   let byView = decided.get(entry);
   if (!byView) decided.set(entry, (byView = new Map()));

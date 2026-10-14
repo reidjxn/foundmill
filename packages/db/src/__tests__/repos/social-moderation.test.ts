@@ -1,11 +1,11 @@
 /**
  * LIVE social after 0027 (audit #28, #34, #65): group rules, closing a thread when a connection ends, blocks by person,
- * leaving and muting threads, community invitations, member and post moderation, reports and the delivery lookups.
+ * leaving and muting threads, community invitations, member and post moderation, reports and the listed-owner lookup.
  */
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "../../repos";
-import { MAX_NETWORK_BUSINESSES, REPORTS_TO_HOLD } from "../../repos/social";
+import { REPORTS_TO_HOLD } from "../../repos/social";
 import * as s from "../../schema";
 import type { PostScreening } from "../../schema";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
@@ -296,21 +296,14 @@ describe("posts: screening, author edits and deletes, reports and the moderators
   });
 });
 
-describe("delivery lookups", () => {
-  it("names the listed businesses a person speaks for (owner or admin, LIVE, committed, active) and a listed business's owner", async () => {
-    expect((await repos.social.listedBusinessesFor(r.db, [r.A.ownerId])).get(r.A.ownerId)).toBeUndefined();
+describe("listed business owners", () => {
+  it("names a listed business's owner (LIVE, committed, active) and nobody for one that is not listed", async () => {
     expect(await repos.social.listedBusinessOwner(r.db, r.A.businessId)).toBeNull();
     await repos.businesses.setGameMode(r.db, r.A.businessId, "live");
     await repos.businesses.commit(r.db, r.A.businessId, { archetype: "b2b_saas" });
-    const map = await repos.social.listedBusinessesFor(r.db, [r.A.ownerId, r.A.adminId, r.A.memberId, r.A.viewerId]);
-    expect(map.get(r.A.ownerId)).toEqual([r.A.businessId]);
-    expect(map.get(r.A.adminId)).toEqual([r.A.businessId]);
-    expect(map.has(r.A.memberId)).toBe(false);
-    expect(map.has(r.A.viewerId)).toBe(false);
     expect(await repos.social.listedBusinessOwner(r.db, r.A.businessId)).toBe(r.A.ownerId);
     await repos.businesses.setGameMode(r.db, r.A.businessId, "personal");
-    expect((await repos.social.listedBusinessesFor(r.db, [r.A.ownerId])).size).toBe(0);
-    expect(MAX_NETWORK_BUSINESSES).toBeGreaterThan(0);
+    expect(await repos.social.listedBusinessOwner(r.db, r.A.businessId)).toBeNull();
   });
 });
 

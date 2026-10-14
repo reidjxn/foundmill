@@ -309,6 +309,13 @@
       "when": 1794831120000,
       "tag": "0055_autopilot",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794917520000,
+      "tag": "0056_private_network_events",
+      "breakpoints": true
     }
   ]
 }

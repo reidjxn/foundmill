@@ -200,6 +200,19 @@ describe("audit chain", () => {
 });
 
 describe("events and outbox", () => {
+  it("never stores a network request or message in a business: the repo refuses them, and so does the table (FU-S-2)", async () => {
+    const A = r.A.businessId;
+    const actor = { kind: "user", id: r.A.memberId } as const;
+    for (const type of ["connection.requested", "message.received"] as const) {
+      await expect(repos.events.write(r.db, A, { type, actor, payload: { preview: "Here is the term sheet" } })).rejects.toThrow(/addressed to a person/);
+      // Whoever writes the row, the constraint (0056) holds the table to it.
+      const refused = await r.db.execute(sql`insert into events (business_id, type, payload) values (${A}::uuid, ${type}, '{}'::jsonb)`).then(() => "", (err: { cause?: { message?: string } }) => err.cause?.message ?? String(err));
+      expect(refused).toMatch(/events_not_person_addressed/);
+    }
+    expect((await repos.events.list(r.db, A, { type: ["connection.requested", "message.received"] })).items).toEqual([]);
+    expect(await repos.events.countByType(r.db, A)).not.toHaveProperty("message.received");
+  });
+
   it("writes through the outbox, orders un-narrated events by priority, de-duplicates by idempotency key", async () => {
     const A = r.A.businessId;
     const actor = { kind: "webhook", id: "stripe" } as const;

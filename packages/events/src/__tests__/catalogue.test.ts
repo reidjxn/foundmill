@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EVENT_TYPES, ValidationError } from "@foundmill/shared";
+import { EVENT_TYPES, isPersonAddressedEvent, PERSON_ADDRESSED_EVENT_TYPES, ValidationError } from "@foundmill/shared";
 import {
   DECLARED_EVENT_TYPES,
   EVENTS,
@@ -130,13 +130,17 @@ describe("event catalogue", () => {
     expect(bad({ visionReady: "yes" })).toThrow(ValidationError);
   });
 
-  it("connection.requested and message.received: delivered to the recipient as human messages by the api, never narrated (audit #65)", () => {
-    for (const type of ["connection.requested", "message.received"] as const) {
+  it("connection.requested and message.received: addressed to a person, never narrated or consumed by a business (FU-S-2, audit #65)", () => {
+    expect([...PERSON_ADDRESSED_EVENT_TYPES].sort()).toEqual(["connection.requested", "message.received"]);
+    for (const type of PERSON_ADDRESSED_EVENT_TYPES) {
       const decl = EVENTS[type];
       expect(decl.narratable, type).toBe(false);
-      expect(decl.consumers, type).not.toContain("composer");
-      expect(decl.consumers, type).toContain("stream");
+      // No business consumer reads them: the composer never narrates them and no playbook can be triggered by a founder's private traffic.
+      expect(decl.consumers, type).toEqual(["stream"]);
+      expect(decl.doc, type).toMatch(/never written to any business/);
     }
+    // Every other event type is a business's.
+    expect(EVENT_TYPES.filter(isPersonAddressedEvent).sort()).toEqual([...PERSON_ADDRESSED_EVENT_TYPES].sort());
     expect(() => parsePayload("message.received", { ...EVENT_FIXTURES["message.received"], preview: "x".repeat(281) })).toThrow(ValidationError);
   });
 

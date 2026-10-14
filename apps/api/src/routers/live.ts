@@ -2,11 +2,11 @@
  * live.connections.* / messages.* / communities.* / posts.* / leaderboards.* / profile.visibility.* / summary (BUILD
  * §11.14). Human messages are sent by humans only; agents may draft but never call `messages.send`.
  *
- * Requests and messages are delivered to their recipient (services/live.ts): an Inbox note in each LIVE business they
- * speak for, and a signal on their own stream channel that refreshes their Network badge in any business. Posts pass a
- * moderation screen before members see them; members report, authors edit and delete, owners and moderators hide,
- * restore and remove posts and mute, ban and restore members; communities are created here and joined by invitation
- * when they are not public.
+ * Requests and messages are delivered to their recipient alone (services/live.ts): a signal on their own stream channel
+ * refreshes their Network badge and lists in any business, and nothing is written to a business, so no member or advisor
+ * of theirs can read it (FU-S-2). Posts pass a moderation screen before members see them; members report, authors edit
+ * and delete, owners and moderators hide, restore and remove posts and mute, ban and restore members; communities are
+ * created here and joined by invitation when they are not public.
  *
  * The network is for adults (BUILD §11.14 "18+ only"): a person confirms once that they are 18 or older before their
  * first step onto it (asking to connect, accepting, writing, starting, joining or posting in a community, inviting).
@@ -17,7 +17,7 @@ import { COMMUNITY_KINDS, MAX_MESSAGE_RECIPIENTS, MEMBER_MODERATION_ACTIONS, POS
 import { ForbiddenError, NotFoundError, ValidationError, VISIBILITY, WRITE_ROLES } from "@foundmill/shared";
 import { z } from "zod";
 import type { Context } from "../context";
-import { deliverConnectionRequest, deliverMessage, screenText, signalPeople, takeLive } from "../services/live";
+import { messageRecipients, screenText, signalPeople, takeLive } from "../services/live";
 import { takeConnectionRequest, takeMessage, takePost } from "../services/live-limits";
 import { Id, businessProcedure as anyBusinessProcedure, effectivePermission, liveGate, pgErrorCode, protectedProcedure as anyProtectedProcedure, router, sectionWrite as anySectionWrite, type Section } from "../trpc";
 
@@ -163,8 +163,8 @@ export const liveRouter = router({
     list: protectedProcedure.input(z.object({ status: z.enum(["requested", "accepted", "blocked"]).optional(), direction: z.enum(["incoming", "outgoing"]).optional() }).optional()).query(({ ctx, input }) => repos.social.listConnections(ctx.db, ctx.userId, input ?? {})),
     /**
      * A LIVE business's writer asks a person to connect: by their user id (community members, post authors), or by a
-     * listed business (a leaderboard row), which reaches its owner. A new request reaches the recipient (their Inbox in
-     * each LIVE business they speak for, and their badge) in the transaction that stores it; asking again notifies nobody.
+     * listed business (a leaderboard row), which reaches its owner. A new request reaches the recipient alone (their badge
+     * and Requests list, signalled on their own stream channel once it commits); asking again notifies nobody.
      */
     request: sectionWrite("live")
       .input(z.object({ toUserId: Id.optional(), toBusinessId: Id.optional(), message: z.string().trim().max(1000).optional() }).refine((v) => !!v.toUserId !== !!v.toBusinessId, { message: "Name a person or a business to connect with" }))
@@ -176,12 +176,10 @@ export const liveRouter = router({
         await requireAdult(ctx);
         takeLive(ctx.userId, "requests");
         await takeConnectionRequest(ctx.limits, ctx.userId, toUserId);
-        const fromBusinessId = isListed(ctx.business) ? ctx.businessId : null;
         let created = false;
         const connection = await repos.social.requestConnection(ctx.db, ctx.userId, toUserId, input.message || null, {
-          onCreated: async (tx, c) => {
+          onCreated: async () => {
             created = true;
-            await deliverConnectionRequest(tx, { connection: c, fromBusinessId });
           },
         });
         if (created) await signalPeople(ctx, [toUserId], "connection_requested");
@@ -249,7 +247,8 @@ export const liveRouter = router({
      * Human-to-human only: a signed-in person presses Send (agents may draft, never send). A new thread goes to at most
      * MAX_MESSAGE_RECIPIENTS people who exist, are not blocked either way, and are connections; a group also needs its
      * people connected with each other. Every Send rechecks that the sender is still connected with everyone in the
-     * thread. The message reaches the others (Inbox note, badge) in the same transaction.
+     * thread. The message reaches the others alone: their badge and the thread on Network, signalled on their own stream
+     * channel once it commits (nothing is written to any business).
      */
     send: protectedProcedure.input(z.object({ threadId: Id.optional(), toUserIds: z.array(Id).min(1).max(MAX_MESSAGE_RECIPIENTS).optional(), subject: z.string().max(200).optional(), body: z.string().min(1).max(20_000) })).mutation(async ({ ctx, input }) => {
       if (!input.threadId && !input.toUserIds) throw new ValidationError("Give a thread or recipients");
@@ -261,8 +260,8 @@ export const liveRouter = router({
       const message = await ctx.db.transaction(async (tx) => {
         const threadId = input.threadId ?? (await repos.social.startThread(tx, ctx.userId, input.toUserIds!, input.subject ?? null)).id;
         return repos.social.sendMessage(tx, ctx.userId, threadId, input.body, {
-          onSent: async (inner, msg, thread) => {
-            recipients = await deliverMessage(inner, { message: msg, thread });
+          onSent: async (_inner, msg, thread) => {
+            recipients = messageRecipients({ message: msg, thread });
           },
         });
       });
@@ -277,7 +276,7 @@ export const liveRouter = router({
       await signalPeople(ctx, thread.participantIds.filter((id) => id !== ctx.userId), "connection_changed", { threadId: input.threadId });
       return result;
     }),
-    /** Mutes a thread for the caller only: no badge, no Inbox note; nobody else is told. */
+    /** Mutes a thread for the caller only: no badge and no signal for it; nobody else is told. */
     mute: protectedProcedure.input(z.object({ threadId: Id, muted: z.boolean() })).mutation(({ ctx, input }) => repos.social.setThreadMuted(ctx.db, ctx.userId, input.threadId, input.muted)),
   }),
 
