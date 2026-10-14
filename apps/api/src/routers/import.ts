@@ -5,13 +5,16 @@
  *
  * import.prepareConcept / import.continue — "Continue to Commit" without the wait (audit P7): the Import screen asks
  * for the concept card as soon as the report is on screen; Continue saves the card drafted ahead (services/import-concept.ts).
+ *
+ * import.readAgain — Read now in Product › Sources: the business's import sources the gateway did not read (not
+ * connected yet, refused, failed) are read again by `importBusiness` once the founder has connected them.
  */
 import { repos } from "@foundmill/db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { IMPORT_SOURCES, IMPORT_SOURCE_KEYS, SourceConfig, importJobKey, importStatus, startImport } from "../services/import";
+import { IMPORT_SOURCES, IMPORT_SOURCE_KEYS, SourceConfig, importJobKey, importStatus, readImportSourcesAgain, startImport } from "../services/import";
 import { continueImport, prepareImportConcept } from "../services/import-concept";
-import { Id, protectedProcedure, router } from "../trpc";
+import { Id, adminProcedure, audit, protectedProcedure, router } from "../trpc";
 
 const JobInput = z.object({ jobId: z.string().min(8).max(8192) });
 
@@ -40,12 +43,19 @@ export const importRouter = router({
     return result;
   }),
 
+  /** Owner/admin: read again the import sources that were not read (BAD_REQUEST for one that was read or is not an import). */
+  readAgain: adminProcedure.input(z.object({ sourceIds: z.array(Id).min(1).max(IMPORT_SOURCE_KEYS.length) })).mutation(async ({ ctx, input }) => {
+    const result = await readImportSourcesAgain({ db: ctx.db, temporal: ctx.temporal }, ctx.businessId, input.sourceIds);
+    await audit(ctx.db, ctx, { action: "import.read_again", target: { kind: "source", id: result.sourceIds[0]! }, details: { sourceIds: result.sourceIds, workflowId: result.workflow.workflowId, queued: result.workflow.queued } });
+    return result;
+  }),
+
   /**
    * Drafts the concept card for a finished sign-up import while the founder reads the report (held in memory, never
    * saved until `continue`). Idempotent per job; answers at once with "drafting" or "ready".
    */
-  prepareConcept: protectedProcedure.input(JobInput).mutation(({ ctx, input }) => prepareImportConcept({ db: ctx.db, models: ctx.models, key: importJobKey(ctx.env) }, input.jobId, ctx.userId)),
+  prepareConcept: protectedProcedure.input(JobInput).mutation(({ ctx, input }) => prepareImportConcept({ db: ctx.db, models: ctx.models, limits: ctx.limits, key: importJobKey(ctx.env) }, input.jobId, ctx.userId)),
 
   /** "Continue to Commit": the card drafted ahead (or drafted now), saved as the founder's idea and linked to the import. */
-  continue: protectedProcedure.input(JobInput).mutation(({ ctx, input }) => continueImport({ db: ctx.db, models: ctx.models, key: importJobKey(ctx.env) }, input.jobId, ctx.userId)),
+  continue: protectedProcedure.input(JobInput).mutation(({ ctx, input }) => continueImport({ db: ctx.db, models: ctx.models, limits: ctx.limits, key: importJobKey(ctx.env) }, input.jobId, ctx.userId)),
 });

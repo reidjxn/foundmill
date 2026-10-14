@@ -68,7 +68,9 @@ export function ModelPicker({ options, value, onChange, disabled, className }: M
             </div>
             <dl className="grid shrink-0 grid-cols-2 items-baseline gap-x-2 gap-y-0.5 text-right text-small tabular-nums">
               <dt className="t-data">Skills</dt>
-              <dd className={cn(o.skillDelta > 0 ? "text-status-good" : o.skillDelta < 0 ? "text-status-bad" : "text-secondary")}>{checked ? "—" : formatDelta(o.skillDelta)}</dd>
+              <dd className={cn(o.skillDelta !== null && o.skillDelta > 0 ? "text-status-good" : o.skillDelta !== null && o.skillDelta < 0 ? "text-status-bad" : "text-secondary")} title={o.skillDelta === null && !checked ? "Measured by the retest that runs after the change" : undefined}>
+                {checked || o.skillDelta === null ? "—" : formatDelta(o.skillDelta)}
+              </dd>
               <dt className="t-data">Wage</dt>
               <dd className={cn(o.wageDelta.amountMinor < 0 ? "text-status-good" : o.wageDelta.amountMinor > 0 ? "text-status-warn" : "text-secondary")}>{checked ? "—" : `${formatMoneyDelta(o.wageDelta)}/mo`}</dd>
               <dd className="col-span-2 justify-self-end pt-1">{checked ? null : <ProvenanceChip kind="estimate" />}</dd>

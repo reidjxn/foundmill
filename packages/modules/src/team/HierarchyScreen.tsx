@@ -8,7 +8,7 @@
 import { useMemo, useState } from "react";
 import { ExternalLink, Network, UserRoundPlus } from "lucide-react";
 import { Avatar, Button, DeptChip, EntityLink, HierarchyChart, KeyValueList, ModelChip, Panel, ProvenanceChip, Switch, formatMoney, layoutHierarchy, type HierarchyKind, type HierarchyNode } from "@foundmill/dugout";
-import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
+import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData } from "@foundmill/widgets/data";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
@@ -27,18 +27,30 @@ export function hierarchyKind(agent: AgentRow): HierarchyKind {
 }
 
 /**
- * Chart nodes. Parents: explicit `lineManagerId` when it points at a live agent; otherwise the first department's
- * lead (not for the lead itself), else the Chief of Staff, else the founder. Staff (humans) hang under the founder
- * when `includeStaff` is on.
+ * The person the chart is rooted at: the business's owner (the founder; with several owners, the longest-standing),
+ * whoever is looking at it. Null until the staff list has loaded.
  */
-export function toHierarchyNodes(agents: readonly AgentRow[], opts: { departments?: readonly DepartmentRow[]; founderName: string; staff?: readonly MembershipRow[]; me?: Me }): HierarchyNode[] {
+export function founderOf(staff: readonly MembershipRow[] | undefined): MembershipRow | null {
+  const owners = (staff ?? []).filter((m) => m.role === "owner");
+  return owners.slice().sort((a, b) => Date.parse(String(a.createdAt ?? "")) - Date.parse(String(b.createdAt ?? "")) || a.userId.localeCompare(b.userId))[0] ?? null;
+}
+
+/**
+ * Chart nodes. The root is the business's founder (`founder`, the owner), labeled "You" only for that person; a
+ * co-founder or staff member looking at it sees the founder there and themselves among the staff. Parents:
+ * explicit `lineManagerId` when it points at a live agent; otherwise the first department's lead (not for the lead
+ * itself), else the Chief of Staff, else the founder. Staff (humans) hang under the founder when `includeStaff` is on.
+ */
+export function toHierarchyNodes(agents: readonly AgentRow[], opts: { departments?: readonly DepartmentRow[]; founderName: string; founder?: MembershipRow | null; staff?: readonly MembershipRow[]; me?: Me }): HierarchyNode[] {
   const live = agents.filter((a) => !a.archivedAt);
   const ids = new Set(live.map((a) => a.id));
   const cos = live.find(isChiefOfStaff);
   const leadOfDept = new Map<string, string>();
   for (const d of opts.departments ?? []) if (d.leadAgentId && ids.has(d.leadAgentId)) leadOfDept.set(d.id, d.leadAgentId);
-  // The chart already labels the founder's kind ("Founder"), so the role line says who it is: you.
-  const nodes: HierarchyNode[] = [{ id: FOUNDER_NODE_ID, name: opts.founderName, role: "You", kind: "founder", parentId: null }];
+  // The chart already labels the founder's kind ("Founder"), so the role line says who it is: you, or the owner.
+  const founderIsMe = !opts.founder || (!!opts.me?.userId && opts.founder.userId === opts.me.userId);
+  const founderName = opts.founder && !founderIsMe ? memberName(opts.founder, opts.me) : opts.founderName;
+  const nodes: HierarchyNode[] = [{ id: FOUNDER_NODE_ID, name: founderName, role: founderIsMe ? "You" : ROLE_LABELS.owner, kind: "founder", parentId: null }];
   for (const a of live) {
     const kind = hierarchyKind(a);
     let parentId: string | null = a.lineManagerId && ids.has(a.lineManagerId) && a.lineManagerId !== a.id ? a.lineManagerId : null;
@@ -55,15 +67,18 @@ export function toHierarchyNodes(agents: readonly AgentRow[], opts: { department
     const department = a.departments?.[0]?.name;
     nodes.push({ id: a.id, name: a.name, role: roleLine ?? department ?? "Agent", kind, parentId, avatar: { seed: a.avatarSeed || a.id, dept: agentDept(a) }, status: a.status, model: a.modelKey, department: roleLine ? department : undefined });
   }
+  // The founder is the root; everyone else on the staff (the viewer included when they are not the founder) hangs under it.
+  const rootUserId = opts.founder?.userId ?? opts.me?.userId ?? null;
   for (const m of opts.staff ?? []) {
-    if (opts.me?.userId && m.userId === opts.me.userId) continue;
-    nodes.push({ id: `staff:${m.userId}`, name: memberName(m, opts.me), role: ROLE_LABELS[m.role], kind: "human", parentId: FOUNDER_NODE_ID });
+    if (rootUserId && m.userId === rootUserId) continue;
+    const isMe = !!opts.me?.userId && m.userId === opts.me.userId;
+    nodes.push({ id: `staff:${m.userId}`, name: memberName(m, opts.me), role: isMe ? `${ROLE_LABELS[m.role]} · You` : ROLE_LABELS[m.role], kind: "human", parentId: FOUNDER_NODE_ID });
   }
   return nodes;
 }
 
 export function HierarchyScreen({ businessId }: ModuleScreenProps) {
-  const { navigate, currency = "EUR" } = useWidgetData();
+  const { navigate, currency } = useWidgetData();
   const { liveRefetchMs } = useTeamOptions();
   const now = useNow();
   const agentsQuery = useAgents();
@@ -75,12 +90,15 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
   const me = useMemo(() => readMe(meQuery.data, businessId), [meQuery.data, businessId]);
   const [includeStaff, setIncludeStaff] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const nodes = useMemo(() => toHierarchyNodes(agents, { departments: departments.data, founderName: me.displayName || me.email || "You", staff: includeStaff ? humans.data : undefined, me }), [agents, departments.data, me, includeStaff, humans.data]);
+  const founder = useMemo(() => founderOf(humans.data), [humans.data]);
+  const nodes = useMemo(() => toHierarchyNodes(agents, { departments: departments.data, founderName: me.displayName || me.email || "You", founder, staff: includeStaff ? humans.data : undefined, me }), [agents, departments.data, me, founder, includeStaff, humans.data]);
+  // The founder as the side panel names them: the owner (their name), or you when you are the owner.
+  const founderIsMe = !founder || (!!me.userId && founder.userId === me.userId);
+  const founderLabel = founder && !founderIsMe ? memberName(founder, me) : me.displayName || me.email || "You";
   const selectedAgent = agents.find((a) => a.id === selectedId) ?? null;
   const selectedStaff = selectedId?.startsWith("staff:") ? humans.data?.find((m) => `staff:${m.userId}` === selectedId) ?? null : null;
   const reports = selectedId ? nodes.filter((n) => n.parentId === selectedId).length : 0;
-  const teamDept = departmentForModule(departments.data, "team");
-  const recruitHref = routes.department(businessId, teamDept?.slug ?? "team", "recruitment");
+  const recruitHref = moduleTabHref(businessId, departments.data, "team", "recruitment");
   const liveAgents = agents.filter((a) => !a.archivedAt);
   const leads = liveAgents.filter((a) => hierarchyKind(a) === "lead").length;
   const workers = liveAgents.filter((a) => hierarchyKind(a) === "worker").length;
@@ -147,7 +165,7 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
                     label: "Wage",
                     value: (
                       <span className="inline-flex items-center gap-1.5 tabular-nums">
-                        {formatMoney({ amountMinor: selectedAgent.wage?.costMinor ?? 0, currency: selectedAgent.currency ?? currency })}/mo <ProvenanceChip kind="estimate" />
+                        {formatMoney({ amountMinor: selectedAgent.wage?.costMinor ?? 0, currency: selectedAgent.wage?.currency ?? selectedAgent.currency ?? currency })}/mo <ProvenanceChip kind="estimate" />
                       </span>
                     ),
                   },
@@ -166,15 +184,15 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
                   <span className="text-small text-secondary">{ROLE_LABELS[selectedStaff.role]}</span>
                 </span>
               </div>
-              <KeyValueList dense items={[{ label: "E-mail", value: selectedStaff.email ?? "—" }, { label: "Reports to", value: me.displayName || "You" }]} />
+              <KeyValueList dense items={[{ label: "E-mail", value: selectedStaff.email ?? "—" }, { label: "Reports to", value: founderLabel }]} />
             </div>
           ) : (
             <div className="flex flex-col gap-3" data-testid="hierarchy-detail">
               <div className="flex items-center gap-2">
-                <Avatar size={48} name={me.displayName || "You"} />
+                <Avatar size={48} name={founderLabel} />
                 <span className="flex min-w-0 flex-col">
-                  <span className="t-display-sm">{me.displayName || me.email || "You"}</span>
-                  <span className="text-small text-secondary">Founder</span>
+                  <span className="t-display-sm">{founderLabel}</span>
+                  <span className="text-small text-secondary">{founderIsMe ? "Founder · You" : "Founder"}</span>
                 </span>
               </div>
               <KeyValueList dense items={[{ label: "Direct reports", value: reports, numeric: true }, { label: "Agents", value: liveAgents.length, numeric: true }, { label: "Staff", value: humans.data?.length ?? 0, numeric: true }]} />

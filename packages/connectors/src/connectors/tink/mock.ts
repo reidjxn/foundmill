@@ -12,8 +12,13 @@ export function tinkMockOptions(businessId: string): BankingMockOptions {
   return { provider: TINK_KEY, history: generateBankHistory({ seed: `tink:${businessId}`, asOf: MOCK_NOW, currency: "EUR" }), institution: MOCK_TINK_INSTITUTION, consentExpiresAt: addDays(MOCK_NOW, MOCK_TINK_CONSENT_DAYS), now: () => MOCK_NOW };
 }
 
-export function createTinkMock(businessId = "default") {
-  const options = tinkMockOptions(businessId);
+/**
+ * The tools serve the calling business's own history (`ctx.businessId`), the same one its `bank.sync` simulation
+ * reports. `businessId` pins every call to one history instead (tests of a single business).
+ */
+export function createTinkMock(businessId?: string) {
+  const optionsFor = (bid: string) => tinkMockOptions(businessId ?? bid);
+  const consentExpiresAt = addDays(MOCK_NOW, MOCK_TINK_CONSENT_DAYS);
   return buildMockConnector({
     key: TINK_KEY,
     displayName: "Tink",
@@ -22,12 +27,15 @@ export function createTinkMock(businessId = "default") {
     tools: tinkTools,
     rateLimits: TINK_RATE_LIMITS,
     now: () => MOCK_NOW,
-    handlers: bankingMockHandlers(options),
-    connect: async (bid) => mockIntegrationRecord(TINK_KEY, bid, { accountLabel: `${MOCK_TINK_INSTITUTION} (Tink, mock)`, externalAccountId: `tink_user_${stableHash(bid, 12)}`, scopes: TINK_USER_SCOPES.split(","), expiresAt: options.consentExpiresAt.toISOString(), config: { market: "SE", institution: MOCK_TINK_INSTITUTION } }),
-    healthcheck: async () => mockHealth(TINK_KEY, { accounts: options.history.accounts.length, transactions: options.history.transactions.length }),
+    handlers: bankingMockHandlers(optionsFor),
+    connect: async (bid) => mockIntegrationRecord(TINK_KEY, bid, { accountLabel: `${MOCK_TINK_INSTITUTION} (Tink, mock)`, externalAccountId: `tink_user_${stableHash(bid, 12)}`, scopes: TINK_USER_SCOPES.split(","), expiresAt: consentExpiresAt.toISOString(), config: { market: "SE", institution: MOCK_TINK_INSTITUTION } }),
+    healthcheck: async (integration) => {
+      const { history } = optionsFor(integration.businessId);
+      return mockHealth(TINK_KEY, { accounts: history.accounts.length, transactions: history.transactions.length });
+    },
     simulations: {
-      "bank.sync": (params) => bankSyncSimulation(tinkMockOptions(params.businessId), params),
-      "credential.expiry": (params) => consentExpirySimulation(tinkMockOptions(params.businessId), TINK_KEY, params),
+      "bank.sync": (params) => bankSyncSimulation(optionsFor(params.businessId), params),
+      "credential.expiry": (params) => consentExpirySimulation(optionsFor(params.businessId), TINK_KEY, params),
     },
   });
 }

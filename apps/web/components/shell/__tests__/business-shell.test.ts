@@ -1,13 +1,16 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
+import { EVENT_TYPES } from "@foundmill/shared/constants";
 import { EMPTY_CYCLE, cycleFromSnapshot } from "@/lib/cycle";
 import { trpcPathPrefix, trpcQueryKey } from "@/lib/trpc";
-import { INVALIDATE_ON_EVENT, cycleReducer, describeContinue } from "../BusinessShell";
+import { SAFETY_POLL_MS } from "@/lib/stream-status";
+import { INVALIDATE_ON_EVENT, cycleReducer, describeContinue, shellPollIntervals } from "../BusinessShell";
 
 type ContinueResult = Parameters<typeof describeContinue>[0];
 
 const status = (over: Partial<ContinueResult["status"]> = {}): ContinueResult["status"] => ({
   running: false,
+  queued: false,
   paused: false,
   cycleId: null,
   cycleNumber: null,
@@ -18,6 +21,7 @@ const status = (over: Partial<ContinueResult["status"]> = {}): ContinueResult["s
   activeAgentIds: [],
   activeTaskIds: [],
   plannedTaskIds: [],
+  pausedTaskIds: [],
   completedCount: 0,
   lastCompletedAt: null,
   lastOutcome: null,
@@ -50,6 +54,19 @@ describe("shell cycle reducer", () => {
   });
 });
 
+describe("payments on the stream (audit JM-02)", () => {
+  it("a renewal, which writes payment.received and no customer.converted, still refetches revenue", () => {
+    expect(INVALIDATE_ON_EVENT["payment.received"]).toEqual(expect.arrayContaining(["finance", "journey"]));
+    expect(INVALIDATE_ON_EVENT["payment.received"]).not.toContain("inbox");
+  });
+});
+
+describe("staff changes on the stream (security review S1)", () => {
+  it("membership.changed refetches the business (the reader's own role and walls) and the staff list", () => {
+    expect(INVALIDATE_ON_EVENT["membership.changed"]).toEqual(["business", "team"]);
+  });
+});
+
 describe("foundations progress on the stream (audit P3)", () => {
   it("foundations.progressed refetches the foundations query only, which the dotted prefix reaches", async () => {
     expect(INVALIDATE_ON_EVENT["foundations.progressed"]).toEqual(["product.foundations"]);
@@ -63,3 +80,42 @@ describe("foundations progress on the stream (audit P3)", () => {
   });
 });
 
+describe("changes another member makes reach an open Inbox (audit RUI-09)", () => {
+  it("an archive or a plan confirmation (inbox.item_updated) refetches the list, the reading pane and the plan", async () => {
+    expect(INVALIDATE_ON_EVENT["inbox.item_updated"]).toEqual(["inbox", "plan"]);
+    const qc = new QueryClient();
+    const BID = "00000000-0000-4000-8000-000000000001";
+    const pane = trpcQueryKey("inbox.get", { businessId: BID, itemId: "00000000-0000-4000-8000-000000000002" }) as unknown[];
+    qc.setQueryData(pane, { item: { state: "unread" } });
+    await Promise.all(INVALIDATE_ON_EVENT["inbox.item_updated"]!.map((r) => qc.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] })));
+    expect(qc.getQueryState(pane)?.isInvalidated).toBe(true);
+  });
+
+  it("maps only events the catalogue declares (a typo would never fire)", () => {
+    for (const type of Object.keys(INVALIDATE_ON_EVENT)) expect(EVENT_TYPES as readonly string[], type).toContain(type);
+  });
+
+  it("polls the inbox and cycle every 30 s while the channel is not live and as a safety net while it is; the departments always at the safety pace", () => {
+    expect(shellPollIntervals(false)).toEqual({ inbox: 30_000, cycle: 30_000, departments: SAFETY_POLL_MS });
+    // A live channel never turns polling off (a read, a department edit or a hire by another member publishes no event).
+    expect(shellPollIntervals(true)).toEqual({ inbox: SAFETY_POLL_MS, cycle: SAFETY_POLL_MS, departments: SAFETY_POLL_MS });
+    expect(SAFETY_POLL_MS).toBe(60_000);
+  });
+});
+
+describe("the Autopilot chip stays fresh on the stream", () => {
+  it("refetches business.autopilot when Autopilot changes, a cycle starts or ends, or an Inbox item that can block Continue arrives or is decided", async () => {
+    expect(INVALIDATE_ON_EVENT["autopilot.changed"]).toContain("business");
+    for (const type of ["autopilot.cycle_started", "cycle.started", "cycle.completed", "inbox.item_created", "decision.made"]) {
+      expect(INVALIDATE_ON_EVENT[type]!.some((p) => p === "business" || p === "business.autopilot")).toBe(true);
+    }
+    const qc = new QueryClient();
+    const BID = "00000000-0000-4000-8000-000000000001";
+    qc.setQueryData(trpcQueryKey("business.autopilot.get", { businessId: BID }) as unknown[], { state: "on" });
+    qc.setQueryData(trpcQueryKey("business.get", { businessId: BID }) as unknown[], { business: {} });
+    await qc.invalidateQueries({ queryKey: trpcPathPrefix("business.autopilot") as unknown[] });
+    expect(qc.getQueryState(trpcQueryKey("business.autopilot.get", { businessId: BID }) as unknown[])?.isInvalidated).toBe(true);
+    // The path is narrow: the business record itself is not refetched on every cycle.
+    expect(qc.getQueryState(trpcQueryKey("business.get", { businessId: BID }) as unknown[])?.isInvalidated).toBe(false);
+  });
+});

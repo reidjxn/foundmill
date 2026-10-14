@@ -4,7 +4,8 @@
  * - sidebar from department.list in the founder's order, badges from inbox.list;
  * - Continue state from inbox.list (blocking → "Respond · N"), the holiday and `cycle.status`; one pulse per
  *   `cycle.completed`; the button calls `business.continue` / `business.pauseCycle`;
- * - Stop all agents → business.stopAllAgents; processing strip from `cycle.status` kept current by the event stream;
+ * - Stop all agents → business.stopAllAgents; while the team is stopped (`business.get`) the same control is Resume
+ *   agents → business.resumeAgents (owners and admins); processing strip from `cycle.status` kept current by the stream;
  * - universal search (CommandPalette, remote) over local screens/commands + crm.search;
  * - date + runway chip from finance.overview, business-mode chip → Settings › Mode;
  * - NeedsLargerWindow below 1280 (AppShell measures the window itself); G-then-letter chords (AppShell);
@@ -20,26 +21,32 @@ import { ModuleEnvProvider, type ModuleEnv } from "@foundmill/modules/env";
 import { readWidgetEvent, type WidgetEvent } from "@foundmill/widgets/data";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { runwayWords } from "@foundmill/widgets/shared/runway";
+import { agentsStoppedView } from "@/lib/agents-stopped";
 import { LAST_BUSINESS_COOKIE, SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
-import { computeContinueState, respondHref, unviewedWin } from "@/lib/continue-state";
-import { CYCLE_EVENT_TYPES, cycleFromSnapshot, reduceCycleEvent, setPaused, type CycleEvent, type CycleStatus, EMPTY_CYCLE } from "@/lib/cycle";
+import { readOnlyReason } from "@/lib/access";
+import { awayReportId, computeContinueState, journeyHref, respondHref, unviewedWin } from "@/lib/continue-state";
+import { CYCLE_EVENT_TYPES, cycleFromSnapshot, initialCycle, nextPulseKey, reduceCycleEvent, setPaused, type CycleEvent, type CycleStatus } from "@/lib/cycle";
+import type { AgentSummary } from "@/lib/entity-links";
+import { useEntityResolver } from "@/lib/entity-resolver";
 import { publicEnv } from "@/lib/env";
 import { streamAwareStaleTime } from "@/lib/query-client";
 import { shellQueryInputs } from "@/lib/shell-queries";
 import { useBusinessLogoSrc } from "@/components/logo/useBusinessLogo";
 import { KeyboardRegistryProvider, createKeyboardRegistry, useRegisteredShortcuts } from "@/lib/keys";
+import { publicPaletteItems, publicSearchText } from "@/lib/public-search";
 import { entityPaletteItems, filterLocal, localPaletteItems, searchInputFor } from "@/lib/search";
 import { SIDEBAR_BRAND, SIDEBAR_IDS, activeSidebarId, buildSidebarItems, orderedVisibleDepartments } from "@/lib/sidebar";
 import { signOut } from "@/lib/auth/sign-out";
 import { useStreamSubscription } from "@/lib/stream-client";
-import { pollUnlessStreaming, useStreamOpen } from "@/lib/stream-status";
-import { useClientToday } from "@/lib/today";
+import { SAFETY_POLL_MS, streamPollInterval, useBusinessLive, useConnectionNotice } from "@/lib/stream-status";
+import { browserTimeZone, timeZoneToClaim, useClientToday } from "@/lib/today";
 import { getBrowserAccessToken } from "@/lib/supabase/client";
 import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { WidgetDataHost } from "@/lib/widget-data";
-import { SpecUserProvider } from "@/components/spec/spec-user";
+import { SpecUserProvider, specUserName } from "@/components/spec/spec-user";
 import { AgentDeskHost, prefetchAgentDesk, type AgentDeskApi } from "@/components/conversation/DeskHost";
+import { useNetworkBadge } from "@/components/live/signals";
 import { agentOfAskItem, askPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
 import { ShellChromeProvider, useShellChromeValue } from "./chrome";
@@ -49,17 +56,31 @@ export interface BusinessShellProps {
   businessId: string;
   initialBusiness: BusinessGet;
   initialDepartments: DepartmentList;
-  viewer: { email: string | null; userId: string | null };
+  /** The signed-in person; `name` is their profile's display name (the label on their caret in the spec editor). */
+  viewer: { email: string | null; userId: string | null; name?: string | null };
   children: ReactNode;
 }
 
 const SEARCH_DEBOUNCE_MS = 150;
 /**
- * `inbox.list` and `cycle.status` are refetched on the events that change them; polling is the safety net while the
- * event stream is not connected, and stops while it is.
+ * `inbox.list` and `cycle.status` are refetched on the events that change them; polling is the safety net: every 30 s
+ * while the business's event channel is not live, and slowly while it is (changes that publish no event, such as a
+ * read by another member, and a link that stalls).
  */
 const POLL_WITHOUT_STREAM_MS = 30_000;
-/** Freshness of the shell's stream-kept queries: minutes while the stream is connected, these values while it is not. */
+/**
+ * The shell's polling, by whether the business's event channel is live. `department.list` (the sidebar's names, order
+ * and tabs, each department's team) changes with department edits and hires by another member, which publish no event
+ * (audit RUI-09), so it polls at the safety pace whatever the channel.
+ */
+export function shellPollIntervals(live: boolean): { inbox: number; cycle: number; departments: number } {
+  const stream = streamPollInterval(live, POLL_WITHOUT_STREAM_MS);
+  return { inbox: stream, cycle: stream, departments: SAFETY_POLL_MS };
+}
+/**
+ * Freshness of the shell's stream-kept queries: minutes while the business's channel has stayed live since they were
+ * fetched, these values otherwise.
+ */
 const INBOX_STALE = streamAwareStaleTime(10_000);
 const FINANCE_STALE = streamAwareStaleTime(60_000);
 const CYCLE_STALE = streamAwareStaleTime(10_000);
@@ -77,15 +98,26 @@ const SpecEditor = dynamic(() => import("@/components/spec/SpecEditor").then((m)
 
 /** Events after which the shell refetches a router's queries (or one procedure group's, as a dotted path). */
 export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
-  "inbox.item_created": ["inbox"],
-  "decision.made": ["inbox", "plan"],
+  // An Inbox item that blocks Continue (or the decision that clears it) moves the Autopilot chip: Waiting for you.
+  "inbox.item_created": ["inbox", "business.autopilot"],
+  // Another member archived an item or confirmed its plan (audit RUI-09).
+  "inbox.item_updated": ["inbox", "plan"],
+  "decision.made": ["inbox", "plan", "business.autopilot"],
   "customer.converted": ["inbox", "journey", "finance"],
-  "agent.health_changed": ["department", "team"],
+  // A renewal or a repeat order is revenue with no customer.converted (only first payments win a customer).
+  "payment.received": ["journey", "finance"],
+  // Stop all agents and its resume write one per agent (from any tab or service): the business carries the stop flag.
+  "agent.health_changed": ["department", "team", "business"],
   "mode.changed": ["business"],
+  // A rename or new brand colors saved in another tab or by a co-founder (audit RES-07).
+  "business.updated": ["business"],
+  // Autopilot turned on or off, its settings changed, or a guard rail paused it: the chip and Settings read business.autopilot.
+  "autopilot.changed": ["business"],
+  "autopilot.cycle_started": ["business", "cycle"],
   "holiday.started": ["business"],
   "holiday.ended": ["business", "inbox", "cycle"],
-  "cycle.started": ["cycle"],
-  "cycle.completed": ["inbox", "department", "dev", "finance", "cycle"],
+  "cycle.started": ["cycle", "business.autopilot"],
+  "cycle.completed": ["inbox", "department", "dev", "finance", "cycle", "business.autopilot"],
   "bank.balance_updated": ["finance"],
   "runway.threshold_crossed": ["finance", "inbox"],
   "approval.requested": ["inbox"],
@@ -94,6 +126,9 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   // items appear on Home and the Product tabs as they land. Only the foundations query: the tabs reload their own data
   // when the drafting turns ready.
   "foundations.progressed": ["product.foundations"],
+  // Someone's role or section permissions changed (maybe this reader's): the business carries the reader's own role
+  // and walls, the Team the staff list. apps/stream has already re-checked the reader's open channels.
+  "membership.changed": ["business", "team"],
 };
 
 function readCollapsed(businessId: string): boolean {
@@ -146,7 +181,6 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
-  const today = useClientToday();
   const pathname = usePathname();
   const { toast } = useToast();
   const chrome = useShellChromeValue();
@@ -156,12 +190,14 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   // The layout starts inbox, finance and cycle on the server and hands them over under these same keys
   // (lib/shell-data.server.ts); business and departments arrive as initial data.
   const inputs = useMemo(() => shellQueryInputs(businessId), [businessId]);
-  const streamOpen = useStreamOpen();
+  const poll = shellPollIntervals(useBusinessLive(businessId));
   const businessQ = useQuery(trpc.business.get.queryOptions({ businessId }, { initialData: initialBusiness, staleTime: 30_000 }));
-  const departmentsQ = useQuery(trpc.department.list.queryOptions(inputs.departments, { initialData: initialDepartments, staleTime: 30_000 }));
-  const inboxQ = useQuery(trpc.inbox.list.queryOptions(inputs.inbox, { staleTime: INBOX_STALE, refetchInterval: pollUnlessStreaming(streamOpen, POLL_WITHOUT_STREAM_MS) }));
+  const departmentsQ = useQuery(trpc.department.list.queryOptions(inputs.departments, { initialData: initialDepartments, staleTime: 30_000, refetchInterval: poll.departments }));
+  const inboxQ = useQuery(trpc.inbox.list.queryOptions(inputs.inbox, { staleTime: INBOX_STALE, refetchInterval: poll.inbox }));
   const financeQ = useQuery(trpc.finance.overview.queryOptions(inputs.finance, { staleTime: FINANCE_STALE, retry: false }));
-  const cycleQ = useQuery(trpc.cycle.status.queryOptions(inputs.cycle, { staleTime: CYCLE_STALE, refetchInterval: pollUnlessStreaming(streamOpen, POLL_WITHOUT_STREAM_MS), retry: false }));
+  const cycleQ = useQuery(trpc.cycle.status.queryOptions(inputs.cycle, { staleTime: CYCLE_STALE, refetchInterval: poll.cycle, retry: false }));
+  // The founder's businesses, for the business menu and the palette (the same query the Inbox reads for the founder's name).
+  const profileQ = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
 
   // --- foundations: the first open drafts the vision, specification and roadmap (BUILD §11.1, §11.5) ---------------
   // `product.foundations.ensure` is idempotent on the server (it claims a pending draft exactly once, so two tabs or a
@@ -190,9 +226,15 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const departments = departmentsQ.data ?? initialDepartments;
   const visibleDepartments = useMemo(() => orderedVisibleDepartments(departments), [departments]);
   const business = data.business;
+  // The business's day (audit #196): the same day Home's tiles and the Journey's rows count in.
+  const today = useClientToday(business.timeZone);
   const logoSrc = useBusinessLogoSrc(businessId, data.logo);
   const live = business.gameMode === "live";
-  const currency = financeQ.data?.cash.currency ?? "EUR";
+  // The business's own currency (0025) for every business amount on every screen; a bank account's currency is its own.
+  const currency = business.currency;
+  const businessCtx = useMemo(() => makeBusinessContext(businessId, data, departments), [businessId, data, departments]);
+  // What this person may open and change (audit RUI-05): the sidebar, the palette and the shell's controls follow it.
+  const access = businessCtx.access;
 
   const agentDepartment = useCallback(
     (agentId: string) => departments.find((d) => d.squad.some((a) => a.id === agentId) || d.leadAgentId === agentId)?.id ?? null,
@@ -200,17 +242,41 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   );
 
   // --- cycle status: `cycle.status` snapshot + the stream ----------------------------------------------------------
-  const [cycle, dispatch] = useReducer(cycleReducer, EMPTY_CYCLE);
+  // Seeded from the snapshot the page arrived with, so its finished cycles never read as one completing (audit WEB-15).
+  const [cycle, dispatch] = useReducer(cycleReducer, cycleQ.data, initialCycle);
   useEffect(() => {
     if (cycleQ.data) dispatch({ type: "snapshot", status: cycleFromSnapshot(cycleQ.data) });
   }, [cycleQ.data]);
+  // One Continue pulse per `cycle.completed` on the stream; adopting a snapshot never pulses.
+  const [pulseKey, setPulseKey] = useState(0);
+  // Come back waits for the "While you were away" note and opens it when it lands (audit OL-27).
+  const awaitingAwayReport = useRef(false);
 
   const invalidate = useCallback((routers: readonly string[]) => Promise.all(routers.map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] }))), [queryClient]);
+
+  // --- time zone: the first open by an owner or admin sets the business's zone from their browser (audit #196) -----
+  // Until then days read as UTC everywhere; Settings › Business changes it. Once per business per mount, best effort.
+  const claimZone = useMutation(trpc.business.setTimeZone.mutationOptions({ onSuccess: () => void invalidate(["business", "journey", "finance"]) }));
+  const claimZoneFor = claimZone.mutate;
+  const zoneClaimed = useRef<string | null>(null);
+  useEffect(() => {
+    if (zoneClaimed.current === businessId) return;
+    const zone = timeZoneToClaim(business.timeZone, data.role, browserTimeZone());
+    if (!zone) return;
+    zoneClaimed.current = businessId;
+    claimZoneFor({ businessId, timeZone: zone });
+  }, [businessId, business.timeZone, data.role, claimZoneFor]);
 
   useStreamSubscription(`ev:${businessId}`, (raw) => {
     const event: WidgetEvent | null = readWidgetEvent(raw);
     if (!event) return;
     if ((CYCLE_EVENT_TYPES as readonly string[]).includes(event.type)) dispatch({ type: "event", event, agentDepartment });
+    setPulseKey((k) => nextPulseKey(k, event.type));
+    const reportId = awayReportId(event);
+    if (reportId && awaitingAwayReport.current) {
+      awaitingAwayReport.current = false;
+      router.push(routes.inbox(businessId, reportId));
+    }
     const routers = INVALIDATE_ON_EVENT[event.type];
     if (routers) void invalidate(routers);
   });
@@ -230,9 +296,11 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     },
     [businessId],
   );
+  // The founder's LIVE badge (requests, messages, invitations, posts to moderate) in every business and mode.
+  const network = useNetworkBadge(viewer.userId);
   const sidebarItems = useMemo(
-    () => buildSidebarItems({ businessId, departments, inboxCounts: inboxQ.data?.counts, inboxItems: inboxQ.data?.items, live }),
-    [businessId, departments, inboxQ.data?.counts, inboxQ.data?.items, live],
+    () => buildSidebarItems({ businessId, departments, inboxCounts: inboxQ.data?.counts, inboxItems: inboxQ.data?.items, live, network, access }),
+    [businessId, departments, inboxQ.data?.counts, inboxQ.data?.items, live, network, access],
   );
   const activeId = useMemo(() => activeSidebarId(pathname, businessId, departments), [pathname, businessId, departments]);
   // Sidebar links navigate by themselves (next/link); this pushes only for keyboard chords, the logo button and items
@@ -265,11 +333,14 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       onError: (err) => toast({ title: "Refresh failed", description: errorMessage(err), tone: "bad" }),
     }),
   );
+  // Come back opens the Inbox at once, then "While you were away" when the Chief of Staff has written it (BUILD §9.6).
   const endHoliday = useMutation(
     trpc.business.endHoliday.mutationOptions({
       onSuccess: () => {
+        awaitingAwayReport.current = true;
         void invalidate(["business", "inbox"]);
-        toast({ title: "Welcome back", description: "The Chief of Staff handed the business back to you.", tone: "good" });
+        router.push(routes.inbox(businessId));
+        toast({ title: "Welcome back", description: "The Chief of Staff handed the business back to you. “While you were away” opens here as soon as it is written.", tone: "good" });
       },
       onError: (err) => toast({ title: "Could not end the vacation", description: errorMessage(err), tone: "bad" }),
     }),
@@ -278,11 +349,21 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     trpc.business.stopAllAgents.mutationOptions({
       onSuccess: () => {
         dispatch({ type: "event", event: { type: "agents.stopped" }, agentDepartment });
-        void invalidate(["business", "dev", "department", "inbox"]);
-        toast({ title: "All agents stopped", description: "Workflows, engines and campaigns are paused.", tone: "warn" });
+        void invalidate(["business", "dev", "department", "team", "inbox", "cycle"]);
+        toast({ title: "All agents stopped", description: "Workflows, engines and campaigns are paused. Nothing starts again until an owner or admin resumes the agents.", tone: "warn" });
       },
     }),
   );
+  // The way back (owners and admins): the stop button turns into Resume agents while the team is stopped.
+  const resumeAll = useMutation(
+    trpc.business.resumeAgents.mutationOptions({
+      onSuccess: (result) => {
+        void invalidate(["business", "dev", "department", "team", "cycle"]);
+        toast({ title: "Agents resumed", description: `${result.resumedAgents} agent${result.resumedAgents === 1 ? " is" : "s are"} back. The next cycle picks up the paused tasks.`, tone: "good" });
+      },
+    }),
+  );
+  const stopped = useMemo(() => agentsStoppedView(business, data.role), [business, data.role]);
 
   // One press of Continue → `business.continue` (BUILD §9.4): starts the next businessCycle on Temporal, resumes a
   // paused one, or runs one in-process cycle step (one new note) when no worker answers. The result carries the new
@@ -331,10 +412,22 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const onRespond = useCallback(() => {
     router.push(respondHref(businessId, inboxQ.data?.items));
   }, [inboxQ.data?.items, router, businessId]);
-  const onGoToJourney = useCallback(() => {
+  // "Go to Journey" opens the won customer's Customer Update (the server knows its journey) and marks the win seen,
+  // which frees Continue; without a journey yet it opens the win's note (audit OL-27).
+  const markRead = useMutation(trpc.inbox.markRead.mutationOptions({ onSuccess: () => void invalidate(["inbox"]) }));
+  const markWinRead = markRead.mutate;
+  const onGoToJourney = useCallback(async () => {
     const win = unviewedWin(inboxQ.data?.items);
-    router.push(win ? routes.inbox(businessId, win.id) : routes.inbox(businessId));
-  }, [inboxQ.data?.items, router, businessId]);
+    let state: RouterOutputs["cycle"]["continueState"] | null = null;
+    try {
+      state = await queryClient.fetchQuery(trpc.cycle.continueState.queryOptions({ businessId }, { staleTime: 0 }));
+    } catch {
+      /* fall back to the note */
+    }
+    const winId = (state?.kind === "matchday" ? state.itemId : null) ?? win?.id ?? null;
+    if (winId && state?.kind === "matchday" && state.journeyId) markWinRead({ businessId, itemId: winId });
+    router.push(journeyHref(businessId, state, win?.id));
+  }, [inboxQ.data?.items, router, businessId, queryClient, trpc, markWinRead]);
   const pause = pauseCycle.mutate;
   const pausing = pauseCycle.isPending;
   const onPause = useCallback(() => {
@@ -357,19 +450,37 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     const t = window.setTimeout(() => setDebounced(input), SEARCH_DEBOUNCE_MS);
     return () => window.clearTimeout(t);
   }, [parsed, resolveDepartment]);
-  const searchQ = useQuery(trpc.crm.search.queryOptions({ businessId, ...(debounced ?? { q: "-" }) }, { enabled: debounced !== null, staleTime: 15_000, retry: false }));
-  const localItems = useMemo(() => localPaletteItems({ businessId, departments, inboxItems: inboxQ.data?.items, live }), [businessId, departments, inboxQ.data?.items, live]);
+  // Records only for someone who may read the CRM (anyone else would get a silent refusal).
+  const searchQ = useQuery(trpc.crm.search.queryOptions({ businessId, ...(debounced ?? { q: "-" }) }, { enabled: debounced !== null && access.canRead("crm"), staleTime: 15_000, retry: false }));
+  const businesses = useMemo(() => (profileQ.data?.businesses ?? []).map((b) => ({ id: b.id, name: b.name })), [profileQ.data?.businesses]);
+  const canEditLayout = Boolean(shortcuts.onEditLayout);
+  const localItems = useMemo(
+    () => localPaletteItems({ businessId, departments, inboxItems: inboxQ.data?.items, live, canEditLayout, businesses, access }),
+    [businessId, departments, inboxQ.data?.items, live, canEditLayout, businesses, access],
+  );
+  // A LIVE business also searches the public profiles ("On Foundmill"): founders and businesses found by name.
+  const publicText = live && debounced ? publicSearchText(debounced.q) : null;
+  const publicQ = useQuery(trpc.live.people.search.queryOptions({ q: publicText ?? "--", limit: 5 }, { enabled: publicText !== null, staleTime: 15_000, retry: false }));
   const paletteItems = useMemo<PaletteItem[]>(() => {
     const text = parsed?.text ?? searchText;
     const local = filterLocal(localItems, text);
     const remote = debounced && searchQ.data ? entityPaletteItems(businessId, searchQ.data.hits) : [];
-    return [...remote, ...local];
-  }, [parsed, searchText, localItems, debounced, searchQ.data, businessId]);
+    const network = publicText !== null && publicQ.data ? publicPaletteItems(publicQ.data.hits) : [];
+    return [...remote, ...network, ...local];
+  }, [parsed, searchText, localItems, debounced, searchQ.data, businessId, publicText, publicQ.data]);
   const onQueryChange = useCallback((raw: string, q: SearchQuery) => {
     setSearchText(raw);
     setParsed(q);
   }, []);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchOpen, setSearchOpenState] = useState(false);
+  // Every open starts empty: the last query never lingers for new typing to append to (audit GTM-27).
+  const setSearchOpen = useCallback((open: boolean) => {
+    setSearchOpenState(open);
+    if (!open) {
+      setSearchText("");
+      setParsed(null);
+    }
+  }, []);
   // The palette's Ask rows open a desk: its sheet's code is fetched as soon as the palette opens.
   useEffect(() => {
     if (searchOpen) prefetchAgentDesk();
@@ -388,22 +499,22 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       setSearchOpen(false);
       deskApi.current?.open({ kind: "agent", id: a.id }, { persona: { name: a.name, role: a.role, avatarSeed: a.avatarSeed, dept: a.dept }, text: askQuestion(text, a) || null });
     },
-    [agents],
+    [agents, setSearchOpen],
   );
   const onSelect = useCallback(
     (item: PaletteItem) => {
       setSearchOpen(false);
       if (item.id === "command:refresh-inbox") return refreshInbox.mutate({ businessId });
       if (item.id === "command:edit-layout") return shortcuts.onEditLayout?.();
-      if (item.id === "command:stop-all") return document.querySelector<HTMLButtonElement>("[data-testid=stop-all-trigger]")?.click();
+      // While the team is stopped the same place holds Resume agents, which says so.
+      if (item.id === "command:stop-all") return document.querySelector<HTMLButtonElement>("[data-testid=stop-all-trigger], [data-testid=resume-agents-trigger]")?.click();
       if (item.id === "command:sign-out") return signOut();
       if (item.href) router.push(item.href);
     },
-    [router, refreshInbox, businessId, shortcuts],
+    [router, refreshInbox, businessId, shortcuts, setSearchOpen],
   );
 
   // --- providers for the surfaces below ---------------------------------------------------------------------------
-  const businessCtx = useMemo(() => makeBusinessContext(businessId, data, departments), [businessId, data, departments]);
   // Module environment (docs/ARCHITECTURE.md §18): the collab server, the Supabase access token it authenticates (the
   // dev bearer when there is no Supabase session) and the host's collaborative SpecEditor. Without a collab URL the
   // editor keeps its edits local and saves whole blocks through `product.spec.editBlock`.
@@ -411,13 +522,32 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   useEffect(() => {
     void getBrowserAccessToken().then((t) => setCollabToken(t ?? undefined));
   }, []);
-  const moduleEnv = useMemo<Partial<ModuleEnv>>(() => ({ collabUrl: publicEnv().collabUrl, collabToken, SpecEditor }), [collabToken]);
-  const specUser = useMemo(() => ({ id: viewer.userId ?? "dev", name: viewer.email ?? "You" }), [viewer.userId, viewer.email]);
-  // Agents open their profile; everything else (people, organisations, staff) opens its CRM record.
-  const entityLinks = useMemo(() => {
-    const hrefFor = (ref: { id: string; kind?: string; href?: string }) => ref.href ?? (ref.kind === "agent" ? routes.agent(businessId, ref.id) : routes.crm(businessId, ref.id));
-    return { hrefFor, onOpen: (ref: { id: string; kind?: string; href?: string }) => router.push(hrefFor(ref)) };
-  }, [businessId, router]);
+  const moduleEnv = useMemo<Partial<ModuleEnv>>(() => ({ collabUrl: publicEnv().collabUrl, collabToken, SpecEditor, canWrite: access.canWrite, readOnly: access.canChange ? undefined : readOnlyReason(access) }), [collabToken, access]);
+  const specUser = useMemo(() => ({ id: viewer.userId ?? "dev", name: specUserName(viewer) }), [viewer]);
+  // Every mention resolves (lib/entity-resolver.tsx): agents (by agent id, or by their CRM record) open their profile,
+  // records their CRM profile, with a full hover card and the right-click verbs (audit GTM-19, VFR3-X1, GTM-26).
+  const agentSummaries = useMemo<AgentSummary[]>(
+    () => departments.flatMap((d) => d.squad.map((a) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed, departmentName: d.name, dept: d.colourToken }))),
+    [departments],
+  );
+  const navigate = useCallback((href: string) => router.push(href), [router]);
+  const onMessageAgent = useCallback((a: AgentSummary) => deskApi.current?.open({ kind: "agent", id: a.id }, { persona: { name: a.name, role: a.role ?? "", avatarSeed: String(a.avatarSeed ?? a.id), dept: a.dept ?? "dept-1" }, text: null }), []);
+  const entityLinks = useEntityResolver({ businessId, agents: agentSummaries, canReadCrm: access.canRead("crm"), navigate, onMessageAgent });
+  // "Reconnecting…" / "Live updates paused" once the business's channel has been down a few seconds (audit RES-11).
+  const connectionState = useConnectionNotice(businessId);
+  const connection = useMemo(
+    () => (connectionState ? { state: connectionState, detail: connectionState === "reconnecting" ? "The live connection dropped. What you see may be out of date; the Inbox and Continue refresh every 30 s until it is back." : "Live updates are paused. What you see may be out of date; the Inbox and Continue refresh every 30 s." } : null),
+    [connectionState],
+  );
+  const businessMenu = useMemo(
+    () => ({
+      businesses: (businesses.length ? businesses : [{ id: businessId, name: business.name }]).map((b) => ({ ...b, current: b.id === businessId })),
+      onOpenBusiness: (id: string) => router.push(routes.home(id)),
+      onNewBusiness: () => router.push("/new"),
+      onProfile: () => router.push("/onboarding"),
+    }),
+    [businesses, businessId, business.name, router],
+  );
 
   const financeDept = useMemo(() => visibleDepartments.find((d) => d.moduleKeys.includes("finance")), [visibleDepartments]);
   const onRunwayClick = useCallback(() => {
@@ -431,7 +561,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
 
   return (
     <BusinessProvider value={businessCtx}>
-      <WidgetDataHost businessId={businessId} glossary={business.glossary ?? {}} gameMode={business.gameMode} currency={currency}>
+      <WidgetDataHost businessId={businessId} glossary={business.glossary ?? {}} gameMode={business.gameMode} currency={currency} timeZone={business.timeZone ?? null}>
         <ModuleEnvProvider value={moduleEnv}>
           <SpecUserProvider value={specUser}>
           <EntityLinkProvider value={entityLinks}>
@@ -446,17 +576,28 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 sidebar={{ items: sidebarItems, activeId, collapsed, onCollapsedChange, brand: SIDEBAR_BRAND }}
                 onNavigate={onNavigate}
                 nav={{ onBack: () => router.back(), onForward: () => router.forward() }}
+                businessMenu={businessMenu}
+                connection={connection}
                 continueButton={{
                   state: continueState,
-                  pulseKey: cycle.completedCount,
-                  disabled: refreshInbox.isPending || endHoliday.isPending || continueCycle.isPending || pauseCycle.isPending,
+                  pulseKey,
+                  // Pending, not disabled: Continue keeps keyboard focus while its own request is in flight.
+                  pending: refreshInbox.isPending || endHoliday.isPending || continueCycle.isPending || pauseCycle.isPending,
+                  // Viewers and advisors follow the business; they do not run cycles (audit RUI-05).
+                  disabled: !access.canChange,
                   onContinue,
                   onRespond,
                   onPause,
                   onGoToJourney,
                   onComeBack: () => endHoliday.mutate({ businessId, reason: "founder_returned" }),
                 }}
-                stopAll={{ onConfirm: () => stopAll.mutateAsync({ businessId, reason: "kill_switch" }).then(() => undefined), runningCount: cycle.activeAgentIds.length, disabled: stopAll.isPending }}
+                stopAll={{
+                  canStop: access.isAdmin,
+                  onConfirm: () => stopAll.mutateAsync({ businessId, reason: "kill_switch" }).then(() => undefined),
+                  runningCount: cycle.activeAgentIds.length,
+                  disabled: stopAll.isPending || resumeAll.isPending,
+                  stopped: stopped ? { ...stopped, onResume: () => resumeAll.mutateAsync({ businessId }).then(() => undefined) } : null,
+                }}
                 processing={{ segments, active: cycle.running }}
                 tabs={chrome.tabs}
                 breadcrumbs={chrome.breadcrumbs}
@@ -475,7 +616,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                   onAsk,
                   placeholder: "Search, ask an agent or generate…",
                 }}
-                // The founder's own day, known only in the browser (null on the server: UTC is tomorrow on a US evening).
+                // The business's day, known only in the browser (null on the server, so hydration never disagrees).
                 date={today}
                 runwayMonths={financeQ.data?.runway.months ?? null}
                 // Without a figure the chip says what Home's tiles say ("No limit", "Not known yet") with the reason.
@@ -486,7 +627,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 onRunwayClick={financeDept ? onRunwayClick : undefined}
                 onModeClick={() => router.push(routes.settings(businessId, "mode"))}
                 keyboard={{
-                  onRefreshInbox: shortcuts.onRefreshInbox ?? (() => refreshInbox.mutate({ businessId })),
+                  onRefreshInbox: shortcuts.onRefreshInbox ?? (access.canChange ? () => refreshInbox.mutate({ businessId }) : undefined),
                   onNextInboxItem: shortcuts.onNextInboxItem,
                   onPrevInboxItem: shortcuts.onPrevInboxItem,
                   onChooseOption: shortcuts.onChooseOption,

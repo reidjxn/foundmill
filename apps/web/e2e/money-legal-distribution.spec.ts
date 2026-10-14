@@ -63,6 +63,34 @@ test.describe("distribution, finance and legal read in plain words", () => {
     expect(count!.x + count!.width).toBeGreaterThan(box!.x + box!.width - 24);
   });
 
+  test("finance: Payroll keeps the team's metered cost and its wage caps in US dollars, apart from staff payroll in pounds", async ({ page }) => {
+    await openTab(page, "finance", "wage-bill");
+    const strip = page.getByRole("region", { name: "Payroll summary" });
+    await expect(strip.getByText("Team payroll")).toBeVisible();
+    // Never added across currencies: the team in US dollars, staff in the business's pounds.
+    await expect(strip).toContainText("$");
+    await expect(strip).toContainText("£");
+    const table = page.getByRole("grid", { name: "Team payroll" });
+    await expect(table).toContainText("$");
+    await expect(table).not.toContainText("£");
+  });
+
+  test("finance: payback divides by the whole paying base, never by the customers the channels just won", async ({ page }) => {
+    await openTab(page, "finance", "overview");
+    const caption = async (metric: string) => (await page.locator(`[data-metric="${metric}"] [data-metric-caption]`).innerText()).trim();
+    const payback = await caption("payback");
+    // "<n> paying customers": the base at the end of the revenue window, not the customers the channels just won.
+    // With too little in the window to compute it, the tile says what it waits for, in words; never a made-up figure.
+    if (/^Appears with/.test(payback)) {
+      expect(payback).toContain("paying customers");
+      return;
+    }
+    expect(payback).toMatch(/^[\d,]+ paying customers?$/);
+    const base = Number(payback.replace(/[^\d]/g, ""));
+    const won = Number(((await caption("acquisitionCost")).match(/^([\d,]+) customers?/)?.[1] ?? "0").replace(/,/g, ""));
+    expect(base, "the payback base is larger than the customers acquired in the channel window").toBeGreaterThan(won);
+  });
+
   test("finance: an empty cap table says so once and has nothing to export", async ({ page }) => {
     await openTab(page, "finance", "cap-table");
     await expect(page.getByText("No cap table yet")).toHaveCount(1);
@@ -75,6 +103,36 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(page.getByRole("form", { name: "Round inputs" })).toHaveCount(0);
     await expect(page.getByText("Model a priced round here once the first shares are recorded.")).toBeVisible();
     await expect(screen.getByText(/^0 (holders|issuances)\b/)).toHaveCount(0);
+  });
+
+  test("finance: the Cash panel's caret menu pins Cash and runway to Home, and unpins it (audit #394)", async ({ page }) => {
+    await openTab(page, "finance", "overview");
+    const cash = page.getByRole("region", { name: "Cash", exact: true });
+    await cash.getByRole("button", { name: "Panel menu" }).click();
+    const item = page.getByRole("menuitem", { name: /^(Pin to Home|Unpin from Home)$/ });
+    await expect(item).toBeVisible();
+    // Start unpinned whatever an earlier run left.
+    if ((await item.innerText()).includes("Unpin")) {
+      await item.click();
+      await cash.getByRole("button", { name: "Panel menu" }).click();
+    }
+    await page.getByRole("menuitem", { name: "Pin to Home" }).click();
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
+    // (Both the frame and the widget inside it carry the name.)
+    await expect(page.locator("[data-widget=cash_runway]").first()).toBeVisible({ timeout: LONG });
+    await openTab(page, "finance", "overview");
+    await page.getByRole("region", { name: "Cash", exact: true }).getByRole("button", { name: "Panel menu" }).click();
+    await page.getByRole("menuitem", { name: "Unpin from Home" }).click();
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
+    await expect(page.getByTestId("home-grid")).toBeVisible({ timeout: LONG });
+    await expect(page.locator("[data-widget=cash_runway]")).toHaveCount(0);
+  });
+
+  test("finance: the empty cap table's Open Legal goes to the department that holds Legal (audit #192)", async ({ page }) => {
+    await openTab(page, "finance", "cap-table");
+    await page.getByRole("button", { name: "Open Legal" }).click();
+    await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "legal/entity", { timeout: LONG });
+    await expect(page.getByText(/No such department/)).toHaveCount(0);
   });
 
   test("finance: runway drivers are money fields in the business's currency", async ({ page }) => {
@@ -101,6 +159,61 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(table.getByRole("row").filter({ hasText: "£0.00 Estimate" })).toHaveCount(0);
   });
 
+  test("distribution: a channel's profile card agrees with the Channels table (No spend, one Offline tracking chip)", async ({ page }) => {
+    await openTab(page, "distribution", "channels");
+    const table = page.getByRole("grid", { name: "Channels" });
+    const spendless = table.getByRole("row").filter({ hasText: "No spend" }).first();
+    await expect(spendless).toBeVisible();
+    await spendless.locator("[data-channel-name]").dblclick();
+    const drawer = page.locator("[data-channel-drawer]");
+    await expect(drawer).toBeVisible({ timeout: LONG });
+    // "Cost per customer (Estimate)" reads "No spend" like the table, never "£0.00".
+    await expect(drawer).toContainText(/Cost per customer \(Estimate\)\s*No spend/);
+    await expect(drawer).not.toContainText("£0.00 Estimate");
+    // The chip is the card's own, shown once; offline-tracked channels say so as the table does.
+    expect(await drawer.getByText("Offline tracking", { exact: true }).count()).toBeLessThanOrEqual(1);
+  });
+
+  test("distribution: campaigns can be created and edited, and ending one asks first", async ({ page }) => {
+    await openTab(page, "distribution", "campaigns");
+    await page.getByRole("button", { name: "New campaign" }).click();
+    const dialog = page.getByRole("dialog", { name: "New campaign" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Create campaign" }).click();
+    await expect(dialog.getByText("Give the campaign a name.")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    // Ending is final: the verb opens a confirmation, and keeping the campaign changes nothing.
+    const table = page.getByRole("grid", { name: "Campaigns" });
+    const row = table.getByRole("row").nth(1);
+    await expect(row).toBeVisible({ timeout: LONG });
+    await row.click({ button: "right" });
+    const end = page.getByRole("menuitem", { name: "End campaign…" });
+    if (await end.isEnabled()) {
+      await end.click();
+      const confirm = page.getByRole("dialog", { name: /^End / });
+      await expect(confirm).toContainText("Ending is final");
+      await confirm.getByRole("button", { name: "Keep it running" }).click();
+      await expect(confirm).toBeHidden();
+    } else {
+      await page.keyboard.press("Escape");
+    }
+  });
+
+  test("distribution: the model in use and the win count come from the whole history and agree with the replays", async ({ page }) => {
+    await openTab(page, "distribution", "attribution");
+    const model = page.getByRole("region", { name: "Model in use" });
+    await expect(model).toBeVisible();
+    const count = Number((await model.getByText(/^[\d,]+$/).first().innerText()).replace(/,/g, ""));
+    // Past 200 labeled conversions the model is data-driven (the replays say so), and no "more … before" countdown.
+    if (count >= 200) {
+      await expect(model).toContainText("Data-driven (Markov removal effect)");
+      await expect(model).not.toContainText("before the Markov removal-effect model takes over");
+    } else {
+      await expect(model).toContainText("Position-based 40/20/40");
+    }
+  });
+
   test("distribution: the touch funnel never reads 0 % or more than 100 % for a step", async ({ page }) => {
     await openTab(page, "distribution", "attribution");
     const funnel = page.getByRole("region", { name: "Touch funnel" });
@@ -112,6 +225,26 @@ test.describe("distribution, finance and legal read in plain words", () => {
         expect(Number(pct), `funnel rate "${rate}"`).toBeLessThanOrEqual(100);
       }
     }
+  });
+
+  test("distribution: the Board counts as running only channels whose engine runs (audit GTM-01)", async ({ page }) => {
+    await openTab(page, "distribution", "formation");
+    // A channel on the board without its engine yet reads "starting", never "running".
+    await expect(page.getByText(/^\d+ of 15 running( · \d+ starting)?$/)).toBeVisible({ timeout: LONG });
+    await openTab(page, "distribution", "channels");
+    const table = page.getByRole("grid", { name: "Channels" });
+    const starting = table.getByRole("row").filter({ hasText: "Starting" });
+    if ((await starting.count()) > 0) await expect(starting.first().getByTitle(/engine has not started yet/)).toBeVisible();
+  });
+
+  test("distribution: drafted creative shows its copy on the card", async ({ page }) => {
+    await openTab(page, "distribution", "creative");
+    if (await page.getByText("No creative yet").isVisible()) return;
+    const card = page.locator("article[data-asset]").first();
+    await expect(card).toBeVisible({ timeout: LONG });
+    // An engine's draft carries its body (a mock draft says so in its first line).
+    const body = card.getByTestId("asset-body");
+    if ((await body.count()) > 0) await expect(body).not.toBeEmpty();
   });
 
   test("distribution: empty Leads and Creative each offer the way to fill them", async ({ page }) => {

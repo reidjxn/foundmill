@@ -60,6 +60,21 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     hunksRejected: 1,
     hunksEdited: 0,
   },
+  "source.added": {
+    sourceId: fixtureId("source-interview"),
+    kind: "competitor",
+    title: "Competitor pricing page",
+    uri: "https://competitor.example/pricing",
+    addedBy: "user",
+  },
+  "source.scored": {
+    sourceId: fixtureId("source-interview"),
+    kind: "competitor",
+    status: "scored",
+    relevantBlockIds: [fixtureId("block-pricing")],
+    topScore: 0.82,
+    severity: "normal",
+  },
   "task.started": {
     taskId: fixtureId("task"),
     kind: "code",
@@ -402,6 +417,21 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     inboxItemIds: [fixtureId("inbox-1")],
     durationMs: 11_520_000,
   },
+  "autopilot.changed": {
+    change: "paused",
+    pausedReason: "idle_cycles",
+    cadence: "every_4h",
+    dailyHour: 9,
+    maxCyclesPerDay: 6,
+    spendCeiling: { amountMinor: 2_500, currency: "USD" },
+    maxIdleCycles: 3,
+  },
+  "autopilot.cycle_started": {
+    cycleNumber: 13,
+    workflowId: `cycle:${FIXTURE_BUSINESS_ID}:13`,
+    cadence: "every_4h",
+    cyclesToday: 2,
+  },
   "inbox.item_created": {
     inboxItemId: fixtureId("inbox-1"),
     type: "decision",
@@ -410,6 +440,12 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     blocksContinue: true,
     sourceEventIds: [fixtureId("event-approval")],
     cost: eur(9),
+  },
+  "inbox.item_updated": {
+    inboxItemId: fixtureId("inbox-1"),
+    change: "plan_confirmed",
+    planId: fixtureId("plan"),
+    followUpItemId: fixtureId("inbox-2"),
   },
   "decision.made": {
     decisionId: fixtureId("decision"),
@@ -420,6 +456,9 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     planId: fixtureId("plan"),
     planActionCount: 2,
     hardGateActions: 0,
+  },
+  "business.updated": {
+    fields: ["name", "kitPrimary"],
   },
   "foundations.progressed": {
     attempt: 1,
@@ -441,6 +480,20 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     quickReplyIds: ["go_with", "whats_the_risk"],
     chosenQuickReplyId: null,
     handOff: false,
+  },
+  "membership.changed": {
+    userId: fixtureId("member"),
+    change: "updated",
+  },
+  "agent.message_sent": {
+    messageId: fixtureId("message"),
+    type: "request",
+    fromAgentId: FIXTURE_AGENT_ID,
+    toAgentId: fixtureId("lead"),
+    sessionId: fixtureId("session"),
+    taskId: fixtureId("task"),
+    subject: "Review the pricing page copy",
+    body: "The draft is on the task; check the claims against the spec before Friday.",
   },
 };
 

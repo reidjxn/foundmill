@@ -19,7 +19,7 @@ describe("JourneyStage", () => {
   it("starts on Who was involved with the captain starred and steps through every stage", async () => {
     const user = userEvent.setup();
     const onOpenEntity = vi.fn();
-    const { container } = render(<JourneyStage journey={fx.journey} touches={fx.touches} customer={fx.customer} agents={fx.agents} kit={NORTHWIND_KIT} autoplay={false} overlay="none" onOpenEntity={onOpenEntity} />);
+    const { container } = render(<JourneyStage currency="EUR" journey={fx.journey} touches={fx.touches} customer={fx.customer} agents={fx.agents} kit={NORTHWIND_KIT} autoplay={false} overlay="none" onOpenEntity={onOpenEntity} />);
     const root = container.querySelector("[data-journey-stage]")!;
     expect(root.getAttribute("data-stage")).toBe("team_sheet");
     expect(root.getAttribute("data-schedule-hash")).toBe(buildReplaySchedule(fx.journey, fx.touches, "full").hash);
@@ -53,7 +53,7 @@ describe("JourneyStage", () => {
   it("Instant speed lands on the debrief at once and speed changes are reported", async () => {
     const user = userEvent.setup();
     const onSpeedChange = vi.fn();
-    const { container } = render(<JourneyStage journey={fx.journey} touches={fx.touches} customer={fx.customer} kit={NORTHWIND_KIT} defaultSpeed="instant" onSpeedChange={onSpeedChange} overlay="none" />);
+    const { container } = render(<JourneyStage currency="EUR" journey={fx.journey} touches={fx.touches} customer={fx.customer} kit={NORTHWIND_KIT} defaultSpeed="instant" onSpeedChange={onSpeedChange} overlay="none" />);
     const root = container.querySelector("[data-journey-stage]")!;
     expect(root.getAttribute("data-stage")).toBe("full_time");
     expect(screen.queryByRole("button", { name: "Play" })).toBeNull();
@@ -67,7 +67,7 @@ describe("JourneyStage", () => {
   it("plays the clock from the Play control and pauses", async () => {
     vi.useFakeTimers();
     try {
-      const { container } = render(<JourneyStage journey={fx.journey} touches={fx.touches} customer={fx.customer} kit={NORTHWIND_KIT} defaultSpeed="highlights" autoplay={false} overlay="none" />);
+      const { container } = render(<JourneyStage currency="EUR" journey={fx.journey} touches={fx.touches} customer={fx.customer} kit={NORTHWIND_KIT} defaultSpeed="highlights" autoplay={false} overlay="none" />);
       const root = container.querySelector("[data-journey-stage]")!;
       fireEvent.click(screen.getByRole("button", { name: "Play" }));
       await vi.advanceTimersByTimeAsync(2600);
@@ -84,7 +84,7 @@ describe("JourneyStage", () => {
 
   it("reduced motion renders the static summary with every fact (AC-11.4.5)", () => {
     setReducedMotion(true);
-    const { container } = render(<JourneyStage journey={fx.journey} touches={fx.touches} customer={fx.customer} kit={NORTHWIND_KIT} overlay="none" />);
+    const { container } = render(<JourneyStage currency="EUR" journey={fx.journey} touches={fx.touches} customer={fx.customer} kit={NORTHWIND_KIT} overlay="none" />);
     expect(container.querySelector("[data-journey-stage='static']")).toBeTruthy();
     expect(container.querySelector("[data-stage-panel='goal'][data-static]")).toBeTruthy();
     expect(container.querySelector("[data-stage-panel='full_time']")).toBeTruthy();
@@ -92,6 +92,50 @@ describe("JourneyStage", () => {
     expect(container.querySelector("[data-stage-panel='rails']")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Play" })).toBeNull();
     expect(container.querySelector("[data-goal-burst]")).toBeNull();
+    // Identical information (DESIGN §1): the first touch, every touch and every commentary line are in the summary too.
+    expect(container.querySelector("[data-stage-panel='kick_off']")).toBeTruthy();
+    expect(container.querySelectorAll("[data-touch-row]").length).toBe(fx.touches.length);
+    expect(screen.getByText(/the slow-start article does the patient work/)).toBeTruthy();
+    expect(screen.getByText(/The closer. Lifecycle delivers it within the hour/)).toBeTruthy();
+    // No dead controls: no speeds and no Watch again without a replay clock.
+    expect(screen.queryByRole("group", { name: "Speed" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Watch again" })).toBeNull();
+  });
+
+  it("under reduced motion the stepper moves to that stage's section of the summary", () => {
+    setReducedMotion(true);
+    const scrolled: string[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this.getAttribute("data-static-section") ?? "");
+    };
+    try {
+      const { container } = render(<JourneyStage currency="EUR" journey={fx.journey} touches={fx.touches} customer={fx.customer} kit={NORTHWIND_KIT} overlay="none" />);
+      fireEvent.click(screen.getByRole("button", { name: "Touches" }));
+      fireEvent.click(screen.getByRole("button", { name: "First touch" }));
+      expect(scrolled).toEqual(["match", "kick_off"]);
+      expect(container.querySelector("[data-journey-stage]")?.getAttribute("data-stage")).toBe("kick_off");
+      expect(screen.getByRole("button", { name: "First touch" }).getAttribute("aria-current")).toBe("step");
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it("a win nobody spent on or touched says so instead of £0.00 Estimate, 0 months and empty panels", async () => {
+    const user = userEvent.setup();
+    const journey = { ...fx.journey, agents: [], playerOfTheMatch: null, captain: fx.journey.captain ? { ...fx.journey.captain, agentId: null } : null, stats: { ...fx.journey.stats, acquisitionCostMinor: 0 } };
+    const { container } = render(<JourneyStage currency="EUR" journey={journey} touches={fx.touches} customer={fx.customer} kit={NORTHWIND_KIT} autoplay={false} overlay="none" />);
+    expect(screen.getByRole("region", { name: "Team" }).textContent).toContain("No agent touched this win");
+    await user.click(screen.getByRole("button", { name: "Rails" }));
+    await user.click(screen.getByRole("tab", { name: "Acquisition cost" }));
+    const rail = container.querySelector("[data-rail-panel='cost']")!;
+    expect(rail.textContent).toContain("No paid acquisition");
+    expect(rail.textContent).not.toMatch(/€0\.00|Estimate|payback/);
+    await user.click(screen.getByRole("button", { name: "Debrief" }));
+    const debrief = screen.getByRole("region", { name: "Debrief" });
+    expect(debrief.textContent).toContain("No paid acquisition");
+    expect(debrief.textContent).not.toMatch(/€0\.00|Payback|0 mo/);
+    expect(screen.getByRole("region", { name: "Agent ratings" }).textContent).toContain("No agent touched this win");
   });
 });
 
@@ -118,6 +162,18 @@ describe("MatchdayRoundupTable", () => {
     expect((screen.getByRole("button", { name: "Replay activation" }) as HTMLButtonElement).disabled).toBe(true);
     expect(sortRoundupRows(roundupRows, "value", "desc")[0]?.conversionId).toBe("c2");
     expect(screen.getByText("Anonymous")).toBeTruthy();
+  });
+  it("totals the day's revenue in the payments' currency, never adding two currencies (a sign-up row names no money)", () => {
+    const rows: RoundupRow[] = [
+      { ...roundupRows[0]!, currency: "USD", occurredAt: "2026-10-07T07:00:00.000Z" },
+      { ...roundupRows[1]!, currency: "GBP" },
+      { ...roundupRows[1]!, conversionId: "c4", amountMinor: 4100, currency: "GBP", occurredAt: "2026-10-07T12:00:00.000Z" },
+      { ...roundupRows[1]!, conversionId: "c5", amountMinor: 99_900, currency: "SEK", occurredAt: "2026-10-07T13:00:00.000Z" },
+    ];
+    render(<MatchdayRoundupTable rows={rows} day="2026-10-07" onOpenReplay={() => {}} />);
+    expect(screen.getByText("£100.00")).toBeTruthy();
+    expect(screen.queryByText("£1,099.00")).toBeNull();
+    expect(screen.queryByText(/\$/)).toBeNull();
   });
   it("shows an empty state", () => {
     render(<MatchdayRoundupTable rows={[]} onOpenReplay={() => {}} />);

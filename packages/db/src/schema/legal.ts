@@ -1,7 +1,7 @@
 /** 0010 — legal: entities, incorporations, filings, contracts, compliance events. */
 import { INCORPORATION_ROUTES } from "@foundmill/shared";
 import { date, index, jsonb, pgTable, text, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
-import { currency, emptyList, id, minor, timestampsWithArchive, tstz } from "./_common";
+import { businessCurrency, emptyList, id, minor, timestampsWithArchive, tstz } from "./_common";
 import { businessId } from "./_refs";
 import { entities } from "./crm";
 
@@ -22,7 +22,7 @@ export const legalEntities = pgTable(
     registeredAddress: jsonb("registered_address").$type<Record<string, string>>(),
     officers: jsonb("officers").$type<unknown[]>().notNull().default(emptyList),
     shareCapitalMinor: minor("share_capital_minor"),
-    currency: currency(),
+    currency: businessCurrency(),
     formedAt: date("formed_at", { mode: "string" }),
     source: text("source"),
     status: text("status", { enum: LEGAL_ENTITY_STATUSES }).notNull().default("planned"),
@@ -90,7 +90,7 @@ export const contracts = pgTable(
     startsAt: date("starts_at", { mode: "string" }),
     endsAt: date("ends_at", { mode: "string" }),
     valueMinor: minor("value_minor"),
-    currency: currency(),
+    currency: businessCurrency(),
     obligations: jsonb("obligations").$type<unknown[]>().notNull().default(emptyList),
     ...timestampsWithArchive(),
   },

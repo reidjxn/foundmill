@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CHORD_TIMEOUT_MS, KEYBOARD_SHORTCUTS, departmentLetters, letterCandidates, shortcutList, useKeyboardMap, type KeyboardMapContext } from "./keyboard";
+import { CHORD_TIMEOUT_MS, KEYBOARD_SHORTCUTS, departmentLetters, letterCandidates, shortcutList, spaceBelongsTo, useKeyboardMap, type KeyboardMapContext } from "./keyboard";
 import { DEPARTMENTS_FOR_KEYS } from "./fixtures";
 
 describe("letterCandidates", () => {
@@ -141,6 +141,21 @@ describe("useKeyboardMap", () => {
     expect(handlers.onRefreshInbox).toHaveBeenCalledTimes(1);
   });
 
+  it("leaves an Esc that an open dialog already handled to that dialog (audit OL-15)", async () => {
+    const user = userEvent.setup();
+    const { handlers } = setup();
+    // Radix's DismissableLayer closes the top layer on the capture phase and marks the event handled.
+    const closeDialog = (e: KeyboardEvent) => {
+      if (e.key === "Escape") e.preventDefault();
+    };
+    document.addEventListener("keydown", closeDialog, { capture: true });
+    await user.keyboard("{Escape}");
+    expect(handlers.onEscape).not.toHaveBeenCalled();
+    document.removeEventListener("keydown", closeDialog, { capture: true });
+    await user.keyboard("{Escape}");
+    expect(handlers.onEscape).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores single keys typed into a text field, but Esc still closes overlays", async () => {
     const user = userEvent.setup();
     const { handlers } = setup();
@@ -154,6 +169,52 @@ describe("useKeyboardMap", () => {
     await user.keyboard("{Escape}");
     expect(handlers.onEscape).toHaveBeenCalledTimes(1);
     input.remove();
+  });
+
+  it("leaves Space to a focused control: the checkbox toggles, the button presses, and Continue does not run", async () => {
+    const user = userEvent.setup();
+    const { handlers } = setup();
+    const box = document.createElement("button");
+    box.setAttribute("role", "checkbox");
+    box.setAttribute("aria-checked", "false");
+    box.addEventListener("click", () => box.setAttribute("aria-checked", box.getAttribute("aria-checked") === "true" ? "false" : "true"));
+    const sw = document.createElement("div");
+    sw.setAttribute("role", "switch");
+    sw.tabIndex = 0;
+    const plain = document.createElement("div");
+    plain.tabIndex = -1;
+    plain.textContent = "Note body";
+    document.body.append(box, sw, plain);
+    box.focus();
+    await user.keyboard(" ");
+    expect(box.getAttribute("aria-checked")).toBe("true");
+    sw.focus();
+    await user.keyboard(" ");
+    expect(handlers.onContinue).not.toHaveBeenCalled();
+    // Plain content (a focused note body) is not a control: Continue takes Space there.
+    plain.focus();
+    await user.keyboard(" ");
+    expect(handlers.onContinue).toHaveBeenCalledTimes(1);
+    box.remove();
+    sw.remove();
+    plain.remove();
+  });
+
+  it("knows which elements own Space", () => {
+    const el = (html: string) => {
+      const host = document.createElement("div");
+      host.innerHTML = html;
+      return host.firstElementChild;
+    };
+    expect(spaceBelongsTo(el("<button>Save</button>"))).toBe(true);
+    expect(spaceBelongsTo(el('<a href="/x">Open</a>'))).toBe(true);
+    expect(spaceBelongsTo(el("<summary>More</summary>"))).toBe(true);
+    expect(spaceBelongsTo(el('<span role="radio" tabindex="0"></span>'))).toBe(true);
+    expect(spaceBelongsTo(el('<div role="tab" tabindex="0"></div>'))).toBe(true);
+    expect(spaceBelongsTo(el('<div contenteditable="true"></div>'))).toBe(true);
+    expect(spaceBelongsTo(el('<div tabindex="-1">Body</div>'))).toBe(false);
+    expect(spaceBelongsTo(document.body)).toBe(false);
+    expect(spaceBelongsTo(null)).toBe(false);
   });
 
   it("does nothing when disabled or when a callback is missing", async () => {

@@ -222,7 +222,7 @@ describe("product.foundations — on Temporal", () => {
 });
 
 describe("product.foundations — Door B (Import)", () => {
-  it("links the Import job at commit and drafts from the report and the imported sources; every open issue lands on the roadmap", async () => {
+  it("links the Import job at commit and drafts from the report; nothing unread is stored as read and no issue is invented", async () => {
     const f = await founder("door-b@test.local");
     const sources = [
       { key: "github" as const, value: "acme/ledgerly" },
@@ -245,10 +245,19 @@ describe("product.foundations — Door B (Import)", () => {
 
     const row = await repos.foundations.get(hz.db, bid);
     expect(row).toMatchObject({ door: "import", importJobId: started.job.id, ideaId: idea.id });
-    expect(row!.importReport).toMatchObject({ title: report.title, roadmapSeeds: report.roadmapSeeds });
+    expect(row!.importReport).toMatchObject({ title: report.title, roadmapSeeds: [] });
     const imported = (await repos.product.listSources(hz.db, bid)).items;
     expect(imported.map((s) => s.uri).sort()).toEqual(["https://dashboard.stripe.com/", "https://github.com/acme/ledgerly"]);
-    expect(imported.every((s) => (s.relevance as { import?: { summary?: string } }).import?.summary)).toBe(true);
+    // The sign-up job read nothing, so no summary is stored as a finding. This harness has no Temporal worker, so
+    // commit's importBusiness is not queued and the sources are marked not read, with the reason.
+    expect(result.import).toMatchObject({ queued: false });
+    for (const s of imported) {
+      const relevance = s.relevance as { summary?: string; imported?: boolean; import?: { status?: string; summary?: string } };
+      expect(relevance.summary).toBeUndefined();
+      expect(relevance.import?.summary).toBeUndefined();
+      expect(relevance.import?.status).toBe("failed");
+      expect(relevance.imported).toBe(false);
+    }
 
     // The Board's first item carries the import's suggested first decisions.
     expect(result.boardItem.subject).toBe("Where should the team start with what you imported?");
@@ -260,16 +269,11 @@ describe("product.foundations — Door B (Import)", () => {
     await settleFoundationRuns();
     const view = await f.caller.product.foundations.get({ businessId: bid });
     expect(view).toMatchObject({ status: "ready", door: "import", importLinked: true });
-    expect(view.vision!.whyNow).toMatch(/imported sources/);
+    expect(view.vision!.whyNow).toMatch(/pointed the import at 2 existing sources/);
+    // No issue was read, so none is on the roadmap as imported.
     const roadmap = await repos.product.listRoadmap(hz.db, bid);
-    for (const seed of report.roadmapSeeds) {
-      const item = roadmap.find((i) => i.title === seed.title);
-      expect(item, seed.title).toBeDefined();
-      expect(item!.descriptionMd).toContain(seed.source);
-    }
-    expect(view.summary).toMatchObject({ importedIssues: report.roadmapSeeds.length });
-    const features = (await repos.product.listBlocks(hz.db, bid)).find((b) => b.section === "Features")!;
-    expect(docText(features.content)).toContain(report.roadmapSeeds[0]!.title);
+    expect(roadmap.some((i) => /issue #\d+|LIN-\d+/.test(i.descriptionMd ?? ""))).toBe(false);
+    expect(view.summary).toMatchObject({ importedIssues: 0 });
   });
 
   it("refuses an Import job that is unsigned, someone else's, unfinished or another business's own (L1)", async () => {
@@ -301,7 +305,8 @@ describe("product.foundations — Door B (Import)", () => {
     const generated = await f.caller.idea.generate({ prompt: "x", single: true, importJobId: bad });
     const result = await f.caller.idea.commit({ ideaId: generated.ideas[0]!.id, name: "Recheck Co", archetype: "b2b_saas", gameMode: "personal" });
     expect(result.foundations).toMatchObject({ door: "ideation", importSourceIds: [] });
-    expect((await repos.product.listSources(hz.db, result.business.id)).items).toEqual([]);
+    // Nothing of the refused job is stored (the concept's own sources, which Commit files for every business, are not the import's).
+    expect((await repos.product.listSources(hz.db, result.business.id)).items.filter((s) => (s.relevance as { import?: unknown }).import !== undefined || (s.uri ?? "").startsWith("javascript:"))).toEqual([]);
   });
 });
 

@@ -2,16 +2,18 @@
  * Temporal client (docs/ARCHITECTURE.md §10). The connection is opened lazily on first use and every call degrades
  * gracefully: when the server is unreachable the API answers `{ queued: false, reason }` instead of failing the
  * founder's request. Workflow ids are deterministic (`cycle:{businessId}:{n}`, `session:{sessionId}`,
- * `engine:{channelId}`, `holiday:{holidayId}`, `plan:{planId}`, `training:{runId}`, `incorporation:{id}`,
- * `foundations:{businessId}:{attempt}`).
+ * `engine:{channelId}`, `autopilot:{businessId}`, `automated:{businessId}`, `holiday:{holidayId}`, `plan:{planId}`, `training:{runId}`, `incorporation:{id}`,
+ * `foundations:{businessId}:{attempt}`, `source-watch:{sourceId}:{reason}`, `approval:{approvalId}`).
  */
 import type { ApiLogger } from "./log";
 
 export const WORKFLOWS = {
   businessCycle: "businessCycle",
+  autopilot: "autopilot",
   agentSession: "agentSession",
   channelEngine: "channelEngine",
   holiday: "holiday",
+  automatedMode: "automatedMode",
   planExecution: "planExecution",
   trainingRun: "trainingRun",
   incorporation: "incorporation",
@@ -19,6 +21,7 @@ export const WORKFLOWS = {
   journeyBuild: "journeyBuild",
   importBusiness: "importBusiness",
   businessFoundations: "businessFoundations",
+  sourceWatch: "sourceWatch",
 } as const;
 
 export const SIGNALS = {
@@ -29,25 +32,51 @@ export const SIGNALS = {
   stop: "stop",
   founderSubmit: "founderSubmit",
   wake: "wake",
+  autopilotRefresh: "autopilotRefresh",
 } as const;
 export type SignalName = (typeof SIGNALS)[keyof typeof SIGNALS];
 
 export const workflowIds = {
   cycle: (businessId: string, n: number) => `cycle:${businessId}:${n}`,
+  /** One Autopilot per business (0055): started when it is turned on, ended by Stop all agents or when it is turned off. */
+  autopilot: (businessId: string) => `autopilot:${businessId}`,
   session: (sessionId: string) => `session:${sessionId}`,
   engine: (channelId: string) => `engine:${channelId}`,
   holiday: (holidayId: string) => `holiday:${holidayId}`,
+  /** One per business in Automated mode (the loop that answers within its authority and runs cycles). */
+  automatedMode: (businessId: string) => `automated:${businessId}`,
   plan: (planId: string) => `plan:${planId}`,
   training: (runId: string) => `training:${runId}`,
   incorporation: (incorporationId: string) => `incorporation:${incorporationId}`,
   playbook: (playbookId: string) => `playbook:${playbookId}`,
   foundations: (businessId: string, attempt: number) => `foundations:${businessId}:${attempt}`,
+  /** The approvalWait a plan action or a channel launch runs in until the founder answers. */
+  approval: (approvalId: string) => `approval:${approvalId}`,
+  /** One Source Watcher read of one source (a re-read after it settled gets a new suffix). */
+  sourceWatch: (sourceId: string, suffix = "added") => `source-watch:${sourceId}:${suffix}`,
+  importBusiness: (businessId: string, at: Date) => `import:${businessId}:${at.getTime().toString(36)}`,
 } as const;
 
 export interface TemporalResult {
   queued: boolean;
   workflowId: string;
   reason?: string;
+  /**
+   * `start` only: a workflow with this id was already running, so nothing new started (`queued` stays true: the work is
+   * in the orchestrator's hands). Callers that report "started" check this first.
+   */
+  alreadyStarted?: boolean;
+}
+
+/** What Temporal knows about one workflow (`describe`). `reachable: false` means nothing is known. */
+export interface WorkflowState {
+  reachable: boolean;
+  /** Temporal has an execution with this id. */
+  found: boolean;
+  /** The execution is still open. */
+  running: boolean;
+  /** Temporal's status name (RUNNING, COMPLETED, FAILED, TERMINATED, ...), when found. */
+  status: string | null;
 }
 
 export interface SignalManyResult {
@@ -57,23 +86,61 @@ export interface SignalManyResult {
   reason?: string;
 }
 
+/** A Temporal int64 (protobuf Long) or a plain number. */
+type LongLike = number | { toString(): string } | null | undefined;
+
+/** The part of `DescribeTaskQueue` the worker health check reads (`report_stats` on). */
+export interface DescribeTaskQueueAnswer {
+  pollers?: unknown[] | null;
+  stats?: { approximateBacklogCount?: LongLike; approximateBacklogAge?: { seconds?: LongLike; nanos?: number | null } | null } | null;
+}
+
 /** The slice of `@temporalio/client`'s `Client` the API uses; tests pass a fake. */
 export interface TemporalClientLike {
   workflow: {
     start(workflowType: string, options: { workflowId: string; taskQueue: string; args?: unknown[] }): Promise<unknown>;
-    getHandle(workflowId: string): { signal(signalName: string, ...args: unknown[]): Promise<void> };
+    getHandle(workflowId: string): { signal(signalName: string, ...args: unknown[]): Promise<void>; describe?(): Promise<{ status: { name: string } }> };
   };
+  /** Raw WorkflowService (the worker health check describes the task queues). */
+  workflowService?: { describeTaskQueue(request: { namespace: string; taskQueue: { name: string; kind?: number }; taskQueueType?: number; reportStats?: boolean }): Promise<DescribeTaskQueueAnswer> };
   connection?: { close(): Promise<void> };
 }
+
+/** How one task queue's activities are being served (Temporal `DescribeTaskQueue`, activity type). */
+export interface TaskQueueHealth {
+  taskQueue: string;
+  /** Workers that polled the queue for activities recently. A worker whose slots are all taken stops polling. */
+  activityPollers: number;
+  /** Activity tasks waiting for a worker; null when the server reports no stats. */
+  backlogCount: number | null;
+  /** How long the oldest waiting activity task has waited, in seconds; null when the server reports no stats. */
+  backlogAgeSeconds: number | null;
+}
+
+const toNumber = (v: LongLike): number | null => {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === "number" ? v : Number(v.toString());
+  return Number.isFinite(n) ? n : null;
+};
 
 export interface TemporalService {
   reachable(): Promise<boolean>;
   start(workflowType: string, options: { workflowId: string; args?: unknown[] }): Promise<TemporalResult>;
   signal(workflowId: string, signal: SignalName, ...args: unknown[]): Promise<TemporalResult>;
+  /** The state of one workflow, or `reachable: false` when Temporal cannot be asked (never throws). */
+  describe(workflowId: string): Promise<WorkflowState>;
   /** Signal many workflows within a time budget (kill switch). */
   signalMany(workflowIds: readonly string[], signal: SignalName, args?: unknown[], budgetMs?: number): Promise<SignalManyResult>;
+  /**
+   * The activity side of the orchestrator's task queues (the main queue and `${taskQueue}-sessions`): pollers and
+   * backlog. Null when Temporal is unreachable or the client cannot describe queues.
+   */
+  taskQueues?(): Promise<TaskQueueHealth[] | null>;
   close(): Promise<void>;
 }
+
+/** The orchestrator's queues: the main one and the agent sessions' own (`${taskQueue}-sessions`, apps/orchestrator session-contract.ts). */
+export const orchestratorTaskQueues = (taskQueue: string): string[] => [taskQueue, `${taskQueue}-sessions`];
 
 export interface CreateTemporalServiceOptions {
   address: string;
@@ -147,7 +214,7 @@ export function createTemporalService(opts: CreateTemporalServiceOptions): Tempo
         return { queued: true, workflowId: options.workflowId };
       } catch (err) {
         if ((err as { name?: string }).name === "WorkflowExecutionAlreadyStartedError") {
-          return { queued: true, workflowId: options.workflowId, reason: "already running" };
+          return { queued: true, workflowId: options.workflowId, reason: "already running", alreadyStarted: true };
         }
         opts.log.warn({ workflowType, workflowId: options.workflowId, err: describe(err) }, "workflow start failed");
         return { queued: false, workflowId: options.workflowId, reason: describe(err) };
@@ -161,6 +228,19 @@ export function createTemporalService(opts: CreateTemporalServiceOptions): Tempo
         return { queued: true, workflowId };
       } catch (err) {
         return { queued: false, workflowId, reason: describe(err) };
+      }
+    },
+    async describe(workflowId) {
+      const c = await getClient();
+      if (!c) return { reachable: false, found: false, running: false, status: null };
+      try {
+        const handle = c.workflow.getHandle(workflowId);
+        if (!handle.describe) return { reachable: false, found: false, running: false, status: null };
+        const d = await withTimeout(handle.describe(), connectTimeoutMs + 500, "describe timeout");
+        return { reachable: true, found: true, running: d.status.name === "RUNNING", status: d.status.name };
+      } catch (err) {
+        if ((err as { name?: string }).name === "WorkflowNotFoundError") return { reachable: true, found: false, running: false, status: null };
+        return { reachable: false, found: false, running: false, status: null };
       }
     },
     async signalMany(ids, signal, args = [], budgetMs = 10_000) {
@@ -182,6 +262,29 @@ export function createTemporalService(opts: CreateTemporalServiceOptions): Tempo
         else failed.push({ workflowId, reason: describe(r.reason) });
       });
       return { queued: true, signalled, failed };
+    },
+    async taskQueues() {
+      const c = await getClient();
+      if (!c?.workflowService) return null;
+      const service = c.workflowService;
+      try {
+        return await Promise.all(
+          orchestratorTaskQueues(opts.taskQueue).map(async (name): Promise<TaskQueueHealth> => {
+            // TASK_QUEUE_KIND_NORMAL = 1, TASK_QUEUE_TYPE_ACTIVITY = 2.
+            const r = await service.describeTaskQueue({ namespace: opts.namespace, taskQueue: { name, kind: 1 }, taskQueueType: 2, reportStats: true });
+            const age = r.stats?.approximateBacklogAge;
+            return {
+              taskQueue: name,
+              activityPollers: r.pollers?.length ?? 0,
+              backlogCount: toNumber(r.stats?.approximateBacklogCount),
+              backlogAgeSeconds: r.stats ? (toNumber(age?.seconds) ?? 0) + (age?.nanos ?? 0) / 1e9 : null,
+            };
+          }),
+        );
+      } catch (err) {
+        opts.log.warn({ err: describe(err) }, "temporal task queues could not be described");
+        return null;
+      }
     },
     async close() {
       const c = client;

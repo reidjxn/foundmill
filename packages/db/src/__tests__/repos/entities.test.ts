@@ -1,6 +1,8 @@
 /** CRM entities: hybrid search ranking, filters, scoping, roles/relationships/interactions/mentions/provenance, reversible merge. */
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "../../repos";
+import { mergeLog } from "../../schema";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
 
 let r: RepoHarness;
@@ -69,6 +71,51 @@ describe("search ranking", () => {
     expect(customers.items.map((e) => e.id)).toEqual([ids.sarah]);
   });
 
+  it("finds records by operators alone, with no words (audit GTM-27: role:customer listed nothing)", async () => {
+    const customers = await repos.entities.search(r.db, r.A.businessId, { role: "customer" });
+    expect(customers.hits.map((h) => h.entity.id)).toEqual([ids.sarah]);
+    expect(customers.hits[0]!.matchedOn).toBe("filter");
+    expect(customers.hits[0]!.roles.map((role) => role.role)).toEqual(["customer"]);
+    const qualified = await repos.entities.search(r.db, r.A.businessId, { q: "", role: "lead", stage: "qualified" });
+    expect(qualified.hits.map((h) => h.entity.id)).toEqual([ids.sara]);
+    // Neither words nor an operator: refused, as before.
+    await expect(repos.entities.search(r.db, r.A.businessId, { q: "  " })).rejects.toThrow(/Invalid search/);
+  });
+
+  it("pages every match with offset and nextOffset (the CRM search is not cut at one page)", async () => {
+    const all = await repos.entities.search(r.db, r.A.businessId, { q: "north", limit: 100 });
+    expect(all.nextOffset).toBeNull();
+    expect(all.hits.length).toBeGreaterThanOrEqual(2);
+    const seen: string[] = [];
+    let offset: number | null = 0;
+    let pages = 0;
+    while (offset !== null) {
+      const page: Awaited<ReturnType<typeof repos.entities.search>> = await repos.entities.search(r.db, r.A.businessId, { q: "north", limit: 1, offset });
+      seen.push(...page.hits.map((h) => h.entity.id));
+      offset = page.nextOffset;
+      pages++;
+      expect(pages).toBeLessThan(20);
+    }
+    expect(seen).toEqual(all.hits.map((h) => h.entity.id));
+    expect(pages).toBe(all.hits.length);
+  });
+
+  it("counts what list pages through, for the same filters", async () => {
+    const total = await repos.entities.count(r.db, r.A.businessId);
+    const everyone = await repos.entities.list(r.db, r.A.businessId, { limit: 100 });
+    expect(everyone.nextCursor).toBeNull();
+    expect(total).toBe(everyone.items.length);
+    const people = await repos.entities.list(r.db, r.A.businessId, { kind: "person", limit: 100 });
+    expect(await repos.entities.count(r.db, r.A.businessId, { kind: "person" })).toBe(people.items.length);
+    expect(people.items.length).toBeGreaterThanOrEqual(2);
+    expect(people.items.length).toBeLessThan(total);
+    expect(await repos.entities.count(r.db, r.A.businessId, { role: "lead", stage: "qualified" })).toBe(1);
+    // The cursor and the limit never change the total; another business's records are never counted.
+    expect(await repos.entities.count(r.db, r.A.businessId, { limit: 1, cursor: everyone.nextCursor })).toBe(total);
+    expect(await repos.entities.count(r.db, r.B.businessId)).toBe((await repos.entities.list(r.db, r.B.businessId, { limit: 100 })).items.length);
+    expect(await repos.entities.count(r.db, r.B.businessId)).toBeLessThan(total);
+  });
+
   it("uses the query embedding when supplied (pgvector)", async () => {
     if (!r.h.hasVector) return;
     const res = await repos.entities.search(r.db, r.A.businessId, { q: "zzzz-nothing-lexical", embedding: unit(3) });
@@ -100,6 +147,60 @@ describe("list, manifest, enrichment", () => {
     expect(manifest.every((m) => "kind" in m && "displayName" in m)).toBe(true);
     const counts = await repos.entities.countByKind(r.db, r.A.businessId);
     expect(counts.venue).toBe(1);
+  });
+
+  it("lists with each entity's active roles (newest first, ended ones left out) and filters on them", async () => {
+    const A = r.A.businessId;
+    await repos.entities.addRole(r.db, A, ids.sarah!, { role: "champion", startedAt: "2020-01-01" });
+    const ended = await repos.entities.addRole(r.db, A, ids.sarah!, { role: "lead" });
+    await repos.entities.endRole(r.db, A, ended.id);
+    const page = await repos.entities.listWithRoles(r.db, A, { kind: ["person", "organisation"], limit: 100 });
+    const byId = new Map(page.items.map((e) => [e.id, e]));
+    expect(byId.get(ids.sara!)!.roles).toEqual([expect.objectContaining({ role: "lead", stage: "qualified", ownerRef: { kind: "agent", id: r.A.agentId }, endedAt: null })]);
+    expect(byId.get(ids.sarah!)!.roles.map((role) => role.role)).toEqual(["customer", "champion"]);
+    expect(byId.get(ids.northwind!)!.roles).toEqual([]);
+
+    const only = async (filter: Parameters<typeof repos.entities.listWithRoles>[2]) => (await repos.entities.listWithRoles(r.db, A, filter)).items.map((e) => e.id).sort();
+    expect(await only({ role: "Customer" })).toEqual([ids.sarah]);
+    expect(await only({ role: "lead", stage: "QUALIFIED" })).toEqual([ids.sara]);
+    expect(await only({ role: "lead", stage: "signed_up" })).toEqual([]);
+    expect(await only({ ownerId: r.A.agentId })).toEqual([ids.sara]);
+    expect(await only({ departmentId: r.A.agentId })).toEqual([]);
+    expect(await only({ kind: "organisation", role: "customer" })).toEqual([]);
+
+    const search = await repos.entities.search(r.db, A, { q: "sar" });
+    expect(Object.fromEntries(search.hits.map((h) => [h.entity.id, h.roles.map((role) => role.role)]))).toMatchObject({ [ids.sara!]: ["lead"], [ids.sarah!]: ["customer", "champion"] });
+    expect(await repos.entities.activeRoles(r.db, r.B.businessId, [ids.sara!])).toEqual(new Map());
+  });
+
+  it("matches a role or stage stored with spaces from its group key or a typed chip, and counts every match", async () => {
+    const A = r.A.businessId;
+    // Seeded and imported stages are free text ("Account manager"); the list groups by that text and a chip may
+    // arrive as the stored key ("account_manager") or as typed ("Account Manager").
+    const hana = await repos.entities.create(r.db, A, { kind: "person", displayName: "Hana Brandt" });
+    const ivo = await repos.entities.create(r.db, A, { kind: "person", displayName: "Ivo Castel" });
+    await repos.entities.addRole(r.db, A, hana.id, { role: "Supplier contact", stage: "Account manager" });
+    await repos.entities.addRole(r.db, A, ivo.id, { role: "supplier_contact", stage: "Sales lead" });
+    const only = async (filter: Parameters<typeof repos.entities.listWithRoles>[2]) => (await repos.entities.listWithRoles(r.db, A, filter)).items.map((e) => e.id).sort();
+    expect(await only({ stage: "Account manager" })).toEqual([hana.id]);
+    expect(await only({ stage: "account_manager" })).toEqual([hana.id]);
+    expect(await only({ stage: " ACCOUNT-manager " })).toEqual([hana.id]);
+    expect(await only({ role: "supplier_contact" })).toEqual([hana.id, ivo.id].sort());
+    expect(await only({ role: "Supplier Contact", stage: "sales lead" })).toEqual([ivo.id]);
+    expect(await only({ stage: "account" })).toEqual([]);
+    expect((await repos.entities.search(r.db, A, { q: "Hana", stage: "account_manager" })).hits.map((h) => h.entity.id)).toEqual([hana.id]);
+
+    // `total` is every match, not just the page.
+    const first = await repos.entities.listWithRoles(r.db, A, { role: "supplier_contact", limit: 1 });
+    expect(first).toMatchObject({ total: 2, nextCursor: expect.any(String) });
+    expect(first.items).toHaveLength(1);
+    const rest = await repos.entities.listWithRoles(r.db, A, { role: "supplier_contact", limit: 1, cursor: first.nextCursor });
+    expect(rest).toMatchObject({ total: 2, nextCursor: null });
+    expect([...first.items, ...rest.items].map((e) => e.id).sort()).toEqual([hana.id, ivo.id].sort());
+    const all = await repos.entities.list(r.db, A, { limit: 500 });
+    expect((await repos.entities.listWithRoles(r.db, A, { limit: 500 })).total).toBe(all.items.length);
+    await repos.entities.archive(r.db, A, hana.id);
+    await repos.entities.archive(r.db, A, ivo.id);
   });
 
   it("enrich fills empty fields only", async () => {
@@ -188,6 +289,203 @@ describe("merge / unmerge (AC-11.12.3)", () => {
     expect((await repos.entities.listMentions(r.db, A, dup.id)).length).toBe(1);
     await expect(repos.entities.unmerge(r.db, A, merged.log.id)).rejects.toThrow(/already reverted/);
     expect((await repos.entities.mergeHistory(r.db, A, dup.id)).length).toBe(1);
+  });
+
+  it("undoing an earlier merge keeps later edits and an independent later merge", async () => {
+    const A = r.A.businessId;
+    const x = await repos.entities.create(r.db, A, { kind: "person", displayName: "Ada Audit", identifiers: { email: "ada@audit.example" } });
+    const y = await repos.entities.create(r.db, A, { kind: "person", displayName: "A. Audit", aliases: ["Ada A."], identifiers: { linkedin: "https://linkedin.com/in/ada" } });
+    const z = await repos.entities.create(r.db, A, { kind: "person", displayName: "Ada Z Audit", identifiers: { phone: "+15550100" }, avatarUrl: "https://img.example/ada.png" });
+    await repos.entities.addRole(r.db, A, y.id, { role: "lead" });
+    await repos.entities.addRole(r.db, A, z.id, { role: "customer" });
+    const first = await repos.entities.merge(r.db, A, x.id, y.id);
+    // The founder renames the record and changes its email after the first merge.
+    await repos.entities.update(r.db, A, x.id, { displayName: "Ada Lovelace", identifiers: { email: "ada@new.example", linkedin: "https://linkedin.com/in/ada" } });
+    const second = await repos.entities.merge(r.db, A, x.id, z.id);
+    expect((await repos.entities.mergeHistory(r.db, A, x.id)).map((m) => m.undoBlocked)).toEqual([null, null]);
+
+    await repos.entities.unmerge(r.db, A, first.log.id);
+    const after = await repos.entities.get(r.db, A, x.id);
+    expect(after.displayName).toBe("Ada Lovelace");
+    expect(after.identifiers).toEqual({ email: "ada@new.example", phone: "+15550100" });
+    expect(after.aliases).toEqual(["Ada Z Audit"]);
+    expect(after.avatarUrl).toBe("https://img.example/ada.png");
+    // Y is its own record again with its role; Z stays merged into X with its role.
+    expect((await repos.entities.resolve(r.db, A, y.id)).id).toBe(y.id);
+    expect((await repos.entities.listRoles(r.db, A, y.id)).map((role) => role.role)).toEqual(["lead"]);
+    expect((await repos.entities.resolve(r.db, A, z.id)).id).toBe(x.id);
+    expect((await repos.entities.listRoles(r.db, A, x.id)).map((role) => role.role)).toEqual(["customer"]);
+
+    await repos.entities.unmerge(r.db, A, second.log.id);
+    const last = await repos.entities.get(r.db, A, x.id);
+    expect(last).toMatchObject({ displayName: "Ada Lovelace", aliases: [], avatarUrl: null });
+    expect(last.identifiers).toEqual({ email: "ada@new.example" });
+    expect((await repos.entities.get(r.db, A, z.id)).mergedIntoId).toBeNull();
+    expect((await repos.entities.listRoles(r.db, A, z.id)).map((role) => role.role)).toEqual(["customer"]);
+  });
+
+  it("keeps a value edited since the merge and gives the merged record back to an interaction it shared", async () => {
+    const A = r.A.businessId;
+    const x = await repos.entities.create(r.db, A, { kind: "organisation", displayName: "Kept Co" });
+    const y = await repos.entities.create(r.db, A, { kind: "organisation", displayName: "Kept Company", identifiers: { domain: "kept.example" }, avatarUrl: "https://img.example/y.png", lawfulBasis: "contract" });
+    const both = await repos.entities.createInteraction(r.db, A, { kind: "meeting", entityIds: [x.id, y.id], summary: "Both" });
+    const onlyY = await repos.entities.createInteraction(r.db, A, { kind: "call", entityIds: [y.id], summary: "Only Y" });
+    const merged = await repos.entities.merge(r.db, A, x.id, y.id);
+    expect((await repos.entities.listInteractions(r.db, A, { entityId: x.id })).items.map((i) => i.id).sort()).toEqual([both.id, onlyY.id].sort());
+    await repos.entities.update(r.db, A, x.id, { avatarUrl: "https://img.example/founder.png" });
+    await repos.entities.unmerge(r.db, A, merged.log.id);
+    const after = await repos.entities.get(r.db, A, x.id);
+    expect(after).toMatchObject({ avatarUrl: "https://img.example/founder.png", lawfulBasis: null, aliases: [] });
+    expect(after.identifiers).toEqual({});
+    expect((await repos.entities.listInteractions(r.db, A, { entityId: x.id })).items.map((i) => i.id)).toEqual([both.id]);
+    expect((await repos.entities.listInteractions(r.db, A, { entityId: y.id })).items.map((i) => i.id).sort()).toEqual([both.id, onlyY.id].sort());
+  });
+
+  it("keeps the kept record on an interaction another open merge moved there, also for merges logged before sharedInteractions", async () => {
+    const A = r.A.businessId;
+    const x = await repos.entities.create(r.db, A, { kind: "person", displayName: "Legacy Kept" });
+    const a = await repos.entities.create(r.db, A, { kind: "person", displayName: "Legacy A" });
+    const b = await repos.entities.create(r.db, A, { kind: "person", displayName: "Legacy B" });
+    const call = await repos.entities.createInteraction(r.db, A, { kind: "call", entityIds: [a.id, b.id], summary: "Three-way call" });
+    const first = await repos.entities.merge(r.db, A, x.id, a.id);
+    const second = await repos.entities.merge(r.db, A, x.id, b.id);
+    // As a merge_log row written before `sharedInteractions` existed.
+    await r.db.update(mergeLog).set({ reversibleSnapshot: sql`${mergeLog.reversibleSnapshot} #- '{moved,sharedInteractions}'` }).where(eq(mergeLog.id, second.log.id));
+    const ids = async (entityId: string) => (await repos.entities.listInteractions(r.db, A, { entityId })).items.map((i) => i.id);
+
+    await repos.entities.unmerge(r.db, A, second.log.id);
+    expect(await ids(x.id)).toEqual([call.id]);
+    expect(await ids(b.id)).toEqual([call.id]);
+    await repos.entities.unmerge(r.db, A, first.log.id);
+    expect(await ids(x.id)).toEqual([]);
+    expect((await ids(a.id)).concat(await ids(b.id))).toEqual([call.id, call.id]);
+  });
+
+  it("moves the merged record's wins, touches and Inbox items to the kept record, and unmerge gives them back (audit #160)", async () => {
+    const A = r.A.businessId;
+    const x = await repos.entities.create(r.db, A, { kind: "person", displayName: "Yara Kept" });
+    const y = await repos.entities.create(r.db, A, { kind: "person", displayName: "Yara Duplicate" });
+    const paid = await repos.journeys.recordConversion(r.db, A, { entityId: x.id, kind: "payment", amountMinor: 4900, currency: "GBP" });
+    const signup = await repos.journeys.recordConversion(r.db, A, { entityId: y.id, kind: "signup" });
+    const touch = await repos.journeys.recordTouch(r.db, A, { entityId: y.id, kind: "email_open" });
+    const own = await repos.journeys.recordTouch(r.db, A, { entityId: x.id, kind: "visit" });
+    const onlyY = await repos.inbox.createHumanMessage(r.db, A, { fromUserId: r.A.ownerId, subject: "About the duplicate", bodyMd: "Hello", entityIds: [y.id] });
+    const both = await repos.inbox.createHumanMessage(r.db, A, { fromUserId: r.A.ownerId, subject: "About both", bodyMd: "Hello", entityIds: [x.id, y.id] });
+    const winsOf = async (entityId: string) => (await repos.journeys.listConversions(r.db, A, { entityId })).items.map((c) => c.id).sort();
+    const touchesOf = async (entityId: string) => (await repos.journeys.listTouches(r.db, A, { entityId })).items.map((t) => t.id).sort();
+    const itemEntities = async (id: string) => [...((await repos.inbox.get(r.db, A, id)).entityIds as string[])].sort();
+
+    const merged = await repos.entities.merge(r.db, A, x.id, y.id);
+    expect(await winsOf(x.id)).toEqual([paid.id, signup.id].sort());
+    expect(await winsOf(y.id)).toEqual([]);
+    expect(await touchesOf(x.id)).toEqual([own.id, touch.id].sort());
+    expect(await itemEntities(onlyY.id)).toEqual([x.id]);
+    expect(await itemEntities(both.id)).toEqual([x.id]);
+
+    await repos.entities.unmerge(r.db, A, merged.log.id);
+    expect(await winsOf(x.id)).toEqual([paid.id]);
+    expect(await winsOf(y.id)).toEqual([signup.id]);
+    expect(await touchesOf(x.id)).toEqual([own.id]);
+    expect(await touchesOf(y.id)).toEqual([touch.id]);
+    expect(await itemEntities(onlyY.id)).toEqual([y.id]);
+    expect(await itemEntities(both.id)).toEqual([x.id, y.id].sort());
+  });
+
+  it("serializes opposite and repeated merges of one pair: only the first wins, no merge cycle, one merge log (audit #328)", async () => {
+    const A = r.A.businessId;
+    const a = await repos.entities.create(r.db, A, { kind: "organisation", displayName: "Race Org A" });
+    const b = await repos.entities.create(r.db, A, { kind: "organisation", displayName: "Race Org B" });
+    const results = await Promise.allSettled([repos.entities.merge(r.db, A, a.id, b.id), repos.entities.merge(r.db, A, b.id, a.id), repos.entities.merge(r.db, A, a.id, b.id)]);
+    expect(results.filter((x) => x.status === "fulfilled")).toHaveLength(1);
+    for (const x of results) if (x.status === "rejected") expect(String(x.reason)).toMatch(/already merged/);
+    const [ea, eb] = [await repos.entities.get(r.db, A, a.id), await repos.entities.get(r.db, A, b.id)];
+    expect([ea.mergedIntoId, eb.mergedIntoId].filter(Boolean)).toHaveLength(1);
+    expect((await repos.entities.mergeHistory(r.db, A, a.id)).length).toBe(1);
+  });
+
+  it("refuses, with the reason, while a later merge relies on the one being undone; in reverse order both undo exactly", async () => {
+    const A = r.A.businessId;
+    const x = await repos.entities.create(r.db, A, { kind: "person", displayName: "Rel Kept" });
+    const y = await repos.entities.create(r.db, A, { kind: "person", displayName: "Rel Y", aliases: ["Rel"], identifiers: { email: "y@rel.example" } });
+    const z = await repos.entities.create(r.db, A, { kind: "person", displayName: "Rel Z", aliases: ["Rel"], identifiers: { email: "z@rel.example" } });
+    await repos.entities.upsertRelationship(r.db, A, { fromEntity: y.id, toEntity: ids.meridian!, type: "advises" });
+    await repos.entities.upsertRelationship(r.db, A, { fromEntity: z.id, toEntity: ids.meridian!, type: "advises" });
+    const xBefore = await repos.entities.get(r.db, A, x.id);
+    const first = await repos.entities.merge(r.db, A, x.id, y.id);
+    const second = await repos.entities.merge(r.db, A, x.id, z.id);
+    // Z's email and its "advises" tie were set aside because Y's were already there, and both carry the name "Rel".
+    expect(second.kept.identifiers).toEqual({ email: "y@rel.example" });
+
+    const refused = await repos.entities.unmerge(r.db, A, first.log.id).catch((e: unknown) => e);
+    expect(refused).toMatchObject({ code: "merge_relied_on", status: 409 });
+    expect((refused as Error).message).toBe("Undo the later merge of “Rel Z” first: it relies on what this merge brought in (the email, the name “Rel” and a relationship both records had).");
+    expect((refused as { details: { blockers: { mergeLogId: string }[] } }).details.blockers.map((b) => b.mergeLogId)).toEqual([second.log.id]);
+    const history = await repos.entities.mergeHistory(r.db, A, x.id);
+    expect(history.map((m) => [m.id, m.undoBlocked])).toEqual([
+      [second.log.id, null],
+      [first.log.id, (refused as Error).message],
+    ]);
+    // Nothing changed.
+    expect((await repos.entities.get(r.db, A, y.id)).mergedIntoId).toBe(x.id);
+    expect((await repos.entities.listRelationships(r.db, A, x.id)).map((rel) => rel.other.id)).toEqual([ids.meridian]);
+
+    await repos.entities.unmerge(r.db, A, second.log.id);
+    await repos.entities.unmerge(r.db, A, first.log.id);
+    const strip = (e: typeof xBefore) => {
+      const { updatedAt: _u, ...rest } = e;
+      return rest;
+    };
+    expect(strip(await repos.entities.get(r.db, A, x.id))).toEqual(strip(xBefore));
+    expect((await repos.entities.listRelationships(r.db, A, y.id)).map((rel) => rel.other.id)).toEqual([ids.meridian]);
+    expect((await repos.entities.listRelationships(r.db, A, z.id)).map((rel) => rel.other.id)).toEqual([ids.meridian]);
+    expect(await repos.entities.listRelationships(r.db, A, x.id)).toHaveLength(0);
+  });
+
+  it("refuses to undo a merge into a record that was itself merged away since", async () => {
+    const A = r.A.businessId;
+    const w = await repos.entities.create(r.db, A, { kind: "organisation", displayName: "Umbrella Holdings" });
+    const x = await repos.entities.create(r.db, A, { kind: "organisation", displayName: "Umbrella" });
+    const y = await repos.entities.create(r.db, A, { kind: "organisation", displayName: "Umbrella Ltd" });
+    const first = await repos.entities.merge(r.db, A, x.id, y.id);
+    const outer = await repos.entities.merge(r.db, A, w.id, x.id);
+    await expect(repos.entities.unmerge(r.db, A, first.log.id)).rejects.toThrow("This record was merged into “Umbrella Holdings” afterwards. Undo that merge first.");
+    await repos.entities.unmerge(r.db, A, outer.log.id);
+    await repos.entities.unmerge(r.db, A, first.log.id);
+    expect((await repos.entities.get(r.db, A, y.id)).mergedIntoId).toBeNull();
+  });
+
+  it("refuses while a later merge left behind a relationship this one moved between the two duplicates", async () => {
+    const A = r.A.businessId;
+    const x = await repos.entities.create(r.db, A, { kind: "person", displayName: "Tie Kept" });
+    const y = await repos.entities.create(r.db, A, { kind: "person", displayName: "Tie Y" });
+    const z = await repos.entities.create(r.db, A, { kind: "person", displayName: "Tie Z" });
+    const tie = await repos.entities.upsertRelationship(r.db, A, { fromEntity: z.id, toEntity: y.id, type: "knows" });
+    const first = await repos.entities.merge(r.db, A, x.id, y.id);
+    const second = await repos.entities.merge(r.db, A, x.id, z.id);
+    // The first merge pointed Z's tie at X; the second left it on Z (it would have tied X to itself).
+    expect((await repos.entities.listRelationships(r.db, A, z.id)).map((rel) => [rel.id, rel.other.id])).toEqual([[tie.id, x.id]]);
+    await expect(repos.entities.unmerge(r.db, A, first.log.id)).rejects.toThrow("Undo the later merge of “Tie Z” first: it relies on what this merge brought in (a relationship between “Tie Y” and “Tie Z”).");
+    await repos.entities.unmerge(r.db, A, second.log.id);
+    await repos.entities.unmerge(r.db, A, first.log.id);
+    expect((await repos.entities.listRelationships(r.db, A, z.id)).map((rel) => [rel.id, rel.other.id])).toEqual([[tie.id, y.id]]);
+  });
+
+  it("orders merges made in one transaction by when each ran, so the earlier one waits for the later one", async () => {
+    const A = r.A.businessId;
+    const p = await repos.entities.create(r.db, A, { kind: "person", displayName: "Batch Kept" });
+    const q = await repos.entities.create(r.db, A, { kind: "person", displayName: "Batch Q", identifiers: { email: "q@batch.example" } });
+    const s = await repos.entities.create(r.db, A, { kind: "person", displayName: "Batch S", identifiers: { email: "s@batch.example" } });
+    // As an import that folds several duplicates into one record in a single transaction (now() is the same for both).
+    const [early, late] = await r.db.transaction(async (tx) => [await repos.entities.merge(tx, A, p.id, q.id), await repos.entities.merge(tx, A, p.id, s.id)]);
+    expect(late.log.createdAt.getTime()).toBeGreaterThanOrEqual(early.log.createdAt.getTime());
+    expect((await repos.entities.mergeHistory(r.db, A, p.id)).map((m) => [m.id, m.undoBlocked === null])).toEqual([
+      [late.log.id, true],
+      [early.log.id, false],
+    ]);
+    await expect(repos.entities.unmerge(r.db, A, early.log.id)).rejects.toMatchObject({ code: "merge_relied_on" });
+    await repos.entities.unmerge(r.db, A, late.log.id);
+    await repos.entities.unmerge(r.db, A, early.log.id);
+    expect((await repos.entities.get(r.db, A, p.id)).identifiers).toEqual({});
   });
 
   it("refuses to merge across businesses or into itself", async () => {

@@ -29,6 +29,8 @@ export interface ChannelSummaryRow {
   /** spend ÷ customers, minor units; null without customers. Labelled Estimate. */
   cpaMinor: number | null;
   days: number;
+  /** True when any folded day is simulated (the mock engine's week): every figure is then an Estimate. */
+  estimate?: boolean;
 }
 
 export type BlendedSummary = Omit<ChannelSummaryRow, "channelId" | "channelKey" | "line">;
@@ -44,6 +46,8 @@ export interface ChannelRow {
   potential: number | string;
   recommended: boolean;
   whyMd?: string;
+  /** When the Distribution Strategist last scored the channel; null until it has (fit and potential mean nothing then). */
+  scoredAt?: Iso | null;
   budgetMinor: number;
   currency: string;
   /** Offline tracking: the engine prepares materials and a founder task instead of calling a booking API. */
@@ -77,6 +81,8 @@ export interface ChannelMetricRow {
   activations?: number;
   customers: number;
   cpaMinor?: number | null;
+  /** `estimate` for the mock engine's simulated week (labeled Estimate). */
+  source?: "measured" | "estimate";
 }
 
 /* ---------- distribution.recommend ---------- */
@@ -87,7 +93,8 @@ export interface RecommendationRow {
   /** 1–5 stars. */
   potential: number;
   recommended: boolean;
-  cpa_range_minor: { low: number; high: number };
+  /** low ≤ high; null when the Strategist gave no usable range. */
+  cpa_range_minor: { low: number; high: number } | null;
   why: string;
 }
 
@@ -129,6 +136,8 @@ export interface AssetRow {
   kind: AssetKind;
   title: string;
   contentRef: string | null;
+  /** The drafted copy or brief (0028); a mock draft says so in its first line. */
+  body?: string | null;
   approvalState: ApprovalState;
   authoredByAgentId: string | null;
   createdAt?: Iso;
@@ -176,9 +185,24 @@ export interface JourneyRow {
   matchdayLevel: MatchdayLevel;
   viewedAt?: Iso | null;
   createdAt: Iso;
-  /** Set by the journey builder when consent removed third-party touches; derived when absent. */
-  partialJourney?: boolean;
+  /** Consent other than granted: only first-party touches were weighted (the reading journey.get uses). */
+  partialJourney: boolean;
+  consent?: "unknown" | "granted" | "denied" | "withdrawn";
   conversion: { id: string; entityId: string | null; kind: ConversionKind; amountMinor: number; currency: string; occurredAt: Iso };
+}
+
+/* ---------- journey.attribution ---------- */
+
+/** The model in use over the business's whole history (never a page of journeys). */
+export interface AttributionSummaryResponse {
+  /** Labeled conversions: every first conversion of each kind, repeat payments left out (what `chooseModel` counts). */
+  conversionCount: number;
+  byKind: Partial<Record<ConversionKind, number>>;
+  attributionModel: "position_based_40_20_40" | "data_driven_markov";
+  threshold: number;
+  remaining: number;
+  journeys: number;
+  partialJourneys: number;
 }
 
 /* ---------- team.agents.list ---------- */

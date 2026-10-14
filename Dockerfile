@@ -1,6 +1,8 @@
 # One image for every Node service (docs/DECISIONS.md "Node services run with tsx in staging").
 # Railway passes the service variable APP as a build arg: api | gateway | orchestrator | composer | stream | ingest | collab | social.
-FROM node:22-bookworm-slim AS base
+# Pinned (#439): pnpm 12 needs corepack >= 0.34.7, which Node bundles from 22.23.3 (corepack 0.36.0); an older base
+# layer installs a pnpm shim that cannot start ("Cannot find module …/bin/pnpm.cjs").
+FROM node:22.23.3-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable && corepack prepare pnpm@12.9.1 --activate \
@@ -9,6 +11,9 @@ WORKDIR /app
 
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+# pnpm applies patches/ while installing (pnpm-workspace.yaml `patchedDependencies`: postgres.js, docs/DECISIONS.md
+# "Round trips per procedure"); without the folder the frozen install fails.
+COPY patches ./patches
 COPY apps ./apps
 COPY packages ./packages
 COPY evals ./evals

@@ -5,14 +5,14 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { BUSINESS_MODES, ForbiddenError } from "@foundmill/shared";
 import { mockIntegrationRecord } from "@foundmill/connectors";
-import { repos } from "@foundmill/db";
+import { repos, suppressionHash } from "@foundmill/db";
 import { storeCredential } from "../credentials";
 import { GatewayClientError } from "../client";
 import { createGatewayApp, MAX_CALL_BODY_BYTES, MAX_MCP_BODY_BYTES, MAX_SERVICE_BODY_BYTES } from "../app";
-import { guardGithubWrite, modeFor } from "../pipeline";
+import { businessApprovalThreshold, guardGithubWrite, modeFor } from "../pipeline";
 import { signServiceToken } from "../tokens";
 import { hashRecipient } from "../recipients";
-import { SAFE_EMAIL, setupGateway, TEST_CONNECTOR, TEST_SECRET, UNTRUSTED_EMAIL, type GatewayFixture } from "./harness";
+import { LINE_START_EMAIL, LINE_START_URL, MULTILINE_MESSAGE_ID, SAFE_EMAIL, setupGateway, TEST_CONNECTOR, TEST_SECRET, UNTRUSTED_EMAIL, type GatewayFixture } from "./harness";
 import type { AllowResponse, AskResponse, CallResponse, DenyResponse } from "../types";
 
 let g: GatewayFixture;
@@ -47,11 +47,11 @@ describe("health and catalogue", () => {
     expect(health.policy.policies).toBeGreaterThanOrEqual(15);
   });
 
-  it("GET /health reports ok:false with db:false when the database did not answer at boot", async () => {
+  it("GET /health answers 503 with ok:false and db:false when the database did not answer at boot (not ready)", async () => {
     const { createGatewayApp } = await import("../app");
     const app = createGatewayApp(g.deps, { sessionTokenSecret: "x".repeat(32), dbReady: () => false });
     const res = await app.request("/health");
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ ok: false, db: false, service: "gateway" });
   });
 
@@ -138,6 +138,31 @@ describe("business modes", () => {
     expect(audit.details).toMatchObject({ outcome: "ask", approvalId: r.approvalId });
   });
 
+  it("augmented: an ask delegated to an agent in Team › Responsibilities is approved by it and runs (AC-11.9.2)", async () => {
+    await repos.businesses.setBusinessMode(g.db, g.businessId, "augmented");
+    // A call asked again while its approval is open waits on that one: start from none open.
+    for (const open of await repos.approvals.pending(g.db, g.businessId)) await repos.approvals.resolve(g.db, g.businessId, open.id, { outcome: "rejected", byKind: "system", byId: null });
+    const dept = await repos.departments.create(g.db, g.businessId, { name: "Delegated" });
+    const reviewer = await repos.agents.create(g.db, g.businessId, { name: "Reviewer", agentType: "review_agent", departmentIds: [dept.id] });
+    await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [dept.id] });
+    await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [{ decisionType: "message_customers", handler: { kind: "agent", id: reviewer.id } }] });
+    try {
+      const before = (await repos.events.list(g.db, g.businessId, { type: "approval.requested", limit: 100 })).items.length;
+      const r = asAllow(await g.client.call(await g.token(), { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "hi" } }));
+      expect(r.policyIds).toContain("augmented-ask-external");
+      expect(g.seen.map((s) => s.tool)).toEqual(["send_message"]);
+      const approvals = await repos.approvals.list(g.db, g.businessId, { agentId: g.agentId, limit: 5 });
+      expect(approvals.items[0]).toMatchObject({ decisionType: "message_customers", handlerKind: "agent", handlerId: reviewer.id, outcome: "approved", byKind: "agent", byId: reviewer.id });
+      // Nothing waits for the founder: no approval.requested event; the agent's decision is on record.
+      expect((await repos.events.list(g.db, g.businessId, { type: "approval.requested", limit: 100 })).items).toHaveLength(before);
+      const resolved = (await repos.events.list(g.db, g.businessId, { type: "approval.resolved", limit: 100 })).items.find((e) => (e.payload as { approvalId: string }).approvalId === approvals.items[0]!.id);
+      expect(resolved?.payload).toMatchObject({ outcome: "approved", resolvedBy: { kind: "agent", id: reviewer.id } });
+    } finally {
+      await repos.departments.update(g.db, g.businessId, dept.id, { approvers: [] });
+      await repos.agents.update(g.db, g.businessId, g.agentId, { departmentIds: [] });
+    }
+  });
+
   it("augmented: internal work is allowed", async () => {
     await repos.businesses.setBusinessMode(g.db, g.businessId, "augmented");
     const r = asAllow(await g.client.call(await g.token(), { connector: "test", tool: "note", args: { text: "draft" } }));
@@ -171,6 +196,27 @@ describe("business modes", () => {
     }
   });
 
+  it("the founder's Spend cap per action (Commit, Settings › Mode) makes every agent ask above it, whatever the mode", async () => {
+    expect(businessApprovalThreshold(undefined, null)).toBeUndefined();
+    expect(businessApprovalThreshold(300, null)).toBe(300);
+    expect(businessApprovalThreshold(undefined, 5_000)).toBe(5_000);
+    expect(businessApprovalThreshold(300, 5_000)).toBe(300);
+    await repos.businesses.setSpendCap(g.db, g.businessId, 5_000);
+    try {
+      for (const mode of ["assisted", "automated"] as const) {
+        await repos.businesses.setBusinessMode(g.db, g.businessId, mode);
+        const token = await g.token();
+        asAllow(await g.client.call(token, { connector: "test", tool: "spend", args: { amountMinor: 5_000 }, context: { amountMinor: 5_000, currency: "USD" } }));
+        // Below the agent's own threshold (the policy default) but above the business cap: asks.
+        const over = asAsk(await g.client.call(token, { connector: "test", tool: "spend", args: { amountMinor: 5_001 }, context: { amountMinor: 5_001, currency: "USD" } }));
+        expect(over.policyIds).toEqual([`${mode}-ask-above-threshold`]);
+      }
+    } finally {
+      await repos.businesses.setSpendCap(g.db, g.businessId, null);
+    }
+    asAllow(await g.client.call(await g.token(), { connector: "test", tool: "spend", args: { amountMinor: 5_001 }, context: { amountMinor: 5_001, currency: "USD" } }));
+  });
+
   it("automated: within caps everything non-gated runs; a holiday budget ceiling tightens the cap", async () => {
     await repos.businesses.setBusinessMode(g.db, g.businessId, "automated");
     const token = await g.token();
@@ -200,7 +246,18 @@ describe("recipients", () => {
     expect(r.policyIds).toEqual(["suppressed-recipient"]);
   });
 
-  it("a recipient first seen in untrusted content is blocked for that session only", async () => {
+  it("a CRM deletion request stops outreach to the person at once (audit RA-23)", async () => {
+    const person = await repos.entities.create(g.db, g.businessId, { kind: "person", displayName: "Erase Me", identifiers: { email: "Erase.Me@Example.com", phone: "+1 (415) 555-0100" } });
+    await repos.entities.requestDeletion(g.db, g.businessId, person.id);
+    // The CRM writes the hashes the gateway checks: the same normalization on both sides.
+    expect(suppressionHash("email", " ERASE.me@example.com ")).toBe(hashRecipient("email", "erase.me@example.com"));
+    expect(suppressionHash("phone", "+1 (415) 555-0100")).toBe(hashRecipient("phone", "+14155550100"));
+    const r = asDeny(await g.client.call(await g.token(), { connector: "test", tool: "send_message", args: { to: "erase.me@example.com", body: "one more offer" } }));
+    expect(r.policyIds).toEqual(["suppressed-recipient"]);
+    expect(g.seen).toHaveLength(0);
+  });
+
+  it("a recipient first seen in untrusted content is blocked for every session of that business (audit SECX-8)", async () => {
     const sessionA = await g.newSession();
     const sessionB = await g.newSession();
     const tokenA = await g.token({ sessionId: sessionA });
@@ -208,20 +265,33 @@ describe("recipients", () => {
     expect(read.result.untrusted).toBe(true);
     expect(read.result.data).toMatchObject({ untrusted: true, source: { connector: "test", kind: "email", ref: "message:m-7" } });
     expect((read.result.data as { content: { from: string } }).content.from).toBe(UNTRUSTED_EMAIL);
-    expect(g.recipients.size(sessionA)).toBeGreaterThanOrEqual(2);
+    expect(await g.recipients.size(g.businessId)).toBeGreaterThanOrEqual(2);
 
     const blocked = asDeny(await g.client.call(tokenA, { connector: "test", tool: "send_message", args: { to: UNTRUSTED_EMAIL, body: "reorder" } }));
     expect(blocked.policyIds).toEqual(["untrusted-recipient"]);
     const blockedUrl = asDeny(await g.client.call(tokenA, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "see https://untrusted.example/order-form/" } }));
     expect(blockedUrl.policyIds).toEqual(["untrusted-recipient"]);
 
-    // The same recipient from a session that never read the content is a normal contact (assisted → allowed).
-    const other = asAllow(await g.client.call(await g.token({ sessionId: sessionB }), { connector: "test", tool: "send_message", args: { to: UNTRUSTED_EMAIL } }));
-    expect(other.result.data).toEqual({ sent: true, to: UNTRUSTED_EMAIL });
-    expect(g.seen.filter((s) => s.tool === "send_message")).toHaveLength(1);
+    // Another session of the same business is told the same: what one session read is untrusted for all of them.
+    const other = asDeny(await g.client.call(await g.token({ sessionId: sessionB }), { connector: "test", tool: "send_message", args: { to: UNTRUSTED_EMAIL } }));
+    expect(other.policyIds).toEqual(["untrusted-recipient"]);
+    expect(g.seen.filter((s) => s.tool === "send_message")).toHaveLength(0);
+    await g.recipients.clear(g.businessId);
   });
 
-  it("recipients seeded at mint (files an earlier session left) are untrusted from the first call, in that session only", async () => {
+  it("an address or URL that starts a line of untrusted content is blocked exactly as written (no 'nap@…' from the JSON escape)", async () => {
+    const session = await g.newSession();
+    const token = await g.token({ sessionId: session });
+    asAllow(await g.client.call(token, { connector: "test", tool: "read_inbox", args: { id: MULTILINE_MESSAGE_ID } }));
+    expect(await g.recipients.firstSeenInUntrusted(g.businessId, session, [{ kind: "email", value: LINE_START_EMAIL }])).toHaveLength(1);
+    expect(asDeny(await g.client.call(token, { connector: "test", tool: "send_message", args: { to: LINE_START_EMAIL, body: "remittance advice" } })).policyIds).toEqual(["untrusted-recipient"]);
+    expect(asDeny(await g.client.call(token, { connector: "test", tool: "send_message", args: { to: "someone@ok.example", body: `paid, see ${LINE_START_URL}` } })).policyIds).toEqual(["untrusted-recipient"]);
+    expect(g.seen.filter((s) => s.tool === "send_message")).toHaveLength(0);
+    // The register is business-wide: the message above named the safe contact too, so leave it clean for the next test.
+    await g.recipients.clear(g.businessId);
+  });
+
+  it("recipients seeded at mint (files an earlier session left) are untrusted from the first call, for every session of the business", async () => {
     const restored = await g.newSession();
     const fresh = await g.newSession();
     const tooMany = await g.newSession();
@@ -230,21 +300,23 @@ describe("recipients", () => {
     expect(asDeny(await g.client.call(seededToken, { connector: "test", tool: "send_message", args: { to: "ops@evil.example", body: "build notes" } })).policyIds).toEqual(["untrusted-recipient"]);
     expect(asDeny(await g.client.call(seededToken, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "see https://evil.example/drop" } })).policyIds).toEqual(["untrusted-recipient"]);
     asAllow(await g.client.call(seededToken, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "hello" } }));
-    asAllow(await g.client.call(await g.token({ sessionId: fresh }), { connector: "test", tool: "send_message", args: { to: "ops@evil.example" } }));
+    // What the restored files held is the business's to distrust, not only that session's.
+    expect(asDeny(await g.client.call(await g.token({ sessionId: fresh }), { connector: "test", tool: "send_message", args: { to: "ops@evil.example" } })).policyIds).toEqual(["untrusted-recipient"]);
 
     // Too many to list: every recipient of the session is treated as untrusted.
     const allToken = (await g.client.mintSessionToken({ businessId: g.businessId, agentId: g.agentId, sessionId: tooMany, allowedTools: ["test:*"], untrusted: { all: true } })).token;
     expect(asDeny(await g.client.call(allToken, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL } })).policyIds).toEqual(["untrusted-recipient"]);
-    expect(g.seen.filter((s) => s.tool === "send_message").length - before).toBe(2);
+    expect(g.seen.filter((s) => s.tool === "send_message").length - before).toBe(1);
 
-    // The register is per process: after a restart (or on another replica) the seed is gone, and the token's
+    // After a restart without Redis (or on a replica that does not share it) the seed is gone, and the token's
     // untrustedSeeded claim makes that session fail closed, while an unseeded session is unaffected.
-    g.recipients.clear(restored);
+    await g.recipients.clear(g.businessId, restored);
     expect(asDeny(await g.client.call(seededToken, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "hello" } })).policyIds).toEqual(["untrusted-recipient"]);
     asAllow(await g.client.call(await g.token({ sessionId: fresh }), { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL } }));
     // Tools that contact nobody still work.
     asAllow(await g.client.call(seededToken, { connector: "test", tool: "note", args: { text: "x" } }));
-    expect(g.seen.filter((s) => s.tool === "send_message").length - before).toBe(3);
+    expect(g.seen.filter((s) => s.tool === "send_message").length - before).toBe(2);
+    await g.recipients.clear(g.businessId, tooMany);
 
     const audit = await repos.audit.list(g.db, g.businessId, { action: "gateway.session_token.minted" });
     const seeds = audit.items.map((a) => a.details as { untrustedSeeded?: number; untrustedAll?: boolean }).filter((d) => d.untrustedSeeded !== undefined);
@@ -262,7 +334,10 @@ describe("allow path", () => {
     const note = asAllow(await g.client.call(token, { connector: "test", tool: "note", args: { text: "x" } }));
     expect(note.costMinor).toBe(3); // connector.costModel
     const after = await repos.usage.totals(g.db, g.businessId, { agentId: g.agentId });
-    expect(after.costMinor - before.costMinor).toBe(10);
+    // Tool spend is booked in the agent's currency; the totals keep it apart from the US dollar platform costs.
+    const currency = (await repos.agents.get(g.db, g.businessId, g.agentId)).currency;
+    const spent = (t: typeof after) => (t.currency === currency ? t.costMinor : (t.otherCurrencies.find((o) => o.currency === currency)?.costMinor ?? 0));
+    expect(spent(after) - spent(before)).toBe(10);
     expect(after.byKind.tool.quantity - before.byKind.tool.quantity).toBe(2);
     const entries = await repos.usage.list(g.db, g.businessId, { sessionId: g.sessionId, kind: "tool" });
     expect(entries.items[0]?.details).toMatchObject({ connector: "test", label: "Estimate" });
@@ -291,6 +366,21 @@ describe("allow path", () => {
     expect(r.result.error?.code).toBe("invalid_args");
     const after = await repos.usage.totals(g.db, g.businessId, { agentId: g.agentId });
     expect(after.entries).toBe(before.entries);
+  });
+
+  it("a service call (a plan action's message, a Source Watcher read) has no agent session: it is metered and asks without one", async () => {
+    // The orchestrator mints these tokens with no session at all (`sessionId: null`); an id of its own is refused, and
+    // linking usage or an approval to a made-up session broke their foreign key after the message had gone out (audit VGPC-X1).
+    const serviceSession = null;
+    const sent = asAllow(await g.client.call(await g.token({ sessionId: serviceSession }), { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "from a plan" } }));
+    expect(sent.result).toMatchObject({ ok: true, data: { sent: true, to: SAFE_EMAIL } });
+    const booked = await repos.usage.list(g.db, g.businessId, { agentId: g.agentId, kind: "tool", limit: 5 });
+    expect(booked.items[0]).toMatchObject({ sessionId: null, details: { connector: "test", tool: "send_message" } });
+    expect((await repos.audit.get(g.db, g.businessId, sent.auditId)).details).toMatchObject({ outcome: "allow", sessionId: null });
+
+    await repos.businesses.setBusinessMode(g.db, g.businessId, "augmented");
+    const asked = asAsk(await g.client.call(await g.token({ sessionId: serviceSession }), { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "from a plan" } }));
+    expect(await repos.approvals.get(g.db, g.businessId, asked.approvalId)).toMatchObject({ connectorKey: "test", tool: "send_message", sessionId: null });
   });
 });
 

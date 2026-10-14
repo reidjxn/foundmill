@@ -11,7 +11,10 @@
  *   §10.4). Prefixes below the model's minimum (512 tokens on the 5.5 models, 4096 on Haiku 4.5) silently do not cache.
  * - Rate limits read from `anthropic-ratelimit-*` headers via `.withResponse()`; 429 backoff with jitter is scoped to
  *   the caller (`req.scope`) through `RateLimiter`. The SDK's own retries are disabled (`maxRetries: 0`) so this module
- *   owns the policy: 429 → scoped backoff, 5xx/529/connection → short exponential backoff, 4xx → typed error.
+ *   owns the policy: 429 → scoped backoff, 5xx/529/connection → short exponential backoff, 4xx → typed error. A refusal
+ *   to bill (400 "credit balance is too low" or "reached your specified API usage limits", 429
+ *   `enforced_spend_limit_reached`) is a `ModelBillingError`, never retried: it lasts until someone pays or the month
+ *   ends (`billingRefusal`).
  * - Sampling parameters are rejected (400) by Opus 5.5 and Sonnet 5.5; `temperature` is only sent to Haiku.
  * - `effort` goes in `output_config.effort`: the request's own, else the route's from `ROUTES` (routing.ts), else the
  *   API default. Never sent to a model without the parameter (Haiku 4.5).
@@ -23,7 +26,12 @@
  * - Streaming (`streamStructured`): `messages.stream()` (or the beta stream in fast mode); the text deltas feed the
  *   incremental scanner in ./structured-stream.ts. The connection phase gets the same retry policy as `complete()`;
  *   a stream that breaks after connecting is restarted or resumed there.
- * - The limiter books `reserveTokens` (default `max_tokens`) output tokens per call.
+ * - `max_tokens`: the request's own, else the client's `defaultMaxTokens`, else the route's budget from `ROUTES`
+ *   (routing.ts), sized for the reply plus the thinking Opus 5.5 and Sonnet 5.5 always do (it counts toward
+ *   `max_tokens`). A schema request cut off at `max_tokens` before its JSON is complete is sent once more with the
+ *   budget doubled (up to `MAX_TOKENS_CEILING`) instead of failing at once (audit CML-03); both calls are metered.
+ * - The limiter books `reserveTokens` output tokens per call: by default the request's own `max_tokens`, or at most
+ *   `ROUTE_RESERVE_TOKENS` when the call runs on its route's budget (mostly thinking headroom it rarely uses).
  * - A call stopped by its signal after the request went out is still metered: the prompt's estimated input tokens, no
  *   output, flagged `aborted` on the usage event (the provider may bill it and reports nothing). A call stopped before
  *   it was sent books nothing.
@@ -31,9 +39,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { loadEnv } from "@foundmill/shared";
+import { getTracer } from "@foundmill/shared/telemetry";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { ModelAbortedError, ModelOutputError, ModelRateLimitError, ModelRequestError, ModelUnavailableError } from "./errors";
+import { ModelAbortedError, ModelBillingError, ModelOutputError, ModelRateLimitError, ModelRequestError, ModelUnavailableError, type ModelBillingReason } from "./errors";
+import { clearPlatformBillingRefusal, notePlatformBillingRefusal } from "./billing-state";
 import { parseJsonLoose } from "./json";
 import { MockModelClient, type MockModelClientOptions } from "./mock";
 import { type MeterResult, ZERO_USAGE, addUsage, estimateTokens, meter, sumMeters } from "./pricing";
@@ -60,7 +70,17 @@ import type {
   UsageSink,
 } from "./types";
 
-export const DEFAULT_MAX_TOKENS = 4096;
+/**
+ * Highest budget the truncation retry doubles up to. A non-streaming call this long still finishes well inside
+ * `REQUEST_TIMEOUT_MS`; longer outputs belong on `streamStructured`.
+ */
+export const MAX_TOKENS_CEILING = 32_000;
+/**
+ * Output tokens the limiter books for a call that runs on its route's budget (it sent neither `maxTokens` nor
+ * `reserveTokens`). That budget is mostly room for thinking the call rarely uses, so booking all of it would let one
+ * planner call take a whole small key's output bucket; this is what such a call booked before budgets were sized.
+ */
+export const ROUTE_RESERVE_TOKENS = 4_096;
 export const DEFAULT_MAX_ATTEMPTS = 4;
 export const REQUEST_TIMEOUT_MS = 600_000;
 
@@ -80,6 +100,7 @@ export interface LiveModelClientOptions {
   /** Attempts per API call including the first (429 and transient failures). Default 4. */
   maxAttempts?: number;
   timeoutMs?: number;
+  /** `max_tokens` for every request without its own, instead of the route's budget (routing.ts). Unset in services. */
   defaultMaxTokens?: number;
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
@@ -100,6 +121,37 @@ export interface CreateModelClientOptions extends Partial<Omit<LiveModelClientOp
 /** sha256 fingerprint of an API key for bucket keys and logs. */
 export function keyFingerprint(apiKey: string): string {
   return `key:${createHash("sha256").update(apiKey).digest("hex").slice(0, 12)}`;
+}
+
+/**
+ * One trace span per model call (BUILD §15 "LLM spans with tokens and cost per business/agent"), a child of whatever
+ * span the caller runs in (a tRPC request, an activity, an agent session). A no-op until the service installed
+ * telemetry with an OTLP endpoint. Cost is an Estimate, in minor units of `llm.cost.currency`.
+ */
+export function recordModelSpan(event: UsageEvent): void {
+  const tracer = getTracer();
+  if (!tracer.enabled) return;
+  const endMs = Date.parse(event.occurredAt) || Date.now();
+  const a = event.attribution;
+  tracer.recordSpan(`llm ${event.route}`, {
+    startMs: endMs - Math.max(0, event.durationMs),
+    endMs,
+    attributes: {
+      "llm.route": event.route,
+      "llm.model": event.model,
+      "llm.mode": event.mode,
+      "llm.billed_to": event.billedTo,
+      "llm.tokens.in": event.usage.inputTokens,
+      "llm.tokens.out": event.usage.outputTokens,
+      "llm.cost.minor": event.cost.costMinorInt,
+      "llm.cost.currency": event.cost.currency,
+      "llm.cost.label": "Estimate",
+      "llm.attempt": event.attempt,
+      "foundmill.business_id": a?.businessId ?? null,
+      "foundmill.agent_id": a?.agentId ?? null,
+      "foundmill.session_id": a?.sessionId ?? null,
+    },
+  });
 }
 
 /**
@@ -192,17 +244,20 @@ export class LiveModelClient implements ModelClient {
   complete(req: CompleteRequest<unknown> & { schema?: undefined }): Promise<CompleteResult<unknown>>;
   async complete<T = unknown>(req: CompleteRequest<T>): Promise<CompleteResult<T>> {
     const started = Date.now();
-    const plan = this.plan(req);
-    const { resolution, maxTokens } = plan;
+    let plan = this.plan(req);
+    const { resolution } = plan;
     const scope = req.scope ?? "default";
-    let messages: Anthropic.MessageParam[] = req.messages.map(toParam);
+    const firstMessages: Anthropic.MessageParam[] = req.messages.map(toParam);
+    let messages = firstMessages;
 
     let totalUsage: TokenUsage = ZERO_USAGE;
     const meters: MeterResult[] = [];
     let repaired = false;
+    let raised = false;
     let speedUsed: Speed | undefined;
 
-    for (let call = 0; call < 2; call++) {
+    // One repair call and one call at a raised budget at most: a schema answer is never sent more than three times.
+    for (let call = 0; ; call++) {
       const { message, requestId, speed } = await this.send({ ...plan.base, messages }, req, scope, call, plan);
       if (speed === "fast") speedUsed = "fast";
       const usage = toUsage(message.usage);
@@ -227,9 +282,18 @@ export class LiveModelClient implements ModelClient {
 
       const issues = validated ? validated.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`) : [`output is not JSON: ${parsed.ok ? "" : parsed.error}`];
       if (stopReason === "max_tokens") {
-        throw new ModelOutputError(`Output truncated at max_tokens=${maxTokens} before valid JSON was produced for route "${req.route}"`, { issues, requestId }, "max_tokens");
+        // The thinking and the JSON did not fit: ask the same question again with twice the room, once.
+        const bigger = Math.min(MAX_TOKENS_CEILING, plan.maxTokens * 2);
+        if (raised || bigger <= plan.maxTokens) {
+          throw new ModelOutputError(`Output truncated at max_tokens=${plan.maxTokens} before valid JSON was produced for route "${req.route}"`, { issues, requestId }, "max_tokens");
+        }
+        this.opts.logger?.warn({ route: req.route, maxTokens: plan.maxTokens, retryMaxTokens: bigger, requestId }, "output truncated at max_tokens; retrying once with a larger budget");
+        raised = true;
+        plan = withMaxTokens(plan, bigger);
+        messages = firstMessages;
+        continue;
       }
-      if (call === 1) {
+      if (repaired) {
         throw new ModelOutputError(`Model output did not match the schema for route "${req.route}" after one repair retry`, { issues, text: text.slice(0, 2000), requestId });
       }
       this.opts.logger?.info({ route: req.route, issues: issues.slice(0, 10), requestId }, "schema validation failed; asking the model to repair its JSON");
@@ -240,7 +304,6 @@ export class LiveModelClient implements ModelClient {
         { role: "user", content: repairPrompt(issues) },
       ];
     }
-    throw new ModelOutputError(`Unreachable: repair loop exhausted for route "${req.route}"`);
   }
 
   /**
@@ -268,8 +331,9 @@ export class LiveModelClient implements ModelClient {
   private plan(req: PlanInput): CallPlan {
     const resolution = resolveModel(req.route, req.modelOverride);
     if (resolution.warning) this.opts.logger?.warn({ route: req.route, override: req.modelOverride }, resolution.warning);
-    const maxTokens = req.maxTokens ?? this.opts.defaultMaxTokens ?? DEFAULT_MAX_TOKENS;
-    const reserve = Math.max(1, Math.min(maxTokens, Math.round(req.reserveTokens ?? maxTokens)));
+    const sized = req.maxTokens ?? this.opts.defaultMaxTokens;
+    const maxTokens = sized ?? resolution.maxTokens;
+    const reserve = Math.max(1, Math.min(maxTokens, Math.round(req.reserveTokens ?? sized ?? ROUTE_RESERVE_TOKENS)));
     const output = req.schema ? structuredOutputFor(req.schema) : undefined;
     if (output?.kind === "prompt") this.opts.logger?.debug({ route: req.route, gaps: output.gaps.slice(0, 5) }, "schema not expressible as structured output; sending it in the system prompt instead");
     const systemBlocks = output?.kind === "prompt" ? [...systemTexts(req.system), output.instruction] : req.system;
@@ -318,6 +382,7 @@ export class LiveModelClient implements ModelClient {
           : await this.anthropic.messages.create(params, { signal: req.signal }).withResponse();
         this.rateLimiter.observe(this.bucket(fast), response.headers);
         this.rateLimiter.clearPenalty(scope);
+        this.billed();
         const message = data as Anthropic.Message & { usage: { speed?: string | null } };
         return { message, requestId: request_id ?? undefined, speed: speedOf(message.usage, fast) };
       } catch (error) {
@@ -351,6 +416,7 @@ export class LiveModelClient implements ModelClient {
         const { response, request_id } = await stream.withResponse();
         this.rateLimiter.observe(this.bucket(fast), response.headers);
         this.rateLimiter.clearPenalty(scope);
+        this.billed();
         return { stream, requestId: request_id ?? undefined, fast };
       } catch (error) {
         if (isAbort(error, req)) {
@@ -407,6 +473,11 @@ export class LiveModelClient implements ModelClient {
       }
       if (callbackFailed) throw error;
       if (isAbort(error, req)) throw new ModelAbortedError();
+      const billing = billingErrorFor(error, req.route, this.opts.billedTo ?? "credits");
+      if (billing) {
+        this.noteBilling(billing, req.route);
+        throw billing;
+      }
       if (error instanceof Anthropic.APIError && typeof error.status === "number" && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429) {
         throw new ModelRequestError(`Anthropic request failed (${error.status}): ${error.message}`, error.status, error.type ?? null, { requestId: error.requestID });
       }
@@ -417,6 +488,12 @@ export class LiveModelClient implements ModelClient {
   /** The retry policy for one failed attempt: sleeps and returns to retry, or throws the typed error. */
   private async handleAttemptError(error: unknown, req: CallContext, scope: string, attempt: number, maxAttempts: number, call: number, state: AttemptState): Promise<void> {
     if (isAbort(error, req)) throw new ModelAbortedError();
+    // The account cannot pay: neither standard speed nor waiting changes that, so it is final at once.
+    const billing = billingErrorFor(error, req.route, this.opts.billedTo ?? "credits");
+    if (billing) {
+      this.noteBilling(billing, req.route);
+      throw billing;
+    }
     const last = attempt + 1 >= maxAttempts;
     if (state.fast && !last && error instanceof Anthropic.APIError && (error instanceof Anthropic.RateLimitError || error.status === 400 || error.status === 403 || error.status === 404)) {
       // Fast mode's own pool is exhausted, or the beta is not enabled for this key: standard speed now beats waiting.
@@ -461,6 +538,9 @@ export class LiveModelClient implements ModelClient {
       };
     } catch (error) {
       if (error instanceof Anthropic.AuthenticationError) return { ok: false, reason: "invalid_key", message: "Anthropic rejected the key (401)." };
+      // A key whose account cannot pay is valid but useless: storing it would stop the team at its first call.
+      const billing = billingRefusal(error);
+      if (billing) return { ok: false, reason: "billing", message: billing === "credit_balance" ? "The key works, but its Anthropic account has no credit left. Add credit in the Anthropic Console, then try again." : "The key works, but its Anthropic account has reached its spend limit. Raise the limit in the Anthropic Console, then try again." };
       if (error instanceof Anthropic.PermissionDeniedError) return { ok: false, reason: "permission", message: error.message };
       if (error instanceof Anthropic.RateLimitError) return { ok: false, reason: "rate_limited", message: "The key is valid but currently rate limited; try again shortly." };
       if (error instanceof Anthropic.APIConnectionError) return { ok: false, reason: "network", message: error.message };
@@ -495,9 +575,30 @@ export class LiveModelClient implements ModelClient {
     });
   }
 
+  /**
+   * A billing refusal: an error log the operator's alerting can match (`alert: "model_billing"`, for the platform key),
+   * and the process's platform billing state for /health (`platformBillingRefusal`). A business's own key is the
+   * founder's to fund, so it only logs a warning.
+   */
+  private noteBilling(error: ModelBillingError, route: string): void {
+    const fields = { route, reason: error.reason, status: error.status, billedTo: error.billedTo, rateLimitKey: this.rateLimitKey, requestId: (error.details as { requestId?: string } | undefined)?.requestId };
+    if (error.billedTo === "byok") {
+      this.opts.logger?.warn(fields, "Anthropic refused to bill a call on a business's own key; not retrying");
+      return;
+    }
+    notePlatformBillingRefusal(error.reason, route);
+    this.opts.logger?.error({ ...fields, alert: "model_billing" }, "Anthropic refused to bill a call on the platform key: add credit or raise the spend limit in the Anthropic Console");
+  }
+
+  /** A call on the platform key went through: whatever refused to bill before has been fixed. */
+  private billed(): void {
+    if ((this.opts.billedTo ?? "credits") === "credits") clearPlatformBillingRefusal();
+  }
+
   private async emit(partial: Omit<UsageEvent, "billedTo">): Promise<void> {
-    if (!this.opts.onUsage) return;
     const event: UsageEvent = { ...partial, billedTo: this.opts.billedTo ?? "credits" };
+    recordModelSpan(event);
+    if (!this.opts.onUsage) return;
     try {
       await this.opts.onUsage(event);
     } catch (error) {
@@ -610,11 +711,39 @@ function buildSystem(system: CompleteRequest["system"], cache: boolean): Anthrop
 
 const toParam = (m: ChatMessage): Anthropic.MessageParam => ({ role: m.role, content: m.content });
 
+/** The same plan with a larger `max_tokens` (the truncation retry); the limiter books the new budget too. */
+function withMaxTokens(plan: CallPlan, maxTokens: number): CallPlan {
+  return { ...plan, maxTokens, reserve: Math.max(plan.reserve, Math.min(maxTokens, plan.reserve * 2)), base: { ...plan.base, max_tokens: maxTokens } };
+}
+
 /** The prompt's input tokens, estimated locally (limiter reservations, and the booking of a call stopped in flight). */
 const estimateInputTokens = (params: Pick<Anthropic.MessageCreateParamsNonStreaming, "messages" | "system">): number => estimateTokens(JSON.stringify(params.messages) + JSON.stringify(params.system ?? ""));
 
 /** The caller stopped the call (its signal), whatever the SDK made of it. */
 const isAbort = (error: unknown, req: Pick<CallContext, "signal">): boolean => req.signal?.aborted === true || error instanceof Anthropic.APIUserAbortError;
+
+/**
+ * Whether an API error is Anthropic refusing to bill the call, and why (`ModelBillingReason`): a 400 or 402 whose message
+ * says the credit balance is too low or the account's usage limit is reached, or a 429 whose `error_code` (in the body's
+ * `details`, or anywhere in the error) is `enforced_spend_limit_reached`. Anything else is not a billing refusal.
+ */
+export function billingRefusal(error: unknown): ModelBillingReason | null {
+  if (!(error instanceof Anthropic.APIError) || typeof error.status !== "number") return null;
+  const text = `${error.message} ${JSON.stringify(error.error ?? {})}`;
+  if (error.status === 429) return /enforced_spend_limit_reached/i.test(text) ? "spend_limit" : null;
+  if (error.status !== 400 && error.status !== 402) return null;
+  if (/credit balance is too low/i.test(text)) return "credit_balance";
+  if (/reached your specified (API )?usage limits?/i.test(text)) return "spend_limit";
+  return error.status === 402 ? "credit_balance" : null;
+}
+
+function billingErrorFor(error: unknown, route: string, billedTo: BilledTo): ModelBillingError | null {
+  const reason = billingRefusal(error);
+  if (!reason || !(error instanceof Anthropic.APIError)) return null;
+  const what = reason === "credit_balance" ? "the account's credit balance is too low" : "the account's spend limit is reached";
+  const whose = billedTo === "byok" ? "the business's own key" : "the platform key";
+  return new ModelBillingError(`Anthropic refused to bill route "${route}" on ${whose}: ${what} (${error.status})`, reason, billedTo, error.status, error.type ?? null, { requestId: error.requestID });
+}
 
 /** The speed that served a call: the response's `usage.speed` when present, else what was requested. */
 function speedOf(usage: { speed?: string | null } | undefined, requestedFast: boolean): Speed | undefined {

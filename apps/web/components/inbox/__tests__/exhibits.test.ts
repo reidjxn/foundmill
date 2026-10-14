@@ -53,15 +53,32 @@ describe("transforms", () => {
     expect(barColumn(d)?.key).toBe("cpa_minor");
     expect(labelColumn(d)?.key).toBe("channel");
   });
+  it("a chart with nothing to draw is an empty state, not a bar chart on a £0.00–£0.01 axis (audit OL-31)", () => {
+    // Enabled channels that have not brought a customer yet have no cost per customer.
+    const noCustomers = channelCpa({ channels: [{ channelKey: "seo", enabled: true, form: null }, { channelKey: "paid_ads", enabled: true, form: { spendMinor: 0, customers: 0 } }] }, "GBP");
+    expect(noCustomers.rows?.map((r) => r.cpa_minor)).toEqual([null, null]);
+    expect(chartShape("chart", noCustomers)).toBe("empty");
+    expect(chartShape("diagram", noCustomers)).toBe("empty");
+    // The table form still lists the channels.
+    expect(chartShape("table", noCustomers)).toBe("table");
+    // All zeros draw nothing either.
+    expect(chartShape("chart", roadmapStatus({ items: [] }))).toBe("empty");
+    // One real figure is a chart again.
+    const one = channelCpa({ channels: [{ channelKey: "seo", enabled: true, form: { spendMinor: 5_000, customers: 5 } }, { channelKey: "pr", enabled: true, form: null }] }, "GBP");
+    expect(chartShape("chart", one)).toBe("bar");
+  });
   it("cash position is a table of estimates; the runway forecast only draws scenarios with points", () => {
     const finance = { cash: { amountMinor: 1, currency: "GBP" }, burn: { netBurnMinor: 2, grossBurnMinor: 3 }, runway: { months: 4 }, forecasts: { base: { scenario: "base", currency: "GBP", series: [{ month: "2026-11", cashMinor: 100 }] }, upside: { scenario: "upside", currency: "GBP", series: [] }, downside: null } };
-    expect(cashPosition(finance).rows).toHaveLength(4);
-    expect(cashPosition(undefined).rows).toEqual([]);
-    const f = runwayForecast(finance);
+    expect(cashPosition(finance, "USD").rows).toHaveLength(4);
+    expect(cashPosition(undefined, "USD").rows).toEqual([]);
+    // Before finance answers the exhibit reads in the business's currency, never a fixed one.
+    expect(cashPosition(undefined, "USD").currency).toBe("USD");
+    expect(cashPosition(finance, "USD").currency).toBe("GBP");
+    const f = runwayForecast(finance, "USD");
     expect(f.label).toBe("Forecast");
     expect(f.series?.map((s) => s.key)).toEqual(["base"]);
     expect(chartShape("chart", f)).toBe("empty");
-    expect(chartShape("chart", runwayForecast({ ...finance, forecasts: { base: { scenario: "base", currency: "GBP", series: [{ month: "2026-11", cashMinor: 100 }, { month: "2026-12", cashMinor: 90 }] } } }))).toBe("line");
+    expect(chartShape("chart", runwayForecast({ ...finance, forecasts: { base: { scenario: "base", currency: "GBP", series: [{ month: "2026-11", cashMinor: 100 }, { month: "2026-12", cashMinor: 90 }] } } }, "USD"))).toBe("line");
   });
   it("roadmap status per horizon and the generic transform entry point", () => {
     const d = roadmapStatus({ items: [{ horizon: "now", status: "done", tasks: [{ status: "done" }, { status: "running" }] }, { horizon: "later", status: "planned", tasks: [] }] });

@@ -5,13 +5,23 @@
  * `integration.externalAccountId`. Webhook secrets: per-business (`stripe_webhook_secret`) → platform.
  */
 import Stripe from "stripe";
-import { uuid } from "@foundmill/shared";
-import { ConfigError, type Connector, type IntegrationRecord, type ToolContext } from "../../contract";
+import { AppError, uuid } from "@foundmill/shared";
+import { ConfigError, ConnectInputError, connectInputValue, type Connector, type IntegrationRecord, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { stripeMock } from "./mock";
-import { mapAccount, mapBalance, mapCheckoutSession, mapCustomer, mapInvoice, mapPayout, STRIPE_API_VERSION, STRIPE_KEY, STRIPE_RATE_LIMITS, stripeTools, type StAccount, type StBalance, type StCheckoutSession, type StCustomer, type StInvoice, type StPayout } from "./tools";
+import { mapAccount, mapBalance, mapCharge, mapCheckoutSession, mapCustomer, mapInvoice, mapPayout, STRIPE_API_VERSION, STRIPE_CONNECT_FIELDS, STRIPE_KEY, STRIPE_BUSINESS_METADATA_KEY, STRIPE_RATE_LIMITS, stripeTools, type StAccount, type StBalance, type StCharge, type StCheckoutSession, type StCustomer, type StInvoice, type StPayout } from "./tools";
 import { createStripeWebhook } from "./webhooks";
+
+/**
+ * The integration record of Foundmill's own billing on the platform Stripe account (credit top-ups, apps/gateway
+ * billing.ts): the nil id, which no stored integration row has, and no credential.
+ */
+export const PLATFORM_BILLING_INTEGRATION_ID = "00000000-0000-0000-0000-000000000000";
+
+export function isPlatformBillingIntegration(integration: IntegrationRecord): boolean {
+  return integration.id === PLATFORM_BILLING_INTEGRATION_ID && integration.credentialRef === null && (integration.config as { kind?: unknown } | null)?.kind === "platform";
+}
 
 export function createStripeConnector(options: LiveConnectorOptions = {}): Connector {
   const { secrets, fetch, now, getBusinessSecret, resolveBusinessId } = resolveLiveOptions(options);
@@ -21,7 +31,18 @@ export function createStripeConnector(options: LiveConnectorOptions = {}): Conne
     return new Stripe(apiKey, { apiVersion: STRIPE_API_VERSION as Stripe.LatestApiVersion, httpClient: Stripe.createFetchHttpClient(fetch), maxNetworkRetries: 1, timeout: 20_000, telemetry: false });
   };
   const requestOptions = (integration: IntegrationRecord): Stripe.RequestOptions => ((integration.config as { kind?: unknown }).kind === "connect" && integration.externalAccountId ? { stripeAccount: integration.externalAccountId } : {});
-  const forCtx = (ctx: ToolContext) => ({ stripe: client(ctx.credential?.secret ?? secrets.stripeSecretKey), opts: requestOptions(ctx.integration) });
+  /**
+   * The platform key acts for a business only through its Connect account (Stripe-Account); without one it would reach
+   * the platform's own Stripe account, which no business may use. The one exception is Foundmill's own billing: the
+   * gateway opens a credit top-up checkout on the platform account (apps/gateway billing.ts), with the platform
+   * integration record no stored row can be (`PLATFORM_BILLING_INTEGRATION_ID`), and only for a checkout.
+   */
+  const forCtx = (ctx: ToolContext, use: { platformBilling?: boolean } = {}) => {
+    const opts = requestOptions(ctx.integration);
+    const platformBilling = use.platformBilling === true && isPlatformBillingIntegration(ctx.integration);
+    if (!ctx.credential?.secret && !opts.stripeAccount && !platformBilling) throw new ConfigError(STRIPE_KEY, "a Stripe key or a Connect account for this business", "connect Stripe in Settings → Integrations");
+    return { stripe: client(ctx.credential?.secret ?? secrets.stripeSecretKey), opts };
+  };
 
   const webhook = createStripeWebhook({
     secretFor: async (businessId) => (businessId && getBusinessSecret ? await getBusinessSecret(businessId, "stripe_webhook_secret") : null) ?? secrets.stripeWebhookSecret ?? null,
@@ -34,9 +55,10 @@ export function createStripeConnector(options: LiveConnectorOptions = {}): Conne
       key: STRIPE_KEY,
       displayName: "Stripe",
       phase: 2,
-      auth: { kind: "oauth", scopes: ["read_write"] },
+      auth: { kind: "oauth", scopes: ["read_write"], platformKey: true },
       tools: stripeTools,
       rateLimits: STRIPE_RATE_LIMITS,
+      connectFields: STRIPE_CONNECT_FIELDS,
       now,
       webhooks: [webhook],
       handlers: {
@@ -86,7 +108,7 @@ export function createStripeConnector(options: LiveConnectorOptions = {}): Conne
           return mapInvoice((await stripe.invoices.sendInvoice(invoiceId, {}, opts)) as unknown as StInvoice);
         },
         create_checkout_session: async ({ mode, priceId, lines, successUrl, cancelUrl, customerEmail, customerId, metadata }, ctx) => {
-          const { stripe, opts } = forCtx(ctx);
+          const { stripe, opts } = forCtx(ctx, { platformBilling: true });
           const session = await stripe.checkout.sessions.create(
             {
               mode,
@@ -101,22 +123,33 @@ export function createStripeConnector(options: LiveConnectorOptions = {}): Conne
           );
           return mapCheckoutSession(session as unknown as StCheckoutSession);
         },
+        list_charges: async ({ customerId, limit }, ctx) => {
+          const { stripe, opts } = forCtx(ctx);
+          const page = await stripe.charges.list({ limit, ...(customerId ? { customer: customerId } : {}) }, opts);
+          return { items: (page.data as unknown as StCharge[]).map(mapCharge), hasMore: page.has_more };
+        },
         list_payouts: async ({ limit }, ctx) => {
           const { stripe, opts } = forCtx(ctx);
           return { items: ((await stripe.payouts.list({ limit }, opts)).data as unknown as StPayout[]).map(mapPayout) };
         },
       },
       connect: async (businessId, input) => {
-        const i = typeof input === "object" && input ? (input as { accountId?: unknown; apiKey?: unknown }) : {};
-        const apiKey = typeof i.apiKey === "string" ? i.apiKey : undefined;
-        const accountId = typeof i.accountId === "string" ? i.accountId : undefined;
-        if (!apiKey && !accountId) throw new ConfigError(STRIPE_KEY, "account", "connect() expects { accountId } (Connect) or { apiKey } (own account); Connect onboarding itself is a hard gate the founder completes");
+        const apiKey = connectInputValue(input, "apiKey");
+        const accountId = connectInputValue(input, "accountId");
+        if (!apiKey && !accountId) throw new ConnectInputError(STRIPE_KEY, "apiKey", "Enter a restricted key from your Stripe account to connect Stripe");
         const stripe = client(apiKey ?? secrets.stripeSecretKey);
-        const acct = (accountId ? await stripe.accounts.retrieve(accountId) : await stripe.accounts.retrieve(null)) as unknown as StAccount;
+        const acct = (accountId && !apiKey ? await stripe.accounts.retrieve(accountId) : await stripe.accounts.retrieve(null)) as unknown as StAccount;
+        // An account id is a name, not a credential: the platform's own key can read any account connected to the platform, so
+        // pasting an id proves nothing. The account must be one the platform created for this business (tagged with its id), or
+        // the founder proves control with a key issued by the account itself (audit VGPC-X1: otherwise a founder could bind
+        // another business's account and read its legal name, country and currency).
+        if (accountId && !apiKey && acct.metadata?.[STRIPE_BUSINESS_METADATA_KEY] !== businessId) {
+          throw new AppError("account_not_proven", "That Stripe account is not connected to this business. Connect it with a restricted API key from the account itself (Stripe dashboard → Developers → API keys); an account id alone does not prove the account is yours.", 403);
+        }
         const createdAt = now().toISOString();
         return {
           id: uuid(), businessId, connectorKey: STRIPE_KEY, status: "connected", scopes: ["read_write"], accountLabel: mapAccount(acct).businessName ?? acct.id, externalAccountId: acct.id,
-          config: { kind: accountId ? "connect" : "own", country: acct.country ?? null, defaultCurrency: acct.default_currency?.toUpperCase() ?? null, chargesEnabled: acct.charges_enabled ?? false, payoutsEnabled: acct.payouts_enabled ?? false },
+          config: { kind: accountId && !apiKey ? "connect" : "own", country: acct.country ?? null, defaultCurrency: acct.default_currency?.toUpperCase() ?? null, chargesEnabled: acct.charges_enabled ?? false, payoutsEnabled: acct.payouts_enabled ?? false },
           credentialRef: null, expiresAt: null, lastHealthAt: createdAt, createdAt,
           ...(apiKey ? { credentialToStore: { kind: "api_key" as const, secret: apiKey } } : {}),
         };

@@ -20,11 +20,12 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
-import { AgentDesk, Button, EntityText, Markdown, Skeleton, useToast, type AgentDeskVariant, type DeskMessage, type QuickReplyItem } from "@foundmill/dugout";
+import { AgentDesk, Button, EntityText, Markdown, Skeleton, stripEntityMarkup, useToast, type AgentDeskVariant, type DeskMessage, type QuickReplyItem } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { useBusiness } from "@/components/shell/business-context";
+import { readOnlyReason } from "@/lib/access";
+import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import { provideAgentConversation } from "./DeskHost";
 import { ConfirmPlanDialog } from "@/components/inbox/ConfirmPlanDialog";
 import { confirmationLines } from "@/components/inbox/confirmation";
@@ -56,6 +57,15 @@ export type DecideResult = RouterOutputs["inbox"]["decide"];
 /** Render one bubble: mentions through EntityText (plain underlined links), Markdown only when the bubble needs it. */
 export function renderBubble(text: string): ReactNode {
   return bubbleNeedsMarkdown(text) ? <Markdown variant="body">{text}</Markdown> : <EntityText>{text}</EntityText>;
+}
+
+/**
+ * The founder's own bubble: Markdown when it needs it, and never a mention link. What the founder typed is not entity
+ * markup, so a typed `[[ent:…]]` shows as the plain name instead of a link to nothing (audit FR-23).
+ */
+export function renderFounderBubble(text: string): ReactNode {
+  const plain = stripEntityMarkup(text);
+  return bubbleNeedsMarkdown(plain) ? <Markdown variant="body" entities={false}>{plain}</Markdown> : plain;
 }
 
 export interface AgentConversationHandle {
@@ -107,6 +117,11 @@ interface Outgoing {
   quickReplyId?: string;
   /** The option the pressed chip names on screen (sent with it, so a chip that now names another option is refused). */
   optionId?: string | null;
+  /**
+   * The id this message goes out with, kept for every retry: the server stores the message under it and answers a repeat
+   * with the exchange it already holds, so a reply lost on the way back never makes Try again post the question twice.
+   */
+  clientMessageId?: string;
 }
 
 /** The nearest ancestor of `el` that scrolls. */
@@ -143,6 +158,9 @@ function revealAboveBar(el: HTMLElement | null | undefined): void {
   if (delta !== 0) scroller.scrollBy({ top: delta, behavior: "auto" });
 }
 
+/** An id for one outgoing message, kept for its retries (the server dedupes on it). */
+const newClientMessageId = (): string => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`);
+
 let localSeq = 0;
 const nextLocalId = () => `local-${Date.now().toString(36)}-${(localSeq++).toString(36)}`;
 
@@ -150,8 +168,8 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
   { subject, variant = "inline", open = true, onOpenChange, keyModifier = "none", hotkeys = true, inboxReply = false, onDecision, decided = false, fallbackDept = "dept-1", subjectLine, initialText, onInitialTextSent, personaHint, opener, className },
   ref,
 ) {
-  const { businessId, data: biz } = useBusiness();
-  const currency = biz.business.glossary?.currency ?? "EUR";
+  const { businessId, data: biz, access } = useBusiness();
+  const currency = useBusinessCurrency();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -181,6 +199,10 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
         setPreview(null);
         void invalidate(["inbox", "plan", "dev", "distribution", "team", "business"]);
         void queryClient.invalidateQueries({ queryKey: key });
+        if (res.alreadyConfirmed) {
+          toast({ title: "Already confirmed", description: "This plan was confirmed already; nothing runs twice.", tone: "info" });
+          return;
+        }
         toast({ title: "Confirmed", description: `${res.exec.executed.length} action${res.exec.executed.length === 1 ? "" : "s"} started${res.exec.deferred.length ? `, ${res.exec.deferred.length} handed to the team` : ""}.`, tone: "good" });
       },
       onError: (err) => toast({ title: "Could not confirm the plan", description: errorMessage(err), tone: "bad" }),
@@ -233,6 +255,27 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
     [view, decided, queryClient, key],
   );
 
+  /**
+   * After a send that got no answer (the connection dropped): reload the thread, and when it holds the message the reply
+   * was only lost on the way back, so the exchange appears as if the answer had arrived and nothing is offered to resend.
+   */
+  const arrived = useCallback(
+    async (out: Outgoing, err: unknown): Promise<boolean> => {
+      if (deskFailureOf(err).kind !== "offline" || !out.clientMessageId) return false;
+      try {
+        await queryClient.refetchQueries({ queryKey: key, exact: true });
+      } catch {
+        return false;
+      }
+      const stored = queryClient.getQueryData<{ messages: { clientMessageId?: string | null }[] }>(key);
+      if (!stored?.messages.some((m) => m.clientMessageId === out.clientMessageId)) return false;
+      outgoing.current.delete(out.localId);
+      setLocal((l) => l.filter((m) => m.id !== out.localId && !m.id.startsWith(FAILURE_PREFIX)));
+      return true;
+    },
+    [queryClient, key],
+  );
+
   const deliver = useCallback(
     (out: Outgoing) => {
       inFlight.current = true;
@@ -246,7 +289,7 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
       // Promises, not per-call callbacks: the reply still reaches the cache if the founder moves on before it arrives.
       const job: Promise<void> =
         inboxReply && out.text && subject.kind === "inbox_item"
-          ? replyM.mutateAsync({ businessId, itemId: subject.id, text: out.text }).then((res) => {
+          ? replyM.mutateAsync({ businessId, itemId: subject.id, text: out.text, ...(out.clientMessageId ? { clientMessageId: out.clientMessageId } : {}) }).then((res) => {
               outgoing.current.delete(out.localId);
               if (res.route === "decision") {
                 // An instruction: it answered the note through the decide path (nothing is said in the thread).
@@ -258,22 +301,28 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
               if (res.decision) onDecision?.(res.decision);
               if (res.handOff) showPreview(res.handOff);
             })
-          : sendM.mutateAsync({ businessId, subject: input.subject, ...(out.quickReplyId ? { quickReplyId: out.quickReplyId, ...(out.optionId !== undefined ? { optionId: out.optionId } : {}) } : { text: out.text! }) }).then((res) => {
+          : sendM.mutateAsync({ businessId, subject: input.subject, ...(out.clientMessageId ? { clientMessageId: out.clientMessageId } : {}), ...(out.quickReplyId ? { quickReplyId: out.quickReplyId, ...(out.optionId !== undefined ? { optionId: out.optionId } : {}) } : { text: out.text! }) }).then((res) => {
               outgoing.current.delete(out.localId);
               merge(res, out.localId);
               if (res.decision) onDecision?.(res.decision);
               if (res.handOff) showPreview(res.handOff);
             });
-      void job.catch((err: unknown) => failed(out, err)).finally(settle);
+      void job
+        .catch(async (err: unknown) => {
+          // No answer is not "never arrived": ask the server whether it holds the message before saying it was not sent.
+          if (await arrived(out, err)) return;
+          failed(out, err);
+        })
+        .finally(settle);
     },
-    [queryClient, key, inboxReply, subject.kind, subject.id, replyM, sendM, businessId, input.subject, merge, onDecision, showPreview, failed],
+    [queryClient, key, arrived, inboxReply, subject.kind, subject.id, replyM, sendM, businessId, input.subject, merge, onDecision, showPreview, failed],
   );
 
   const post = useCallback(
     (words: string, payload: Omit<Outgoing, "localId">) => {
       if (inFlight.current || replying) return;
       const localId = nextLocalId();
-      const out = { localId, words, ...payload };
+      const out = { localId, words, clientMessageId: newClientMessageId(), ...payload };
       outgoing.current.set(localId, out);
       // Sending something else lets go of a message that was not sent (and the agent's word about it).
       setLocal((l) => [...l.filter((m) => m.state !== "failed" && !m.id.startsWith(FAILURE_PREFIX)), { id: localId, author: "founder", bubbles: [words], at: new Date(), state: "sending" }]);
@@ -360,12 +409,21 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
       handOffM.mutate(
         { businessId, messageId },
         {
-          onSuccess: (p) => showPreview(p),
+          onSuccess: (p) => {
+            // Staged before (here, after a reload, or on another device): the stored plan comes back. One that was
+            // confirmed meanwhile has nothing left to review.
+            if (p.plan.status !== "pending_confirmation") {
+              queryClient.setQueryData(key, (old) => (old ? withPlanId(old, p.messageId, p.planId, p.plan.status) : old));
+              toast({ title: "Already confirmed", description: "This plan was confirmed already; nothing runs twice.", tone: "info" });
+              return;
+            }
+            showPreview(p);
+          },
           onError: (err) => toast({ title: "Could not prepare the plan", description: errorMessage(err), tone: "bad" }),
         },
       );
     },
-    [handOffM, businessId, showPreview, toast],
+    [handOffM, businessId, showPreview, toast, queryClient, key],
   );
 
   // The palette's "Ask <agent> · <question>": the question is the founder's first message, sent once the desk is ready.
@@ -441,7 +499,7 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
   const lines = useMemo(() => (preview ? confirmationLines(preview.evaluations, currency) : []), [preview, currency]);
 
   const label = persona ? `Conversation with ${persona.name}` : "Conversation";
-  const dialog = <ConfirmPlanDialog open={confirmOpen} onOpenChange={setConfirmOpen} lines={lines} summary={preview?.summary ?? ""} currency={currency} loading={confirmM.isPending} onConfirm={() => preview && confirmM.mutate({ businessId, planId: preview.planId })} />;
+  const dialog = <ConfirmPlanDialog open={confirmOpen} onOpenChange={setConfirmOpen} lines={lines} summary={preview?.summary ?? ""} loading={confirmM.isPending} onConfirm={() => preview && confirmM.mutate({ businessId, planId: preview.planId })} />;
 
   if (!view || !persona) {
     if (variant === "sheet") {
@@ -517,6 +575,10 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
       onHandOff={onHandOff}
       replying={replying}
       renderBubble={renderBubble}
+      renderFounderBubble={renderFounderBubble}
+      // A viewer or advisor follows the conversation; the API refuses their messages, so the field says so instead (RUI-05).
+      disabled={!access.canChange}
+      disabledNote={access.canChange ? undefined : readOnlyReason(access)}
       variant={variant}
       hotkeys={hotkeys && !confirmOpen}
       keyModifier={keyModifier}

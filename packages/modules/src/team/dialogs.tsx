@@ -6,6 +6,7 @@
  */
 import { useEffect, useId, useState } from "react";
 import { ArrowLeftRight, Copy, UserRoundMinus, UserRoundPlus } from "lucide-react";
+import { CREDITS_CURRENCY } from "@foundmill/config";
 import { Button, Checkbox, Chip, MODEL_LABELS, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, ProvenanceChip, SimpleSelect, formatMoney } from "@foundmill/dugout";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 import { humanise } from "../fit";
@@ -31,14 +32,20 @@ export interface HireDialogProps {
    * department over that module is (a newsletter writer opened from Team › Recruitment lands in Distribution).
    */
   defaultDepartmentId?: string;
+  /**
+   * Where the template works when the open tab's department is not over its module (`departmentForTemplate`: a
+   * specialist goes to Operations); otherwise the first department over the module.
+   */
+  preferredDepartmentId?: string;
   /** Prefilled name (the agent builder's suggestion). */
   defaultName?: string;
+  /** The wage cap's currency: a wage cap caps metered model cost, so US dollars (`CREDITS_CURRENCY`). */
   currency?: string;
   onHired: (agent: AgentRow, template: TemplateRow) => void;
 }
 
 /** Hire a catalogue template into a department (team.agents.hire). */
-export function HireDialog({ template, onOpenChange, departments, defaultDepartmentId, defaultName, currency = "EUR", onHired }: HireDialogProps) {
+export function HireDialog({ template, onOpenChange, departments, defaultDepartmentId, preferredDepartmentId, defaultName, currency = CREDITS_CURRENCY, onHired }: HireDialogProps) {
   const id = useId();
   const action = useAction();
   const options = departmentOptions(departments);
@@ -50,13 +57,14 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
       const mod = template.module;
       const forModule = mod ? (departments ?? []).filter((d) => d.moduleKeys.includes(mod)).map((d) => d.id) : [];
       const open = defaultDepartmentId && options.some((o) => o.value === defaultDepartmentId) ? defaultDepartmentId : undefined;
-      setDepartmentId((open && (!forModule.length || forModule.includes(open)) ? open : forModule[0]) ?? open ?? options[0]?.value ?? "");
+      const preferred = preferredDepartmentId && forModule.includes(preferredDepartmentId) ? preferredDepartmentId : undefined;
+      setDepartmentId((open && (!forModule.length || forModule.includes(open)) ? open : (preferred ?? forModule[0])) ?? open ?? options[0]?.value ?? "");
       setName(defaultName ?? "");
       setFullDescription(false);
       action.clearError();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset the form when a template is chosen
-  }, [template?.key, defaultDepartmentId, defaultName]);
+  }, [template?.key, defaultDepartmentId, preferredDepartmentId, defaultName]);
   const open = !!template;
   const confirm = async () => {
     if (!template || !departmentId) return;
@@ -91,7 +99,7 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
                 { label: "Role", value: template.role },
                 { label: "Family", value: FAMILY_LABELS[template.family] },
                 { label: "Model", value: MODEL_LABELS[template.modelKey] ?? template.modelKey },
-                { label: "Skills", value: template.skills.length ? template.skills.map(humanise).join(", ") : "Set by the first training run" },
+                { label: "Skills", value: template.skills.length ? template.skills.map(humanise).join(", ") : "None yet; train it from its profile" },
                 {
                   label: "Wage cap",
                   value: (
@@ -109,7 +117,7 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
           <Field htmlFor={`${id}-name`} label="Name" hint="Leave empty to keep the template's name.">
             <Input id={`${id}-name`} value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={template?.name} />
           </Field>
-          <p className="text-small text-secondary">The first training run sets the skills and the agent appears in the team table straight away.</p>
+          <p className="text-small text-secondary">The agent starts with the template's instructions, tools and skills and appears in the team table straight away. Train it from its profile to tune them.</p>
           <InlineError error={action.error} />
         </DialogBody>
         <DialogFooter>

@@ -1,17 +1,19 @@
 "use client";
 /**
  * Squad pulse widget (BUILD §11.2): a 7 × 24 heatmap of agent activity by hour and department over the last seven
- * days, built from `dev.sessions.list` (session start/end per agent → department via `department.list`).
+ * days, built from `dev.sessions.list` (session start/end per agent → department via `department.list`). Days and hours
+ * are the business's own (its time zone, audit #196), the same days Home's tiles and the top bar count in.
  */
 import { useMemo } from "react";
 import { z } from "zod";
 import { Activity } from "lucide-react";
 import { SquadPulse, type SquadPulseCell } from "@foundmill/dugout";
-import { useBusinessEvents, useWidgetQuery } from "../data";
+import { dayHourIn } from "@foundmill/shared/time-zone";
+import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { orderedDepartments, toRibbonDepartments, useDepartments } from "../shared/departments";
 import { WidgetFrame } from "../shared/frame";
-import { dayKey, lastDays } from "../shared/time";
+import { lastDays } from "../shared/time";
 import type { DepartmentRow, Page } from "../shared/types";
 
 export const SquadPulseSettings = z.object({
@@ -28,12 +30,14 @@ export interface SessionRow {
 }
 
 const HOUR_MS = 3_600_000;
+/** Half-hour steps, so a zone half an hour off UTC (India, Newfoundland) still lands each slice in its own hour. */
+const STEP_MS = HOUR_MS / 2;
 
 /**
- * Spread each session's duration over the UTC hour cells it covers, attributed to the agent's first department.
- * Open sessions run until `now`; anything outside the seven-day window is clipped.
+ * Spread each session's duration over the hour cells it covers in the business's time zone (UTC when it has none),
+ * attributed to the agent's first department. Open sessions run until `now`; anything outside the window is clipped.
  */
-export function sessionsToPulseCells(sessions: readonly SessionRow[], departments: readonly DepartmentRow[], days: readonly string[], now: Date = new Date()): SquadPulseCell[] {
+export function sessionsToPulseCells(sessions: readonly SessionRow[], departments: readonly DepartmentRow[], days: readonly string[], now: Date = new Date(), timeZone?: string | null): SquadPulseCell[] {
   const deptOfAgent = new Map<string, string>();
   for (const d of departments) for (const a of d.squad) if (!deptOfAgent.has(a.id)) deptOfAgent.set(a.id, d.id);
   const dayIndex = new Map(days.map((d, i) => [d, i]));
@@ -44,14 +48,13 @@ export function sessionsToPulseCells(sessions: readonly SessionRow[], department
     const start = new Date(s.startedAt).getTime();
     const end = s.endedAt ? new Date(s.endedAt).getTime() : now.getTime();
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
-    let cursor = Math.floor(start / HOUR_MS) * HOUR_MS;
+    let cursor = Math.floor(start / STEP_MS) * STEP_MS;
     while (cursor < end) {
-      const next = cursor + HOUR_MS;
+      const next = cursor + STEP_MS;
       const overlap = Math.min(end, next) - Math.max(start, cursor);
-      const at = new Date(cursor);
-      const di = dayIndex.get(dayKey(at));
+      const { day, hour } = dayHourIn(cursor, timeZone);
+      const di = dayIndex.get(day);
       if (di !== undefined && overlap > 0) {
-        const hour = at.getUTCHours();
         const key = `${departmentId}:${di}:${hour}`;
         const cell = cells.get(key) ?? { departmentId, dayIndex: di, hour, agentHours: 0 };
         cell.agentHours += overlap / HOUR_MS;
@@ -67,12 +70,14 @@ function SquadPulseWidget({ settings }: WidgetProps<SquadPulseSettings>) {
   const departments = useDepartments();
   const sessions = useWidgetQuery<Page<SessionRow>>("dev.sessions.list", { limit: 200 });
   useBusinessEvents(() => sessions.refetch(), ["task.started", "task.completed", "cycle.completed"]);
-  const days = useMemo(() => lastDays(7), []);
+  const { timeZone } = useWidgetData();
+  const today = useToday();
+  const days = useMemo(() => lastDays(7, today), [today]);
   const depts = useMemo(() => {
     const all = orderedDepartments(departments.data);
     return settings.departmentId ? all.filter((d) => d.id === settings.departmentId) : all;
   }, [departments.data, settings.departmentId]);
-  const cells = useMemo(() => sessionsToPulseCells(sessions.data?.items ?? [], depts, days), [sessions.data, depts, days]);
+  const cells = useMemo(() => sessionsToPulseCells(sessions.data?.items ?? [], depts, days, new Date(), timeZone), [sessions.data, depts, days, timeZone]);
   const empty = departments.data && sessions.data && cells.length === 0;
   return (
     <WidgetFrame

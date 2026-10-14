@@ -1,8 +1,15 @@
-/** memberships — staff of a club (BUILD §7.1; routers team.humans.*). */
-import { MEMBERSHIP_ROLES, ValidationError, type MembershipRole } from "@foundmill/shared";
-import { and, asc, eq, inArray } from "drizzle-orm";
+/**
+ * memberships — staff of a business (BUILD §7.1; routers team.humans.*).
+ *
+ * Ownership is guarded here, in apps/api and in the database (0026_membership_guards): `add` never overwrites an
+ * existing member, and neither `setRole` nor `remove` may leave a business without an owner. Both run under the
+ * business's owner lock (`lockOwners`, the same lock 0035's trigger takes), so concurrent changes cannot each count the
+ * other as the remaining owner.
+ */
+import { ConflictError, MEMBERSHIP_ROLES, ValidationError, type MembershipRole } from "@foundmill/shared";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { memberships, type Membership } from "../schema";
+import { businesses, memberships, type Business, type Membership } from "../schema";
 import { Id, maybeOne, one, parseInput, type Executor } from "./_shared";
 
 export const SectionPermissions = z.record(z.string(), z.enum(["read", "write", "none"]));
@@ -24,8 +31,43 @@ export const membershipsRepo = {
       .orderBy(asc(memberships.createdAt));
   },
 
+  /**
+   * The business's founder as the screens show it: the owner who created the business while they still own it, else
+   * the longest-standing owner. The org chart is rooted at this person and agents with no line manager report to them.
+   */
+  async owner(db: Executor, businessId: string): Promise<Membership | null> {
+    return maybeOne(
+      await db
+        .select({ m: memberships })
+        .from(memberships)
+        .innerJoin(businesses, eq(businesses.id, memberships.businessId))
+        .where(and(eq(memberships.businessId, businessId), eq(memberships.role, "owner")))
+        .orderBy(sql`(${memberships.userId} = ${businesses.createdBy}) desc`, asc(memberships.createdAt), asc(memberships.id))
+        .limit(1)
+        .then((rows) => rows.map((r) => r.m)),
+    );
+  },
+
   async get(db: Executor, businessId: string, userId: string): Promise<Membership | null> {
     return maybeOne(await db.select().from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId))).limit(1));
+  },
+
+  /**
+   * What apps/api's `businessProcedure` checks before every procedure: the user's membership and the business, in one
+   * statement (one round trip pair instead of two lookups on two connections). No membership: both null, whether or
+   * not the business exists, so a non-member learns nothing about it. A membership of an archived business comes back
+   * with a null business, as `businesses.get` would not find it, unless `includeArchived` (the few things an archived
+   * business still allows: restore, export, deletion requests).
+   */
+  async access(db: Executor, businessId: string, userId: string, options: { includeArchived?: boolean } = {}): Promise<{ membership: Membership | null; business: Business | null }> {
+    const rows = await db
+      .select({ membership: memberships, business: businesses })
+      .from(memberships)
+      .leftJoin(businesses, options.includeArchived ? eq(businesses.id, memberships.businessId) : and(eq(businesses.id, memberships.businessId), isNull(businesses.archivedAt)))
+      .where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId)))
+      .limit(1);
+    const row = rows[0];
+    return row ? { membership: row.membership, business: row.business } : { membership: null, business: null };
   },
 
   /** True when the user holds one of the roles in this business. */
@@ -44,23 +86,46 @@ export const membershipsRepo = {
     return db.select().from(memberships).where(eq(memberships.userId, userId)).orderBy(asc(memberships.createdAt));
   },
 
-  /** Adds a member; re-adding an existing user updates the role and permissions. */
+  /**
+   * Adds a new member. Never touches an existing membership (an invitation that upserted could demote the owner or
+   * rewrite anyone's permissions): a user who already belongs to the business is a ConflictError; change their role
+   * with `setRole` instead.
+   */
   async add(db: Executor, businessId: string, input: AddMembershipInput): Promise<Membership> {
     const v = parseInput(AddMembershipInput, input, "membership");
     const rows = await db
       .insert(memberships)
       .values({ businessId, userId: v.userId, role: v.role, sectionPermissions: v.sectionPermissions })
-      .onConflictDoUpdate({
-        target: [memberships.businessId, memberships.userId],
-        set: { role: v.role, sectionPermissions: v.sectionPermissions },
-      })
+      .onConflictDoNothing({ target: [memberships.businessId, memberships.userId] })
       .returning();
+    if (rows.length === 0) throw new ConflictError("That person is already a member of this business; change their role instead", { userId: v.userId });
     return one(rows, "membership");
   },
 
+  /**
+   * Holds the business's owner lock until the transaction ends: the lock 0035's keep-owner trigger takes before it counts
+   * owners (re-entrant within one transaction). Two owners demoting or removing each other at the same moment are
+   * judged one after the other, so the second sees the first one's change and the business keeps an owner. The key is
+   * the id as Postgres writes it (`::uuid::text`, lowercase), the trigger's `business_id::text`, however it was typed.
+   */
+  async lockOwners(db: Executor, businessId: string): Promise<void> {
+    const id = parseInput(Id, businessId, "business id");
+    await db.execute(sql`select pg_advisory_xact_lock(hashtext('memberships_owner'), hashtext(${id}::uuid::text))`);
+  },
+
+  /** Changes a member's role. The last owner cannot be demoted: a business always keeps at least one owner. */
   async setRole(db: Executor, businessId: string, userId: string, role: MembershipRole): Promise<Membership> {
     const r = parseInput(z.enum(MEMBERSHIP_ROLES), role, "role");
-    return one(await db.update(memberships).set({ role: r }).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId))).returning(), "membership", userId);
+    return db.transaction(async (tx) => {
+      // Lock before reading, so the owner count below is not a stale one (security review S9).
+      await membershipsRepo.lockOwners(tx, businessId);
+      const target = await membershipsRepo.get(tx, businessId, userId);
+      if (target?.role === "owner" && r !== "owner") {
+        const owners = await membershipsRepo.list(tx, businessId, { role: "owner" });
+        if (owners.length <= 1) throw new ValidationError("A business must keep at least one owner");
+      }
+      return one(await tx.update(memberships).set({ role: r }).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId))).returning(), "membership", userId);
+    });
   },
 
   async setSectionPermissions(db: Executor, businessId: string, userId: string, sectionPermissions: SectionPermissions): Promise<Membership> {
@@ -72,14 +137,17 @@ export const membershipsRepo = {
     );
   },
 
-  /** Removes the user from the club. The last owner cannot be removed. */
+  /** Removes the user from the business. The last owner cannot be removed. */
   async remove(db: Executor, businessId: string, userId: string): Promise<void> {
-    const target = await membershipsRepo.get(db, businessId, userId);
-    if (!target) return;
-    if (target.role === "owner") {
-      const owners = await membershipsRepo.list(db, businessId, { role: "owner" });
-      if (owners.length <= 1) throw new ValidationError("A business must keep at least one owner");
-    }
-    await db.delete(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId)));
+    await db.transaction(async (tx) => {
+      await membershipsRepo.lockOwners(tx, businessId);
+      const target = await membershipsRepo.get(tx, businessId, userId);
+      if (!target) return;
+      if (target.role === "owner") {
+        const owners = await membershipsRepo.list(tx, businessId, { role: "owner" });
+        if (owners.length <= 1) throw new ValidationError("A business must keep at least one owner");
+      }
+      await tx.delete(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId)));
+    });
   },
 };

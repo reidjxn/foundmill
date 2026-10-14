@@ -4,18 +4,24 @@ import { readWidgetEvent } from "../data";
 import { addDays, dailySeries, daysUntil, lastDays, weekKey } from "../shared/time";
 import { agentRows, pickAgent } from "../widgets/agent-of-the-week";
 import { buildFormRows, formCells } from "../widgets/channel-form-guide";
-import { forecastSeries, runwayTone } from "../widgets/cash-runway";
-import { pickCommunity, postPreview } from "../widgets/community-feed";
+import { forecastSeries, runwayTileProps, runwayTone } from "../widgets/cash-runway";
+import { pickCommunity, postPreview, postsToTimeline } from "../widgets/community-feed";
 import { funnelStages } from "../widgets/funnel";
 import { previewLine } from "../widgets/inbox-preview";
 import { forecastCone, journeyHref, rippleFor, roadmapFlags } from "../widgets/journey-ribbon";
 import { pickBoard, windowRows } from "../widgets/league-table";
 import { describeEvent } from "../widgets/live-feed";
-import { customersPerWeek } from "../widgets/revenue-customers";
+import { customersPerWeek, monthLabel, revenueBars, weekLines, weeksFrom } from "../widgets/revenue-customers";
+import { formatDate } from "@foundmill/dugout";
 import { groupByHorizon, roadmapStatus, taskProgress } from "../widgets/roadmap-timeline";
 import { sessionsToPulseCells } from "../widgets/squad-pulse";
 import { boardWords, runwayTile, squadHealth, statusTiles } from "../widgets/status-strip";
+import { headlineMetric } from "../widgets/department-card";
+import { teamHealth, teamHealthCounts, teamHealthSummary } from "../shared/health";
 import { milestoneKey, trophyCards } from "../widgets/trophy-cabinet";
+import { monthRevenueMinor } from "../shared/cash";
+import { humanSender, NETWORK_SENDER } from "../shared/note-tags";
+import { moduleHref } from "../shared/departments";
 import { routes } from "../shared/routes";
 import { BID, TODAY, channelMetrics, channels, departments, finance, leaderboardEntries, leaderboards, ribbon, roadmap, sessions, team } from "./fixtures";
 
@@ -79,6 +85,18 @@ describe("team pulse", () => {
     const old = sessionsToPulseCells([{ id: "x", agentId: sessions.items[0]!.agentId, startedAt: `${addDays(TODAY, -30)}T00:00:00Z`, endedAt: `${addDays(TODAY, -30)}T04:00:00Z` }], departments, days);
     expect(old).toEqual([]);
   });
+
+  it("places hours on the business's clock: a 21:00–22:00 UTC session is 6 AM the next day in Tokyo", () => {
+    const agentId = departments[0]!.squad[0]!.id;
+    const days = ["2026-10-11", "2026-10-12"];
+    const session = [{ id: "s", agentId, startedAt: "2026-10-11T21:00:00Z", endedAt: "2026-10-11T22:00:00Z" }];
+    const at = new Date("2026-10-12T00:00:00Z");
+    expect(sessionsToPulseCells(session, departments, days, at, "Asia/Tokyo")).toEqual([{ departmentId: departments[0]!.id, dayIndex: 1, hour: 6, agentHours: 1 }]);
+    expect(sessionsToPulseCells(session, departments, days, at)).toEqual([{ departmentId: departments[0]!.id, dayIndex: 0, hour: 21, agentHours: 1 }]);
+    // Half an hour off UTC: each half lands in its own local hour.
+    const india = sessionsToPulseCells(session, departments, days, at, "Asia/Kolkata");
+    expect(india.map((c) => [c.dayIndex, c.hour, c.agentHours])).toEqual([[1, 2, 0.5], [1, 3, 0.5]]);
+  });
 });
 
 describe("status strip", () => {
@@ -93,6 +111,29 @@ describe("status strip", () => {
     expect(live[5]).toMatchObject({ label: "Leaderboard position", value: "#8" });
     expect(squadHealth(departments)).toBeCloseTo(5 / 6, 5);
     expect(squadHealth([])).toBeNull();
+  });
+
+  it("never counts a raise as revenue: Revenue this month and its spark read operating inflows (BUILD §11.8)", () => {
+    const monthly = finance.revenue.monthly.map((m, i, all) => (i === all.length - 1 ? { ...m, inflowMinor: m.inflowMinor + 40_000_000, operatingInflowMinor: m.inflowMinor } : m));
+    const withSafe = { ...finance, revenue: { ...finance.revenue, monthly } };
+    const base = { finance: withSafe, ribbon: ribbon(14), departments, today: TODAY, currency: "EUR", loading: { finance: false, ribbon: false, departments: false, positions: false }, open: () => {}, live: false };
+    const revenue = statusTiles(base)[2]!;
+    expect(revenue.value).toEqual({ amountMinor: finance.revenue.monthly.at(-1)!.inflowMinor, currency: "EUR" });
+    expect(revenue.spark).toEqual(finance.revenue.monthly.map((m) => m.inflowMinor));
+    expect(revenueBars(withSafe, 6).map((b) => b.value)).toEqual(finance.revenue.monthly.map((m) => m.inflowMinor));
+    expect(monthRevenueMinor({ inflowMinor: 500 })).toBe(500); // older responses without the split
+  });
+
+  it("uses one team-health definition: a day-one team of idle agents is 100%, on the strip and on the Team card", () => {
+    const idle = departments.map((d) => ({ ...d, squad: d.squad.map((a) => ({ ...a, status: "idle" as const })) }));
+    expect(squadHealth(idle)).toBe(1);
+    const squad = idle[0]!.squad.map((a) => ({ id: a.id, name: a.name, seed: a.avatarSeed, status: a.status, role: a.role, model: String(a.modelKey) }));
+    expect(headlineMetric({ key: "squad_health", rows: [], days: [], squad, currency: "EUR", today: TODAY }).value).toBe("100%");
+    // Paused (a choice) is healthy too; failing, down and degraded need the founder.
+    expect(teamHealth(["healthy", "paused", "failing", "injured", "degraded", "idle"])).toBe(0.5);
+    expect(teamHealthSummary(teamHealthCounts(["idle", "idle", "healthy"]))).toEqual({ tone: "good", text: "Nobody needs you", detail: "1 working · 2 idle" });
+    expect(teamHealthSummary(teamHealthCounts(["healthy", "healthy"]))).toEqual({ tone: "good", text: "Everyone is working" });
+    expect(teamHealthSummary(teamHealthCounts(["healthy", "injured"]))).toEqual({ tone: "warn", text: "1 agent needs you" });
   });
 
   it("speaks plain words: a board kind is never a stored key, a missing runway says why", () => {
@@ -114,6 +155,16 @@ describe("status strip", () => {
 });
 
 describe("cash and runway", () => {
+  it("says runway in the words the status strip uses, with no Estimate chip on a missing figure", () => {
+    const positive = runwayTileProps({ ...finance, burn: { ...finance.burn, netBurnMinor: -2_296_294 }, runway: { ...finance.runway, months: null } });
+    expect(positive).toMatchObject({ value: "No limit", caption: "Cash-flow positive, so no limit yet" });
+    expect(positive.estimate).toBeUndefined();
+    // The same words as the status strip's tile for the same answer.
+    const strip = runwayTile({ ...finance, burn: { ...finance.burn, netBurnMinor: -2_296_294 }, runway: { ...finance.runway, months: null } }, false, () => {});
+    expect([positive.value, positive.caption]).toEqual([strip.value, strip.caption]);
+    expect(runwayTileProps(finance)).toMatchObject({ value: "8.7", unit: "mo", estimate: "estimate" });
+  });
+
   it("tones runway by the 9 / 6 month thresholds and draws dashed forecast series", () => {
     expect(runwayTone(null)).toBe("neutral");
     expect(runwayTone(12)).toBe("good");
@@ -123,6 +174,9 @@ describe("cash and runway", () => {
     expect(s.map((x) => x.id)).toEqual(["downside", "base", "upside"]);
     expect(s.every((x) => x.dashed)).toBe(true);
     expect(s[1]!.data[0]!.y).toBe(180_000);
+    // The chart reads the currency's own decimals: the same minor amount is 100 times more yen, 10 times less dinars (JM-14).
+    expect(forecastSeries(finance.forecasts, "JPY")[1]!.data[0]!.y).toBe(18_000_000);
+    expect(forecastSeries(finance.forecasts, "KWD")[1]!.data[0]!.y).toBe(18_000);
   });
 });
 
@@ -132,6 +186,23 @@ describe("revenue and customers", () => {
     expect(weeks.length).toBeGreaterThanOrEqual(4);
     expect(weeks.reduce((s, w) => s + w.customers, 0)).toBe(7);
     expect(weeks.every((w) => /^\d{4}-W\d{2}$/.test(w.week))).toBe(true);
+  });
+
+  it("names weeks by their Monday, fills empty weeks with zero, and never starts on a partial week", () => {
+    const from = weeksFrom("2026-10-12", 6);
+    expect(from).toBe("2026-04-13"); // the Monday of the week holding Apr 15
+    const rows = [{ ...ribbon(1).rows.find((r) => r.departmentId === null)!, day: "2026-10-07", payments: 2, signups: 3 }];
+    const weeks = customersPerWeek({ ...ribbon(1), rows }, { from: "2026-09-21", to: "2026-10-12" });
+    expect(weeks.map((w) => [w.start, w.customers])).toEqual([["2026-09-21", 0], ["2026-09-28", 0], ["2026-10-05", 2], ["2026-10-12", 0]]);
+    const [customers] = weekLines(weeks);
+    expect(customers!.data[2]!.x).toBeInstanceOf(Date);
+    expect(formatDate(customers!.data[2]!.x as Date, "dayMonth")).toBe("Oct 5");
+  });
+
+  it("labels revenue months in US words and keeps the amounts in minor units for money formatting", () => {
+    const bars = revenueBars({ ...finance, revenue: { ...finance.revenue, monthly: [{ month: "2026-05", inflowMinor: 124_101, outflowMinor: 0, netMinor: 124_101, count: 1 }, { month: "2026-10", inflowMinor: 99, outflowMinor: 0, netMinor: 99, count: 1 }] } }, 6);
+    expect(bars).toEqual([{ label: "May", value: 124_101 }, { label: "Oct", value: 99 }]);
+    expect(monthLabel("2026-01")).toBe("Jan");
   });
 });
 
@@ -240,10 +311,25 @@ describe("leaderboard", () => {
 });
 
 describe("text helpers", () => {
+  it("names a human message after its sender: the founder's own note, or another founder's words from Network (audit #65)", () => {
+    expect(humanSender("u-me", "u-me")).toBe("self");
+    expect(humanSender("u-ana", "u-me")).toBe("other");
+    expect(humanSender(null, "u-me")).toBeNull();
+    expect(NETWORK_SENDER).toBe("Network");
+  });
+
   it("writes previews and event lines in plain words", () => {
     expect(previewLine("Atlas needs a yes. The migration touches [[ent:x|Nordic]] data.")).toBe("Atlas needs a yes.");
     expect(previewLine("**No full stop here**")).toBe("No full stop here");
     expect(postPreview("# Hello  *world*", 5)).toBe("Hell…");
+    // The founder's own post that moderation holds says so; a visible one carries no pill.
+    const [held, shown] = postsToTimeline([
+      { id: "p1", communityId: "c", authorUserId: "u", authorName: "Ana", bodyMd: "Mail me", createdAt: `${TODAY}T09:00:00.000Z`, status: "pending_review" },
+      { id: "p2", communityId: "c", authorUserId: "u", authorName: "Ana", bodyMd: "Hello", createdAt: `${TODAY}T10:00:00.000Z`, status: "visible" },
+    ]);
+    expect(held).toMatchObject({ tone: "warn", statusWord: "Held for review" });
+    expect(shown).toMatchObject({ tone: "neutral" });
+    expect(shown).not.toHaveProperty("statusWord");
     // The feed is for members: the chosen community if joined, else the first joined one, never one the founder is not in.
     const communities = [{ id: "a", name: "A", role: null }, { id: "b", name: "B", role: "member" }, { id: "c", name: "C", role: "owner" }];
     expect(pickCommunity(communities, null)?.id).toBe("b");
@@ -255,5 +341,24 @@ describe("text helpers", () => {
     expect(describeEvent({ type: "task.completed", payload: { title: "X", outcome: "partial" } })).toMatchObject({ title: "Done: X", statusWord: "Partial", tone: "warn" });
     expect(describeEvent({ type: "payment.received", payload: { amount: { amountMinor: 4900, currency: "EUR" }, firstPayment: true } }).title).toBe("Payment received · €49.00");
     expect(describeEvent({ type: "something.odd", payload: {} }).title).toBe("something odd");
+    // Another member archived a note or confirmed its plan (audit RUI-09): plain words, not the raw event type.
+    expect(describeEvent({ type: "inbox.item_updated", payload: { change: "archived" } })).toMatchObject({ title: "Inbox note archived", tone: "neutral" });
+    expect(describeEvent({ type: "inbox.item_updated", payload: { change: "plan_confirmed" } })).toMatchObject({ title: "Plan confirmed", statusWord: "Confirmed", tone: "good" });
+    // What a member walled from Finance or the CRM receives: the note without its subject; staff changes in words.
+    expect(describeEvent({ type: "inbox.item_created", payload: { inboxItemId: "x", blocksContinue: false } }).title).toBe("New inbox note");
+    expect(describeEvent({ type: "membership.changed", payload: { userId: "u", change: "updated" } }).title).toBe("Staff access changed");
+    expect(describeEvent({ type: "membership.changed", payload: { userId: "u", change: "removed" } }).title).toBe("Staff member removed");
+  });
+});
+
+describe("moduleHref", () => {
+  it("links a tab to the first department over the module that shows it (Operations shows only Specialists and Plan)", () => {
+    const dev = departments[0]!;
+    const ops = { ...dev, id: "ops", slug: "operations", name: "Formulation Lab", position: -1, tabs: [{ id: "s", slug: "specialists", title: "Specialists", position: 0 }, { id: "p", slug: "plan", title: "Plan", position: 1 }] };
+    const rows = [ops, dev];
+    expect(moduleHref(BID, rows, "development", "training-ground")).toBe(routes.department(BID, dev.slug, "training-ground"));
+    expect(moduleHref(BID, rows, "development", "specialists")).toBe(routes.department(BID, "operations", "specialists"));
+    // Without a tab, the first department over the module and its first tab.
+    expect(moduleHref(BID, rows, "development")).toBe(routes.department(BID, "operations", "specialists"));
   });
 });

@@ -3,13 +3,23 @@
  * running the agent session right now. The workflow calls the `postSessionCommand` activity, which appends to the
  * session's control list; the runner polls the list between events (and on a timer while it waits). In production the
  * list lives in Redis (`asctl:{sessionId}`); tests and the mock golden path can use the in-memory bus.
+ *
+ * The workflow numbers every command it posts (`seq`) and tells each run of the session the first number meant for it,
+ * so a command that reached the list after an earlier run's last poll is never applied to a later run.
  */
+interface CommandMeta {
+  by?: string | null;
+  at?: string;
+  /** Position in the workflow's own command order; a run ignores numbers below its `fromSeq`. */
+  seq?: number;
+}
+
 export type SessionCommand =
-  | { kind: "pause"; by?: string | null; at?: string }
-  | { kind: "resume"; by?: string | null; at?: string }
-  | { kind: "stop"; reason: string; by?: string | null; at?: string }
-  | { kind: "shout"; message: string; preset?: string | null; modelKey?: string | null; by?: string | null; at?: string }
-  | { kind: "decision"; approvalId: string; outcome: "approved" | "rejected"; by?: string | null; at?: string };
+  | ({ kind: "pause" } & CommandMeta)
+  | ({ kind: "resume" } & CommandMeta)
+  | ({ kind: "stop"; reason: string } & CommandMeta)
+  | ({ kind: "shout"; message: string; preset?: string | null; modelKey?: string | null } & CommandMeta)
+  | ({ kind: "decision"; approvalId: string; outcome: "approved" | "rejected"; note?: string | null } & CommandMeta);
 
 export interface SessionControlBus {
   post(sessionId: string, command: SessionCommand): Promise<void>;
@@ -39,11 +49,18 @@ export class RedisControlBus implements SessionControlBus {
     await this.redis.expire?.(key, CONTROL_TTL_SECONDS);
   }
 
+  /** Pops one at a time; when Redis fails part-way, the commands already popped are returned, never dropped. */
   async drain(sessionId: string): Promise<SessionCommand[]> {
     const key = controlKey(sessionId);
     const out: SessionCommand[] = [];
     for (let i = 0; i < 1000; i++) {
-      const raw = await this.redis.lpop(key);
+      let raw: string | null;
+      try {
+        raw = await this.redis.lpop(key);
+      } catch (err) {
+        if (out.length > 0) break;
+        throw err;
+      }
       if (raw === null) break;
       const parsed = parseCommand(raw);
       if (parsed) out.push(parsed);
@@ -85,7 +102,7 @@ export function parseCommand(raw: string): SessionCommand | null {
   try {
     const v = JSON.parse(raw) as Record<string, unknown>;
     if (!v || typeof v.kind !== "string" || !KINDS.has(v.kind)) return null;
-    if (v.kind === "stop" && typeof v.reason !== "string") return { kind: "stop", reason: "stopped", by: (v.by as string | null) ?? null };
+    if (v.kind === "stop" && typeof v.reason !== "string") return { kind: "stop", reason: "stopped", by: (v.by as string | null) ?? null, ...(typeof v.seq === "number" ? { seq: v.seq } : {}) };
     if (v.kind === "shout" && typeof v.message !== "string") return null;
     if (v.kind === "decision" && (typeof v.approvalId !== "string" || (v.outcome !== "approved" && v.outcome !== "rejected"))) return null;
     return v as unknown as SessionCommand;

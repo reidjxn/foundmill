@@ -24,7 +24,7 @@ export function describeAction(type: string, p: Record<string, unknown> | null |
     case "set_budget":
       return `Set budget for ${s("channel").replace(/_/g, " ") || s("department") || "the business"}`;
     case "approve_spend":
-      return `Approve spend${s("purpose") ? `: ${s("purpose")}` : ""}`;
+      return `Approve spend${s("purpose") || s("what") ? `: ${s("purpose") || s("what")}` : ""}`;
     case "send_message":
       return `Send a message${s("to") ? ` to ${s("to")}` : ""}`;
     case "schedule_meeting":
@@ -44,12 +44,14 @@ export function describeAction(type: string, p: Record<string, unknown> | null |
     case "request_human_action":
       return `Founder action: ${s("request") || s("original_text") || "needs you"}`;
     case "reply_only":
-      return `Reply: ${s("question") || s("text") || "a question back to you"}`;
+      // A recorded answer ("You approved …", "You chose "Not now"") reads as itself.
+      return s("acknowledgement") || `Reply: ${s("question") || s("text") || "a question back to you"}`;
     default:
       return type.replace(/_/g, " ");
   }
 }
 
+/** An action's cost in its own currency (the plan priced it), else the business's (`currency`). */
 export function actionCost(p: Record<string, unknown> | null | undefined, currency: string): Money | null {
   const v = p?.amount_minor ?? p?.amountMinor ?? p?.cost_minor;
   if (typeof v !== "number" || v <= 0) return null;
@@ -70,7 +72,20 @@ export function confirmationLines(evaluations: readonly EvaluationLike[], curren
   return evaluations.map((e) => ({ label: describeAction(e.action.type, e.action.params ?? null), outcome: e.outcome, hardGate: e.hardGate === true || e.action.type === "request_human_action", cost: actionCost(e.action.params ?? null, currency), reasons: e.reasons ?? [] }));
 }
 
-export function totalCost(lines: readonly ConfirmationLine[], currency: string): Money | null {
-  const sum = lines.reduce((acc, l) => acc + (l.cost?.amountMinor ?? 0), 0);
-  return sum > 0 ? { amountMinor: sum, currency } : null;
+/**
+ * The lines of a stored plan (inbox.get, after a reload or on another device; audit OL-01): each action's recorded
+ * policy outcome stands in for its evaluation, so "Here is what will happen" never depends on the page that decided.
+ */
+export function planConfirmationLines(actions: readonly { type: string; params?: Record<string, unknown> | null; policyOutcome?: string | null }[], currency: string): ConfirmationLine[] {
+  return confirmationLines(actions.map((a) => ({ action: { type: a.type, params: a.params ?? null }, outcome: a.policyOutcome ?? "allow" })), currency);
+}
+
+/**
+ * The total, one figure per currency in the order the lines name them: amounts in different currencies are never added
+ * together (a "£300" the founder typed stays £300 beside the business's dollars). Empty when nothing costs anything.
+ */
+export function totalCost(lines: readonly ConfirmationLine[]): Money[] {
+  const byCurrency = new Map<string, number>();
+  for (const l of lines) if (l.cost && l.cost.amountMinor > 0) byCurrency.set(l.cost.currency, (byCurrency.get(l.cost.currency) ?? 0) + l.cost.amountMinor);
+  return [...byCurrency].map(([currency, amountMinor]) => ({ amountMinor, currency }));
 }

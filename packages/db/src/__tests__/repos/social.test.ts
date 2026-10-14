@@ -50,18 +50,26 @@ describe("connections and messages", () => {
     const blocker = r.B.adminId;
     const c = await repos.social.requestConnection(r.db, asker, blocker, "Hi");
     expect((await repos.social.respondConnection(r.db, blocker, c.id, "blocked")).blockedBy).toBe(blocker);
-    // The blocked party cannot accept, re-block (which would take the row over) or delete the row.
-    await expect(repos.social.respondConnection(r.db, asker, c.id, "accepted")).rejects.toThrow(/cannot be changed/);
-    await expect(repos.social.respondConnection(r.db, asker, c.id, "blocked")).rejects.toThrow(/cannot be changed/);
-    await expect(repos.social.removeConnection(r.db, asker, c.id)).rejects.toThrow(/cannot be removed/);
+    // The blocked party cannot accept, re-block (which would take the row over) or delete the row; the row reads to them
+    // exactly like one that does not exist (respond: not found; remove: the same quiet no-op as a missing id), so the
+    // error never confirms the block (audit GLS2F-04).
+    await expect(repos.social.respondConnection(r.db, asker, c.id, "accepted")).rejects.toThrow(/not found/i);
+    await expect(repos.social.respondConnection(r.db, asker, c.id, "blocked")).rejects.toThrow(/not found/i);
+    await expect(repos.social.respondConnection(r.db, asker, "00000000-0000-4000-8000-0000000000ff", "accepted")).rejects.toThrow(/not found/i);
+    await expect(repos.social.removeConnection(r.db, asker, c.id)).resolves.toBeNull();
+    expect((await repos.social.listConnections(r.db, blocker, { status: "blocked" })).map((x) => x.id), "the no-op removed nothing").toContain(c.id);
     await expect(repos.social.requestConnection(r.db, asker, blocker)).rejects.toThrow(/could not be sent/);
     // Not even the blocker can write `accepted` over it; they unblock (delete), and a fresh request starts clean.
     await expect(repos.social.respondConnection(r.db, blocker, c.id, "accepted")).rejects.toThrow(/Unblock/);
     expect((await repos.social.respondConnection(r.db, blocker, c.id, "blocked")).id).toBe(c.id); // idempotent
     // A block is never announced: only the blocker sees the row in their lists.
     expect((await repos.social.listConnections(r.db, blocker, { status: "blocked" })).map((x) => x.id)).toContain(c.id);
-    expect((await repos.social.listConnections(r.db, asker)).map((x) => x.id)).not.toContain(c.id);
+    // The person who asked keeps seeing their request as still waiting (a request that vanished would say it was blocked).
+    expect((await repos.social.listConnections(r.db, asker, { direction: "outgoing" })).find((x) => x.id === c.id)).toMatchObject({ status: "requested", blockedBy: null, respondedAt: null });
+    expect((await repos.social.listConnections(r.db, asker, { status: "requested" })).map((x) => x.id)).toContain(c.id);
     expect(await repos.social.listConnections(r.db, asker, { status: "blocked" })).toEqual([]);
+    // The person who was asked no longer has the request at all.
+    expect((await repos.social.listConnections(r.db, blocker, { direction: "incoming" })).find((x) => x.id === c.id)).toMatchObject({ status: "blocked", blockedBy: blocker });
     await repos.social.removeConnection(r.db, blocker, c.id);
     expect((await repos.social.listConnections(r.db, asker)).map((x) => x.id)).not.toContain(c.id);
     const again = await repos.social.requestConnection(r.db, asker, blocker);
@@ -69,7 +77,8 @@ describe("connections and messages", () => {
     // A requester who blocks after the recipient accepted owns the block too.
     await repos.social.respondConnection(r.db, blocker, again.id, "accepted");
     expect((await repos.social.respondConnection(r.db, asker, again.id, "blocked")).blockedBy).toBe(asker);
-    await expect(repos.social.removeConnection(r.db, blocker, again.id)).rejects.toThrow(/cannot be removed/);
+    await repos.social.removeConnection(r.db, blocker, again.id); // quiet no-op: the block is not theirs
+    expect((await repos.social.listConnections(r.db, asker, { status: "blocked" })).map((x) => x.id)).toContain(again.id);
     await repos.social.removeConnection(r.db, asker, again.id);
     // Someone who is not a party removes nothing and learns nothing.
     const third = await repos.social.requestConnection(r.db, asker, blocker);
@@ -114,21 +123,28 @@ describe("connections and messages", () => {
     const link = await repos.social.requestConnection(r.db, me, friend);
     await expect(repos.social.startThread(r.db, me, [friend])).rejects.toThrow(/cannot message/); // a request is not a connection
     await repos.social.respondConnection(r.db, friend, link.id, "accepted");
+    // A subject cannot pose as the platform or its staff (audit GLS2F-06); an honest one is kept as written.
+    for (const subject of ["Foundmill Support: verify your account", "F0undmi11 notice", "Support: your account", "Fo\u200bundmill"]) {
+      await expect(repos.social.startThread(r.db, me, [friend], subject), subject).rejects.toThrow(/reserved/);
+    }
     const thread = await repos.social.startThread(r.db, me, [friend, friend], "Hello");
     expect(thread.participantIds.sort()).toEqual([me, friend].sort());
     expect((await repos.social.startThread(r.db, friend, [me])).id).toBe(thread.id);
     await repos.social.sendMessage(r.db, me, thread.id, "Hi friend");
     // One of two recipients being a stranger refuses the whole Send.
     await expect(repos.social.startThread(r.db, me, [friend, stranger])).rejects.toThrow(/cannot message/);
-    // Sharing a thread is not a connection: a thread from before the gate (or a group) does not open a new Send, though
-    // people already in it keep writing there by thread id.
+    // Sharing a thread is not a connection (0027): a thread from before the gate (or a group) neither opens a new Send
+    // nor takes a message between people who are not connected, whatever its id.
     const legacy = await repos.social.findOrCreateThread(r.db, me, [stranger]);
     await expect(repos.social.startThread(r.db, me, [stranger])).rejects.toThrow(/cannot message/);
-    await expect(repos.social.sendMessage(r.db, me, legacy.id, "still here")).resolves.toMatchObject({ threadId: legacy.id });
-    // Two people in a group the sender made are not connected to each other because of it.
+    await expect(repos.social.sendMessage(r.db, me, legacy.id, "still here")).rejects.toThrow(/cannot message/);
+    await expect(repos.social.sendMessage(r.db, stranger, legacy.id, "and me")).rejects.toThrow(/cannot message/);
+    // Two people in a group the sender made are not connected to each other because of it, and cannot write there.
     const group = await repos.social.findOrCreateThread(r.db, friend, [stranger, me]);
     await expect(repos.social.startThread(r.db, stranger, [friend])).rejects.toThrow(/cannot message/);
+    await expect(repos.social.sendMessage(r.db, stranger, group.id, "hello group")).rejects.toThrow(/cannot message/);
     expect(group.participantIds).toHaveLength(3);
+    expect(group.kind).toBe("group");
     // A block in either direction ends it, new threads and existing ones alike, and reads the same as not being connected.
     await repos.social.respondConnection(r.db, friend, link.id, "blocked");
     const blockedMessage = await repos.social.startThread(r.db, me, [friend]).catch((e: Error) => e.message);
@@ -281,9 +297,21 @@ describe("people lookup, unread per thread, community visibility", () => {
     const request = await repos.social.requestConnection(r.db, priv, viewer, "Hello");
     expect(request.status).toBe("requested");
     expect((await names())[priv]).toBe("Pat Private");
+    // Accepting the request must not make the person who asked anonymous again (audit VGLS2F3-X1): they made contact.
+    await repos.social.respondConnection(r.db, viewer, request.id, "accepted");
+    expect((await names())[priv]).toBe("Pat Private");
+    // The other way round: the viewer asked, the private founder only accepted. They have not made contact with the viewer.
+    await repos.founders.upsert(r.db, conn, profile("Cal Connection", "private"));
+    expect((await names())[conn]).toBeNull();
+    await repos.founders.upsert(r.db, conn, profile("Cal Connection", "connections"));
+    expect((await names())[conn]).toBe("Cal Connection");
     const thread = await repos.social.findOrCreateThread(r.db, viewer, [stranger]);
     expect((await names())[stranger]).toBeNull();
     await repos.founders.upsert(r.db, stranger, profile("Sam Stranger", "private"));
+    // A Private profile stays unnamed to a connection; writing to the viewer names them.
+    const known = await repos.social.requestConnection(r.db, viewer, stranger);
+    await repos.social.respondConnection(r.db, stranger, known.id, "accepted");
+    expect((await names())[stranger]).toBeNull();
     await repos.social.sendMessage(r.db, stranger, thread.id, "Hi");
     expect((await names())[stranger]).toBe("Sam Stranger");
     // The same lookup is empty for an empty request and never throws for unknown ids.
@@ -307,6 +335,8 @@ describe("people lookup, unread per thread, community visibility", () => {
   it("counts unread per thread, lists only what the viewer may see, and counts replies", async () => {
     const a = r.A.ownerId;
     const c = r.B.adminId;
+    const link = await repos.social.requestConnection(r.db, a, c);
+    await repos.social.respondConnection(r.db, c, link.id, "accepted");
     const thread = await repos.social.findOrCreateThread(r.db, a, [c], "Per-thread unread");
     await repos.social.sendMessage(r.db, c, thread.id, "one");
     await repos.social.sendMessage(r.db, c, thread.id, "two");
@@ -335,16 +365,21 @@ describe("people lookup, unread per thread, community visibility", () => {
 });
 
 describe("community membership and replies", () => {
-  it("only a member who left comes back by joining: muted and banned members stay as they are", async () => {
+  it("only a member who left comes back by joining: a muted member reads but does not post, and stays muted; a ban stands", async () => {
     const community = await repos.social.createCommunity(r.db, { name: "Moderated", slug: "moderated-room", createdBy: r.A.ownerId });
     const member = r.B.adminId;
     await repos.social.joinCommunity(r.db, member, community.id);
-    await r.db.update(s.communityMembers).set({ status: "muted" }).where(and(eq(s.communityMembers.communityId, community.id), eq(s.communityMembers.userId, member)));
-    await expect(repos.social.joinCommunity(r.db, member, community.id)).rejects.toThrow(/muted/);
+    await repos.social.moderateMember(r.db, r.A.ownerId, community.id, member, "mute");
+    expect((await repos.social.joinCommunity(r.db, member, community.id)).status).toBe("muted");
+    expect(await repos.social.isMember(r.db, member, community.id)).toBe(true);
+    await expect(repos.social.createPost(r.db, { communityId: community.id, authorUserId: member, bodyMd: "Back again" })).rejects.toThrow(/muted you/);
+    // Leaving and joining again does not lift a mute.
+    await repos.social.leaveCommunity(r.db, member, community.id);
     expect(await repos.social.isMember(r.db, member, community.id)).toBe(false);
-    await expect(repos.social.createPost(r.db, { communityId: community.id, authorUserId: member, bodyMd: "Back again" })).rejects.toThrow(/Only members/);
+    expect((await repos.social.joinCommunity(r.db, member, community.id)).status).toBe("muted");
     await r.db.update(s.communityMembers).set({ status: "banned" }).where(and(eq(s.communityMembers.communityId, community.id), eq(s.communityMembers.userId, member)));
     await expect(repos.social.joinCommunity(r.db, member, community.id)).rejects.toThrow(/Banned/);
+    expect(await repos.social.isMember(r.db, member, community.id)).toBe(false);
     // Someone who left rejoins.
     const other = r.B.memberId;
     await repos.social.joinCommunity(r.db, other, community.id);

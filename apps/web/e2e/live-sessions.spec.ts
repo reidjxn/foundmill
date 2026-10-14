@@ -7,6 +7,7 @@ import { LONG, openBusiness } from "./helpers";
  */
 test.describe("live sessions", () => {
   test("a focused tile keeps its footer clear of the replay strip; costs are in pounds", async ({ page }) => {
+    test.setTimeout(180_000); // the elapsed clock ticks by the minute once a session has run for an hour
     await page.setViewportSize({ width: 1280, height: 900 });
     await openBusiness(page);
     const dev = page.locator("[data-testid=app-shell] nav a[href*='/d/']").filter({ hasText: /development/i }).first();
@@ -26,6 +27,21 @@ test.describe("live sessions", () => {
     // Every waiting tile says something of its own: no empty line repeats across tiles.
     const lines = await page.locator("[data-specialist-empty], [data-terminal-empty]").evaluateAll((els) => els.map((e) => (e.textContent ?? "").replace(/\s+/g, " ").trim()));
     expect(new Set(lines).size, `empty tiles repeat a line: ${lines.join(" | ")}`).toBe(lines.length);
+    // Only sourcing work talks about RFQs: an empty specialist tile never says "no RFQs sent" by default (TPD-23).
+    await expect(page.locator("[data-specialist-empty]").filter({ hasText: /no RFQs sent/ })).toHaveCount(0);
+    // Every cost keeps its Estimate label, however small the tile (SOAK-07).
+    const footers = page.getByTestId("tile-footer");
+    const footerCount = await footers.count();
+    for (let i = 0; i < footerCount; i += 1) await expect(footers.nth(i)).toContainText("Estimate");
+    // A started session no worker has picked up says Queued and is counted apart from running ones (SOAK-08).
+    const queuedTiles = await page.locator("[data-tile-queued]").count();
+    if (queuedTiles) await expect(page.getByTestId("ground-counts")).toContainText(`${queuedTiles} queued`);
+    // Elapsed time ticks while a session runs, without new events (VSOAK2-X1).
+    const clock = page.locator("[data-testid=tile-footer] [title=Elapsed]").first();
+    if (await clock.count()) {
+      const before = await clock.textContent();
+      await expect.poll(async () => clock.textContent(), { timeout: 70_000, message: "the elapsed clock moves on its own" }).not.toBe(before);
+    }
 
     // Focus the first tile: it takes two thirds of the grid, the replay strip and Nudge appear under it.
     await tiles.first().click({ position: { x: 160, y: 120 } });
@@ -38,5 +54,23 @@ test.describe("live sessions", () => {
     const tileBox = (await focused.boundingBox())!;
     const stripBox = (await strip.boundingBox())!;
     expect(tileBox.y + tileBox.height, "the focused tile's bottom edge sits above the replay strip").toBeLessThanOrEqual(stripBox.y + 1);
+  });
+
+  test("a nudge that reached no session says so instead of showing the agent's answer (audit OL-04, TPD-16)", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openBusiness(page);
+    const dev = page.locator("[data-testid=app-shell] nav a[href*='/d/']").filter({ hasText: /development/i }).first();
+    await expect(dev).toBeVisible({ timeout: LONG });
+    const href = (await dev.getAttribute("href"))!;
+    await page.goto(href.replace(/\/d\/([^/]+)\/.*$/, "/d/$1/training-ground"));
+    await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/training-ground", { timeout: LONG });
+    // The seeded sessions have no workflow behind them, so no nudge can arrive.
+    const tiles = page.locator("[data-tile-id]");
+    await expect(tiles.first()).toBeVisible({ timeout: LONG });
+    await tiles.first().click({ position: { x: 160, y: 120 } });
+    await page.getByTestId("nudge-menu").first().click();
+    await page.getByRole("menuitem").first().click();
+    await expect(page.getByRole("alert").filter({ hasText: "Not delivered" })).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("nudge-ack")).toHaveCount(0);
   });
 });

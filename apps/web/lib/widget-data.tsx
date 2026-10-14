@@ -11,7 +11,7 @@ import { useMemo, type ReactNode } from "react";
 import type { GameMode } from "@foundmill/shared";
 import { WidgetDataProvider, type QueryOptions, type QueryState, type WidgetDataSource } from "@foundmill/widgets/data";
 import { getStreamClient } from "@/lib/stream-client";
-import { useStreamOpen } from "@/lib/stream-status";
+import { useBusinessLive } from "@/lib/stream-status";
 import { trpcPathPrefix, trpcQueryKey, type UntypedApiClient } from "@/lib/trpc";
 import { useUntypedApi } from "@/components/providers/AppProviders";
 
@@ -20,10 +20,13 @@ export interface WidgetSourceOptions {
   glossary: Record<string, string>;
   gameMode: GameMode;
   currency: string;
+  /** The business time zone (businesses.time_zone); null reads as UTC, like the Journey's daily rows. */
+  timeZone?: string | null;
   client: UntypedApiClient;
   queryClient: QueryClient;
   navigate: (href: string) => void;
   subscribe?: WidgetDataSource["subscribe"];
+  setFocus?: WidgetDataSource["setFocus"];
 }
 
 /** Every procedure the widgets call takes `businessId`; it is merged into the input so widgets never pass it. */
@@ -66,10 +69,14 @@ export function createWidgetSource(opts: WidgetSourceOptions): WidgetDataSource 
     glossary: opts.glossary,
     gameMode: opts.gameMode,
     currency: opts.currency,
+    timeZone: opts.timeZone ?? null,
     navigate: opts.navigate,
-    subscribe: opts.subscribe ?? ((channel, handler) => getStreamClient().subscribe(channel, handler)),
-    // While the tab's stream is connected the shell refetches on events (INVALIDATE_ON_EVENT); screens poll otherwise.
-    useStreamOpen,
+    // Focus reaches the stream server too, so a watched Live sessions tile is the last to be shed under backpressure.
+    subscribe: opts.subscribe ?? ((channel, handler, so) => getStreamClient().subscribe(channel, handler, so)),
+    setFocus: opts.setFocus ?? ((channel, focused) => getStreamClient().setFocus(channel, focused)),
+    // While this business's event channel is live the shell refetches on events (INVALIDATE_ON_EVENT); screens poll
+    // otherwise. A hook by contract (widgets call it in render).
+    useStreamOpen: () => useBusinessLive(businessId),
     // This member is a hook by contract (widgets call it in render).
     useQuery: <T,>(path: string, input: Record<string, unknown> | undefined, qo?: QueryOptions): QueryState<T> => {
       const full = withBusiness(businessId, input);
@@ -96,18 +103,20 @@ export interface WidgetDataHostProps {
   businessId: string;
   glossary: Record<string, string>;
   gameMode: GameMode;
-  currency?: string;
+  /** The business's own currency (`businesses.currency`, 0025): every widget formats business money with it. */
+  currency: string;
+  timeZone?: string | null;
   children: ReactNode;
 }
 
 /** Wraps every business page (ARCHITECTURE §18). */
-export function WidgetDataHost({ businessId, glossary, gameMode, currency = "EUR", children }: WidgetDataHostProps) {
+export function WidgetDataHost({ businessId, glossary, gameMode, currency, timeZone = null, children }: WidgetDataHostProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const client = useUntypedApi();
   const source = useMemo(
-    () => createWidgetSource({ businessId, glossary, gameMode, currency, client, queryClient, navigate: (href) => router.push(href) }),
-    [businessId, glossary, gameMode, currency, client, queryClient, router],
+    () => createWidgetSource({ businessId, glossary, gameMode, currency, timeZone, client, queryClient, navigate: (href) => router.push(href) }),
+    [businessId, glossary, gameMode, currency, timeZone, client, queryClient, router],
   );
   return <WidgetDataProvider source={source}>{children}</WidgetDataProvider>;
 }

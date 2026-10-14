@@ -1,7 +1,7 @@
 import "./setup";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { TrainingGroundScreen } from "../TrainingGroundScreen";
 import { shoutInput, toGraphNodes } from "../TrainingGroundScreen";
 import { BUSINESS_ID, createFakeSource, renderScreen } from "./fake-source";
@@ -26,7 +26,7 @@ describe("TrainingGroundScreen", () => {
     expect(fake.subscriberCount(`as:${SESSION_INDEX}`)).toBe(1);
     expect(fake.subscriberCount(`as:${SESSION_SOURCING}`)).toBe(1);
     expect(screen.getByTestId("ground-counts").textContent).toBe("3 live · 2 running");
-    expect(screen.getByText(/16 is the largest team your key supports/)).toBeTruthy();
+    expect(screen.getByText(/your plan runs 16 agents at once/)).toBeTruthy();
     expect(fake.queried.get("dev.tasks.list")).toMatchObject({ status: ["running", "paused", "blocked", "review", "merging"] });
   });
 
@@ -39,7 +39,7 @@ describe("TrainingGroundScreen", () => {
     const juno = within(grid).getByRole("article", { name: /Juno: Add a bundle picker/ });
     expect(within(juno).getByText(/Ship add a bundle picker to the product page behind a flag\./)).toBeTruthy();
     const wren = within(grid).getByRole("article", { name: /Wren: Supplier brief/ });
-    expect(within(wren).getByText("No RFQs sent yet")).toBeTruthy();
+    expect(within(wren).getByText("No supplier records yet")).toBeTruthy();
     expect(within(wren).getByText("Ship supplier brief for the serum pump behind a flag.")).toBeTruthy();
     expect(within(grid).queryByText(/funnel fills as RFQs go out/)).toBeNull();
   });
@@ -121,6 +121,84 @@ describe("TrainingGroundScreen", () => {
     expect((within(dialog).getByLabelText("Checkout") as HTMLTextAreaElement).value).toContain(`git checkout agent/${TASK_BUNDLE}`);
   });
 
+  it("loads every tile's replay on mount, so a tile that is not focused shows what its session already did (TPD-35)", async () => {
+    const responses = trainingGroundResponses();
+    const asked: string[] = [];
+    const replay = (input: Record<string, unknown> | undefined) => {
+      const sessionId = String(input?.sessionId);
+      asked.push(sessionId);
+      const base = responses["dev.sessions.replay"](input);
+      if (sessionId !== SESSION_INDEX) return base;
+      return {
+        ...base,
+        source: "stream",
+        events: [
+          { kind: "stdout", at: "2026-10-07T09:11:00Z", channel: "stdout", text: "PASS src/reports/usage.test.ts" },
+          { kind: "tool_call", at: "2026-10-07T09:12:00Z", callId: "c1", tool: "run_migration", status: "awaiting_approval", approvalId: "a1" },
+        ],
+      };
+    };
+    const fake = createFakeSource({ responses: { ...responses, "dev.sessions.replay": replay } });
+    renderScreen(fake, <TrainingGroundScreen {...props} />);
+    const grid = await screen.findByRole("region", { name: "Agent tiles" });
+    expect(new Set(asked)).toEqual(new Set([SESSION_BUNDLE, SESSION_INDEX, SESSION_SOURCING]));
+    const pike = within(grid).getByRole("article", { name: /Pike: Usage index/ });
+    await waitFor(() => expect(within(pike).getByText(/PASS src\/reports\/usage\.test\.ts/)).toBeTruthy());
+    expect(within(pike).queryByText(/has not written anything yet|first output/)).toBeNull();
+    // The approval the session is waiting on shows, not the stored phase.
+    expect(within(pike).getAllByText("Waiting").length).toBeGreaterThan(0);
+    // The same event arriving live as well is applied once.
+    act(() => fake.emit({ kind: "stdout", at: "2026-10-07T09:11:00Z", channel: "stdout", text: "PASS src/reports/usage.test.ts" }, `as:${SESSION_INDEX}`));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(within(pike).getAllByText(/PASS src\/reports\/usage\.test\.ts/)).toHaveLength(1);
+  });
+
+  it("a started session whose stream is still empty reads Queued with no clock until its first event (SOAK-08)", async () => {
+    const responses = trainingGroundResponses();
+    const replay = (input: Record<string, unknown> | undefined) => ({ ...responses["dev.sessions.replay"](input), ...(input?.sessionId === SESSION_BUNDLE ? { source: "stream", events: [] } : {}) });
+    const fake = createFakeSource({ responses: { ...responses, "dev.sessions.replay": replay } });
+    renderScreen(fake, <TrainingGroundScreen {...props} />);
+    const grid = await screen.findByRole("region", { name: "Agent tiles" });
+    const juno = () => within(grid).getByRole("article", { name: /Juno: Add a bundle picker/ });
+    await waitFor(() => expect(within(juno()).getByText("Queued, waiting for a worker")).toBeTruthy());
+    expect(within(juno()).queryByText(/session attached · streaming/)).toBeNull();
+    expect(within(within(juno()).getByTestId("tile-footer")).getByText("Queued")).toBeTruthy();
+    expect(screen.getByTestId("ground-counts").textContent).toBe("3 live · 1 running · 1 queued");
+    // The first event means a worker has it.
+    act(() => fake.emit(rawFrame(bundleEvents()[0]!), `as:${SESSION_BUNDLE}`));
+    await waitFor(() => expect(within(juno()).queryByText("Queued, waiting for a worker")).toBeNull());
+    expect(screen.getByTestId("ground-counts").textContent).toBe("3 live · 2 running");
+  });
+
+  it("tells the stream which tile is watched: only the focused tile's channel is focused (RES-12)", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ responses: trainingGroundResponses() });
+    renderScreen(fake, <TrainingGroundScreen {...props} />);
+    const grid = await screen.findByRole("region", { name: "Agent tiles" });
+    expect([SESSION_BUNDLE, SESSION_INDEX, SESSION_SOURCING].map((id) => fake.focusOf(`as:${id}`))).toEqual([false, false, false]);
+    await user.click(within(within(grid).getByRole("article", { name: /Juno: Add a bundle picker/ })).getByTestId("tile-footer"));
+    await waitFor(() => expect(fake.focusOf(`as:${SESSION_BUNDLE}`)).toBe(true));
+    expect(fake.focusOf(`as:${SESSION_INDEX}`)).toBe(false);
+  });
+
+  it("ticks the elapsed clock every second while a session is live (VSOAK2-X1)", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"], now: new Date("2026-10-07T10:00:00Z") });
+    try {
+      const fake = createFakeSource({ responses: trainingGroundResponses() });
+      renderScreen(fake, <TrainingGroundScreen {...props} />, { now: undefined });
+      const juno = within(screen.getByRole("region", { name: "Agent tiles" })).getByRole("article", { name: /Juno: Add a bundle picker/ });
+      const elapsed = () => within(juno).getByTitle("Elapsed").textContent;
+      const before = elapsed();
+      act(() => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(elapsed()).not.toBe(before);
+      expect(elapsed()).toMatch(/20m 5s|20m 05s/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("focuses a tile on click, shows the scrubber and replays the stream at a position", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ responses: trainingGroundResponses() });
@@ -133,7 +211,6 @@ describe("TrainingGroundScreen", () => {
     const tile = within(grid).getByRole("article", { name: /Juno: Add a bundle picker/ });
     await user.click(within(tile).getByTestId("tile-footer"));
     const scrubber = await screen.findByRole("group", { name: "Replay of Juno" });
-    expect(fake.queried.get("dev.sessions.replay")).toEqual({ sessionId: SESSION_BUNDLE });
     // Phase change + shout are marks; stdout and progress ticks are too frequent to mark.
     await waitFor(() => expect(within(scrubber).getByText("2 marks")).toBeTruthy());
     const focused = () => screen.getByRole("article", { name: /Juno: Add a bundle picker/ });
@@ -164,7 +241,7 @@ describe("TrainingGroundScreen", () => {
         { key: "check_sources", label: "Check your sources", text: "Check your sources: quote the record behind every figure.", hint: "Quote the record behind every figure.", apiPreset: null },
       ],
     };
-    const fake = createFakeSource({ responses: { ...trainingGroundResponses(), "agent.conversation.get": (input?: Record<string, unknown>) => ({ persona, input }) }, onMutate: () => ({ message: "ok", results: [] }) });
+    const fake = createFakeSource({ responses: { ...trainingGroundResponses(), "agent.conversation.get": (input?: Record<string, unknown>) => ({ persona, input }) }, onMutate: () => ({ message: "ok", results: [{ queued: true, workflowId: "session:s1" }] }) });
     renderScreen(fake, <TrainingGroundScreen {...props} />);
     const grid = await screen.findByRole("region", { name: "Agent tiles" });
     const tile = () => within(grid).getByRole("article", { name: /Juno: Add a bundle picker/ });
@@ -183,6 +260,22 @@ describe("TrainingGroundScreen", () => {
     expect(await screen.findByRole("menuitem", { name: /Check your sources/ })).toBeTruthy();
     await user.click(screen.getByRole("menuitem", { name: /Check your sources/ }));
     await waitFor(() => expect(fake.mutations).toContainEqual({ path: "dev.tasks.shout", input: { taskId: TASK_BUNDLE, text: "Check your sources: quote the record behind every figure." } }));
+  });
+
+  it("never says a nudge reached the agent when the orchestrator did not take it (audit #79)", async () => {
+    const user = userEvent.setup();
+    const persona = { key: "juno", name: "Juno", voice: { greeting: "Here.", thinking: [], ack: ["Understood. Changing course in this step."] }, nudges: [] };
+    const fake = createFakeSource({
+      responses: { ...trainingGroundResponses(), "agent.conversation.get": () => ({ persona }) },
+      onMutate: () => ({ message: "ok", results: [{ queued: false, workflowId: "session:s1", reason: "Temporal is not reachable" }] }),
+    });
+    renderScreen(fake, <TrainingGroundScreen {...props} />);
+    const grid = await screen.findByRole("region", { name: "Agent tiles" });
+    const tile = within(grid).getByRole("article", { name: /Juno: Add a bundle picker/ });
+    await user.click(within(tile).getByRole("button", { name: "Nudge Juno" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Simplify/ }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/Not delivered/));
+    expect(screen.queryByTestId("nudge-ack")).toBeNull();
   });
 
   it("switches to the Task graph view and draws the whole task graph", async () => {

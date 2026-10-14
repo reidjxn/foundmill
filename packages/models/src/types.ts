@@ -250,7 +250,7 @@ export interface StreamStructuredResult<T, E> extends CompleteResultWithJson<T> 
 /** Result of validating a bring-your-own key (BUILD §10.2 step 1). */
 export interface KeyValidation {
   ok: boolean;
-  /** `invalid_key`, `permission`, `rate_limited`, `network`, `unknown` */
+  /** `invalid_key`, `permission`, `rate_limited`, `billing` (the account cannot pay: no credit or a spend limit), `network`, `unknown` */
   reason?: string;
   message?: string;
   /** Rate limits learnt from the validation response headers, when the call succeeded. */

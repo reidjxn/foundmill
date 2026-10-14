@@ -6,9 +6,15 @@
  * match; no model call is needed for a closed catalogue) and previews it. `runMetric` accepts a `queryId` or the
  * entry's canonical SQL text: the text is matched against the catalogue, never executed, so nothing a widget sends can
  * read outside the business (docs/DECISIONS.md "custom metric SQL is a catalogue key").
+ *
+ * Section walls (BUILD §11.9; audit RA-02): every entry names the section whose data it reads, and a reader without
+ * read access to that section never gets its value, its preview or its catalogue line, exactly as the section's own
+ * procedures (finance.overview, dev.tasks.list, distribution.channels.list, …) refuse them. RLS scopes the rows to the
+ * business, not to a section, so the check lives here.
  */
-import { repos, type Executor } from "@foundmill/db";
-import { ValidationError } from "@foundmill/shared";
+import { MAX_PAGE_SIZE, repos, type Executor } from "@foundmill/db";
+import { PRICING_CURRENCY } from "@foundmill/models";
+import { ForbiddenError, ValidationError, type Section } from "@foundmill/shared";
 
 export type MetricFormat = "compact" | "integer" | "decimal" | "percent" | "money";
 
@@ -32,10 +38,35 @@ export interface CompiledMetric {
   estimate: "forecast" | "estimate" | null;
 }
 
+/** What the caller may read (apps/api passes the membership's effective section permissions). */
+export interface MetricReader {
+  canRead(section: Section): boolean;
+}
+
 interface MetricDefinition extends CompiledMetric {
+  /** The section whose data the metric reads: a reader without read access to it never gets the metric. */
+  section: Section;
   description: string;
   keywords: readonly string[];
-  run(db: Executor, businessId: string, now: Date): Promise<Pick<MetricResult, "value" | "currency" | "series" | "asOf">>;
+  /**
+   * `currency` is the currency of the figure itself; a money metric that has none (no bank connected yet) reads in the
+   * business's own (0025). `provenance` replaces the catalogue's when the figure leaves something out.
+   */
+  run(db: Executor, businessId: string, now: Date): Promise<Pick<MetricResult, "value" | "currency" | "series" | "asOf"> & { provenance?: string }>;
+}
+
+/**
+ * Amounts in several currencies are never added together: the total in the business's currency when it has any (else in
+ * the most used one; `count` is how many payments an item stands for), and whether anything in another currency was left out.
+ */
+export function totalInOneCurrency(items: readonly { amountMinor: number; currency: string; count?: number }[], businessCurrency: string): { value: number; currency: string; leftOut: boolean } {
+  const by = new Map<string, { sum: number; n: number }>();
+  for (const i of items) {
+    const t = by.get(i.currency) ?? { sum: 0, n: 0 };
+    by.set(i.currency, { sum: t.sum + i.amountMinor, n: t.n + (i.count ?? 1) });
+  }
+  const currency = by.has(businessCurrency) || by.size === 0 ? businessCurrency : [...by.entries()].sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0]))[0]![0];
+  return { value: by.get(currency)?.sum ?? 0, currency, leftOut: by.size > (by.has(currency) ? 1 : 0) };
 }
 
 const DAY_MS = 86_400_000;
@@ -44,6 +75,7 @@ const last30 = (now: Date) => ({ from: new Date(now.getTime() - 30 * DAY_MS), to
 export const METRICS: readonly MetricDefinition[] = [
   {
     queryId: "cash",
+    section: "finance",
     label: "Cash in bank",
     description: "Sum of the latest balances of the connected bank accounts.",
     format: "money",
@@ -54,11 +86,12 @@ export const METRICS: readonly MetricDefinition[] = [
     async run(db, businessId) {
       const cash = await repos.finance.cashPosition(db, businessId);
       const base = cash.byCurrency[0];
-      return { value: base?.balanceMinor ?? 0, currency: base?.currency ?? "EUR", asOf: base?.oldestBalanceAt?.toISOString() ?? null };
+      return { value: base?.balanceMinor ?? 0, currency: base?.currency, asOf: base?.oldestBalanceAt?.toISOString() ?? null };
     },
   },
   {
     queryId: "net_burn",
+    section: "finance",
     label: "Net burn (monthly)",
     description: "Operating outflows minus operating inflows, trailing 3-month average.",
     format: "money",
@@ -69,11 +102,12 @@ export const METRICS: readonly MetricDefinition[] = [
     async run(db, businessId, now) {
       const burn = await repos.finance.netBurn(db, businessId, { months: 3, asOf: now });
       const cash = await repos.finance.cashPosition(db, businessId);
-      return { value: burn.netBurnMinor, currency: cash.byCurrency[0]?.currency ?? "EUR", asOf: now.toISOString() };
+      return { value: burn.netBurnMinor, currency: cash.byCurrency[0]?.currency, asOf: now.toISOString() };
     },
   },
   {
     queryId: "runway_months",
+    section: "finance",
     label: "Runway (months)",
     description: "Cash divided by net burn.",
     format: "decimal",
@@ -89,6 +123,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "revenue_30d",
+    section: "finance",
     label: "Revenue, last 30 days",
     description: "Payments received in the last 30 days (cash basis).",
     format: "money",
@@ -97,18 +132,21 @@ export const METRICS: readonly MetricDefinition[] = [
     sql: "select sum(amount_minor) from conversions where business_id = current_business() and kind = 'payment' and occurred_at >= now() - interval '30 days'",
     keywords: ["revenue", "sales", "income", "mrr", "payments"],
     async run(db, businessId, now) {
-      const page = await repos.journeys.listConversions(db, businessId, { ...last30(now), kind: "payment", limit: 1000 });
-      return { value: page.items.reduce((s, c) => s + c.amountMinor, 0), currency: page.items[0]?.currency ?? "EUR", asOf: now.toISOString() };
+      // Summed in SQL (every payment, no page cap), per currency: the business's own currency, never a mix of two.
+      const sums = await repos.journeys.sumConversions(db, businessId, { ...last30(now), kind: "payment" });
+      const total = totalInOneCurrency(sums, (await repos.businesses.get(db, businessId)).currency);
+      return { value: total.value, currency: total.currency, asOf: now.toISOString(), ...(total.leftOut ? { provenance: `Payment conversions in ${total.currency}, last 30 days, cash basis (payments in other currencies not added)` } : {}) };
     },
   },
   {
     queryId: "customers_30d",
+    section: "distribution",
     label: "Customers won, last 30 days",
     description: "Paying customers won in the last 30 days.",
     format: "integer",
-    provenance: "Payment conversions, last 30 days",
+    provenance: "First payments, last 30 days",
     estimate: null,
-    sql: "select count(*) from conversions where business_id = current_business() and kind = 'payment' and occurred_at >= now() - interval '30 days'",
+    sql: "select count(*) from conversions where business_id = current_business() and kind = 'payment' and first_payment and occurred_at >= now() - interval '30 days'",
     keywords: ["customers", "paying", "won", "wins"],
     async run(db, businessId, now) {
       const counts = await repos.journeys.countConversions(db, businessId, last30(now));
@@ -117,6 +155,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "signups_30d",
+    section: "distribution",
     label: "Sign-ups, last 30 days",
     description: "Sign-ups in the last 30 days.",
     format: "integer",
@@ -131,6 +170,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "activation_rate_30d",
+    section: "distribution",
     label: "Activation rate, last 30 days",
     description: "Activations as a share of sign-ups in the last 30 days.",
     format: "percent",
@@ -145,6 +185,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "tasks_running",
+    section: "development",
     label: "Tasks running",
     description: "Team tasks currently running.",
     format: "integer",
@@ -159,6 +200,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "tasks_done",
+    section: "development",
     label: "Tasks done",
     description: "Team tasks completed.",
     format: "integer",
@@ -173,6 +215,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "agents_active",
+    section: "team",
     label: "Agents working",
     description: "Agents with a healthy or degraded status (not paused, down or idle).",
     format: "integer",
@@ -187,6 +230,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "spend_30d",
+    section: "finance",
     label: "Agent spend, last 30 days",
     description: "Model and sandbox cost metered in the last 30 days.",
     format: "money",
@@ -196,11 +240,13 @@ export const METRICS: readonly MetricDefinition[] = [
     keywords: ["spend", "cost", "wages", "usage", "credits"],
     async run(db, businessId, now) {
       const totals = await repos.usage.totals(db, businessId, last30(now));
-      return { value: totals.costMinor, currency: "EUR", asOf: now.toISOString() };
+      // Model and sandbox costs are metered in the pricing currency, not the business's (an Estimate).
+      return { value: totals.costMinor, currency: PRICING_CURRENCY, asOf: now.toISOString() };
     },
   },
   {
     queryId: "cpa_blended",
+    section: "distribution",
     label: "Cost per customer (blended)",
     description: "Channel spend divided by customers won, last 30 days.",
     format: "money",
@@ -209,12 +255,17 @@ export const METRICS: readonly MetricDefinition[] = [
     sql: "select sum(spend_minor) / nullif(sum(customers), 0) from channel_metrics where business_id = current_business() and day >= current_date - 30",
     keywords: ["cpa", "cost per customer", "acquisition cost", "cac"],
     async run(db, businessId, now) {
-      const summary = await repos.channels.metricsSummary(db, businessId, { from: new Date(now.getTime() - 30 * DAY_MS).toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) });
-      return { value: summary.blended.cpaMinor, currency: "EUR", asOf: now.toISOString() };
+      const [summary, channels] = await Promise.all([repos.channels.metricsSummary(db, businessId, { from: new Date(now.getTime() - 30 * DAY_MS).toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) }), repos.channels.list(db, businessId)]);
+      // Spend is in each channel's own currency: a blended figure exists only when they share one.
+      const currencyOf = new Map(channels.map((c) => [c.id, c.currency] as const));
+      const currencies = [...new Set(summary.channels.map((c) => currencyOf.get(c.channelId)).filter((c): c is string => Boolean(c)))];
+      if (currencies.length > 1) return { value: null, asOf: now.toISOString(), provenance: "Channels spend in more than one currency; see each channel's cost per customer" };
+      return { value: summary.blended.cpaMinor, currency: currencies[0], asOf: now.toISOString() };
     },
   },
   {
     queryId: "channels_enabled",
+    section: "distribution",
     label: "Channels enabled",
     description: "Channels switched on in the Board.",
     format: "integer",
@@ -235,8 +286,13 @@ const byId = new Map(METRICS.map((m) => [m.queryId, m]));
 const normaliseSql = (s: string) => s.trim().replace(/\s+/g, " ").replace(/;+$/, "").toLowerCase();
 const bySql = new Map(METRICS.map((m) => [normaliseSql(m.sql), m]));
 
-export function listMetrics(): { id: string; label: string; description: string; format: MetricFormat; estimate: "forecast" | "estimate" | null }[] {
-  return METRICS.map((m) => ({ id: m.queryId, label: m.label, description: m.description, format: m.format, estimate: m.estimate }));
+/** The catalogue lines the reader may use (a metric from a section they cannot read is not offered). */
+export function listMetrics(reader: MetricReader): { id: string; label: string; description: string; format: MetricFormat; estimate: "forecast" | "estimate" | null }[] {
+  return METRICS.filter((m) => reader.canRead(m.section)).map((m) => ({ id: m.queryId, label: m.label, description: m.description, format: m.format, estimate: m.estimate }));
+}
+
+function assertReadable(m: MetricDefinition, reader: MetricReader): void {
+  if (!reader.canRead(m.section)) throw new ForbiddenError(`You do not have read access to ${m.section}`);
 }
 
 /** Resolve `{ queryId }` or `{ sql }` to a catalogue entry. SQL is matched, never executed (AC-11.2.5). */
@@ -256,19 +312,21 @@ export function resolveMetric(input: { queryId?: string | null; sql?: string | n
   throw new ValidationError("Give a queryId or the compiled sql");
 }
 
-export async function runMetric(db: Executor, businessId: string, input: { queryId?: string | null; sql?: string | null }, now = new Date()): Promise<MetricResult> {
+export async function runMetric(db: Executor, businessId: string, input: { queryId?: string | null; sql?: string | null }, reader: MetricReader, now = new Date()): Promise<MetricResult> {
   const m = resolveMetric(input);
+  assertReadable(m, reader);
   const r = await m.run(db, businessId, now);
-  return { value: r.value, currency: r.currency, series: r.series, asOf: r.asOf, format: m.format, label: m.label, provenance: m.provenance, estimate: m.estimate };
+  const currency = m.format === "money" ? (r.currency ?? (await repos.businesses.get(db, businessId)).currency) : r.currency;
+  return { value: r.value, currency, series: r.series, asOf: r.asOf, format: m.format, label: m.label, provenance: r.provenance ?? m.provenance, estimate: m.estimate };
 }
 
 const tokenise = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/\s+/).filter(Boolean);
 
 /** The catalogue entry a sentence means, by keyword overlap (ties → catalogue order). Null when nothing matches. */
-export function matchMetric(sentence: string): MetricDefinition | null {
+export function matchMetric(sentence: string, among: readonly MetricDefinition[] = METRICS): MetricDefinition | null {
   const text = ` ${tokenise(sentence).join(" ")} `;
   let best: { m: MetricDefinition; score: number } | null = null;
-  for (const m of METRICS) {
+  for (const m of among) {
     let score = 0;
     for (const k of m.keywords) if (text.includes(` ${k.toLowerCase()} `)) score += k.includes(" ") ? 2 : 1;
     if (/last 30 days|30 days|this month|monthly/.test(text) && m.queryId.endsWith("_30d")) score += 0.5;
@@ -277,10 +335,19 @@ export function matchMetric(sentence: string): MetricDefinition | null {
   return best?.m ?? null;
 }
 
-export async function compileMetric(db: Executor, businessId: string, sentence: string, now = new Date()): Promise<CompiledMetric & { preview: MetricResult; alternatives: string[] }> {
-  const m = matchMetric(sentence);
-  if (!m) throw new ValidationError(`No known metric matches "${sentence.slice(0, 80)}". Try one of: ${METRICS.map((x) => x.label).join(", ")}`, { known: METRIC_IDS });
-  const preview = await runMetric(db, businessId, { queryId: m.queryId }, now);
-  const alternatives = METRICS.filter((x) => x !== m && x.keywords.some((k) => sentence.toLowerCase().includes(k))).map((x) => x.queryId);
+/**
+ * A sentence → the readable catalogue entry it means, with a preview. Only metrics from sections the reader may read are
+ * matched, previewed or offered as alternatives; a sentence that only matches a walled metric is refused (403).
+ */
+export async function compileMetric(db: Executor, businessId: string, sentence: string, reader: MetricReader, now = new Date()): Promise<CompiledMetric & { preview: MetricResult; alternatives: string[] }> {
+  const readable = METRICS.filter((x) => reader.canRead(x.section));
+  const m = matchMetric(sentence, readable);
+  if (!m) {
+    const walled = matchMetric(sentence);
+    if (walled) throw new ForbiddenError(`You do not have read access to ${walled.section}`);
+    throw new ValidationError(`No known metric matches "${sentence.slice(0, 80)}". Try one of: ${readable.map((x) => x.label).join(", ")}`, { known: readable.map((x) => x.queryId) });
+  }
+  const preview = await runMetric(db, businessId, { queryId: m.queryId }, reader, now);
+  const alternatives = readable.filter((x) => x !== m && x.keywords.some((k) => sentence.toLowerCase().includes(k))).map((x) => x.queryId);
   return { queryId: m.queryId, sql: m.sql, label: m.label, format: m.format, provenance: m.provenance, estimate: m.estimate, preview, alternatives };
 }

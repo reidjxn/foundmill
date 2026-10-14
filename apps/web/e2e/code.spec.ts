@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, openBusiness } from "./helpers";
+import { LONG, openBusiness, settingsScreen } from "./helpers";
 
 /**
  * Development › Code (0013 workspaces): the code agents wrote on code tasks, saved by the orchestrator when each
@@ -39,7 +39,7 @@ test.describe("development code tab", () => {
     await expect(dialog.getByText(/not connected for this business yet/)).toBeVisible();
     await dialog.getByRole("button", { name: "Open Settings › Integrations" }).click();
     await page.waitForURL(/\/settings\/integrations/, { timeout: LONG });
-    await expect(page.getByTestId("settings-screen")).toHaveAttribute("data-tab", "integrations", { timeout: LONG });
+    await expect(settingsScreen(page)).toHaveAttribute("data-tab", "integrations", { timeout: LONG });
   });
 });
 

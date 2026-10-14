@@ -43,6 +43,9 @@ describe("seedFromRows / baseSession", () => {
     const seed = seedFromRows({ task: bundle, session: null, agent });
     expect(seed.id).toBe(placeholderSessionId(TASK_BUNDLE));
     expect(seed.tokens).toBe(0);
+    // A session's cost is a model cost: in the pricing currency before the session opens too, never the business's.
+    expect(seed.cost).toEqual({ amountMinor: 0, currency: "USD" });
+    expect(seedFromRows({ task: bundle, session: { ...bundleSession, currency: undefined }, agent }).cost).toEqual({ amountMinor: 240, currency: "USD" });
   });
   it("carries the task's goal as one plain line (the brief a waiting tile shows)", () => {
     const seed = seedFromRows({ task: { ...bundle, goalMd: "## Goal\n\nAdd a **bundle picker** to the [product page](https://x).\n\n- Picker renders" }, session: bundleSession, agent });
@@ -75,6 +78,18 @@ describe("seedFromRows / baseSession", () => {
     expect(d.phase).toBe("done");
     expect(d.progress).toBe(1);
     expect(d.endedAt).toBe("2026-10-06T15:00:00.000Z");
+  });
+  it("stops the clock of a blocked task whose session ended; a running one keeps ticking (FR-18)", () => {
+    // Blocked on an approval or a dependency, its session over: the tile's elapsed time stops when the task moved.
+    const blocked = { ...bundle, status: "blocked" as const, updatedAt: "2026-10-07T09:52:00Z" };
+    expect(baseSession(seedFromRows({ task: blocked, session: null, agent }), blocked).endedAt).toBe("2026-10-07T09:52:00.000Z");
+    // With the session that ended at hand, its own end wins.
+    const ended = { ...bundleSession, endedAt: "2026-10-07T09:51:30Z" };
+    expect(baseSession(seedFromRows({ task: blocked, session: ended, agent }), blocked, ended).endedAt).toBe("2026-10-07T09:51:30.000Z");
+    // Blocked inside a session that is still open (waiting for an answer), and running: the clock runs.
+    expect(baseSession(seedFromRows({ task: blocked, session: bundleSession, agent }), blocked, bundleSession).endedAt).toBeNull();
+    const running = { ...bundle, updatedAt: "2026-10-07T09:52:00Z" };
+    expect(baseSession(seedFromRows({ task: running, session: null, agent }), running).endedAt).toBeNull();
   });
   it("placeholder for an unassigned task reads Unassigned", () => {
     expect(toTileAgent(undefined, null).name).toBe("Unassigned");
@@ -163,8 +178,9 @@ describe("SessionThrottle", () => {
 });
 
 describe("concurrencyHint", () => {
-  it("names the largest team the key supports and clamps to 1–64", () => {
-    expect(concurrencyHint(16, 3)).toBe("3 of 16 running · 16 is the largest team your key supports");
+  it("names the plan's concurrent-agent limit and clamps to 1–64", () => {
+    expect(concurrencyHint(16, 3)).toBe("3 of 16 running · your plan runs 16 agents at once");
+    expect(concurrencyHint(1, 1)).toBe("1 of 1 running · your plan runs 1 agent at once");
     expect(concurrencyHint(400, 0)).toMatch(/of 64 running/);
     expect(concurrencyHint(0, 0)).toMatch(/of 1 running/);
   });

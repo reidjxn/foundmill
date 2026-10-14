@@ -1,5 +1,6 @@
 /** crm.search/entity.list/get/update/merge/unmerge/create/requestDeletion/notes/roles (BUILD §11.12; AC-11.12.2 via RLS, AC-11.12.3 merge/unmerge). */
-import { AddRoleInput, EntityListFilter, SearchInput, UpdateEntityInput, repos } from "@foundmill/db";
+import { AddRoleInput, EntityListFilter, STRONG_IDENTIFIERS, SearchInput, UpdateEntityInput, repos } from "@foundmill/db";
+import { AppError } from "@foundmill/shared";
 import { z } from "zod";
 import { Id, audit, router, sectionRead, sectionWrite } from "../trpc";
 
@@ -15,21 +16,56 @@ export const crmRouter = router({
   search: read.input(SearchInput).query(({ ctx, input }) => ctx.rls((tx) => repos.entities.search(tx, ctx.businessId, input))),
 
   entity: router({
-    /** The CRM list without a search term (newest first, keyset paged). */
-    list: read.input(EntityListFilter).query(({ ctx, input }) => ctx.rls((tx) => repos.entities.list(tx, ctx.businessId, { ...input, limit: Math.min(input?.limit ?? 100, 500) }))),
     /**
-     * GDPR-style deletion request: recorded on the profile (interaction note) and the audit chain; nothing is deleted by
-     * agent or API code (a hard gate). The request names who asked, when and the earliest completion date.
+     * Hover cards and links for entity mentions (audit GTM-26, VFR3-X1): the records behind up to 50 ids, each with its
+     * kind, active roles and contact facts, and for an agent's record the agent it stands for (an agent's mention opens
+     * the agent's profile, not a CRM record). Ids that are not records of this business are left out.
+     */
+    lookup: read.input(z.object({ entityIds: z.array(Id).min(1).max(50) })).query(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const rows = await repos.entities.byIds(tx, ctx.businessId, [...new Set(input.entityIds)]);
+        const roles = await repos.entities.activeRoles(tx, ctx.businessId, rows.map((e) => e.id));
+        const text = (v: unknown) => (typeof v === "string" && v ? v : null);
+        return rows.map((e) => ({
+          id: e.id,
+          kind: e.kind,
+          displayName: e.displayName,
+          agentId: e.agentId,
+          avatarUrl: e.avatarUrl,
+          mergedIntoId: e.mergedIntoId,
+          email: text(e.identifiers?.email),
+          domain: text(e.identifiers?.domain),
+          roles: (roles.get(e.id) ?? []).map((r) => ({ role: r.role, stage: r.stage })),
+        }));
+      }),
+    ),
+    /**
+     * The CRM list without a search term (newest first, keyset paged). Every row carries its active roles (role, stage,
+     * owner) for the role and stage views; role, stage, owner and department filters match those roles server-side.
+     */
+    list: read.input(EntityListFilter).query(({ ctx, input }) => ctx.rls((tx) => repos.entities.listWithRoles(tx, ctx.businessId, { ...input, limit: Math.min(input?.limit ?? 100, 500) }))),
+    /** How many records the same filters list (without paging): the CRM footer's true total. */
+    count: read.input(EntityListFilter.omit({ cursor: true, limit: true, offset: true })).query(({ ctx, input }) => ctx.rls(async (tx) => ({ total: await repos.entities.count(tx, ctx.businessId, input ?? {}) }))),
+    /**
+     * GDPR-style deletion request (audit RA-23): at once, every contact identifier of the record goes on the business's
+     * suppression list (the gateway refuses outreach to it and no engine imports it again) and the record is flagged
+     * `deletion_requested_at`; the orchestrator's nightly `crmDeletionSweep` purges it once the delay has passed. Nothing
+     * is deleted by agent or API code. Recorded on the profile (interaction note) and the audit chain with who asked,
+     * when and the earliest completion date; a repeated request keeps the first dates and adds nothing.
      */
     requestDeletion: write.input(z.object({ entityId: Id, reason: z.string().max(1000).optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
-        const entity = await repos.entities.resolve(tx, ctx.businessId, input.entityId);
-        const requestedAt = new Date();
-        const earliestAt = new Date(requestedAt.getTime() + DELETION_DELAY_DAYS * 86_400_000);
-        const note = `Deletion requested by ${ctx.email ?? ctx.userId} on ${usDate(requestedAt)}; earliest completion ${usDate(earliestAt)}.${input.reason ? ` Reason: ${input.reason}` : ""}`;
-        const interaction = await repos.entities.addNote(tx, ctx.businessId, entity.id, note);
-        await audit(tx, ctx, { action: "crm.entity.request_deletion", target: { kind: "entity", id: entity.id }, details: { reason: input.reason ?? null, requestedAt: requestedAt.toISOString(), earliestAt: earliestAt.toISOString(), interactionId: interaction.id } });
-        return { entityId: entity.id, status: "requested" as const, requestedAt: requestedAt.toISOString(), earliestAt: earliestAt.toISOString(), delayDays: DELETION_DELAY_DAYS, interactionId: interaction.id };
+        const requested = await repos.entities.requestDeletion(tx, ctx.businessId, input.entityId, { delayDays: DELETION_DELAY_DAYS });
+        const entity = requested.entity;
+        const requestedAt = entity.deletionRequestedAt ?? new Date();
+        const earliestAt = entity.deletionDueAt ?? new Date(requestedAt.getTime() + DELETION_DELAY_DAYS * 86_400_000);
+        let interactionId: string | null = null;
+        if (!requested.already) {
+          const note = `Deletion requested by ${ctx.email ?? ctx.userId} on ${usDate(requestedAt)}; earliest completion ${usDate(earliestAt)}. Outreach to this person is suppressed from now on.${input.reason ? ` Reason: ${input.reason}` : ""}`;
+          interactionId = (await repos.entities.addNote(tx, ctx.businessId, entity.id, note)).id;
+          await audit(tx, ctx, { action: "crm.entity.request_deletion", target: { kind: "entity", id: entity.id }, details: { reason: input.reason ?? null, requestedAt: requestedAt.toISOString(), earliestAt: earliestAt.toISOString(), interactionId, suppressed: requested.suppressed } });
+        }
+        return { entityId: entity.id, status: "requested" as const, requestedAt: requestedAt.toISOString(), earliestAt: earliestAt.toISOString(), delayDays: DELETION_DELAY_DAYS, interactionId, suppressed: requested.suppressed, already: requested.already };
       }),
     ),
     get: read.input(z.object({ entityId: Id })).query(({ ctx, input }) =>
@@ -44,7 +80,9 @@ export const crmRouter = router({
           repos.journeys.listConversions(tx, ctx.businessId, { entityId: entity.id, limit: 50 }),
           repos.entities.mergeHistory(tx, ctx.businessId, entity.id),
         ]);
-        return { entity, profile, roles, relationships, interactions: interactions.items, mentions, conversions: journeys.items, mergeHistory, redirectedFrom: entity.id !== input.entityId ? input.entityId : null };
+        // Each win carries its Customer Update id (null when it has none), so Re-watch and Activity link straight to it.
+        const conversions = (await repos.journeys.labelConversions(tx, ctx.businessId, journeys.items)).map(({ entityName: _name, ...c }) => c);
+        return { entity, profile, roles, relationships, interactions: interactions.items, mentions, conversions, mergeHistory, redirectedFrom: entity.id !== input.entityId ? input.entityId : null };
       }),
     ),
     update: write.input(z.object({ entityId: Id, patch: UpdateEntityInput })).mutation(({ ctx, input }) =>
@@ -63,6 +101,7 @@ export const crmRouter = router({
         return result;
       }),
     ),
+    /** Reverts only what the merge changed; CONFLICT (with the later merge to undo first) while a later merge relies on it. */
     unmerge: write.input(z.object({ mergeLogId: Id })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const result = await repos.entities.unmerge(tx, ctx.businessId, input.mergeLogId);
@@ -70,8 +109,21 @@ export const crmRouter = router({
         return result;
       }),
     ),
-    create: write.input(z.object({ kind: z.enum(["person", "organisation", "venue"]), displayName: z.string().min(1).max(200), identifiers: z.record(z.string(), z.string()).default({}), aliases: z.array(z.string()).default([]), lawfulBasis: z.string().max(80).nullable().default(null) })).mutation(({ ctx, input }) =>
+    /**
+     * A new record. A strong identifier (email, domain, LinkedIn, company number, Stripe customer) that a live record
+     * already holds is a duplicate (BUILD §11.12 "strong identifiers first"): the call is refused with a CONFLICT
+     * (`duplicate_entity`, `details.existing` names the record) unless the founder confirms with `allowDuplicate`.
+     */
+    create: write.input(z.object({ kind: z.enum(["person", "organisation", "venue"]), displayName: z.string().min(1).max(200), identifiers: z.record(z.string(), z.string()).default({}), aliases: z.array(z.string()).default([]), lawfulBasis: z.string().max(80).nullable().default(null), allowDuplicate: z.boolean().default(false) })).mutation(({ ctx, input: { allowDuplicate, ...input } }) =>
       ctx.rls(async (tx) => {
+        if (!allowDuplicate) {
+          for (const key of STRONG_IDENTIFIERS) {
+            const value = input.identifiers[key]?.trim();
+            if (!value) continue;
+            const existing = await repos.entities.findByIdentifier(tx, ctx.businessId, key, value);
+            if (existing) throw new AppError("duplicate_entity", `${existing.displayName} already has this ${key === "email" ? "email address" : key}.`, 409, { existing: { id: existing.id, displayName: existing.displayName, kind: existing.kind }, identifier: key });
+          }
+        }
         const entity = await repos.entities.create(tx, ctx.businessId, { ...input, source: "user" });
         await audit(tx, ctx, { action: "crm.entity.create", target: { kind: "entity", id: entity.id }, details: { kind: input.kind } });
         return entity;

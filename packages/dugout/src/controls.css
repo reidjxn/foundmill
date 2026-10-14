@@ -207,7 +207,10 @@
   background-color: color-mix(in oklab, var(--black) 18%, transparent);
 }
 
-/* The consequence line under a two-line option's label ("Stock-out risk in Nov"), in the button's own colour, dimmed. */
+/* The consequence line under a two-line option's label ("Stock-out risk in Nov"), in the button's own colour, dimmed.
+   On a filled colour (the recommended option on the brand, a danger or gold action) the on-colour is chosen to pass at
+   full strength only (kitOnPrimary: Lc 75 and 4.5 : 1); dimmed, it fell to 3.4–4.2 : 1 on most brands (A11Y-06). There
+   the line keeps the full colour and stands apart by its weight and size alone. */
 @utility btn-desc {
   font-family: var(--font-body);
   font-weight: var(--fw-body);
@@ -215,6 +218,9 @@
   line-height: var(--lh-small);
   color: color-mix(in oklab, currentColor 76%, transparent);
   text-wrap: pretty;
+  :is([data-variant="primary"], [data-variant="danger"], [data-variant="gold"]) & {
+    color: currentColor;
+  }
 }
 
 /* =========================================================================================================

@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { createCollabAuthenticator, mintCollabServiceToken } from "../auth";
 import { createCollabClient } from "../client";
-import { specDocumentName } from "../document-name";
+import { parseDocumentName, specDocumentName } from "../document-name";
 import { docToPmDoc, pmEqual, type PmNode } from "../prosemirror";
 import { createCollabServer, type CollabServer } from "../server";
 import { blockTexts, RawHocuspocusClient, until } from "./protocol-client";
@@ -211,6 +211,143 @@ describe("authentication and authorisation", () => {
     await until(async () => (await repos.product.getBlock(db, A.businessId, block.id)).version === block.version, 1000, "no version bump");
   });
 
+  it("staff section permissions apply (TPD-06): Product none is denied, read is read-only, over the socket and HTTP", async () => {
+    const block = await newBlock(A.businessId);
+    const name = specDocumentName(A.businessId, block.id);
+    const url = `${httpUrl}/v1/spec-blocks/${A.businessId}/${block.id}`;
+    const post = async (userId: string) => fetch(url, { method: "POST", headers: { authorization: `Bearer ${await userToken(userId)}`, "content-type": "application/json" }, body: JSON.stringify({ content: { type: "doc", content: [paragraph("MEMBER rewrote the block.")] } }) });
+    try {
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.memberId, { product: "none" });
+      const walled = await connect(await userToken(A.memberId), name);
+      expect(walled.outcome).not.toBe("authenticated");
+      await walled.client.close();
+      expect((await fetch(url, { headers: { authorization: `Bearer ${await userToken(A.memberId)}` } })).status).toBe(403);
+      expect((await post(A.memberId)).status).toBe(403);
+      await expect(server.authorize({ kind: "user", userId: A.memberId, email: null }, parseDocumentName(name))).rejects.toMatchObject({ reason: "section-denied" });
+
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.memberId, { product: "read" });
+      const reader = await connect(await userToken(A.memberId), name);
+      expect(reader.outcome).toBe("authenticated");
+      expect(reader.client.scope).toBe("readonly");
+      await reader.client.close();
+      expect((await fetch(url, { headers: { authorization: `Bearer ${await userToken(A.memberId)}` } })).status).toBe(200);
+      expect((await post(A.memberId)).status).toBe(403);
+
+      // An explicit "write" never lets a viewer edit: writing needs a write role too.
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.viewerId, { product: "write" });
+      expect((await post(A.viewerId)).status).toBe(403);
+      expect((await repos.product.getBlock(db, A.businessId, block.id)).version).toBe(block.version);
+    } finally {
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.memberId, {});
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.viewerId, {});
+    }
+    // The member's default (write) is back.
+    expect((await post(A.memberId)).status).toBe(200);
+  });
+
+  it("open connections follow permission changes: read-only takes effect at once, a wall closes the connection (security review S1)", async () => {
+    const block = await newBlock(A.businessId);
+    const name = specDocumentName(A.businessId, block.id);
+    const member = await connect(await userToken(A.memberId), name);
+    const owner = await connect(await userToken(A.ownerId), name);
+    try {
+      expect(member.client.scope).toBe("read-write");
+      await member.client.waitForSync();
+      // Product turned read-only while the editor is open: still connected, its writes are now refused.
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.memberId, { product: "read" });
+      expect(await server.reauthorize()).toBe(0);
+      appendParagraph(member.client.doc, "MEMBER wrote after the change.");
+      await member.client.waitUntil(() => member.client.syncStatuses.includes(false), 5000, "rejection ack");
+      expect(JSON.stringify(docToPmDoc(server.hocuspocus.documents.get(name)!))).not.toContain("MEMBER wrote after");
+
+      // Product walled off: the member's connection is closed; the owner's is untouched.
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.memberId, { product: "none" });
+      expect(await server.reauthorize()).toBe(1);
+      await member.client.waitUntil(() => member.client.closeReason !== null, 5000, "close message");
+      expect(member.client.closeReason).toBe("section-denied");
+      expect(owner.client.closeReason).toBeNull();
+      expect(server.hocuspocus.documents.get(name)!.getConnectionsCount()).toBe(1);
+    } finally {
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.memberId, {});
+      await member.client.close();
+      await owner.client.close();
+    }
+  });
+
+  it("a person the invite list does not name opens no spec block, whatever their membership", async () => {
+    const auth = createCollabAuthenticator({ appEnv: "test", jwtSecret: JWT_SECRET, serviceSecret: SERVICE_SECRET });
+    const invited = `${A.ownerId.slice(0, 8)}@test.local`;
+    const listed = createCollabServer({ db, auth, admit: (user) => user.email === invited }, { debounceMs: 60, maxDebounceMs: 300 });
+    const bound = await listed.listen(0);
+    const block = await newBlock(A.businessId);
+    const name = specDocumentName(A.businessId, block.id);
+    try {
+      const member = new RawHocuspocusClient(`ws://127.0.0.1:${bound.port}`, name, await userToken(A.memberId));
+      expect(await member.connect()).toBe("denied");
+      await member.close();
+      await expect(listed.authorize({ kind: "user", userId: A.memberId, email: "member@test.local" }, parseDocumentName(name))).rejects.toMatchObject({ reason: "not-invited" });
+      const owner = new RawHocuspocusClient(`ws://127.0.0.1:${bound.port}`, name, await userToken(A.ownerId));
+      expect(await owner.connect()).toBe("authenticated");
+      await owner.close();
+    } finally {
+      await listed.close();
+    }
+  });
+
+  it("re-checks open connections on a timer: a removed member's editor is closed without any action of theirs", async () => {
+    const auth = createCollabAuthenticator({ appEnv: "test", jwtSecret: JWT_SECRET, serviceSecret: SERVICE_SECRET });
+    const fast = createCollabServer({ db, auth }, { debounceMs: 60, maxDebounceMs: 300, reauthorizeMs: 40 });
+    const bound = await fast.listen(0);
+    const block = await newBlock(A.businessId);
+    const name = specDocumentName(A.businessId, block.id);
+    const client = new RawHocuspocusClient(`ws://127.0.0.1:${bound.port}`, name, await userToken(A.viewerId));
+    try {
+      expect(await client.connect()).toBe("authenticated");
+      await client.waitForSync();
+      await repos.memberships.remove(db, A.businessId, A.viewerId);
+      await client.waitUntil(() => client.closeReason !== null, 5000, "close message");
+      expect(client.closeReason).toBe("not-a-member");
+    } finally {
+      if (!(await repos.memberships.get(db, A.businessId, A.viewerId))) await repos.memberships.add(db, A.businessId, { userId: A.viewerId, role: "viewer" });
+      await client.close();
+      await fast.close();
+    }
+  });
+
+  it("the first human edit in the live editor pins the block, so agents can no longer overwrite it (AC-11.5.3, TPD-05)", async () => {
+    const block = await newBlock(A.businessId);
+    expect(block.pinned).toBe(false);
+    const name = specDocumentName(A.businessId, block.id);
+    const client = createCollabClient({ baseUrl: httpUrl, serviceSecret: SERVICE_SECRET });
+
+    // An agent's store leaves the block unpinned.
+    const agent = await connect(await agentToken(A.businessId, A.agentId), name);
+    await agent.client.waitForSync();
+    appendParagraph(agent.client.doc, "AGENT drafted this.");
+    await until(async () => (await repos.product.getBlock(db, A.businessId, block.id)).version > block.version, 8000, "agent store");
+    expect((await repos.product.getBlock(db, A.businessId, block.id)).pinned).toBe(false);
+
+    // A human types, and the agent's update lands last in the same debounce window: the store still pins.
+    const human = await connect(await userToken(A.memberId), name);
+    await human.client.waitForSync();
+    appendParagraph(human.client.doc, "HUMAN rewrote the risks.");
+    appendParagraph(agent.client.doc, "AGENT added a line after the human.");
+    await until(async () => (await repos.product.getBlock(db, A.businessId, block.id)).pinned, 8000, "pinned by the human edit");
+    await until(async () => JSON.stringify((await repos.product.getBlock(db, A.businessId, block.id)).content).includes("AGENT added a line"), 8000, "both edits stored");
+    const stored = await repos.product.getBlock(db, A.businessId, block.id);
+    expect(JSON.stringify(stored.content)).toContain("HUMAN rewrote the risks.");
+    await agent.client.close();
+
+    // From now on agents only read: the HTTP edit is refused, and a new agent connection is read-only.
+    await expect(client.edit({ businessId: A.businessId, agentId: A.agentId, specBlockId: block.id, content: initialDoc })).rejects.toMatchObject({ status: 409, code: "spec_block_pinned" });
+    expect((await client.read({ businessId: A.businessId, agentId: A.agentId, specBlockId: block.id })).pinned).toBe(true);
+    const again = await connect(await agentToken(A.businessId, A.agentId), name);
+    expect(again.client.scope).toBe("readonly");
+    await again.client.close();
+    await human.client.close();
+    expect(JSON.stringify((await repos.product.getBlock(db, A.businessId, block.id)).content)).toContain("HUMAN rewrote the risks.");
+  });
+
   it("agents are read-only on pinned blocks while humans still write (AC-11.5.3 spirit)", async () => {
     const block = await newBlock(A.businessId, initialDoc, true);
     const name = specDocumentName(A.businessId, block.id);
@@ -242,7 +379,7 @@ describe("HTTP surface", () => {
     expect(await missing.json()).toMatchObject({ error: "not_found" });
   });
 
-  it("an agent edits a block through POST /v1/spec-blocks with a service token: read → edit with expectedRevision, 409 when a human changed it meanwhile, then re-apply on the fresh content", async () => {
+  it("an agent edits a block through POST /v1/spec-blocks with a service token: read → edit with expectedRevision, 409 when someone changed it meanwhile, then re-apply on the fresh content", async () => {
     const block = await newBlock(A.businessId);
     const name = specDocumentName(A.businessId, block.id);
     const client = createCollabClient({ baseUrl: httpUrl, serviceSecret: SERVICE_SECRET });
@@ -251,46 +388,47 @@ describe("HTTP surface", () => {
     const first = await client.read({ businessId: A.businessId, agentId: A.agentId, specBlockId: block.id });
     expect(first).toMatchObject({ live: false, version: block.version, content: initialDoc });
 
-    // A human opens the block and types into the paragraph the agent is about to rewrite.
-    const human = await connect(await userToken(A.ownerId), name);
-    await human.client.waitForSync();
-    typeInto(human.client.doc, 1, 0, "HUMAN: ");
-    await human.client.waitUntil(() => human.client.syncStatuses.some(Boolean), 5000, "human edit acked");
+    // Another writer opens the block and types into the paragraph the agent is about to rewrite. (A second agent: a
+    // human's edit would pin the block, and agents may not edit pinned blocks at all; see the AC-11.5.3 tests above.)
+    const writer = await connect(await agentToken(A.businessId, A.agentId), name);
+    await writer.client.waitForSync();
+    typeInto(writer.client.doc, 1, 0, "EDITOR: ");
+    await writer.client.waitUntil(() => writer.client.syncStatuses.some(Boolean), 5000, "concurrent edit acked");
 
     // The agent's edit against the stale revision is refused and nothing is written.
     const stale: PmNode = { type: "doc", content: [initialDoc.content![0]!, paragraph("AGENT rewrote the paragraph."), paragraph("AGENT: a second paragraph.")] };
     await expect(client.edit({ businessId: A.businessId, agentId: A.agentId, specBlockId: block.id, content: stale, expectedRevision: first.revision })).rejects.toMatchObject({ status: 409, code: "stale_revision" });
-    expect(JSON.stringify(docToPmDoc(human.client.doc))).not.toContain("AGENT");
+    expect(JSON.stringify(docToPmDoc(writer.client.doc))).not.toContain("AGENT");
 
-    // It reads again (now the live document, with the human's text), re-applies its change and succeeds.
+    // It reads again (now the live document, with the other writer's text), re-applies its change and succeeds.
     const fresh = await client.read({ businessId: A.businessId, agentId: A.agentId, specBlockId: block.id });
     expect(fresh.live).toBe(true);
     expect(fresh.revision).not.toBe(first.revision);
-    expect(JSON.stringify(fresh.content)).toContain("HUMAN: Founders lose context between tools.");
+    expect(JSON.stringify(fresh.content)).toContain("EDITOR: Founders lose context between tools.");
     const next: PmNode = { type: "doc", content: [...fresh.content.content!, paragraph("AGENT: a second paragraph."), paragraph("AGENT: a third.")] };
     const result = await client.edit({ businessId: A.businessId, agentId: A.agentId, specBlockId: block.id, content: next, expectedRevision: fresh.revision });
     expect(result).toMatchObject({ changed: 2, kept: 2 });
     const merged = JSON.stringify(result.content);
     expect(merged).toContain("AGENT: a second paragraph.");
-    expect(merged).toContain("HUMAN: Founders lose context between tools.");
+    expect(merged).toContain("EDITOR: Founders lose context between tools.");
     expect(result.version).toBeGreaterThan(block.version);
 
-    // Persisted immediately with the agent as author, and broadcast to the human's editor.
+    // Persisted immediately with the agent as author, and broadcast to the other editor.
     const stored = await repos.product.getBlock(db, A.businessId, block.id);
     expect(stored.authoredByKind).toBe("agent");
     expect(stored.authoredBy).toBe(A.agentId);
     expect(JSON.stringify(stored.content)).toContain("AGENT: a third.");
-    await human.client.waitUntil(() => JSON.stringify(docToPmDoc(human.client.doc)).includes("AGENT: a third."), 5000, "broadcast to human");
+    await writer.client.waitUntil(() => JSON.stringify(docToPmDoc(writer.client.doc)).includes("AGENT: a third."), 5000, "broadcast to the other editor");
 
     const after = await client.read({ businessId: A.businessId, agentId: A.agentId, specBlockId: block.id });
     expect(after.live).toBe(true);
-    expect(after.content).toEqual(docToPmDoc(human.client.doc));
+    expect(after.content).toEqual(docToPmDoc(writer.client.doc));
     expect(after.revision).toBe(result.revision);
 
     // Without expectedRevision the edit is applied as a character-level merge onto whatever is there now.
     const unguarded = await client.edit({ businessId: A.businessId, agentId: A.agentId, specBlockId: block.id, content: { ...after.content, content: [...after.content.content!.slice(0, 3), paragraph("AGENT: a third, revised.")] } });
     expect(unguarded).toMatchObject({ changed: 1, kept: 3 });
-    await human.client.close();
+    await writer.client.close();
   });
 
   it("rejects agent edits on pinned blocks (409), bad tokens (401), other businesses (403/404) and invalid content (400)", async () => {

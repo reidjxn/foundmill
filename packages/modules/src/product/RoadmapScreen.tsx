@@ -9,10 +9,11 @@ import { CalendarRange, Columns3, Map as MapIcon, Plus } from "lucide-react";
 import { Button, Panel, StatusPill, cn } from "@foundmill/dugout";
 import type { RoadmapHorizon } from "@foundmill/shared";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import type { ModuleScreenProps } from "../registry";
 import { FoundationsBanner, useFoundations } from "./foundations";
 import { computeRoadmapStatus, type RoadmapStatus } from "./roadmap-status";
-import { groupByHorizon, indexDependencies, moveInput } from "./roadmap/board";
+import { groupByHorizon, indexDependencies, isMove, moveInput } from "./roadmap/board";
 import { Board } from "./roadmap/Board";
 import { ItemDialog } from "./roadmap/ItemDialog";
 import { Timeline } from "./roadmap/Timeline";
@@ -49,6 +50,8 @@ export function statusCounts(items: readonly RoadmapRow[], today = new Date()): 
 export function RoadmapScreen({ businessId, subView }: ModuleScreenProps) {
   const { navigate } = useWidgetData();
   const roadmap = useWidgetQuery<RoadmapResponse>("product.roadmap.list", {});
+  // Pin to Home (audit #394): the roadmap is the gallery's Roadmap widget.
+  const pinMenu = usePinToHomeMenu({ key: "roadmap_timeline" });
   const spec = useWidgetQuery<SpecGetResponse>("product.spec.get", {});
   const departments = useDepartments();
   const action = useAction();
@@ -83,9 +86,10 @@ export function RoadmapScreen({ businessId, subView }: ModuleScreenProps) {
   const href = (moduleKey: "product" | "development", tab: string, query?: string) => `${moduleHref(businessId, departments.data, moduleKey, tab) ?? routes.department(businessId, moduleKey, tab)}${query ?? ""}`;
   const openBlock = useCallback((blockId: string) => navigate(href("product", "specification", `?block=${blockId}`)), [navigate, departments.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const openTasks = (item: RoadmapRow) => navigate(href("development", "plan", `?item=${item.id}`));
-  const move = async (item: RoadmapRow, horizon: RoadmapHorizon, position: number) => {
-    if (item.horizon === horizon) return;
-    await action.run("product.roadmap.upsert", moveInput(item, horizon, position), { key: `move:${item.id}`, then: () => roadmap.refetch() });
+  // `index` is the place among the target column's other items, so a move inside a column reorders it.
+  const move = async (item: RoadmapRow, horizon: RoadmapHorizon, index: number) => {
+    if (!isMove(columns, item, horizon, index)) return;
+    await action.run("product.roadmap.move", moveInput(item, horizon, index), { key: `move:${item.id}`, then: () => roadmap.refetch() });
   };
   const movingId = action.pending?.startsWith("move:") ? action.pending.slice(5) : null;
   const empty = roadmap.data && items.length === 0;
@@ -95,6 +99,7 @@ export function RoadmapScreen({ businessId, subView }: ModuleScreenProps) {
       <FoundationsBanner foundations={foundations} detail={{ roadmap: true }} />
       <Panel
         title="Roadmap"
+        menu={pinMenu}
         span={12}
         loading={roadmap.isLoading}
         error={roadmap.error ? roadmap.error.message : undefined}
@@ -110,7 +115,7 @@ export function RoadmapScreen({ businessId, subView }: ModuleScreenProps) {
                   role="tab"
                   aria-selected={view === v.slug}
                   onClick={() => setView(v.slug)}
-                  className={cn("inline-flex h-6 items-center gap-1 rounded-chip px-2 text-tab outline-none transition-colors duration-micro ease-dugout focus-visible:outline-2 focus-visible:outline-link", view === v.slug ? "bg-panel-alt text-primary" : "text-secondary hover:text-primary")}
+                  className={cn("inline-flex h-6 items-center gap-1 rounded-chip px-2 text-tab transition-colors duration-micro ease-dugout focus-visible:outline-2 focus-visible:outline-link", view === v.slug ? "bg-panel-alt text-primary" : "text-secondary hover:text-primary")}
                 >
                   {v.slug === "board" ? <Columns3 size={12} aria-hidden /> : <CalendarRange size={12} aria-hidden />}
                   {v.title}
@@ -124,7 +129,7 @@ export function RoadmapScreen({ businessId, subView }: ModuleScreenProps) {
         }
         footer={
           <>
-            <span className="tabular-nums">{items.length} items · drag between columns or press Alt+← / Alt+→ on a card · status flips to Done only when linked acceptance criteria pass</span>
+            <span className="tabular-nums">{items.length} {items.length === 1 ? "item" : "items"} · drag a card, or press Alt+← / Alt+→ to change column and Alt+↑ / Alt+↓ to reorder · status flips to Done only when linked acceptance criteria pass</span>
             <span className="flex-1" />
             <InlineError error={action.error} />
           </>

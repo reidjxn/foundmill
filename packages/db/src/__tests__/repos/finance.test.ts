@@ -1,6 +1,6 @@
 /** finance (accounts, transactions, totals, snapshots, forecasts), capTable (securities, entries, summary), usage (ledger, wages, credits). */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { repos } from "../../repos";
+import { isNonOperatingCategory, repos } from "../../repos";
 import { day, setupRepoHarness, type RepoHarness } from "./helpers";
 
 let r: RepoHarness;
@@ -13,7 +13,7 @@ describe("finance", () => {
   let accountId: string;
 
   it("upserts accounts idempotently and reports the cash position per currency", async () => {
-    const a1 = await repos.finance.upsertAccount(r.db, r.A.businessId, { provider: "tink", externalId: "acc-1", name: "Operating", balanceMinor: 1_000_000, balanceAt: day("2026-10-01"), consentExpiresAt: day("2026-10-10") });
+    const a1 = await repos.finance.upsertAccount(r.db, r.A.businessId, { provider: "tink", externalId: "acc-1", name: "Operating", currency: "EUR", balanceMinor: 1_000_000, balanceAt: day("2026-10-01"), consentExpiresAt: day("2026-10-10") });
     const a1b = await repos.finance.upsertAccount(r.db, r.A.businessId, { provider: "tink", externalId: "acc-1", name: "Operating EUR", balanceMinor: 1_200_000 });
     expect(a1b.id).toBe(a1.id);
     expect(a1b.name).toBe("Operating EUR");
@@ -69,6 +69,33 @@ describe("finance", () => {
     const cats = await repos.finance.categoryTotals(r.db, r.A.businessId);
     expect(cats.find((c) => c.category === "revenue")?.inflowMinor).toBe(700000);
     expect(cats.find((c) => c.category === null)?.outflowMinor).toBe(1000);
+  });
+
+  it("net burn and gross burn leave financing and transfers out (BUILD §11.8: a raise never reads as income)", async () => {
+    // April to June, before the July–September rows above: operating rows plus a SAFE, a director loan, its repayment
+    // and a round trip through a savings account, categorized the ways the bank sync and the seeds store them.
+    await repos.finance.upsertTransactions(r.db, r.A.businessId, [
+      { accountId, externalId: "op-1", bookedAt: day("2026-04-10"), amountMinor: -300_000, counterparty: "Acme Payroll", category: "payroll" },
+      { accountId, externalId: "op-2", bookedAt: day("2026-05-10"), amountMinor: -300_000, counterparty: "Acme Payroll", category: "payroll" },
+      { accountId, externalId: "op-3", bookedAt: day("2026-06-10"), amountMinor: -300_000, counterparty: "Acme Payroll", category: "payroll" },
+      { accountId, externalId: "op-4", bookedAt: day("2026-06-20"), amountMinor: 150_000, counterparty: "Stripe", category: "revenue" },
+      { accountId, externalId: "fin-1", bookedAt: day("2026-05-02"), amountMinor: 40_000_000, counterparty: "Angel", category: "financing" },
+      { accountId, externalId: "fin-2", bookedAt: day("2026-05-03"), amountMinor: 6_000_000, counterparty: "Director", category: "Director loan" },
+      { accountId, externalId: "fin-3", bookedAt: day("2026-06-03"), amountMinor: -1_000_000, counterparty: "Director", category: "loan_repayment" },
+      { accountId, externalId: "tr-1", bookedAt: day("2026-06-15"), amountMinor: -15_000_000, counterparty: "Savings", category: "transfer" },
+      { accountId, externalId: "tr-2", bookedAt: day("2026-06-25"), amountMinor: 6_000_000, counterparty: "Savings", category: " Internal-Transfer " },
+    ]);
+    const months = await repos.finance.monthlyTotals(r.db, r.A.businessId, { from: day("2026-04-01"), to: day("2026-07-01") });
+    // The plain totals keep every row (cash history needs them); the operating totals drop the non-operating ones.
+    expect(months.find((m) => m.month === "2026-05")).toMatchObject({ inflowMinor: 46_000_000, outflowMinor: 300_000, operatingInflowMinor: 0, operatingOutflowMinor: 300_000 });
+    expect(months.find((m) => m.month === "2026-06")).toMatchObject({ inflowMinor: 6_150_000, outflowMinor: 16_300_000, operatingInflowMinor: 150_000, operatingOutflowMinor: 300_000 });
+    const burn = await repos.finance.netBurn(r.db, r.A.businessId, { months: 3, asOf: day("2026-07-02") });
+    expect(burn.grossBurnMinor).toBe(300_000);
+    expect(burn.netBurnMinor).toBe(Math.round((900_000 - 150_000) / 3));
+    expect(burn.netBurnMinor).toBeGreaterThan(0); // still burning: runway warnings keep firing after the raise
+    expect(isNonOperatingCategory("Share_Capital")).toBe(true);
+    expect(isNonOperatingCategory("revenue")).toBe(false);
+    expect(isNonOperatingCategory(null)).toBe(false);
   });
 
   it("ledger snapshots upsert per period/basis; forecasts version per scenario", async () => {
@@ -131,12 +158,19 @@ describe("usage", () => {
     await repos.usage.record(r.db, A, { kind: "training", quantity: 1, costMinor: 250, occurredAt: day("2026-10-04") });
     await repos.usage.record(r.db, A, { agentId: r.A.agentId, kind: "tokens", quantity: 1, costMinor: 999, occurredAt: day("2026-09-30") }); // previous month
     await expect(repos.usage.record(r.db, A, { kind: "tokens", costMinor: -1 })).rejects.toThrow(/Invalid usage entry/);
+    // Third-party tool spend in the vendor's currency is listed apart, never added to the US dollar costs.
+    await repos.usage.record(r.db, A, { agentId: r.A.agentId, kind: "tool", quantity: 1, unit: "calls", costMinor: 700, currency: "GBP", occurredAt: day("2026-10-03") });
 
     const totals = await repos.usage.totals(r.db, A, { from: day("2026-10-01"), to: day("2026-11-01") });
+    expect(totals.currency).toBe("USD");
     expect(totals.costMinor).toBe(415);
+    expect(totals.otherCurrencies).toEqual([{ currency: "GBP", costMinor: 700 }]);
     expect(totals.byKind.tokens.quantity).toBe(170000);
+    expect(totals.byKind.tool).toEqual({ costMinor: 0, quantity: 1 });
     expect(totals.byBilledTo.byok).toBe(120);
-    expect(totals.entries).toBe(4);
+    expect(totals.entries).toBe(5);
+    // A row written without a currency is US dollars (platform costs are metered in the model price list's currency).
+    expect(new Set((await repos.usage.list(r.db, A, { kind: ["tokens", "sandbox", "training"] })).items.map((u) => u.currency))).toEqual(new Set(["USD"]));
     const daily = await repos.usage.daily(r.db, A, { from: day("2026-10-01"), to: day("2026-11-01") });
     expect(daily.map((d) => d.costMinor)).toEqual([45, 120, 250]);
 
@@ -146,9 +180,15 @@ describe("usage", () => {
       [r.A.agentId, 120],
       [r.A.agent2Id, 45],
     ]);
-    expect(wages.find((w) => w.agentId === r.A.agent2Id)).toMatchObject({ tokens: 120000, sandboxMinutes: 45 });
+    expect(wages.find((w) => w.agentId === r.A.agent2Id)).toMatchObject({ tokens: 120000, sandboxMinutes: 45, trainingMinor: 0 });
+    expect(wages.find((w) => w.agentId === r.A.agentId)).toMatchObject({ costMinor: 120, toolCalls: 1 });
     await repos.agents.update(r.db, A, r.A.agent2Id, { wageCapMinor: 100 });
     expect(await repos.usage.agentSpend(r.db, A, r.A.agent2Id, "2026-10")).toEqual({ costMinor: 45, wageCapMinor: 100, remainingMinor: 55 });
+    // A training run books its model calls once, as tokens attributed to it; the Training column still shows them.
+    await repos.usage.record(r.db, A, { agentId: r.A.agent2Id, kind: "tokens", quantity: 900, costMinor: 7, occurredAt: day("2026-10-05"), details: { kind: "training" } });
+    await repos.usage.record(r.db, A, { agentId: r.A.agent2Id, kind: "tokens", quantity: 300, costMinor: 2, occurredAt: day("2026-10-05"), details: { kind: "skill_grader" } });
+    await repos.usage.record(r.db, A, { agentId: r.A.agent2Id, kind: "training", quantity: 3, unit: "tests", costMinor: 0, occurredAt: day("2026-10-05") });
+    expect((await repos.usage.wages(r.db, A, "2026-10")).find((w) => w.agentId === r.A.agent2Id)).toMatchObject({ costMinor: 54, tokens: 121200, trainingMinor: 9 });
     expect((await repos.usage.list(r.db, A, { agentId: r.A.agentId, kind: "tokens" })).items).toHaveLength(2);
     expect((await r.svc((tx) => repos.usage.list(tx, r.B.businessId))).items).toHaveLength(0);
 
@@ -163,5 +203,57 @@ describe("usage", () => {
     await expect(repos.usage.debitCredits(r.db, r.B.businessId, "2026-10", 1)).rejects.toThrow(/Insufficient credits/);
     expect((await repos.usage.creditBalance(r.db, A, "2026-10"))?.balanceMinor).toBe(300);
     await expect(repos.usage.grantCredits(r.db, A, "2026/10", 1)).rejects.toThrow(/Invalid credit grant/);
+    // Credits are US dollars: a grant in another currency is refused, never merged into the balance.
+    await expect(repos.usage.grantCredits(r.db, A, "2026-10", 2500, "JPY")).rejects.toThrow(/Invalid credit grant/);
+    expect((await repos.usage.creditBalance(r.db, A, "2026-10"))).toMatchObject({ balanceMinor: 300, currency: "USD" });
+  });
+
+  it("books a call made outside a session (a token id with no agent_sessions row) without a session link (audit ARB-06)", async () => {
+    const A = r.A.businessId;
+    const orphan = await repos.usage.record(r.db, A, { agentId: r.A.agentId, sessionId: "00000000-0000-4000-8000-00000000dead", kind: "tool", quantity: 1, unit: "calls", costMinor: 0, occurredAt: day("2026-10-05") });
+    expect(orphan.sessionId).toBeNull();
+    const linked = await repos.usage.record(r.db, A, { agentId: r.A.agent2Id, sessionId: r.A.sessionId, kind: "tool", quantity: 1, unit: "calls", costMinor: 0, occurredAt: day("2026-10-05") });
+    expect(linked.sessionId).toBe(r.A.sessionId);
+  });
+});
+
+describe("usage, calls under half a cent (0039)", () => {
+  // A Haiku utility call is about 0.2 cents: stored per call as 0, thousands of them were free (audit BILL-09, CML-11).
+  it("keeps each call's exact cost, adds the exact costs and rounds once in totals, wages and agent spend", async () => {
+    const A = r.A.businessId;
+    const at = day("2027-05-03");
+    for (let i = 0; i < 10; i++) await repos.usage.record(r.db, A, { agentId: r.A.agent2Id, kind: "tokens", modelKey: "haiku", quantity: 1150, costMicroMinor: 175_000, occurredAt: at });
+    const rows = (await repos.usage.list(r.db, A, { agentId: r.A.agent2Id, kind: "tokens" })).items.filter((u) => u.occurredAt.getUTCFullYear() === 2027);
+    expect(rows).toHaveLength(10);
+    expect(rows.every((u) => u.costMinor === 0 && Number(u.costMicroMinor) === 175_000)).toBe(true);
+    // Ten 0.175-cent calls are 1.75 cents, not 0 (and not 10 × 1 after rounding up).
+    const range = { from: day("2027-05-01"), to: day("2027-06-01") };
+    const totals = await repos.usage.totals(r.db, A, range);
+    expect(totals.costMinor).toBe(2);
+    expect(totals.byKind.tokens.costMinor).toBe(2);
+    expect(totals.byBilledTo.credits).toBe(2);
+    expect((await repos.usage.daily(r.db, A, range)).map((d) => d.costMinor)).toEqual([2]);
+    expect((await repos.usage.wages(r.db, A, "2027-05")).find((w) => w.agentId === r.A.agent2Id)?.costMinor).toBe(2);
+    expect((await repos.usage.agentSpend(r.db, A, r.A.agent2Id, "2027-05")).costMinor).toBe(2);
+  });
+
+  it("a row written with only a rounded cost counts as that many cents; a micro-only row rounds for display", async () => {
+    const A = r.A.businessId;
+    const old = await repos.usage.record(r.db, A, { agentId: r.A.agentId, kind: "tokens", quantity: 1, costMinor: 3, occurredAt: day("2027-06-03") });
+    expect(Number(old.costMicroMinor)).toBe(3_000_000);
+    const micro = await repos.usage.record(r.db, A, { agentId: r.A.agentId, kind: "tokens", quantity: 1, costMicroMinor: 600_000, occurredAt: day("2027-06-03") });
+    expect(micro.costMinor).toBe(1);
+    expect((await repos.usage.totals(r.db, A, { from: day("2027-06-01"), to: day("2027-07-01") })).costMinor).toBe(4);
+  });
+
+  it("credits are charged what the calls cost: the sub-cent remainder is carried to the next charge", async () => {
+    const B = r.B.businessId;
+    await repos.usage.grantCredits(r.db, B, "2027-07", 100);
+    const first = await repos.usage.chargeCreditsMicro(r.db, B, "2027-07", 400_000);
+    expect(first).toMatchObject({ chargedMinor: 0, balance: { balanceMinor: 100, spentMinor: 0, carryMicroMinor: 400_000 } });
+    const second = await repos.usage.chargeCreditsMicro(r.db, B, "2027-07", 700_000);
+    expect(second).toMatchObject({ chargedMinor: 1, balance: { balanceMinor: 99, spentMinor: 1, carryMicroMinor: 100_000 } });
+    // A whole-cent charge still works as before and keeps the carry.
+    expect(await repos.usage.chargeCredits(r.db, B, "2027-07", 5)).toMatchObject({ balance: { balanceMinor: 94, spentMinor: 6, carryMicroMinor: 100_000 } });
   });
 });

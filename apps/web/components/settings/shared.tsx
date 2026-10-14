@@ -19,11 +19,15 @@ export function FormRow({ children }: { children: ReactNode }) {
   return <div className="grid grid-cols-2 gap-3">{children}</div>;
 }
 
+/**
+ * The Save row. Nothing to save turns the button off with aria-disabled rather than `disabled`: a save that succeeds
+ * leaves the form clean while the button still has keyboard focus, and a disabled button would drop it to <body>.
+ */
 export function SaveBar({ onSave, saving, disabled, label = "Save changes", children }: { onSave: () => void; saving?: boolean; disabled?: boolean; label?: string; children?: ReactNode }) {
   return (
     <div className="flex items-center justify-end gap-2 border-t border-line pt-3">
       {children}
-      <Button variant="primary" onClick={onSave} loading={saving} disabled={disabled}>
+      <Button variant="primary" onClick={disabled ? undefined : onSave} loading={saving} aria-disabled={disabled || undefined} data-save-bar>
         {label}
       </Button>
     </div>
@@ -42,9 +46,11 @@ export function AdminOnly({ children }: { children: ReactNode }) {
         Read only
       </StatusPill>
       <p className="text-body text-secondary">As {ARTICLE[data.role] ?? "a"} {(data.role ?? "member").toLowerCase()} you can read these settings; an owner or admin changes them.</p>
-      <div className="pointer-events-none opacity-60" aria-disabled>
+      {/* A disabled fieldset disables every control inside it for the keyboard as well as the pointer (a pointer-events
+          rule alone left Tab and Enter working, audit RUI-05), and the values stay readable. */}
+      <fieldset disabled className="m-0 min-w-0 border-0 p-0 opacity-60" data-testid="read-only-settings">
         {children}
-      </div>
+      </fieldset>
     </div>
   );
 }

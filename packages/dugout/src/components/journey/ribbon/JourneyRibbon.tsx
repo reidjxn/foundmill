@@ -11,7 +11,7 @@ import { FitText } from "../../foundation/FitText";
 import { Icon } from "../../foundation/Icon";
 import { SegmentedControl } from "../../foundation/SegmentedControl";
 import { Figure } from "../../data/Figure";
-import type { Chapter, Conversion, ForecastPoint, JourneyDailyRow, Kit, Milestone, RibbonDepartment, RibbonEvent, RoadmapFlag, ZoomLevel } from "../types";
+import type { Chapter, Conversion, DayKey, ForecastPoint, JourneyDailyRow, Kit, Milestone, RibbonDepartment, RibbonEvent, RoadmapFlag, ZoomLevel } from "../types";
 import { ZOOM_LEVELS } from "../types";
 import {
   buildRibbonGeometry,
@@ -94,7 +94,8 @@ export interface JourneyRibbonProps {
   overlay?: "pixi" | "svg" | "none";
   /** Flow-in on first render (1.2 s). Default true; reduced motion disables it. */
   animateIn?: boolean;
-  currency?: string;
+  /** The business's own currency (ISO 4217): every amount here is formatted in it. */
+  currency: string;
   /** Accessible name. */
   label?: string;
   className?: string;
@@ -120,6 +121,10 @@ const GLYPH_ICON: Record<MilestoneGlyphKind, typeof Trophy> = { trophy: Trophy, 
 const GLYPH_COLOUR: Record<MilestoneGlyphKind, string> = { trophy: "var(--gold)", flag: "var(--text-2)", diamond: "var(--accent)", banner: "var(--text-2)" };
 /** Axis tick labels: mono 11 px, about 6.7 px a character (for keeping them inside the plot and apart). */
 const TICK_CHAR = 6.7;
+/** The keyboard's day cursor moves at least this far per arrow press (one day, or more when days are thinner). */
+const KEY_STEP_PX = 4;
+/** How close to the window's edge the keyboard's day may get before the Ribbon scrolls to follow it. */
+const KEY_EDGE_PX = 48;
 const RUNWAY_COLOUR = { neutral: "var(--text-secondary)", warn: "var(--status-warn)", bad: "var(--status-bad)" } as const;
 /** A dark halo behind SVG text so labels stay legible over lines and bars. */
 const HALO = { paintOrder: "stroke", stroke: "var(--surface-1)", strokeWidth: 3, strokeLinejoin: "round" } as const;
@@ -177,7 +182,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
     kit,
     overlay = "pixi",
     animateIn = true,
-    currency = "EUR",
+    currency,
     label,
     className,
   } = props;
@@ -327,6 +332,9 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
 
   // Hover scrubber and drag scrolling. Positions are in plot pixels (right of the labels, under the toolbar).
   const [hoverX, setHoverX] = useState<number | null>(null);
+  // The keyboard's day cursor (arrow keys): it drives the same scrubber, readout and On this day card as the pointer,
+  // so the Ribbon stays one Tab stop instead of one per payment bar (WCAG 2.4.3; the bars sit in an aria-hidden SVG).
+  const [keyDay, setKeyDay] = useState<DayKey | null>(null);
   const drag = useRef<{ startX: number; startScroll: number; moved: boolean; pointerId: number } | null>(null);
   const plotPoint = (e: { clientX: number; clientY: number }): { x: number; inPlot: boolean } => {
     const rect = rootRef.current?.getBoundingClientRect();
@@ -358,6 +366,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
     }
     const p = plotPoint(e);
     setHoverX(p.inPlot ? p.x : null);
+    if (p.inPlot) setKeyDay(null);
   };
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     const d = drag.current;
@@ -374,7 +383,9 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
     drag.current = null;
   };
 
-  const hoverDay = hoverX === null ? null : geometry.dayAt(hoverX + scrollX);
+  const hoverDay = hoverX === null ? keyDay : geometry.dayAt(hoverX + scrollX);
+  // Where the scrubber and the card sit: under the pointer, or on the keyboard's day.
+  const cursorX = hoverX ?? (keyDay ? geometry.xOfDay(keyDay) - scrollX : null);
   const onHoverDayRef = useRef(onHoverDay);
   onHoverDayRef.current = onHoverDay;
   useEffect(() => {
@@ -392,17 +403,36 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
   }, [forecast, index, today]);
   const hoverForecast = hoverDay && hoverDay > today ? forecastAt(forecastFromToday, hoverDay) : null;
 
+  /** Moves the keyboard's day cursor by whole days (at least one bar's width) and scrolls just enough to keep it in view. */
+  const stepDay = (dir: -1 | 1) => {
+    const from = hoverDay ?? today;
+    const days = Math.max(1, Math.ceil(KEY_STEP_PX / geometry.pxPerDay));
+    const next = geometry.dayAt(geometry.xOfDay(from) + dir * days * geometry.pxPerDay);
+    setHoverX(null);
+    setKeyDay(next);
+    const x = geometry.xOfDay(next);
+    const margin = Math.min(KEY_EDGE_PX, plotW / 4);
+    updateScroll((s) => (x < s + margin ? x - margin : x > s + plotW - margin ? x - plotW + margin : s));
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const step = (e.shiftKey ? 0.5 : 0.1) * plotW;
+    if (e.target !== e.currentTarget && e.key !== "Escape") return;
     switch (e.key) {
       case "ArrowLeft":
-        updateScroll((s) => s - step);
+      case "ArrowRight": {
+        const dir = e.key === "ArrowLeft" ? -1 : 1;
+        // Shift pans half a window; a plain arrow walks the days.
+        if (e.shiftKey) updateScroll((s) => s + dir * 0.5 * plotW);
+        else stepDay(dir);
         break;
-      case "ArrowRight":
-        updateScroll((s) => s + step);
-        break;
+      }
       case "Home":
+        setKeyDay(null);
         updateScroll(scrollForToday(geometry, plotW));
+        break;
+      case "Escape":
+        if (!keyDay) return;
+        setKeyDay(null);
         break;
       case "+":
       case "=":
@@ -412,10 +442,15 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
       case "_":
         changeZoom(ZOOM_LEVELS[Math.min(ZOOM_LEVELS.length - 1, ZOOM_LEVELS.indexOf(zoom) + 1)] as ZoomLevel);
         break;
-      case "Enter":
-        if (e.target === e.currentTarget) onOpenDay?.(hoverDay ?? today);
-        else return;
+      case "Enter": {
+        // The day under the cursor: its one Customer Update when it holds exactly one payment, as a click on its bar does.
+        const day = hoverDay ?? today;
+        const x = geometry.xOfDay(day);
+        const bar = geometry.tracks.payments.bars.find((b) => x >= b.x && x < b.x + Math.max(b.w, geometry.pxPerDay));
+        if (bar) openBar(bar);
+        else onOpenDay?.(day);
         break;
+      }
       default:
         return;
     }
@@ -471,13 +506,13 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
     return { hours, signups, activations, payments };
   }, [index]);
   const recent = useMemo(() => windowTotals(index, today), [index, today]);
-  const summaryText = `${label ?? "Journey ribbon"}: ${f.formatDate(geometry.kickoff)} to ${f.formatDate(geometry.horizon)}. Revenue per day, new signups, paying customers and agent hours over time. ${departments.length} departments, ${formatNumber(totals.hours, { digits: 0 })} agent hours, ${totals.signups} signups, ${totals.activations} activations, ${totals.payments} payments, ${geometry.milestones.length} milestones. Zoom ${ZOOM_LABELS[zoom]}. Arrow keys scroll, plus and minus zoom, Home returns to today, Enter opens the day.`;
+  const summaryText = `${label ?? "Journey ribbon"}: ${f.formatDate(geometry.kickoff)} to ${f.formatDate(geometry.horizon)}. Revenue per day, new signups, paying customers and agent hours over time. ${departments.length} departments, ${formatNumber(totals.hours, { digits: 0 })} agent hours, ${totals.signups} signups, ${totals.activations} activations, ${totals.payments} payments, ${geometry.milestones.length} milestones. Zoom ${ZOOM_LABELS[zoom]}. Arrow keys move through the days, Shift with an arrow scrolls, plus and minus zoom, Home returns to today, Enter opens the day.`;
 
   const todayVisible = geometry.todayX >= vis0 && geometry.todayX <= vis1;
   const todayPoint = index.byDay.get(today);
   const todayRevenueY = geometry.revenue.y(todayPoint?.revenue7 ?? 0);
-  const hoverRootX = hoverX === null ? 0 : RIBBON_GUTTER + hoverX;
-  const cardLeft = hoverX === null ? 0 : hoverRootX + 16 + 288 > width ? Math.max(RIBBON_GUTTER, hoverRootX - 16 - 288) : hoverRootX + 16;
+  const hoverRootX = cursorX === null ? 0 : RIBBON_GUTTER + cursorX;
+  const cardLeft = cursorX === null ? 0 : hoverRootX + 16 + 288 > width ? Math.max(RIBBON_GUTTER, hoverRootX - 16 - 288) : hoverRootX + 16;
 
   // Row labels: the hovered day's values, or the last 7 days when nothing is hovered.
   const hoverPoint = hoverDay && hoverDay <= today ? (index.byDay.get(hoverDay) ?? null) : null;
@@ -504,10 +539,10 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
       };
   const trackValue: Record<TrackKind, string> = { signups: readout.signups, payments: readout.payments, hours: readout.hours };
 
-  const openBar = (bar: TrackBar) => {
+  function openBar(bar: TrackBar) {
     if (bar.value === 1 && bar.ids.length === 1 && bar.ids[0]) onOpenJourney?.(bar.ids[0]);
     else onOpenDay?.(bar.day);
-  };
+  }
 
   const todayTag = `Today · ${f.formatDateShort(today)}${liveCount > 0 ? ` · ${liveCount} live` : ""}`;
   // A chip is drawn while its day is in the window; the drop line carries it to the edge as it scrolls out.
@@ -559,6 +594,10 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
       onPointerUp={onPointerUp}
       onPointerLeave={onPointerLeave}
       onKeyDown={onKeyDown}
+      onBlur={(e) => {
+        // Leaving the Ribbon puts the label column back on the last 7 days.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setKeyDay(null);
+      }}
     >
       {/* Toolbar: what each mark means, and the zoom */}
       <div className="absolute inset-x-0 top-0 flex items-center justify-between gap-3 px-panel-pad rule-fade" style={{ height: RIBBON_TOOLBAR }} data-ribbon-control>
@@ -740,24 +779,17 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
               ))}
               <g data-track="payments">
                 {visibleBars("payments").map((b) => (
+                  // A pointer target only: the keyboard reaches the same day through the Ribbon's arrow keys and Enter, so the
+                  // bars add no Tab stops (and those inside this aria-hidden SVG would be announced as nothing).
                   <g
                     key={b.key}
-                    role="button"
-                    tabIndex={0}
                     data-marker="payment"
                     data-count={b.value}
-                    aria-label={barLabel("payments", b, f)}
-                    className="cursor-pointer outline-none focus-visible:[&>rect]:stroke-accent"
+                    data-label={barLabel("payments", b, f)}
+                    className="cursor-pointer"
                     onClick={(e) => {
                       e.stopPropagation();
                       openBar(b);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        openBar(b);
-                      }
                     }}
                   >
                     <title>{barLabel("payments", b, f)}</title>
@@ -841,10 +873,10 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
               ))}
             </g>
             {/* Hover scrubber */}
-            {hoverX !== null ? (
-              <g data-scrubber>
-                <rect x={hoverX + scrollX - geometry.pxPerDay / 2} y={layout.chapterBottom} width={Math.max(1, geometry.pxPerDay)} height={layout.axisTop - layout.chapterBottom} fill="var(--white)" fillOpacity={0.05} />
-                <line x1={hoverX + scrollX} x2={hoverX + scrollX} y1={layout.chapterBottom} y2={layout.axisTop + 4} stroke="var(--white)" strokeOpacity={0.45} strokeDasharray="2 3" />
+            {cursorX !== null ? (
+              <g data-scrubber data-key-day={hoverX === null ? keyDay ?? undefined : undefined}>
+                <rect x={cursorX + scrollX - geometry.pxPerDay / 2} y={layout.chapterBottom} width={Math.max(1, geometry.pxPerDay)} height={layout.axisTop - layout.chapterBottom} fill="var(--white)" fillOpacity={0.05} />
+                <line x1={cursorX + scrollX} x2={cursorX + scrollX} y1={layout.chapterBottom} y2={layout.axisTop + 4} stroke="var(--white)" strokeOpacity={0.45} strokeDasharray="2 3" />
               </g>
             ) : null}
           </g>
@@ -853,9 +885,12 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
           <g data-revenue-scale>
             {geometry.revenue.ticks
               .filter((v) => v > 0)
-              .map((v) => (
+              .map((v) => ({ v, label: `${money(v, currency)}/day` }))
+              // Two gridlines that read the same say nothing more than one.
+              .filter((t, i, all) => all.findIndex((o) => o.label === t.label) === i)
+              .map(({ v, label }) => (
                 <text key={v} x={8} y={geometry.revenue.y(v) + 14} className="chart-tick" {...HALO}>
-                  {`${money(v, currency)}/day`}
+                  {label}
                 </text>
               ))}
           </g>
@@ -901,6 +936,10 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
       {/* Reduced motion / screen readers: the live event count with identical information */}
       <span className="sr-only" aria-live="polite">
         {liveText}
+      </span>
+      {/* The keyboard's day, read out as it moves (the label column shows the same figures). */}
+      <span className="sr-only" aria-live="polite" data-ribbon-day-readout>
+        {keyDay && hoverX === null ? `${readout.when}: ${readout.revenue} ${readout.revenueCaption}${readout.revenueDay ? `, ${readout.revenueDay}` : ""}; ${readout.signups} new signups, ${readout.payments} paying customers, ${readout.hours} agent hours.` : ""}
       </span>
       {reduced && liveCount > 0 ? (
         <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-xs bg-surface-2 px-1.5 t-label text-primary" data-live-count>

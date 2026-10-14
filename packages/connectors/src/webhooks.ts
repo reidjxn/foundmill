@@ -8,6 +8,15 @@ import { isUuid } from "@foundmill/shared";
 
 export const WEBHOOK_BASE = "/webhooks";
 
+/**
+ * Where a mock connector's webhook may be mounted. Mock verifiers check signatures against secrets committed in each
+ * connector's `fixtures/` (anyone with the source can sign a delivery for any business), so a host reachable from the
+ * internet (staging, production) never mounts them, whatever INTEGRATIONS_MODE says: a delivery there is verified by
+ * the live connector with real secrets, or refused. Staging fabricates events through the authenticated Simulate route.
+ */
+export const MOCK_WEBHOOK_ENVS = ["development", "test"] as const;
+export const mockWebhooksAllowed = (appEnv: string): boolean => (MOCK_WEBHOOK_ENVS as readonly string[]).includes(appEnv);
+
 /** `apps/ingest` mounts every connector webhook at `/webhooks/<key>/:businessId`. */
 export const webhookPath = (connectorKey: string, suffix?: string): string => `${WEBHOOK_BASE}/${connectorKey}${suffix ? `-${suffix}` : ""}/:businessId`;
 

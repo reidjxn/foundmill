@@ -4,9 +4,15 @@
  * only as a human-action descriptor.
  */
 import { z } from "zod";
+import type { ConnectField } from "../../contract";
 import { defineTool } from "../../define";
 
 export const DROPBOX_SIGN_KEY = "dropbox_sign";
+
+/** What the founder enters in Settings › Integrations to connect Dropbox Sign live: their own account's key. */
+export const DROPBOX_SIGN_CONNECT_FIELDS: ConnectField[] = [
+  { name: "apiKey", label: "API key", secret: true, required: true, hint: "The API key from your Dropbox Sign account settings. Signature requests are billed to your Dropbox Sign plan." },
+];
 export const DROPBOX_SIGN_BASE_URL = "https://api.hellosign.com/v3";
 /** Dropbox Sign requires this exact body in the 200 response to a callback. */
 export const DROPBOX_SIGN_CALLBACK_RESPONSE = "Hello API Event Received";

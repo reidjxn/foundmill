@@ -48,11 +48,14 @@ test.describe("shell chrome", () => {
     const tabs = page.getByRole("tablist", { name: "Inbox tabs" });
     const indicator = tabs.locator("[data-tab-indicator]");
     await expect(indicator).toBeVisible({ timeout: LONG });
+    // Both boxes are read on every poll: the strip can still reflow after the click (a count badge settling on a tab
+    // to the left), and the indicator follows the tab, so a tab box read once before polling can go stale for good.
     const under = async (name: RegExp) => {
-      const tab = (await tabs.getByRole("tab", { name }).boundingBox())!;
       await expect
         .poll(async () => {
-          const bar = (await indicator.boundingBox())!;
+          const tab = await tabs.getByRole("tab", { name }).boundingBox();
+          const bar = await indicator.boundingBox();
+          if (!tab || !bar) return false;
           return bar.x >= tab.x - 1 && bar.x + bar.width <= tab.x + tab.width + 1 && bar.width > 8;
         }, { timeout: LONG })
         .toBe(true);

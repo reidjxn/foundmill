@@ -17,9 +17,15 @@ export const NO_SPEND_CAP_MINOR = Number.MAX_SAFE_INTEGER;
 
 export const ACTION_CALL = { type: "Action", id: "call" } as const;
 
-/** The mode the policies see for this agent: its own autonomy override, else the business mode. */
+/**
+ * The mode the policies see for this agent: its own autonomy override, else the business mode, which is Automated while
+ * the founder is on vacation (BUILD §9.6 "Holiday (Automated)": the Chief of Staff decides within its authority and only
+ * hard gates queue; the holiday budget ceiling still tightens the cap). An agent the founder gave its own autonomy keeps
+ * it.
+ */
 export function effectiveBusinessMode(input: EvaluateInput): BusinessMode {
-  return input.principal.autonomy === "inherit" ? input.business.businessMode : input.principal.autonomy;
+  if (input.principal.autonomy !== "inherit") return input.principal.autonomy;
+  return input.business.holidayActive ? "automated" : input.business.businessMode;
 }
 
 /** Build the Cedar entities for a request. Exported for the gateway's audit rows and for tests. */
@@ -50,6 +56,7 @@ export function toEntities(input: EvaluateInput): Entities {
       hardGate: tool.hardGate,
       finance: tool.finance,
       contract: tool.contract,
+      securitySettings: tool.securitySettings,
     },
     parents: [],
   };

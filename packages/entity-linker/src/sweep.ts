@@ -250,7 +250,21 @@ interface Match {
 }
 
 interface Matcher {
-  match(span: string, singleToken: boolean, sentenceStart: boolean): Match | null;
+  /** `quoted`: the span sits inside a quotation mark pair (a task title, a quoted phrase). */
+  match(span: string, singleToken: boolean, sentenceStart: boolean, quoted?: boolean): Match | null;
+}
+
+/** True when `pos` is inside a pair of quotation marks: straight quotes toggle, curly ones open and close. */
+export function insideQuotes(text: string, pos: number): boolean {
+  let straight = false;
+  let curly = false;
+  for (let i = 0; i < pos; i++) {
+    const c = text[i];
+    if (c === '"') straight = !straight;
+    else if (c === "\u201c") curly = true;
+    else if (c === "\u201d") curly = false;
+  }
+  return straight || curly;
 }
 
 function createMatcher(manifest: Manifest, opts: Required<Pick<SweepOptions, "fuzzyThreshold" | "linkPartialMatches">>, ignore: ReadonlySet<string>): Matcher {
@@ -265,10 +279,18 @@ function createMatcher(manifest: Manifest, opts: Required<Pick<SweepOptions, "fu
       else wordIndex.set(w, [e]);
     }
   }
+  // Surnames of the people in the manifest (the last word of a two-word-or-longer name): a lone surname at the start of a
+  // sentence is a name; any other lone word there is just the first word of the sentence.
+  const surnames = new Set<string>();
+  for (const e of visible) {
+    if (!personLike(e)) continue;
+    const words = normalizeName(e.name).split(" ");
+    if (words.length >= 2) surnames.add(words[words.length - 1] as string);
+  }
   const toCandidate = (e: ManifestEntity, score: number, tier: AmbiguousCandidate["tier"]): AmbiguousCandidate => ({ id: e.id, name: e.name, kind: e.kind, score, tier });
 
   return {
-    match(span, singleToken, sentenceStart) {
+    match(span, singleToken, sentenceStart, quoted = false) {
       const key = normalizeName(span);
       if (!key || ignore.has(key)) return null;
 
@@ -295,11 +317,14 @@ function createMatcher(manifest: Manifest, opts: Required<Pick<SweepOptions, "fu
         }
       }
 
-      if (singleToken && opts.linkPartialMatches && key.length >= 3 && !DEFAULT_STOPLIST.has(key)) {
-        const partial = wordIndex.get(key);
-        if (partial && partial.length > 0) {
-          // A lone capitalised word at a sentence start is too weak for a partial link unless it is clearly a name.
-          if (sentenceStart && !/^\p{Lu}\p{Ll}+$/u.test(span.trim())) return null;
+      // The partial tier links a lone first name or surname, so only to people: an agent or an organization named with a
+      // common noun ("Email Automation Engine", "Growth Labs") must not turn that word into a link wherever it appears.
+      // Inside a quoted title it is just a word of the title; and at the start of a sentence every word is capitalized, so
+      // there it needs to be a known given name or the surname of someone in the manifest (audit FR-23).
+      if (singleToken && !quoted && opts.linkPartialMatches && key.length >= 3 && !DEFAULT_STOPLIST.has(key)) {
+        const partial = (wordIndex.get(key) ?? []).filter(personLike);
+        if (partial.length > 0) {
+          if (sentenceStart && !GIVEN_NAMES.has(key) && !surnames.has(key)) return null;
           return { tier: "partial", candidates: dedupeById(partial).map((e) => toCandidate(e, PARTIAL_SCORE, "partial")) };
         }
       }
@@ -336,7 +361,7 @@ function resolveRun(text: string, tokens: readonly Token[], matcher: Matcher, ma
       const span = spanText(text, sub);
       // The partial tier (a lone first name or surname) only applies to a run that is itself a single word, so an
       // unknown "Meridian Labz" becomes a draft instead of half-linking "Meridian".
-      const m = matcher.match(span, len === 1 && n === 1 && wholeRun, first.sentenceStart);
+      const m = matcher.match(span, len === 1 && n === 1 && wholeRun, first.sentenceStart, insideQuotes(text, first.start));
       if (!m) continue;
       if (m.candidates.length === 1) {
         const c = m.candidates[0] as AmbiguousCandidate;
@@ -406,6 +431,12 @@ function draftPiece(text: string, tokens: readonly Token[], ignore: ReadonlySet<
   if (words.every((w) => w.length <= 1)) return null;
   if (words.every((w) => ORG_MARKERS.has(w) || DEFAULT_STOPLIST.has(w))) return null;
   return { kind: "draft", start: first.start, end: last.end, text: span, kindGuess: guessKind(words, personHint) };
+}
+
+/** A person, or an agent named like one ("Priya Natarajan"), as opposed to one named with common nouns ("Email Automation Engine"). */
+function personLike(e: ManifestEntity): boolean {
+  if (e.kind === "person") return true;
+  return e.kind === "agent" && guessKind(normalizeName(e.name).split(" ")) === "person";
 }
 
 /** Best-effort kind for a draft: a founder confirms it when the CRM entity is created. */

@@ -4,7 +4,7 @@
  * fixed costs; cash-basis ledger snapshots for the last three months; Base/Upside/Downside forecasts; the current
  * credit balance and usage-ledger rows for the last 30 days of sessions. Everything is labelled Estimate/Forecast.
  */
-import { APP_NAME } from "@foundmill/config";
+import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { repos } from "../repos";
 import { transactions, usageLedger, type NewTransaction, type NewUsageEntry } from "../schema";
 import { addDays, bulkInsert, dayKey, monthDay, monthKey, monthsBetween, type SeedCtx } from "./context";
@@ -51,6 +51,8 @@ export interface FinanceSeedOptions {
   financing: FinancingEvent[];
   financeLeadAgentId: string | null;
   recentSessions: RecentSession[];
+  /** How the business pays for model calls (`businesses.model_billing`): its usage rows and credits follow it. */
+  modelBilling: "credits" | "byok";
   /** Monthly recurring revenue right now (for the forecast drivers). */
   mrrMinorNow: number;
 }
@@ -66,6 +68,8 @@ export interface FinanceSeedResult {
 }
 
 const round = (n: number): number => Math.round(n);
+/** USD cents a demo business on its own key holds for the platform key's calls this month. */
+const SEEDED_PLATFORM_CREDITS_MINOR = 20_000;
 
 export async function seedFinance(ctx: SeedCtx, opts: FinanceSeedOptions): Promise<FinanceSeedResult> {
   const rng = ctx.rng.fork(`finance:${opts.slug}`);
@@ -198,7 +202,10 @@ export async function seedFinance(ctx: SeedCtx, opts: FinanceSeedOptions): Promi
     });
   }
 
-  // Credits and usage ledger (last 30 days of sessions).
+  // Usage ledger (last 30 days of sessions): model costs are US cents, billed the way the business pays for models.
+  // A business on credits holds this month's balance (USD) with this month's spend already charged; a business on its
+  // own key runs its agents on that key and holds credits only for the platform key's calls (conversations, Refresh,
+  // planning; SEC2), granted here so a demo is not stopped by its included credit.
   const period = monthKey(ctx.today);
   const usageRows: NewUsageEntry[] = opts.recentSessions.map((s) => ({
     id: rng.uuid(),
@@ -210,15 +217,17 @@ export async function seedFinance(ctx: SeedCtx, opts: FinanceSeedOptions): Promi
     quantity: s.tokensIn + s.tokensOut,
     unit: "tokens",
     costMinor: s.costMinor,
-    currency: opts.currency,
-    billedTo: "credits",
+    currency: CREDITS_CURRENCY,
+    billedTo: opts.modelBilling,
     occurredAt: s.occurredAt,
     details: { tokensIn: s.tokensIn, tokensOut: s.tokensOut, label: "Estimate" },
   }));
   await bulkInsert(db, usageLedger, usageRows);
-  const spentThisPeriod = usageRows.filter((u) => monthKey(u.occurredAt as Date) === period).reduce((s, u) => s + (u.costMinor as number), 0);
-  await repos.usage.grantCredits(db, opts.businessId, period, Math.max(spentThisPeriod + 50_000, 100_000), opts.currency);
-  if (spentThisPeriod > 0) await repos.usage.debitCredits(db, opts.businessId, period, spentThisPeriod);
+  if (opts.modelBilling === "credits") {
+    const spentThisPeriod = usageRows.filter((u) => monthKey(u.occurredAt as Date) === period).reduce((s, u) => s + (u.costMinor as number), 0);
+    await repos.usage.grantCredits(db, opts.businessId, period, Math.max(spentThisPeriod + 50_000, 100_000));
+    if (spentThisPeriod > 0) await repos.usage.debitCredits(db, opts.businessId, period, spentThisPeriod);
+  } else await repos.usage.grantCredits(db, opts.businessId, period, SEEDED_PLATFORM_CREDITS_MINOR);
 
   return { accountId: account.id, balanceMinor, netBurnMinor, runwayMonths, transactions: rows.length, usageRows: usageRows.length, monthlyNet };
 }

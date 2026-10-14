@@ -8,7 +8,7 @@
  */
 import { z } from "zod";
 import { TaskPhase, ValidationError } from "@foundmill/shared";
-import { DEFAULT_STREAM_MAXLEN, sessionStreamKey } from "./keys";
+import { DEFAULT_STREAM_MAXLEN, SESSION_STREAM_ARCHIVED_TTL_SECONDS, SESSION_STREAM_TTL_SECONDS, sessionStreamKey } from "./keys";
 import { fieldsToObject, type StreamRedis } from "./redis";
 
 const At = z.iso.datetime({ offset: true });
@@ -171,6 +171,8 @@ export function parseSessionEvent(raw: unknown): SessionEvent {
 export interface PublishSessionEventOptions {
   /** XADD MAXLEN ~ (default 100 000). */
   maxLen?: number;
+  /** Backstop TTL set on every publish (default 14 days, keys.ts); 0 leaves the key without one. */
+  ttlSeconds?: number;
 }
 
 /**
@@ -198,7 +200,18 @@ export async function publishSessionEvent(
   );
   if (id === null)
     throw new Error(`publishSessionEvent: XADD returned null for ${sessionStreamKey(sessionId)}`);
+  const ttl = opts.ttlSeconds ?? SESSION_STREAM_TTL_SECONDS;
+  if (ttl > 0) await redis.expire?.(sessionStreamKey(sessionId), ttl);
   return id;
+}
+
+/**
+ * Shortens a session stream's life once its events are saved elsewhere (default one hour, so a viewer still watching
+ * the session's last moments keeps its feed). No-op on a client without EXPIRE.
+ */
+export async function expireSessionStream(redis: StreamRedis, sessionId: string, seconds = SESSION_STREAM_ARCHIVED_TTL_SECONDS): Promise<boolean> {
+  if (!redis.expire) return false;
+  return (await redis.expire(sessionStreamKey(sessionId), Math.max(1, Math.floor(seconds)))) === 1;
 }
 
 export interface SessionStreamRecord {

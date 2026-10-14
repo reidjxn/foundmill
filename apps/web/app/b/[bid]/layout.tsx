@@ -10,13 +10,16 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
+import { APP_NAME } from "@foundmill/config";
 import { getServerDateFormat } from "@/lib/date-format.server";
+import { businessTitleTemplate } from "@/lib/page-titles";
 import { Prefetched } from "@/lib/hydrate.server";
 import { startBusinessShell } from "@/lib/shell-data.server";
 import { serverApi, serverBusiness } from "@/lib/trpc-server";
 import { errorMessage, trpcErrorCode } from "@/lib/trpc";
 import { DateFormatHost } from "@/components/providers/DateFormatHost";
 import { BusinessShell } from "@/components/shell/BusinessShell";
+import { ApiErrorPage } from "@/components/shell/ApiErrorPage";
 import { UnreachablePage } from "@/components/shell/UnreachablePage";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +34,9 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   try {
     const data = await serverBusiness(bid);
     if (!data) return {};
-    return { title: { default: data.business.name, template: `%s · ${data.business.name}` } };
+    // Next applies only the nearest template, so this one carries the product name too: "Inbox · Northwind · Foundmill".
+    // Every page below gives its "%s" (lib/page-titles.ts).
+    return { title: { default: data.business.name, template: businessTitleTemplate(data.business.name, APP_NAME) } };
   } catch {
     return {};
   }
@@ -54,7 +59,7 @@ export default async function BusinessLayout({ params, children }: { params: Par
   try {
     profile = await api.founder.profile.get.query();
   } catch (err) {
-    return <UnreachablePage message={errorMessage(err, "The API did not answer.")} />;
+    return <ApiErrorPage error={err} email={server.auth.email} />;
   }
   // AC-11.1.1: no /b/* before the founder profile exists.
   if (!profile.complete) redirect("/onboarding");
@@ -64,7 +69,7 @@ export default async function BusinessLayout({ params, children }: { params: Par
     return (
       <Prefetched queryClient={shell.prefetch()}>
         <DateFormatHost initial={date.prefs} owner={date.owner}>
-          <BusinessShell businessId={bid} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId }}>
+          <BusinessShell businessId={bid} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId, name: profile.profile?.displayName ?? null }}>
             {children}
           </BusinessShell>
         </DateFormatHost>

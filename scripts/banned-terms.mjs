@@ -843,7 +843,7 @@ function writeSweep(path, hits, roots) {
   writeFileSync(path, out.join("\n"));
 }
 
-/** A GitHub-flavoured table padded the way Prettier formats it, so the generated file passes `format:check`. */
+/** A GitHub-flavoured table padded the way Prettier formats it, so `pnpm format` leaves the generated file unchanged. */
 function mdTable(header, rows) {
   const all = [header, ...rows];
   const widths = header.map((_, i) => Math.max(3, ...all.map((r) => [...r[i]].length)));

@@ -1,23 +1,27 @@
 /**
  * @foundmill/api — Hono + tRPC (docs/ARCHITECTURE.md §13).
  *
- * Boot: load env → build deps → shutdown handlers → run migrations in one transaction under
- * pg_advisory_xact_lock(7461, 1) (idempotent; exit 1 when the lock is not granted within MIGRATION_LOCK_TIMEOUT_MS;
- * keep serving if the db is down) → listen on PORT (fallback API_PORT) on host "::" (Railway private network is
- * IPv6-only, §17) → with SEED_ON_BOOT, build the demo businesses in the background (services/seed-on-boot.ts) → start
- * the outbox relay once Redis answers PING. SIGTERM/SIGINT: stop accepting connections, let in-flight requests and
- * streamed answers finish, stop the relay, close Temporal, Redis and the database pool, exit 0, all within
+ * Boot: load env → build deps → shutdown handlers → log every private service address still on localhost in staging
+ * or production → run migrations in one transaction under pg_advisory_xact_lock(7461, 1) (idempotent; exit 1 when the
+ * lock is not granted within MIGRATION_LOCK_TIMEOUT_MS; keep serving if the db is down) → supervise the outbox relay
+ * (started once Redis answers PING, retried with a capped backoff until it does: services/relay.ts) → listen on PORT
+ * (fallback API_PORT) on host "::" (Railway private network is IPv6-only, §17) → with SEED_ON_BOOT, build the demo
+ * businesses in the background (services/seed-on-boot.ts). SIGTERM/SIGINT: stop accepting connections, let in-flight
+ * requests and streamed answers finish, stop the relay, close Temporal, Redis and the database pool, exit 0, all within
  * SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3 "Redeploys and shutdown").
  */
 import { serve } from "@hono/node-server";
 import { closeDb, isMigrationLockTimeout, migrateDb } from "@foundmill/db";
-import { runOutboxRelay, type OutboxRelay } from "@foundmill/events";
 import { loadEnv, servicePort } from "@foundmill/shared";
 import { drainHttpServer, flushLog, onShutdown } from "@foundmill/shared/shutdown";
+import { installTelemetry } from "@foundmill/shared/telemetry";
 import { createApp } from "./app";
 import { createApiDeps, type ApiDeps } from "./context";
-import { redisReachable, type ApiRedis } from "./services/redis";
+import type { ApiRedis } from "./services/redis";
+import { superviseOutboxRelay, type RelaySupervisor } from "./services/relay";
+import { monitorWorker, type WorkerMonitor } from "./services/worker-health";
 import { seedOnBoot } from "./services/seed-on-boot";
+import { startWorkflowReconciler } from "./services/workflow-reconcile";
 
 export { createApp } from "./app";
 export { createApiDeps, createContextFactory, createTestContext, type ApiDeps, type Context } from "./context";
@@ -64,17 +68,19 @@ export async function migrateOnBoot(deps: ApiDeps, options: MigrateOnBootOptions
   }
 }
 
-async function startRelay(deps: ApiDeps): Promise<OutboxRelay | null> {
-  const redis = deps.redis as ApiRedis | null;
-  if (!(await redisReachable(redis))) {
-    deps.log.warn({ url: deps.env.REDIS_URL.replace(/\/\/.*@/, "//***@") }, "redis unreachable; outbox relay not started (events stay in the outbox until it is)");
-    return null;
-  }
-  const relay = runOutboxRelay(deps.db as unknown as Parameters<typeof runOutboxRelay>[0], redis!, {
-    onError: (err) => deps.log.warn({ err: (err as Error).message }, "outbox relay tick failed"),
-  });
-  deps.log.info({}, "outbox relay started");
-  return relay;
+/** Service addresses the api calls over the private network; each defaults to localhost, which is wrong once deployed. */
+const PRIVATE_URLS = ["INGEST_URL", "GATEWAY_URL", "COMPOSER_URL"] as const;
+
+/**
+ * Staging and production: log an error for every service address still on its localhost default. Railway serves each
+ * service on its own private domain (`http://<service>.railway.internal:<port>`, docs/DEPLOY.md §3), so a missing
+ * INGEST_URL turned Settings › Integrations › Simulate into "ingest unreachable" with nothing in the logs to say why.
+ */
+export function warnLocalhostUrls(deps: Pick<ApiDeps, "env" | "log">): string[] {
+  if (deps.env.APP_ENV !== "staging" && deps.env.APP_ENV !== "production") return [];
+  const local = PRIVATE_URLS.filter((name) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(deps.env[name]));
+  for (const name of local) deps.log.error({ variable: name, value: deps.env[name] }, `${name} is not set for ${deps.env.APP_ENV}: it still points at ${deps.env[name]}, which nothing serves in a deployed api (docs/DEPLOY.md §3)`);
+  return local;
 }
 
 /**
@@ -104,9 +110,13 @@ export function listen(app: ReturnType<typeof createApp>, port: number, deps: Ap
 
 export async function main(): Promise<void> {
   const env = loadEnv();
+  // Traces to OTEL_EXPORTER_OTLP_ENDPOINT and error reports to SENTRY_DSN, when set (packages/shared telemetry.ts).
+  const telemetry = installTelemetry("api", env);
   const deps = createApiDeps({ env });
   let server: ReturnType<typeof serve> | null = null;
-  let relay: OutboxRelay | null = null;
+  let relay: RelaySupervisor | null = null;
+  let reconciler: { stop(): void } | null = null;
+  let workerMonitor: WorkerMonitor | null = null;
   // Installed before the migration: a SIGTERM during boot still closes the pool (the migration transaction rolls back).
   const lifecycle = onShutdown({
     service: "api",
@@ -122,7 +132,9 @@ export async function main(): Promise<void> {
           if (forced > 0) deps.log.warn({ forced }, "api: connections still open at the drain deadline were cut");
         },
       },
+      { name: "stop workflow reconciler", run: () => reconciler?.stop() },
       { name: "stop outbox relay", run: () => relay?.stop() },
+      { name: "stop worker monitor", run: () => workerMonitor?.stop() },
       { name: "close temporal", run: () => deps.temporal.close() },
       {
         name: "close redis",
@@ -132,21 +144,28 @@ export async function main(): Promise<void> {
         },
       },
       { name: "close database", run: () => closeDb(deps.db) },
+      { name: "flush telemetry", run: () => telemetry.shutdown() },
     ],
   });
 
+  warnLocalhostUrls(deps);
   const migrated = await migrateOnBoot(deps);
   if (lifecycle.stopping) return;
-  const app = createApp(deps);
+  // The relay's state is reported on /health, so the supervisor exists before the app does.
+  relay = superviseOutboxRelay(deps);
+  const app = createApp({ ...deps, relay });
   const port = servicePort(env, "API_PORT");
 
   server = await listen(app, port, deps);
-  if (migrated) void seedOnBoot(deps);
+  // The demo seed may add a running vacation: the reconciler below runs after it.
+  const seeded = migrated ? seedOnBoot(deps).catch(() => undefined) : Promise.resolve();
+  // Every minute: is the orchestrator taking the work waiting on its task queues? An error line when it stops (SOAK-06).
+  workerMonitor = monitorWorker({ temporal: deps.temporal, log: deps.log, taskQueue: env.TEMPORAL_TASK_QUEUE });
   if (env.APP_ENV === "development") void deps.temporal.reachable().then((ok) => !ok && deps.log.warn({ address: env.TEMPORAL_ADDRESS }, "Temporal is unreachable: start it with `temporal server start-dev` (workflows will report queued: false until then)"));
 
-  void startRelay(deps).then((r) => {
-    relay = r;
-    if (lifecycle.stopping) void r?.stop();
+  // Long-lived workflows (vacations, Automated mode) for rows that have none: started at boot and every few minutes.
+  void seeded.then(() => {
+    if (!lifecycle.stopping) reconciler = startWorkflowReconciler(deps);
   });
 }
 

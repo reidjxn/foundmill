@@ -21,7 +21,7 @@ export const Id = z.guid();
 export const IsoDateInput = z.coerce.date();
 export const JsonObject = z.record(z.string(), z.unknown());
 export const JsonArray = z.array(z.unknown());
-export const Currency = z.string().length(3).toUpperCase();
+export const Currency = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, "currency is a three-letter code");
 export const MinorAmount = z.number().int().safe();
 
 export const DEFAULT_PAGE_SIZE = 50;
@@ -92,12 +92,28 @@ export interface Keyset<Row> {
   cursorOf(row: Row): string;
 }
 
+const ISO_INSTANT_RE = /^[1-9]\d{3}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
- * Keyset over a timestamptz column. Rows are ordered by the column truncated to milliseconds (the precision
- * a JavaScript Date carries) and then by id, so the cursor made from a returned row reproduces the exact
- * position in the order.
+ * The position a time cursor names, checked before it reaches SQL: an instant exactly as `cursorOf` writes it
+ * (`toISOString`, so a day such as Feb 31 that JavaScript rolls over and Postgres refuses does not pass) and a uuid.
+ * Anything else is a ValidationError (400), never a cast error from Postgres (500).
  */
-export function timeKeyset<Row>(column: AnyColumn, idColumn: AnyColumn, pick: (row: Row) => { at: Date; id: string }, direction: "asc" | "desc" = "desc"): Keyset<Row> {
+export function decodeTimeCursor(cursor: string): { at: string; id: string } {
+  const c = decodeCursor(cursor);
+  const real = ISO_INSTANT_RE.test(c.k) && !Number.isNaN(Date.parse(c.k)) && new Date(c.k).toISOString() === c.k;
+  if (!real || !UUID_RE.test(c.id)) throw new ValidationError("Malformed pagination cursor", { cursor });
+  return { at: c.k, id: c.id };
+}
+
+/**
+ * Keyset over a timestamptz column (or an expression of one, such as `coalesce(last_message_at, created_at)`): rows
+ * are ordered by it truncated to milliseconds (the precision a JavaScript Date carries) and then by id, so the cursor
+ * made from a returned row reproduces the exact position in the order. `pick` must return the same instant the
+ * expression orders by.
+ */
+export function timeKeyset<Row>(column: AnyColumn | SQL, idColumn: AnyColumn, pick: (row: Row) => { at: Date; id: string }, direction: "asc" | "desc" = "desc"): Keyset<Row> {
   const key = sql`date_trunc('milliseconds', ${column})`;
   const op = direction === "desc" ? sql`<` : sql`>`;
   const dir = direction === "desc" ? sql`desc` : sql`asc`;
@@ -105,8 +121,8 @@ export function timeKeyset<Row>(column: AnyColumn, idColumn: AnyColumn, pick: (r
     orderBy: [sql`${key} ${dir}`, sql`${idColumn} ${dir}`],
     after(cursor) {
       if (!cursor) return undefined;
-      const c = decodeCursor(cursor);
-      return sql`(${key}, ${idColumn}) ${op} (${c.k}::timestamptz, ${c.id}::uuid)`;
+      const c = decodeTimeCursor(cursor);
+      return sql`(${key}, ${idColumn}) ${op} (${c.at}::timestamptz, ${c.id}::uuid)`;
     },
     cursorOf(row) {
       const { at, id } = pick(row);
@@ -124,7 +140,7 @@ export function seqKeyset<Row>(column: AnyColumn, pick: (row: Row) => number, di
     after(cursor) {
       if (!cursor) return undefined;
       const c = decodeCursor(cursor);
-      if (!/^-?\d+$/.test(c.k)) throw new ValidationError("Malformed pagination cursor", { cursor });
+      if (!/^-?\d{1,15}$/.test(c.k)) throw new ValidationError("Malformed pagination cursor", { cursor });
       return sql`${column} ${op} ${c.k}::bigint`;
     },
     cursorOf(row) {
@@ -186,6 +202,23 @@ export function sqlState(err: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * The constraint a unique violation (SQLSTATE 23505) broke, if `err` is one, looking through Drizzle's wrapper:
+ * postgres.js names it `constraint_name`, PGlite `constraint`, and both say it in the message.
+ */
+export function uniqueViolation(err: unknown): { constraint: string | undefined } | undefined {
+  if (sqlState(err) !== "23505") return undefined;
+  let e: unknown = err;
+  for (let depth = 0; depth < 4 && e && typeof e === "object"; depth++) {
+    const named = (e as { constraint_name?: unknown; constraint?: unknown }).constraint_name ?? (e as { constraint?: unknown }).constraint;
+    if (typeof named === "string" && named) return { constraint: named };
+    const quoted = /unique constraint "([^"]+)"/.exec(String((e as { message?: unknown }).message ?? ""));
+    if (quoted) return { constraint: quoted[1] };
+    e = (e as { cause?: unknown }).cause;
+  }
+  return { constraint: undefined };
+}
+
 /** Parses with a Zod schema and rethrows as the platform's ValidationError (400) with the issues attached. */
 export function parseInput<S extends z.ZodType>(schema: S, input: unknown, what: string): z.output<S> {
   const result = schema.safeParse(input);
@@ -225,6 +258,16 @@ export function defined<T extends Record<string, unknown>>(patch: T): { [K in ke
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(patch)) if (v !== undefined) out[k] = v;
   return out as { [K in keyof T]?: Exclude<T[K], undefined> };
+}
+
+/**
+ * The `set` of an UPDATE from a parsed patch: `defined(patch)`, refused with a ValidationError (400) when nothing is
+ * left to change (an empty patch, or one whose keys the schema stripped), instead of the driver's "No values to set".
+ */
+export function changes<T extends Record<string, unknown>>(patch: T, what: string): { [K in keyof T]?: Exclude<T[K], undefined> } {
+  const out = defined(patch);
+  if (Object.keys(out).length === 0) throw new ValidationError(`Nothing to update on the ${what}: name at least one field that can change`);
+  return out;
 }
 
 /** True when the current Postgres role bypasses RLS (service_role or a superuser) — some reads pick a different relation. */

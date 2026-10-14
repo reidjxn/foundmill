@@ -24,4 +24,20 @@ describe("BrandFrame (login and signed-out frames)", () => {
     expect(screen.getByText("form")).toBeTruthy();
     expect(screen.getByText("footer")).toBeTruthy();
   });
+
+  it("asks for a larger window below 1280 px instead of drawing an overflowing top bar (audit PAS-5)", () => {
+    const before = window.innerWidth;
+    try {
+      Object.defineProperty(window, "innerWidth", { value: 1279, configurable: true, writable: true });
+      render(
+        <BrandFrame >
+          <p>body</p>
+        </BrandFrame>,
+      );
+      expect(screen.getByTestId("needs-larger-window")).toBeTruthy();
+      expect(screen.queryByText("body")).toBeNull();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { value: before, configurable: true, writable: true });
+    }
+  });
 });

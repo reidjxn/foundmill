@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CONTINUE_PULSE_MS, ContinueButton, continueButtonAction, continueButtonLabel, holidayCaption } from "./ContinueButton";
+import { CONTINUE_PULSE_MS, ContinueButton, continueButtonAction, continueButtonLabel, holidayCaption, holidayCaptionParts, untilPhrase } from "./ContinueButton";
 import type { ContinueState } from "./types";
 
 describe("ContinueButton", () => {
@@ -14,6 +14,14 @@ describe("ContinueButton", () => {
     expect(holidayCaption({ kind: "holiday", until: "2026-10-14" })).toBe("On vacation until Oct 14, 2026");
     expect(holidayCaption({ kind: "holiday", until: null, untilLabel: "the launch ships" })).toBe("On vacation until the launch ships");
     expect(holidayCaption({ kind: "holiday", until: null })).toBe("On vacation");
+  });
+
+  it("never doubles the word until in a vacation caption", () => {
+    // The open-ended vacation stores "until I return"; a founder may type "until MRR hits 10k".
+    expect(holidayCaption({ kind: "holiday", until: null, untilLabel: "until I return" })).toBe("On vacation until I return");
+    expect(holidayCaptionParts({ kind: "holiday", until: null, untilLabel: "until I return" })).toEqual({ full: "On vacation until I return", date: null, short: "Until I return" });
+    expect(holidayCaption({ kind: "holiday", until: null, untilLabel: "Until MRR hits 10k" })).toBe("On vacation until MRR hits 10k");
+    expect(untilPhrase("untilled soil")).toBe("untilled soil");
   });
 
   it("routes click and Space to the state's action", async () => {
@@ -89,6 +97,30 @@ describe("ContinueButton", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("keeps keyboard focus while its action is pending and across a change of state (WCAG 2.4.3)", async () => {
+    const user = userEvent.setup();
+    const onContinue = vi.fn();
+    const onComeBack = vi.fn();
+    const { rerender } = render(<ContinueButton state={{ kind: "idle" }} onContinue={onContinue} onComeBack={onComeBack} />);
+    const button = screen.getByRole("button", { name: "Continue" });
+    button.focus();
+    await user.keyboard("{Enter}");
+    expect(onContinue).toHaveBeenCalledTimes(1);
+    // The cycle is starting: the button is busy and refuses a second press, but it still has focus.
+    rerender(<ContinueButton state={{ kind: "idle" }} pending onContinue={onContinue} onComeBack={onComeBack} />);
+    expect(document.activeElement).toBe(button);
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    await user.keyboard("{Enter}");
+    expect(onContinue).toHaveBeenCalledTimes(1);
+    rerender(<ContinueButton state={{ kind: "processing" }} onContinue={onContinue} onComeBack={onComeBack} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Pause the running cycle" }));
+    // Vacation wraps the button with its caption (a new element): focus follows it there and back.
+    rerender(<ContinueButton state={{ kind: "holiday", until: "2026-10-21" }} onContinue={onContinue} onComeBack={onComeBack} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Come back" }));
+    rerender(<ContinueButton state={{ kind: "idle" }} onContinue={onContinue} onComeBack={onComeBack} />);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Continue" }));
   });
 
   it("does not act when disabled", async () => {

@@ -35,6 +35,11 @@ describe("bundled recordings", () => {
     }
   });
 
+  it("has a finance recording that ends done, so the first runway forecast completes on the golden path", () => {
+    const finance = RECORDINGS.filter((r) => r.taskKind === "finance");
+    expect(finance.some((r) => r.outcome === "done")).toBe(true);
+  });
+
   it("cover every outcome the UI has to render", () => {
     expect(new Set(RECORDINGS.map((r) => r.outcome))).toEqual(new Set(["done", "blocked", "failed"]));
   });
@@ -104,6 +109,43 @@ describe("SessionReplay", () => {
     expect(summary.emitted).toBe(rec.events.length);
   });
 
+  it("keeps a call waiting for the founder through a pause and a resume (audit FR-07)", async () => {
+    const rec = findRecording("ledgerly-annual-plan-discount")!;
+    const replay = new SessionReplay(rec, "session-7", { speed: Infinity, startAt: START, holds: "wait" });
+    const emitted: SessionEventInput[] = [];
+    replay.subscribe((e) => void emitted.push(e));
+    const playing = replay.play();
+    for (let i = 0; i < 100 && replay.status !== "holding"; i++) await new Promise((r) => setTimeout(r, 1));
+    expect(replay.status).toBe("holding");
+    replay.pause();
+    replay.resume();
+    await new Promise((r) => setTimeout(r, 20));
+    // Resume ended the pause only: the gated call is still undecided and nothing past it ran.
+    expect(replay.status).toBe("holding");
+    expect(replay.pendingApproval?.approvalId).toBe("apr-7f21");
+    expect(emitted.some((e) => e.kind === "tool_call" && e.tool === "create_coupon" && e.status === "succeeded")).toBe(false);
+    expect(replay.decide("apr-7f21", "approved")).toBe(true);
+    const summary = await playing;
+    expect(summary.emitted).toBe(rec.events.length);
+  });
+
+  it("a hold that resolves by itself lets the call run (the approvals row is closed by the orchestrator)", async () => {
+    const rec = findRecording("ledgerly-annual-plan-discount")!;
+    const replay = new SessionReplay(rec, "session-8", { speed: Infinity, startAt: START });
+    const summary = await replay.play();
+    expect(summary.emitted).toBe(rec.events.length);
+  });
+
+  it("stopping a replay that holds on an approval ends the hold", async () => {
+    const rec = findRecording("ledgerly-annual-plan-discount")!;
+    const replay = new SessionReplay(rec, "session-9", { speed: Infinity, startAt: START, holds: "wait" });
+    const playing = replay.play();
+    for (let i = 0; i < 100 && replay.status !== "holding"; i++) await new Promise((r) => setTimeout(r, 1));
+    replay.stop("founder_stop");
+    const summary = await playing;
+    expect(summary.outcome).toBe("stopped");
+  });
+
   it("pauses and resumes", async () => {
     const rec = findRecording("northwind-supplier-shortlist")!;
     const replay = new SessionReplay(rec, "session-6", { speed: Infinity, startAt: START });
@@ -133,6 +175,8 @@ describe("MockSandboxProvider", () => {
   it("picks a recording by key, or deterministically from the task id", () => {
     expect(pickRecording(RECORDINGS, { taskId: "t", recording: "northwind-supplier-shortlist" }).key).toBe("northwind-supplier-shortlist");
     expect(pickRecording(RECORDINGS, { taskId: "task-42" })).toBe(pickRecording(RECORDINGS, { taskId: "task-42" }));
+    // Without a named recording only a session that ends well is picked (audit IAE-22).
+    for (let i = 0; i < 60; i++) expect(pickRecording(RECORDINGS, { taskId: `task-${i}` }).outcome).toBe("done");
     expect(() => pickRecording(RECORDINGS, { taskId: "t", recording: "missing" })).toThrow(ValidationError);
     expect(() => pickRecording([], { taskId: "t" })).toThrow(ValidationError);
   });

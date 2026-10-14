@@ -1,7 +1,8 @@
 /** 0009 — finance: bank accounts, transactions, ledger, forecasts, cap table, usage, credits. */
 import { MODEL_BILLING, MODEL_KEYS, SECURITY_KINDS, USAGE_KINDS } from "@foundmill/shared";
+import { sql } from "drizzle-orm";
 import { date, index, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
-import { currency, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
+import { businessCurrency, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz, usdCurrency } from "./_common";
 import { businessId } from "./_refs";
 import { agentSessions, agents } from "./agents";
 import { entities } from "./crm";
@@ -19,7 +20,7 @@ export const accounts = pgTable(
     provider: text("provider").notNull(),
     externalId: text("external_id").notNull(),
     name: text("name").notNull(),
-    currency: currency(),
+    currency: businessCurrency(),
     balanceMinor: minor("balance_minor").notNull().default(0),
     balanceAt: tstz("balance_at"),
     consentExpiresAt: tstz("consent_expires_at"),
@@ -44,7 +45,7 @@ export const transactions = pgTable(
     externalId: text("external_id"),
     bookedAt: tstz("booked_at").notNull(),
     amountMinor: minor("amount_minor").notNull(),
-    currency: currency(),
+    currency: businessCurrency(),
     counterparty: text("counterparty"),
     counterpartyEntityId: uuid("counterparty_entity_id").references((): AnyPgColumn => entities.id, { onDelete: "set null" }),
     description: text("description").notNull().default(""),
@@ -70,7 +71,7 @@ export const ledgerSnapshots = pgTable(
     businessId: businessId(),
     period: text("period").notNull(),
     basis: text("basis", { enum: LEDGER_BASES }).notNull().default("cash"),
-    currency: currency(),
+    currency: businessCurrency(),
     pnl: jsonb("pnl").$type<Record<string, unknown>>().notNull().default(emptyObject),
     source: text("source"),
     ...timestamps(),
@@ -86,7 +87,7 @@ export const forecasts = pgTable(
     id: id(),
     businessId: businessId(),
     scenario: text("scenario", { enum: FORECAST_SCENARIOS }).notNull(),
-    currency: currency(),
+    currency: businessCurrency(),
     drivers: jsonb("drivers").$type<Record<string, unknown>>().notNull().default(emptyObject),
     series: jsonb("series").$type<unknown[]>().notNull().default(emptyList),
     generatedByAgentId: uuid("generated_by_agent_id").references((): AnyPgColumn => agents.id, { onDelete: "set null" }),
@@ -106,7 +107,7 @@ export const securities = pgTable(
     kind: text("kind", { enum: SECURITY_KINDS }).notNull(),
     terms: jsonb("terms").$type<Record<string, unknown>>().notNull().default(emptyObject),
     authorisedQuantity: minor("authorised_quantity"),
-    currency: currency(),
+    currency: businessCurrency(),
     ...timestampsWithArchive(),
   },
   (t) => [uniqueIndex("securities_business_id_class_key").on(t.businessId, t.class), index("securities_business_id_idx").on(t.businessId)],
@@ -123,7 +124,7 @@ export const capTableEntries = pgTable(
     securityId: uuid("security_id").notNull().references(() => securities.id, { onDelete: "cascade" }),
     quantity: numeric("quantity", { precision: 20, scale: 4 }).notNull(),
     priceMinor: minor("price_minor"),
-    currency: currency(),
+    currency: businessCurrency(),
     vesting: jsonb("vesting").$type<Record<string, unknown>>(),
     issuedAt: date("issued_at", { mode: "string" }),
     ...timestampsWithArchive(),
@@ -148,11 +149,20 @@ export const usageLedger = pgTable(
     modelKey: text("model_key", { enum: MODEL_KEYS }),
     quantity: minor("quantity").notNull().default(0),
     unit: text("unit").notNull().default("tokens"),
+    /** The cost rounded to a whole minor unit (one row's display figure). Sums use `costMicroMinor`. */
     costMinor: minor("cost_minor").notNull().default(0),
-    currency: currency(),
+    /**
+     * The exact cost in millionths of a minor unit (0039): what sums add before rounding once, so calls under half a
+     * cent are not lost. Null on rows written before 0039 (they count as `costMinor` × 1,000,000).
+     */
+    costMicroMinor: minor("cost_micro_minor"),
+    /** USD for every platform cost (tokens, sandbox, training; 0024); a tool row keeps the vendor's currency. */
+    currency: usdCurrency(),
     billedTo: text("billed_to", { enum: MODEL_BILLING }).notNull().default("credits"),
     occurredAt: tstz("occurred_at").notNull().defaultNow(),
     details: jsonb("details").$type<Record<string, unknown>>().notNull().default(emptyObject),
+    /** 0036: what the booking settles (`session:<id>:sandbox`, ...); a repeat with the same key is not booked again. */
+    idempotencyKey: text("idempotency_key"),
     ...timestamps(),
   },
   (t) => [
@@ -160,6 +170,7 @@ export const usageLedger = pgTable(
     index("usage_ledger_agent_id_idx").on(t.agentId, t.occurredAt),
     index("usage_ledger_session_id_idx").on(t.sessionId),
     index("usage_ledger_kind_idx").on(t.businessId, t.kind, t.occurredAt),
+    uniqueIndex("usage_ledger_idempotency_idx").on(t.businessId, t.idempotencyKey).where(sql`idempotency_key is not null`),
   ],
 );
 export type UsageEntry = typeof usageLedger.$inferSelect;
@@ -174,7 +185,10 @@ export const creditBalances = pgTable(
     balanceMinor: minor("balance_minor").notNull().default(0),
     grantedMinor: minor("granted_minor").notNull().default(0),
     spentMinor: minor("spent_minor").notNull().default(0),
-    currency: currency(),
+    /** Charges below a whole cent not yet charged to the balance, in millionths of a cent (0039; always under 1,000,000). */
+    carryMicroMinor: minor("carry_micro_minor").notNull().default(0),
+    /** Always USD (a check holds it, 0024): credits are bought and charged in the model price list's currency. */
+    currency: usdCurrency(),
     ...timestamps(),
   },
   (t) => [uniqueIndex("credit_balances_business_id_period_key").on(t.businessId, t.period), index("credit_balances_business_id_idx").on(t.businessId, t.period)],

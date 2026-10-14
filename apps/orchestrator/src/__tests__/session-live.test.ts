@@ -3,29 +3,53 @@
  * the SDK process receives a from-scratch environment, tools by task kind, an isolated cwd, no host settings, and the
  * per-session workspace is deleted whether the run succeeds or the SDK throws. The mock-sandbox path is untouched
  * (session.test.ts).
+ *
+ * Session control on the live runner: usage is the latest cumulative result (never summed) plus an Estimate of a turn
+ * cut short; Stop, a loop and a cancel interrupt the turn and book what was spent; Pause interrupts the turn and holds
+ * tool calls until Resume; a refused API call (billing, key, rate limit) blocks instead of booking "done"; an approval
+ * left undecided ends the session `blocked`; a long pause parks the run; the sandbox exists only for the acceptance run.
+ * On the platform key a session is capped at the month's credits, books each turn as it runs and ends blocked when
+ * they are used up (SEC2 S2).
  */
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { repos, workspaceSnapshots } from "@foundmill/db";
+import { openApprovalItem, periodOf, repos, resumeBusinessAgents, workspaceSnapshots } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
+import { meter, type ModelId } from "@foundmill/models";
 import { LONG_LIVED_NAME_PATTERNS, parseSandboxSpec, type Sandbox, type SandboxProvider, type SandboxSpecInput } from "@foundmill/sandbox";
+import { MockActivityEnvironment } from "@temporalio/testing";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
-import { ACCEPTANCE_EGRESS, createSessionActivities } from "../activities/session";
+import { ACCEPTANCE_EGRESS, classifyTurnEnd, createSessionActivities, SANDBOX_TTL_MINUTES } from "../activities/session";
+import type { SessionResult } from "../activities/types";
+import type { SessionControlBus } from "../control-bus";
+import { CREDITS_USED_UP_SUMMARY, SESSION_CREDIT_CHECK_MS } from "../activities/session-credits";
 import { createOfflineGatewayClient } from "../gateway-client";
 import { FILE_TOOLS, SDK_MODEL_KEY_NAME, SDK_SESSION_TOKEN_NAME } from "../activities/sdk-isolation";
-import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
+import { usageFromHeartbeat } from "../session-contract";
+import { openSessionRow, setupOrchestratorHarness, wait, type OrchestratorTestHarness } from "./harness";
 
 type QueryCall = { prompt: unknown; options: Record<string, unknown> };
 const calls: QueryCall[] = [];
+/** Every `Query.interrupt()` the runner made, in order. */
+const interrupts: number[] = [];
+/** Every model id `Query.setModel()` was asked to move to. */
+const modelSwitches: (string | undefined)[] = [];
 let script: (call: QueryCall) => AsyncGenerator<Record<string, unknown>>;
 
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   query: (call: QueryCall) => {
     calls.push(call);
-    return script(call);
+    return Object.assign(script(call), {
+      async interrupt() {
+        interrupts.push(Date.now());
+      },
+      async setModel(model?: string) {
+        modelSwitches.push(model);
+      },
+    });
   },
 }));
 
@@ -41,8 +65,8 @@ const SECRET_HOST_ENV = {
 type ExecReply = { code: number; stdout: string; stderr: string; timedOut: boolean; durationMs: number };
 
 /** A non-mock sandbox that records what runs inside it; `runAgentSession` takes the live path for anything but MockSandbox. */
-function fakeSandboxProvider(): SandboxProvider & { execs: string[]; stopped: number; specs: ReturnType<typeof parseSandboxSpec>[]; writes: Map<string, string>[]; replies: ExecReply[]; log: string[]; closeFails: boolean } {
-  const state = { execs: [] as string[], stopped: 0, specs: [] as ReturnType<typeof parseSandboxSpec>[], writes: [] as Map<string, string>[], replies: [] as ExecReply[], log: [] as string[], closeFails: false };
+function fakeSandboxProvider(): SandboxProvider & { execs: string[]; stopped: number; specs: ReturnType<typeof parseSandboxSpec>[]; writes: Map<string, string>[]; replies: ExecReply[]; log: string[]; closeFails: boolean; createFails: boolean } {
+  const state = { execs: [] as string[], stopped: 0, specs: [] as ReturnType<typeof parseSandboxSpec>[], writes: [] as Map<string, string>[], replies: [] as ExecReply[], log: [] as string[], closeFails: false, createFails: false };
   return {
     mode: "docker",
     execs: state.execs,
@@ -56,6 +80,12 @@ function fakeSandboxProvider(): SandboxProvider & { execs: string[]; stopped: nu
     set closeFails(v: boolean) {
       state.closeFails = v;
     },
+    get createFails() {
+      return state.createFails;
+    },
+    set createFails(v: boolean) {
+      state.createFails = v;
+    },
     get stopped() {
       return state.stopped;
     },
@@ -63,6 +93,7 @@ function fakeSandboxProvider(): SandboxProvider & { execs: string[]; stopped: nu
       return { available: true };
     },
     async create(input: SandboxSpecInput): Promise<Sandbox> {
+      if (state.createFails) throw new Error("E2B sandbox creation failed: 400 Timeout cannot be greater than 1 hours");
       const spec = parseSandboxSpec(input);
       state.specs.push(spec);
       const written = new Map<string, string>();
@@ -129,6 +160,8 @@ afterAll(async () => {
 });
 afterEach(() => {
   calls.length = 0;
+  interrupts.length = 0;
+  modelSwitches.length = 0;
 });
 
 const success = (sessionId: string) =>
@@ -222,8 +255,11 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
     expect(notes.some((r) => r.event.kind === "note" && r.event.source === "system" && /Blocked Read: .*outside the session workspace/.test(r.event.text))).toBe(true);
 
     // The sandbox may reach the npm registry and nothing else; the agent's files (not the SDK's HOME state, dependencies,
-    // git metadata or symlinks) are copied into it, and the acceptance tests run there, never on the host.
+    // git metadata or symlinks) are copied into it, and the acceptance tests run there, never on the host. It is asked
+    // for no longer than the acceptance run needs, inside E2B Hobby's one-hour cap.
     expect(provider.specs.at(-1)!.egressAllowList).toEqual([...ACCEPTANCE_EGRESS]);
+    expect(provider.specs.at(-1)!.ttlMinutes).toBe(SANDBOX_TTL_MINUTES);
+    expect(SANDBOX_TTL_MINUTES).toBeLessThanOrEqual(60);
     expect([...provider.writes.at(-1)!.keys()].sort()).toEqual(["package.json", "src/index.ts"]);
     expect(provider.writes.at(-1)!.get("src/index.ts")).toBe("export const ok = true;\n");
     // Online: dependencies only, with scripts and pnpmfiles off. Then the network closes. Offline: the task's command.
@@ -379,6 +415,7 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
     const launch = await acts.prepareSession(input);
     script = success(sessionId);
     const execsBefore = provider.execs.length;
+    const specsBefore = provider.specs.length;
     const result = await acts.runAgentSession(input, launch);
     expect(result.outcome).toBe("done");
     const options = calls[0]!.options;
@@ -391,9 +428,10 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
     const read = await hook({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "README.md" }, tool_use_id: "x", session_id: "s", transcript_path: "", cwd: options.cwd });
     expect(read).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny", permissionDecisionReason: expect.stringMatching(/not available/) } });
     expect(provider.execs.length).toBe(execsBefore); // no acceptance command for a research task
-    expect(provider.specs.at(-1)!.egressAllowList).toEqual([]); // and no network at all
-    expect(provider.writes.at(-1)!.size).toBe(0);
+    expect(provider.specs.length).toBe(specsBefore); // so no sandbox at all (and no network)
     await expect(stat(options.cwd as string)).rejects.toThrow();
+    const notes = await readSessionEvents(t.redis, sessionId, { kinds: ["note"] });
+    expect(notes[0]?.event).toMatchObject({ kind: "note", source: "system", text: expect.stringMatching(/^Session started for .* \(no sandbox needed, /) });
   });
 
   it("code task: the session's code is pushed to the agent's branch through the gateway when GitHub is set up", async () => {
@@ -480,5 +518,645 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
     expect(result.reason).toContain(SDK_SESSION_TOKEN_NAME);
     expect(calls).toHaveLength(0);
     expect(await readdir(workspaceRoot)).toEqual([]);
+  });
+});
+
+type UserTurn = { message: { content: string } };
+const promptsOf = (call: QueryCall): AsyncIterator<UserTurn> => (call.prompt as AsyncIterable<UserTurn>)[Symbol.asyncIterator]();
+const modelUsage = (inputTokens: number, outputTokens: number, costUSD: number) => ({ m: { inputTokens, outputTokens, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD } });
+const resultOf = (usage: ReturnType<typeof modelUsage>, extra: Record<string, unknown> = {}) => ({ type: "result", subtype: "success", is_error: false, modelUsage: usage, ...extra });
+
+/** Poll (real time) until `check` holds; the runner's control loop ticks every 250 ms. */
+async function until(check: () => boolean | Promise<boolean>, what = "condition", timeoutMs = 8_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await check())) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await wait(20);
+  }
+}
+
+describe("runAgentSession (live runner): session control, usage and refusals", () => {
+  const start = async (taskId = researchTaskId) => {
+    const sessionId = await openSessionRow(t, t.workerId, taskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId, sessionId };
+    return { sessionId, input, launch: await acts.prepareSession(input) };
+  };
+  const notesOf = async (sessionId: string) => (await readSessionEvents(t.redis, sessionId, { kinds: ["note"] })).map((r) => r.event as { source: string; text: string; level?: string });
+
+  it("books the latest result's cumulative usage once however many turns ran: a nudge makes two results, not double the cost (O-05)", async () => {
+    const { sessionId, input, launch } = await start();
+    let nudge: string | undefined;
+    let inputEnded = false;
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: "sdk-usage" };
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "text", text: "Working on it." }], usage: { input_tokens: 10, output_tokens: 5 } } };
+      // The founder nudges mid-turn: the runner keeps the input open and the SDK answers it in a second turn.
+      await t.control.post(sessionId, { kind: "shout", message: "Shorter please" });
+      await wait(600);
+      yield resultOf(modelUsage(10, 5, 0.01));
+      nudge = (await prompts.next()).value?.message.content;
+      yield { type: "assistant", message: { id: "m2", content: [{ type: "text", text: "Shortened." }], usage: { input_tokens: 20, output_tokens: 7 } } };
+      // Each result carries the running total so far.
+      yield resultOf(modelUsage(30, 12, 0.03));
+      inputEnded = (await prompts.next()).done === true;
+    };
+    const result = await acts.runAgentSession(input, launch);
+    expect(nudge).toBe("Founder nudge: Shorter please");
+    expect(inputEnded).toBe(true);
+    // Summing the results would book 40 in, 17 out and 4 cents.
+    expect(result).toMatchObject({ outcome: "done", tokensIn: 30, tokensOut: 12, costMinor: 3 });
+    await acts.finishSession(input, launch, result);
+    // On the platform key each finished turn was booked as it ran (SEC2 S2); the finish booked only what was left.
+    const rows = (await repos.usage.list(t.db, t.businessId, { sessionId, kind: "tokens", limit: 10 })).items;
+    expect(rows.every((u) => u.currency === "USD" && u.billedTo === "credits")).toBe(true);
+    expect(await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).toEqual({ quantity: 42, costMinor: 3 });
+    await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+  });
+
+  it("Stop interrupts the turn in flight, waits for the SDK's final usage and ends stopped with every token booked (O-04)", async () => {
+    const { sessionId, input, launch } = await start();
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: "sdk-stop" };
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "text", text: "Reading the brief." }], usage: { input_tokens: 50, output_tokens: 20 } } };
+      await t.control.post(sessionId, { kind: "stop", reason: "founder_stop", by: t.fixture.ownerId });
+      await until(() => interrupts.length > 0, "the interrupt");
+      // The interrupted turn ends with a result carrying the usage so far; with its input closed the CLI then exits.
+      yield { type: "result", subtype: "error_during_execution", is_error: true, errors: ["[Request interrupted by user]"], modelUsage: modelUsage(50, 20, 0.2) };
+    };
+    const result = await acts.runAgentSession(input, launch);
+    expect(interrupts).toHaveLength(1);
+    expect(result).toMatchObject({ outcome: "stopped", reason: "founder_stop", blockedReason: "stopped", tokensIn: 50, tokensOut: 20, costMinor: 20 });
+    const finish = await acts.finishSession(input, launch, result);
+    expect(finish.taskStatus).toBe("stopped");
+    expect((await repos.agents.get(t.db, t.businessId, t.workerId)).status).toBe("idle");
+    expect((await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).quantity).toBe(70);
+    await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+  });
+
+  it("a stop the SDK answers by aborting (no final result) still ends stopped, with the cut turn's usage estimated at list price (BILL-12)", async () => {
+    const { sessionId, input, launch } = await start();
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: "sdk-abort" };
+      yield { type: "assistant", message: { id: "m1", model: launch.modelId, content: [{ type: "text", text: "Drafting." }], usage: { input_tokens: 1_000, output_tokens: 400 } } };
+      // Streamed blocks of one message share its id: the last usage seen counts, once.
+      yield { type: "assistant", message: { id: "m1", model: launch.modelId, content: [{ type: "text", text: "Still drafting." }], usage: { input_tokens: 1_000, output_tokens: 500 } } };
+      await t.control.post(sessionId, { kind: "stop", reason: "founder_stop" });
+      await until(() => interrupts.length > 0, "the interrupt");
+      throw Object.assign(new Error("Claude Code process aborted by user"), { name: "AbortError" });
+    };
+    const result = await acts.runAgentSession(input, launch);
+    const expected = Math.round(meter({ inputTokens: 1_000, outputTokens: 500, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, launch.modelId as ModelId).costMinor);
+    expect(result).toMatchObject({ outcome: "stopped", reason: "founder_stop", tokensIn: 1_000, tokensOut: 500, costMinor: expected });
+    expect(expected).toBeGreaterThan(0);
+  });
+
+  it("a cancel (the worker shutting down for a deploy) interrupts the turn, books what was spent and returns the task for a later cycle (O-04)", async () => {
+    const { sessionId, input, launch } = await start();
+    const env = new MockActivityEnvironment();
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: "sdk-cancel" };
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "text", text: "Comparing suppliers." }], usage: { input_tokens: 80, output_tokens: 30 } } };
+      env.cancel();
+      await until(() => interrupts.length > 0, "the interrupt");
+      yield { type: "result", subtype: "error_during_execution", is_error: true, errors: ["[Request interrupted by user]"], modelUsage: modelUsage(80, 30, 0.04) };
+    };
+    await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "running", { force: true });
+    const result = (await env.run(acts.runAgentSession, input, launch)) as SessionResult;
+    expect(result).toMatchObject({ outcome: "stopped", reason: "cancelled", blockedReason: "stopped", tokensIn: 80, tokensOut: 30, costMinor: 4 });
+    const finish = await acts.finishSession(input, launch, result);
+    // Not anyone's Stop: the task is not dropped, and the agent is not marked failing.
+    expect(finish.taskStatus).toBe("ready");
+    expect((await repos.agents.get(t.db, t.businessId, t.workerId)).status).toBe("idle");
+    expect((await repos.usage.list(t.db, t.businessId, { sessionId, limit: 10 })).items.find((u) => u.kind === "tokens")?.quantity).toBe(110);
+  });
+
+  it("a detected loop interrupts the run and ends failed with reason loop_detected and its usage, not as an error with none (O-04)", async () => {
+    const { input, launch } = await start();
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      const tool = (call.options.allowedTools as string[]).find((x) => x.startsWith("mcp__"))!;
+      yield { type: "system", subtype: "init", session_id: "sdk-loop" };
+      for (let i = 0; i < 3; i++) yield { type: "assistant", message: { id: `m${i}`, content: [{ type: "tool_use", id: `tu${i}`, name: tool, input: { q: "same" } }], usage: { input_tokens: 10, output_tokens: 10 } } };
+      await until(() => interrupts.length > 0, "the interrupt");
+      yield { type: "result", subtype: "error_during_execution", is_error: true, errors: ["interrupted"], modelUsage: modelUsage(30, 30, 0.05) };
+    };
+    const result = await acts.runAgentSession(input, launch);
+    expect(result).toMatchObject({ outcome: "failed", blockedReason: "loop_detected", tokensIn: 30, tokensOut: 30, costMinor: 5 });
+  });
+
+  it("Pause interrupts the SDK's turn and holds every tool call until Resume, which asks the agent to carry on (O-03)", async () => {
+    const { sessionId, input, launch } = await start();
+    let settledWhilePaused: boolean | null = null;
+    let verdict: unknown;
+    let resumedWith: string | undefined;
+    let hookTimeout: number | undefined;
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      hookTimeout = (call.options.hooks as { PreToolUse: { timeout?: number }[] }).PreToolUse[0]!.timeout;
+      yield { type: "system", subtype: "init", session_id: "sdk-pause" };
+      await t.control.post(sessionId, { kind: "pause", by: t.fixture.ownerId });
+      await until(() => interrupts.length > 0, "the interrupt");
+      // The SDK answers tool hooks itself, whatever the consumer does: a tool call made now must wait for Resume.
+      const hook = (call.options.hooks as { PreToolUse: { hooks: ((i: unknown) => Promise<unknown>)[] }[] }).PreToolUse[0]!.hooks[0]!;
+      let settled = false;
+      const pending = hook({ hook_event_name: "PreToolUse", tool_name: (call.options.allowedTools as string[]).find((x) => x.startsWith("mcp__")), tool_input: {}, tool_use_id: "x", session_id: "s", transcript_path: "", cwd: call.options.cwd }).then((v) => {
+        settled = true;
+        return v;
+      });
+      yield { type: "result", subtype: "error_during_execution", is_error: true, errors: ["[Request interrupted by user]"], modelUsage: modelUsage(5, 1, 0.01) };
+      await wait(700);
+      settledWhilePaused = settled;
+      await t.control.post(sessionId, { kind: "resume", by: t.fixture.ownerId });
+      resumedWith = (await prompts.next()).value?.message.content;
+      verdict = await pending;
+      yield resultOf(modelUsage(15, 4, 0.02));
+      await prompts.next();
+    };
+    const result = await acts.runAgentSession(input, launch);
+    expect(settledWhilePaused).toBe(false);
+    expect(verdict).toEqual({ continue: true });
+    // The CLI never gives up on a held call (and lets it through) before the run ends on its own.
+    expect(hookTimeout).toBeGreaterThan(Math.max(t.deps.env.APPROVAL_WAIT_MINUTES, t.deps.env.SESSION_PAUSE_HOLD_MINUTES) * 60);
+    expect(resumedWith).toMatch(/paused the session mid-step and has now resumed it/);
+    // The interrupted turn was not a failure.
+    expect(result).toMatchObject({ outcome: "done", tokensIn: 15, tokensOut: 4, costMinor: 2 });
+    const notes = await notesOf(sessionId);
+    expect(notes.map((n) => n.text)).toEqual(expect.arrayContaining(["Paused.", "Resumed."]));
+  });
+
+  it("every heartbeat carries the usage so far, so a run whose worker is lost still books what it spent (BILL-12)", async () => {
+    const { input, launch } = await start();
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: "sdk-beat" };
+      yield { type: "assistant", message: { id: "m1", model: launch.modelId, content: [{ type: "text", text: "Reading the brief." }], usage: { input_tokens: 300, output_tokens: 40 } } };
+      await wait(700); // the control loop heartbeats meanwhile
+      yield resultOf(modelUsage(300, 40, 0.02));
+    };
+    const env = new MockActivityEnvironment();
+    const beats: unknown[] = [];
+    env.on("heartbeat", (details: unknown) => beats.push(details));
+    const result = await env.run(acts.runAgentSession, input, launch);
+    expect(result).toMatchObject({ outcome: "done", tokensIn: 300, tokensOut: 40, costMinor: 2 });
+    // Mid-turn (no result yet), the beat carries the turn's usage so far, as the workflow would book it after a timeout.
+    expect(beats.map(usageFromHeartbeat).some((u) => u.tokensIn === 300 && u.tokensOut === 40)).toBe(true);
+  });
+
+  it("a nudge's Upgrade to Opus moves the live query to Opus, says so, and prices the rest of the session on it (O-27, #237)", async () => {
+    const { sessionId, input, launch } = await start();
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: "sdk-upgrade" };
+      await t.control.post(sessionId, { kind: "shout", message: "Upgrade to Opus", modelKey: "opus", by: t.fixture.ownerId });
+      await until(() => modelSwitches.length > 0, "the model switch");
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "text", text: "On it." }], usage: { input_tokens: 100, output_tokens: 50 } } };
+      yield resultOf(modelUsage(100, 50, 0.05));
+      await prompts.next();
+    };
+    const result = await acts.runAgentSession(input, launch);
+    expect(modelSwitches).toHaveLength(1);
+    expect(modelSwitches[0]).toMatch(/opus/);
+    // The nudge changed the model, not the conversation: the agent was sent nothing.
+    expect(result).toMatchObject({ outcome: "done", modelKey: "opus" });
+    const notes = await notesOf(sessionId);
+    expect(notes.map((n) => n.text)).toContain("Switched to Opus for the rest of this session.");
+    expect(notes.some((n) => n.source === "shout")).toBe(false);
+    await acts.finishSession(input, launch, result);
+    const tokens = (await repos.usage.list(t.db, t.businessId, { sessionId, limit: 10 })).items.find((u) => u.kind === "tokens");
+    expect(tokens?.modelKey).toBe("opus");
+    await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+  });
+
+  it("an API refusal for billing (is_error on a success result) blocks the session for budget instead of booking it done (BF-03)", async () => {
+    const { sessionId, input, launch } = await start();
+    script = async function* (call) {
+      await promptsOf(call).next();
+      yield { type: "system", subtype: "init", session_id: "sdk-billing" };
+      yield { type: "assistant", error: "billing_error", message: { id: "m-err", content: [{ type: "text", text: "Credit balance is too low" }] } };
+      yield { type: "result", subtype: "success", is_error: true, api_error_status: 400, result: "Credit balance is too low", modelUsage: {} };
+    };
+    const result = await acts.runAgentSession(input, launch);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget" });
+    expect(result.reason).toMatch(/^model budget exhausted: .*Credit balance is too low/);
+    const notes = await notesOf(sessionId);
+    // The provider's words never appear as the agent's own note.
+    expect(notes.some((n) => n.source === "agent" && /Credit balance/.test(n.text))).toBe(false);
+    expect(notes.some((n) => n.source === "system" && n.level === "error" && /refused the call for billing/.test(n.text))).toBe(true);
+    const finish = await acts.finishSession(input, launch, result);
+    expect(finish.taskStatus).toBe("blocked");
+    const blocked = await repos.events.list(t.db, t.businessId, { type: "task.blocked", limit: 10 });
+    expect(blocked.items.some((e) => (e.payload as { sessionId: string; reason: string }).sessionId === sessionId && (e.payload as { reason: string }).reason === "budget")).toBe(true);
+    const completed = await repos.events.list(t.db, t.businessId, { type: "task.completed", limit: 20 });
+    expect(completed.items.some((e) => (e.payload as { sessionId: string }).sessionId === sessionId)).toBe(false);
+    await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+  });
+
+  it("classifies how a turn ended: billing, key and rate-limit refusals block; other API errors and error subtypes fail; a clean turn is null", () => {
+    expect(classifyTurnEnd({ subtype: "success", is_error: false }, null, "platform")).toBeNull();
+    expect(classifyTurnEnd({ subtype: "success", is_error: true, api_error_status: 400, result: "Your credit balance is too low to access the Anthropic API." }, null, "byok")).toMatchObject({ outcome: "blocked", blockedReason: "budget", summary: expect.stringMatching(/your Anthropic account refused the call for billing/) });
+    expect(classifyTurnEnd({ subtype: "success", is_error: true, api_error_status: 401, result: "invalid x-api-key" }, null, "byok")).toMatchObject({ outcome: "blocked", blockedReason: "credential" });
+    expect(classifyTurnEnd({ subtype: "success", is_error: true, api_error_status: null, result: "x" }, { kind: "authentication_failed", text: "Invalid API key" }, "platform")).toMatchObject({ blockedReason: "credential" });
+    // An account the provider put on hold refuses every call too: the key's owner has to act, so the task waits.
+    expect(classifyTurnEnd({ subtype: "success", is_error: true, api_error_status: null, result: "x" }, { kind: "account_on_hold", text: "Your account is on hold" }, "byok")).toMatchObject({ outcome: "blocked", blockedReason: "credential" });
+    expect(classifyTurnEnd({ subtype: "success", is_error: true, api_error_status: 429, result: "rate_limit_error" }, null, "platform")).toMatchObject({ outcome: "blocked", blockedReason: "rate_limit" });
+    expect(classifyTurnEnd({ subtype: "success", is_error: true, api_error_status: 500, result: "Internal server error" }, null, "platform")).toMatchObject({ outcome: "failed", blockedReason: "error" });
+    expect(classifyTurnEnd({ subtype: "error_max_turns", is_error: true, errors: ["Reached maximum number of turns (60)"] }, null, "platform")).toMatchObject({ outcome: "failed", blockedReason: "error", reason: "error_max_turns: Reached maximum number of turns (60)" });
+    // The SDK stopped at the budget a session on the platform key is given: used-up credits block, they do not fail.
+    expect(classifyTurnEnd({ subtype: "error_max_budget_usd", is_error: true, errors: ["Reached maximum budget ($0.50)"] }, null, "platform", { limit: "credits", taskBudgetMinor: 0, taskSpentMinor: 0 })).toMatchObject({ outcome: "blocked", blockedReason: "budget", summary: CREDITS_USED_UP_SUMMARY });
+  });
+
+  it("on the platform key a session gets the spendable credits as its budget, books each finished turn, and ends blocked once they are used up (SEC2 S2)", async () => {
+    const period = periodOf(t.clock.now());
+    // Exactly 50 cents left this month.
+    await repos.usage.chargeCredits(t.db, t.businessId, period, 10_000_000, { includedMinor: 500 });
+    await repos.usage.grantCredits(t.db, t.businessId, period, 50);
+    const { sessionId, input, launch } = await start();
+    let nudgeSent: boolean | null = null;
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: "sdk-credits" };
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "text", text: "Comparing suppliers." }], usage: { input_tokens: 100, output_tokens: 50 } } };
+      // The founder nudges mid-turn: there is another turn to run when this one has used the last credit.
+      await t.control.post(sessionId, { kind: "shout", message: "Add a fourth supplier" });
+      await wait(600);
+      yield resultOf(modelUsage(100, 50, 0.6));
+      nudgeSent = (await prompts.next()).done !== true;
+    };
+    try {
+      const result = await acts.runAgentSession(input, launch);
+      expect(calls.at(-1)!.options.maxBudgetUsd).toBe(0.5);
+      // The nudge's turn never ran: the session ended before it, with the turn that spent the credits booked.
+      expect(nudgeSent).toBe(false);
+      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", summary: CREDITS_USED_UP_SUMMARY, tokensIn: 100, tokensOut: 50, costMinor: 60 });
+      // Booked as it ran, so the charge that used the last credit stopped the team then, not at the session's end.
+      expect(await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).toEqual({ quantity: 150, costMinor: 60 });
+      expect(await repos.businesses.stopState(t.db, t.businessId)).toMatchObject({ stopped: true, reason: "credits_exhausted" });
+      expect((await notesOf(sessionId)).some((n) => n.source === "system" && /credits are used up, so the session stops here/.test(n.text))).toBe(true);
+      // The finish books only what is left: nothing twice.
+      expect((await acts.finishSession(input, launch, result)).taskStatus).toBe("blocked");
+      expect(await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).toEqual({ quantity: 150, costMinor: 60 });
+
+      // Resumed by hand with nothing left: a session on the platform key does not start at all.
+      await resumeBusinessAgents(t.db, t.businessId);
+      const next = await start();
+      const before = calls.length;
+      const refused = await acts.runAgentSession(next.input, next.launch);
+      expect(refused).toMatchObject({ outcome: "blocked", blockedReason: "budget", reason: expect.stringMatching(/credits are used up/), tokensIn: 0, costMinor: 0 });
+      expect(calls).toHaveLength(before);
+      await acts.finishSession(next.input, next.launch, refused);
+    } finally {
+      await resumeBusinessAgents(t.db, t.businessId);
+      await repos.usage.grantCredits(t.db, t.businessId, period, 100_000);
+      await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+    }
+  });
+
+  it("a turn that finished the task stays done when it used the last credit: the team stops, the task is not run again (SEC2 S2)", async () => {
+    const period = periodOf(t.clock.now());
+    await repos.usage.chargeCredits(t.db, t.businessId, period, 10_000_000, { includedMinor: 500 });
+    await repos.usage.grantCredits(t.db, t.businessId, period, 50);
+    const { sessionId, input, launch } = await start();
+    let inputEnded = false;
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: "sdk-last-credit" };
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "text", text: "Here are three suppliers." }], usage: { input_tokens: 100, output_tokens: 50 } } };
+      yield resultOf(modelUsage(100, 50, 0.6));
+      inputEnded = (await prompts.next()).done === true;
+    };
+    try {
+      const result = await acts.runAgentSession(input, launch);
+      expect(inputEnded).toBe(true);
+      expect(result).toMatchObject({ outcome: "done", tokensIn: 100, tokensOut: 50, costMinor: 60 });
+      expect(interrupts).toHaveLength(0);
+      expect(await repos.businesses.stopState(t.db, t.businessId)).toMatchObject({ stopped: true, reason: "credits_exhausted" });
+      expect((await acts.finishSession(input, launch, result)).taskStatus).toBe("done");
+      expect(await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).toEqual({ quantity: 150, costMinor: 60 });
+    } finally {
+      await resumeBusinessAgents(t.db, t.businessId);
+      await repos.usage.grantCredits(t.db, t.businessId, period, 100_000);
+      await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+    }
+  });
+
+  it("mid-turn, a session books what it spent every SESSION_CREDIT_CHECK_MS and stops once the credits run out elsewhere (SEC2 S2)", async () => {
+    const period = periodOf(t.clock.now());
+    const { sessionId, input, launch } = await start();
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: "sdk-mid-turn" };
+      yield { type: "assistant", message: { id: "m1", model: launch.modelId, content: [{ type: "text", text: "Reading supplier sites." }], usage: { input_tokens: 2_000, output_tokens: 500 } } };
+      // Meanwhile the api spends the month's last credit on a conversation.
+      await repos.usage.chargeCredits(t.db, t.businessId, period, 10_000_000, { includedMinor: 500 });
+      await t.clock.advance(SESSION_CREDIT_CHECK_MS + 1_000);
+      await until(() => interrupts.length > 0, "the interrupt");
+      yield { type: "result", subtype: "error_during_execution", is_error: true, errors: ["[Request interrupted by user]"], modelUsage: modelUsage(2_000, 500, 0.04) };
+    };
+    try {
+      const result = await acts.runAgentSession(input, launch);
+      expect(interrupts).toHaveLength(1);
+      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", summary: CREDITS_USED_UP_SUMMARY, tokensIn: 2_000, tokensOut: 500 });
+      expect((await notesOf(sessionId)).some((n) => n.source === "system" && /credits are used up, so the session stops here/.test(n.text))).toBe(true);
+      // The open turn was booked by the check (an Estimate at list price); the finish books only what is left.
+      const estimated = Math.round(meter({ inputTokens: 2_000, outputTokens: 500, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, launch.modelId as ModelId).costMinor);
+      expect(await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).toEqual({ quantity: 2_500, costMinor: estimated });
+      await acts.finishSession(input, launch, result);
+      expect((await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).quantity).toBe(2_500);
+    } finally {
+      await resumeBusinessAgents(t.db, t.businessId);
+      await repos.usage.grantCredits(t.db, t.businessId, period, 100_000);
+      await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+    }
+  });
+
+  it("an approval left undecided past APPROVAL_WAIT_MINUTES ends the live session blocked and frees its slot; the approval stays open (contract 3)", async () => {
+    const { sessionId, input, launch } = await start();
+    let inputEnded = false;
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      const tool = (call.options.allowedTools as string[]).find((x) => x.startsWith("mcp__"))!;
+      yield { type: "system", subtype: "init", session_id: "sdk-ask" };
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "tool_use", id: "tu-ask", name: tool, input: { amount: 500 } }], usage: { input_tokens: 40, output_tokens: 10 } } };
+      yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-ask", content: JSON.stringify({ outcome: "ask", approvalId: "00000000-0000-4000-8000-0000000000aa", reason: "spend above the agent's authority" }) }] } };
+      yield resultOf(modelUsage(40, 10, 0.05));
+      // The runner keeps the input open for the decision; it closes it when the wait runs out.
+      inputEnded = (await prompts.next()).done === true;
+    };
+    const run = acts.runAgentSession(input, launch);
+    let settled = false;
+    void run.then(() => (settled = true));
+    let approvalId = "";
+    await until(async () => {
+      const mine = (await repos.approvals.pending(t.db, t.businessId)).find((a) => a.sessionId === sessionId);
+      approvalId = mine?.id ?? "";
+      return !!mine;
+    }, "the approval row");
+    await wait(400);
+    await t.clock.advance(29 * 60_000);
+    await wait(500);
+    expect(settled).toBe(false); // 29 minutes: still waiting
+    await t.clock.advance(2 * 60_000);
+    const result = await run;
+    expect(inputEnded).toBe(true);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "awaiting_approval", approvalId, tokensIn: 40, tokensOut: 10, costMinor: 5 });
+    expect(result.reason).toMatch(/no decision on the approval within 30 minutes/);
+    expect((await repos.approvals.get(t.db, t.businessId, approvalId)).outcome).toBeNull();
+    expect((await notesOf(sessionId)).some((n) => /^No decision on the pending approval after 30 minutes\. The session ends here/.test(n.text))).toBe(true);
+    const finish = await acts.finishSession(input, launch, result);
+    expect(finish.taskStatus).toBe("blocked");
+    const blocked = await repos.events.list(t.db, t.businessId, { type: "task.blocked", limit: 10 });
+    expect(blocked.items.find((e) => (e.payload as { sessionId: string }).sessionId === sessionId)?.payload).toMatchObject({ reason: "awaiting_approval", approvalId });
+    await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+  });
+
+  /** The approval the gateway opens for an "ask" (its row and Inbox item), as `queueApproval` writes them. */
+  const gatewayApproval = async (sessionId: string) => {
+    const approval = await repos.approvals.create(t.db, t.businessId, { agentId: t.workerId, sessionId, connectorKey: "gmail", tool: "send_message", args: { to: "pilot@customer.example" }, reasons: ["augmented mode: every external action asks"] });
+    const { item } = await openApprovalItem(t.db, t.businessId, approval, { agentId: t.workerId, agentName: "Test Engineer", connectorName: "Gmail" });
+    return { approval, item };
+  };
+  /** An SDK turn whose tool call the gateway answered "ask" with `approvalId`, then whatever the founder's decision brings. */
+  const askScript = (approvalId: string, sink: { turn?: string; inputEnded?: boolean }) =>
+    async function* (call: QueryCall) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      const tool = (call.options.allowedTools as string[]).find((x) => x.startsWith("mcp__"))!;
+      yield { type: "system", subtype: "init", session_id: "sdk-gateway-ask" };
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "tool_use", id: "tu-gw", name: tool, input: { to: "pilot@customer.example" } }], usage: { input_tokens: 20, output_tokens: 5 } } };
+      // What the gateway's MCP answer looks like to the SDK: the body as a JSON string.
+      yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-gw", content: JSON.stringify({ outcome: "ask", approvalId, reasons: ["augmented mode: every external action asks"], policyIds: ["augmented-ask-external"], costMinor: 0, auditId: "00000000-0000-4000-8000-000000000001" }) }] } };
+      yield resultOf(modelUsage(20, 5, 0.01));
+      sink.turn = (await prompts.next()).value?.message.content;
+      yield { type: "assistant", message: { id: "m2", content: [{ type: "text", text: "Done." }], usage: { input_tokens: 30, output_tokens: 8 } } };
+      yield resultOf(modelUsage(30, 8, 0.02));
+      sink.inputEnded = (await prompts.next()).done === true;
+    };
+
+  it("tracks the approval the gateway already opened: no second row, item or approval.requested; Approve continues the turn (O-26)", async () => {
+    const { sessionId, input, launch } = await start();
+    const { approval, item } = await gatewayApproval(sessionId);
+    const sink: { turn?: string; inputEnded?: boolean } = {};
+    script = askScript(approval.id, sink);
+    const requestedBefore = (await repos.events.list(t.db, t.businessId, { type: "approval.requested", limit: 200 })).items.length;
+    const run = acts.runAgentSession(input, launch);
+    await wait(700); // the ask is in and the runner waits on it
+    // `inbox.decide` stores the answer, then signals the session.
+    await repos.approvals.resolve(t.db, t.businessId, approval.id, { outcome: "approved", byKind: "user", byId: t.fixture.ownerId });
+    await t.control.post(sessionId, { kind: "decision", approvalId: approval.id, outcome: "approved", by: t.fixture.ownerId });
+    const result = await run;
+    expect(sink.turn).toBe("The founder approved the pending action; continue.");
+    expect(sink.inputEnded).toBe(true);
+    expect(result.outcome).toBe("done");
+    expect((await repos.approvals.list(t.db, t.businessId, { sessionId })).items.map((a) => a.id)).toEqual([approval.id]);
+    expect((await repos.events.list(t.db, t.businessId, { type: "approval.requested", limit: 200 })).items).toHaveLength(requestedBefore);
+    expect(await repos.inbox.get(t.db, t.businessId, item.id)).toMatchObject({ state: "answered", blocksContinue: false });
+    await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+  });
+
+  it("Reject tells the agent the founder's reason and not to retry the call", async () => {
+    const { sessionId, input, launch } = await start();
+    const { approval } = await gatewayApproval(sessionId);
+    const sink: { turn?: string; inputEnded?: boolean } = {};
+    script = askScript(approval.id, sink);
+    const run = acts.runAgentSession(input, launch);
+    await wait(700);
+    await repos.approvals.resolve(t.db, t.businessId, approval.id, { outcome: "rejected", byKind: "user", byId: t.fixture.ownerId });
+    await t.control.post(sessionId, { kind: "decision", approvalId: approval.id, outcome: "rejected", by: t.fixture.ownerId, note: "Wait until the contract is signed" });
+    await run;
+    expect(sink.turn).toBe("The founder rejected the pending action (their reason: Wait until the contract is signed); do not retry it and continue with the rest of the task.");
+    expect((await repos.approvals.get(t.db, t.businessId, approval.id)).outcome).toBe("rejected");
+    await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+  });
+
+  it("a pause that outlasts SESSION_PAUSE_HOLD_MINUTES parks the run: the work is saved, the slot freed, and the next run is told it resumed", async () => {
+    const { sessionId, input, launch } = await start(t.codeTaskId);
+    const specsBefore = provider.specs.length;
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: "sdk-park" };
+      await writeFile(path.join(call.options.cwd as string, "PARKED.md"), "half done\n");
+      await t.control.post(sessionId, { kind: "pause", by: t.fixture.ownerId });
+      await until(() => interrupts.length > 0, "the interrupt");
+      yield { type: "result", subtype: "error_during_execution", is_error: true, errors: ["[Request interrupted by user]"], modelUsage: modelUsage(12, 3, 0.01) };
+      await prompts.next(); // the input closes when the run parks
+    };
+    const run = acts.runAgentSession(input, launch);
+    await until(async () => (await notesOf(sessionId)).some((n) => n.text === "Paused."), "the pause");
+    await wait(300);
+    await t.clock.advance(11 * 60_000);
+    const result = await run;
+    expect(result).toMatchObject({ outcome: "stopped", reason: "paused", parked: { cursor: null, carry: [] }, tokensIn: 12, tokensOut: 3 });
+    expect(provider.specs.length).toBe(specsBefore); // no acceptance run for a parked session
+    expect((await notesOf(sessionId)).some((n) => /^Paused for 10 minutes: the session saves its work/.test(n.text))).toBe(true);
+    expect((await repos.workspaces.latest(t.db, t.businessId, t.codeTaskId))?.files.map((f) => f.path)).toContain("PARKED.md");
+    expect(await readdir(workspaceRoot)).toEqual([]);
+
+    // The next run starts from the saved code and is told the session was resumed.
+    let prompt = "";
+    script = async function* (call) {
+      prompt = (await promptsOf(call).next()).value?.message.content ?? "";
+      yield resultOf(modelUsage(1, 1, 0));
+    };
+    const resumed = await acts.runAgentSession(input, launch, null, { fromSeq: 1, resume: { cursor: null, progress: result.progress } });
+    expect(resumed.outcome).toBe("done");
+    expect(prompt).toMatch(/This session was paused for a while and has been resumed/);
+    expect((await notesOf(sessionId)).some((n) => /^Session resumed for /.test(n.text))).toBe(true);
+  });
+
+  it("a nudge read by a poll still in flight when the run parks is handed to the next run with the number it was read under", async () => {
+    const { sessionId, input, launch } = await start();
+    const parkNoted = async () => (await notesOf(sessionId)).some((n) => /^Paused for 10 minutes/.test(n.text));
+    let lateSent = false;
+    // The first poll after the park takes a while (Redis is slow) and brings a nudge with it.
+    const control: SessionControlBus = {
+      post: (id, command) => t.control.post(id, command),
+      drain: async (id) => {
+        if (lateSent || !(await parkNoted())) return t.control.drain(id);
+        lateSent = true;
+        await wait(300);
+        return [...(await t.control.drain(id)), { kind: "shout", message: "Late nudge", seq: 5 }];
+      },
+      clear: (id) => t.control.clear(id),
+    };
+    const localActs = createSessionActivities({ ...t.deps, control, env: { ...t.deps.env, ANTHROPIC_API_KEY: MODEL_KEY, ORCHESTRATOR_WORKSPACE_DIR: workspaceRoot }, sandbox: async () => ({ provider, mode: "docker" as const, fellBackFrom: null }) });
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: "sdk-late" };
+      await t.control.post(sessionId, { kind: "pause", by: t.fixture.ownerId, seq: 0 });
+      await until(() => interrupts.length > 0, "the interrupt");
+      yield { type: "result", subtype: "error_during_execution", is_error: true, errors: ["[Request interrupted by user]"], modelUsage: modelUsage(4, 1, 0.01) };
+      await prompts.next(); // the input closes when the run parks
+      await wait(400); // the CLI takes a moment to exit; the slow poll is under way meanwhile
+    };
+    const run = localActs.runAgentSession(input, launch);
+    await until(async () => (await notesOf(sessionId)).some((n) => n.text === "Paused."), "the pause");
+    await wait(300);
+    await t.clock.advance(11 * 60_000);
+    const result = await run;
+    expect(lateSent).toBe(true);
+    // Either the run hands the nudge back (carry) or it says it never read it (lastSeq below 5); here it read it.
+    expect(result).toMatchObject({ outcome: "stopped", reason: "paused", parked: { cursor: null, carry: [{ kind: "shout", message: "Late nudge", seq: 5 }], lastSeq: 5 } });
+  });
+
+  it("an approval left undecided ends a paused live session even when its interrupted turn never reported back", async () => {
+    const { sessionId, input, launch } = await start();
+    let inputEnded = false;
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      const tool = (call.options.allowedTools as string[]).find((x) => x.startsWith("mcp__"))!;
+      yield { type: "system", subtype: "init", session_id: "sdk-ask-paused" };
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "tool_use", id: "tu-ask-p", name: tool, input: { amount: 900 } }], usage: { input_tokens: 25, output_tokens: 5 } } };
+      yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-ask-p", content: JSON.stringify({ outcome: "ask", approvalId: "00000000-0000-4000-8000-0000000000bb", reason: "spend above the agent's authority" }) }] } };
+      // The founder pauses while the turn is still open; the interrupt goes out, but no result ever comes back.
+      await t.control.post(sessionId, { kind: "pause", by: t.fixture.ownerId });
+      await until(() => interrupts.length > 0, "the interrupt");
+      inputEnded = (await prompts.next()).done === true;
+    };
+    const run = acts.runAgentSession(input, launch);
+    let settled = false;
+    void run.then(() => (settled = true));
+    await until(async () => (await repos.approvals.pending(t.db, t.businessId)).some((a) => a.sessionId === sessionId), "the approval row");
+    await until(async () => (await notesOf(sessionId)).some((n) => n.text === "Paused."), "the pause");
+    await wait(300);
+    await t.clock.advance(31 * 60_000);
+    await until(() => settled, "the session to end on the approval wait", 3_000);
+    const result = await run;
+    expect(inputEnded).toBe(true);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "awaiting_approval", tokensIn: 25, tokensOut: 5 });
+  });
+
+  it("a sandbox that cannot start fails the acceptance run, not the session", async () => {
+    const { sessionId, input, launch } = await start(t.codeTaskId);
+    script = success(sessionId);
+    provider.createFails = true;
+    try {
+      const result = await acts.runAgentSession(input, launch);
+      expect(result.outcome).toBe("done");
+    } finally {
+      provider.createFails = false;
+    }
+    const tests = await readSessionEvents(t.redis, sessionId, { kinds: ["test_result"] });
+    expect(tests.at(-1)?.event).toMatchObject({ kind: "test_result", acceptance: true, passed: 0, failed: 1, failures: ["Sandbox could not be started"] });
+    expect((await notesOf(sessionId)).some((n) => /^Acceptance tests not run: the sandbox could not be started \(E2B sandbox creation failed/.test(n.text))).toBe(true);
+  });
+
+  it("the SDK is given a budget: the task's own, or the cycle's default, less what the task's earlier sessions cost (O-29, BF-11)", async () => {
+    const { sessionId, input, launch } = await start();
+    script = success(sessionId);
+    calls.length = 0;
+    await acts.runAgentSession(input, launch);
+    // The default reserve is 2,000 US cents; the credits left this month (the tier's included credits) are smaller here.
+    const max = calls[0]!.options.maxBudgetUsd as number;
+    expect(max).toBeGreaterThan(0);
+    expect(max).toBeLessThanOrEqual(20);
+    await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+  });
+
+  // A task budget below the credits left (the free tier's $5), so it is the task's budget that binds.
+  const budgeted = (budgetMinor: number) => repos.tasks.create(t.db, t.businessId, { kind: "research", title: `Budgeted ${budgetMinor}`, goalMd: "Find suppliers.", assigneeAgentId: t.workerId, status: "ready", budgetMinor, currency: "USD" });
+
+  it("a session that reaches its budget ends blocked on the budget, not failed (the SDK's error_max_budget_usd)", async () => {
+    const task = await budgeted(300);
+    const { sessionId, input, launch } = await start(task.id);
+    calls.length = 0;
+    script = async function* (call) {
+      await promptsOf(call).next();
+      yield { type: "system", subtype: "init", session_id: "sdk-budget" };
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "text", text: "Reading everything." }], usage: { input_tokens: 900, output_tokens: 300 } } };
+      yield { type: "result", subtype: "error_max_budget_usd", is_error: true, errors: [], modelUsage: modelUsage(900, 300, 0.4) };
+    };
+    const result = await acts.runAgentSession(input, launch);
+    expect(calls[0]!.options.maxBudgetUsd).toBe(3);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", tokensIn: 900, tokensOut: 300, costMinor: 40 });
+    expect(result.summary).toMatch(/used its budget \(\$0\.00 of \$3\.00/);
+    const finish = await acts.finishSession(input, launch, result);
+    expect(finish.taskStatus).toBe("blocked");
+    // What it spent is booked.
+    const tokens = (await repos.usage.list(t.db, t.businessId, { sessionId, limit: 10 })).items.find((u) => u.kind === "tokens");
+    expect(Number(tokens!.costMicroMinor)).toBe(40_000_000);
+  });
+
+  it("a task that has used its budget does not start another session; one that has some left gets only the rest", async () => {
+    const task = await budgeted(100);
+    // An earlier session on the task cost 120 US cents against a budget of 100.
+    const earlier = await openSessionRow(t, t.workerId, task.id);
+    await repos.agents.endSession(t.db, t.businessId, earlier, { outcome: "stopped", costMinor: 120 });
+    const { input, launch } = await start(task.id);
+    script = async function* () {
+      yield { type: "system", subtype: "init", session_id: "never-started" };
+      throw new Error("the SDK must not start");
+    };
+    calls.length = 0;
+    const result = await acts.runAgentSession(input, launch);
+    expect(calls).toHaveLength(0);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget" });
+    expect(result.summary).toMatch(/used its budget \(\$1\.00 of \$1\.00/);
+
+    const partly = await budgeted(300);
+    const first = await openSessionRow(t, t.workerId, partly.id);
+    await repos.agents.endSession(t.db, t.businessId, first, { outcome: "stopped", costMinor: 120 });
+    const next = await start(partly.id);
+    script = success(next.sessionId);
+    await acts.runAgentSession(next.input, next.launch);
+    expect(calls[0]!.options.maxBudgetUsd).toBe(1.8);
   });
 });

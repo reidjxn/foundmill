@@ -6,11 +6,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CircleAlert, CircleDashed, CirclePause } from "lucide-react";
 import { Avatar, EntityLink, MODEL_LABELS, PageGrid, StatusPill, agentStatusTone, cn, formatRelative, type EntityDetails, type IconComponent, type SquadRow } from "@foundmill/dugout";
-import { MODULE_KEYS, type AgentStatus, type DecisionType, type DeptColourToken, type MembershipRole } from "@foundmill/shared/constants";
+import { type AgentStatus, type DeptColourToken, type MembershipRole } from "@foundmill/shared/constants";
+import { SECTIONS } from "@foundmill/shared/permissions";
+import { moduleTabHref } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type QueryState, type WidgetEvent } from "@foundmill/widgets/data";
+import { formatMoney } from "@foundmill/shared/money";
 import { usSpelling } from "@foundmill/shared/us-spelling";
 import { humanise } from "../fit";
+import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 import type { AgentHealthChangedPayload, AgentRow, AgentsListResponse, FounderProfileResponse, MembershipRow, TemplateRow } from "./types";
 
 /* ---------- Options the host or a test may override ---------- */
@@ -155,8 +159,9 @@ export function agentHref(businessId: string, agentId: string): string {
   return routes.agent(businessId, agentId);
 }
 
-export function taskHref(businessId: string, taskId: string): string {
-  return `${routes.department(businessId, "development", "plan")}?task=${taskId}`;
+/** A task on the Plan of the department that holds Development now (never a fixed "development" slug). */
+export function taskHref(businessId: string, taskId: string, departments: readonly DepartmentRow[] | undefined): string {
+  return `${moduleTabHref(businessId, departments, "development", "plan")}?task=${taskId}`;
 }
 
 /** Connector keys of an agent's tool grants (the API may send keys or `{ connectorKey, tools }`). */
@@ -187,7 +192,17 @@ export function agentRoleLine(agent: Pick<AgentRow, "name" | "role" | "agentType
   return role && !sameWords(role, agent.name) ? role : null;
 }
 
-export function isChiefOfStaff(agent: Pick<AgentRow, "agentType" | "layer">): boolean {
+/**
+ * The business's Chief of Staff: the API marks the one agent that holds the role (`chiefOfStaff`); a row without the
+ * flag (an older payload, a story) falls back to its type.
+ */
+export function isChiefOfStaff(agent: Pick<AgentRow, "agentType" | "layer" | "chiefOfStaff">): boolean {
+  if (typeof agent.chiefOfStaff === "boolean") return agent.chiefOfStaff;
+  return agent.agentType === "chief_of_staff" || agent.layer === "assistant";
+}
+
+/** A Chief of Staff by type (one per business): it is never cloned, whichever of them is the designated one. */
+export function isChiefOfStaffType(agent: Pick<AgentRow, "agentType" | "layer">): boolean {
   return agent.agentType === "chief_of_staff" || agent.layer === "assistant";
 }
 
@@ -199,10 +214,10 @@ export const STATUS_WORD: Record<AgentStatus, string> = { healthy: "Healthy", de
 export const STATUS_ORDER: readonly AgentStatus[] = ["failing", "injured", "degraded", "paused", "idle", "healthy"];
 
 export const STATUS_DESCRIPTION: Record<AgentStatus, string> = {
-  failing: "Loop detected or repeated errors. Sessions are stopped until you look.",
+  failing: "Loop detected or repeated errors. It rests (10 minutes, longer after each failure in a row), then the next cycle gives it work again.",
   injured: "A credential expired or a rate limit hit. Back once the integration is reconnected.",
   degraded: "Error rate above 10% over the last day. Still working, watch the next tasks.",
-  paused: "Paused by you or by a vacation rule. Resume from the profile.",
+  paused: "Paused by Stop all agents, a revoked key, used-up credits or the agent's wage cap. Resume agents in the top bar; a wage cap lifts next month or when you raise it.",
   idle: "No task assigned. The Chief of Staff routes work on the next cycle.",
   healthy: "Heartbeat on time, errors low, budget available.",
 };
@@ -347,7 +362,8 @@ export function skillRating(agent: Pick<AgentRow, "rating" | "skills">): number 
   return Math.round((skills.reduce((s, k) => s + k.displayed, 0) / skills.length) * 5) / 10;
 }
 
-export function toSquadRow(agent: AgentRow, currency = "EUR"): SquadRow {
+/** `currency`: the business's own, for an agent stored without one. */
+export function toSquadRow(agent: AgentRow, currency: string): SquadRow {
   const expected = toIso(agent.expectedReturnAt ?? agent.health?.expectedReturnAt ?? null);
   const latest = agent.latestUpdate ? { at: toIso(agent.latestUpdate.at) ?? new Date(0).toISOString(), text: agent.latestUpdate.text } : agent.currentTask ? { at: toIso(agent.updatedAt) ?? new Date(0).toISOString(), text: `Working on ${agent.currentTask.title}` } : null;
   return {
@@ -363,7 +379,7 @@ export function toSquadRow(agent: AgentRow, currency = "EUR"): SquadRow {
     rating: skillRating(agent),
     tools: toolKeys(agent),
     model: agent.modelKey,
-    wage: { amountMinor: agent.wage?.costMinor ?? 0, currency: agent.currency ?? currency },
+    wage: { amountMinor: agent.wage?.costMinor ?? 0, currency: agent.wage?.currency ?? agent.currency ?? currency },
     latestUpdate: latest,
     expectedReturnAt: expected,
   };
@@ -373,8 +389,8 @@ export function toSquadRow(agent: AgentRow, currency = "EUR"): SquadRow {
 
 export const ROLE_LABELS: Record<MembershipRole, string> = { owner: "Owner", admin: "Admin", member: "Member", viewer: "Viewer", advisor: "Advisor" };
 
-/** Sections a membership can carry per-section permissions for (apps/api `SECTIONS`): the modules plus the fixed surfaces. */
-export const STAFF_SECTIONS: readonly string[] = [...MODULE_KEYS, "inbox", "crm", "settings", "billing", "live"];
+/** Sections a membership can carry per-section permissions for (`SECTIONS`, @foundmill/shared): the modules plus the fixed surfaces. */
+export const STAFF_SECTIONS: readonly string[] = SECTIONS;
 
 export const SECTION_LABELS: Record<string, string> = { product: "Product", development: "Development", distribution: "Distribution", finance: "Finance", team: "Team", legal: "Legal", inbox: "Inbox", crm: "CRM", settings: "Settings", billing: "Billing", live: "LIVE" };
 
@@ -415,10 +431,17 @@ export function permissionSummary(perms: Record<string, string> | undefined): { 
   return { write, read, none };
 }
 
+/** A member's section overrides in one line for a hover card ("Finance · no access, Product · write"), or the role default. */
+export function sectionSummary(perms: Record<string, string> | undefined): string {
+  const { write, read, none } = permissionSummary(perms);
+  const parts = [...none.map((s) => `${s} · no access`), ...write.map((s) => `${s} · write`), ...read.map((s) => `${s} · read`)];
+  return parts.length ? parts.join(", ") : "Role default";
+}
+
 /* ---------- Entity links ---------- */
 
 /** Hover-card details for an agent (DESIGN §8 EntityLink: portrait, chips, three facts). */
-export function agentEntity(businessId: string, agent: AgentRow, currency = "EUR"): EntityDetails {
+export function agentEntity(businessId: string, agent: AgentRow, currency: string): EntityDetails {
   const wage = agent.wage?.costMinor ?? 0;
   return {
     id: agent.id,
@@ -430,7 +453,7 @@ export function agentEntity(businessId: string, agent: AgentRow, currency = "EUR
     chips: [{ label: STATUS_WORD[agent.status], tone: agentStatusTone(agent.status).tone }, { label: MODEL_LABELS[agent.modelKey] ?? agent.modelKey }],
     facts: [
       { label: "Departments", value: (agent.departments ?? []).map((d) => d.name).join(", ") || "—" },
-      { label: "Wage (Estimate)", value: `${new Intl.NumberFormat("en-US", { style: "currency", currency: agent.currency ?? currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: 0 }).format(wage / 100)}/mo` },
+      { label: "Wage (Estimate)", value: `${formatMoney({ amountMinor: wage, currency: agent.wage?.currency ?? agent.currency ?? currency }, { compact: true })}/mo` },
       { label: "Current task", value: agent.currentTask?.title ?? "None" },
     ],
     verbs: ["open_profile", "message"],
@@ -449,7 +472,7 @@ export function memberEntity(businessId: string, m: MembershipRow, me?: Me | nul
     chips: [{ label: ROLE_LABELS[m.role], tone: m.role === "owner" ? "kit" : "neutral" }],
     facts: [
       { label: "E-mail", value: m.email ?? "—" },
-      { label: "Writes", value: permissionSummary(m.sectionPermissions).write.join(", ") || "—" },
+      { label: "Sections", value: sectionSummary(m.sectionPermissions) },
       { label: "Member since", value: m.createdAt ? formatRelative(toDate(m.createdAt) ?? new Date(), new Date()) : "—" },
     ],
     verbs: m.entityId ? ["open_profile", "message"] : ["message"],
@@ -458,28 +481,8 @@ export function memberEntity(businessId: string, m: MembershipRow, me?: Me | nul
 
 /* ---------- Responsibilities ---------- */
 
-export const DECISION_LABELS: Record<DecisionType, string> = {
-  spend_above_threshold: "Spend above threshold",
-  publish_content: "Publish content",
-  merge_to_main: "Merge to main",
-  sign_contracts: "Sign contracts",
-  message_customers: "Message customers",
-  hire_agents: "Hire agents",
-  change_models: "Change models",
-};
-
-export const DECISION_DESCRIPTIONS: Record<DecisionType, string> = {
-  spend_above_threshold: "Any purchase or budget above the business's approval threshold.",
-  publish_content: "Posts, pages, newsletters and ads going live under the business's name.",
-  merge_to_main: "Pull requests merging into the main branch.",
-  sign_contracts: "Signatures and accepted terms. A hard gate: an agent can never hold this.",
-  message_customers: "Outbound messages to customers and leads.",
-  hire_agents: "Adding agents to the team and their wage caps.",
-  change_models: "Moving an agent to a different model.",
-};
-
-/** Decision types an agent may never handle (BUILD §2.2 hard gates; the API rejects it too). */
-export const AGENT_GATED_DECISIONS: readonly DecisionType[] = ["sign_contracts"];
+// The words live in ./decisions (no React) so Settings › Departments can read them without the Team screens.
+export { AGENT_GATED_DECISIONS, DECISION_DESCRIPTIONS, DECISION_LABELS } from "./decisions";
 
 /* ---------- Recruitment ---------- */
 
@@ -496,26 +499,63 @@ export function tokenize(text: string): string[] {
 
 export interface TemplateMatch {
   template: TemplateRow;
-  /** 0–1 share of the sentence's words found in the template. */
+  /** 0–1: how close the template is to the sentence (1 = every word names it). */
   score: number;
   matched: string[];
 }
 
 /**
- * The agent builder's first step without a model call: rank catalogue templates by how many of the sentence's words
- * appear in their name, role, description, skills and module. Stems loosely (prefix match on 4+ letters) so "writes"
- * finds "writer". Returns the best three with at least one matched word.
+ * Two words are the same word for the agent builder: equal, a plural of the other ("help" / "helps"), or sharing their
+ * first five letters ("writes" / "writer", "documentation" / "documented").
+ */
+export function sameWord(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  if (short.length >= 3 && (long === `${short}s` || long === `${short}es`)) return true;
+  return short.length >= 5 && long.startsWith(short.slice(0, 5));
+}
+
+/** How much a word found in a template field counts: the name and role say what it is, skills what it does well. */
+const FIELD_WEIGHTS = { title: 3, skills: 2, text: 1 } as const;
+
+/**
+ * The agent builder's first step without a model call: rank catalog templates by the sentence's words they hold. A
+ * word in the template's name or role counts three times a word only in its description (skills and traits twice),
+ * and each word is weighted by how few templates contain it, so words most descriptions share ("product", "writes")
+ * cannot make every template fit equally. Ties go to the template whose name or role holds more of the words. Returns
+ * the best three with at least one matched word.
  */
 export function suggestTemplates(sentence: string, catalogue: readonly TemplateRow[], limit = 3): TemplateMatch[] {
   const words = [...new Set(tokenize(sentence))];
-  if (!words.length) return [];
-  const scored = catalogue.map((template) => {
-    const haystack = tokenize([template.name, template.role, template.description, template.module ?? "", ...(template.skills ?? []), ...(template.traits ?? [])].join(" "));
-    const matched = words.filter((w) => haystack.some((h) => h === w || (w.length >= 4 && h.length >= 4 && (h.startsWith(w.slice(0, 4)) || w.startsWith(h.slice(0, 4))))));
-    return { template, score: matched.length / words.length, matched };
+  if (!words.length || !catalogue.length) return [];
+  const fields = catalogue.map((t) => ({
+    title: tokenize(`${t.name} ${t.role}`),
+    skills: tokenize([...(t.skills ?? []), ...(t.traits ?? [])].join(" ")),
+    text: tokenize(`${t.description} ${t.module ?? ""}`),
+  }));
+  const has = (tokens: readonly string[], w: string) => tokens.some((h) => sameWord(w, h));
+  // Inverse document frequency over the catalog: a word in every template weighs little.
+  const df = new Map(words.map((w) => [w, fields.filter((f) => has(f.title, w) || has(f.skills, w) || has(f.text, w)).length] as const));
+  const idf = new Map(words.map((w) => [w, Math.log(1 + catalogue.length / (1 + df.get(w)!))] as const));
+  // The fit is out of the words some template holds ("weekly", "before" describe no template and cost none of it).
+  const best = words.filter((w) => df.get(w)! > 0).reduce((s, w) => s + FIELD_WEIGHTS.title * idf.get(w)!, 0) || 1;
+  const scored = catalogue.map((template, i) => {
+    const f = fields[i]!;
+    let points = 0;
+    let titleHits = 0;
+    const matched: string[] = [];
+    for (const w of words) {
+      const weight = has(f.title, w) ? FIELD_WEIGHTS.title : has(f.skills, w) ? FIELD_WEIGHTS.skills : has(f.text, w) ? FIELD_WEIGHTS.text : 0;
+      if (!weight) continue;
+      matched.push(w);
+      if (weight === FIELD_WEIGHTS.title) titleHits += 1;
+      points += weight * idf.get(w)!;
+    }
+    return { template, score: Math.min(1, points / best), matched, titleHits };
   });
   return scored
     .filter((s) => s.matched.length > 0)
-    .sort((a, b) => b.score - a.score || a.template.name.localeCompare(b.template.name))
-    .slice(0, limit);
+    .sort((a, b) => b.score - a.score || b.titleHits - a.titleHits || b.matched.length - a.matched.length || a.template.name.localeCompare(b.template.name))
+    .slice(0, limit)
+    .map(({ template, score, matched }) => ({ template, score, matched }));
 }

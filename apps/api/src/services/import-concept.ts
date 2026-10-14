@@ -10,6 +10,7 @@
  * - `import.continue` takes the held draft (waiting for it if it is still being written), saves it as the founder's idea
  *   with the job recorded on it (commit links the business to the import), and answers with the idea. Without a held
  *   draft (another api replica, a restart, an expired or failed draft) it drafts the card there and then, as before.
+ *   One card per job: a Continue for a job whose card is saved answers with that idea (and Prepare drafts nothing).
  * - Only the founder's own finished sign-up import qualifies (`linkableImportJob`: signed here, started by this
  *   account, no business yet, done), the same rule `idea.generate` applies to `importJobId`.
  *
@@ -25,6 +26,7 @@ import { AppError, ValidationError } from "@foundmill/shared";
 import { linkableImportJob } from "./foundations";
 import { founderBrief, ideaFromCard, IDEATION_TOO_LONG_MESSAGE, takeIdeationAllowance } from "./ideation";
 import { importStatus, type ScoutingReport } from "./import";
+import type { RateLimitStore } from "./rate-limit";
 
 /** How long a drafted card waits for the founder to continue. */
 export const IMPORT_CONCEPT_TTL_MS = 30 * 60_000;
@@ -67,7 +69,7 @@ interface HeldDraft {
   failed: boolean;
 }
 
-/** In-memory drafts, one per founder. Per api process (see rate-limit.ts for the same replica caveat). */
+/** In-memory drafts, one per founder. Per api process: with several replicas a Continue on another one drafts again (and spends a draft). */
 export class ImportConceptCache {
   private readonly entries = new Map<string, HeldDraft>();
 
@@ -128,6 +130,8 @@ export const importConcepts = new ImportConceptCache();
 export interface ImportConceptDeps {
   db: Db;
   models: ModelClient;
+  /** The api's allowance windows (`ctx.limits`): a new draft spends one from the drafting allowance. */
+  limits: RateLimitStore;
   /** `importJobKey(env)`: verifies job ids. */
   key: string;
   cache?: ImportConceptCache;
@@ -154,11 +158,19 @@ async function draftConcept(deps: ImportConceptDeps, userId: string, report: Sco
  */
 export async function prepareImportConcept(deps: ImportConceptDeps, jobId: string, userId: string): Promise<{ status: "drafting" | "ready" }> {
   const { jobId: linked, report } = await finishedImport(deps, jobId, userId);
+  // The job's card is already saved (Continue ran, then the founder came back to the report): nothing to draft.
+  if (await repos.ideas.findByImportJob(deps.db, userId, linked)) return { status: "ready" };
   const cache = deps.cache ?? importConcepts;
   const held = cache.get(userId, linked);
   if (held && !held.failed) return { status: held.settled ? "ready" : "drafting" };
   // A new draft spends the founder's drafting allowance (asking again for a job already drafting does not).
-  takeIdeationAllowance(userId);
+  const ticket = await takeIdeationAllowance(deps.limits, userId);
+  // Another request for the same job may have started its draft while this one waited for the allowance.
+  const raced = cache.get(userId, linked);
+  if (raced && !raced.failed) {
+    await deps.limits.refund(ticket);
+    return { status: raced.settled ? "ready" : "drafting" };
+  }
   const controller = new AbortController();
   const entry: HeldDraft = { jobId: linked, createdAt: Date.now(), controller, settled: false, failed: false, promise: Promise.resolve(null as never) };
   entry.promise = draftConcept(deps, userId, report, controller.signal).then(
@@ -185,22 +197,43 @@ export interface ContinuedImport {
   mode: ModelMode;
   /** True when the card drafted ahead was used (Continue did not wait on a new model call). */
   speculative: boolean;
+  /** True when this job's card was saved by an earlier Continue: that idea is answered again, nothing was drafted. */
+  alreadySaved: boolean;
 }
 
-/** "Continue to Commit": saves the card drafted ahead (or drafts it now) as the founder's idea, linked to the import. */
+/** Continues in flight, per founder and job: a second call for the same job waits for the first and gets its idea. */
+const continuing = new Map<string, Promise<ContinuedImport>>();
+
+/**
+ * "Continue to Commit": saves the card drafted ahead (or drafts it now) as the founder's idea, linked to the import.
+ * Idempotent per founder and job (audit IAE-07, ARB-20): a call while one is running shares its answer (a double click
+ * that httpBatchLink sends as one request), and a later call (Back, then Continue again) answers with the idea already
+ * saved from this job, so no second card, model call or drafting allowance is spent.
+ */
 export async function continueImport(deps: ImportConceptDeps, jobId: string, userId: string): Promise<ContinuedImport> {
   const { jobId: linked, report } = await finishedImport(deps, jobId, userId);
+  const flightKey = `${userId}:${linked}`;
+  const running = continuing.get(flightKey);
+  if (running) return running;
+  const flight = continueOnce(deps, linked, report, userId).finally(() => continuing.delete(flightKey));
+  continuing.set(flightKey, flight);
+  return flight;
+}
+
+async function continueOnce(deps: ImportConceptDeps, linked: string, report: ScoutingReport, userId: string): Promise<ContinuedImport> {
+  const saved = await repos.ideas.findByImportJob(deps.db, userId, linked);
+  if (saved) return { idea: saved, costMinor: 0, costLabel: "Estimate", mode: deps.models.mode, speculative: false, alreadySaved: true };
   const cache = deps.cache ?? importConcepts;
   const held = cache.take(userId, linked);
   let drafted: DraftedConcept | null = null;
   if (held && !held.failed) drafted = await held.promise.catch(() => null);
   const speculative = drafted !== null;
   if (!drafted) {
-    takeIdeationAllowance(userId);
+    await takeIdeationAllowance(deps.limits, userId);
     drafted = await draftConcept(deps, userId, report).catch((err: unknown) => {
       throw err instanceof ModelOutputError && err.code === "max_tokens" ? new AppError("ideation_too_long", IDEATION_TOO_LONG_MESSAGE, 502) : err;
     });
   }
   const [idea] = await repos.ideas.createMany(deps.db, userId, [ideaFromCard(drafted.card, { import_job_id: linked })]);
-  return { idea: idea!, costMinor: drafted.costMinor, costLabel: "Estimate", mode: drafted.mode, speculative };
+  return { idea: idea!, costMinor: drafted.costMinor, costLabel: "Estimate", mode: drafted.mode, speculative, alreadySaved: false };
 }

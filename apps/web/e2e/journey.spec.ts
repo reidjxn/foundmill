@@ -55,6 +55,38 @@ test.describe("journey", () => {
     await expect(page.locator("[data-stage-panel='goal'][data-static]")).toBeVisible();
     await expect(page.locator("[data-stage-panel='team_sheet']")).toBeVisible();
     await expect(page.locator("[data-stage-panel='full_time']")).toBeVisible();
+    // Identical information: the first touch and every touch row are in the summary; no dead replay controls.
+    await expect(page.locator("[data-stage-panel='kick_off']").first()).toBeVisible();
+    expect(await page.locator("[data-touch-row]").count(), "every touch is listed under reduced motion").toBeGreaterThan(0);
+    await expect(page.getByRole("group", { name: "Speed" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Watch again" })).toHaveCount(0);
+    // The stepper moves to that stage's section of the summary.
+    await page.locator("[data-stage-step='match']").click();
+    await expect(page.locator("[data-journey-stage='static']")).toHaveAttribute("data-stage", "match");
+    await expect(page.locator("[data-static-section='match']")).toBeInViewport();
+  });
+
+  test("the rail reads stored keys as words, and back returns to where the replay was opened", async ({ page }) => {
+    await openFirstReplay(page);
+    // Opened from the Inbox: back and the breadcrumb say Inbox.
+    await expect(page.getByTestId("journey-back")).toHaveText(/Inbox/);
+    await page.locator("[data-stage-step='rails']").click();
+    const rail = page.locator("[data-stage-panel='rails']");
+    await expect(rail).toBeVisible();
+    const facts = await rail.locator("dd").allInnerTexts();
+    // "seo", "paid ads", "customer" were raw keys; the rail reads channel names and role words.
+    for (const v of facts) expect(v).not.toMatch(/^(seo|geo|paid ads|lead generation|customer|lead)$/);
+    // Opened from the CRM profile's Journey tab: back returns there.
+    await page.getByTestId("journey-crm-link").click();
+    await expect(page.getByTestId("entity-profile")).toBeVisible({ timeout: LONG });
+    await page.getByRole("tab", { name: "Journey" }).click();
+    const rewatch = page.getByTestId("rewatch").first();
+    await expect(rewatch).toBeVisible({ timeout: LONG });
+    await rewatch.click();
+    await expect(page.getByTestId("journey-screen")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("journey-back")).toHaveText(/CRM profile/);
+    await page.getByTestId("journey-back").click();
+    await expect(page).toHaveURL(/\/crm\/[0-9a-f-]{36}\/journey/, { timeout: LONG });
   });
 
   test("the CRM link opens the customer's profile and an unknown id says so", async ({ page }) => {

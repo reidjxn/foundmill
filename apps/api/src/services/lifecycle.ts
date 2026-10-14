@@ -1,159 +1,147 @@
 /**
- * Settings › Danger zone (BUILD §11.15): export everything, archive the business, permanent deletion
+ * Settings › Danger zone (BUILD §11.15): export everything, archive and restore the business, permanent deletion
  * (founder-only, re-authentication, 7-day delay).
  *
- * - `exportBusiness` builds a portable JSON archive through repositories only (spec, roadmap, tasks, CRM, journeys,
- *   finance, legal, inbox, audit log, agent instructions). Credentials are never read; integrations appear as
- *   status rows only. The founder gets an Inbox note with the counts.
- * - `archiveBusiness` pulls the kill switch, then archives the row (hidden from lists, restorable by the db owner).
+ * - `exportBusiness` reads every exported business-scoped table (packages/db `EXPORT_TABLES`, page by page until each
+ *   is exhausted) through the portability repository and returns the archive to the browser, which saves it as a
+ *   file; nothing is stored on the server. Credentials are never read; integrations appear as status rows only;
+ *   sections the member is walled off are left out. The founder gets an Inbox note with the counts and the file name.
+ * - `archiveBusiness` pulls the kill switch, then archives the row (hidden from lists and from every procedure but
+ *   export, restore and deletion). `restoreBusiness` (owner) brings it back; its agents stay stopped until resumed.
  * - `requestDeletion` / `cancelDeletion` record the request on the audit chain (append-only, hash-chained) with the
- *   scheduled date 7 days out; nothing is deleted by the API process (a deletion job outside this wave consumes the
- *   request). The request needs a fresh authentication (`authenticatedAt` from the token's `amr`).
+ *   scheduled date 7 days out, for an active or an archived business; nothing is deleted by the API process: the orchestrator's
+ *   nightly `businessDeletionSweep` deletes a business whose latest request is past its date and was not canceled
+ *   (`repos.businesses.deletionsDue`, 0028 `fm_purge_business`). The request needs a fresh authentication
+ *   (`authenticatedAt` from the token's `amr`).
  */
 import { APP_NAME } from "@foundmill/config";
-import { repos, type Business, type Executor, type InboxItem } from "@foundmill/db";
+import { BUSINESS_DELETION_CANCEL_ACTION, BUSINESS_DELETION_DELAY_DAYS, BUSINESS_DELETION_REQUEST_ACTION, EXPORT_EXCLUDED_TABLES, EXPORT_SECTIONS, EXPORT_TABLES, portableValue, repos, type Business, type Executor, type ExportSection, type InboxItem, type PortableRow } from "@foundmill/db";
 import { AppError, ValidationError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
-import { audit } from "../trpc";
+import { audit, effectivePermission } from "../trpc";
 import { stopAllAgents, type StopAllResult } from "./killswitch";
 
-export const EXPORT_FORMAT = "foundmill-export/1" as const;
-export const DELETION_DELAY_DAYS = 7;
+export const EXPORT_FORMAT = "foundmill-export/2" as const;
+export const DELETION_DELAY_DAYS = BUSINESS_DELETION_DELAY_DAYS;
 /** How recent the authentication must be for permanent actions (BUILD §11.15 "re-auth"). */
 export const REAUTH_WINDOW_MS = 10 * 60 * 1000;
-export const DELETION_REQUEST_ACTION = "business.request_deletion";
-export const DELETION_CANCEL_ACTION = "business.cancel_deletion";
+/** The audit actions the orchestrator's deletion sweep reads (one definition, in packages/db). */
+export const DELETION_REQUEST_ACTION = BUSINESS_DELETION_REQUEST_ACTION;
+export const DELETION_CANCEL_ACTION = BUSINESS_DELETION_CANCEL_ACTION;
+/** Rows read per round trip while a table is exported. */
+export const EXPORT_PAGE_ROWS = 1000;
+/**
+ * The most rows one table may put in a single archive (a memory bound for one request, far above any business today).
+ * A table that reaches it is named in `truncated`, in the toast and in the Inbox note: never a silent cut.
+ */
+export const EXPORT_MAX_TABLE_ROWS = 250_000;
 
 const DAY_MS = 86_400_000;
+
+/** "Oct 18, 2026" (US English, UTC so a note reads the same wherever it is written). */
+const usDate = (iso: string): string => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
 export interface ExportArchive {
   format: typeof EXPORT_FORMAT;
   app: string;
   generatedAt: string;
-  business: Omit<Business, "createdBy">;
-  departments: unknown[];
-  agents: { agent: unknown; versions: unknown[]; skills: unknown[] }[];
-  spec: { blocks: unknown[]; versions: unknown[] };
-  roadmap: { items: unknown[]; dependencies: unknown[] };
-  tasks: unknown[];
-  channels: unknown[];
-  campaigns: unknown[];
-  crm: { entities: unknown[] };
-  journeys: { journeys: unknown[]; conversions: unknown[]; milestones: unknown[] };
-  finance: { accounts: unknown[]; transactions: unknown[]; forecasts: unknown[]; capTable: unknown };
-  legal: { entities: unknown[]; contracts: unknown[]; compliance: unknown[] };
-  inbox: { items: unknown[] };
-  integrations: unknown[];
-  audit: unknown[];
-  /** What was left out on purpose. */
-  excluded: readonly string[];
+  business: PortableRow;
+  /** Every exported business-scoped table by its SQL name: rows in id order, dates as ISO strings, bytes as base64. */
+  tables: Record<string, PortableRow[]>;
+  counts: Record<string, number>;
+  /** Tables that reached EXPORT_MAX_TABLE_ROWS; empty when the archive is complete. */
+  truncated: { table: string; rows: number }[];
+  /** What was left out on purpose, and why. */
+  excluded: { what: string; why: string }[];
 }
 
 export interface ExportResult {
   exportId: string;
   generatedAt: string;
   format: typeof EXPORT_FORMAT;
+  /** The name the browser saves the archive under (`<slug>-export-<YYYY-MM-DD>.json`). */
+  fileName: string;
   counts: Record<string, number>;
+  totalRows: number;
+  complete: boolean;
   sizeBytes: number;
   archive: ExportArchive;
   inboxItem: InboxItem | null;
 }
 
-const EXCLUDED = ["credentials (ciphertext and plaintext)", "connector tokens", "other members' personal data beyond their role", "LIVE network messages"] as const;
+const EXCLUDED_ALWAYS = [
+  { what: "Credentials and connector tokens", why: "Never exported, as ciphertext or plaintext." },
+  { what: "Other members' personal data", why: "Members appear by account id and role only." },
+  { what: "LIVE network messages", why: "They belong to the conversations on the network, not to the business." },
+] as const;
 
-async function allPages<T>(fetch: (cursor: string | null) => Promise<{ items: T[]; nextCursor: string | null }>, max = 5000): Promise<T[]> {
-  const out: T[] = [];
-  let cursor: string | null = null;
-  do {
-    const page = await fetch(cursor);
-    out.push(...page.items);
-    cursor = page.nextCursor;
-  } while (cursor && out.length < max);
-  return out;
+/** `ledgerly-export-2026-10-12.json`: the slug, the UTC date of the export. */
+export function exportFileName(business: Pick<Business, "slug" | "name">, generatedAt: string): string {
+  const base = (business.slug || business.name).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "business";
+  return `${base}-export-${generatedAt.slice(0, 10)}.json`;
 }
 
-/** Export everything (admin). One RLS transaction; repositories only. */
+/** The sections this member may not read: their tables stay out of the archive (BUILD §11.9 staff permissions). */
+function walledSections(membership: BusinessContext["membership"]): ExportSection[] {
+  return EXPORT_SECTIONS.filter((section) => effectivePermission(membership, section) === "none");
+}
+
+/**
+ * Export everything (admin; also on an archived business): every exported business-scoped table, page by page until
+ * each is exhausted, in one RLS transaction (one consistent snapshot) and through the portability repository only.
+ * Credentials are never read. The archive goes back to the caller as JSON-safe data that the browser saves as a file;
+ * nothing is kept on the server. The founder gets an Inbox note with the counts and the file name.
+ */
 export async function exportBusiness(ctx: BusinessContext): Promise<ExportResult> {
   const generatedAt = new Date().toISOString();
-  const archive = await ctx.rls(async (tx): Promise<ExportArchive> => {
-    const b = ctx.businessId;
-    const [departments, agents, blocks, versions, roadmap, dependencies, tasks, channels, campaigns, entities, journeys, conversions, milestones, accounts, transactions, forecasts, capTable, legalEntities, contracts, compliance, inbox, integrations, auditRows] = await Promise.all([
-      repos.departments.list(tx, b, { includeHidden: true }),
-      repos.agents.list(tx, b, { limit: 500 }),
-      repos.product.listBlocks(tx, b),
-      repos.product.listVersions(tx, b),
-      repos.product.listRoadmap(tx, b),
-      repos.product.listDependencies(tx, b),
-      allPages((cursor) => repos.tasks.list(tx, b, { limit: 500, cursor })),
-      repos.channels.list(tx, b),
-      allPages((cursor) => repos.campaigns.list(tx, b, { limit: 200, cursor })),
-      allPages((cursor) => repos.entities.list(tx, b, { limit: 500, cursor })),
-      allPages((cursor) => repos.journeys.list(tx, b, { limit: 200, cursor })),
-      allPages((cursor) => repos.journeys.listConversions(tx, b, { limit: 500, cursor })),
-      repos.journeys.listMilestones(tx, b),
-      repos.finance.listAccounts(tx, b),
-      allPages((cursor) => repos.finance.listTransactions(tx, b, { limit: 500, cursor })),
-      repos.finance.listForecasts(tx, b),
-      repos.capTable.summary(tx, b),
-      repos.legal.listEntities(tx, b),
-      allPages((cursor) => repos.legal.listContracts(tx, b, { limit: 200, cursor })),
-      repos.legal.listCompliance(tx, b),
-      allPages((cursor) => repos.inbox.list(tx, b, { limit: 200, cursor })),
-      repos.integrations.list(tx, b),
-      allPages((cursor) => repos.audit.list(tx, b, { limit: 200, cursor })),
-    ]);
-    const agentBundles = await Promise.all(
-      agents.items.map(async (agent) => ({
-        agent,
-        versions: await repos.agents.listVersions(tx, b, agent.id),
-        skills: await repos.skills.listForAgent(tx, b, agent.id),
-      })),
-    );
-    const { createdBy: _createdBy, ...business } = ctx.business;
-    return {
-      format: EXPORT_FORMAT,
-      app: APP_NAME,
-      generatedAt,
-      business,
-      departments,
-      agents: agentBundles,
-      spec: { blocks, versions },
-      roadmap: { items: roadmap, dependencies },
-      tasks,
-      channels,
-      campaigns,
-      crm: { entities },
-      journeys: { journeys, conversions, milestones },
-      finance: { accounts: accounts.map((a) => ({ ...a, externalId: undefined })), transactions, forecasts, capTable },
-      legal: { entities: legalEntities, contracts, compliance },
-      inbox: { items: inbox },
-      integrations: integrations.map((i) => ({ id: i.id, connectorKey: i.connectorKey, status: i.status, scopes: i.scopes, lastHealthAt: i.lastHealthAt })),
-      audit: auditRows,
-      excluded: EXCLUDED,
-    };
+  const walled = walledSections(ctx.membership);
+  const { tables, truncated } = await ctx.rls(async (tx) => {
+    const out: Record<string, PortableRow[]> = {};
+    const cut: { table: string; rows: number }[] = [];
+    for (const [name, spec] of Object.entries(EXPORT_TABLES)) {
+      if (walled.includes(spec.section)) continue;
+      const rows: PortableRow[] = [];
+      let after: string | null = null;
+      do {
+        const page = await repos.portability.page(tx, ctx.businessId, name, { after, limit: EXPORT_PAGE_ROWS });
+        rows.push(...page.rows);
+        after = page.nextAfter;
+        if (after && rows.length >= EXPORT_MAX_TABLE_ROWS) {
+          cut.push({ table: name, rows: rows.length });
+          break;
+        }
+      } while (after);
+      out[name] = rows;
+    }
+    return { tables: out, truncated: cut };
   });
 
-  const counts: Record<string, number> = {
-    departments: archive.departments.length,
-    agents: archive.agents.length,
-    specBlocks: archive.spec.blocks.length,
-    roadmapItems: archive.roadmap.items.length,
-    tasks: archive.tasks.length,
-    entities: archive.crm.entities.length,
-    journeys: archive.journeys.journeys.length,
-    transactions: archive.finance.transactions.length,
-    contracts: archive.legal.contracts.length,
-    inboxItems: archive.inbox.items.length,
-    auditEntries: archive.audit.length,
+  const { createdBy: _createdBy, ...business } = ctx.business;
+  const counts = Object.fromEntries(Object.entries(tables).map(([name, rows]) => [name, rows.length]));
+  const totalRows = Object.values(counts).reduce((n, c) => n + c, 0);
+  const excluded = [
+    ...EXCLUDED_ALWAYS,
+    ...Object.entries(EXPORT_EXCLUDED_TABLES).map(([table, why]) => ({ what: table, why })),
+    ...walled.map((section) => ({ what: `The ${section} section`, why: "Your role has no access to it, so its tables are not in your export." })),
+  ];
+  const archive: ExportArchive = {
+    format: EXPORT_FORMAT,
+    app: APP_NAME,
+    generatedAt,
+    business: Object.fromEntries(Object.entries(business).map(([k, v]) => [k, portableValue(v)])),
+    tables,
+    counts,
+    truncated,
+    excluded,
   };
   const sizeBytes = Buffer.byteLength(JSON.stringify(archive), "utf8");
   const exportId = crypto.randomUUID();
+  const fileName = exportFileName(ctx.business, generatedAt);
 
   const inboxItem = await ctx.rls(async (tx) => {
     const chief = await repos.agents.chiefOfStaff(tx, ctx.businessId);
-    await audit(tx, ctx, { action: "business.export", target: { kind: "business", id: ctx.businessId }, details: { exportId, counts, sizeBytes, format: EXPORT_FORMAT } });
+    await audit(tx, ctx, { action: "business.export", target: { kind: "business", id: ctx.businessId }, details: { exportId, fileName, tables: Object.keys(tables).length, totalRows, sizeBytes, format: EXPORT_FORMAT, truncated, walled } });
     if (!chief) return null;
-    const lines = Object.entries(counts).map(([k, v]) => `- ${labelFor(k)}: ${v}`);
     return repos.inbox.createItem(
       tx,
       ctx.businessId,
@@ -161,7 +149,7 @@ export async function exportBusiness(ctx: BusinessContext): Promise<ExportResult
         type: "update",
         from_agent_id: chief.id,
         subject: "Your export is ready",
-        body_md: `The portable archive of ${ctx.business.name} was generated (${formatBytes(sizeBytes)}, format ${EXPORT_FORMAT}). It holds:\n${lines.join("\n")}\n\nCredentials and connector tokens are never included. Download it from Settings › Danger zone.`,
+        body_md: exportNote({ name: ctx.business.name, fileName, counts, totalRows, sizeBytes, truncated, walled }),
         status_strip: [],
         exhibit: { kind: "none", spec_ref: null },
         decision: null,
@@ -173,23 +161,46 @@ export async function exportBusiness(ctx: BusinessContext): Promise<ExportResult
     );
   });
 
-  return { exportId, generatedAt, format: EXPORT_FORMAT, counts, sizeBytes, archive, inboxItem };
+  return { exportId, generatedAt, format: EXPORT_FORMAT, fileName, counts, totalRows, complete: truncated.length === 0, sizeBytes, archive, inboxItem };
 }
 
+/** Tables named in the Inbox note, in this order (the rest are summed as "other records"). */
 const LABELS: Record<string, string> = {
   departments: "Departments",
-  agents: "Agents (with instructions and skills)",
-  specBlocks: "Specification blocks",
-  roadmapItems: "Roadmap items",
+  agents: "Agents (with versions, skills and conversations alongside)",
+  spec_blocks: "Specification blocks",
+  roadmap_items: "Roadmap items",
   tasks: "Tasks",
-  entities: "CRM entities",
+  entities: "CRM records",
+  interactions: "CRM interactions",
   journeys: "Customer journeys",
   transactions: "Bank transactions",
   contracts: "Contracts",
-  inboxItems: "Inbox items",
-  auditEntries: "Audit entries",
+  inbox_items: "Inbox items",
+  usage_ledger: "Usage ledger entries",
+  audit_log: "Audit entries",
 };
 const labelFor = (k: string) => LABELS[k] ?? k;
+
+/** The Inbox note: what the file holds, where it went, and anything left out or cut. */
+export function exportNote(input: { name: string; fileName: string; counts: Record<string, number>; totalRows: number; sizeBytes: number; truncated: { table: string; rows: number }[]; walled: readonly string[] }): string {
+  const named = Object.keys(LABELS).filter((k) => k in input.counts);
+  const lines = named.map((k) => `- ${labelFor(k)}: ${formatCount(input.counts[k] ?? 0)}`);
+  const others = input.totalRows - named.reduce((n, k) => n + (input.counts[k] ?? 0), 0);
+  const tables = Object.keys(input.counts).length;
+  if (others > 0) lines.push(`- Other records: ${formatCount(others)}`);
+  const parts = [
+    `The portable archive of ${input.name} is ready: ${formatCount(input.totalRows)} records across ${tables} tables (${formatBytes(input.sizeBytes)}, format ${EXPORT_FORMAT}). It holds:`,
+    lines.join("\n"),
+    "",
+    `It was handed to your browser as **${input.fileName}**. Nothing is kept on our side, so export again from Settings › Danger zone whenever you need a fresh copy. Credentials and connector tokens are never included.`,
+  ];
+  if (input.truncated.length) parts.push("", `Not complete: ${input.truncated.map((t) => `${t.table} stopped at ${formatCount(t.rows)} rows`).join("; ")}. Ask support for a full copy of ${input.truncated.length === 1 ? "that table" : "those tables"}.`);
+  if (input.walled.length) parts.push("", `Left out because your role has no access: ${input.walled.join(", ")}.`);
+  return parts.join("\n");
+}
+
+const formatCount = (n: number) => n.toLocaleString("en-US");
 const formatBytes = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / (1024 * 1024)).toFixed(1)} MB`);
 
 export interface ArchiveResult {
@@ -205,6 +216,27 @@ export async function archiveBusiness(ctx: BusinessContext, reason = "archived")
     return repos.businesses.archive(tx, ctx.businessId);
   });
   return { business, stopped };
+}
+
+export interface RestoreResult {
+  business: Business;
+  /** False when the business was not archived (restore is idempotent). */
+  restored: boolean;
+}
+
+/**
+ * Restore (owner): the archived business is listed and reachable again with all its data. Its agents stay stopped
+ * (archive pulled the kill switch) until the founder resumes them, so nothing spends on the founder's behalf by surprise.
+ */
+export async function restoreBusiness(ctx: BusinessContext): Promise<RestoreResult> {
+  if (!ctx.business.archivedAt) return { business: ctx.business, restored: false };
+  const archivedAt = ctx.business.archivedAt;
+  const business = await ctx.rls(async (tx) => {
+    const restored = await repos.businesses.restore(tx, ctx.businessId);
+    await audit(tx, ctx, { action: "business.restore", target: { kind: "business", id: ctx.businessId }, details: { archivedAt: archivedAt.toISOString() } });
+    return restored;
+  });
+  return { business, restored: true };
 }
 
 export interface DeletionState {
@@ -245,15 +277,18 @@ export interface RequestDeletionResult {
 }
 
 /** Deletion copy shown by the UI; the API is the source of truth for the delay. */
-export function deletionCopy(business: Pick<Business, "name">, scheduledFor: string): { title: string; body: string } {
-  const when = scheduledFor.slice(0, 10);
+export function deletionCopy(business: Pick<Business, "name"> & { archivedAt?: Date | null }, scheduledFor: string): { title: string; body: string } {
+  const when = usDate(scheduledFor);
+  const until = business.archivedAt
+    ? "Until then any owner can cancel from New business › Archived businesses, or restore the business and cancel from Settings › Danger zone."
+    : "Until then the business keeps working and any owner can cancel from Settings › Danger zone.";
   return {
     title: `Deletion scheduled for ${when}`,
-    body: `${business.name} and everything in it (spec, roadmap, tasks, CRM, journeys, finance, audit log, agent instructions) will be permanently deleted on ${when}, ${DELETION_DELAY_DAYS} days from now. Until then the business keeps working and any owner can cancel from Settings › Danger zone. This cannot be undone after that date.`,
+    body: `${business.name} and everything in it (spec, roadmap, tasks, CRM, journeys, finance, audit log, agent instructions) will be permanently deleted on ${when}, ${DELETION_DELAY_DAYS} days from now. ${until} This cannot be undone after that date.`,
   };
 }
 
-/** Owner-only; needs a fresh authentication. Records the request with the 7-day date; the deletion job does the rest. */
+/** Owner-only; needs a fresh authentication. Records the request with the 7-day date; the nightly deletion sweep does the rest. */
 export async function requestDeletion(ctx: BusinessContext, input: RequestDeletionInput = {}): Promise<RequestDeletionResult> {
   const now = input.now ?? new Date();
   const authenticatedAt = ctx.authenticatedAt ?? null;
@@ -267,23 +302,54 @@ export async function requestDeletion(ctx: BusinessContext, input: RequestDeleti
   const scheduledFor = new Date(now.getTime() + DELETION_DELAY_DAYS * DAY_MS).toISOString();
   const copy = deletionCopy(ctx.business, scheduledFor);
   const inboxItem = await ctx.rls(async (tx) => {
-    await audit(tx, ctx, { action: DELETION_REQUEST_ACTION, target: { kind: "business", id: ctx.businessId }, details: { requestedAt: now.toISOString(), scheduledFor, delayDays: DELETION_DELAY_DAYS, reauthenticatedAt: authenticatedAt!.toISOString() } });
     const chief = await repos.agents.chiefOfStaff(tx, ctx.businessId);
-    if (!chief) return null;
-    return repos.inbox.createItem(
-      tx,
-      ctx.businessId,
-      { type: "warning", from_agent_id: chief.id, subject: copy.title.slice(0, 80), body_md: copy.body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] },
-      { fromUserId: ctx.userId },
-    );
+    // The warning is made first so the request on the audit chain can name it: cancelling settles exactly this item.
+    const item = chief
+      ? await repos.inbox.createItem(
+          tx,
+          ctx.businessId,
+          { type: "warning", from_agent_id: chief.id, subject: copy.title.slice(0, 80), body_md: copy.body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] },
+          { fromUserId: ctx.userId },
+        )
+      : null;
+    await audit(tx, ctx, { action: DELETION_REQUEST_ACTION, target: { kind: "business", id: ctx.businessId }, details: { requestedAt: now.toISOString(), scheduledFor, delayDays: DELETION_DELAY_DAYS, reauthenticatedAt: authenticatedAt!.toISOString(), inboxItemId: item?.id ?? null } });
+    return item;
   });
   return { deletion: await deletionState(ctx), reauth: { required: true, satisfied, authenticatedAt: authenticatedAt!.toISOString(), windowMinutes: REAUTH_WINDOW_MS / 60_000 }, copy, inboxItem };
 }
 
-/** Owner-only. Cancels a scheduled deletion (idempotent). */
+/**
+ * Owner-only. Cancels a scheduled deletion (idempotent). The Inbox warning the request left is settled (archived) and
+ * the Chief of Staff leaves a note that the deletion was canceled, so the Inbox never keeps announcing a deletion that
+ * is no longer going to happen (audit MLSL-X: "Deletion scheduled for …" stayed after canceling).
+ */
 export async function cancelDeletion(ctx: BusinessContext): Promise<DeletionState> {
   const existing = await deletionState(ctx);
   if (existing.status !== "scheduled") return existing;
-  await ctx.rls((tx) => audit(tx, ctx, { action: DELETION_CANCEL_ACTION, target: { kind: "business", id: ctx.businessId }, details: { cancelledAt: new Date().toISOString(), hadBeenScheduledFor: existing.scheduledFor } }));
+  const request = (await repos.audit.list(ctx.db, ctx.businessId, { action: DELETION_REQUEST_ACTION, limit: 1 })).items[0];
+  const warningId = (request?.details as { inboxItemId?: string | null } | undefined)?.inboxItemId ?? null;
+  await ctx.rls(async (tx) => {
+    await audit(tx, ctx, { action: DELETION_CANCEL_ACTION, target: { kind: "business", id: ctx.businessId }, details: { cancelledAt: new Date().toISOString(), hadBeenScheduledFor: existing.scheduledFor } });
+    if (warningId) await repos.inbox.archive(tx, ctx.businessId, warningId).catch(() => undefined);
+    const chief = await repos.agents.chiefOfStaff(tx, ctx.businessId);
+    if (!chief) return;
+    await repos.inbox.createItem(
+      tx,
+      ctx.businessId,
+      {
+        type: "update",
+        from_agent_id: chief.id,
+        subject: "Deletion canceled",
+        body_md: `The permanent deletion of ${ctx.business.name}${existing.scheduledFor ? ` that was scheduled for ${usDate(existing.scheduledFor)}` : ""} was canceled. Nothing was deleted and the business keeps working. You can schedule it again from Settings › Danger zone.`,
+        status_strip: [],
+        exhibit: { kind: "none", spec_ref: null },
+        decision: null,
+        blocks_continue: false,
+        source_event_ids: [],
+        entity_ids: [],
+      },
+      { fromUserId: ctx.userId, state: "unread" },
+    );
+  });
   return deletionState(ctx);
 }

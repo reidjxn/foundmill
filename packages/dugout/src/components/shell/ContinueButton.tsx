@@ -1,5 +1,5 @@
 "use client";
-import { forwardRef, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { ArrowRight, CircleAlert, Pause, Play, TreePalm, Undo2 } from "lucide-react";
 import { cn } from "../../lib/cn";
@@ -12,6 +12,9 @@ import { Icon } from "../foundation/Icon";
 import { Kbd } from "../foundation/Kbd";
 import { Tooltip } from "../foundation/Tooltip";
 import type { ContinueState } from "./types";
+import { spaceBelongsTo } from "./keyboard";
+
+const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /** DESIGN §7: one 600 ms soft ring pulse when a cycle finishes and new items arrive, never a loop. */
 export const CONTINUE_PULSE_MS = 600;
@@ -36,6 +39,11 @@ export interface ContinueButtonProps extends ContinueHandlers {
   /** Bind Space to the state's primary action (for use outside an AppShell, which binds Space through useKeyboardMap). */
   bindSpace?: boolean;
   disabled?: boolean;
+  /**
+   * The state's action is on its way (the cycle is starting, the pause is being sent). The button shows a spinner and
+   * refuses presses but keeps keyboard focus, unlike `disabled`, so the founder does not lose their place.
+   */
+  pending?: boolean;
   size?: ButtonSize;
   className?: string;
 }
@@ -57,11 +65,19 @@ export function continueButtonLabel(state: ContinueState): string {
 }
 
 /**
+ * What a vacation waits for, without a leading "until": the caption adds that word itself, and a stored condition is a
+ * whole phrase ("until I return" for the open-ended vacation, whatever a founder typed for a condition).
+ */
+export function untilPhrase(label: string): string {
+  return label.trim().replace(/^until\s+/i, "");
+}
+
+/**
  * "On vacation until Oct 14, 2026" / "On vacation until the launch ships" / "On vacation". The date follows the
  * signed-in person's format when `prefs` is given ("14 Oct 2026", "2026-10-14").
  */
 export function holidayCaption(state: Extract<ContinueState, { kind: "holiday" }>, prefs?: DateFormatPrefs | null): string {
-  if (state.untilLabel) return `On vacation until ${state.untilLabel}`;
+  if (state.untilLabel) return `On vacation until ${untilPhrase(state.untilLabel)}`;
   if (state.until) return `On vacation until ${formatDate(state.until, "date", prefs)}`;
   return "On vacation";
 }
@@ -72,7 +88,7 @@ export function holidayCaption(state: Extract<ContinueState, { kind: "holiday" }
  * ("Until Oct 14"). Exported for tests.
  */
 export function holidayCaptionParts(state: Extract<ContinueState, { kind: "holiday" }>, prefs?: DateFormatPrefs | null): { full: string; date: DateYearParts | null; short: string } {
-  if (state.untilLabel) return { full: `On vacation until ${state.untilLabel}`, date: null, short: `Until ${state.untilLabel}` };
+  if (state.untilLabel) return { full: `On vacation until ${untilPhrase(state.untilLabel)}`, date: null, short: `Until ${untilPhrase(state.untilLabel)}` };
   if (state.until) return { full: "On vacation until ", date: formatDateYearParts(state.until, prefs), short: `Until ${formatDate(state.until, "dayMonth", prefs)}` };
   return { full: "On vacation", date: null, short: "On vacation" };
 }
@@ -100,10 +116,27 @@ export function continueButtonAction(state: ContinueState, handlers: ContinueHan
  * Vacation is neutral with the caption and "Come back". It keeps one width through its states, so the bar never jumps.
  */
 export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>(function ContinueButton(
-  { state, pulseKey, bindSpace = false, disabled, size = "md", className, ...handlers },
+  { state, pulseKey, bindSpace = false, disabled, pending = false, size = "md", className, ...handlers },
   ref,
 ) {
   const reduced = usePrefersReducedMotion();
+  // The vacation state wraps the button with its caption, so entering or leaving it swaps the element under the
+  // keyboard: when the old button had focus, the new one takes it (WCAG 2.4.3). Read at render, before the swap commits.
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const setButtonRef = useCallback(
+    (node: HTMLButtonElement | null) => {
+      buttonRef.current = node;
+      if (typeof ref === "function") ref(node);
+      else if (ref) ref.current = node;
+    },
+    [ref],
+  );
+  const wrapped = state.kind === "holiday";
+  const hadFocus = typeof document !== "undefined" && buttonRef.current !== null && buttonRef.current === document.activeElement;
+  useIsoLayoutEffect(() => {
+    const el = buttonRef.current;
+    if (hadFocus && el && document.activeElement !== el) el.focus({ preventScroll: true });
+  }, [wrapped, hadFocus]);
   const datePrefs = useDateFormat();
   const [pulsing, setPulsing] = useState(false);
   const firstPulse = useRef(true);
@@ -139,18 +172,20 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
   useHotkeys(
     "space",
     (e) => {
-      if (!action || disabled) return;
+      if (!action || disabled || pending) return;
       e.preventDefault();
       action();
     },
-    { enabled: bindSpace },
-    [action, disabled, bindSpace],
+    // A focused control keeps Space (Space on this button presses it natively).
+    { enabled: (e) => bindSpace && !spaceBelongsTo(e.target) },
+    [action, disabled, pending, bindSpace],
   );
 
   const common = {
-    ref,
+    ref: setButtonRef,
     size,
     disabled,
+    loading: pending,
     onClick: action,
     "data-continue-state": state.kind,
     "data-pulsing": pulsing || undefined,

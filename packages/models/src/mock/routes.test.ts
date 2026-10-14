@@ -65,6 +65,21 @@ describe("chief of staff cycle plan (BUILD §12.4)", () => {
     expect(r.json.time_box_hours).toBe(4);
   });
 
+  it("offers a failed or blocked task again (the orchestrator's retry rules decide when) and points at the Plan when only the roadmap has work", async () => {
+    const retry = await client.complete({
+      route: "chiefOfStaff",
+      messages: promptWith({ max_agents: 3, open_tasks: [{ id: "t1", title: "Plan the first vertical slice", kind: "code", status: "failed", department_id: "dept-eng" }, { id: "t2", title: "Set up the first runway forecast", kind: "finance", status: "blocked", department_id: "dept-fin" }], agents: AGENTS }),
+      schema: CyclePlanOutput,
+    });
+    expect(retry.json.departments.flatMap((d) => d.tasks_to_start).map((s) => s.task_id).sort()).toEqual(["t1", "t2"]);
+
+    const idle = await client.complete({ route: "chiefOfStaff", messages: promptWith({ business_name: "Acme", max_agents: 3, open_tasks: [], roadmap_without_tasks: [{ id: "r1", title: "Pricing experiment", horizon: "now" }], agents: AGENTS }), schema: CyclePlanOutput });
+    expect(idle.json.departments).toEqual([]);
+    expect(idle.json.summary).toMatch(/1 roadmap item has no tasks yet/);
+    expect(idle.json.summary).toMatch(/Development › Plan/);
+    expect(idle.json.summary).not.toMatch(/everything open is blocked/);
+  });
+
   it("starts nothing when the model budget is exhausted and asks for a top-up", async () => {
     const r = await client.complete({ route: "chiefOfStaff", messages: promptWith({ budget_remaining_minor: 0, tasks: [{ id: "t1", title: "Anything", status: "ready" }] }), schema: CyclePlanOutput });
     expect(r.json.departments).toEqual([]);
@@ -135,6 +150,12 @@ describe("coach (BUILD §12.6, AC-11.10.4)", () => {
 });
 
 describe("journey commentary (BUILD §11.4)", () => {
+  it("lets the first touch and debrief lines carry no touch (touch_index null), and refuses a negative index (audit #332)", () => {
+    const line = (touch_index: number | null) => ({ touch_index, text: "A line", tone: "neutral" });
+    expect(CommentaryOutput.safeParse({ headline: "Ana is won after 2 touches", lines: [line(null), line(0), line(1), line(null)] }).success).toBe(true);
+    expect(CommentaryOutput.safeParse({ headline: "Ana is won", lines: [line(-1)] }).success).toBe(false);
+  });
+
   it("writes one line per touch, ends on the win moment and links only manifest ids", async () => {
     const r = await client.complete({
       route: "journeyCommentary",

@@ -1,31 +1,53 @@
 import { describe, expect, it } from "vitest";
-import { activityItems, applyChipFilters, commercialSummary, deletionRequestNote, documentItems, exportEntityJson, groupByForView, groupCounts, introPaths, isEntityTab, leadScore, mergeBanner, relationshipStrength, rowFromEntity, rowsFromRoleListings, rowsFromSearch, strengthRating, CRM_VIEWS, type EntityGet, type RelationshipRecord } from "../logic";
+import { activityItems, applyChipFilters, commercialSummary, deletionRequestNote, documentItems, exportEntityJson, groupByForView, groupCounts, introPaths, isCustomerWin, isEntityTab, leadScore, loadedSummary, mergeBanner, nextActiveHit, primaryRole, relationshipStrength, rowFromEntity, rowsFromSearch, strengthRating, CRM_VIEWS, type EntityGet, type RelationshipRecord } from "../logic";
 import { parseCrmQuery } from "../search";
 
 const entity = (over: Record<string, unknown> = {}) => ({ id: "e1", businessId: "b", kind: "person", displayName: "Ana Lind", aliases: [], avatarUrl: null, identifiers: { email: "ana@example.com" }, lawfulBasis: "contract", source: "stripe", embedding: null, search: null, visibility: "private", agentId: null, mergedIntoId: null, createdAt: new Date("2026-01-10"), updatedAt: new Date("2026-09-01"), archivedAt: null, ...over });
 const role = (over: Record<string, unknown> = {}) => ({ id: "r1", businessId: "b", entityId: "e1", role: "customer", stage: "customer", ownerRef: { kind: "agent", id: "a1" }, startedAt: new Date("2026-02-01"), endedAt: null, createdAt: new Date("2026-02-01"), updatedAt: new Date("2026-02-01"), ...over });
 const rel = (over: Partial<RelationshipRecord> & { other?: Partial<RelationshipRecord["other"]> } = {}): RelationshipRecord => ({ id: "x", businessId: "b", fromEntity: "e1", toEntity: "e2", type: "works_with", strength: "0.5", createdAt: new Date(), updatedAt: new Date(), ...over, other: { id: "e2", kind: "person", displayName: "Bo", ...(over.other ?? {}) } }) as RelationshipRecord;
 
+describe("a merged record's status (audit #160)", () => {
+  const merged = [role({ id: "r1", role: "customer", stage: "customer", startedAt: new Date("2024-10-25") }), role({ id: "r2", role: "customer", stage: "signed_up", startedAt: new Date("2025-09-23") })];
+  it("speaks for the most advanced stage, not the newest role", () => {
+    expect(primaryRole(merged as never)?.stage).toBe("customer");
+    expect(rowFromEntity(entity() as never, merged as never).stage).toBe("customer");
+  });
+  it("uses recency only among equal stages, and skips ended roles", () => {
+    const equal = [role({ id: "a", stage: "qualified", startedAt: new Date("2026-01-01") }), role({ id: "b", stage: "qualified", startedAt: new Date("2026-03-01") }), role({ id: "c", stage: "customer", startedAt: new Date("2026-04-01"), endedAt: new Date("2026-05-01") })];
+    expect(primaryRole(equal as never)?.id).toBe("b");
+    expect(primaryRole([] as never)).toBeNull();
+  });
+  it("scores the lead by its most advanced stage whatever the role order", () => {
+    const reversed = [...merged].reverse();
+    expect(leadScore(reversed as never, [], 1).stars).toBe(leadScore(merged as never, [], 1).stars);
+    expect(leadScore(merged as never, [], 1).stars).toBe(4.5);
+  });
+});
+
 describe("rows", () => {
   it("builds a row with the primary active role's stage and owner", () => {
     const row = rowFromEntity(entity() as never, [role({ role: "lead", stage: "qualified", startedAt: new Date("2026-01-15"), endedAt: new Date("2026-02-01") }), role()] as never);
     expect(row).toMatchObject({ id: "e1", name: "Ana Lind", email: "ana@example.com", roles: ["customer"], stage: "customer", owner: { kind: "agent", id: "a1" }, lawfulBasis: "contract" });
   });
-  it("unions role listings into one row per entity", () => {
-    const a = { ...entity(), role: role({ role: "customer" }) };
-    const b = { ...entity(), role: role({ id: "r2", role: "champion", stage: null, startedAt: new Date("2026-03-01") }) };
-    const rows = rowsFromRoleListings([[a as never], [b as never]]);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.roles.sort()).toEqual(["champion", "customer"]);
-    expect(rows[0]!.stage).toBeNull();
+  it("speaks for the role a role or stage filter names, else the most recent one", () => {
+    const roles = [role({ role: "customer", stage: "activated" }), role({ id: "r2", role: "lead", stage: "qualified", ownerRef: { kind: "department", id: "d1" }, startedAt: new Date("2026-01-01") })];
+    expect(rowFromEntity(entity() as never, roles as never)).toMatchObject({ roles: ["customer", "lead"], stage: "activated", owner: { kind: "agent", id: "a1" } });
+    expect(rowFromEntity(entity() as never, roles as never, { role: "lead" })).toMatchObject({ stage: "qualified", owner: { kind: "department", id: "d1" } });
+    expect(rowFromEntity(entity() as never, roles as never, { stage: "QUALIFIED" })).toMatchObject({ stage: "qualified" });
+    expect(rowFromEntity(entity() as never, roles as never, { role: "partner" })).toMatchObject({ stage: "activated" });
+    // A stage stored as words ("Account manager") is the one a normalized chip ("account_manager") names.
+    const contact = [role({ role: "supplier_contact", stage: "Sales lead" }), role({ id: "r4", role: "Supplier contact", stage: "Account manager", ownerRef: null, startedAt: new Date("2026-01-01") })];
+    expect(rowFromEntity(entity() as never, contact as never, { stage: "account_manager" })).toMatchObject({ stage: "Account manager" });
+    expect(rowFromEntity(entity() as never, contact as never, { role: "supplier_contact", stage: "sales-lead" })).toMatchObject({ stage: "Sales lead" });
   });
-  it("keeps search scores and filters client-side by chips with resolvers", () => {
-    const rows = rowsFromSearch([{ entity: entity() as never, score: 0.9, matchedOn: "name" }] as never);
-    expect(rows[0]).toMatchObject({ score: 0.9, matchedOn: "name" });
+  it("keeps search scores and roles, and filters client-side by chips with resolvers", () => {
+    const rows = rowsFromSearch([{ entity: entity() as never, roles: [role({ role: "supplier", stage: "shortlisted" })], score: 0.9, matchedOn: "name" }] as never);
+    expect(rows[0]).toMatchObject({ score: 0.9, matchedOn: "name", roles: ["supplier"], stage: "shortlisted", owner: { kind: "agent", id: "a1" } });
     const listed = [rowFromEntity(entity() as never, [role()] as never), rowFromEntity(entity({ id: "e2", kind: "organisation", displayName: "Acme" }) as never, [role({ role: "supplier", stage: "shortlisted", ownerRef: { kind: "department", id: "d1" } })] as never)];
     const owner = applyChipFilters(listed, parseCrmQuery("owner:Mara").chips, { ownerName: (ref) => (ref.id === "a1" ? "Mara" : undefined) });
     expect(owner.map((r) => r.id)).toEqual(["e1"]);
     expect(applyChipFilters(listed, parseCrmQuery("kind:organisation stage:shortlisted").chips).map((r) => r.id)).toEqual(["e2"]);
+    expect(applyChipFilters(listed, parseCrmQuery("stage:SHORTLISTED role:Supplier").chips).map((r) => r.id)).toEqual(["e2"]);
     expect(applyChipFilters(listed, parseCrmQuery("department:Growth").chips, { departmentName: (id) => (id === "d1" ? "Growth" : undefined) }).map((r) => r.id)).toEqual(["e2"]);
   });
   it("counts groups and reads the grouping from the saved view", () => {
@@ -65,25 +87,50 @@ describe("profile derivations", () => {
   });
   it("summarises commercial history and lists activity newest first", () => {
     const conversions = [
-      { id: "c1", kind: "signup", amountMinor: 0, currency: "EUR", occurredAt: new Date("2026-01-01") },
-      { id: "c2", kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: new Date("2026-02-01") },
-      { id: "c3", kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: new Date("2026-04-01") },
+      { id: "c1", kind: "signup", amountMinor: 0, currency: "EUR", occurredAt: new Date("2026-01-01"), journeyId: null },
+      { id: "c2", kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: new Date("2026-02-01"), journeyId: "j2" },
+      { id: "c3", kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: new Date("2026-04-01"), journeyId: "j3" },
     ] as never[];
     const s = commercialSummary(conversions as never, "SEK");
     expect(s).toMatchObject({ payments: 2, totalMinor: 9800, currency: "EUR", monthlyMinor: 3267, signedUpAt: "2026-01-01T00:00:00.000Z" });
+    // Two currencies are never added: the business's own counts when it has payments in it.
+    const mixed = commercialSummary([...conversions, { id: "c4", kind: "payment", amountMinor: 2000, currency: "SEK", occurredAt: new Date("2026-03-01") }] as never, "SEK");
+    expect(mixed).toMatchObject({ payments: 3, totalMinor: 2000, currency: "SEK" });
+    expect(commercialSummary([] as never, "USD")).toMatchObject({ payments: 0, totalMinor: 0, currency: "USD" });
     const items = activityItems({ interactions: [{ id: "i1", kind: "email", occurredAt: new Date("2026-03-01"), direction: "inbound", summary: "Asked about pricing", agentId: null, contentRef: "vault://x" }], mentions: [{ id: "m1", containerKind: "inbox_item", containerId: "n1", createdAt: new Date("2026-05-01") }], conversions } as never, { inbox: (id) => `/inbox/${id}`, journey: (id) => `/j/${id}` });
     expect(items.map((i) => i.id)).toEqual(["m-m1", "c-c3", "i-i1", "c-c2", "c-c1"]);
     expect(items[0]!.href).toBe("/inbox/n1");
+    expect(items.find((i) => i.id === "c-c2")).toMatchObject({ title: "Payment", href: "/j/j2" });
+    // Wins link to their Customer Update by journey id; a win without one has no link (it would dead-end).
+    expect(items.find((i) => i.id === "c-c3")?.href).toBe("/j/j3");
+    expect(items.find((i) => i.id === "c-c1")?.href).toBeUndefined();
+    // Payments read as money in their own currency with the narrow symbol, never "49.00 EUR".
+    expect(items.find((i) => i.id === "c-c2")?.description).toBe("€49.00");
+    const gbp = activityItems({ interactions: [], mentions: [], conversions: [{ id: "g1", kind: "payment", amountMinor: 3534999, currency: "GBP", occurredAt: new Date("2026-10-01"), journeyId: null }, { id: "y1", kind: "payment", amountMinor: 5000, currency: "JPY", occurredAt: new Date("2026-10-02"), journeyId: null }] } as never, { inbox: (id) => id, journey: (id) => id });
+    expect(gbp.map((i) => i.description)).toEqual(["¥5,000", "£35,349.99"]);
     const docs = documentItems({ interactions: [{ id: "i1", kind: "email", occurredAt: new Date(), summary: "", contentRef: "vault://x" }], mentions: [{ id: "m2", containerKind: "spec_block", containerId: "s1", createdAt: new Date() }] } as never, { inbox: (id) => id });
     expect(docs.map((d) => [d.kind, d.encrypted])).toEqual([
       ["email", true],
       ["spec_block", false],
     ]);
   });
+  it("a renewal or repeat order is revenue with no replay link; only wins open a Customer Update", () => {
+    const conversions = [
+      { id: "c1", kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: new Date("2026-02-01"), firstPayment: true, journeyId: "j1" },
+      { id: "c2", kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: new Date("2026-03-01"), firstPayment: false, journeyId: "j2" },
+    ] as never[];
+    expect(commercialSummary(conversions as never, "EUR")).toMatchObject({ payments: 2, totalMinor: 9800 });
+    const items = activityItems({ interactions: [], mentions: [], conversions } as never, { inbox: (id) => `/inbox/${id}`, journey: (id) => `/j/${id}` });
+    expect(items.map((i) => [i.id, i.title, i.href])).toEqual([
+      ["c-c2", "Repeat payment", undefined],
+      ["c-c1", "Payment", "/j/j1"],
+    ]);
+    expect((conversions as { id: string; firstPayment: boolean }[]).filter(isCustomerWin).map((c) => c.id)).toEqual(["c1"]);
+  });
 });
 
 describe("data duties and merges", () => {
-  const get = { entity: entity(), roles: [role()], relationships: [rel()], interactions: [{ id: "i1", kind: "email", occurredAt: new Date("2026-03-01"), direction: "inbound", summary: "s", contentRef: "vault://x" }], mentions: [], conversions: [], mergeHistory: [{ id: "ml", keptId: "e1", mergedId: "e9", byKind: "user", byId: null, revertedAt: null, createdAt: new Date("2026-06-01") }], redirectedFrom: null } as unknown as EntityGet;
+  const get = { entity: entity(), roles: [role()], relationships: [rel()], interactions: [{ id: "i1", kind: "email", occurredAt: new Date("2026-03-01"), direction: "inbound", summary: "s", contentRef: "vault://x" }], mentions: [], conversions: [], mergeHistory: [{ id: "ml", keptId: "e1", mergedId: "e9", byKind: "user", byId: null, revertedAt: null, createdAt: new Date("2026-06-01"), undoBlocked: null }], redirectedFrom: null } as unknown as EntityGet;
   it("exports everything held without decrypting bodies", () => {
     const json = JSON.parse(exportEntityJson(get, new Date("2026-10-07T00:00:00Z")));
     expect(json.entity.displayName).toBe("Ana Lind");
@@ -92,7 +139,7 @@ describe("data duties and merges", () => {
     expect(json.merges).toHaveLength(1);
   });
   it("writes the deletion request for the scheduled job", () => {
-    expect(deletionRequestNote("the founder", new Date("2026-10-07T10:00:00Z"))).toMatch(/^Deletion requested by the founder on Oct 7, 2026\. Runs in the scheduled, audited deletion job/);
+    expect(deletionRequestNote("the founder", new Date("2026-10-07T10:00:00Z"))).toMatch(/^Deletion requested by the founder on Oct 7, 2026\. Runs in the nightly, audited deletion job after 7 days/);
   });
   it("describes open merges and redirects", () => {
     expect(mergeBanner(get)).toMatchObject({ redirected: false, absorbed: [{ id: "ml" }] });
@@ -102,5 +149,32 @@ describe("data duties and merges", () => {
   it("knows its tabs", () => {
     expect(isEntityTab("journey")).toBe(true);
     expect(isEntityTab("billing")).toBe(false);
+  });
+});
+
+describe("how much of the CRM is loaded", () => {
+  it("says what the list holds against the server's total, in en-US numbers", () => {
+    expect(loadedSummary({ mode: "list", loaded: 500, total: 4519, hasMore: true })).toBe("500 of 4,519 records");
+    expect(loadedSummary({ mode: "list", loaded: 4519, total: 4519, hasMore: false })).toBe("4,519 records");
+    expect(loadedSummary({ mode: "list", loaded: 1, total: 1, hasMore: false })).toBe("1 record");
+    // A total the server cannot give (a chip applied to the rows): the loaded count, never a made-up total.
+    expect(loadedSummary({ mode: "list", loaded: 37, total: null, hasMore: false })).toBe("37 records");
+  });
+  it("says a search is still loading, then how many matched", () => {
+    expect(loadedSummary({ mode: "search", loaded: 100, total: null, hasMore: true })).toBe("100 matches so far");
+    expect(loadedSummary({ mode: "search", loaded: 182, total: null, hasMore: false })).toBe("182 matches");
+    expect(loadedSummary({ mode: "search", loaded: 1, total: null, hasMore: false })).toBe("1 match");
+  });
+});
+
+describe("typeahead keyboard", () => {
+  it("moves the active hit with the arrow keys: Down stops at the last hit, Up returns to the text box", () => {
+    expect(nextActiveHit(-1, 1, 3)).toBe(0);
+    expect(nextActiveHit(0, 1, 3)).toBe(1);
+    expect(nextActiveHit(2, 1, 3)).toBe(2);
+    expect(nextActiveHit(1, -1, 3)).toBe(0);
+    expect(nextActiveHit(0, -1, 3)).toBe(-1);
+    expect(nextActiveHit(-1, -1, 3)).toBe(-1);
+    expect(nextActiveHit(0, 1, 0)).toBe(-1);
   });
 });

@@ -231,6 +231,11 @@ export interface AgentTileSession {
   preview: PreviewState;
   /** Awaiting a founder decision (approval hold). */
   awaitingApprovalId: string | null;
+  /**
+   * Started but not yet picked up by a worker: the session's stream holds no event yet. The tile says "Queued" and shows
+   * no elapsed clock or streaming prompt until the first event arrives.
+   */
+  queued?: boolean;
 }
 
 export type ShoutPreset = "focus_on_tests" | "simplify" | "ask_before_schema_changes" | "match_design_system" | "hurry_up";
@@ -332,6 +337,8 @@ export interface ChannelTokenData {
   key: ChannelKey;
   /** 1–20 fit from the Distribution Strategist. */
   fit: number;
+  /** False until the Distribution Strategist has scored the channel: the fit badge and the card show no score. Default true. */
+  scored?: boolean;
   recommended: boolean;
   /** On the board (engine enabled) or on the bench. */
   enabled: boolean;
@@ -345,6 +352,11 @@ export interface ChannelTokenData {
   /** Share of the monthly distribution budget, 0–1. */
   budgetShare?: number;
   paused?: boolean;
+  /**
+   * Offline tracking (bookings go through a founder task, never an API) as this channel is set, which can differ from
+   * the channel's default; absent means the default (`CHANNEL_META[key].kitModeByDefault`).
+   */
+  kitMode?: boolean;
   results?: Array<{ label: string; value: string }>;
 }
 
@@ -424,8 +436,8 @@ export interface ModelOption {
   key: ModelKey;
   label: string;
   description: string;
-  /** Predicted change in the average skill rating (points, Estimate). */
-  skillDelta: number;
+  /** Predicted change in the average skill rating (points, Estimate); null when no preview run has measured it. */
+  skillDelta: number | null;
   /** Predicted monthly wage change (Estimate). */
   wageDelta: Money;
   /** Why this option is unavailable (e.g. "Inbox Composer is locked to Opus"). */

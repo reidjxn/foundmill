@@ -10,7 +10,7 @@ export const InboxComposerVariables = z.object({
 
 export const inboxComposerPrompt = definePrompt({
   key: "inbox_composer",
-  version: 1,
+  version: 2,
   route: "inboxComposer",
   description: "Writes one inbox note (fact → why it matters → ask) as JSON matching the Composer schema.",
   variables: InboxComposerVariables,
@@ -23,5 +23,6 @@ Rules:
 - If a decision is needed, offer 2-4 options, mark exactly one recommended, give consequence, cost and reversibility for each.
 - Choose an exhibit only from the named queries provided.
 - Use the business glossary terms.
+- \`now\` in the inputs is today's date and time. A decision's expires_at is an ISO timestamp after \`now\`, or null when there is no deadline.
 Return JSON matching the Composer schema. No prose outside JSON.`,
 });

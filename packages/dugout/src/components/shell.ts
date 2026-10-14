@@ -21,6 +21,8 @@ export * from "./shell/DecisionBar";
 export * from "./shell/HolidayDialog";
 export * from "./shell/ApplyScopeDialog";
 export * from "./shell/ModeChip";
+export * from "./shell/ConnectionChip";
+export * from "./shell/AutopilotChip";
 export * from "./shell/RunwayChip";
 export * from "./shell/Breadcrumbs";
 export * from "./shell/PageGrid";

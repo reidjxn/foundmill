@@ -107,4 +107,47 @@ describe("audit_log", () => {
       h.asUser(A.memberId).run((tx) => tx.insert(s.auditLog).values({ businessId: B.businessId, actorKind: "user", actorId: A.memberId, action: "sneak" })),
     ).rejects.toThrow(/row-level security/);
   });
+
+  it("audit_log (0053): a transaction may delete the chain of the one business named in fm.purge_business, nothing else", async () => {
+    const owner = await h.createUser("purge-owner@test.local");
+    const [doomed, kept] = await h.db
+      .insert(s.businesses)
+      .values([
+        { name: "Doomed", slug: "purge-doomed", createdBy: owner, archetype: "b2b_saas" },
+        { name: "Kept", slug: "purge-kept", createdBy: owner, archetype: "b2b_saas" },
+      ])
+      .returning({ id: s.businesses.id });
+    await h.db.insert(s.auditLog).values([
+      { businessId: doomed!.id, actorKind: "system", action: "seed.demo" },
+      { businessId: kept!.id, actorKind: "system", action: "seed.demo" },
+    ]);
+    const chainOf = async (id: string) => (await h.db.select({ id: s.auditLog.id }).from(s.auditLog).where(eq(s.auditLog.businessId, id))).length;
+    const purgeAs = (named: string, target: string) =>
+      h.db
+        .transaction(async (tx) => {
+          await tx.execute(sql`select set_config('fm.purge_business', ${named}, true)`);
+          await tx.delete(s.businesses).where(eq(s.businesses.id, target));
+        })
+        .catch((e) => Promise.reject(unwrapDbError(e)));
+
+    // Naming another business does not open this one's chain; neither does an update with the right name.
+    await expect(purgeAs(kept!.id, doomed!.id)).rejects.toThrow(/append-only/);
+    await expect(
+      h.db
+        .transaction(async (tx) => {
+          await tx.execute(sql`select set_config('fm.purge_business', ${doomed!.id}, true)`);
+          await tx.update(s.auditLog).set({ action: "x" }).where(eq(s.auditLog.businessId, doomed!.id));
+        })
+        .catch((e) => Promise.reject(unwrapDbError(e))),
+    ).rejects.toThrow(/append-only/);
+    expect(await chainOf(doomed!.id)).toBe(1);
+
+    await purgeAs(doomed!.id, doomed!.id);
+    expect(await chainOf(doomed!.id)).toBe(0);
+    expect(await chainOf(kept!.id)).toBe(1);
+    // The setting is transaction-local: the next statement is append-only again, and the trigger stays enabled.
+    await expect(h.db.delete(s.auditLog).where(eq(s.auditLog.businessId, kept!.id)).catch((e) => Promise.reject(unwrapDbError(e)))).rejects.toThrow(/append-only/);
+    const trigger = await h.db.execute(sql`select tgenabled from pg_trigger where tgname = 'audit_log_immutable'`);
+    expect((trigger as unknown as { rows: { tgenabled: string }[] }).rows[0]?.tgenabled).toBe("O");
+  });
 });

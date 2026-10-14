@@ -14,9 +14,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { APP_NAME } from "@foundmill/config";
 import { Button, Chip, Field, Input, Kbd, MoneyInput, Panel, RadioCard, RadioGroup, RatingBandPill, SimpleSelect, SkillSlider, StatusPill, cn, ratingClass, useToast } from "@foundmill/dugout";
-import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
+import { errorMessage, trpcPathPrefix, validationIssues } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { DISPLAY_LOCALE } from "@/lib/format";
+import { currencyName, DISPLAY_LOCALE } from "@/lib/format";
 import { StudioFrame } from "@/components/new/StudioFrame";
 import {
   CONSTRAINT_SUGGESTIONS,
@@ -24,6 +24,8 @@ import {
   CURRENCIES,
   EXPERIENCE_OPTIONS,
   MARKET_SUGGESTIONS,
+  MAX_CHIPS,
+  PROFILE_LIMITS,
   PROFILE_SECTIONS,
   RISK_OPTIONS,
   SKILL_KEYS,
@@ -32,6 +34,7 @@ import {
   addChip,
   formFromProfile,
   profilePatch,
+  profileSaveMessage,
   profileSummary,
   removeChip,
   sectionStatus,
@@ -42,13 +45,16 @@ import {
   type ProfilePatch,
   type ProfileSectionId,
 } from "./profile-form";
+import { AccountId } from "@/components/settings/AccountId";
 
 export interface OnboardingScreenProps {
   profile: ProfileLike | null;
   email: string | null;
+  /** The signed-in person's account ID, shown so a co-founder can add them to a business. */
+  accountId?: string | null;
 }
 
-export function OnboardingScreen({ profile, email }: OnboardingScreenProps) {
+export function OnboardingScreen({ profile, email, accountId = null }: OnboardingScreenProps) {
   const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -67,22 +73,28 @@ export function OnboardingScreen({ profile, email }: OnboardingScreenProps) {
         router.push("/new");
         router.refresh();
       },
-      onError: (err) => toast({ title: "Profile not saved", description: errorMessage(err), tone: "bad" }),
+      onError: (err) => toast({ title: "Profile not saved", description: saveErrorMessage(err), tone: "bad" }),
     }),
   );
 
-  return <OnboardingForm profile={profile} email={email} saving={save.isPending} error={save.error ? errorMessage(save.error) : null} onSubmit={(patch) => save.mutate(patch)} />;
+  return <OnboardingForm profile={profile} email={email} accountId={accountId} saving={save.isPending} error={save.error ? saveErrorMessage(save.error) : null} onSubmit={(patch) => save.mutate(patch)} />;
+}
+
+/** A refused save in the founder's words: the answers the API named, not its field names or Zod text. */
+function saveErrorMessage(err: unknown): string {
+  return profileSaveMessage(validationIssues(err), errorMessage(err));
 }
 
 export interface OnboardingFormProps {
   profile: ProfileLike | null;
   email: string | null;
+  accountId?: string | null;
   saving?: boolean;
   error?: string | null;
   onSubmit: (patch: ProfilePatch) => void;
 }
 
-export function OnboardingForm({ profile, email, saving = false, error, onSubmit }: OnboardingFormProps) {
+export function OnboardingForm({ profile, email, accountId = null, saving = false, error, onSubmit }: OnboardingFormProps) {
   const editing = profile !== null;
   const [form, setForm] = useState<ProfileForm>(() => formFromProfile(profile, email));
   const [touched, setTouched] = useState(false);
@@ -145,8 +157,13 @@ export function OnboardingForm({ profile, email, saving = false, error, onSubmit
               </nav>
             </Panel>
             <Panel title="How the team reads you" data-testid="profile-summary">
-              <p className={cn("text-body", summary ? "text-primary" : "text-secondary")}>{summary || "Pick your experience and time to see the one-line brief every agent starts from."}</p>
+              <p className={cn("text-body [overflow-wrap:anywhere]", summary ? "text-primary" : "text-secondary")}>{summary || "Pick your experience and time to see the one-line brief every agent starts from."}</p>
             </Panel>
+            {accountId ? (
+              <Panel title="Your account ID" data-testid="profile-account-id">
+                <AccountId accountId={accountId} />
+              </Panel>
+            ) : null}
             <p className="flex items-start gap-2 px-1 text-small text-secondary">
               <Lock size={14} className="mt-px shrink-0 text-tertiary" aria-hidden />
               Your profile is private. Agents read it as context; it is never shown on the network, even when a business goes live.
@@ -214,18 +231,18 @@ export function OnboardingForm({ profile, email, saving = false, error, onSubmit
 
           <Section id="place" title="Where you operate" hint="Citizenship and residence drive the jurisdiction recommender; markets drive pricing, channels and compliance.">
             <div className="grid grid-cols-2 gap-gutter">
-              <Field htmlFor="profile-citizenship" label="Citizenship">
+              <Field htmlFor="profile-citizenship" label="Citizenship" error={show("citizenship")}>
                 <CountryInput id="profile-citizenship" value={form.citizenship} onChange={(v) => set("citizenship", v)} />
               </Field>
-              <Field htmlFor="profile-residence" label="Residence">
+              <Field htmlFor="profile-residence" label="Residence" error={show("residence")}>
                 <CountryInput id="profile-residence" value={form.residence} onChange={(v) => set("residence", v)} />
               </Field>
             </div>
-            <ChipField id="profile-markets" label="Target markets" required error={show("targetMarkets")} values={form.targetMarkets} suggestions={MARKET_SUGGESTIONS} onChange={(v) => set("targetMarkets", v)} placeholder="Add a market and press Enter" />
+            <ChipField id="profile-markets" label="Target markets" required error={show("targetMarkets")} values={form.targetMarkets} suggestions={MARKET_SUGGESTIONS} maxLength={PROFILE_LIMITS.place} onChange={(v) => set("targetMarkets", v)} placeholder="Add a market and press Enter" />
           </Section>
 
           <Section id="constraints" title="Constraints and risk">
-            <ChipField id="profile-constraints" label="Constraints" hint="Write your own or pick one below. The Ideation agent treats every constraint as a hard limit, even when it surprises you." values={form.constraints} suggestions={CONSTRAINT_SUGGESTIONS} onChange={(v) => set("constraints", v)} placeholder="Add a constraint and press Enter" />
+            <ChipField id="profile-constraints" label="Constraints" hint="Write your own or pick one below. The Ideation agent treats every constraint as a hard limit, even when it surprises you." values={form.constraints} suggestions={CONSTRAINT_SUGGESTIONS} maxLength={PROFILE_LIMITS.constraint} error={show("constraints")} onChange={(v) => set("constraints", v)} placeholder="Add a constraint and press Enter" />
             <Field htmlFor="profile-risk" label="Risk appetite" required error={show("riskAppetite")}>
               <RadioGroup id="profile-risk" value={form.riskAppetite} onValueChange={(v) => set("riskAppetite", v)} className="grid-cols-3" aria-label="Risk appetite">
                 {RISK_OPTIONS.map((o) => (
@@ -298,15 +315,6 @@ export function OptionCard({ id, value, label, description, selected }: { id: st
   return <RadioCard id={id} value={value} label={label} description={description} data-option={value} data-selected={selected || undefined} />;
 }
 
-/** "GBP" → "British Pound" for the currency select (the code sits on its own chip before the name). */
-function currencyName(code: string): string {
-  try {
-    return new Intl.DisplayNames([DISPLAY_LOCALE], { type: "currency" }).of(code) ?? code;
-  } catch {
-    return code;
-  }
-}
-
 /** The country's name for a two-letter code ("GB" → "United Kingdom"), so a stored code never reads as a bare id. */
 export function countryNameOf(value: string): string | null {
   const code = value.trim().toUpperCase();
@@ -324,7 +332,7 @@ function CountryInput({ id, value, onChange }: { id: string; value: string; onCh
   const name = countryNameOf(value);
   return (
     <>
-      <Input id={id} list={listId} value={value} onChange={(e) => onChange(e.target.value)} placeholder="Country" autoComplete="off" suffix={name ?? undefined} />
+      <Input id={id} list={listId} value={value} onChange={(e) => onChange(e.target.value)} maxLength={PROFILE_LIMITS.place} placeholder="Country" autoComplete="off" suffix={name ?? undefined} />
       <datalist id={listId}>
         {COUNTRIES.map((c) => (
           <option key={c} value={c} />
@@ -344,13 +352,15 @@ export interface ChipFieldProps {
   suggestions: readonly string[];
   onChange: (values: string[]) => void;
   placeholder?: string;
+  /** The longest a chip can be (the typed text stops here; a suggestion longer than this is not offered). */
+  maxLength?: number;
 }
 
 /** Chips you can type (Enter adds) plus suggestion chips you can toggle. */
-export function ChipField({ id, label, hint, error, required, values, suggestions, onChange, placeholder }: ChipFieldProps) {
+export function ChipField({ id, label, hint, error, required, values, suggestions, onChange, placeholder, maxLength = PROFILE_LIMITS.constraint }: ChipFieldProps) {
   const [draft, setDraft] = useState("");
   const commit = () => {
-    const next = addChip(values, draft);
+    const next = addChip(values, draft, MAX_CHIPS, maxLength);
     if (next.length !== values.length) onChange(next);
     setDraft("");
   };
@@ -362,7 +372,7 @@ export function ChipField({ id, label, hint, error, required, values, suggestion
       onChange(values.slice(0, -1));
     }
   };
-  const remaining = suggestions.filter((s) => !values.some((v) => v.toLowerCase() === s.toLowerCase()));
+  const remaining = suggestions.filter((s) => s.length <= maxLength && !values.some((v) => v.toLowerCase() === s.toLowerCase()));
   return (
     <Field htmlFor={id} label={label} hint={hint} error={error} required={required}>
       <div className="flex flex-col gap-2" data-chip-field={id}>
@@ -376,11 +386,11 @@ export function ChipField({ id, label, hint, error, required, values, suggestion
           </div>
         ) : null}
         {/* The trailing slot is always rendered: Dugout's Input changes its DOM shape when `trailing` appears, which would remount the field mid-word. */}
-        <Input id={id} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} onBlur={commit} placeholder={placeholder} invalid={Boolean(error)} trailing={draft ? <Button type="button" size="sm" variant="ghost" icon={Plus} onClick={commit} aria-label={`Add ${draft}`} className="px-1" /> : <Kbd>↵</Kbd>} />
+        <Input id={id} value={draft} maxLength={maxLength} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} onBlur={commit} placeholder={placeholder} invalid={Boolean(error)} trailing={draft ? <Button type="button" size="sm" variant="ghost" icon={Plus} onClick={commit} aria-label={`Add ${draft}`} className="px-1" /> : <Kbd>↵</Kbd>} />
         {remaining.length > 0 ? (
           <div className="flex flex-wrap gap-1.5" aria-label={`${label} suggestions`}>
             {remaining.map((s) => (
-              <Chip key={s} onClick={() => onChange(toggleChip(values, s))} icon={Plus}>
+              <Chip key={s} onClick={() => onChange(toggleChip(values, s, MAX_CHIPS, maxLength))} icon={Plus}>
                 {s}
               </Chip>
             ))}

@@ -3,12 +3,14 @@
  *
  * Name suggestions, domain candidates, the USPTO/EUIPO quick screen ("screen, not legal clearance"), hex handling,
  * the kit-on-primary contrast check (APCA Lc ≥ 75 from Dugout), colour extraction from an uploaded logo's pixels, and
- * the mode/archetype catalogues. The domain and trademark screens are local heuristics labelled "Estimate" until the
- * API gains `idea.domainCheck` / `idea.trademarkScreen` (the screen tries those first and falls back here).
+ * the mode/archetype catalogues. Domains are looked up by the api through the gateway (`idea.domainCheck`: the registry
+ * answers, never a guess), so this file only holds the shapes and the rows the screen draws. The trademark screen is a
+ * local heuristic: no trademark registry is asked, so every result carries `provenance: "Estimate"` and the screen shows
+ * the Estimate chip beside it.
  */
 import { LIMITS } from "@foundmill/config";
 import { apcaLc, createRng, hexToRgb, hslToRgb, isHexColour, kitOnPrimaryDetail, rgbToHex, rgbToHsl, type Kit } from "@foundmill/dugout";
-import { ARCHETYPE_LABELS, slugify, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
+import { ARCHETYPE_LABELS, domainCandidates, domainSlug, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
 import type { LogoDraft } from "@/lib/logo";
 
 export const HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -67,40 +69,45 @@ export function nameSuggestions(title: string, pitch: string, archetype: Archety
 
 /* ---------- domains ---------- */
 
-export const DOMAIN_TLDS = [".com", ".io", ".co", ".app", ".ai"] as const;
+// One definition of what a name becomes and which names are looked up, shared with the api and the gateway.
+export { domainCandidates, domainSlug };
 
-export function domainSlug(name: string): string {
-  if (!name.trim()) return "";
-  return slugify(name).replace(/-/g, "");
-}
+export type DomainStatus = "available" | "taken" | "unknown";
 
-export function domainCandidates(name: string): string[] {
-  const slug = domainSlug(name);
-  if (!slug) return [];
-  return DOMAIN_TLDS.map((tld) => `${slug}${tld}`);
-}
-
-export type DomainStatus = "available" | "taken" | "premium";
+/** Where an answer came from: the registry (RDAP), DNS (an estimate: the TLD has no registry lookup), or the mock. */
+export type DomainProvenance = "Registry" | "DNS" | "Mock";
 
 export interface DomainCheck {
   domain: string;
   status: DomainStatus;
-  /** Local heuristics are estimates; a registrar answer is "Registrar". */
-  provenance: "Estimate" | "Registrar";
+  /** Null for a row nobody answered (the checker could not be reached). */
+  provenance: DomainProvenance | null;
+  /** True for a DNS answer: it is shown with the Estimate label. */
+  estimate: boolean;
+  /** ISO time of the answer; null when there was none. */
+  checkedAt: string | null;
+  registrar?: string;
+  expires?: string;
+  /** Why the status is unknown, or what an estimate rests on. */
+  reason?: string;
 }
 
-const COMMON_WORDS = new Set(["app", "cloud", "shop", "store", "bank", "pay", "mail", "news", "home", "work", "team", "data", "code", "labs", "studio", "base", "get", "my", "the", "go", "one", "hub", "box", "bit", "net", "web", "air", "sky", "sun", "fit", "run", "ledger", "northwind"]);
+export const DOMAIN_STATUS_WORDS: Record<DomainStatus, string> = { available: "Available", taken: "Taken", unknown: "Couldn't check" };
 
-/** Deterministic screen: short or common names read as taken on .com, long specific ones as available. */
-export function screenDomain(domain: string): DomainCheck {
-  const [label = "", tld = ""] = domain.split(/\.(?=[a-z]+$)/);
-  const rng = createRng(`domain:${domain}`);
-  const common = COMMON_WORDS.has(label) || label.length <= 4;
-  let status: DomainStatus;
-  if (tld === "com") status = common ? "taken" : label.length <= 7 ? (rng.bool(0.6) ? "taken" : "premium") : rng.bool(0.25) ? "taken" : "available";
-  else if (tld === "io" || tld === "ai") status = common ? (rng.bool(0.7) ? "taken" : "premium") : rng.bool(0.2) ? "taken" : "available";
-  else status = common ? (rng.bool(0.4) ? "taken" : "available") : "available";
-  return { domain, status, provenance: "Estimate" };
+/** The chip beside an answer: "Registry", "DNS (Estimate)" or "Mock". */
+export function domainProvenanceWord(provenance: DomainProvenance): string {
+  return provenance === "DNS" ? "DNS (Estimate)" : provenance;
+}
+
+/** Under the list, always: what an answer is and is not. */
+export const DOMAIN_NOTE = "Availability is a snapshot; registering the domain happens at a registrar. We never buy domains for you.";
+
+/**
+ * Rows for candidates nobody answered (the api call failed): every one reads "Couldn't check" with a reason. Nothing is
+ * guessed from the name; the founder retries, or commits anyway.
+ */
+export function couldNotCheck(domains: readonly string[], reason = "The domain checker did not answer."): DomainCheck[] {
+  return domains.map((domain) => ({ domain, status: "unknown", provenance: null, estimate: false, checkedAt: null, reason }));
 }
 
 /* ---------- trademark quick screen ---------- */
@@ -111,23 +118,32 @@ export type TrademarkStatus = "clear" | "similar" | "conflict";
 export interface TrademarkScreen {
   registry: TrademarkRegistry;
   status: TrademarkStatus;
-  /** Similar marks found (words), empty when clear. */
+  /** Known marks the name matches or comes close to (words), empty when clear. */
   similar: string[];
   /** Always shown next to the result. */
   caveat: "Screen, not legal clearance";
+  /** "Estimate": a heuristic over a list of well-known marks, no registry was searched. */
   provenance: "Estimate" | "Registry";
 }
 
-const KNOWN_MARKS = ["apple", "stripe", "shopify", "notion", "linear", "slack", "google", "amazon", "nike", "tesla", "ledger", "mint", "wave", "sage", "xero", "intuit", "square", "atlas", "monzo", "revolut"];
+/** Well-known marks the quick screen checks a name against (the registries themselves are not searched). */
+export const KNOWN_MARKS = ["apple", "stripe", "shopify", "notion", "linear", "slack", "google", "amazon", "nike", "tesla", "ledger", "mint", "wave", "sage", "xero", "intuit", "square", "atlas", "monzo", "revolut"];
 
+/** What a quick-screen result says: about the list of known marks it was checked against, never about a registry. */
+export const TRADEMARK_STATUS_WORDS: Record<TrademarkStatus, string> = { clear: "No known conflict", similar: "Close to a known mark", conflict: "Matches a known mark" };
+
+/**
+ * The USPTO / EUIPO quick screen: the name's words against `KNOWN_MARKS`, deterministic. A word that is a known mark is
+ * a conflict, one that starts like a known mark is close to it; nothing else is claimed, and nothing is invented (no
+ * made-up similar marks).
+ */
 export function trademarkScreen(name: string): TrademarkScreen[] {
   const words = name.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+  const conflicts = words.filter((w) => KNOWN_MARKS.includes(w));
+  const near = KNOWN_MARKS.filter((m) => !conflicts.includes(m) && words.some((w) => w.length >= 4 && m.startsWith(w.slice(0, 4)) && Math.abs(m.length - w.length) <= 2));
   return (["USPTO", "EUIPO"] as const).map((registry) => {
-    const rng = createRng(`tm:${registry}:${name.toLowerCase()}`);
-    const conflicts = words.filter((w) => KNOWN_MARKS.includes(w));
     if (conflicts.length) return { registry, status: "conflict", similar: conflicts.map((c) => c.toUpperCase()), caveat: "Screen, not legal clearance", provenance: "Estimate" };
-    const near = words.filter((w) => KNOWN_MARKS.some((m) => m.startsWith(w.slice(0, 4)) && Math.abs(m.length - w.length) <= 2));
-    if (near.length || rng.bool(0.15)) return { registry, status: "similar", similar: near.length ? near.map((w) => `${w.toUpperCase()}*`) : [`${(words[0] ?? name).toUpperCase()}IFY`], caveat: "Screen, not legal clearance", provenance: "Estimate" };
+    if (near.length) return { registry, status: "similar", similar: near.map((m) => m.toUpperCase()), caveat: "Screen, not legal clearance", provenance: "Estimate" };
     return { registry, status: "clear", similar: [], caveat: "Screen, not legal clearance", provenance: "Estimate" };
   });
 }
@@ -252,11 +268,15 @@ export interface CommitForm {
   /** The chosen logo (uploaded or generated, already checked by the server), or null for the initials mark. */
   logo: LogoDraft | null;
   gameMode: GameMode;
+  /** The founder's "I am 18 or older", asked when the business starts LIVE (the network is for adults). */
+  adult: boolean;
   archetype: Archetype | null;
   businessMode: BusinessMode;
   /** Major units as typed. */
   spendCap: string;
   currency: string;
+  /** "Run on autopilot": the business starts its own cycles (Settings › Mode can change it later). Off by default. */
+  autopilot: boolean;
 }
 
 export function initialCommitForm(idea: { title: string; archetype: Archetype | null }, kit: Kit, currency: string): CommitForm {
@@ -265,10 +285,12 @@ export function initialCommitForm(idea: { title: string; archetype: Archetype | 
     kit,
     logo: null,
     gameMode: "personal",
+    adult: false,
     archetype: idea.archetype,
     businessMode: "assisted",
     spendCap: String(DEFAULT_SPEND_CAP_MINOR.assisted / 100),
     currency,
+    autopilot: false,
   };
 }
 
@@ -281,7 +303,10 @@ export function parseSpendCapMinor(input: string): number | null {
   return Math.round(Number(s) * 100);
 }
 
-export function validateCommitForm(form: CommitForm): CommitErrors {
+/** Whether a LIVE start still needs the founder's 18+ confirmation: not when it is on record already (`live.summary`). */
+export const needsAdultConfirmation = (form: Pick<CommitForm, "gameMode" | "adult">, adultOnRecord = false): boolean => form.gameMode === "live" && !form.adult && !adultOnRecord;
+
+export function validateCommitForm(form: CommitForm, options: { adultOnRecord?: boolean } = {}): CommitErrors {
   const errors: CommitErrors = {};
   if (form.name.trim().length === 0) errors.name = "Give the business a name.";
   if (form.name.trim().length > 120) errors.name = "Keep the name under 120 characters.";
@@ -289,11 +314,12 @@ export function validateCommitForm(form: CommitForm): CommitErrors {
   if (!form.archetype) errors.archetype = "Pick the archetype that fits best; it seeds departments and agents.";
   const cap = parseSpendCapMinor(form.spendCap);
   if (Number.isNaN(cap) || (cap !== null && cap < 0)) errors.spendCap = "Use a number, like 250.";
+  if (needsAdultConfirmation(form, options.adultOnRecord)) errors.adult = "Confirm that you are 18 or older to start live, or start Personal.";
   return errors;
 }
 
-export function isCommitValid(form: CommitForm): boolean {
-  return Object.keys(validateCommitForm(form)).length === 0;
+export function isCommitValid(form: CommitForm, options: { adultOnRecord?: boolean } = {}): boolean {
+  return Object.keys(validateCommitForm(form, options)).length === 0;
 }
 
 /** The `idea.commit` input. */
@@ -309,6 +335,9 @@ export function commitInput(ideaId: string, form: CommitForm) {
     logo: form.logo ? { source: form.logo.source, dataUrl: form.logo.dataUrl } : null,
     currency: form.currency,
     spendCapMinor: cap === null || Number.isNaN(cap) ? null : cap,
+    // Sent only when the founder ticked it for a LIVE start (the server records it once).
+    ...(form.gameMode === "live" && form.adult ? { confirmAdult: true as const } : {}),
+    autopilot: form.autopilot,
   };
 }
 

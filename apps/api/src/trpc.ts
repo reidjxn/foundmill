@@ -7,19 +7,24 @@
 import { initTRPC, TRPCError, type TRPC_ERROR_CODE_KEY } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError, z } from "zod";
-import { repos, withRls, type Business, type DbTx, type Executor, type Membership } from "@foundmill/db";
+import { liveModeOpen } from "@foundmill/config";
+import { repos, SLUG_TAKEN, uniqueViolation, withRls, type Business, type DbTx, type Executor, type Membership } from "@foundmill/db";
 import type { EventPayloadInput } from "@foundmill/events";
+import { isModelBillingError } from "@foundmill/models";
+import { assertAllowlisted } from "./services/access";
+import { modelBillingAppError } from "./services/model-errors";
 import { writeEventRow } from "./services/events";
-import { AppError, WRITE_ROLES, type Actor, type EventType, type MembershipRole } from "@foundmill/shared";
+import { AppError, ConflictError, NotFoundError, WRITE_ROLES, effectivePermission, type Actor, type EventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
 import type { Context } from "./context";
 
 export const Id = z.guid();
 export const BusinessInput = z.object({ businessId: Id });
 
-/** Sections a membership can be restricted on (BUILD §11.9 "per-section permissions"): module keys plus fixed surfaces. */
-export const SECTIONS = ["product", "development", "distribution", "finance", "team", "legal", "inbox", "crm", "settings", "billing", "live"] as const;
-export type Section = (typeof SECTIONS)[number];
-export type PermissionLevel = "read" | "write";
+/**
+ * Sections a membership can be restricted on (BUILD §11.9 "per-section permissions") and the effective permission of a
+ * membership on one: defined once in @foundmill/shared (permissions.ts) so apps/collab enforces the same walls.
+ */
+export { SECTIONS, effectivePermission, hasSectionAccess, type PermissionLevel, type Section } from "@foundmill/shared";
 
 export type RlsRunner = <T>(fn: (tx: DbTx) => Promise<T>) => Promise<T>;
 
@@ -71,9 +76,14 @@ const CODE_BY_APP_CODE: Record<string, TRPC_ERROR_CODE_KEY> = {
   unauthorized: "UNAUTHORIZED",
   validation: "BAD_REQUEST",
   composer_unavailable: "SERVICE_UNAVAILABLE",
+  // The composer's own answers (services/composer.ts passes them through): shown to the founder, never hidden as internal.
+  composer_timeout: "GATEWAY_TIMEOUT",
+  composer_rejected: "UNPROCESSABLE_CONTENT",
   no_agents: "CONFLICT",
   continue_blocked: "CONFLICT",
   reauth_required: "PRECONDITION_FAILED",
+  // A model call on the platform key refused before it was made: the month's credits are used up (packages/db billing.ts `assertPlatformCredits`).
+  credits_exhausted: "PAYMENT_REQUIRED",
   config: "PRECONDITION_FAILED",
   invalid_record: "INTERNAL_SERVER_ERROR",
   decrypt_failed: "INTERNAL_SERVER_ERROR",
@@ -81,6 +91,8 @@ const CODE_BY_APP_CODE: Record<string, TRPC_ERROR_CODE_KEY> = {
   // The Ideation agent's plain-language failures (services/ideation.ts): shown to the founder, never hidden as internal.
   ideation_too_long: "BAD_GATEWAY",
   ideation_incomplete: "BAD_GATEWAY",
+  // Anthropic refused to bill a model call (services/model-errors.ts): the founder reads who has to act, never "internal".
+  model_billing: "PAYMENT_REQUIRED",
 };
 
 const codeForStatus = (status: number): TRPC_ERROR_CODE_KEY => {
@@ -89,6 +101,8 @@ const codeForStatus = (status: number): TRPC_ERROR_CODE_KEY => {
       return "BAD_REQUEST";
     case 401:
       return "UNAUTHORIZED";
+    case 402:
+      return "PAYMENT_REQUIRED";
     case 403:
       return "FORBIDDEN";
     case 404:
@@ -114,6 +128,10 @@ export function toTRPCError(err: unknown): TRPCError {
   if (cause instanceof AppError) {
     return new TRPCError({ code: CODE_BY_APP_CODE[cause.code] ?? codeForStatus(cause.status), message: cause.message, cause });
   }
+  if (isModelBillingError(cause)) {
+    const billing = modelBillingAppError(cause);
+    return new TRPCError({ code: "PAYMENT_REQUIRED", message: billing.message, cause: billing });
+  }
   if (cause instanceof ZodError) {
     return new TRPCError({ code: "BAD_REQUEST", message: cause.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "), cause });
   }
@@ -127,16 +145,55 @@ export function toTRPCError(err: unknown): TRPCError {
       ? new TRPCError({ code: "NOT_FOUND", message: "A record this request refers to does not exist", cause: cause as Error })
       : new TRPCError({ code: "CONFLICT", message: "This record is still in use by something else", cause: cause as Error });
   }
+  // A unique violation is the caller's doing too (a name or an address someone already has): CONFLICT with a line a
+  // founder can act on and the field when one is known, never the failed statement. Repositories turn the ones a
+  // founder meets every day into their own messages first; this is the net under the rest.
+  const unique = !(err instanceof TRPCError) || err.code === "INTERNAL_SERVER_ERROR" ? uniqueViolation(cause) : undefined;
+  if (unique) {
+    const known = UNIQUE_CONSTRAINTS[unique.constraint ?? ""];
+    const conflict = new ConflictError(known?.message ?? "That already exists", known?.field ? { field: known.field } : undefined);
+    return new TRPCError({ code: "CONFLICT", message: conflict.message, cause: conflict });
+  }
+  // The same holds for the database refusing a write: a row-level-security denial (or a missing grant) is the caller's
+  // permission, not a server fault, and a unique violation is a clash with something that already exists. Neither
+  // echoes the failed statement.
+  const refusal = (!(err instanceof TRPCError) || err.code === "INTERNAL_SERVER_ERROR") ? databaseRefusal(cause) : undefined;
+  if (refusal?.kind === "forbidden") return new TRPCError({ code: "FORBIDDEN", message: "Not permitted for this business", cause: cause as Error });
+  if (refusal?.kind === "duplicate") return new TRPCError({ code: "CONFLICT", message: "Something with these details already exists", cause: cause as Error });
   if (err instanceof TRPCError) return err;
   const message = (cause as { message?: string })?.message ?? String(cause);
-  const nested = (cause as { cause?: { message?: string } })?.cause?.message ?? "";
-  if (RLS_RE.test(message) || RLS_RE.test(nested)) {
-    return new TRPCError({ code: "FORBIDDEN", message: "Not permitted for this business", cause: cause as Error });
-  }
   return new TRPCError({ code: "INTERNAL_SERVER_ERROR", message, cause: cause as Error });
 }
 
+const PG_INSUFFICIENT_PRIVILEGE = "42501";
+const PG_UNIQUE_VIOLATION = "23505";
+
+/**
+ * A database refusal the caller caused, if `err` is one (looking through Drizzle's and tRPC's wrappers): "forbidden" for
+ * a row-level-security denial or a missing grant (SQLSTATE 42501, or the message where a driver gives no code),
+ * "duplicate" for a unique violation (23505), with the constraint's name for the log.
+ */
+export function databaseRefusal(err: unknown): { kind: "forbidden" | "duplicate"; constraint: string | undefined } | undefined {
+  let e: unknown = err;
+  for (let depth = 0; depth < 4 && e && typeof e === "object"; depth++) {
+    const code = (e as { code?: unknown }).code;
+    const message = String((e as { message?: unknown }).message ?? "");
+    const named = (e as { constraint?: unknown }).constraint;
+    const constraint = typeof named === "string" ? named : /constraint "([^"]+)"/.exec(message)?.[1];
+    if (code === PG_UNIQUE_VIOLATION) return { kind: "duplicate", constraint };
+    if (code === PG_INSUFFICIENT_PRIVILEGE || RLS_RE.test(message)) return { kind: "forbidden", constraint: undefined };
+    e = (e as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
 const PG_FOREIGN_KEY_VIOLATION = "23503";
+
+/** What a unique violation of a constraint a founder can reach means, in their words, and the form field it is about. */
+const UNIQUE_CONSTRAINTS: Record<string, { message: string; field?: string }> = {
+  businesses_slug_key: { message: SLUG_TAKEN, field: "slug" },
+  departments_business_id_slug_key: { message: "Another department already uses that address", field: "slug" },
+};
 
 /**
  * A foreign-key violation, if `err` is one: "reference" when a write names a row that does not exist (Postgres says
@@ -183,12 +240,19 @@ const mapErrors = t.middleware(async ({ next, ctx, path, type }) => {
     const mapped = toTRPCError(result.error);
     const fk = foreignKeyViolation(mapped.cause);
     if (fk && mapped.code !== "INTERNAL_SERVER_ERROR") ctx.log.warn({ path, type, code: mapped.code, constraint: fk.constraint, kind: fk.kind, requestId: ctx.requestId }, "foreign key violation");
+    const refusal = mapped.code === "FORBIDDEN" || mapped.code === "CONFLICT" ? databaseRefusal(mapped.cause) : undefined;
+    if (refusal) ctx.log.warn({ path, type, code: mapped.code, constraint: refusal.constraint, kind: refusal.kind, requestId: ctx.requestId }, refusal.kind === "forbidden" ? "database refused the write (row-level security)" : "unique violation");
     if (mapped.code === "INTERNAL_SERVER_ERROR") {
       ctx.log.error({ path, type, err: mapped.cause ?? mapped, requestId: ctx.requestId }, "procedure failed");
       const shown = internalErrorMessage(mapped.message, ctx.env.APP_ENV, ctx.requestId);
       throw shown === mapped.message ? mapped : new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: shown, cause: mapped.cause });
     }
-    ctx.log.debug({ path, type, code: mapped.code, requestId: ctx.requestId }, mapped.message);
+    if (mapped.cause instanceof AppError && mapped.cause.code === "model_billing") {
+      // The operator's alert (packages/models logs each refused call too): which procedure the founder could not use.
+      const details = mapped.cause.details as { billedTo?: string; reason?: string } | undefined;
+      if (details?.billedTo === "byok") ctx.log.warn({ path, type, reason: details.reason, billedTo: "byok", requestId: ctx.requestId }, "model call refused for billing on the business's own key");
+      else ctx.log.error({ path, type, alert: "model_billing", reason: details?.reason, billedTo: "credits", requestId: ctx.requestId }, "model call refused for billing on the platform key");
+    } else ctx.log.debug({ path, type, code: mapped.code, requestId: ctx.requestId }, mapped.message);
     throw mapped;
   }
   return result;
@@ -200,34 +264,30 @@ export const publicProcedure = t.procedure.use(mapErrors);
 
 export const protectedProcedure = publicProcedure.use(({ ctx, next }) => {
   if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to continue" });
+  // A deployment that is not open to everyone admits only the accounts SIGNUP_ALLOWLIST names (services/access.ts).
+  assertAllowlisted(ctx.env, { userId: ctx.userId, email: ctx.email, emailConfirmed: ctx.emailConfirmed });
   return next({ ctx: { ...ctx, userId: ctx.userId } });
 });
 
-/** What `businessProcedure` learns about one user and one business: the membership, and the business or why it failed. */
+/** What `businessProcedure` learns about one user and one business: the membership, and the business if it is open. */
 export interface BusinessAccess {
   membership: Membership | null;
-  business: { ok: true; value: Business } | { ok: false; error: unknown };
+  /** Null when there is no membership, or the business is archived and the procedure does not take archived ones. */
+  business: Business | null;
 }
 
 /**
- * The membership and the business, looked up in parallel. With a request memo (`ctx.accessMemo`, a fresh map per HTTP
- * request) the lookup runs once per user and business for the whole batch; without one (in-process caller, tests) it
- * runs on every call. A failed lookup is dropped from the memo so it is never reused.
+ * The membership and the business, in one statement (`repos.memberships.access`: one round trip, one connection).
+ * With a request memo (`ctx.accessMemo`, a fresh map per HTTP request) the lookup runs once per user and business for
+ * the whole batch; without one (in-process caller, tests) it runs on every call. A failed lookup is dropped from the
+ * memo so it is never reused.
  */
-export function loadBusinessAccess(ctx: Pick<Context, "db" | "accessMemo">, userId: string, businessId: string): Promise<BusinessAccess> {
-  const run = async (): Promise<BusinessAccess> => {
-    const [membership, business] = await Promise.all([
-      repos.memberships.get(ctx.db, businessId, userId),
-      repos.businesses.get(ctx.db, businessId).then(
-        (value) => ({ ok: true as const, value }),
-        (error: unknown) => ({ ok: false as const, error }),
-      ),
-    ]);
-    return { membership, business };
-  };
+export function loadBusinessAccess(ctx: Pick<Context, "db" | "accessMemo">, userId: string, businessId: string, options: { includeArchived?: boolean } = {}): Promise<BusinessAccess> {
+  const includeArchived = options.includeArchived === true;
+  const run = (): Promise<BusinessAccess> => repos.memberships.access(ctx.db, businessId, userId, { includeArchived });
   const memo = ctx.accessMemo;
   if (!memo) return run();
-  const key = `${userId}\u0000${businessId}`;
+  const key = `${userId}\u0000${businessId}${includeArchived ? "\u0000archived" : ""}`;
   const cached = memo.get(key);
   if (cached) return cached;
   const pending = run();
@@ -238,18 +298,33 @@ export function loadBusinessAccess(ctx: Pick<Context, "db" | "accessMemo">, user
   return pending;
 }
 
-/** Procedures whose input carries `businessId`: membership asserted, RLS runner attached. */
-export const businessProcedure = protectedProcedure.input(BusinessInput).use(async ({ ctx, input, next }) => {
-  const access = await loadBusinessAccess(ctx, ctx.userId, input.businessId);
-  // Membership first: a non-member learns nothing about the business, not even whether it exists.
-  const membership = access.membership;
-  if (!membership) throw new TRPCError({ code: "FORBIDDEN", message: "You are not a member of this business" });
-  if (!access.business.ok) throw access.business.error;
-  const business = access.business.value;
-  const rls: RlsRunner = (fn) => withRls(ctx.db, { userId: ctx.userId, claims: ctx.email ? { email: ctx.email } : undefined }, fn);
-  const bctx: BusinessContext = { ...ctx, businessId: input.businessId, business, membership, role: membership.role, rls };
-  return next({ ctx: bctx });
-});
+const NOT_A_MEMBER_MESSAGE = "You are not a member of this business";
+
+/** The procedure base for a business: membership asserted, the business loaded (archived ones only when asked), RLS attached. */
+function businessBase(options: { includeArchived: boolean }) {
+  return protectedProcedure.input(BusinessInput).use(async ({ ctx, input, next }) => {
+    const access = await loadBusinessAccess(ctx, ctx.userId, input.businessId, options);
+    // Membership first: a non-member learns nothing about the business, not even whether it exists.
+    const membership = access.membership;
+    // `appCode: "not_a_member"` lets a tab that is open on the business tell a removal from any other refusal (the web then
+    // drops the business and says so, instead of leaving a shell full of "Try again" panels).
+    if (!membership) throw new TRPCError({ code: "FORBIDDEN", message: NOT_A_MEMBER_MESSAGE, cause: new AppError("not_a_member", NOT_A_MEMBER_MESSAGE, 403) });
+    // A member of an archived business gets what `repos.businesses.get` says about it.
+    if (!access.business) throw new NotFoundError("business", input.businessId);
+    const business = access.business;
+    const rls: RlsRunner = (fn) => withRls(ctx.db, { userId: ctx.userId, claims: ctx.email ? { email: ctx.email } : undefined }, fn);
+    const bctx: BusinessContext = { ...ctx, businessId: input.businessId, business, membership, role: membership.role, rls };
+    return next({ ctx: bctx });
+  });
+}
+
+/** Procedures whose input carries `businessId`: membership asserted, RLS runner attached. An archived business is not found. */
+export const businessProcedure = businessBase({ includeArchived: false });
+/**
+ * The same for the few things an archived business still allows (BUILD §11.15): restore it, export it, and request or
+ * cancel its permanent deletion. Everything else keeps answering NOT_FOUND until it is restored.
+ */
+export const archivedBusinessProcedure = businessBase({ includeArchived: true });
 
 export function requireRoles(roles: readonly MembershipRole[], what = "this action") {
   return t.middleware(({ ctx, next }) => {
@@ -257,14 +332,6 @@ export function requireRoles(roles: readonly MembershipRole[], what = "this acti
     if (!role || !roles.includes(role)) throw new TRPCError({ code: "FORBIDDEN", message: `Your role (${role ?? "none"}) cannot perform ${what}` });
     return next();
   });
-}
-
-/** Effective permission of a membership on a section: owner is never restricted; viewers/advisors read only. */
-export function effectivePermission(membership: Pick<Membership, "role" | "sectionPermissions">, section: Section): "none" | "read" | "write" {
-  if (membership.role === "owner") return "write";
-  const explicit = membership.sectionPermissions[section];
-  if (explicit) return explicit;
-  return WRITE_ROLES.includes(membership.role) ? "write" : "read";
 }
 
 /** Middleware factory: the member must hold at least `level` on `section` (BUILD §11.9 staff permissions). */
@@ -285,6 +352,23 @@ export const writeProcedure = businessProcedure.use(requireRoles(WRITE_ROLES, "c
 export const adminProcedure = businessProcedure.use(requireRoles(["owner", "admin"], "administration"));
 /** Owner only: tier changes, permanent actions. */
 export const ownerProcedure = businessProcedure.use(requireRoles(["owner"], "owner actions"));
+/** Owner/admin on a business that may be archived (export). */
+export const adminArchivedProcedure = archivedBusinessProcedure.use(requireRoles(["owner", "admin"], "administration"));
+/** Owner only on a business that may be archived (restore, permanent deletion). */
+export const ownerArchivedProcedure = archivedBusinessProcedure.use(requireRoles(["owner"], "owner actions"));
+
+/**
+ * Closes the LIVE surfaces (live.*, going live, committing as LIVE) while `FLAGS.liveMode` is off and the deployment has
+ * not opened them with `LIVE_MODE=1` (`liveModeOpen`; DECISIONS 2026-10-07).
+ */
+export const LIVE_CLOSED_MESSAGE = "LIVE is not open yet";
+export const assertLiveOpen = (env: Pick<Context["env"], "LIVE_MODE">): void => {
+  if (!liveModeOpen(env)) throw new TRPCError({ code: "FORBIDDEN", message: LIVE_CLOSED_MESSAGE });
+};
+export const liveGate = t.middleware(({ ctx, next }) => {
+  assertLiveOpen(ctx.env);
+  return next();
+});
 
 export const sectionRead = (section: Section) => businessProcedure.use(sectionPermission(section, "read"));
 export const sectionWrite = (section: Section) => writeProcedure.use(sectionPermission(section, "write"));
@@ -308,11 +392,13 @@ export interface EmitInput<T extends EventType> {
   payload: EventPayloadInput<T>;
   entityIds?: readonly string[];
   actor?: Actor;
+  /** An event that two writers may both record (`holiday.ended:<id>`): the second write returns the first. */
+  idempotencyKey?: string;
 }
 
 /** Write an event through the transactional outbox in the same transaction as the change it describes. */
 export function emit<T extends EventType>(tx: Executor, ctx: Pick<BusinessContext, "businessId" | "userId">, input: EmitInput<T>): Promise<string> {
-  return writeEventRow(tx, { businessId: ctx.businessId, type: input.type, actor: input.actor ?? { kind: "user", id: ctx.userId }, payload: input.payload, entityIds: input.entityIds });
+  return writeEventRow(tx, { businessId: ctx.businessId, type: input.type, actor: input.actor ?? { kind: "user", id: ctx.userId }, payload: input.payload, entityIds: input.entityIds }, input.idempotencyKey);
 }
 
 /** Shape every Temporal-backed mutation returns so the UI can say "queued" or "not queued: reason". */

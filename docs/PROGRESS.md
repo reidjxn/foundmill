@@ -241,3 +241,988 @@ Status legend: ☐ not started · ◐ in progress · ☑ done · ✗ blocked
 - 2026-10-12 — Landing page "Watch it run" deck: the top bar's date is today, not a fixed Oct 7, 2026. The server renders the UTC day (so the markup is the same in every time zone and hydrates cleanly) and the browser then shows the visitor's own day (`useToday` in `CycleDeck.tsx`). Follow-up the same day: the Inbox note's date ("Mon, Oct 12", in the person's date format) is today too, from the same `useToday` (now in `parts.tsx`); the hard-coded `sentOn` is gone. The Journey and Customer Update stay on their fixed timeline. Tests: deck date follows the clock; server markup identical across five time zones late in the UTC day.
 - 2026-10-12 — Landing page: each example's whole story moves to today. The stories are written on one calendar (`STORY_DAY`, Oct 7, 2026, the Journey fixture's today); the page moves every date by the days from there to today (`storyOffset`/`shiftDay` in `examples/helpers.ts`): the Ribbon (built on the story's calendar so its pins and the milestone cards still agree, then moved), the milestone cards (`datedMilestones`), the Customer Update (`datedCustomerUpdate`; its prose names days as `{date:…}`/`{weekday:…}` tokens so "on a Sunday evening" stays true to the moved date) and the deck's chapter (`currentChapter`, from calendar quarters; `deck.chapter` is gone). Chapters are recomputed on calendar quarters after the move. Server render uses the UTC day and hydration the same, then the visitor's own day. Tests: `story-day.test.ts` (14: day arithmetic, tokens, chapters equal the fixture's on the story day and stay on quarters anywhere, every date moved by the same days, cards on their pins, the update's customer on its moved day); the page test checks the moved weekday; the Playwright Northwind Ribbon test hovers the moved days. Still on the story's fixed calendar: dates inside Live sessions, the activity feed's and the Inbox note's event dates (Nov 14 – 15, Nov 6 – 9, Dec 4).
 - 2026-10-12 — Deploy note: the three landing date commits above (bb1c197, ea9060c, 9fe4782) were authored as "Claude", so Vercel's commit-author check blocked them (DECISIONS.md "Commit identity"). At the founder's request this commit is authored as Reid Jackson and carries all three to production; the session's repo-local git identity is set accordingly.
+
+
+- 2026-10-13: **Audit fixes, release 1** (branch `claude/audit-fixes-release1`): the work packages below fix the founder audit's findings (approvals, stop controls, spend ceilings, business currency, nightly jobs, stream walls, real domain checker, autopilot and the medium/low batches W01 to W19). Notes per package follow.
+
+#### A-session-runtime (fix)
+
+### 2026-10-12 — Session runtime: own task queue, bounded founder waits, real pause/stop, honest usage (A-session-runtime, issues 2, 4, 11, 14, 17, 23, 68, 70)
+
+- Agent sessions run on `foundmill-sessions`, served by a second worker with ORCHESTRATOR_MAX_SESSIONS (16) slots. Held or long sessions can no longer starve cycles, plans, imports, training, vacations or the control commands that pause, stop and decide for them.
+- An undecided approval ends the session `blocked` after APPROVAL_WAIT_MINUTES (30); the approval stays open and the usage is booked.
+- A pause longer than SESSION_PAUSE_HOLD_MINUTES (10) parks the session without a slot. Resume continues it (a mock replay from its cursor, a live session from the saved workspace).
+- Live pause now interrupts the SDK turn and holds tool calls until Resume. Stop, loop and cancel interrupt the turn and book every token. Usage is the latest cumulative result, no longer summed.
+- An Anthropic billing, key or rate-limit refusal (`is_error`) now blocks the session instead of recording it done.
+- A finishing session never un-pauses its agent. A refused start for a paused agent ends `stopped`, and agents show as working while their session runs.
+- A Redis outage no longer crashes the worker, and command delivery survives it.
+- Live sessions create a 30-minute sandbox only for a code task's acceptance run, which fits E2B Hobby.
+- Docs: DEPLOY.md (env table, E2B plan) and ARCHITECTURE.md §10.
+- Tests: new cases in session.test.ts, session-live.test.ts, workflows/agentSession.test.ts, the new control-bus.test.ts, and packages/sandbox replay-timing.test.ts. The orchestrator suite passes (26 files, 169 tests) and the sandbox suite passes (7 files, 118 tests).
+
+#### A-session-runtime (verify)
+
+### 2026-10-12 — Session runtime: own task queue, bounded founder waits, real pause and stop, honest usage (A-session-runtime, issues 2, 4, 11, 14, 17, 23, 68, 70; verified)
+
+- Agent sessions run on `foundmill-sessions`, served by a second worker with ORCHESTRATOR_MAX_SESSIONS (16) slots. Held or long sessions can no longer starve cycles, plans, imports, training, vacations, or the control commands that reach sessions.
+- An undecided approval ends the session `blocked` after APPROVAL_WAIT_MINUTES (30). The approval stays open and the usage is booked.
+- A pause longer than SESSION_PAUSE_HOLD_MINUTES (10) parks the session without a slot. Resume continues it, and nudges sent meanwhile are delivered.
+- Live pause interrupts the SDK turn and holds tool calls until Resume.
+- Stop, loop and cancel interrupt the turn and book every token. Usage is the latest cumulative result, never summed. A run that dies is booked from its last heartbeat.
+- A run cancelled by a deploy returns its task to `ready`.
+- An Anthropic billing, key, account or rate-limit refusal now blocks the session instead of recording it done.
+- A session never un-pauses its agent, and a pause that lands mid-write is kept. A refused start for a paused agent ends `stopped`. Agents show as working while their session runs.
+- A Redis outage no longer crashes the worker.
+- Live sessions create a 30-minute sandbox only for a code task's acceptance run, which fits E2B Hobby.
+- Inbox: asked plan actions read "Needs your go-ahead" until the plan is confirmed (VOL-X1).
+- Docs: DEPLOY.md (env table, E2B plan, staging row) and ARCHITECTURE.md §10.
+- Tests: session.test.ts, session-live.test.ts, workflows/agentSession.test.ts, control-bus.test.ts, the sandbox's replay-timing.test.ts, the db's core-squad.test.ts, and the web's inbox logic.test.ts.
+  - The orchestrator suite passes: 26 files, 178 tests. The sandbox suite passes: 118 tests.
+  - Every fix was proved by a mutation check. Playwright was not run.
+
+#### AUTO1-autopilot (fix)
+
+## 2026-10-13 AUTO1 Autopilot (branch fix/AUTO1-autopilot)
+
+Done: a business can run on its own with agents. Per-business Autopilot (off by default; owners and admins) in Settings > Mode, on Home as a chip (On, Waiting for you, Paused: reason, Off, next cycle labeled Estimate) and as 'Run on autopilot' on Commit. Cadences: as soon as the last cycle ends, every 1/4/12 hours, daily at a UTC hour; never faster than 15 minutes, never two cycles at once. Guard rails always win: Stop all agents / revoked key / used-up credits / N failed or empty cycles pause it (only an owner or admin turns it back on; Resume does not), a vacation, a running cycle, an Inbox item that blocks Continue, the day's cycle cap (default 6, 1-24) and the day's spend ceiling (USD Estimate, never past the credits) make it wait. It starts businessCycle exactly as Continue does (trigger 'autopilot'), so approvals, hard gates, section walls and policy apply; it never approves anything. Migration 0041_autopilot; workflow autopilot:<businessId>; events autopilot.changed / autopilot.cycle_started; audit rows for every change.
+
+Tests: pure decision (shared), workflow with the real businessCycle child in the time-skipping env (interval, Inbox wait, N empty cycles, stopped / out of credits, stop passes to the running cycle, continueAsNew), activities on PGlite, repo + RLS, api (roles, audit, stop/resume, refusal while stopped, commit), web logic/component tests, dugout chip story and test. Playwright specs written (Settings > Mode, Home chip, Commit) but not run here.
+
+Open: apps/orchestrator workflows/businessCycle.test.ts has 2 failures that already exist on the base (session child 'already started'); the stream walls file does not exist on this base, so the two new event types need a line there when SEC1 lands; no boot-time reconcile of Autopilot workflows (Home's ensure call covers an orchestrator that was down when it was turned on).
+
+#### AUTO1-autopilot (verify)
+
+AUTO1 Autopilot done and verified (branch fix/AUTO1-autopilot-v, a1a2213 on top of 723e900). Per-business Autopilot, off by default, owners/admins only: Settings > Mode section (switch, cadence as soon as the last cycle ends / every 1, 4, 12 hours / daily at a UTC hour, most cycles per day 1-24 default 6, spend ceiling per day in USD Estimate, pause after N failed or empty cycles default 3, Turn off while paused), Home chip (On / Waiting for you / Paused: reason / Off, next cycle tagged Estimate), Commit 'Run on autopilot' (default off). Guard rails: stop flag, used-up credits and idle cycles pause it until an owner/admin turns it on; vacation, running cycle, blocking Inbox item, daily cycle cap and daily spend ceiling make it wait. Stop all agents signals and pauses it in the same transaction; Resume does not turn it back on. Audit rows and autopilot.changed / autopilot.cycle_started events via the outbox. Tests: shared decision (25), db repo + RLS + migration (28), events catalogue, orchestrator activity + time-skipping workflow tests (8 workflow tests incl. the Continue collision), api (11), web section/chip/commit tests, dugout AutopilotChip story and test. Playwright specs extended but not run (cannot run here). Follow-ups: file the two new event types in apps/stream/src/walls.ts after SEC1 merges; H-background-gtm may reconcile autopilot workflows (autopilot_enabled and autopilot_paused_reason null) at boot.
+
+#### B-approvals (fix)
+
+### B-approvals (phase 2): approvals answered in the Inbox (issues 1 and 80)
+
+- **Migration 0030_approvals_inbox:** approvals now record the task, the amount and currency, and used_at / used_by_session_id. The repo gains `claimOpen`, `useGranted`, `holds`, `forInboxItem`, `linkInboxItem` and `find`. `packages/db/src/approvals.ts` builds, opens and closes the decision item and maps a call to its section.
+- **Gateway:** an "ask" first uses a granted approval of the same call (once, within its amount), otherwise waits on that call's open approval, otherwise opens one approval with one decision item. Hard gates are unchanged.
+- **Orchestrator sessions:**
+  - The live runner tracks the gateway's approval by its id (no duplicate row or event).
+  - Mock replays reuse a granted or open approval, and a hold that resolves on its own closes its approval and item.
+  - A rejection ends a replay blocked with `approval_rejected`, and a live agent hears the founder's reason.
+- **Orchestrator cycles and waits:**
+  - The cycle leaves out tasks that wait on the founder.
+  - Plan-action and channel-launch approvals open the same item.
+  - approvalWait re-reads its approval hourly (patched), and a timeout keeps the founder's answer instead of expiring it.
+- **API (`services/approvals.ts`):** inbox.decide on an approval item, or team.approvals.resolve:
+  - resolves the approval and writes approval.resolved through the outbox;
+  - signals `session:<sessionId>` while the session waits, or `approval:<id>` for plan actions and channel launches;
+  - after the session ended, makes the task ready and starts a cycle on an idle business (never while stopped), or keeps it blocked with a Chief of Staff note on Reject;
+  - enforces section walls;
+  - inbox.get returns the approval with its walls applied.
+- **Web:** the Inbox reading pane has an Agent request panel (agent EntityLink, task link, call, arguments, amount, status, optional reason) above the DecisionBar's Approve and Reject. The Ledgerly seed's pending approval has its item. The Playwright inbox spec covers it (not run in this environment).
+- **Tests:**
+  - db: approvals-inbox.
+  - gateway: approvals.
+  - orchestrator: approvals, plus additions to session-live and the approvalWait workflow.
+  - api: approvals.
+  - web: logic.
+- **Known failure:** two businessCycle workflow tests already failed at the base commit, with the same error.
+
+#### B-approvals (verify)
+
+### B-approvals (phase 2): approvals answered in the Inbox (issues 1 and 80)
+
+- **Migration 0030_approvals_inbox:** approvals record the task, the amount and currency, and used_at / used_by_session_id. Repo additions: `claimOpen`, `useGranted`, `holds`, `forInboxItem`, `linkInboxItem`, `find`. `packages/db/src/approvals.ts` builds, opens and closes the decision item, maps a call to its section and writes the (compact) arguments text.
+- **Gateway:** an "ask" first uses a granted approval of the same call (once, within its amount and currency), else waits on that call's open approval, else opens one approval with one decision item. Hard gates are unchanged.
+- **Orchestrator:** the live runner tracks the gateway's approval by id (no duplicate row or event). Mock replays reuse a granted or open approval. A rejection ends a replay blocked with `approval_rejected`, and a live agent hears the founder's reason. The cycle leaves out tasks that wait on the founder. Plan-action and channel-launch approvals open the same item. `approve_spend` answers like the Inbox. approvalWait re-reads hourly (patched) and keeps the founder's answer on timeout. The vacation loop never answers an approval's note.
+- **API (`services/approvals.ts`):** inbox.decide on an approval item, or team.approvals.resolve, resolves the approval and writes approval.resolved through the outbox, signals `session:<sessionId>` while it waits (or `approval:<id>` for plan actions and channel launches), makes the task ready and starts a cycle on an idle business after the session ended (never while stopped), or keeps it blocked with a Chief of Staff note on Reject, and enforces section walls. `inbox.get` returns the approval with walls applied; `inbox.archive` refuses an open request; Team › approvals applies the Finance and section walls.
+- **Web:** the Inbox reading pane has an Agent request panel (agent EntityLink, task link, call, arguments, amount, status, optional reason) above the DecisionBar's Approve and Reject. The Ledgerly seed's pending approval has its item. The Playwright inbox spec covers it (not run in this environment).
+- **Tests:** db approvals-inbox (including claimOpen/useGranted by amount and currency, compact arguments); gateway approvals; orchestrator approvals (waiting session Approve/Reject, expired wait redispatch, approve_spend), approvalWait workflow, session-live (gateway approval tracked) and the vacation guard; api approvals (15 tests: signals, redispatch, stop flag, walls, archive guard, settled and moved-on cases, unreachable orchestrator); web inbox logic.
+- **Known failure at the base commit too:** two businessCycle workflow tests (WorkflowExecutionAlreadyStartedError), unrelated to this work.
+
+#### C-control-dispatch (fix)
+
+- 2026-10-12 — **Stop all agents sticks, every control reaches its session, and the team can come back (audit fix C: #9, #10, #13, #33, #8, #15; branch fix/C-control-dispatch).**
+  - **Sessions:** every session row stores its real workflow id `session:<id>` from creation, and old `session:pending` rows were backfilled (0023), so Pause, Nudge, Stop, Upgrade and the kill switch reach sessions that cycles, plans and vacations started.
+  - **What the kill switch reaches:** Stop all agents now also stops the running cycle and every channel engine.
+  - **The stop flag:** the kill switch, a revoked key and used-up credits set a business-level stop. While it is set, nothing starts work: tasks, Continue, channel engines, plan sessions, training runs and vacations all refuse.
+  - **Resume:** Resume agents in the top bar (owners and admins) brings the team back and restarts its engines. A new key or a top-up lifts the stop it caused, never the kill switch.
+  - **Task start:** Start can no longer wake a paused agent or open two sessions on one task.
+  - **Retries:** failed tasks are retried after 15/30/60 minutes (3 automatic retries), and failing agents rest and then return to work.
+  - **Wage caps:** caps are enforced at dispatch, with notes at 50 % and 80 %, a pause at 100 % and a return next period.
+  - **Tests:** db 1306, orchestrator 159 (Temporal workflows included), api 249, dugout shell 110, modules team 44, web 24 targeted. Playwright stop-resume.spec.ts was written but not run in this environment.
+
+#### C-control-dispatch (verify)
+
+- 2026-10-12: **Stop all agents sticks, every control reaches its session, and the team can come back.** Audit fix C (#9, #10, #13, #33, #8, #15), verified on branch fix/C-control-dispatch-v.
+  - **Sessions:** every session row stores `session:<id>` from creation; old `session:pending` rows were backfilled (0023). Pause, Nudge, Stop, Upgrade and the kill switch reach sessions started by cycles, plans and vacations.
+  - **What the kill switch reaches:** the running cycle (including a vacation's), every channel engine, and a session that is still being opened when the stop lands.
+  - **The stop flag:** the kill switch, a revoked key and used-up credits set a business-level stop. While it is set, nothing starts work: tasks, Continue, resuming a cycle, channel engines, plan sessions, training runs and vacations.
+  - **Resume:** Resume agents in the top bar (owners and admins) brings the team back and restarts its engines. A new key or a top-up lifts the stop it caused, never the kill switch. Teams stopped before 0023 are marked stopped, so they get the Resume control too.
+  - **Task start:**
+    - Start can no longer wake a paused agent or open two sessions on one task.
+    - A start the orchestrator does not take gives the task back instead of stranding it.
+  - **Retries:** failed tasks are retried after 15, 30 and 60 minutes (3 automatic retries). Failing agents rest, then return to work. A stop no longer counts as a failure.
+  - **Wage caps:** enforced at dispatch and swept before every plan, with notes at 50% and 80%, a pause at 100% and a return next period.
+  - **Still open:**
+    - a per-business monthly budget for BYOK (F1);
+    - a mid-session wage-cap cutoff (A).
+  - **Tests:**
+    - db 1306 passed, 10 skipped;
+    - orchestrator 162 passed;
+    - api 250 passed, 2 skipped;
+    - modules team 44 passed;
+    - dugout StopAllAgents 6 passed;
+    - web agents-stopped 3 passed.
+    Playwright stop-resume.spec.ts is written but was not run here.
+
+#### CI-ci-perf-signin (fix)
+
+## 2026-10-12 — CI green again, API round trips, healthchecks, sign-in email (WP CI-ci-perf-signin)
+
+**Corrections to earlier entries.** These replace the claims at PROGRESS.md:236 and :240.
+- The 7e5760c release ("about 4,950 unit tests", "Playwright 43 (one stale-cache failure re-run green)") and 76a112c ("no-clip passes") were red on GitHub Actions:
+  - Runs 41 and 43 failed `@foundmill/web#test`, with the Live sessions section test timing out at 30 s.
+  - They also failed 'Playwright' (no-clip at 1280 and 1440 px on the Team pulse hour labels).
+  - Run 42 (c9dd4bb) failed both jobs too.
+  - The green results in those entries were local runs. From now on a check is recorded green only from the commit's own CI run.
+
+**Changes**
+- **CI fixes.**
+  - Team pulse hour labels span three hour columns (no-clip).
+  - The Live sessions section test reads the screen every 3 s: about 1 s per business, down from 4-7 s here and 38-49 s on CI.
+  - shell, code, settings-business and settings-plain specs scope settings-screen to the shell's main region.
+  - shell-chrome re-reads the tab's box on every poll.
+- **API latency.**
+  - postgres.js patched to send string/number-valued statements in one round trip and to pipeline inside transactions.
+  - withRls sends its setup together with the first statement.
+  - Membership and business are looked up in one statement.
+  - team.agents.list skills in one statement; inbox counts in one statement; founder.profile.get reads in parallel.
+  - Counted on the wire: business.get went from 22 to 4 round trips (about 110 ms instead of about 560 ms at 28 ms each). Every Home/shell first read is now 3-5.
+- **Healthchecks.** `railway/<service>.toml` for api, gateway, composer, stream and ingest; `/health` answers 503 until ready.
+- **Deploy gating.** DEPLOY documents Wait for CI and branch protection.
+- **Sign-in.** DEPLOY §4 adds the custom SMTP step; the login form maps Supabase errors to plain messages.
+
+**Checks**
+- packages/db: 1306 unit tests pass.
+- apps/api: 263 pass.
+- composer http 10, gateway 31, dugout journey 27, web login 17, live-sessions 10.
+- Typecheck and lint clean on db, api, composer, gateway, dugout and web.
+- banned-terms and us-english clean; railway-config 3/3.
+- Playwright not run in this session. Specs updated: helpers, shell, code, settings-business, settings-plain, shell-chrome; new Home Team pulse test.
+
+**Open (founder, dashboards):**
+- Railway: Wait for CI on 6 services; config file path and Healthcheck Path on 5.
+- GitHub: branch protection on main.
+- Supabase: custom SMTP and email rate limit.
+
+#### CI-ci-perf-signin (verify)
+
+## 2026-10-12 — CI green again, API round trips, healthchecks, sign-in email (WP CI-ci-perf-signin, verified)
+
+**Corrections to earlier entries.** These replace the claims at PROGRESS.md:236 and :240.
+- The green results claimed for the 7e5760c release ("about 4,950 unit tests", "Playwright 43 (one stale-cache failure re-run green)") and for 76a112c ("no-clip passes") were local runs. GitHub Actions was red at both commits:
+  - Runs 41 (7e5760c) and 43 (76a112c) failed `@foundmill/web#test`, because the Live sessions section test timed out at 30 s.
+  - Both runs also failed 'Playwright' on the no-clip check at 1280 and 1440 px (the Team pulse hour labels).
+  - Run 42 (c9dd4bb) failed both jobs too.
+- From now on a check is recorded green only from the commit's own CI run.
+
+**Changes**
+- **CI fixes**
+  - Team pulse hour labels span three hour columns (no-clip).
+  - The Live sessions section test reads the screen every 3 s: about 1 s per business, down from 4-7 s here and 38-49 s on CI.
+  - The shell, code, settings-business and settings-plain specs scope settings-screen to the shell's main region.
+  - shell-chrome re-reads the tab's box on every poll.
+  - A new Home spec checks the Team pulse labels at 1280 px. It waits for the widget.
+- **API latency**
+  - postgres.js is patched to send statements with string or number values in one round trip, and to pipeline them inside transactions.
+  - withRls sends its setup together with the first statement.
+  - Membership and business are looked up in one statement.
+  - team.agents.list reads skills in one statement, inbox counts take one statement, and founder.profile.get reads in parallel.
+  - Counted on the wire, business.get went from 22 round trips to 4: about 110 ms instead of about 560 ms, at 28 ms each. Every Home and shell first read is now 3-5 round trips.
+  - Tests cover:
+    - the round trips against a reference that really describes each statement first;
+    - a failed RLS setup.
+- **Healthchecks.** `railway/<service>.toml` for api, gateway, composer, stream and ingest. `/health` answers 503 until the service is ready.
+- **Deploy gating.** DEPLOY §1 documents Wait for CI and branch protection, and says to merge through pull requests.
+- **Sign-in**
+  - DEPLOY §4 adds the custom SMTP step.
+  - The login form maps Supabase errors to plain messages, including an auth chunk that fails to load.
+
+**Checks** (local; CI is the record from now on)
+- packages/db: round-trips and inbox-plans, 27 pass.
+- apps/api: round-trips, request-speed and health, 37 pass.
+- composer http 10; gateway 31; dugout journey and date formats 27; web login-form and live-sessions 17.
+- Typecheck and lint clean on db, api, composer, gateway, dugout and web. Two warnings predate this work.
+- banned-terms and us-english clean. railway-config 3/3.
+- Playwright was not run in this session.
+
+**Open (founder, in dashboards)**
+- Railway: Wait for CI on 6 services; config file path and Healthcheck Path on 5.
+- GitHub: branch protection on main, which needs a paid plan for a private repository.
+- Supabase: custom SMTP and the email rate limit.
+
+#### D-gateway-connectors (fix)
+
+| D-gateway-connectors (2026-10-12) | ☑ | Mock connectors one world per business (#3); untrusted recipients that start a line (#36); session ids checked at mint, plan/import calls outside sessions with real tools, audit before usage, no raw args in logs (#12); integration credentials under kind `secret` + legacy read + refreshed tokens persisted (#71); founder's own key for API-key connectors in Settings › Integrations (#69); agent grants resolve to real tools (`packages/connectors/src/grants.ts`) and the gateway serves `platform`, `web`, `quarantine` (#6) | connectors `__tests__/{mock-isolation,quarantine,grants,connect-fields}.test.ts`, `connectors/{platform,web,quarantine}/*.test.ts`; gateway `__tests__/{bookkeeping,credentials,builtins,smoke,gateway}.test.ts`; orchestrator `__tests__/{grants-contract,session,plan,connector-calls}.test.ts`; api `integrations-connect.test.ts`; web `IntegrationsTab.test.tsx`; Playwright `e2e/settings-plain.spec.ts` updated (not run here) | OAuth authorize/callback for Google, Notion, Shopify still missing; web search on the platform key is not billed to BYOK businesses; capabilities in NOT_YET_SERVED and later-phase connectors have no tools yet |
+
+#### D-gateway-connectors (verify)
+
+| D-gateway-connectors (2026-10-12) | ☑ | Mock connectors one world per business (#3); untrusted recipients that start a line or hide behind JSON escapes (#36); session ids checked at mint, plan/import calls outside sessions with real tools, audit before usage, no raw args in logs (#12); integration credentials under kind `secret` + legacy read + refreshed tokens persisted, proven end to end from `integrations.connect` to a live gateway call (#71); founder's own key for API-key connectors in Settings › Integrations (#69); agent grants resolve to real tools (`packages/connectors/src/grants.ts`) and the gateway serves `platform`, `web`, `quarantine`, with the reader's tokens booked to the business and entity names marked untrusted (#6) | connectors `__tests__/{mock-isolation,quarantine,grants,connect-fields}.test.ts`, `connectors/{platform,web,quarantine}/*.test.ts`; gateway `__tests__/{bookkeeping,credentials,builtins,smoke,gateway}.test.ts`; orchestrator `__tests__/{grants-contract,session,plan,connector-calls}.test.ts`; api `integrations-connect.test.ts`; web `IntegrationsTab.test.tsx`; Playwright `e2e/settings-plain.spec.ts` updated (not run) | OAuth authorize/callback for Google, Notion, Shopify and Stripe Connect still missing; web search on the platform key is not billed to BYOK businesses; 49 template capabilities (mostly `platform.*`) are in NOT_YET_SERVED and later-phase connectors have no tools; plan send_message needs an email address (name resolution is H); no idempotency key for plan actions on a Temporal retry after the vendor call |
+
+#### DOM1-domain-check (fix)
+
+| Domain checker on the Commit screen (audit 2026-10-13 #458) | ☑ keyless `domains` connector (RDAP via IANA bootstrap, DNS fallback labeled Estimate, mock), gateway `POST /v1/domains/check`, `idea.domainCheck`, CommitForm draws Available / Taken / Couldn't check + Retry with Registry / DNS (Estimate) / Mock chips and the snapshot note; trademark screen relabeled as an Estimate | shared, connectors (88 passed, 2 live skipped), agents, gateway (90), api (38 touched), web components/new (97) all green; typecheck and lint clean; banned-terms and us-english clean. Live check: `DOMAIN_TEST_LIVE=1 pnpm --filter @foundmill/connectors exec vitest run domains.live` (not in CI) | Playwright spec extended but NOT run here. Real lookups need `LIVE_CONNECTORS=domains` on both gateway and api, and the gateway must reach data.iana.org and the registries' RDAP hosts (no keys). .io/.co (and .ai if absent from the bootstrap) are DNS estimates. Real trademark search still needs a vendor decision. |
+
+#### DOM1-domain-check (verify)
+
+DOM1 (#458) verified. The Commit screen's domain checker now asks the registry through the gateway `domains` connector (RDAP, DNS Estimate fallback, Mock in mock mode). It is exposed as `idea.domainCheck` (protected, modelLimited), and the web shows Available / Taken / Couldn't check with Retry, provenance chips, a Checked time and the snapshot note. Verifier fix: the mock's unknown path is now reachable by business name, and the e2e selector is corrected. Playwright is not run here.
+
+#### E-ingest-conversions (fix)
+
+### 2026-10-12 — E-ingest-conversions (audit #25, #59, #60, #51, #56) — branch fix/E-ingest-conversions
+- **#25 Forged webhooks.** Ingest mounts mock webhooks only in development and test (`registry.mountableWebhooks`). Staging and production mount only live webhooks (LIVE_CONNECTORS or live mode), and write a delivery only for a business with that connector connected. /health reports `refusedMockWebhooks`. The fixture secrets are marked development/test only.
+- **#59 Payers in the CRM.** Stripe and Shopify events carry the payer. Ingest links each signup, activation and payment to a CRM record (deterministic id → business-scoped id → stripe_id → email) or adds the person with provenance, and moves the customer role forward. Every row of the conversion names that record.
+- **#60 First payments only.** Migration 0034 adds `conversions.first_payment` and rebuilds journey_daily: customers come from first payments, revenue from every payment. Renewals, repeat orders and a returning customer's checkout are revenue only. countConversions, nthOfKind, p75 and the Ribbon markers follow.
+- **#51 Customer Update on arrival.** After commit, ingest narrates a full-update customer.converted through the composer (COMPOSER_URL). journeyBuild narrates it when that fails.
+- **#56 journeyBuild and playbooks.** Ingest starts journeyBuild (`journey:{conversionId}`) and every playbook whose event trigger matches (`playbook:{playbookId}:{eventId}`) through Temporal. The first pass is buildJourney over real touches (recorded with parseTouchSource). journeyBuild refines the row in place (team, CPA, trained xC from 50 and Markov from 200 conversions). The models used are stored on the journey and shown by journey.get.
+- **Tests and docs.** New tests in ingest (customers, follow-ups, staging webhooks), orchestrator (journey build activities and workflow), connectors (webhook mounts) and db (first payments, trainingPaths). API journey tests extended. docs/ARCHITECTURE.md §8/§10/§11/§17 and docs/DEPLOY.md (ingest env: COMPOSER_URL, TEMPORAL_*) updated. Playwright was not run here (no web screen changed).
+- **Open:** cron playbook triggers (Temporal Schedules, H); an idempotent composer narrate (M); a playbook-start guard on the business stop flag once C's helper lands; connector-level ReplayGuard still refuses a vendor retry after a post-verify refusal.
+
+#### E-ingest-conversions (verify)
+
+### 2026-10-12 — E-ingest-conversions (audit #25, #59, #60, #51, #56): verified on branch fix/E-ingest-conversions-v
+- **#25 Forged webhooks.** Ingest mounts mock webhooks only in development and test (`registry.mountableWebhooks`). Staging and production mount only live webhooks (LIVE_CONNECTORS or live mode) and write a delivery only for a business with that connector connected. /health reports `refusedMockWebhooks`. The fixture secrets are marked development and test only.
+- **#59 Payers in the CRM.** Stripe and Shopify events carry the payer. Ingest links each signup, activation and payment to a CRM record (deterministic id → business-scoped id → stripe_id → email) or adds the person with provenance. Two concurrent deliveries for one new payer resolve to one record. The customer role only moves forward. Every row of the conversion names that record.
+- **#60 First payments only.**
+  - Migration 0034 adds `conversions.first_payment`, backfills existing renewals and repeat orders, and rebuilds journey_daily: customers come from first payments, revenue from every payment.
+  - Renewals, repeat orders and a returning customer's checkout are revenue only. countConversions, nthOfKind, p75, the Ribbon markers and the composer's conversions_30d exhibit follow.
+  - The CRM profile lists only wins as Customer Updates, and the shell refetches revenue on payment.received.
+- **#51 Customer Update on arrival.** After commit, ingest narrates a full-update customer.converted through the composer (COMPOSER_URL). journeyBuild narrates it when that fails: an outage is retried, a 4xx refusal is not.
+- **#56 journeyBuild and playbooks.**
+  - Ingest starts journeyBuild (`journey:{conversionId}`) and every playbook whose event trigger matches (`playbook:{playbookId}:{eventId}`) through Temporal, with a bounded connect.
+  - The first pass is buildJourney over real touches, recorded with parseTouchSource.
+  - journeyBuild refines the row in place: the team, CPA, trained xC from 50 conversions, Markov from 200, and commentary once per full update. The models used are stored on the journey and shown by journey.get.
+- **Tests:**
+  - ingest: customers, follow-ups and staging webhooks.
+  - orchestrator: journey build activities and workflow, including commentary once and composer refusals.
+  - connectors: webhook mounts.
+  - db: first payments, trainingPaths and the migration-0034 backfill.
+  - composer: conversions_30d.
+  - web: CRM wins and shell invalidation.
+  - API: journey tests extended.
+- **Docs:** docs/ARCHITECTURE.md §8, §10, §11 and §17, and docs/DEPLOY.md (ingest env: COMPOSER_URL, TEMPORAL_*).
+- **Not run:** Playwright cannot run here. The e2e stack has no renewals and Simulate is disabled under APP_ENV=test.
+- **Open:**
+  - Cron playbook triggers need Temporal Schedules (H).
+  - Playbook starts should check the business stop flag once C's helper lands (C).
+  - The connector-level ReplayGuard still refuses a vendor retry after a post-verify refusal.
+  - The nightly journeyDailyRefresh Markov audit (orchestrator schedules.ts, H) still lists renewals among its paths.
+
+#### F1-billing-enforcement (fix)
+
+### 2026-10-12 — Billing enforcement (audit issues 16, 18, 19, 21; WP F1)
+
+**Credits and the free tier**
+- [x] Free-tier businesses no longer run on the platform key without a ceiling. Every tier includes a monthly credit, $5 on free, granted at commit and on the first charge of each month.
+- [x] When the credits run out the team pauses. On free, the Inbox note asks for the founder's own key.
+- [x] A business on its own key never touches credits.
+
+**Plan limits**
+- [x] Businesses per owner are enforced at commit. The Commit screen shows a "See plans" prompt.
+- [x] Seats are enforced at invite.
+- [x] Concurrent agents are enforced at dispatch: the cycle brief uses the tier limit less the sessions already open.
+- [x] A small balance still dispatches work, because a task's reserve is capped at a fair share of the credits left.
+
+**Credits in US dollars**
+- [x] Credits are US dollars everywhere. Migration 0024 relabels existing balances and platform-cost rows and checks that balances are USD.
+- [x] Top-ups in other currencies are refused, and nothing is charged across currencies.
+- [x] Usage totals no longer add mixed currencies.
+- [x] Billing, Payroll, agent wages, the Ideation draft cost and the cycle, task, training and foundations events show model costs in US dollars.
+- [x] Payroll keeps team cost apart from staff payroll in another currency.
+
+**Spend cap per action**
+- [x] The cap from Commit is stored on the business and editable in Settings › Mode (business.setSpendCap).
+- [x] The gateway applies it to every agent's approval threshold, so above it every spend asks first, whatever the mode.
+
+**Seeds**
+- [x] Ledgerly's seed matches byok: usage rows billed to byok, no credits.
+- [x] Northwind's credits and usage are in USD.
+
+**Tests**
+- New: packages/db tiers and billing tests; apps/api billing-tiers and idea-commit tests; apps/orchestrator billing-brief test.
+- New cases: gateway spend-cap case, Payroll currency case, CommitForm upgrade-prompt case.
+- Playwright specs updated but not run here: settings-plain Billing, settings-business Mode spend cap, commit.
+
+**Open**
+- Wage caps and vacation budget ceilings are still in the business currency, while costs are USD.
+- Tier changes are still free until WP F2's checkout lands.
+
+#### F1-billing-enforcement (verify)
+
+### 2026-10-12 — Billing enforcement verified (audit issues 16, 18, 19, 21; WP F1)
+
+**Credits ceiling**
+- [x] Platform-key model calls for a business whose credits are used up are refused before they are sent, in the api and the orchestrator. The refusal is CreditsExhaustedError, with the way back for its tier.
+- [x] The cycle drafts no plan on an empty balance.
+- [x] A top-up that comes first in a month keeps the month's included credits.
+
+**Plan limits**
+- [x] A task started by hand is refused when every concurrent-agent slot of the plan is in use. Live sessions name the plan's limit.
+
+**Costs in US dollars**
+- [x] Agent sessions, training runs and daily metrics store their model cost in USD.
+- [x] Wage caps are USD across Payroll, the agent profile, Recruitment and Hire.
+- [x] Both model-change dialogs show predicted wages in USD.
+- [x] The in-process composer books a note's cost in USD.
+
+**Spend cap per action**
+- [x] The founder's spend cap shows as the "Asks above" line on an agent's profile when it binds. The gateway and the profile share `effectiveApprovalThresholdMinor`.
+
+**Tests**
+- New: api credits-ceiling; config limits; orchestrator business-models ceiling case and billing-brief exhausted case; api billing-tiers top-up, concurrency and USD cases; modules squad USD case; db tiers assertConcurrencyRoom.
+- Playwright specs updated but not run here: settings-business (business cap on the profile), agent-profile (USD), money-legal-distribution (Payroll USD).
+
+#### F2-payments-access (fix)
+
+- 2026-10-12 · F2 payments and access (audit #22, #26, #31) · branch fix/F2-payments-access
+  - Credit top-ups:
+    - Stripe Checkout on the platform account through the gateway (`POST /v1/billing/checkout-sessions`).
+    - New migration 0033 `billing_checkouts`, service-written, RLS, in the cross-tenant suite.
+    - Credits are granted only by the new ingest platform webhook `POST /billing/stripe` (`STRIPE_BILLING_WEBHOOK_SECRET`) or the labeled mock completion, both through `settleCreditCheckout` (once per checkout, audited).
+    - Mock payments are refused with live models outside development and test.
+    - The Billing tab sends the founder to checkout, follows the result after Stripe's redirect, offers the mock payment, and shows USD amounts.
+  - Paid tiers (prices to be announced) cannot be chosen outside development and test; the Billing tab says so.
+  - `SIGNUP_ALLOWLIST` is enforced on every signed-in api request (FORBIDDEN, `not_invited`), with an 'Invite only for now' page on the web. Documented in DEPLOY.md §4 and §5, with Anthropic and E2B spend limits, and in .env.example.
+  - Rate limits:
+    - The Redis-backed `RateLimitStore` (memory fallback) now backs every allowance.
+    - `modelLimited` covers every model-backed procedure (Ideation, Compare, Ask, logos, conversations, Refresh, plan.preview, free-text decisions, task planning, recommenders, foundations retry, training, Continue), registry lookups and checkouts. Each gets per-person and per-business windows plus a shared ceiling, and refusals are TOO_MANY_REQUESTS with friendly copy.
+    - plan.preview now needs Inbox write.
+  - Tests:
+    - New unit tests in db (payments), gateway (billing), ingest (billing) and api (billing-checkout, signup-allowlist, model-limits, rate-limit, including a real-Redis Lua test gated on REDIS_TEST_URL); web helper and checkout-notice tests.
+    - New Playwright spec e2e/billing.spec.ts (not run in the build container).
+  - Open:
+    - Unpausing agents after a paid top-up belongs on `settleCreditCheckout` (C).
+    - stream, collab and social do not check the allow-list.
+    - Paid-tier subscriptions need prices and a subscription checkout (BUILD §19).
+
+#### F2-payments-access (verify)
+
+- 2026-10-12 · F2 payments and access, verified (audit #22, #26, #31) · branch fix/F2-payments-access-v
+  - Credit top-ups:
+    - Stripe Checkout on the platform account through the gateway, live only under `LIVE_CONNECTORS=stripe_billing` or `INTEGRATIONS_MODE=live`. The businesses' `stripe` connector has its own switch.
+    - Mock checkouts are simulated by the api (no gateway), so the local, CI and e2e stacks can top up.
+    - Credits are granted only by the ingest platform webhook `POST /billing/stripe` (`STRIPE_BILLING_WEBHOOK_SECRET`) or the labeled mock completion, through `settleCreditCheckout`: once per checkout, audited.
+    - Expired checkouts and bounced bank debits close unpaid.
+    - Mock payments are refused with live models outside development and test.
+    - Migration 0033 `billing_checkouts` (service-written, RLS, cross-tenant suite).
+  - Paid tiers cannot be chosen outside development and test while prices are to be announced.
+  - `SIGNUP_ALLOWLIST` is enforced on every signed-in api request (`not_invited`), with an "Invite only for now" page. DEPLOY.md §4 and §5.5 cover it, with Anthropic and E2B spend limits.
+  - Rate limits:
+    - A Redis-backed `RateLimitStore` (memory fallback) holds every allowance.
+    - `modelLimited` covers every model-backed procedure plus task starts and Take charge.
+    - A request refused after its model call keeps its hit.
+    - Refusals are TOO_MANY_REQUESTS with friendly copy, and the web never retries them.
+  - Tests:
+    - Unit tests in db (payments), shared (platformBillingMode), gateway (billing), ingest (billing), api (billing-checkout, signup-allowlist, model-limits including the post-model refund case, rate-limit) and web helpers.
+    - Playwright e2e/billing.spec.ts is written but was not run in the build container.
+  - Open:
+    - C: the unpause after a paid top-up belongs on `settleCreditCheckout`'s granted outcome.
+    - F1: the default credit row at commit.
+    - stream, collab and social do not check the allow-list.
+    - Paid-tier subscriptions need prices and a subscription checkout (BUILD §19).
+
+#### G-business-currency (fix)
+
+### 2026-10-12 — G-business-currency (audit #20)
+
+Branch fix/G-business-currency, 4 commits on 76a112c.
+
+- **Data:** migration 0025_business_currency adds `businesses.currency`, backfilled from departments, then channels, then the creator's profile, then USD. Business-money tables lose their EUR default and fill a missing currency from the business. Model-cost tables default to USD. The schema mirrors this, the repo creates and updates the currency, seeds store GBP, and @foundmill/shared gains CURRENCIES, DEFAULT_BUSINESS_CURRENCY and MODEL_COST_CURRENCY.
+- **Server:**
+  - Commit stores the chosen currency, `business.get` returns it, and Settings › Business updates it (audited).
+  - The business currency is now used by: finance.overview cash before a bank is connected, `planContextFor` and plan actions, hires from Recruitment, vacations without a ceiling, the vacation report (narrow symbols; team spend in USD), dashboard metrics (no cross-currency sums; revenue reads a page at a time), the composer and orchestrator briefs, the conversation subject, foundations inputs, the mock foundations prices, the mock composer, the plan compiler, the jurisdiction recommender prompt, and ingest sign-ups.
+  - Cycles where nothing finished get a Chief of Staff note in every environment.
+  - Training is metered once.
+- **Web:**
+  - `useBusinessCurrency` reads `businesses.currency`, with no EUR fallback and no glossary lookup. The shell and widget data source require it, and every EUR default in dugout, widgets and modules is gone.
+  - Settings › Business has a Currency field.
+  - Inbox decisions, exhibits, the status strip and the plan confirmation use the business currency; the confirmation lists a total per currency.
+  - The Decided panel consent chip is fixed.
+  - Live session tiles show model costs in USD.
+- **Tests:** migration-0025 (DB), the api commit/currency flow, metrics, orchestrator training, narration and vacation, ingest, models mock, the web hook, inbox logic and confirmation, CRM, holiday, round-up, and session tiles. Playwright inbox.spec and settings-business.spec were updated but not run here.
+
+#### G-business-currency (verify)
+
+Business currency (WP G, verified): businesses.currency is stored at commit, returned by business.get and editable in Settings > Business with an audit entry. The web shell, finance overview, plan confirmation, Inbox decisions, hires, vacations, dashboard metrics, ingest conversions, composer and mock foundations all use it. The EUR fallbacks are gone from business amounts. The commit test now uses non-USD currencies (GBP profile, SEK chosen at commit), so it fails if commit stops storing the currency. Playwright specs were updated (inbox.spec.ts, settings-business.spec.ts) but not run.
+
+#### H-background-gtm (fix)
+
+### H-background-gtm (2026-10-12) · branch fix/H-background-gtm
+- #7 Periodic jobs register as Temporal Schedules at orchestrator boot. There are 12 schedules, listed in ARCHITECTURE.md §10; registration is idempotent, retries with backoff and never blocks startup; ORCHESTRATOR_SCHEDULES. Teams that are stopped are skipped by jobs that start agent work.
+- #58 Milestones are awarded from real payments at ingest and in journeyBuild, and the nightly catch-up fills gaps. Each is awarded once per business (0028 unique trophy key).
+- #55 Commit, resume and the 15-minute reconcile start an engine for every running channel. The Board says "Starting" until the engine is recorded.
+- #54 The engine drafts creative through packages/models (mock drafts labeled). Nothing launches without an approved asset; assisted mode asks on a channel's first campaign; offline tracking creates a founder task with the materials. Creative cards show the copy. The channel_creative eval was added.
+- #57 Lead channels write every counted lead as a CRM lead record, so the Leads tab lists what the channel counts. The seed was aligned.
+- #125 Plan send_message and schedule_meeting call gmail/sendgrid and google_calendar with their real arguments. Approval asks wait; failures fail.
+- #156 A CRM deletion request suppresses at once, and the nightly audited sweep purges the record after 7 days. The 24-month retention job is not automated yet; the copy no longer claims it is.
+- #178 The nightly business deletion sweep stops the business's workflows and purges each business whose deletion is due through fm_purge_business (service_role only).
+- Migration 0028_journey_runtime. Tests: db journey-runtime (15), orchestrator schedules (fake schedule client) + workflow schedules, channel-engine, plan, api commit/controls/gaps, ingest milestones, modules distribution, seed, evals channel-creative. Playwright specs updated (not run here).
+
+#### H-background-gtm (verify)
+
+### H-background-gtm verified (2026-10-12) · branch fix/H-background-gtm-v
+- #7, #58, #55, #54, #57, #125, #156 and #178 verified against the audit evidence, with their tests passing.
+- Fixed during verification: the gateway no longer breaks usage and approval foreign keys for service-call tokens; the CRM purge no longer deletes interactions that name no record; a retried benchmarksRebuild reads every business again; the business deletion sweep stops running cycles; an audit_log index serves the sweep; a TS error in the schedules test is fixed.
+- Not built: the 24-month lead retention job, which needs a founder approval step at setup.
+- Playwright specs are updated but were not run here.
+
+#### I-inbox-vacation (fix)
+
+### I-inbox-vacation (phase 2): plans confirmable after a reload; vacation decisions carried out (2026-10-12)
+
+**#40: a plan that waits for the founder's go-ahead stays confirmable after a reload, from another tab or from another device.**
+- `inbox.get` returns `confirmation`, and `plan.confirm` works from the plan id alone. It is idempotent (`claimConfirmation`), so a second press runs nothing.
+- The note stays in Respond until the plan is confirmed. It is marked on inbox.list rows ("Respond") and in the note header ("Needs your go-ahead").
+- The Decided panel offers "Review what will happen" from the stored plan, or says why this reader cannot confirm. An unconfirmed spend reads "Needs your go-ahead", not "Confirmed by you".
+- "Open the plan" is replaced by "Open the task" or "Open the tasks", and the links are hidden while the plan waits.
+- Staged hand-offs at an agent's desk get the same treatment: `planStatus` on conversation messages, and "Review the plan" until the plan is confirmed.
+
+**#44: decisions the Chief of Staff takes on vacation now run.**
+- `vacationVerdict` checks authority, then the option-click compile, then policy, hard gates, money and section walls.
+- `holidayAutoDecide` writes the holiday plan beside the decision, and the holiday workflow starts `planExecution` (`plan:<id>`).
+- Money, signing, hard gates, ask or deny, and walled sections wait for the founder with a reason. "While you were away" lists the decisions taken (and how far each plan got) and what waits. The stop flag wins.
+- Shared code moves: `compileOptionPlan` to @foundmill/models, and `planActionSection` / `planSectionWalls` to @foundmill/shared.
+
+**Tests:** db, api, dugout, web unit and orchestrator tests, the activities on PGlite, workflow and legacy-replay tests, and a new Inbox Playwright spec, which was not run here. docs/ARCHITECTURE.md is updated.
+
+#### I-inbox-vacation (verify)
+
+### I-inbox-vacation verification (2026-10-13)
+- Re-checked #40 and #44 on the implementer's commit 8d1b9f8: the db, api, orchestrator and web tests pass, and I found no regressions.
+- Kept the earlier verifier's WIP: approval notes wait on vacation and are counted once in the report, the answer label reads "Chief of Staff's answer" after a vacation decision, and the go-ahead state is a tested helper (goAheadState).
+- Folded the WIP commits into one commit on fix/I-inbox-vacation-v.
+
+#### M-models-composer (fix)
+
+- 2026-10-12 — Audit fixes M-models-composer (branch fix/M-models-composer):
+  - Per-route max_tokens in ROUTES (16k for thinking routes at default effort, 8k at low, 4,096 for Haiku), plus one retry at double the budget on max_tokens truncation (#5).
+  - Composer compose deadline of 150 s (504 composer_timeout, nothing written); api and orchestrator wait 180 s (COMPOSER_TIMEOUT_MS); the api passes composer errors through and never answers 503 while a note is being written (#41).
+  - Refresh lookahead reads only narratable types and sweeps the rest narrated (#42).
+  - /v1/narrate is idempotent per event set (replayed notes, in-flight join, cross-instance guard on the event idempotency key); the orchestrator retries only timeouts and 5xx, and a 4xx is non-retryable (#43).
+  - Un-narrated priorities are sorted numerically, and in-process enable_channel/disable_channel plan actions start or stop the channel engine (#45, VGJC-X1).
+  - Served buffer keys stay served: an unchanged insight is served once, then Refresh moves to new decisions (#46).
+  - Tests added in packages/models, packages/db, apps/composer, apps/api (composer-client, plan-channel-engine) and apps/orchestrator (composer-client). Typecheck, lint, unit tests, banned-terms and us-english pass. No screens changed (no Playwright change).
+
+#### M-models-composer (verify)
+
+- 2026-10-12 — **Model budgets and Composer reliability (audit fixes #5, #41, #42, #43, #45, #46; verified).**
+  - **Model budgets:** routes that send no `max_tokens` now get a budget sized for Opus/Sonnet 5.5 thinking: 16k at default effort, 8k at low effort, 4,096 on Haiku. A truncated JSON answer is retried once at double the budget. The local limiter still books 4,096 for these calls, so keys with small limits keep working.
+  - **Cold Refresh:** no longer fails with 503 at 5 s. The composer abandons a note after 150 s (504, nothing written), and the api and the orchestrator wait 180 s.
+  - **Narrate:** idempotent per event set, so a retried cycle narration returns the same note and is not billed twice. A 4xx answer is not retried, and journeys survive a refused commentary call.
+  - **Refresh order:** narrates wins and cycle reports ahead of routine events (numeric priority, narratable-only lookahead, routine rows swept).
+  - **Repeated insights:** Refresh no longer serves the same insight on every press.
+  - **Channel engines:** channels enabled from an Inbox decision start their engine.
+  - **Not run:** Playwright (not runnable here; no screen changed).
+
+#### P-permissions (fix)
+
+- 2026-10-12 — P-permissions (audit #24, #27, #29, #30, #32, #35), branch fix/P-permissions.
+  - Membership guards: API checks, repos, RLS and a last-owner trigger in migration 0026_membership_guards. Team › Staff locks your own row and, for admins, owner rows.
+  - Shared section-permission helper in @foundmill/shared, now enforced by apps/collab on spec blocks.
+  - Custom metrics are gated by section.
+  - legal.incorporate.founderSubmitted checks tenancy and the awaiting_founder status before it signals. The incorporation workflow checks who sent each signal, behind a Temporal patch.
+  - Inbox decisions, plan.confirm and agent hand-offs refuse plans that change sections the person cannot write to.
+  - The Inbox, plans, decide results and the agent's desk (manifest, messages, prompt) mask Finance figures and CRM names for walled readers. Related records come back as stubs, and the reading pane says what is hidden.
+  - Tests: RLS and repo tests (db), API tests (membership-guards, section-walls, inbox-redaction, legal-incorporation, gaps), collab, orchestrator workflow and activity, modules staff, and web inbox logic. The Playwright specs for team staff and inbox are updated but were not run here.
+
+#### P-permissions (verify)
+
+- 2026-10-12 — P-permissions (audit #24, #27, #29, #30, #32, #35), branch fix/P-permissions-v (implementer fix/P-permissions, then verified).
+  - Membership guards: API checks, repos, RLS and a last-owner trigger in migration 0026_membership_guards. The trigger serializes concurrent demotions per business. Team › Staff locks your own row and, for admins, owner rows.
+  - Shared section-permission helper in @foundmill/shared, now enforced by apps/collab on spec blocks.
+  - Custom metrics are gated by section.
+  - legal.incorporate.founderSubmitted checks tenancy and the awaiting_founder status before it signals. The incorporation workflow checks who sent each signal, behind a Temporal patch. Replay tests cover histories recorded before the patch.
+  - Inbox decisions, plan.confirm and agent hand-offs refuse plans that change sections the person cannot write to. Finance and legal tasks need those sections.
+  - Finance figures and CRM names are masked for walled readers in: the Inbox (list, get, refresh, markRead, archive), plans (list, status, decide and confirm results), Continue's in-process note, and the agent's desk (manifest, thread, chips, prompt, send answers). Related records come back as stubs, and the reading pane says what is hidden.
+  - New repos.inbox.byIds (business-scoped).
+  - Tests:
+    - db: RLS, repo scoping, migrations.
+    - api: membership-guards, section-walls, inbox-redaction, legal-incorporation, gaps, conversation.
+    - collab.
+    - orchestrator: workflow, replay and activity.
+    - modules: staff.
+    - web: inbox logic.
+  - The Playwright specs for team staff and inbox are updated but were not run here.
+
+#### R-crm (fix)
+
+- **CRM Undo merge and list roles (R-crm, issues #52, #53), 2026-10-12.**
+  - **Undo merge** reverts only that merge's own changes, so later renames, edits and independent later merges survive. When a later merge relies on it, the API refuses with a reason and the profile shows that reason in place of the Unmerge button. Merge and unmerge lock their rows.
+  - **CRM list and search** return each record's active roles, stage and owner. Role, stage, owner, department and kind chips (including natural-language ones such as "customers" or "kind:organization role:supplier") filter on the server, so the By role and By stage views and the Roles, Stage and Owner columns now show real values.
+  - **Tests:** db repo tests, a new api crm.test.ts, web unit tests, and new Playwright cases in crm.spec.ts and entity-profile.spec.ts (not run in this environment).
+
+#### R-crm (verify)
+
+- **CRM Undo merge and list roles (R-crm, issues #52 and #53; verified 2026-10-12).**
+  - **Undo merge** reverts only what that merge brought in, so later renames, edits and independent later merges survive. When a later merge relies on it, the API refuses with a reason (409), and the profile shows that reason in place of the Unmerge button. Merges run in one transaction keep their order. Merge and unmerge lock their rows.
+  - **CRM list and search** return each record's active roles, stage and owner. Kind, role, stage, owner and department chips filter on the server, including natural-language ones such as "customers", "kind:organization role:supplier" and "people owned by Sourcing". Owner names may be partial. The By role and By stage views and the Roles, Stage and Owner columns show real values, and the footer gives the total with "Load 500 more".
+  - **Tests:**
+    - db repo tests;
+    - a Northwind seed check (six suppliers with stage and owner, and the full customer total);
+    - api crm.test.ts;
+    - web unit tests;
+    - new Playwright cases in crm.spec.ts and entity-profile.spec.ts, not run in this environment.
+
+#### S-live-social (fix)
+
+- 2026-10-12 — S-live-social (audit #28, #34, #65, #66), migration 0027_live_social_delivery.
+  - #65: connection requests and messages are delivered to the recipient's listed businesses, as `connection.requested` / `message.received` events plus a `human_message` note in Inbox › Messages. They are never written into the sender's business; misdirected notes are archived; `u:{userId}` stream signals were added; the Network badge shows in every mode; notes in another founder's words read "Network", not "You".
+  - #34: groups need every pair connected; every Send rechecks connections, so Remove closes a thread; anyone can be blocked by user id; threads can be left and muted; the thread pane lists participants and has mute, leave and block; requests can be accepted, ignored or blocked.
+  - #28: communities can be created (kind; public or by invitation); invitations; a moderation screen (deterministic checks plus Haiku, mock deterministic, a failed screen holds the post); reports (3 hold a post); authors edit and delete; moderators hide, restore and remove posts and mute, ban and restore members; roles; a review queue; an 18+ self-attestation before network actions, Go live and a LIVE Take charge.
+  - #66: Ask to connect on community members, post authors and leaderboard rows (a business resolves to its owner).
+  - Tests: db repos, RLS and migration; events and stream; api live-social; the moderation eval (mock and live); web unit tests. Playwright live and commit specs were updated but not run.
+
+#### S-live-social (verify)
+
+### S-live-social (audit #28, #34, #65, #66) — verified 2026-10-12
+
+LIVE requests and messages now reach the recipient. Each one files the event and an Inbox › Messages note in the businesses the recipient speaks for, never in a business the sender belongs to. One unread note is kept per thread and per requester. A `u:{userId}` stream signal and a Network badge reach the founder in every mode, and Network polls when the stream is down.
+
+Groups need everyone connected. Every Send rechecks connections, so removing a connection closes the thread. Anyone can be blocked from a thread pane, and threads can be left and muted. A thread closed by a removed connection offers "Ask to connect".
+
+Communities can be created, public or by invitation, with a kind. Posts are screened (Haiku, with a deterministic mock), reported, edited and deleted. Moderators have a review queue and member tools. The 18+ confirmation is asked on the network, at Go live and at a LIVE commit.
+
+"Ask to connect" is on community members, post authors, leaderboard rows and closed threads.
+
+Migration 0027_live_social_delivery. Verifier commit 84c96ac on fix/S-live-social-v, on top of de06ac2/de8acb9.
+
+All checks pass: typecheck, lint, unit tests, banned-terms and us-english. Playwright specs (live.spec.ts, commit.spec.ts) were updated but not run here.
+
+#### SEC1-stream-walls (fix)
+
+### SEC1 stream walls (security review S1, S5, S9), 2026-10-12
+- **S1:** the business event stream now applies the API's section walls. A member walled from Finance gets no payment, bank or runway events and no amounts or costs; one walled from the CRM gets no payers or free text. Events with hidden fields carry `redacted`. `as:<sessionId>` needs Development plus the session's department modules, and dev.sessions.* match. `membership.changed` (from team.humans.*) makes the stream re-check that person's subscriptions at once, and every 30 s otherwise. Collab re-authorizes open editors every 15 s. Stream and collab refuse accounts not on SIGNUP_ALLOWLIST.
+- **S5:** the web reader's connections are pinned to the addresses it checked, so DNS rebinding to 169.254.x, 10.x or 127.x is refused on the page, robots.txt and every redirect hop.
+- **S9:** migration 0035_owner_lock and the memberships repo take a per-business owner lock before counting owners, so two owners demoting or removing each other at once cannot leave a business with no owner. Proven against a real Postgres (owner-lock.test.ts, gated on FM_TEST_POSTGRES_URL).
+- Tests: walls.test.ts and walls-server.test.ts (stream); authorize, collab, api stream-walls, db owner-lock and membership-guards. Playwright not run (unavailable here); no screen layout changed.
+
+#### SEC1-stream-walls (verify)
+
+### SEC1 stream walls (security review S1, S5, S9), 2026-10-12
+- **S1:** the business event stream now applies the API's section walls. A member walled from Finance gets no payment, bank or runway events and no amounts, costs or negotiation prices and terms. One walled from the CRM gets no payers or free text. Events with hidden fields carry `redacted`. `as:<sessionId>` needs Development plus the session's department modules, and dev.sessions.* match. `membership.changed` (from team.humans.*) makes the stream re-check that person's subscriptions at once, and every 30 s otherwise. Collab re-authorizes open editors every 15 s. Stream and collab refuse accounts not on SIGNUP_ALLOWLIST.
+- **S5:** the web reader's connections are pinned to the addresses it checked, so DNS rebinding to 169.254.x, 10.x or 127.x is refused on the page, robots.txt and every redirect hop. A malformed status line or header from a page now fails that read instead of crashing the process.
+- **S9:** migration 0035_owner_lock and the memberships repo take a per-business owner lock before counting owners, so two owners demoting or removing each other at once cannot leave a business with no owner. Proven against a real Postgres (owner-lock.test.ts, gated on FM_TEST_POSTGRES_URL).
+- Tests: walls.test.ts (including a schema guard for hidden fields) and walls-server.test.ts (stream); authorize, collab, api stream-walls, db owner-lock and membership-guards. Playwright not run (unavailable here); no screen layout changed.
+
+#### SEC2-spend-ceiling (fix)
+
+### 2026-10-12 — SEC2 spend ceiling (branch fix/SEC2-spend-ceiling)
+
+- **S2: platform-key ceiling enforced.**
+  - Every Foundmill-key model call is charged to credits, BYOK businesses included.
+  - A pre-call gate (gateModelClient plus assertPlatformCredits) in the api, composer and orchestrator answers 402 credits_exhausted.
+  - Live sessions on the platform key are capped with maxBudgetUsd, book as they run (every turn and every 15 s) and end blocked/budget. finishSession books only the rest.
+  - dev.tasks.start and openAgentSession enforce the plan's concurrent agents.
+  - The Billing tab shows credits for every business, including the simulated part and the used-up state.
+- **S3:** rate-limit slots are refunded only when no model call was made. Section checks for free-text instructions run before compilePlan and before the conversation allowance.
+- **S6:** included credits are one pool a month per founder (archived businesses count), granted under a lock. Commit stops a business that got none, with a note.
+- **S10:** ALLOW_MOCK_PAYMENTS gates simulated checkouts (default: development and test). Simulated credits never pay for live calls.
+- **S11:** the sign-up allow-list requires a confirmed email (email_verified or an inbox-proving amr). The web shows "Confirm {email} first".
+- **Tests:** new apps/api spend-ceiling.test.ts, packages/models gate.test.ts and orchestrator session-credits coverage. db, api, composer, orchestrator, shared and web suites were extended.
+- **Playwright:** the billing.spec.ts Ledgerly credits-row test was written but not run here.
+- **Known pre-existing failure:** two orchestrator businessCycle workflow tests collide on child session ids. Unrelated to this branch.
+- No migration.
+
+#### SEC2-spend-ceiling (verify)
+
+### 2026-10-13 SEC2 spend ceiling, independent verification (branch fix/SEC2-spend-ceiling-v)
+
+- Verified S2, S3, S6, S10 and S11 against the audit evidence. Reverting the gate, the S3 refund rule and the S6 pool check each fails named tests.
+- S11 hardened: the allow-list ignores the user-writable user_metadata.email_verified and trusts only amr.
+- Earlier verifier WIP kept and folded in: a live session whose last turn used the last credit stays done; used-up credits end a session before a queued nudge runs another turn; conversation desk shows the 402 sentence without retry; composer credits refusal gives the Refresh hit back; nested call scopes.
+- Playwright not run here.
+
+#### SEC3-stop-coverage (fix)
+
+- 2026-10-12 SEC3 stop coverage (fix/SEC3-stop-coverage):
+  - **Write-first kill switch:** Stop all agents now writes its flag, pauses and training cancels before it signals, then signals any session opened meanwhile.
+  - **Training:** runs check the stop at load and before each test, and end canceled with the reason.
+  - **Model changes during a stop:** the model applies but retests wait; Resume agents, a new key or a top-up starts them.
+  - **Sessions:** refuse to start while stopped and stop themselves within 5 s even with no signal.
+  - **Gateway:** denies every call and token with `agents-stopped`.
+  - **Plans:** messages and meetings fail while stopped.
+  - **Hires and clones:** start paused during a stop.
+  - **Campaigns:** cannot be set or created live while stopped.
+  - **Tests:** unit tests in db, gateway, api, orchestrator and web; the stop-resume Playwright spec was extended but not run here.
+
+#### SEC3-stop-coverage (verify)
+
+- 2026-10-12 SEC3 stop coverage (fix/SEC3-stop-coverage, verified on fix/SEC3-stop-coverage-v):
+  - **Write-first kill switch:** the flag, pauses and training cancel commit before any signal. Late sessions are signalled, and a failed signal phase is reported without undoing the stop.
+  - **Training:** runs check the stop at load and before each test, and end canceled with the reason. A run that already ended starts no further test.
+  - **Model changes during a stop:** the model applies but retests wait. Resume agents, a new key, a mock top-up or a paid Stripe top-up starts them, and restarts the engines.
+  - **Sessions:** refuse to start while stopped and stop themselves within 5 s even with no signal. A starting session never marks a paused agent working.
+  - **Gateway:** denies every call and token with `agents-stopped`.
+  - **Plans:** messages and meetings fail while stopped.
+  - **Hires and clones:** start paused during a stop.
+  - **Campaigns:** cannot be set or created live while stopped.
+  - **Tests:** unit tests in db, gateway, api, orchestrator, ingest and web. The stop-resume Playwright spec was extended but not run.
+
+#### T1-product (fix)
+
+- 2026-10-12 (T1-product, fix/T1-product): Change proposals now change the spec. Accepting or editing a hunk merges it (three-way) into its block or roadmap item. Deciding the last hunk publishes the next spec version with a changelog and `spec.version_published`. Rejecting the rest of a partly accepted proposal publishes what was accepted. The Changes tab decides against the live block. (#47)
+- 2026-10-12 (T1-product): The Source Watcher now runs end to end. `source.added` and `source.scored` events exist. The new read-only `web` connector (real and mock) reads public pages within robots.txt with SSRF guards. Haiku relevance and Opus drafting (prompts v2) run through packages/models with mock routes. The orchestrator `sourceWatch` workflow (started by product.sources.add) and `sourceWatchSweep` workflow (to be scheduled by WP H) fill the Sources and Research tabs, and relevant sources turn into change proposals once per content. Seeds use the same relevance shape. Sources shows read status. Evals added (live and offline). (#48)
+- Not run here: Playwright (golden path AC-11.5.2 and product Sources/Research specs were updated) and live evals.
+
+#### T1-product (verify)
+
+- 2026-10-12 (T1-product verification, fix/T1-product-v): Verified #47 (accepting hunks writes the spec, settling publishes a version and `spec.version_published`) and #48 (the Source Watcher end to end).
+  - Fixed a defect that kept the Source Watcher from reading any page in production: the gateway booked one-off session ids into `usage_ledger.session_id`, a foreign key to agent sessions. Such calls are now booked to the agent. A new gateway test runs web.fetch through the production gateway.
+  - Finished the earlier verifier's work: lasting site refusals are recorded as unreachable, and failed reads are retried on the next sweep.
+  - The sweep now also reads sources in the old relevance shape, so older databases fill in.
+  - The merge keeps both sides' new paragraphs.
+  - The web reader refuses IPv6 transition prefixes.
+  - Not run here: Playwright and live evals.
+
+#### T2-team (fix)
+
+- 2026-10-12 · T2-team (fix/T2-team): #49 Agent › Autonomy money fields keep what the founder types (MoneyInput with text drafts, US parsing, unreadable amounts named); #50 model changes queue a retest of a draft copy on the new model (`repos.training.createModelRetest`), earlier retests in flight are superseded, `agent.training.cancel` and a Cancel run button free a stuck run, and the `trainingRun` workflow ends a run that cannot start as failed (`failTrainingRun`), so no run stays Queued. Tests: db repo, API router, orchestrator activities and a Temporal workflow test on PGlite, web logic plus an AutonomyTab component test; Playwright agent-profile spec updated (not run here).
+
+#### T2-team (verify)
+
+- 2026-10-12 · T2-team verified (fix/T2-team-v):
+  - #49: Agent › Autonomy money fields keep what the founder types (MoneyInput with text drafts, exact US parsing, unreadable amounts named).
+  - #50: a model change retests a draft copy on the new model (`repos.training.createModelRetest`). Earlier retests, in flight or undecided, are withdrawn. `agent.training.cancel` and a Cancel run button free any run. The `trainingRun` workflow ends a run that cannot start or cannot save as failed, so no run stays Queued.
+  - Verifier additions: a retest's cancel notice says the agent keeps the new model; withdrawn retests stay off the Overview skill chart.
+  - Tests: db repo, API router, orchestrator activities plus a Temporal workflow test on PGlite, web logic and an AutonomyTab component test. Each fails without its fix. The Playwright agent-profile spec is updated but was not run here.
+
+#### U-finance-settings-import (fix)
+
+- 2026-10-12 U-finance-settings-import (#61, #62, #63, #64, #39), branch fix/U-finance-settings-import:
+  - #61: Export everything saves a complete JSON file (foundmill-export/2) covering every business-scoped table, with no 5,000-row stop. The Inbox note names the file.
+  - #64: owners can restore archived businesses, and can also export them and schedule or cancel their deletion, from New business › Archived businesses.
+  - #62: net burn, gross burn and every revenue figure leave out financing and transfers.
+  - #63: payback divides by the paying base at the end of the revenue window.
+  - #39: the Door B report claims only what was read. Commit starts importBusiness, which reads through the gateway. Product › Sources shows each source's read state and has Read now. Migration 0031 cleans up the simulated rows.
+  - Unit tests added or updated in db, api, orchestrator, modules, widgets and web. Playwright specs updated or added: settings-danger (new), import, foundations, money-legal-distribution (not run here).
+
+#### U-finance-settings-import (verify)
+
+- 2026-10-12 U-finance-settings-import (#61, #62, #63, #64, #39), branch fix/U-finance-settings-import (verified on fix/U-finance-settings-import-v, 6b03e1d):
+  - #61: Export everything saves a complete JSON file (foundmill-export/2) covering every business-scoped table, with no 5,000-row stop. The Inbox note names the file.
+  - #64: owners can restore archived businesses, and can also export them and schedule or cancel their deletion, from New business > Archived businesses.
+  - #62: net burn, gross burn and every revenue figure leave out financing and transfers. The chart of accounts and net burn share one key list in packages/shared.
+  - #63: payback divides by the paying base at the end of the revenue window (a customer who returned or paid again still counts).
+  - #39: the Door B report claims only what was read, and a read source is credited only with what its read returned. Commit starts importBusiness, which reads through the gateway; a stop marks unstarted sources as not read. Product > Sources shows each source's read state and has Read now. Migration 0031 cleans up the simulated and never-recorded rows.
+  - Unit tests added or updated in db, api, orchestrator, modules, widgets and web. Playwright specs updated or added: settings-danger (new), import, foundations, money-legal-distribution (not run here).
+
+#### W01-agents-orchestration (fix)
+
+W01 Agents and orchestration (2026-10-13): fixed all 23 issues of the brief on branch fix/W01-agents-orchestration (#72 idle cycles and roadmap in the brief, #73 vacation end and reconciler, #74 prompt braces, #75 Automated-mode autopilot, #76 queued and already-running cycles, #77 single vacation end and report, #78 retry cap and backoff, #79 Live sessions not-delivered feedback, #81 paused cycle holds dispatch, #82 playbooks (contract, compiler, API, panel), #83 resume only what the pause paused, #84 planner sees every open task, #85 consecutive-repeat loop detector, #86 one running vacation (migration 0036), #87 cycle failure path, #237 Upgrade to Opus switches the live model, #238 idempotent conversation messages, #239 vacation continue-as-new and cycle_cap reason, #240 mock replays only done recordings, #241 approval row resolved when the held call ran, #242 model ids only in routing.ts, #243 Resume does not release an approval hold, #244 idempotent retried activities and usage bookings). Migration 0036_agents_orchestration. Typecheck, lint, banned-terms and us-english pass; unit tests for every issue pass (orchestrator 243, api orchestration 16, db repos 222, modules 136 and others). New Playwright cases (playbook flow, not-delivered nudge, lost reply) were written but not run; the VO-X3 nightly-schedules report that rides on #241 in the brief belongs to H-background-gtm.
+
+#### W01-agents-orchestration (verify)
+
+W01 verification: independently reviewed the 22 issues on 9c21e37 and reproduced the checks. Tests, typecheck, lint, banned-terms and us-english are green. The only change is a comment move in packages/db/src/repos/businesses.ts. Playwright specs (team-development, live-sessions, inbox) are unrun here. Run them on CI.
+
+#### W03-finance-legal (fix)
+
+## 2026-10-13 - W03 Finance and Legal (27 audit issues)
+
+Done (branch fix/W03-finance-legal, migration 0038_finance_legal):
+- Finance: SAFEs out of fully diluted math; prices in the class's currency (backfill); one VestingSchedule; issuance limits locked and enforced on edit; duplicate class is a 409; round modeling solved together in whole shares; one projectForecast for seeds, Runway and Overview; Runway fields keep typed text and read 'Not known yet' without a bank; Cash 'This month' fixed; runway events only on a downward Base crossing; payroll staff named from the CRM; wages default period per request; demo seed fixes (option reserve unissued, share capital 800.00, forecast keys, bank revenue from the MRR series).
+- Legal: incorporation completes into an active entity, can be canceled, and cannot be reopened by a second submit; import is idempotent; friendly registry errors and mock register entries; policies can be published to the spec; sector gates persist and reach the team's brief; whole-word sector keywords; honest signature copy plus Dropbox Sign callback matching; one contract.signed per signature; bounded jurisdiction recommender (mock).
+- Integrations: Renew consent / Reconnect on connected rows, deep link from Cash.
+- Also: ECB convert honors minor-unit exponents; KeyValueList numeric hints wrap.
+- Tests: new api suites finance-lifecycle and legal-lifecycle, orchestrator incorporation/brief tests, ingest contract matching, shared vesting/forecast/sectors, modules finance and legal updates, web renew-consent, seed assertions. Playwright spec apps/web/e2e/finance-legal-fixes.spec.ts added but not run here.
+Open: VMLSL-X1 (live-mode OAuth connect flows) stays with D-gateway-connectors / W08.
+
+#### W04-money-billing (fix)
+
+W04 money and billing: fixed #88 (typed billing errors, 402 mapping, cycle failure note, alert/health), #89 (key validation by MODEL_MODE), #90 (micro-cent ledger, migration 0039), #91 (Anthropic via Keys only), #92 (sandbox cost), #93 (lazy sandbox, already on base; time now measured), #94 (session maxBudgetUsd, cycle reserve reconciliation), #95 and #245 (Ledgerly on credits, billing story consistent), #96 and #248 (training booked once, system prompt cached), #246 (currency minor-unit digits, scaled milestone thresholds), #247 (outbox events for credits pause and key revoke), #249 (byDepartment by primary department). Open for SEC2: zero-balance refusal of platform-key conversation/composer calls and stop signal to open sessions on exhaustion. Playwright settings-plain.spec.ts updated, not run.
+
+#### W04-money-billing (verify)
+
+Money and billing (W04, verified): empty Anthropic balance or spend cap is a typed, non-retryable billing error with a 402 `model_billing` message, an operator alert log, /health state, a Chief of Staff Inbox warning when a cycle cannot be planned, and an immediate stop of ideation drafts; BYOK keys are validated with a real call when models are live; usage is booked in exact micro-cents (migration 0039) and credits charge through a sub-cent carry; E2B time is priced and booked to credits (Estimate); training cost is booked once; live sessions and cycles run under budgets; the Anthropic row in Integrations hands off to Keys; Ledgerly is on credits like Northwind; credit-pause and key-revoke events go through the outbox; money helpers use each currency's real decimals; Billing's department view sums to the agent total. Playwright spec updated but not run here.
+
+#### W05-design-system (fix)
+
+### 2026-10-12 — W05 design-system accessibility fixes (branch fix/W05-design-system)
+
+All 20 W05 issues are fixed, with unit tests and a new Playwright spec (e2e/keyboard-a11y.spec.ts, not run in this environment):
+
+- **Tab bar (#181):** the tablist holds only tabs, and the sub-view carets are 24 px buttons beside it.
+- **CRM grid (#186):** the row menu opens with the ContextMenu key or Shift+F10.
+- **Deltas (#187):** changes are spoken as words.
+- **MoneyInput (#188):** the caret maps across group separators.
+- **Overlays (#189):** dialogs and sheets return focus to their opener.
+- **Ribbon (#195):** one Tab stop with arrow-key day navigation and a readout.
+- **Brand contrast:** steel is #3570CC and kit-on-primary needs WCAG 4.5:1 (#202); the btn-desc line inherits the on-color (#213).
+- **Space (#207):** Space stays with the focused control.
+- **Vacation (#214):** the mode in force is Automated and is shown as such.
+- **Wrapping (#360):** long words wrap in bubbles and posts.
+- **Avatar (#362):** status glyphs and a dashed paused ring.
+- **Channel Board (#365):** the profile takes focus and closes on Esc.
+- **Journey fixtures (#378):** time-zone independent.
+- **Field (#380):** wires describedby, invalid and required automatically.
+- **Widgets (#384):** edit controls are named per instance and moves are announced.
+- **Busy controls (#386):** Continue, decision options and Save stay focusable while busy, and focus moves to the Decided summary.
+- **Department shortcuts (#400):** stored per department (migration 0040_design_system), with a picker in Settings > Departments and the department.setShortcut API.
+- **Targets (#404):** 24 px target token, info badge and Vision rows.
+- **Stop all agents (#406):** opens on Cancel.
+
+Checks:
+- Typecheck and lint pass in every touched package, and so do banned-terms and us-english.
+- Test suites pass: dugout (764), widgets (149), modules product/distribution (123), policy (152), db, api, gateway, orchestrator holiday tests, and web (220).
+
+#### W05-design-system (verify)
+
+### 2026-10-12 — W05 design-system accessibility fixes (branch fix/W05-design-system-v)
+
+All 20 W05 issues are fixed and independently verified. Each has unit tests, and a new Playwright spec (apps/web/e2e/keyboard-a11y.spec.ts, plus an update to settings-business.spec.ts) has not been run here.
+
+- **Tab bar (#181):** the tablist holds only tabs, and the sub-view carets are 24 px buttons beside it.
+- **CRM grid (#186):** the row menu opens with the ContextMenu key or Shift+F10.
+- **Deltas (#187):** changes are spoken as words.
+- **MoneyInput (#188):** the caret maps across group separators.
+- **Overlays (#189):** dialogs and sheets return focus to their opener, including openers that are menu items.
+- **Ribbon (#195):** one Tab stop with arrow-key day navigation and a readout.
+- **Brand contrast:** steel is #3570CC and kit-on-primary needs WCAG 4.5:1 (#202); the btn-desc line inherits the on-color (#213).
+- **Space (#207):** Space stays with the focused control.
+- **Vacation (#214):** the mode in force is Automated and is shown as such.
+- **Wrapping (#360):** long words wrap in bubbles and posts.
+- **Avatar (#362):** status glyphs and a dashed paused ring.
+- **Channel Board (#365):** the profile takes focus and closes on Esc, and focus returns to the token.
+- **Journey fixtures (#378):** time-zone independent.
+- **Field (#380):** wires describedby, invalid and required automatically.
+- **Widgets (#384):** edit controls are named per instance and moves are announced.
+- **Busy controls (#386):** Continue, decision options, Save and the spend-cap Save stay focusable while busy, and focus moves to the Decided summary.
+- **Department shortcuts (#400):** stored per department (migration 0040_design_system), with a picker in Settings > Departments and the department.setShortcut API.
+- **Targets (#404):** 24 px target token, info badge and Vision rows.
+- **Stop all agents (#406):** opens on Cancel.
+
+Checks:
+- Typecheck is clean in every touched package.
+- Lint has 0 errors.
+- Full dugout (768), modules (378) and web (551) suites pass, and so do the db, api and shared tests.
+- banned-terms and us-english pass.
+- One policy timing test (evaluate.test.ts 'is fast enough for the gateway hot path', 4.01 ms against a 3 ms budget) failed under a machine load average of 9.45 on 4 CPUs. It looks like a load flake; I did not run it against the base commit.
+
+#### W06-widgets-modules (fix)
+
+W06-widgets-modules (audit #190, #192, #193, #196, #204, #206, #210, #217, #379, #382, #383, #385, #388, #394, #397, #401, #403): custom metric catalog picker; module links follow the department holding the module (and old module slugs redirect); failed/forbidden queries show No access / Couldn't load; business time zone (0041) with journey_daily_mv in the business day; persistent saved table views (saved_table_views + useSavedViews in every DataTable caller); Settings > Glossary now renames captions and stored notes (AC-11.13.6 test); one team-health definition; scrolling widget bodies with raised default heights; Pin to Home; US month/week labels in Revenue and customers; shared runway words in Cash and runway; one 35-day channel window; leaderboard/community words; no nested interactive controls on Vision and the relationship graph. Playwright specs updated, not run in this environment.
+
+#### W06-widgets-modules (verify)
+
+W06 widgets and modules: independently verified and fixed in fix/W06-widgets-modules-v at 0ebb32c. Verification added footer glossing, the business day on the Channels and Channel Board screens, a currency fallback in the shell, and moduleTabHref tests.
+
+#### W07-web-shell-home (fix)
+
+W07-web-shell-home (2026-10-13): all 26 issues fixed. #182 chunk-load reload + global-error; #184 shared entity href helper + crm.entity.lookup agentId; #197 Home save writes the dashboard.get cache, grid ignores non-edits; #198 landing feed reduced motion/pause/contrast; #199 KitBar business menu + palette Open/New business/Your profile; #200 focus rings + CI guard scripts/focus-visible.mjs; #201 QueryStates (keep data on failed refetch) across Inbox, Home, department, CRM, agents, Milestones, settings tabs; #205 expected-values conflict check on business.update + business.updated event; #212 role-aware shell (access object), product-language FORBIDDEN, AdminOnly fieldset; #215 vacation end of local day; #361 own first Home; #366 Come back opens away report, Go to Journey opens the journey; #367 Edit layout only where it applies; #368 palette resets and operator-only search; #370 no pulse on load; #372 day-one copy follows the cycle; #374 hover cards + right-click verbs; #376 founder bubbles never link, sentence-initial noun no longer linked; #389 logo picker arrows; #391 not-found states; #393 request timeouts + dismissable stop; #395 viewport; #396 Esc with overlay; #399 contrast; #405 bad dashboard ids; #407 ConnectionChip. Tests added or updated in apps/web, apps/api, packages/dugout, entity-linker, events, db. Playwright specs updated (shell-resilience.spec.ts, others) but not run here.
+
+#### W07-web-shell-home (verify)
+
+W07 web shell and Home verified by independent review. 26 issues are fixed: 24 as implemented and 2 (#374 entity resolver, #376 entity-linker partial tier) with regression fixes. Added apps/web/lib/__tests__/entity-resolver.test.tsx and an agent-with-person-name case in packages/entity-linker/src/__tests__/sweep.test.ts. Playwright spec apps/web/e2e/shell-resilience.spec.ts is unrun, because Playwright cannot run in this environment.
+
+#### W08-web-inbox-settings-live (fix)
+
+W08-web-inbox-settings-live (2026-10-13): fixed issues 185, 191 (Departments: add, confirmed archive with Undo, Archived list and restore, resetDefaults restores archived seeds, per-department settings for lead, icon, color, budget, approvals), 194 (On Foundmill search in the palette, CRM typeahead and /network; /profiles/[kind]/[id] pages; 18+ attestation on go-live and on Commit), 359 (Load earlier messages and Show more conversations), 363 (EntityLink in the Inbox agent exhibit and Agent of the week), 364 (own not-found screens for unknown settings tab and agent address), 369 (join prompt after leaving a community, reply boxes say who they post as), 373 (canceling a deletion settles the Inbox warning and leaves a note; US date in the copy), 375 (unsafe links render as text), 377 (per-screen browser titles). New Playwright specs (unrun here): settings-departments, titles-not-found, plus edits to live and settings-plain.
+
+#### W08-web-inbox-settings-live (verify)
+
+W08 web inbox/settings/live (verified): Departments tab has Add department (blank, template, from a sentence), archive behind a confirm dialog with Undo, an Archived list with Restore, and per-department settings (name, icon, color, lead, budget, approvals). Public profiles are searchable (live.people.search and profile, /profiles/[kind]/[id], Find on Foundmill on /network, On Foundmill in the CRM typeahead and palette) with an 18+ attestation recorded in the audit log. Messages and threads page upward; unknown settings tabs and agent addresses get their own not-found screens; the community feed shows the join prompt after leaving; deletion cancel archives the Inbox warning and leaves a Chief of Staff note; Markdown shows neutralized links as text; every /b/[bid] page has a browser title (Screen, Business, Foundmill). Playwright specs settings-departments, titles-not-found, live and settings-plain are unexecuted.
+
+#### W09-home-api-data (fix)
+
+W09 Home and navigation data (api, db): fixed audit issues #180, #183, #203, #208, #209, #211, #216, #371, #381, #387, #390, #392, #398 (plus GLS2F-12), #402, #408, #409, #410, #411 on fix/W09-home-api-data (commit 43659f5, migration 0044_home_api_data). Dashboards: shared links open read-only for co-members, read-only roles get an unsaved Founder's view and clean 403s, one active dashboard per person (partial unique index), New never steals the default Home, one preset table in packages/config with a card per department. Departments: Reset to defaults restores archived departments, slug collisions get suffixes or a Conflict, split moves tabs. Errors: unique violations are CONFLICT with the field, taken slug shown inline; malformed time cursors and distant ribbon ranges are 400s. Metrics and chapters: revenue_30d summed in SQL per currency, chapters carry quarter totals, milestones and stored composer titles with kick-off-based day counts. Social and seeds: demo businesses hidden from outsiders, boards use quarter facts, community rejoin counts once and applies the chosen business, message threads page by their sort key. Playwright specs updated (home.spec.ts, settings-business.spec.ts) but not run here.
+
+#### W09-home-api-data (verify)
+
+W09-home-api-data (verified): all 18 issues (#180, #183, #203, #208, #209, #211, #216, #371, #381, #387, #390, #392, #398, #402, #408, #409, #410, #411) are fixed, with db, api, widgets, journey, dugout and web unit tests. Migration 0044_home_api_data adds dashboard sharing RLS, a one-active-dashboard index, businesses.is_demo, the is_public and public_profiles redefinitions, and chapter_titles. Verifier commit f95f5f0 only corrects Playwright spec placement. Playwright specs were updated (home.spec: a new dashboard never becomes the default; settings-business.spec: a taken slug shows inline) but not run here. Known follow-ups: Settings > Mode still shows 'Until: until I return' (W01 owns vacation); chapter titles are only stored when the composer service runs.
+
+#### W10-gtm-screens (fix)
+
+W10-gtm-screens (2026-10-13): 13 audit issues fixed and unit-tested (#155, #157, #161, #163, #326, #327, #329, #333, #335, #336, #337, #340, #343). Attribution is counted server-side over the whole history (journey.attribution) and journey.list carries partialJourney. CRM pages through every record with a true total, and search pages by offset. The search box is a keyboard combobox. Customer Update links resolve by journeyId or conversion id at any age, and back follows ?from=. Customer Update copy and empty states are fixed, and reduced motion shows the full summary. Campaigns got New/Edit dialogs, a server- and UI-enforced approved-asset launch rule, End confirmation, and pause/resume that restores the previous status without re-announcing a launch. The channel card matches the Channels table, and Milestones Share buttons are clickable. Playwright specs updated but not run here.
+
+#### W10-gtm-screens (verify)
+
+W10 gtm-screens (#155 #157 #161 #163 #326 #327 #329 #333 #335 #336 #337 #340 #343): all 13 issues fixed and independently verified on top of e9b9917. The implementer's commit was c466eb0. I added one hardening commit, 5badcbe, which rejects dot segments in the replay's ?from= path. Unit, repo and API tests pass in db, api, modules, dugout, widgets and web, and typecheck, banned-terms and us-english are clean. Playwright specs were updated but not run.
+
+#### W11-gtm-services (fix)
+
+### W11 gtm-services (2026-10-13)
+Fixed #154 #158 #159 #160 #162 #164 #328 #330 #331 #332 #334 #338 #339 #341 #342 #344 #345 on fix/W11-gtm-services (3 commits on e9b9917). #328, #330 and #344 were already fixed on the base by the CRM undo-merge and ingest work; added regression tests (concurrent merges, legacy journey model inferred from weights) and closed the remaining legacy-row gap. New migration 0046_gtm_services (channels.scored_at, channel_metrics.source). Playwright specs for CRM duplicate warning and Estimate-labeled MRR milestones were updated but not run in this environment. Not done: a 'channels.score' tool handler for the first-cycle strategist task (distribution.recommend remains the only scorer).
+
+#### W11-gtm-services (verify)
+
+W11 gtm-services (17 issues) verified and fixed on branch fix/W11-gtm-services-v: #154 Assisted asks for new campaigns; #158 engine measures only live campaigns, mock metrics stored and labeled Estimate; #159 demo data dated at the seed instant, renewals as revenue, CRM stages backed by wins, MRR milestones of non-recurring businesses labeled Estimate; #160 merge keeps the duplicate's wins, touches, visitors and Inbox items; #162 channels start unscored; #164 off the board ends campaigns; #328/#344 confirmed fixed on the base with regression tests; #330 legacy journey model labeled from its weights; #331 duplicate-record warning; #332 commentary prompt matches schema; #334 weekly share of the monthly budget; #338 sane cost ranges; #339 re-score keeps the founder's arrangement; #341 host matching by label; #342 daily round-up for volume-rule wins; #345 campaigns start as drafts in the channel currency (verifier also blocked currency changes on update). Migration 0046_gtm_services (channels.scored_at, channel_metrics.source). Playwright specs crm.spec.ts and milestones.spec.ts were updated but not run.
+
+#### W12-inbox-screens (fix)
+
+## W12 inbox screens (fix/W12-inbox-screens, 2026-10-13)
+
+Done: #117 MRR tile, #118 cycle narration without events or over 50, #120 deadline no longer locks a decision, #122 inbox scroll layout, #128 roadmap and model plan actions, #130 vacation reason and away time, #133 'Confirmed by you' chip, #134 vacation authority by cost (plus the VOL-X2 until label), #284 double-click and stale-tab decide, #285 empty charts and ribbon ticks, #286 founder initials, #287 first-page counts, first-page-only refresh and a virtualized list, #291 irreversible or costed options confirm.
+
+Already fixed on the base: VOL-X1 (held sessions starving the activity slots) by the sessions task queue and bounded waits.
+
+Open for others: #119 / VCML-X1 (business currency instead of an EUR fallback in ReadingPane and planContextFor), owned by the business-currency package.
+
+Playwright specs added to apps/web/e2e/inbox.spec.ts were not run (no stack here).
+
+#### W12-inbox-screens (verify)
+
+W12 inbox screens verified on fix/W12-inbox-screens-v at 63385db. Done: #117, #120, #122, #128, #130, #133, #134, #284, #285, #286, #287, #291, and #118 except currency. Open: VCML-X1 (the euro fallback in ReadingPane.tsx, planContextFor in decide.ts and AgentConversation.tsx) waits for the G-business-currency merge (migration 0025). Playwright specs added to apps/web/e2e/inbox.spec.ts were not run.
+
+#### W13-inbox-services (fix)
+
+2026-10-13 W13-inbox-services: fixed issues 119, 121, 123, 124, 126, 127, 129, 131, 132, 135, 282, 283, 288, 289, 290, 292, 293, 294, 295. Option clicks run typed actions with their cost as a policy-checked budget; the rule compiler no longer gates sign-up/sign-in/paid/refund words; plans honor the acting agent's policy settings and only the business's own agents; confirm is exactly-once; undispatched plans are re-started; Inbox reads are per person (migration 0048_inbox_services); composer dedupes open decisions and clamps deadlines; seeds block Continue by type; follow-ups report real statuses. Open: replace the two EUR literals with the business currency once the business-currency package lands; Temporal schedule registration (VFR-X2) stays with the nightly-jobs package. Playwright not run in this environment (inbox.spec.ts updated).
+
+#### W13-inbox-services (verify)
+
+W13 verification (Inbox, decisions and plans services): the implementer's fixes for 19 issues were reviewed and tested on e52cfff. Two defects found and fixed in 9abcb8c: Continue now restarts plans stranded by an unreachable Temporal, and only Inbox-dispatched plans are restarted (so playbook and vacation plans are not doubled); the RLS catalogue test now covers inbox_item_reads. Issue 282 remains partial until the business currency lands. Playwright was not run; inbox.spec.ts was updated by the implementer.
+
+#### W14-security-web-stream (fix)
+
+2026-10-13 W14 security-web-stream: closed #97 (participant-named threads, reserved platform names), #102/#109 (stream re-auth, token expiry, section walls via the SEC1 merge), #103 (cross-tab sign-out, UNAUTHORIZED and not-a-member handling), #105 (open redirect), #252 (POST-only local sign-out), #254 (docs and env example; Railway variable removal is a founder action), #255 (visibility copy and accepted-request contact), #256 (cross-tenant reference checks), #258 (stream token out of the URL), #260 (security headers). Unit and typecheck/lint green; Playwright specs in apps/web/e2e/shell.spec.ts updated but not run.
+
+#### W14-security-web-stream (verify)
+
+- 2026-10-13 — W14 security web and stream, independently verified. Fixed and covered by tests that fail without the fix: thread titles and reserved names (#97), stream re-authorization and token expiry (#102), cross-tab sign-out and lost-access handling (#103), open redirect (#105), stream section walls (#109), POST-only local sign-out (#252), secrets scoping docs (#254), visibility copy and accepted-request contact (#255), cross-tenant reference checks (#256), token out of the WebSocket URL (#258), web security headers (#260). Founder actions left: remove DEV_MASTER_KEY and SESSION_TOKEN_SECRET from the stream and composer services in Railway; set SIGNUP_ALLOWLIST on stream and collab. The new Playwright tests in apps/web/e2e/shell.spec.ts (GET signout does nothing, cross-tab sign-out, dot-segment next values) are unrun and need a CI run.
+
+#### W15-security-services (fix)
+
+## 2026-10-13: W15 security services (api, gateway, connectors)
+
+Fixed 18 issues (98, 99, 100, 101, 104, 106, 107, 108, 110, 111, 112 (already on base), 113, 250, 251, 253, 257, 259, 261) and VSEC-X1.
+- API authority: staff walls, export section check, admin-only autonomy/caps/negotiation/tool grants, approver matrix for approvals and ask-plans, strict agent.profile.update, journey walls.
+- LIVE: closed unless LIVE_MODE=1; per-person limits and one-time connection.requested events; messages paged with Load earlier; blocks never revealed.
+- Gateway/connectors: connector-derived spend amounts, quarantined reader and per-business recipient register, DNS security-settings hard gate, Stripe connect proof, Gmail/MIME header safety, system sessions for plan actions and imports.
+- Infra: request body and batch limits, RLS/unique violations map to 403/409, demo businesses found by id, journey lookup tables own-property only.
+- Tests added or updated: staff-authority, live-gate, live-limits, request-limits, business-slug, seed-on-boot, wire-errors, live (api); policy-hardening, untrusted-reader, recipients (gateway); mime, stripe, cloudflare_dns (connectors); evaluate/policies (policy); attribution (journey); social repo (db); plan (orchestrator); LiveScreens, NetworkScreen, CommitForm, autonomy-tab, trpc-helpers (web). Playwright not run (not possible here); stack opens LIVE with LIVE_MODE=1.
+- Open: VGPC-X1 (template grant names vs connector tool names) is owned by the gateway/connectors package. packages/policy 'fast enough for the gateway hot path' timing test fails under load on this shared machine with or without the new rule.
+
+#### W15-security-services (verify)
+
+W15 security (api, gateway, connectors): independently verified 18 issues on fix/W15-security-services-v. Fixed one gap: journey.list leaked commentary to walled staff. All other fixes confirmed with passing tests. Playwright not run (not possible here). The packages/policy hot-path timing test needs under 3 ms and is load-sensitive: 3.5 to 4.3 ms on this busy machine, with or without the new Cedar rule.
+
+#### W16-onboarding (fix)
+
+## 2026-10-13 W16 onboarding and new businesses (branch fix/W16-onboarding)
+
+Fixed the 23 audit issues #114 #115 #116 #262 #263 #264 #265 #266 #267 #268 #269 #270 #271 #272 #273 #274 #275 #276 #277 #278 #279 #280 #281. #275 was already fixed on the base by the CI work package.
+- Ideation: idea.restore and idea.listByIds, pinned shortlist and restored cards, plain-words errors for a concept that is gone, serialized versions (row lock, conflict instead of 500), distinct ids for compare and merge, truthful concept count on /new.
+- Commit: Estimate-labelled trademark screen without invented marks, department colors in Day one, Import trail, Back to the finished import, report archetype preselected, honest Board copy, citations seeded as sources.
+- Import: shared source routing table with per-connector arguments, success only on result.ok, terminal states with a deadline and a real finishedAt, usage booking FK fix, idempotent continue, resumable job in the address, readable roadmap-seed labels, steady step icons, seed-on-boot completion marker.
+- Frames, login, profile, currency: prerendered /login, NeedsLargerWindow gate, profile limits mirrored with plain errors, CurrencyCode validation plus safe formatMoney, business-currency prices in the mock foundations.
+Tests: unit and component tests added in api, db, orchestrator, models, shared, web; Playwright specs (import, onboarding, commit, ideation) updated, not run here. No migration.
+
+#### W16-onboarding (verify)
+
+W16-onboarding (verified): 23 issues (#114 #115 #116 #262-#281) fixed; #275 was already fixed on the base. The implementer's commit c21dd8e reviewed in full and re-checked. One verifier commit added a test that checks every import call against the real connector tool schemas. No migration was needed.
+
+#### W17-product-development (fix)
+
+- 2026-10-12 W17 Product & Development fixes (branch fix/W17-product-development; commits 58c74c0, ffb961b, ed08205):
+  - Specification:
+    - human edits in the live editor pin the block (#136)
+    - read-only editor and no Pin/Publish/Restore for viewers and advisors (#141)
+    - hex caret colors and real user names (#297)
+    - serialized, idempotent publish and agent version numbering (#298)
+    - archetype section order in the outline (#309)
+  - Roadmap: product.roadmap.move keeps column order and adds keyboard reordering (#300); link keeps dates, confidence and owner (#310); dates in another year show the year (#305).
+  - Sources: remove action, proper plurals (#301); no service-only contentRef on add (#311).
+  - Pull requests: code tasks only (#140); merge-queue merges listed (#139); "Awaiting deployment" instead of "Deploying…" (#304).
+  - Operations (physical products) shows only Specialists and Plan, with migration 0052 for existing businesses (#303).
+  - Live sessions:
+    - replay seeds every tile, and empty terminals show the agent's activity (#137)
+    - compact tiles clip and keep Estimate (#138)
+    - stream focus flag agreed between client and server (#296)
+    - clocks tick (#299)
+    - queued sessions shown as Queued (#306)
+  - Specialists: neutral empty copy (#302); header counts agents and tasks apart (#307); ready tasks listed as not started (#308).
+  - Unit tests added or updated in collab, db, api, agents, widgets, stream, dugout, modules and web. Playwright specs updated (product, specification, team-development, live-sessions) but not run here.
+  - Not done here: VTPD-X1 (release agent stops nothing), owned by W19 #149.
+
+#### W17-product-development (verify)
+
+- 2026-10-12 W17 Product & Development fixes (branch fix/W17-product-development, verified on fix/W17-product-development-v; commits 58c74c0, ffb961b, ed08205, 9ae01c1):
+  - Specification:
+    - human edits in the live editor pin the block (#136)
+    - read-only editor and no Pin/Publish/Restore for viewers and advisors (#141)
+    - hex caret colors and real user names (#297)
+    - serialized, idempotent publish and agent version numbering (#298)
+    - archetype section order in the outline (#309)
+  - Roadmap: product.roadmap.move keeps column order and adds keyboard reordering (#300); link keeps dates, confidence and owner (#310); dates in another year show the year (#305).
+  - Sources: remove action, proper plurals (#301); no service-only contentRef on add (#311); only http(s) links are opened from the browser.
+  - Pull requests: code tasks only (#140); merge-queue merges listed (#139); "Awaiting deployment" instead of "Deploying…" (#304).
+  - Operations (physical products) shows only Specialists and Plan, with migration 0052 for existing businesses (#303).
+  - Live sessions:
+    - replay seeds every tile, and empty terminals show the agent's activity (#137)
+    - compact tiles clip and keep Estimate (#138)
+    - stream focus flag agreed between client and server (#296)
+    - clocks tick (#299)
+    - queued sessions shown as Queued (#306)
+  - Specialists: neutral empty copy (#302); header counts agents and tasks apart (#307); ready tasks listed as not started (#308).
+  - Unit tests added or updated in collab, db, api, agents, widgets, stream, dugout, modules and web. Playwright specs updated (product, specification, team-development, live-sessions) but not run here.
+  - Not done here: VTPD-X1 (releasing an agent stops nothing), owned by W19 #149.
+
+#### W18-production-deploy-ci (fix)
+
+## 2026-10-13: W18 production, deploy and CI (22 audit issues: #222 #223 #224 #225 #227 #228 #232 #233 #234 #235 #428 #429 #430 #431 #432 #435 #436 #437 #438 #439 #440 #442)
+- Deploys no longer kill live sessions: shutdown drains them into hand-offs (see DECISIONS). The orchestrator serves /ready and /health, and api /health shows the relay, the worker backlog and the real model mode.
+- The api relay supervisor, the gateway limiter and ingest's nonce store retry Redis instead of latching to memory. Finished sessions are saved to session_recordings (migration 0053) and Redis streams expire.
+- Live connectors: every platform secret has an env var, OAuth consent and callback exist for Google, Notion and Shopify, platform-key connectors run without a stored credential, and Stripe Connect keeps its account header.
+- Demo seed: deletes by fixed id, never touches real users' community posts, no audit_log table lock, catalogue-valid seed events, completeness marker.
+- Platform: pgbouncer URL params stripped; pino level labels; OTel and Sentry wired; env example checked in CI; Docker image pinned, built and booted in CI; DEPLOY.md and ARCHITECTURE.md refreshed.
+- Open (founder, Railway dashboard): pin temporal and temporal-ui image tags, add a daily backup on the Postgres volume (#438), and set maxmemory plus a used_memory alert on Redis. Not run here: Playwright (apps/web/e2e/settings-plain.spec.ts has an added OAuth-return case), the Docker CI job, Railway healthcheck behavior.
+- Known unrelated failure at base e9b9917: apps/orchestrator src/__tests__/workflows/businessCycle.test.ts, 2 tests ('Workflow execution already started').
+
+#### W18-production-deploy-ci (verify)
+
+W18 production, deploy and CI, independently verified at fcf1c79 (22 issues, no changes needed from the verifier). 21 fixed; #438 (pin the Temporal images, back up the Postgres volume) stays open until the founder does it in the Railway dashboard. The business-cycle tests are the only red result (2 failures), and they fail the same way on the base. Not run: Playwright, the docker CI job, the live-session hand-off path (needs the Claude SDK), and the Railway healthcheck/watchPatterns behavior.
+
+#### W19-team (fix)
+
+W19 Team: 26 issues closed (#142-#153, #312-#325). Added migration 0054_team; Team roster now returns form/tools/latest update/health; release, merge, hire/clone rules; Responsibilities-routed approvals end to end (db, gateway, orchestrator, api); custom skills with reviewed tests; account ID + email invite; owner-rooted hierarchy and Inbox attribution; Staff no-access display; line manager picker; released agent state; idempotent training/plan mutations; negotiation honestly marked unavailable. Tests added in packages/db (repos/team.test.ts), apps/api (agent-profile, team-roster), orchestrator, gateway, modules (team/w19.test.ts), web (w19-logic, attribution, members-logic, preferences-tab). Playwright specs edited, not run.
+
+#### W19-team (verify)
+
+W19 Team verified (fix/W19-team-v). All 26 issues (#142-#153, #312-#325) fixed, and I found no regressions in them. Verification added one change: an agent is no longer allowed to be the approver of its own request in routeApproval. Open items: Playwright specs updated but not run in this environment, and the web vitest run did not complete here because of the shared web lock queue. The Live-sessions 'no output yet' seed (issue #137) stays in W17.
+
+#### X-freshness-commit (fix)
+
+- 2026-10-12 X-freshness-commit (#67, #37):
+  - Stream freshness:
+    - apps/stream acknowledges live subscriptions (`{t:"subscribed"}`).
+    - The web stream client tracks liveness per channel, retries refused subscriptions with backoff, replaces a socket that misses a heartbeat, and probes the socket when the tab becomes visible or the browser comes back online.
+    - A business's queries are refetched when its channel comes back after a gap (reconnect, refusal, return to the business).
+    - The 5-minute stream-kept freshness is per business and holds only while the channel has been live since the fetch.
+    - inbox.list and cycle.status keep a 60 s safety poll while live (30 s otherwise), and business queries refetch when stale on visibilitychange.
+    - Inbox decide, plan confirm and archive refetch the inbox when they fail.
+  - Take charge:
+    - The idea is claimed atomically before the business is created, and its business stamp never re-points.
+    - A second commit returns the first business (`alreadyCommitted`), built from the commit's audit receipt.
+    - The web button uses a single-flight ref guard.
+  - Tests: db claim/concurrency tests; api double-commit test; stream client, protocol and server tests; per-business freshness and resync tests; a new Playwright double-click spec (not run here). ARCHITECTURE §12 and §14 updated.
+
+#### X-freshness-commit (verify)
+
+- 2026-10-12 X-freshness-commit (#67, #37), verified:
+  - Stream freshness:
+    - apps/stream acknowledges live subscriptions (`{t:"subscribed"}`).
+    - The web client tracks liveness per channel, retries refused subscriptions with backoff, replaces a socket that misses a heartbeat, and probes the socket when the tab becomes visible or the browser comes back online.
+    - A business's queries are refetched when its channel comes back after a gap (reconnect, refusal, return to the business).
+    - The 5-minute freshness for stream-kept data is per business. `inbox`, `cycle` and `finance` keep it; `department` no longer does.
+    - The shell polls `inbox.list` and `cycle.status` every 60 s while live and every 30 s otherwise, and `department.list` every 60 s.
+    - Business queries refetch when stale on visibilitychange.
+  - Other members' changes:
+    - Inbox archive and plan confirmation write `inbox.item_updated` (ids only). The shell refetches the inbox and the plan on it, and the Home inbox preview and live feed handle it.
+    - Decide, confirm and archive refetch the inbox when they fail.
+  - Take charge:
+    - The idea is claimed atomically before the business is created, and its business stamp never re-points.
+    - A second commit returns the first business (`alreadyCommitted`) from the commit's audit receipt.
+    - The button uses a single-flight ref guard.
+  - Tests:
+    - db claim, concurrency and stale-read tests.
+    - api double-commit and stale-read race tests, and an `inbox.item_updated` test.
+    - stream client, protocol and server tests.
+    - Tests for per-business freshness, resync, the shell poll intervals and the event map.
+    - A widget refetch test.
+    - A Playwright double-click spec in commit.spec.ts (not run here).
+  - ARCHITECTURE §12 and §14 updated.
+- 2026-10-13: **Release 1 integration.** All verified work packages merged on top of `main` 7a95f2e. Checks on the merged tree: typecheck (25 turbo tasks), lint (0 errors), banned-terms and US English clean, unit tests green per package (db 1,618, api 668, web 861, orchestrator 478, gateway 161, stream 83, ingest 73, shared, events, models, agents, journey and composer all passing); `policy`'s 3 ms evaluation timing test is flaky on a shared machine. Playwright specs were not run locally. Held back: W02 and W03.

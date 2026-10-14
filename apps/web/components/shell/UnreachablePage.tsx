@@ -2,9 +2,10 @@
 /** Rendered by server pages when apps/api cannot be reached: says what failed and how to fix it. */
 import { ServerOff } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { Button, EmptyState } from "@foundmill/dugout";
+import { EmptyState } from "@foundmill/dugout";
 import { publicEnv } from "@/lib/env";
 import { BrandFrame } from "./BrandFrame";
+import { SignOutButton } from "./SignOutButton";
 
 export function UnreachablePage({ message }: { message: string }) {
   const router = useRouter();
@@ -16,9 +17,7 @@ export function UnreachablePage({ message }: { message: string }) {
           {message} Check your connection, then try again. If it keeps happening, the server may be restarting.
         </EmptyState>
         <div className="mt-3 flex justify-end">
-          <Button variant="ghost" size="sm" asChild>
-            <a href="/auth/signout">Sign out</a>
-          </Button>
+          <SignOutButton />
         </div>
       </div>
     </BrandFrame>

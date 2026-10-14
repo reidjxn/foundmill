@@ -9,8 +9,8 @@ import { Check, LogOut } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { APP_NAME } from "@foundmill/config";
-import { Icon, ToastPlacement, Wordmark, cn } from "@foundmill/dugout";
-import { LinkButton } from "./LinkButton";
+import { Icon, NeedsLargerWindow, ToastPlacement, Wordmark, cn, isViewportTooSmall, useViewportWidth } from "@foundmill/dugout";
+import { SignOutButton } from "../shell/SignOutButton";
 
 export type StudioStep = "profile" | "new" | "ideate" | "import" | "compare" | "commit";
 
@@ -52,6 +52,9 @@ export interface StudioFrameProps {
 }
 
 export function StudioFrame({ step, steps = STUDIO_STEPS, title, lede, actions, viewer, width = "wide", children }: StudioFrameProps) {
+  // Desktop only (BUILD §5.3): under 1280 px the window is asked to grow instead of drawing a top bar that overflows.
+  const viewportWidth = useViewportWidth();
+  if (isViewportTooSmall(viewportWidth)) return <NeedsLargerWindow width={viewportWidth} />;
   const activeIndex = steps.findIndex((s) => s.id === step);
   return (
     <div className="relative isolate flex min-h-screen flex-col bg-canvas text-primary" data-testid="studio-frame" data-step={step}>
@@ -99,9 +102,7 @@ export function StudioFrame({ step, steps = STUDIO_STEPS, title, lede, actions, 
         </nav>
         <div className="ml-auto flex shrink-0 items-center gap-3">
           {viewer?.email ? <span className="font-mono text-mono text-tertiary">{viewer.email}</span> : null}
-          <LinkButton variant="ghost" size="sm" icon={LogOut} href="/auth/signout" external>
-            Sign out
-          </LinkButton>
+          <SignOutButton icon={LogOut} />
         </div>
       </header>
       <main className={cn("mx-auto w-full flex-1 px-gutter pb-10 pt-8", width === "wide" ? "first-run-wide" : "first-run-measure")}>

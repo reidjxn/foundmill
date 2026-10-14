@@ -2,15 +2,16 @@
  * The Composer service facade (docs/ARCHITECTURE.md §11): narrate, refresh, commentary, chapter titles and the named
  * query registry, over one database and one models client. `createApp` wraps it in HTTP; tests call it directly.
  */
+import { LIMITS } from "@foundmill/config";
 import { repos, type Db, type InboxItem } from "@foundmill/db";
-import type { ModelClient, ModelLogger } from "@foundmill/models";
+import { stableHash, type ModelClient, type ModelLogger } from "@foundmill/models";
 import { NotFoundError, ValidationError } from "@foundmill/shared";
-import { composeChapterTitle, quarterOf, type ChapterTitleResult } from "./chapter";
+import { composeChapterTitle, parseQuarter, quarterOf, type ChapterTitleResult } from "./chapter";
 import { composeCommentary, type CommentaryResult } from "./commentary";
 import { composeNote } from "./compose";
 import { loadContext } from "./context";
 import { namedQueryCatalogue, runNamedQuery, type ExhibitData } from "./exhibits";
-import { persistDrafts, persistNote } from "./persist";
+import { findPersisted, persistDrafts, persistNote, type Persisted } from "./persist";
 import { RefreshEngine, type RefreshEngineOptions, type RefreshResult } from "./refresh";
 
 export interface ComposerServiceDeps {
@@ -31,14 +32,25 @@ export interface NarrateResult {
   /** Unverified CRM entities drafted from unknown proper nouns. */
   draftEntityIds: string[];
   costMinor: number;
-  model: string;
+  /** The model that wrote the note; null when the note was already written (`replayed`). */
+  model: string | null;
   durationMs: number;
+  /** True when these events were already narrated by an earlier call: its note is returned and nothing is written or billed. */
+  replayed: boolean;
+}
+
+/** The idempotency key of narrating one set of events (order and repeats do not matter). */
+export function narrationKey(eventIds: readonly string[]): string {
+  return `narrate:${stableHash([...new Set(eventIds)].sort())}`;
 }
 
 export class ComposerService {
   readonly refreshEngine: RefreshEngine;
   private readonly draftsOn: boolean;
+  private readonly deadlineMs: number;
   private readonly now: () => Date;
+  /** Narrations being written, by business and event set: a retry of a slow call waits for it instead of writing again. */
+  private readonly narrating = new Map<string, Promise<NarrateResult>>();
 
   constructor(
     private readonly deps: ComposerServiceDeps,
@@ -46,21 +58,39 @@ export class ComposerService {
   ) {
     this.refreshEngine = new RefreshEngine(deps, options);
     this.draftsOn = options.persistDrafts ?? true;
+    this.deadlineMs = options.composeDeadlineMs ?? LIMITS.composerDeadlineMs;
     this.now = options.now ?? (() => new Date());
   }
 
-  /** `POST /v1/narrate`: one item narrating exactly these events, or `ComposerRejectedError` (422) after the single re-ask. */
-  async narrate(businessId: string, eventIds: readonly string[]): Promise<NarrateResult> {
-    const started = Date.now();
+  /**
+   * `POST /v1/narrate`: one item narrating exactly these events, or `ComposerRejectedError` (422) after the single
+   * re-ask. Idempotent per event set (audit CML-05): the orchestrator retries a narration whose answer it did not get
+   * (a timeout, a restart), so a call for events already narrated together returns that note, and a call while the
+   * same narration is still being written waits for it. Neither writes a second note or pays for a second one.
+   */
+  narrate(businessId: string, eventIds: readonly string[]): Promise<NarrateResult> {
     const ids = [...new Set(eventIds)];
-    if (ids.length === 0) throw new ValidationError("eventIds must name at least one event");
+    if (ids.length === 0) return Promise.reject(new ValidationError("eventIds must name at least one event"));
+    const key = narrationKey(ids);
+    const flight = `${businessId}:${key}`;
+    const running = this.narrating.get(flight);
+    if (running) return running.then((r) => ({ ...r, replayed: true, costMinor: 0 }));
+    const p = this.narrateOnce(businessId, ids, key).finally(() => this.narrating.delete(flight));
+    this.narrating.set(flight, p);
+    return p;
+  }
+
+  private async narrateOnce(businessId: string, ids: string[], key: string): Promise<NarrateResult> {
+    const started = Date.now();
+    const done = await findPersisted(this.deps.db, businessId, key);
+    if (done) return replay(done, started);
     const events = await repos.events.byIds(this.deps.db, businessId, ids);
     if (events.length !== ids.length) {
       const found = new Set(events.map((e) => e.id));
       throw new NotFoundError("event", ids.filter((id) => !found.has(id)).join(", "));
     }
     const ctx = await loadContext(this.deps.db, businessId, { now: this.now(), entityIds: events.flatMap((e) => e.entityIds), skipUnnarrated: true });
-    const composed = await composeNote(this.deps, ctx, { mode: "events", events }, { onInvalidLinks: "reject" });
+    const composed = await composeNote(this.deps, ctx, { mode: "events", events }, { onInvalidLinks: "reject", deadlineMs: this.deadlineMs });
     const persisted = await persistNote(this.deps.db, this.deps.log, {
       businessId,
       item: composed.item,
@@ -68,7 +98,9 @@ export class ComposerService {
       costMinorInt: composed.costMinorInt,
       costCurrency: composed.costCurrency,
       slot: "narrate",
+      idempotencyKey: key,
     });
+    if (persisted.replayed) return replay(persisted, started);
     const draftEntityIds = this.draftsOn && composed.drafts.length ? await persistDrafts(this.deps.db, this.deps.log, businessId, composed.drafts, persisted.item.id, persisted.item.bodyMd) : [];
     return {
       item: persisted.item,
@@ -79,6 +111,7 @@ export class ComposerService {
       costMinor: composed.costMinorInt,
       model: composed.model,
       durationMs: Date.now() - started,
+      replayed: false,
     };
   }
 
@@ -92,9 +125,18 @@ export class ComposerService {
     return composeCommentary(this.deps, businessId, journeyId);
   }
 
-  /** `POST /v1/chapter-title`; `quarter` defaults to the current one. */
-  chapterTitle(businessId: string, quarter?: string): Promise<ChapterTitleResult> {
-    return composeChapterTitle(this.deps, businessId, quarter ?? quarterOf(this.now()));
+  /**
+   * `POST /v1/chapter-title`; `quarter` defaults to the current one. The model's title for a quarter that has ended is
+   * stored (`chapter_titles`, 0044), so the Ribbon names that chapter from then on. A current quarter's facts still
+   * move, and a provisional fallback is never stored: the Ribbon keeps its own provisional title until a model title.
+   */
+  async chapterTitle(businessId: string, quarter?: string): Promise<ChapterTitleResult> {
+    const q = quarter ?? quarterOf(this.now());
+    const result = await composeChapterTitle(this.deps, businessId, q);
+    if (result.source === "model" && parseQuarter(q).to.getTime() <= this.now().getTime()) {
+      await repos.journeys.setChapterTitle(this.deps.db, businessId, { chapterId: result.quarter, title: result.title, subtitle: result.subtitle, mood: result.mood });
+    }
+    return result;
   }
 
   exhibits(): ReturnType<typeof namedQueryCatalogue> {
@@ -127,4 +169,19 @@ export class ComposerService {
 
 export function createComposerService(deps: ComposerServiceDeps, options: ComposerServiceOptions = {}): ComposerService {
   return new ComposerService(deps, options);
+}
+
+/** A narration answered from the note already written for the same events (nothing written, nothing billed). */
+function replay(persisted: Persisted, started: number): NarrateResult {
+  return {
+    item: persisted.item,
+    eventIds: [...persisted.item.sourceEventIds],
+    reasked: false,
+    entityIds: persisted.item.entityIds,
+    draftEntityIds: [],
+    costMinor: 0,
+    model: null,
+    durationMs: Date.now() - started,
+    replayed: true,
+  };
 }

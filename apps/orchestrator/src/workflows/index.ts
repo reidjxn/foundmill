@@ -12,16 +12,34 @@ export { planExecution } from "./planExecution";
 export type { PlanExecutionInput, PlanExecutionResult } from "./planExecution";
 export { channelEngine, WEEK_MS, MEASURE_DELAY_MS } from "./channelEngine";
 export type { ChannelEngineResult } from "./channelEngine";
-export { trainingRun, TRAINING_PARALLELISM } from "./trainingRun";
-export { holiday, MAX_HOLIDAY_CYCLES } from "./holiday";
+export { trainingRun, TRAINING_PARALLELISM, TRAINING_START_FAILED, TRAINING_FINISH_FAILED } from "./trainingRun";
+export { autopilot, AUTOPILOT_ROUNDS_PER_RUN } from "./autopilot";
+export type { AutopilotInput, AutopilotResult } from "./autopilot";
+export { holiday, holidayStopReason, MAX_HOLIDAY_CYCLES } from "./holiday";
 export type { HolidayResult } from "./holiday";
+export { automatedMode, AUTOMATED_MODE_CYCLES_PER_RUN, AUTOMATED_MODE_CHAINED_CYCLES } from "./automatedMode";
+export type { AutomatedModeResult } from "./automatedMode";
 export { playbook } from "./playbook";
 export type { PlaybookResult } from "./playbook";
-export { incorporation } from "./incorporation";
+export { incorporation, INCORPORATION_SUBMITTER_PATCH } from "./incorporation";
 export type { IncorporationResult } from "./incorporation";
 export { journeyBuild } from "./journeyBuild";
 export { importBusiness } from "./importBusiness";
 export type { ImportBusinessResult } from "./importBusiness";
 export { businessFoundations, FOUNDATIONS_DRAFT_FAILED, FOUNDATIONS_SAVE_FAILED, FOUNDATIONS_STAGED_PATCH } from "./businessFoundations";
-export { journeyDailyRefresh, benchmarksRebuild, credentialExpiryScan, consentRenewalScan, agentMetricsRollup } from "./schedules";
+export {
+  journeyDailyRefresh,
+  journeyMatviewRefresh,
+  benchmarksRebuild,
+  credentialExpiryScan,
+  consentRenewalScan,
+  agentMetricsRollup,
+  agentHealthSweep,
+  legalCalendarRoll,
+  channelEngineReconcile,
+  crmDeletionSweep,
+  businessDeletionSweep,
+} from "./schedules";
+export type { BusinessDeletionResult, EngineReconcileResult } from "./schedules";
+export { sourceWatch, sourceWatchSweep, SOURCE_WATCH_FAILED_REASON } from "./sourceWatch";
 export * from "./signals";

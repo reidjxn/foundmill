@@ -39,12 +39,27 @@ export const NOTE_TYPE_TAGS: Record<InboxItemType, NoteTag> = {
 };
 
 /**
- * One tag per row: a won customer reads "Customer" (gold), anything waiting on the founder says "Respond", the rest
- * name their kind ("Milestone", "Update", "Report", "Decided" once a decision is answered).
+ * One tag per row: a won customer reads "Customer" (gold), anything waiting on the founder says "Respond" (an answered
+ * note whose plan still waits for their go-ahead too: inbox.list's `awaitingConfirmation`), the rest name their kind
+ * ("Milestone", "Update", "Report", "Decided" once a decision is answered).
  */
-export function noteRowTag(item: { type: InboxItemType; state: InboxState; blocksContinue: boolean }): NoteTag {
+export function noteRowTag(item: { type: InboxItemType; state: InboxState; blocksContinue: boolean; awaitingConfirmation?: boolean }): NoteTag {
   if (item.type === "customer_won") return NOTE_TYPE_TAGS.customer_won;
+  if (item.awaitingConfirmation && item.state !== "archived") return RESPOND_TAG;
   const answered = item.state === "answered" || item.state === "archived";
   if (!answered && (item.blocksContinue || item.type === "decision")) return RESPOND_TAG;
   return NOTE_TYPE_TAGS[item.type];
+}
+
+/** The name a note in another person's words goes under: where it came from (its subject names the person). */
+export const NETWORK_SENDER = "Network";
+
+/**
+ * Whose words a human message carries, for its avatar and name: the viewer's own note ("self"), or another person's
+ * ("other": a connection request or a message from another founder, which Network files in this business's Inbox).
+ * Someone else's words never read as "You". Null for an item with no person behind it (an agent's or the team's).
+ */
+export function humanSender(fromUserId: string | null | undefined, viewerId: string | null | undefined): "self" | "other" | null {
+  if (!fromUserId) return null;
+  return fromUserId === viewerId ? "self" : "other";
 }

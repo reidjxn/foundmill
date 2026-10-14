@@ -10,9 +10,10 @@
  * client lives in `./client` (`@foundmill/stream/client`) and pulls in none of this.
  */
 import { createServiceDb, closeDb } from "@foundmill/db";
-import { loadEnv, servicePort } from "@foundmill/shared";
+import { admittedBy, loadEnv, parseSignupAllowlist, servicePort } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { onShutdown } from "@foundmill/shared/shutdown";
+import { installTelemetry } from "@foundmill/shared/telemetry";
 import { createTokenVerifier } from "./auth";
 import { createCachedAuthorizer, createRepoAuthorizer } from "./authorize";
 import { prepareDb } from "./db-boot";
@@ -20,7 +21,7 @@ import { createStreamRedis, probeRedis, unreachableMessage } from "./redis";
 import { createStreamServer } from "./server";
 
 export { createTokenVerifier, parseDevToken, StreamAuthError, type AuthUser, type TokenVerifier, type TokenVerifierOptions } from "./auth";
-export { createRepoAuthorizer, createCachedAuthorizer, createMemoryAuthorizer, type Authorizer, type AuthorizationResult, type CachedAuthorizerOptions } from "./authorize";
+export { createRepoAuthorizer, createCachedAuthorizer, createMemoryAuthorizer, type Authorizer, type AuthorizationResult, type CachedAuthorizerOptions, type RepoAuthorizerOptions } from "./authorize";
 export { OutboundQueue, eventFrame, type OutboundQueueOptions, type SocketLike } from "./connection";
 export { ClientFrameSchema, parseClientFrame, MAX_INBOUND_BYTES, type ParsedFrame } from "./frames";
 export { StreamHub, silentLog, type HubListener, type StreamHubOptions, type StreamLog } from "./hub";
@@ -29,9 +30,12 @@ export * from "./protocol";
 export { createStreamServer, type StreamServer, type StreamServerDeps, type StreamServerOptions, type HealthReport } from "./server";
 export { probeRedis, createStreamRedis, unreachableMessage, type RedisProbe } from "./redis";
 export { prepareDb, type DbReadiness } from "./db-boot";
+export { EVENT_WALLS, eventView, viewEvent, membershipChangeOf, type EventView, type EventWall } from "./walls";
 
 export async function main(): Promise<void> {
   const env = loadEnv();
+  // Traces to OTEL_EXPORTER_OTLP_ENDPOINT and error reports to SENTRY_DSN, when set (packages/shared telemetry.ts).
+  const telemetry = installTelemetry("stream", env);
   const log = createLogger("stream", env.LOG_LEVEL);
   if (!env.DATABASE_URL) {
     log.error({}, "DATABASE_URL is not set; the stream server cannot check memberships");
@@ -49,6 +53,7 @@ export async function main(): Promise<void> {
       { name: "close sockets", run: () => server?.close() },
       { name: "close redis", run: () => redis?.quit().catch(() => redis?.disconnect()) },
       { name: "close database", run: () => closeDb(db) },
+      { name: "flush telemetry", run: () => telemetry.shutdown() },
     ],
   });
   const readiness = await prepareDb(db, log, { service: "stream" });
@@ -62,16 +67,19 @@ export async function main(): Promise<void> {
 
   const auth = createTokenVerifier({
     supabaseUrl: env.SUPABASE_URL,
-    jwtSecret: process.env.SUPABASE_JWT_SECRET ?? null,
+    jwtSecret: env.SUPABASE_JWT_SECRET ?? null,
     devUserId: env.DEV_AUTH_USER_ID ?? null,
     appEnv: env.APP_ENV,
   });
   if (auth.devUserId) log.warn({ userId: auth.devUserId }, "DEV_AUTH_USER_ID is set: tokens are not verified (development/test only)");
 
   if (lifecycle.stopping) return;
+  // The api's invite list (SIGNUP_ALLOWLIST): an account it does not name gets no socket either.
+  const allowlist = parseSignupAllowlist(env.SIGNUP_ALLOWLIST);
   server = createStreamServer({
     redis: client,
     auth,
+    admit: (user) => admittedBy(allowlist, user, auth.devUserId),
     authorizer: createCachedAuthorizer(createRepoAuthorizer(db, { log })),
     log,
     options: {

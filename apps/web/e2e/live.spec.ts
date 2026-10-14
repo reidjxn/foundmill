@@ -10,6 +10,9 @@ import { LONG, NORTHWIND_BUSINESS_ID, signIn } from "./helpers";
  */
 const LEDGERLY_BUSINESS_ID = "b1e5e5e5-0000-4000-8000-000000000002";
 
+/** A unique, letter-led tag for test text: a long run of digits reads as a phone number to moderation and holds the post. */
+const tag = () => `x${Date.now().toString(36)}`;
+
 const nav = (page: Page) => page.getByRole("navigation", { name: "Primary" });
 
 /** Signs in, opens a business Home (its layout remembers the business) and waits for the shell. */
@@ -26,18 +29,22 @@ test.describe("live pages from the sidebar", () => {
   });
 
   test("Network: opens inside the shell with the strip, requests, messages, connections and the visibility control", async ({ page }) => {
-    await nav(page).getByRole("link", { name: "Network" }).click();
+    await nav(page).getByRole("link", { name: /^Network/ }).click();
     await expect(page).toHaveURL(/\/network$/, { timeout: LONG });
     await expect(page.getByTestId("network-screen")).toBeVisible({ timeout: LONG });
     // The same shell as the business pages: Ledgerly's bar, the sidebar with the LIVE item lit, the Foundmill wordmark.
     await expect(page.getByTestId("kit-bar")).toContainText("Ledgerly");
-    await expect(nav(page).getByRole("link", { name: "Network" })).toHaveAttribute("aria-current", "page");
+    await expect(nav(page).getByRole("link", { name: /^Network/ })).toHaveAttribute("aria-current", "page");
     await expect(nav(page).getByRole("link", { name: "Foundmill" })).toBeVisible();
 
     const strip = page.getByTestId("network-strip");
     await expect(strip).toContainText("Unread messages");
     await expect(strip).toContainText("Requests waiting");
     await expect(strip).toContainText("Connections");
+    // Community invitations wait here too (audit #28).
+    await expect(strip).toContainText("Invitations");
+    // The seeded founder has confirmed that they are 18 or older, so the network does not ask again.
+    await expect(page.getByTestId("adult-notice")).toHaveCount(0);
     await expect(page.getByTestId("requests-panel")).toBeVisible();
     await expect(page.getByTestId("sent-requests-panel")).toBeVisible();
     // Messages are between people: the panel says only the founder's own Send writes one.
@@ -45,6 +52,16 @@ test.describe("live pages from the sidebar", () => {
     await expect(page.getByTestId("connections-panel")).toBeVisible();
     // Not a 404 and not an error panel.
     await expect(page.getByTestId("error-panel")).toHaveCount(0);
+  });
+
+  test("Network: Find on Foundmill searches public profiles by name; the demo business is never listed", async ({ page }) => {
+    await page.goto("/network");
+    const panel = page.getByTestId("people-search");
+    await expect(panel).toBeVisible({ timeout: LONG });
+    await panel.getByTestId("people-search-input").fill("Ledgerly");
+    // Ledgerly is the seeded demo (synthetic numbers): LIVE for its owners, but never listed for anyone else (0044).
+    await expect(panel.getByTestId("people-search-empty")).toContainText("No public profile matches", { timeout: LONG });
+    await expect(panel.getByTestId("people-search-results")).toHaveCount(0);
   });
 
   test("Network: the profile visibility control offers the four levels and saves a change (then restores it)", async ({ page }) => {
@@ -116,7 +133,7 @@ test.describe("live pages from the sidebar", () => {
     await newest.getByRole("button", { name: "Reply", exact: true }).click();
     const thread = newest.getByTestId("reply-thread");
     await expect(thread).toBeVisible({ timeout: LONG });
-    const replyText = `Playwright reply ${Date.now()}`;
+    const replyText = `Playwright reply ${tag()}`;
     const replyBox = thread.getByLabel("Write a reply");
     await replyBox.fill(replyText);
     await replyBox.press("Control+Enter");
@@ -124,7 +141,7 @@ test.describe("live pages from the sidebar", () => {
     await expect(newest.getByRole("button", { name: /\d+ repl(y|ies)$/ })).toBeVisible({ timeout: LONG });
 
     // The post box: Ctrl+Enter sends, the field clears and the post heads the feed.
-    const text = `Playwright post ${Date.now()}`;
+    const text = `Playwright post ${tag()}`;
     const box = page.getByLabel("Write a post");
     await box.fill(text);
     await box.press("Control+Enter");
@@ -132,6 +149,41 @@ test.describe("live pages from the sidebar", () => {
     await expect(feed.getByTestId("feed-post").first()).not.toContainText("Ledgerly");
     await expect(box).toHaveValue("");
     await expect(page.getByTestId("community-members")).toBeVisible();
+
+    // Audit #28: the author deletes their own post from its More menu, and it leaves the feed.
+    const mine = feed.getByTestId("feed-post").filter({ hasText: text });
+    await mine.getByTestId("post-menu").click();
+    await page.getByRole("menuitem", { name: /Delete/ }).click();
+    await expect(feed.getByTestId("feed-post").filter({ hasText: text })).toHaveCount(0, { timeout: LONG });
+
+    // A post moderation holds (a phone number in a post every member reads) shows to its author as held.
+    const held = `Playwright held ${tag()}: call me on +1 415 555 0100`;
+    await box.fill(held);
+    await box.press("Control+Enter");
+    const heldPost = feed.getByTestId("feed-post").filter({ hasText: held });
+    await expect(heldPost).toBeVisible({ timeout: LONG });
+    await expect(heldPost.getByTestId("post-status")).toHaveText("Held for review");
+    // The founder owns this community, so the review queue lists it; removing it as its author clears it.
+    await expect(page.getByTestId("moderation-panel")).toContainText(held, { timeout: LONG });
+    await heldPost.getByTestId("post-menu").click();
+    await page.getByRole("menuitem", { name: /Delete/ }).click();
+    await expect(feed.getByTestId("feed-post").filter({ hasText: held })).toHaveCount(0, { timeout: LONG });
+  });
+
+  test("Communities: Start a community opens its form (name, kind, who can join)", async ({ page }) => {
+    await page.goto("/communities");
+    await expect(page.getByTestId("communities-screen")).toBeVisible({ timeout: LONG });
+    await page.getByTestId("community-create").click();
+    const dialog = page.getByTestId("create-community-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByTestId("create-community-save")).toBeDisabled();
+    await expect(dialog.getByRole("radio", { name: /Geography/ })).toBeVisible();
+    await expect(dialog.getByRole("radio", { name: /By invitation/ })).toBeVisible();
+    await dialog.getByLabel("Name").fill("Playwright founders");
+    await expect(dialog.getByTestId("create-community-save")).toBeEnabled();
+    // Cancel: the run leaves no community behind (creating is limited per founder per day).
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toHaveCount(0);
   });
 
   test("Leaderboards: lists the boards with the business's position and opens one with its entries", async ({ page }) => {
@@ -185,7 +237,10 @@ test.describe("live pages and the current business", () => {
       await expect(page.getByTestId("personal-notice")).toContainText("Personal business", { timeout: LONG });
       await expect(page.getByTestId("error-panel")).toHaveCount(0);
     }
-    // The Personal sidebar has no LIVE block, and the page is still a page, not a 404.
+    // The Personal sidebar keeps Network (the founder's own requests and messages, audit #65) and nothing else of the
+    // LIVE block, and the page is still a page, not a 404.
+    await expect(nav(page).getByRole("link", { name: /^Network/ })).toBeVisible();
+    await expect(nav(page).getByRole("link", { name: "Communities" })).toHaveCount(0);
     await expect(nav(page).getByRole("link", { name: "Leaderboards" })).toHaveCount(0);
     await expect(page.getByTestId("leaderboards-screen")).toBeVisible();
     await expect(page.getByTestId("positions-panel")).toContainText("Personal business");

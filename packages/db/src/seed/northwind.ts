@@ -9,8 +9,8 @@ import { APP_NAME } from "@foundmill/config";
 import { eq } from "drizzle-orm";
 import { repos } from "../repos";
 import { entities as entitiesTable, type Entity } from "../schema";
-import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSpec, seedTasks, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
-import { DEMO_OWNER_DISPLAY_NAME, NORTHWIND_BUSINESS_ID, NORTHWIND_NAME, NORTHWIND_SLUG } from "./constants";
+import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
+import { DEMO_OWNER_DISPLAY_NAME, DEMO_SEED_AUDIT_ACTION, NORTHWIND_BUSINESS_ID, NORTHWIND_NAME, NORTHWIND_SLUG } from "./constants";
 import { addDays, atHour, mention, money, pct, proseDoc, type SeedCtx } from "./context";
 import { seedFinance } from "./finance";
 import { seedJourney } from "./journey";
@@ -88,7 +88,10 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     planTier: "pro",
     modelBilling: "credits",
     glossary: { customer: "customer", squad: "lab team" },
+    currency: CURRENCY,
     createdBy: ctx.owner.userId,
+    // Synthetic numbers: never listed on the network for anyone outside the business (0044).
+    isDemo: true,
   });
   for (const owner of ctx.owners) await repos.memberships.add(db, businessId, { userId: owner.userId, role: "owner" });
   await repos.businesses.commit(db, businessId, { archetype: "dtc_physical", committedAt: ctx.startDate });
@@ -173,8 +176,20 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   const productLead = squad.byTemplate.get("product_lead");
   const specIds = await seedSpec(ctx, businessId, archetype.specOutline, SPEC_TEXT, productLead?.agent.id ?? null);
   const roadmapIds = await seedRoadmap(ctx, businessId, ROADMAP, specIds, squad);
-  await repos.product.createSource(db, businessId, { kind: "doc", uri: "drive://northwind/lab/batch-002-cpsr.pdf", title: "Batch 002 CPSR (Meridian Labs)", relevance: { score: 0.92, sections: ["Compliance"] }, fetchedAt: addDays(ctx.today, -9) });
-  await repos.product.createSource(db, businessId, { kind: "feedback", uri: null, title: "Reaction reports Q3 (12 tickets)", relevance: { score: 0.81, sections: ["Formulation / BOM"] }, fetchedAt: addDays(ctx.today, -3) });
+  await repos.product.createSource(db, businessId, {
+    kind: "doc",
+    uri: "drive://northwind/lab/batch-002-cpsr.pdf",
+    title: "Batch 002 CPSR (Meridian Labs)",
+    relevance: seededRelevance(specIds, { summary: "The safety assessment for batch 002 passes all three SKUs; the serum needs a revised warning line before relabeling.", sections: [["Compliance", 0.92], ["Packaging", 0.64]], topics: ["safety assessment", "labeling", "batch 002"], checkedAt: addDays(ctx.today, -9) }),
+    fetchedAt: addDays(ctx.today, -9),
+  });
+  await repos.product.createSource(db, businessId, {
+    kind: "feedback",
+    uri: null,
+    title: "Reaction reports Q3 (12 tickets)",
+    relevance: seededRelevance(specIds, { summary: "Twelve reaction tickets this quarter; nine name the serum and most within two weeks of a new batch.", sections: [["Formulation / BOM", 0.81], ["Customers", 0.52]], topics: ["reactions", "serum", "batch quality"], checkedAt: addDays(ctx.today, -3) }),
+    fetchedAt: addDays(ctx.today, -3),
+  });
 
   // One open spec change proposal (BUILD §11.5, AC-11.5.2): a customer interview the Source Watcher read touches three
   // sections; each hunk carries the current block as base/ours and the proposed text as theirs so Product › Changes
@@ -183,7 +198,12 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     kind: "transcript",
     uri: "drive://northwind/research/interview-2026-10-04-reactive-skin-panel.md",
     title: "Customer interview: reactive-skin panel (6 participants)",
-    relevance: { score: 0.88, sections: PROPOSAL_HUNKS.map((h) => h.section) },
+    relevance: seededRelevance(specIds, {
+      summary: "Six panel participants on refills, reactions and referrals: a quarterly refill under £35 would win four of them, five keep a private reaction note, two came through an online clinic.",
+      sections: [["Pricing", 0.88], ["Features", 0.79], ["Customers", 0.74]],
+      topics: ["refill pricing", "reaction diary", "clinic referrals"],
+      checkedAt: addDays(ctx.today, -3),
+    }),
     fetchedAt: addDays(ctx.today, -3),
   });
   const researcher = squad.byTemplate.get("researcher");
@@ -258,6 +278,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     financing: [{ at: atHour(addDays(ctx.startDate, 1), 10), counterparty: `${DEMO_OWNER_DISPLAY_NAME} (director loan)`, amountMinor: 6_000_000, description: "Director loan to fund the first batch", category: "financing", counterpartyEntityId: agentEntities.founder.id }],
     financeLeadAgentId: squad.byTemplate.get("finance_lead")?.agent.id ?? null,
     recentSessions: journey.recentSessions,
+    modelBilling: "credits",
     mrrMinorNow: journey.mrrMinorNow,
   });
   const legal = await seedLegal(ctx, businessId, {
@@ -302,7 +323,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     departmentId: squad.departmentBySlug.get("operations")?.id ?? null,
     name: "Monday stock check",
     sourceText: "Every Monday at 9, check stock at the 3PL for each SKU; if any SKU is under four weeks of cover, open a reorder task for sourcing and tell me in the Inbox.",
-    compiled: { trigger: { cron: "0 9 * * 1" }, steps: [{ type: "create_task", params: { kind: "specialist", title: "Reorder check" } }], approvals: [{ capability: "purchase_order" }], stop: { condition: "any SKU under four weeks of cover" } },
+    compiled: { trigger: { event: "task.completed", where: { kind: "specialist" } }, steps: [{ action: { type: "create_task", params: { kind: "specialist", title: "Reorder check" } }, label: "Open a reorder check for sourcing" }], approvals: [{ step: 0, scope: "every_run", note: "A purchase order is always your decision" }], stop: {} },
     enabled: true,
     createdBy: ctx.owner.userId,
   });
@@ -314,6 +335,8 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   const won = latest ? mention(latest.customer.entityId, latest.customer.displayName) : "a new customer";
   const runwayText = finance.runwayMonths === null ? "no runway limit yet, as the business stays cash-flow positive" : `${finance.runwayMonths} months of runway (Estimate)`;
   const trophy = journey.data.milestones.filter((m) => m.trophyKey).at(-1);
+  // A non-recurring business's "MRR" is its trailing 30-day revenue: the milestone says Estimate.
+  const trophyLabel = trophy ? `${trophy.label}${trophy.ref?.estimate === true ? " (Estimate)" : ""}` : "";
   const inboxDrafts: Array<InboxSpec | null> = [
     {
       type: "decision",
@@ -386,8 +409,8 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
       ? {
           type: "milestone",
           fromAgentId: chief.agent.id,
-          subject: `Milestone: ${trophy.label}`,
-          bodyMd: `${trophy.label} reached on ${new Date(trophy.achievedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}. ${journey.paidCustomers} paying customers so far (synthetic demo data). The whole team gets the credit; ${agentMention(agentEntities, squad.byTemplate.get("channel_influencer")!)} brought the most first touches this quarter.`,
+          subject: `Milestone: ${trophyLabel}`,
+          bodyMd: `${trophyLabel} reached on ${new Date(trophy.achievedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}. ${journey.paidCustomers} paying customers so far (synthetic demo data). The whole team gets the credit; ${agentMention(agentEntities, squad.byTemplate.get("channel_influencer")!)} brought the most first touches this quarter.`,
           createdDaysAgo: 2,
           state: "read",
         }
@@ -429,10 +452,11 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   // Mark the oldest sessions' agent entity as the customer-facing contact so search has an "agent" hit.
   await db.update(entitiesTable).set({ aliases: ["Chief of Staff", "CoS"] }).where(eq(entitiesTable.id, agentEntities.byAgentId.get(chief.agent.id)!.id));
 
+  // The build's last write: seed-on-boot reads it as "this business was built completely" (demoSeedState).
   await repos.audit.append(db, businessId, {
     actorKind: "system",
     actorId: null,
-    action: "seed.demo",
+    action: DEMO_SEED_AUDIT_ACTION,
     target: { kind: "business", id: businessId },
     details: { app: APP_NAME, seed: ctx.seed, slug: NORTHWIND_SLUG, inboxItems: inbox.length, journeys: journey.counts.journeys, legalEntityId: legal.legalEntityId },
   });

@@ -1,20 +1,24 @@
 "use client";
 /**
- * /communities (BUILD §6.2, §11.14): the communities the founder can see (public ones and their own), in a DataTable with
- * saved views (All, Joined, To join) and a right-click menu, with Join and Leave on every row. A row opens
- * /communities/[id], where the feed is.
+ * /communities (BUILD §6.2, §11.14): the communities the founder can see (public ones, their own and the ones they are
+ * invited to), in a DataTable with saved views (All, Joined, To join) and a right-click menu, with Join and Leave on every
+ * row (an invitation is accepted by joining). "Start a community" creates one with the founder as its owner, public or by
+ * invitation. A row opens /communities/[id], where the feed is.
  */
 import { useQuery } from "@tanstack/react-query";
-import { Check, DoorOpen, LogIn, LogOut, UsersRound } from "lucide-react";
+import { Check, DoorOpen, LogIn, LogOut, MailOpen, Plus, UsersRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Button, Chip, DataTable, Panel, StatusPill, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { CreateCommunityDialog } from "./community-dialogs";
 import { routes } from "@foundmill/widgets/shared/routes";
+import { leaveBlocker } from "@/lib/live";
 import { errorMessage, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { useTableViews } from "@/lib/table-views";
 import { useShellChrome } from "@/components/shell/chrome";
 import { COMMUNITY_ROLE_WORD, COMMUNITY_VISIBILITY, useCommunityMembership } from "./communities";
-import { PersonalNotice } from "./shared";
+import { AdultNotice, PersonalNotice } from "./shared";
 
 export type CommunityRow = RouterOutputs["live"]["communities"]["list"][number];
 interface TableRow extends CommunityRow {
@@ -39,7 +43,9 @@ export function CommunitiesScreen() {
   useShellChrome({ title: "Communities" });
   const q = useQuery(trpc.live.communities.list.queryOptions(undefined, { staleTime: 15_000 }));
   const membership = useCommunityMembership();
-  const [views, setViews] = useState<SavedView[]>(COMMUNITY_VIEWS);
+  // Saved per person across their businesses: the LIVE pages are the account's, not one business's (audit #204).
+  const savedViews = useTableViews("live.communities", COMMUNITY_VIEWS, { defaultViewId: "all" });
+  const [creating, setCreating] = useState(false);
 
   const rows = useMemo<TableRow[]>(() => (q.data ?? []).map((c) => ({ ...c, membership: c.role ? "joined" : "not_joined" })), [q.data]);
   const open = (id: string) => router.push(routes.community(id));
@@ -77,7 +83,14 @@ export function CommunitiesScreen() {
         accessorKey: "membership",
         header: "You",
         size: 140,
-        cell: ({ row }) => (row.original.role ? <StatusPill tone="good" icon={Check}>{COMMUNITY_ROLE_WORD[row.original.role] ?? "Member"}</StatusPill> : <StatusPill tone="neutral">Not joined</StatusPill>),
+        cell: ({ row }) =>
+          row.original.role ? (
+            <StatusPill tone="good" icon={Check}>{COMMUNITY_ROLE_WORD[row.original.role] ?? "Member"}</StatusPill>
+          ) : row.original.invited ? (
+            <StatusPill tone="info" icon={MailOpen}>Invited</StatusPill>
+          ) : (
+            <StatusPill tone="neutral">Not joined</StatusPill>
+          ),
         meta: { filter: "select", filterOptions: MEMBERSHIP_OPTIONS },
       },
       {
@@ -89,12 +102,14 @@ export function CommunitiesScreen() {
         cell: ({ row }) => {
           const c = row.original;
           const joined = !!c.role;
+          const stays = joined ? leaveBlocker(c) : null;
           return (
             <Button
               size="sm"
               variant={joined ? "ghost" : "default"}
               icon={joined ? LogOut : LogIn}
-              disabled={membership.pending && membership.pendingId === c.id}
+              disabled={(membership.pending && membership.pendingId === c.id) || !!stays}
+              title={stays ?? undefined}
               aria-label={`${joined ? "Leave" : "Join"} ${c.name}`}
               data-testid={joined ? "community-leave" : "community-join"}
               data-community={c.id}
@@ -117,12 +132,13 @@ export function CommunitiesScreen() {
 
   const rowActions = (c: TableRow): RowAction<TableRow>[] => [
     { id: "open", label: "Open feed", icon: DoorOpen, onSelect: (r) => open(r.id) },
-    c.role ? { id: "leave", label: "Leave", icon: LogOut, variant: "danger", separatorBefore: true, onSelect: toggle } : { id: "join", label: "Join", icon: LogIn, separatorBefore: true, onSelect: toggle },
+    c.role ? { id: "leave", label: "Leave", icon: LogOut, variant: "danger", separatorBefore: true, disabled: !!leaveBlocker(c), onSelect: toggle } : { id: "join", label: "Join", icon: LogIn, separatorBefore: true, onSelect: toggle },
   ];
 
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="communities-screen">
       <PersonalNotice className="col-span-12" />
+      <AdultNotice className="col-span-12" />
       <Panel
         title="Communities"
         span={12}
@@ -130,8 +146,17 @@ export function CommunitiesScreen() {
         loading={q.isLoading}
         error={q.error ? errorMessage(q.error) : undefined}
         onRetry={() => void q.refetch()}
-        empty={!q.isLoading && !q.error && rows.length === 0 ? { icon: UsersRound, children: "No communities yet. Public communities, and any you are invited to, are listed here once founders start them." } : undefined}
-        actions={<span className="text-small tabular-nums text-secondary">{rows.length} {rows.length === 1 ? "community" : "communities"}</span>}
+        empty={!q.isLoading && !q.error && rows.length === 0 ? { icon: UsersRound, children: "No communities yet. Public communities, and any you are invited to, are listed here once founders start them.", action: { label: "Start a community", icon: Plus, onClick: () => setCreating(true) } } : undefined}
+        actions={
+          <span className="flex items-center gap-2">
+            <span className="text-small tabular-nums text-secondary">
+              {rows.length} {rows.length === 1 ? "community" : "communities"}
+            </span>
+            <Button size="sm" icon={Plus} onClick={() => setCreating(true)} data-testid="community-create">
+              Start a community
+            </Button>
+          </span>
+        }
         footer="Joining lets you read the feed and post. Posts are written and sent by you; agents can draft one, never post it."
         data-testid="communities-panel"
       >
@@ -139,8 +164,7 @@ export function CommunitiesScreen() {
           aria-label="Communities"
           data={rows}
           columns={columns}
-          views={views}
-          onViewsChange={setViews}
+          {...savedViews}
           defaultViewId="all"
           rowActions={rowActions}
           onRowOpen={(r) => open(r.id)}
@@ -151,6 +175,7 @@ export function CommunitiesScreen() {
           className="border-0"
         />
       </Panel>
+      <CreateCommunityDialog open={creating} onOpenChange={setCreating} onCreated={(c) => open(c.id)} />
     </div>
   );
 }

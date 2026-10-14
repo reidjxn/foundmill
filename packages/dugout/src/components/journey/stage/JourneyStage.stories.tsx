@@ -18,7 +18,7 @@ const meta = {
       },
     },
   },
-  args: { journey: fx.journey, touches: fx.touches, customer: fx.customer, agents: fx.agents, kit: NORTHWIND_KIT, entityKinds: { [fx.journey.entityId as string]: "organisation" } },
+  args: { journey: fx.journey, touches: fx.touches, customer: fx.customer, agents: fx.agents, kit: NORTHWIND_KIT, currency: "EUR", entityKinds: { [fx.journey.entityId as string]: "organisation" } },
   argTypes: { defaultSpeed: { control: "inline-radio", options: ["full", "highlights", "instant"] } },
 } satisfies Meta<typeof JourneyStage>;
 export default meta;

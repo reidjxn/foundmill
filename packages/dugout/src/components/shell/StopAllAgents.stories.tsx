@@ -22,6 +22,16 @@ export const IconTrigger: Story = {
   ],
 };
 export const ButtonTrigger: Story = { args: { variant: "button", className: undefined } };
+/** The team is stopped: the same square turns into Resume agents (amber play mark, amber ring) with the reason and time. */
+export const Stopped: Story = {
+  args: { stopped: { since: "2026-10-12T15:45:00Z", reason: "Stop all agents", canResume: true, onResume: () => new Promise<void>((r) => setTimeout(r, 1200)), hint: "Campaigns the stop paused stay paused until you resume them in Distribution." } },
+  decorators: IconTrigger.decorators,
+};
+/** A member sees why the team is stopped and who can resume it. */
+export const StoppedReadOnly: Story = {
+  args: { stopped: { since: "2026-10-12T15:45:00Z", reason: "the credits ran out", canResume: false, onResume: () => undefined, hint: "A top-up in Settings › Billing resumes the team by itself." } },
+  decorators: IconTrigger.decorators,
+};
 export const Fails: Story = { args: { onConfirm: () => Promise.reject(new Error("The orchestrator did not answer in 10 s. Sessions may still be running.")) } };
 export const WithDetail: Story = {
   args: {

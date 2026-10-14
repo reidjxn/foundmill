@@ -10,6 +10,7 @@ import { getQueryClient } from "@/lib/query-client";
 import { getBrowserAccessToken } from "@/lib/supabase/client";
 import { createApiClient, createUntypedApiClient, type UntypedApiClient } from "@/lib/trpc";
 import { TRPCProvider } from "@/lib/trpc-react";
+import { AuthLossWatcher } from "./AuthLossWatcher";
 
 const UntypedCtx = createContext<UntypedApiClient | null>(null);
 
@@ -29,7 +30,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
       <TRPCProvider trpcClient={trpcClient} queryClient={queryClient}>
         <UntypedCtx.Provider value={untyped}>
           <TooltipProvider delayDuration={400} skipDelayDuration={300}>
-            <ToastProvider>{children}</ToastProvider>
+            <ToastProvider>
+              <AuthLossWatcher />
+              {children}
+            </ToastProvider>
           </TooltipProvider>
         </UntypedCtx.Provider>
       </TRPCProvider>

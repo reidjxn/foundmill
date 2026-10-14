@@ -7,9 +7,9 @@
 import { useMemo } from "react";
 import { z } from "zod";
 import { Trophy } from "lucide-react";
-import { TROPHIES, type TrophyDefinition } from "@foundmill/journey";
+import { thresholdFor, TROPHIES, type TrophyDefinition } from "@foundmill/journey";
 import { TrophyCabinet, formatMoney, formatNumber, type TrophyCard } from "@foundmill/dugout";
-import { useBusinessEvents, useWidgetData } from "../data";
+import { useBusinessEvents, useGlossary, useWidgetData } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { WidgetFrame } from "../shared/frame";
 import { useRecentRibbon } from "../shared/ribbon";
@@ -25,7 +25,7 @@ export type TrophyCabinetSettings = z.infer<typeof TrophyCabinetSettings>;
 
 function describe(t: TrophyDefinition, currency: string): string {
   if (t.metric === "customers") return t.threshold === 1 ? "The first paying customer." : `${formatNumber(t.threshold, { maxDigits: 0 })} paying customers.`;
-  if (t.metric === "mrrMinor") return `Monthly recurring revenue reaches ${formatMoney({ amountMinor: t.threshold, currency })}.`;
+  if (t.metric === "mrrMinor") return `Monthly recurring revenue reaches ${formatMoney({ amountMinor: thresholdFor(t, currency), currency })}.`;
   return "A signed contract above the enterprise threshold.";
 }
 
@@ -63,14 +63,16 @@ export function trophyCards(milestones: RibbonResponse["milestones"] | undefined
 }
 
 function TrophyCabinetWidget({ settings }: WidgetProps<TrophyCabinetSettings>) {
-  const { businessId, navigate, gameMode = "personal", currency = "EUR" } = useWidgetData();
+  const { businessId, navigate, gameMode = "personal", currency } = useWidgetData();
   // Milestones are not limited to the day range, so the recent ribbon Home already shares carries all of them.
   const ribbon = useRecentRibbon();
+  const g = useGlossary();
   useBusinessEvents(() => ribbon.refetch(), ["customer.converted", "payment.received", "contract.signed"]);
   const cards = useMemo(() => {
-    const all = trophyCards(ribbon.data?.milestones, currency, gameMode === "live");
+    // Milestone names in the business's words ("First customer" → "First client").
+    const all = trophyCards(ribbon.data?.milestones, currency, gameMode === "live").map((c) => ({ ...c, label: g(c.label), description: g(c.description) }));
     return settings.wonOnly ? all.filter((c) => c.achievedAt) : all;
-  }, [ribbon.data, currency, gameMode, settings.wonOnly]);
+  }, [ribbon.data, currency, gameMode, settings.wonOnly, g]);
   return (
     <WidgetFrame
       title="Milestones"
@@ -90,7 +92,8 @@ export const trophyCabinetWidget = registerWidget<TrophyCabinetSettings>({
   description: "Customer and revenue milestones, reached and still to reach.",
   icon: "trophy",
   surfaces: ["home", "department"],
-  defaultSize: { w: 6, h: 14, minW: 4, minH: 8 },
+  // Two rows of four milestones (dates and amounts on the reached ones) above the footer; the body scrolls when smaller.
+  defaultSize: { w: 6, h: 16, minW: 4, minH: 8 },
   settingsSchema: TrophyCabinetSettings,
   defaultSettings: TrophyCabinetSettings.parse({}),
   Component: TrophyCabinetWidget,

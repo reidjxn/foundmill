@@ -1,13 +1,15 @@
 /**
  * HTTP surface (docs/ARCHITECTURE.md §1, §17). `createIngestApp(deps)` is pure so tests boot it on an ephemeral
- * port: `GET /health`, `POST /webhooks/:connector[/:businessId]`, and — development/staging only, behind the
- * service token apps/api mints (SEC-2) — `GET /simulate` + `POST /simulate/:eventName`.
+ * port: `GET /health`, `POST /webhooks/:connector[/:businessId]`, `POST /billing/stripe` (Foundmill's own billing:
+ * paid credit top-ups, billing.ts), and — development/staging only, behind the service token apps/api mints (SEC-2) —
+ * `GET /simulate` + `POST /simulate/:eventName`.
  */
 import { APP_NAME, simulatePanelHonoured } from "@foundmill/config";
 import { AppError, UnauthorizedError } from "@foundmill/shared";
 import { Hono, type MiddlewareHandler } from "hono";
 import { repos } from "@foundmill/db";
-import { ackBody, handleWebhook, mountedWebhooks, type MountedWebhook } from "./webhooks";
+import { ackBody, handleWebhook, webhookMounts, type MountedWebhook } from "./webhooks";
+import { BILLING_WEBHOOK_PATH, handleBillingWebhook } from "./billing";
 import { runSimulation, SimulateBody, simulateRoutesMounted, simulationCatalogue } from "./simulate";
 import { bearerToken, verifySimulateToken, type SimulateTokenClaims } from "./simulate-token";
 import { INGEST_SERVICE, type IngestDeps } from "./types";
@@ -25,7 +27,7 @@ const NIL_BUSINESS = "00000000-0000-0000-0000-000000000000";
 
 export function createIngestApp(deps: IngestDeps): CreatedIngestApp {
   const app: IngestApp = new Hono<{ Variables: Variables }>();
-  const mounted = mountedWebhooks(deps);
+  const { mounted, refused } = webhookMounts(deps);
   const { log } = deps;
 
   app.use("*", async (c, next) => {
@@ -55,10 +57,14 @@ export function createIngestApp(deps: IngestDeps): CreatedIngestApp {
         db,
         env: deps.env.APP_ENV,
         mode: deps.mode,
-        nonceStore: deps.nonces.kind,
+        // The store answering now ("memory" while a Redis store falls back), and the one configured.
+        nonceStore: deps.nonces.inUse ?? deps.nonces.kind,
+        nonceStoreConfigured: deps.nonces.kind,
         replayWindowSeconds: deps.replayWindowSeconds,
         simulate: deps.simulateEnabled,
-        webhooks: mounted.map((m) => ({ connector: m.connector, path: m.path })),
+        webhooks: mounted.map((m) => ({ connector: m.connector, path: m.path, mode: m.mode })),
+        // Mock verifiers use secrets committed to the repository: never mounted outside development and test.
+        refusedMockWebhooks: refused,
         time: deps.now().toISOString(),
       },
       db ? 200 : 503,
@@ -73,6 +79,10 @@ export function createIngestApp(deps: IngestDeps): CreatedIngestApp {
   };
   app.post("/webhooks/:connector", (c) => webhookRoute(c.req.param("connector"), null, c.req.raw));
   app.post("/webhooks/:connector/:businessId", (c) => webhookRoute(c.req.param("connector"), c.req.param("businessId"), c.req.raw));
+  app.post(BILLING_WEBHOOK_PATH, async (c) => {
+    const outcome = await handleBillingWebhook(deps, c.req.raw);
+    return c.json(outcome.body, outcome.status);
+  });
 
   if (simulateRoutesMounted(deps)) {
     // SEC-2: the service token is verified before anything else happens (the body is not even read), so a request
@@ -109,7 +119,17 @@ export function createIngestApp(deps: IngestDeps): CreatedIngestApp {
         written: r.result.written,
         duplicates: r.result.duplicates,
         eventIds: r.result.eventIds,
-        events: r.result.events.map((e) => ({ id: e.id, type: e.type, written: e.written, conversionId: e.conversion?.conversion.id ?? null, journeyId: e.conversion?.journey.id ?? null, nthOfKind: e.conversion?.nthOfKind ?? null, fullMatchDay: e.conversion?.fullMatchDay ?? null })),
+        events: r.result.events.map((e) => ({
+          id: e.id,
+          type: e.type,
+          written: e.written,
+          conversionId: e.conversion?.conversion.id ?? null,
+          entityId: e.conversion?.entityId ?? null,
+          firstPayment: e.conversion ? e.conversion.firstPayment : null,
+          journeyId: e.conversion?.win?.journey.id ?? null,
+          nthOfKind: e.conversion?.win?.nthOfKind ?? null,
+          fullMatchDay: e.conversion?.win?.fullMatchDay ?? null,
+        })),
         label: "Simulated",
       });
     });

@@ -54,6 +54,8 @@ export interface RibbonResponse {
 export interface RoundupResponse {
   day: DayKey;
   conversions: RibbonResponse["conversions"];
+  /** Ids of the day's wins the volume rule rolled into the daily results table (no full Customer Update). */
+  rolledUp?: string[];
 }
 
 /* journey.list */
@@ -98,8 +100,11 @@ export interface FinanceOverview {
   cash: { amountMinor: number; currency: string; accounts: number; asOf: Iso | null; label: string };
   burn: { netBurnMinor: number; grossBurnMinor: number; months: number; label: "Estimate"; definition?: string };
   runway: { months: number | null; label: "Estimate"; warnings: number[]; blocksContinue: boolean };
-  revenue: { monthly: { month: string; inflowMinor: number; outflowMinor: number; netMinor: number; count: number }[]; basis: "cash" | string; label: string };
+  /** Monthly totals; the operating fields leave financing and transfers out (net and gross burn read them). */
+  revenue: { monthly: { month: string; inflowMinor: number; outflowMinor: number; netMinor: number; count: number; operatingInflowMinor?: number; operatingOutflowMinor?: number }[]; basis: "cash" | string; label: string };
   customers30d: number;
+  /** The paying customer base of the trailing full months revenue covers: paid by its end, not churned before (the payback denominator). */
+  payingCustomers?: { count: number; months: number; from?: Iso; to?: Iso };
   forecasts: Partial<Record<string, ForecastRecord | null>>;
 }
 
@@ -123,7 +128,7 @@ export interface InboxListResponse extends Page<InboxItemRow> {
 
 /* founder.profile.get (only what the widgets read) */
 export interface FounderProfileResponse {
-  profile: { displayName?: string } | null;
+  profile: { userId?: string; displayName?: string } | null;
 }
 
 /* distribution.channels.list */
@@ -241,6 +246,10 @@ export interface LeaderboardRow {
   period: string;
   boardKind: string;
   division?: string | null;
+  /** The ranked metric's key ("customers_won", "mrr_growth_pct"); the widget names it (shared/leaderboards.ts). */
+  metric?: string;
+  archetype?: string | null;
+  region?: string | null;
   title?: string;
   metricLabel?: string;
 }
@@ -272,6 +281,8 @@ export interface CommunityPostRow {
   bodyMd: string;
   createdAt: Iso;
   replyCount?: number;
+  /** `pending_review`: the founder's own post, held by moderation (nobody else sees it until a moderator approves it). */
+  status?: string;
 }
 
 /* dashboard.customMetric.* (custom-metric widget contract; see custom-metric.tsx) */
@@ -296,6 +307,14 @@ export interface CustomMetricResult {
   provenance?: string;
   estimate?: "forecast" | "estimate" | null;
   series?: number[];
+}
+/** dashboard.customMetric.list: the catalog entries the caller may read. */
+export interface MetricCatalogEntry {
+  id: string;
+  label: string;
+  description?: string;
+  format?: CustomMetricFormat;
+  estimate?: "forecast" | "estimate" | null;
 }
 export interface CompileMetricResponse extends CompiledMetric {
   preview: CustomMetricResult;

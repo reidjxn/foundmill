@@ -18,7 +18,8 @@ export const monthly: MonthlyTotal[] = [
   { month: "2026-05", inflowMinor: 1_500_000, outflowMinor: 3_100_000, netMinor: -1_600_000, count: 42 },
   { month: "2026-06", inflowMinor: 1_700_000, outflowMinor: 3_300_000, netMinor: -1_600_000, count: 45 },
   { month: "2026-07", inflowMinor: 1_800_000, outflowMinor: 3_400_000, netMinor: -1_600_000, count: 48 },
-  { month: "2026-08", inflowMinor: 12_000_000, outflowMinor: 3_500_000, netMinor: 8_500_000, count: 51 },
+  // August carries the €100,000 SAFE: in the plain totals, out of the operating ones (net burn never reads a raise).
+  { month: "2026-08", inflowMinor: 12_000_000, outflowMinor: 3_500_000, netMinor: 8_500_000, count: 51, operatingInflowMinor: 2_000_000, operatingOutflowMinor: 3_500_000 },
   { month: "2026-09", inflowMinor: 2_200_000, outflowMinor: 3_600_000, netMinor: -1_400_000, count: 53 },
 ];
 
@@ -29,6 +30,8 @@ export const overview: FinanceOverview = {
   runway: { months: 7.5, label: "Estimate", warnings: [12, 9], blocksContinue: false },
   revenue: { monthly, basis: "cash", label: "Management P&L, unaudited, cash basis" },
   customers30d: 12,
+  /** The paying base at the end of Jul–Sep (the payback denominator), not the 24 customers the channels acquired. */
+  payingCustomers: { count: 120, months: 3, from: "2026-07-01T00:00:00.000Z", to: "2026-10-01T00:00:00.000Z" },
   forecasts: {
     base: {
       id: "77777777-7777-4777-8777-777777777771",

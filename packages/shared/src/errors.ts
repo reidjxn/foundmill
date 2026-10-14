@@ -8,5 +8,16 @@ export class NotFoundError extends AppError { constructor(what: string, id?: str
 export class ForbiddenError extends AppError { constructor(message = "Forbidden") { super("forbidden", message, 403); } }
 export class UnauthorizedError extends AppError { constructor(message = "Unauthorized") { super("unauthorized", message, 401); } }
 export class ValidationError extends AppError { constructor(message: string, details?: unknown) { super("validation", message, 400, details); } }
+export class ConflictError extends AppError { constructor(message: string, details?: unknown) { super("conflict", message, 409, details); } }
 export class HardGateError extends AppError { constructor(action: string) { super("hard_gate", `"${action}" always requires a human action (BUILD §2.2)`, 403); } }
 export class PolicyDeniedError extends AppError { constructor(reason: string) { super("policy_denied", reason, 403); } }
+/**
+ * A plan tier limit (BUILD §10.5 `TIERS`): businesses per owner, seats or concurrent agents. `details.limit` names it;
+ * the web turns the code into an upgrade prompt rather than a plain failure.
+ */
+export class TierLimitError extends AppError { constructor(message: string, details: { limit: "businesses" | "seats" | "concurrent_agents"; tier: string; allowed: number; used: number } & Record<string, unknown>) { super("tier_limit", message, 403, details); } }
+/**
+ * A model call on the platform's Anthropic key refused before it was made (402): the business's credits for the month
+ * are used up, or only simulated credits are left where model calls are live. `details.reason` says which.
+ */
+export class CreditsExhaustedError extends AppError { constructor(message: string, details: { reason: "exhausted" | "mock_only"; businessId: string; period: string; balanceMinor: number } & Record<string, unknown>) { super("credits_exhausted", message, 402, details); } }

@@ -9,7 +9,7 @@ import { format } from "date-fns";
 import { DateFormatProvider } from "@foundmill/dugout";
 
 const api = vi.hoisted(() => ({ handlers: {}, calls: [] }) as FakeApi);
-const ctx = vi.hoisted(() => ({ gameMode: "live" as "live" | "personal", role: "owner", sectionPermissions: {} as Record<string, string>, committed: true, push: vi.fn() }));
+const ctx = vi.hoisted(() => ({ liveOpen: true, gameMode: "live" as "live" | "personal", role: "owner", sectionPermissions: {} as Record<string, string>, committed: true, push: vi.fn() }));
 vi.mock("@/lib/trpc-react", async () => {
   const { fakeTrpc } = await import("./fake-trpc");
   return { useTRPC: () => fakeTrpc(api) };
@@ -17,7 +17,7 @@ vi.mock("@/lib/trpc-react", async () => {
 vi.mock("@/components/shell/business-context", () => ({
   useBusiness: () => ({
     businessId: "b1",
-    data: { business: { name: "Ledgerly", gameMode: ctx.gameMode, committedAt: ctx.committed ? new Date() : null, archivedAt: null }, membership: { role: ctx.role, sectionPermissions: ctx.sectionPermissions } },
+    data: { liveOpen: ctx.liveOpen, business: { name: "Ledgerly", gameMode: ctx.gameMode, committedAt: ctx.committed ? new Date() : null, archivedAt: null }, membership: { role: ctx.role, sectionPermissions: ctx.sectionPermissions } },
   }),
 }));
 vi.mock("@/components/shell/chrome", () => ({ useShellChrome: () => undefined }));
@@ -36,13 +36,15 @@ const notFound = () => new TRPCClientError("Not found", { result: { error: { mes
 
 const community = (over: Record<string, unknown> = {}) => ({ id: ids.community, name: "Fintech ops founders", slug: "fintech-ops-founders", descriptionMd: "Founders selling to operations teams.", visibility: "public", ownerBusinessId: ids.business, createdBy: ids.me, memberCount: 4, createdAt: AT(1000), updatedAt: AT(10), archivedAt: null, role: "owner", ...over });
 const mount = (ui: ReactElement) => renderWithProviders(<LiveViewerProvider value={{ userId: ids.me, displayName: "Jamie Reyes" }}>{ui}</LiveViewerProvider>);
+/** Opens a design-system DropdownMenu from its trigger, as the keyboard does. */
+const openMenu = (trigger: HTMLElement) => fireEvent.keyDown(trigger, { key: "Enter" });
 const lookup = (v: unknown) => ({
   users: ((v as { userIds: string[] }).userIds ?? []).map((userId) => ({ userId, displayName: ({ [ids.ana]: "Ana Ruiz", [ids.ben]: "Ben Okoye" } as Record<string, string>)[userId] ?? null })),
   businesses: ((v as { businessIds: string[] }).businessIds ?? []).map((businessId) => ({ businessId, name: "Northlight Payments", slug: "northlight", kitPrimary: "#1F6FEB", kitSecondary: "#F5B841", archetype: "b2b_saas", live: true })),
 });
 
 beforeEach(() => {
-  api.handlers = { "live.people.lookup": lookup };
+  api.handlers = { "live.people.lookup": lookup, "founder.tableViews.get": () => null };
   api.calls = [];
   ctx.gameMode = "live";
   ctx.role = "owner";
@@ -89,6 +91,20 @@ describe("/communities", () => {
     expect(screen.getByRole("menuitem", { name: /Join/ })).toBeTruthy();
   });
 
+  it("while LIVE is closed the page says so, and does not point at Settings", async () => {
+    ctx.gameMode = "personal";
+    ctx.liveOpen = false;
+    try {
+      api.handlers["live.communities.list"] = () => [];
+      mount(<CommunitiesScreen />);
+      const notice = await screen.findByTestId("personal-notice");
+      expect(notice.textContent).toContain("Live is not open yet");
+      expect(notice.textContent).not.toContain("Open Settings");
+    } finally {
+      ctx.liveOpen = true;
+    }
+  });
+
   it("a Personal business joins the same way and the page says why it is not listed", async () => {
     ctx.gameMode = "personal";
     api.handlers["live.communities.list"] = () => [open];
@@ -105,14 +121,35 @@ describe("/communities", () => {
     expect(await screen.findByText(/No communities yet/)).toBeTruthy();
     expect(screen.queryByRole("grid")).toBeNull();
   });
+
+  it("audit #28: starts a community (public or by invitation, with its kind) and opens it; an invitation shows on its row", async () => {
+    api.handlers["live.communities.list"] = () => [joined, community({ id: "00000000-0000-4000-8000-0000000000c2", name: "Founders circle", visibility: "private", role: null, invited: true })];
+    api.handlers["live.communities.create"] = (v) => community({ id: "00000000-0000-4000-8000-0000000000c9", ...(v as object) });
+    mount(<CommunitiesScreen />);
+    const grid = await screen.findByRole("grid", { name: "Communities" });
+    expect((await within(grid).findByRole("row", { name: /Founders circle/ })).textContent).toContain("Invited");
+    fireEvent.click(screen.getByTestId("community-create"));
+    const dialog = await screen.findByTestId("create-community-dialog");
+    const save = within(dialog).getByTestId("create-community-save") as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.change(within(dialog).getByLabelText(/Name/), { target: { value: "  Lisbon founders " } });
+    fireEvent.change(within(dialog).getByLabelText(/What it is for/), { target: { value: "Meetups in Lisbon." } });
+    fireEvent.click(within(dialog).getByRole("radio", { name: /Geography/ }));
+    fireEvent.click(within(dialog).getByRole("radio", { name: /By invitation/ }));
+    fireEvent.click(save);
+    await waitFor(() => expect(callsTo(api, "live.communities.create")).toEqual([{ name: "Lisbon founders", descriptionMd: "Meetups in Lisbon.", kind: "geography", visibility: "private" }]));
+    await waitFor(() => expect(ctx.push).toHaveBeenCalledWith("/communities/00000000-0000-4000-8000-0000000000c9"));
+  });
 });
 
 describe("/communities/[id]", () => {
   const post = (id: string, author: string, body: string, minutesAgo: number, extra: Record<string, unknown> = {}) => ({ id, communityId: ids.community, authorUserId: author, businessId: null, parentPostId: null, bodyMd: body, entityIds: [], status: "visible", createdAt: AT(minutesAgo), updatedAt: AT(minutesAgo), archivedAt: null, replyCount: 0, ...extra });
   const member = { id: "m1", communityId: ids.community, userId: ids.me, businessId: ids.business, role: "owner", status: "active", joinedAt: AT(900), createdAt: AT(900), updatedAt: AT(900) };
 
-  function memberView() {
-    api.handlers["live.communities.get"] = () => ({ community: community(), members: [member, { ...member, id: "m2", userId: ids.ana, businessId: null, role: "member" }], isMember: true, role: "owner" });
+  function memberView(over: Record<string, unknown> = {}) {
+    api.handlers["live.communities.get"] = () => ({ community: community(), members: [member, { ...member, id: "m2", userId: ids.ana, businessId: null, role: "member" }], isMember: true, invited: false, canPost: true, canModerate: true, role: "owner", status: "active", ...over });
+    api.handlers["live.communities.moderation"] = () => ({ items: [], restricted: [] });
+    api.handlers["live.connections.list"] = () => [];
     api.handlers["live.communities.posts"] = (v) =>
       (v as { parentPostId?: string }).parentPostId
         ? { items: [post("r1", ids.ben, "We tried that too.", 3, { parentPostId: "p1" })], nextCursor: null }
@@ -212,8 +249,163 @@ describe("/communities/[id]", () => {
     }
   });
 
+  it("audit #28: a held post shows to its author as held; own posts can be edited and deleted, others' reported", async () => {
+    memberView();
+    api.handlers["live.communities.posts"] = () => ({
+      items: [post("mine", ids.me, "You are all wrong", 2, { status: "pending_review", screening: { decision: "hold", flags: ["harassment"], rationale: "x", mode: "mock" } }), post("theirs", ids.ana, "Buy my course", 10, { editedAt: AT(5) })],
+      nextCursor: null,
+    });
+    api.handlers["live.posts.delete"] = () => ({ postId: "mine", status: "removed" });
+    api.handlers["live.posts.report"] = () => ({ reported: true, held: false });
+    api.handlers["live.posts.edit"] = () => ({ ...post("mine", ids.me, "Edited", 2), held: false });
+    mount(<CommunityScreen communityId={ids.community} />);
+    const posts = await within(await screen.findByTestId("community-feed")).findAllByTestId("feed-post");
+    expect(within(posts[0]!).getByTestId("post-status").textContent).toBe("Held for review");
+    expect(posts[0]!.getAttribute("data-status")).toBe("pending_review");
+    // A held post takes no replies until a moderator approves it.
+    expect(within(posts[0]!).queryByRole("button", { name: "Reply" })).toBeNull();
+    expect(posts[1]!.textContent).toContain("Edited");
+
+    openMenu(within(posts[0]!).getByRole("button", { name: /More for the post by/ }));
+    expect(screen.getByRole("menuitem", { name: /Edit/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Delete/ }));
+    await waitFor(() => expect(callsTo(api, "live.posts.delete")).toEqual([{ postId: "mine" }]));
+
+    openMenu(within(posts[1]!).getByRole("button", { name: "More for the post by Ana Ruiz" }));
+    expect(screen.queryByRole("menuitem", { name: /^Edit/ })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Ask Ana Ruiz to connect" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Report/ }));
+    const dialog = await screen.findByTestId("report-dialog");
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Harassment or abuse" }));
+    fireEvent.change(within(dialog).getByLabelText(/Anything the moderators should know/), { target: { value: "Third time" } });
+    fireEvent.click(within(dialog).getByTestId("report-send"));
+    await waitFor(() => expect(callsTo(api, "live.posts.report")).toEqual([{ postId: "theirs", reason: "harassment", note: "Third time" }]));
+  });
+
+  it("audit #28: owners and moderators review held and reported posts, and mute, ban or restore members", async () => {
+    memberView();
+    api.handlers["live.communities.moderation"] = () => ({
+      items: [{ post: { ...post("held", ids.ben, "Call me on 415 555 0100", 5, { status: "pending_review", screening: { decision: "hold", flags: ["personal_data"], rationale: "x", mode: "mock" } }), authorName: "Ben Okoye" }, openReports: 2, reasons: ["spam"] }],
+      restricted: [{ userId: ids.cal, status: "banned", role: "member", name: null }],
+    });
+    api.handlers["live.posts.moderate"] = (v) => ({ ...post("held", ids.ben, "x", 5), status: (v as { action: string }).action === "restore" ? "visible" : "hidden" });
+    api.handlers["live.communities.moderateMember"] = (v) => ({ userId: (v as { userId: string }).userId, status: "muted", role: "member" });
+    mount(<CommunityScreen communityId={ids.community} />);
+    const panel = await screen.findByTestId("moderation-panel");
+    const item = await within(panel).findByTestId("moderation-item");
+    expect(item.textContent).toContain("2 reports");
+    expect(item.textContent).toMatch(/Held by moderation: personal data/);
+    fireEvent.click(within(item).getByRole("button", { name: "Approve" }));
+    await waitFor(() => expect(callsTo(api, "live.posts.moderate")).toEqual([{ postId: "held", action: "restore" }]));
+    fireEvent.click(within(item).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(callsTo(api, "live.posts.moderate").at(-1)).toEqual({ postId: "held", action: "remove" }));
+    fireEvent.click(within(within(panel).getByTestId("restricted-member")).getByRole("button", { name: "Lift ban" }));
+    await waitFor(() => expect(callsTo(api, "live.communities.moderateMember")).toEqual([{ communityId: ids.community, userId: ids.cal, action: "restore" }]));
+
+    // The owner moderates a member from the member list (never themselves).
+    const members = within(screen.getByTestId("community-members")).getAllByTestId("community-member");
+    expect(within(members[0]!).queryByTestId("member-menu")).toBeNull();
+    openMenu(within(members[1]!).getByRole("button", { name: "Moderate Ana Ruiz" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Mute/ }));
+    await waitFor(() => expect(callsTo(api, "live.communities.moderateMember").at(-1)).toEqual({ communityId: ids.community, userId: ids.ana, action: "mute" }));
+    // Only the owner makes moderators.
+    openMenu(within(members[1]!).getByRole("button", { name: "Moderate Ana Ruiz" }));
+    expect(await screen.findByRole("menuitem", { name: /Make a moderator/ })).toBeTruthy();
+  });
+
+  it("audit #28: a muted member reads the feed but the post box is closed, and nobody else is offered moderation", async () => {
+    memberView({ canPost: false, canModerate: false, role: "member", status: "muted" });
+    mount(<CommunityScreen communityId={ids.community} />);
+    const box = await screen.findByLabelText("Write a post");
+    expect((box as HTMLTextAreaElement).disabled).toBe(true);
+    expect(screen.getByText(/A moderator muted you here/)).toBeTruthy();
+    expect(screen.queryByTestId("moderation-panel")).toBeNull();
+    expect(callsTo(api, "live.communities.moderation")).toHaveLength(0);
+    expect(screen.queryByTestId("community-invite")).toBeNull();
+  });
+
+  it("audit #28: an invited founder sees the community and accepts or declines the invitation", async () => {
+    api.handlers["live.communities.get"] = () => ({ community: community({ role: null, visibility: "private" }), members: [], isMember: false, invited: true, canPost: false, canModerate: false, role: null, status: "invited" });
+    api.handlers["live.communities.join"] = () => ({});
+    api.handlers["live.communities.decline"] = () => ({ declined: true });
+    mount(<CommunityScreen communityId={ids.community} />);
+    expect(await screen.findByText(/You are invited/)).toBeTruthy();
+    fireEvent.click(screen.getByTestId("community-join"));
+    await waitFor(() => expect(callsTo(api, "live.communities.join")).toEqual([{ communityId: ids.community }]));
+    fireEvent.click(screen.getByTestId("community-decline"));
+    await waitFor(() => expect(callsTo(api, "live.communities.decline")).toEqual([{ communityId: ids.community }]));
+  });
+
+  it("audit #66: a member row offers Ask to connect, sent from the current business with an optional note", async () => {
+    memberView();
+    api.handlers["live.connections.request"] = () => ({ id: "c-new", status: "requested" });
+    mount(<CommunityScreen communityId={ids.community} />);
+    const members = await within(await screen.findByTestId("community-members")).findAllByTestId("community-member");
+    expect(within(members[0]!).queryByTestId("ask-to-connect")).toBeNull();
+    fireEvent.click(within(members[1]!).getByRole("button", { name: "Ask Ana Ruiz to connect" }));
+    const dialog = await screen.findByTestId("ask-to-connect-dialog");
+    fireEvent.change(within(dialog).getByLabelText(/A note with the request/), { target: { value: "Loved your post on refresh rates." } });
+    fireEvent.click(within(dialog).getByTestId("ask-to-connect-send"));
+    await waitFor(() => expect(callsTo(api, "live.connections.request")).toEqual([{ businessId: "b1", toUserId: ids.ana, message: "Loved your post on refresh rates." }]));
+  });
+
+  it("audit #66: connected and requested people show their state instead of the button; a Personal business cannot ask", async () => {
+    memberView({ members: [member, { ...member, id: "m2", userId: ids.ana, businessId: null, role: "member" }, { ...member, id: "m3", userId: ids.ben, businessId: null, role: "member" }, { ...member, id: "m4", userId: ids.cal, businessId: null, role: "member" }] });
+    api.handlers["live.connections.list"] = () => [
+      { id: "c1", fromUser: ids.me, toUser: ids.ana, status: "accepted", message: null, respondedAt: AT(5), createdAt: AT(9), updatedAt: AT(5) },
+      { id: "c2", fromUser: ids.me, toUser: ids.ben, status: "requested", message: null, respondedAt: null, createdAt: AT(9), updatedAt: AT(9) },
+    ];
+    ctx.gameMode = "personal";
+    mount(<CommunityScreen communityId={ids.community} />);
+    const members = await within(await screen.findByTestId("community-members")).findAllByTestId("community-member");
+    await waitFor(() => expect(members[1]!.textContent).toContain("Connected"));
+    expect(members[2]!.textContent).toContain("Requested");
+    const ask = within(members[3]!).getByRole("button", { name: /Ask .* to connect/ }) as HTMLButtonElement;
+    expect(ask.disabled).toBe(true);
+    expect(ask.getAttribute("title")).toMatch(/sent from a LIVE business/);
+  });
+
+  it("after leaving, the feed asks to join again instead of showing the API's refusal as an error (audit MLSL-31)", async () => {
+    memberView();
+    let joined = true;
+    const forbidden = () => new TRPCClientError("Join the community to read its feed", { result: { error: { message: "Join the community to read its feed", code: -32003, data: { code: "FORBIDDEN" } } } as never });
+    const feed = api.handlers["live.communities.posts"]!;
+    api.handlers["live.communities.get"] = () => ({ community: community({ role: joined ? "owner" : null }), members: joined ? [member] : [], isMember: joined, role: joined ? "owner" : null });
+    api.handlers["live.communities.posts"] = (v) => {
+      if (!joined) throw forbidden();
+      return feed(v);
+    };
+    api.handlers["live.communities.leave"] = () => ((joined = false), {});
+    mount(<CommunityScreen communityId={ids.community} />);
+    expect(await screen.findAllByTestId("feed-post")).toHaveLength(2);
+    const postsBefore = callsTo(api, "live.communities.posts").length;
+    fireEvent.click(screen.getByTestId("community-leave"));
+    expect(await screen.findByText("Join this community to read its feed and post.")).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId("community-screen").getAttribute("data-member")).toBe("false"));
+    const feedPanel = screen.getByTestId("community-feed");
+    expect(feedPanel.textContent).not.toMatch(/Join the community to read its feed|Try again/);
+    expect(within(feedPanel).queryByRole("alert")).toBeNull();
+    // The feed is not asked for again once the person has left.
+    expect(callsTo(api, "live.communities.posts").length).toBe(postsBefore);
+  });
+
+  it("a reply box says who the reply goes out as, following the Post as switch", async () => {
+    memberView();
+    mount(<CommunityScreen communityId={ids.community} />);
+    const posts = await screen.findAllByTestId("feed-post");
+    fireEvent.click(within(posts[0]!).getByRole("button", { name: "Reply" }));
+    const thread = await within(posts[0]!).findByTestId("reply-thread");
+    expect(within(thread).getByText(/Replying as yourself/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("switch", { name: "Post as Ledgerly" }));
+    expect(within(thread).getByText(/Replying as Ledgerly/)).toBeTruthy();
+    const reply = within(thread).getByLabelText("Write a reply");
+    fireEvent.change(reply, { target: { value: "For the company." } });
+    fireEvent.click(within(thread).getByRole("button", { name: "Reply" }));
+    await waitFor(() => expect(callsTo(api, "live.communities.post").at(-1)).toMatchObject({ bodyMd: "For the company.", parentPostId: "p1", businessId: "b1" }));
+  });
+
   it("a visitor sees the description and size, is asked to join, and the feed is never requested", async () => {
-    api.handlers["live.communities.get"] = () => ({ community: community({ role: null }), members: [], isMember: false, role: null });
+    api.handlers["live.communities.get"] = () => ({ community: community({ role: null }), members: [], isMember: false, invited: false, canPost: false, canModerate: false, role: null, status: null });
     api.handlers["live.communities.join"] = () => ({});
     mount(<CommunityScreen communityId={ids.community} />);
     expect(await screen.findByText("Join this community to read its feed and post.")).toBeTruthy();
@@ -314,8 +506,9 @@ describe("/leaderboards/[boardId]", () => {
     expect(rows[0]!.textContent).toContain("Northlight Payments");
     expect(rows[0]!.textContent).toContain("33.0%");
     expect(rows[1]!.textContent).toContain("You");
-    expect(within(rows[1]!).getByLabelText("up 2")).toBeTruthy();
-    expect(within(rows[2]!).getByLabelText("down 1")).toBeTruthy();
+    // The movement reads "up 2" / "down 1": the word is screen-reader text beside the visible figure.
+    expect(rows[1]!.querySelector("[data-delta]")?.textContent).toBe("up 2");
+    expect(rows[2]!.querySelector("[data-delta]")?.textContent).toBe("down 1");
     expect(rows[2]!.textContent).toContain("Unlisted business");
     expect(within(rows[0]!).getByLabelText(/Form, last five: success, success, success, success, partial/)).toBeTruthy();
     expect(within(grid).getByRole("columnheader", { name: /MRR growth/ })).toBeTruthy();
@@ -325,6 +518,24 @@ describe("/leaderboards/[boardId]", () => {
     expect(strip.textContent).toMatch(/Businesses ranked\s*3/);
     expect(screen.getByText(/Verified integration metrics only/)).toBeTruthy();
     expect(callsTo(api, "live.leaderboards.entries")[0]).toEqual({ leaderboardId: board.id, limit: 200 });
+  });
+
+  it("audit #66: another business's row asks its founder to connect; the founder's own businesses do not offer it", async () => {
+    api.handlers["live.leaderboards.get"] = () => board;
+    api.handlers["live.leaderboards.entries"] = () => [{ ...entry(1, "x1", "Northlight Payments", "33.0000", 0, ""), own: false }, { ...entry(2, "b1", "Ledgerly", "18.4000", 0, ""), own: true }, { ...entry(3, "x9", "Other of mine", "9.0000", 0, ""), own: true }];
+    api.handlers["live.connections.request"] = () => ({ id: "c-new", status: "requested" });
+    mount(<LeaderboardScreen boardId={board.id} />);
+    const grid = await screen.findByRole("grid", { name: /entries/ });
+    const rows = (await within(grid).findAllByRole("row")).slice(1);
+    fireEvent.contextMenu(rows[2]!);
+    expect(screen.queryByRole("menuitem", { name: /to connect/ })).toBeNull();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    fireEvent.contextMenu(rows[0]!);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Ask Northlight Payments to connect" }));
+    const dialog = await screen.findByTestId("ask-to-connect-dialog");
+    expect(dialog.textContent).toContain("The request goes to the founder who owns this business.");
+    fireEvent.click(within(dialog).getByTestId("ask-to-connect-send"));
+    await waitFor(() => expect(callsTo(api, "live.connections.request")).toEqual([{ businessId: "b1", toBusinessId: "x1" }]));
   });
 
   it("says so when the business is not on the board, and when nobody is ranked", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addChip, clampSkill, displayNameFromEmail, emptyProfileForm, formFromProfile, isProfileValid, parseBudgetMinor, profilePatch, profileSummary, removeChip, sectionStatus, toggleChip, validateProfileForm, type ProfileForm } from "../profile-form";
+import { PROFILE_LIMITS, addChip, profileSaveMessage, clampSkill, displayNameFromEmail, emptyProfileForm, formFromProfile, isProfileValid, parseBudgetMinor, profilePatch, profileSummary, removeChip, sectionStatus, toggleChip, validateProfileForm, type ProfileForm } from "../profile-form";
 
 function filled(): ProfileForm {
   return { ...emptyProfileForm("reid.jackson@example.com"), experience: "first_time", timeCommitment: "full_time", budget: "25k", currency: "EUR", targetMarkets: ["EU", "UK"], constraints: ["Bootstrapped, no outside funding"], riskAppetite: "medium" };
@@ -60,5 +60,40 @@ describe("founder profile form (BUILD §11.1, AC-11.1.1)", () => {
     expect(status).toEqual({ identity: false, skills: true, time: false, place: false, constraints: true });
     expect(sectionStatus(filled())).toEqual({ identity: true, skills: true, time: true, place: true, constraints: true });
     expect(profileSummary(filled())).toBe("First-time founder · full time · EUR 25,000 · EU, UK");
+  });
+
+  it("refuses what the API would reject, before submit and in plain words (audit FR-14)", () => {
+    const long = (n: number) => "x".repeat(n);
+    expect(validateProfileForm({ ...filled(), budget: "99999999999999m" }).budget).toMatch(/budget below 1,000,000,000,000/);
+    expect(validateProfileForm({ ...filled(), budget: "1000000000000" }).budget).toBeUndefined();
+    expect(validateProfileForm({ ...filled(), citizenship: long(81) }).citizenship).toMatch(/under 80 characters/);
+    expect(validateProfileForm({ ...filled(), residence: long(100) }).residence).toMatch(/under 80 characters/);
+    expect(validateProfileForm({ ...filled(), citizenship: long(80), residence: long(80), targetMarkets: [long(80)] })).toEqual({});
+    expect(validateProfileForm({ ...filled(), targetMarkets: ["EU", long(150)] }).targetMarkets).toMatch(/each market under 80/);
+    expect(validateProfileForm({ ...filled(), constraints: [long(401)] }).constraints).toMatch(/each constraint under 400/);
+    // The sections rail does not read "done" for a section that holds a refused answer.
+    expect(sectionStatus({ ...filled(), citizenship: long(81) }).place).toBe(false);
+    expect(sectionStatus({ ...filled(), constraints: [long(401)] }).constraints).toBe(false);
+  });
+
+  it("a chip longer than its field's limit is not added", () => {
+    expect(addChip([], "x".repeat(81), 20, PROFILE_LIMITS.place)).toEqual([]);
+    expect(addChip([], "x".repeat(80), 20, PROFILE_LIMITS.place)).toHaveLength(1);
+    expect(addChip([], "x".repeat(150))).toHaveLength(1);
+    expect(toggleChip([], "x".repeat(81), 20, PROFILE_LIMITS.place)).toEqual([]);
+  });
+
+  it("a refused save names the answers, once each, never the API's field names or Zod text", () => {
+    const issues = [
+      { path: ["budgetMinor"], message: "Too big: expected int to be <=9007199254740991" },
+      { path: ["budgetMinor"], message: "Too big: expected int to be <=9007199254740991" },
+      { path: ["citizenship"], message: "Too big: expected string to have <=80 characters" },
+      { path: ["targetMarkets", 3], message: "Too big: expected string to have <=80 characters" },
+    ];
+    const text = profileSaveMessage(issues, "fallback");
+    expect(text).toBe("These answers were not accepted: budget, citizenship, target markets. Shorten or correct them, then save again.");
+    expect(text).not.toMatch(/budgetMinor|targetMarkets|Too big|int/);
+    expect(profileSaveMessage(null, "Something went wrong")).toBe("Something went wrong");
+    expect(profileSaveMessage([{ path: ["unknownField"] }], "Something went wrong")).toBe("Something went wrong");
   });
 });

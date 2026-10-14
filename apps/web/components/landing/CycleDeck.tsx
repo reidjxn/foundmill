@@ -8,7 +8,7 @@
  * on its own once the deck is on screen, unless the visitor prefers reduced motion.
  */
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { ArrowRight, ArrowUp, Check, Inbox as InboxIcon, Star, ThumbsUp, Trophy } from "lucide-react";
+import { ArrowRight, ArrowUp, Check, Inbox as InboxIcon, Pause, Play, Star, ThumbsUp, Trophy } from "lucide-react";
 import {
   Avatar,
   AvatarStack,
@@ -55,7 +55,11 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
   const today = useMemo(() => exampleToday(todayKey), [todayKey]);
   const working = state.phase === "processing";
   const cycleMs = reduced ? DECK_CYCLE_MS_REDUCED : DECK_CYCLE_MS;
-  const tick = useTicker(working ? 650 : 2800);
+  // The feed moves while a cycle runs (a few seconds, started by the visitor or by the deck's first run) and, when the
+  // visitor allows motion, on its own between cycles. Under reduced motion nothing runs by itself, and anyone can pause
+  // the idle updates (WCAG 2.2.2; DESIGN: "Under reduced motion nothing runs by itself"; audit A11Y-14).
+  const [feedPaused, setFeedPaused] = useState(false);
+  const tick = useTicker(feedTickMs({ working, reduced, paused: feedPaused }));
   const feed = useFeed(tick, business.activity);
   const orbit = useMemo(() => orbitDepartments(business), [business]);
   const { identity, deck } = business;
@@ -139,7 +143,7 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
               {cycleStatusText(state)}
             </p>
           </div>
-          <LiveColumn business={business} feed={feed} state={state} progress={progress} />
+          <LiveColumn business={business} feed={feed} state={state} progress={progress} paused={feedPaused} onTogglePaused={() => setFeedPaused((p) => !p)} canPause={!reduced} />
         </div>
       </div>
 
@@ -268,7 +272,7 @@ function WinCard({ win: w, onOpen }: { win: ExampleWin; onOpen: () => void }) {
 // Live column
 // ---------------------------------------------------------------------------------------------------------------------
 
-function LiveColumn({ business, feed, state, progress }: { business: ExampleBusiness; feed: Array<{ key: number; line: ActivityLine }>; state: CycleState; progress: number }) {
+function LiveColumn({ business, feed, state, progress, paused, onTogglePaused, canPause }: { business: ExampleBusiness; feed: Array<{ key: number; line: ActivityLine }>; state: CycleState; progress: number; paused: boolean; onTogglePaused: () => void; canPause: boolean }) {
   const working = state.phase === "processing";
   const t = cycleTasks(state.cycle);
   const done = Math.min(t.tasks, Math.floor(progress * t.tasks));
@@ -280,13 +284,21 @@ function LiveColumn({ business, feed, state, progress }: { business: ExampleBusi
           <span className="relative size-2 rounded-full bg-status-good" />
         </span>
         <span className="t-label">Live now</span>
+        {canPause ? (
+          <Button size="sm" variant="ghost" icon={paused ? Play : Pause} aria-pressed={paused} onClick={onTogglePaused} data-testid="feed-pause">
+            {paused ? "Resume updates" : "Pause updates"}
+          </Button>
+        ) : null}
         <span className="flex-1" />
         <span className="text-small text-secondary tabular-nums">{working ? 9 : 4} agents working</span>
       </div>
       <ul className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3" aria-hidden>
         {feed.map((f, i) => (
-          <li key={f.key} className="flex animate-rise-in items-start gap-2 text-small" style={{ opacity: 1 - i * 0.13 }}>
-            <Avatar size={20} name={f.line.who} agent={{ seed: f.line.who.toLowerCase(), dept: f.line.dept }} />
+          <li key={f.key} className="flex animate-rise-in items-start gap-2 text-small">
+            {/* Older lines fade by their avatar only: the words stay at full contrast (WCAG 1.4.3). */}
+            <span className="shrink-0" style={{ opacity: 1 - i * 0.13 }}>
+              <Avatar size={20} name={f.line.who} agent={{ seed: f.line.who.toLowerCase(), dept: f.line.dept }} />
+            </span>
             <span className="min-w-0">
               <span className="font-medium text-primary">{f.line.who}</span> <span className="text-secondary">{f.line.text}</span>
             </span>
@@ -321,10 +333,20 @@ function DeckStat({ label, value, estimate }: { label: string; value: string; es
 // Clocks
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** A counter that advances every `ms`; the interval restarts when `ms` changes. */
-function useTicker(ms: number): number {
+/**
+ * How often the feed advances: fast while a cycle runs, slowly between cycles, and not at all between cycles when the
+ * visitor prefers reduced motion or has paused it (null). Exported for tests.
+ */
+export function feedTickMs({ working, reduced, paused }: { working: boolean; reduced: boolean; paused: boolean }): number | null {
+  if (working) return 650;
+  return reduced || paused ? null : 2800;
+}
+
+/** A counter that advances every `ms` (never when `ms` is null); the interval restarts when `ms` changes. */
+function useTicker(ms: number | null): number {
   const [tick, setTick] = useState(0);
   useEffect(() => {
+    if (ms === null) return;
     const id = setInterval(() => setTick((t) => t + 1), ms);
     return () => clearInterval(id);
   }, [ms]);

@@ -45,6 +45,51 @@ test.describe("agent profile", () => {
     await expect(page.getByTestId("apply-scope-dialog")).toBeHidden();
   });
 
+  test("a model change queues a retest the founder can cancel; it never sits queued with no way out (AC-11.10.5)", async ({ page }) => {
+    await openSquadAgent(page);
+    const progress = page.getByTestId("training-progress");
+    /** The e2e stack runs no Temporal, so a retest stays queued until the founder cancels it from the Training tab. */
+    const cancelQueuedRuns = async () => {
+      await expect(progress).toBeVisible({ timeout: LONG });
+      for (let i = 0; i < 5 && (await progress.count()) > 0; i++) {
+        const runId = await progress.getAttribute("data-run-id");
+        await progress.getByTestId("cancel-training").click();
+        await expect(page.locator(`[data-testid=training-progress][data-run-id="${runId}"]`)).toHaveCount(0, { timeout: LONG });
+      }
+      await expect(progress).toHaveCount(0);
+      // Canceling the retest does not undo the model change it was scoring; the notice says so.
+      await expect(page.getByTestId("training-notice")).toContainText("Retest canceled. The live version is unchanged;");
+    };
+    const applyModel = async (pick: "other" | string, outcome: RegExp) => {
+      await page.getByTestId("header-model-chip").click();
+      const dialog = page.getByTestId("model-dialog");
+      await expect(dialog).toBeVisible();
+      const radio = pick === "other" ? dialog.locator("input[type=radio]:not(:checked):not(:disabled)").first() : dialog.locator(`input[type=radio][value="${pick}"]`);
+      await expect(radio).toBeAttached({ timeout: LONG });
+      await radio.click();
+      await expect(page.getByTestId("apply-scope-dialog")).toBeVisible();
+      await page.getByTestId("apply-scope-confirm").click();
+      await expect(page.getByTestId("apply-scope-dialog")).toBeHidden({ timeout: LONG });
+      await expect(page.getByText(outcome).first()).toBeVisible({ timeout: LONG });
+    };
+
+    await page.getByTestId("header-model-chip").click();
+    const original = await page.getByTestId("model-dialog").locator("input[type=radio]:checked").getAttribute("value", { timeout: LONG });
+    await page.keyboard.press("Escape");
+    expect(original, "the picker marks the agent's current model").toBeTruthy();
+
+    await applyModel("other", /1 retest queued/);
+    await page.getByRole("tab", { name: "Training" }).click();
+    await expect(page.getByTestId("agent-training")).toBeVisible({ timeout: LONG });
+    await cancelQueuedRuns();
+    await expect(page.getByTestId("agent-training")).not.toHaveAttribute("data-phase", "active");
+
+    // Put the seeded model back. The live version already runs on it, so there is nothing new to retest.
+    await applyModel(original!, /^Model set to \w+ for 1 agent$/);
+    await expect(progress).toHaveCount(0);
+    await expect(page.getByTestId("agent-training")).not.toHaveAttribute("data-phase", "active");
+  });
+
   test("training: editing saves a draft, the live version stays (AC-11.10.1)", async ({ page }) => {
     await openSquadAgent(page);
     await page.getByRole("tab", { name: "Training" }).click();
@@ -73,6 +118,21 @@ test.describe("agent profile", () => {
     await page.getByRole("tab", { name: "Autonomy" }).click();
     await expect(page.getByTestId("agent-autonomy")).toBeVisible({ timeout: LONG });
     await page.getByLabel("Ask more often").check();
+    // Money fields keep exactly what is typed, keystroke by keystroke (audit WEB-03: "25" used to become "2.01").
+    const cap = page.getByRole("textbox", { name: "Spend cap per action" });
+    for (const amount of ["25", "150.50"]) {
+      await cap.click();
+      await cap.press("ControlOrMeta+a");
+      await cap.press("Backspace");
+      await cap.pressSequentially(amount);
+      await expect(cap).toHaveValue(amount);
+    }
+    // At rest the amount is grouped for reading; focus shows the typed text again.
+    await cap.click();
+    await cap.press("ControlOrMeta+a");
+    await cap.pressSequentially("1250");
+    await page.getByRole("textbox", { name: "Ask above" }).click();
+    await expect(cap).toHaveValue("1,250");
     // The seed gives some agents an approval threshold above a zero spend cap, which the form refuses to save; the
     // threshold field is part of the save path, so put it inside the cap first.
     await page.getByRole("textbox", { name: "Ask above" }).fill("0");
@@ -104,7 +164,10 @@ test.describe("agent profile", () => {
     await page.getByRole("tab", { name: "Autonomy" }).click();
     await expect(page.getByTestId("agent-autonomy")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("save-autonomy")).toHaveText(/Save autonomy/);
-    await expect(page.getByTestId("save-negotiation")).toHaveText(/Save negotiation/);
+    // Negotiation has no runtime yet (AC-11.14.3): the switch is off and cannot be turned on; limits save as "Save limits".
+    await expect(page.getByTestId("save-negotiation")).toHaveText(/Save limits/);
+    await expect(page.locator("#negotiation-enabled")).toBeDisabled();
+    await expect(page.getByTestId("negotiation-footer")).toContainText("not available yet");
     // Tools by name in words, never "HARD GATE (BUILD §2.2)".
     await page.getByRole("tab", { name: "Tools" }).click();
     await expect(page.getByTestId("tool-grants")).toBeVisible({ timeout: LONG });
@@ -122,6 +185,48 @@ test.describe("agent profile", () => {
     await page.getByRole("tab", { name: "Logs" }).click();
     await expect(page.getByTestId("agent-logs")).toBeVisible({ timeout: LONG });
     expect(page.url()).toContain(`/b/${NORTHWIND_BUSINESS_ID}/agents/`);
+    // Sessions name their task and link to it on the Plan, never a raw task id (TPD-21).
+    await expect(page.getByTestId("agent-logs")).not.toContainText(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/);
+    const taskLink = page.getByTestId("agent-logs").locator("a[href*='/plan?task=']").first();
+    if (await taskLink.count()) await expect(taskLink).not.toHaveText(/^[0-9a-f-]{36}$/);
+  });
+
+  test("line manager: the header control opens a picker; nothing is saved until a new manager is chosen (TPD-27)", async ({ page }) => {
+    await openSquadAgent(page);
+    const header = page.getByTestId("profile-header");
+    await expect(header.getByTestId("header-line-manager")).toBeVisible({ timeout: LONG });
+    await header.getByTestId("header-change-manager").click();
+    const dialog = page.getByTestId("line-manager-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByTestId("line-manager-save")).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+  });
+
+  test("training: custom skills can be added and wait for review (AC-08)", async ({ page }) => {
+    await openSquadAgent(page);
+    await page.getByRole("tab", { name: "Training" }).click();
+    const panel = page.getByTestId("custom-skills");
+    await expect(panel).toBeVisible({ timeout: LONG });
+    await panel.getByTestId("add-custom-skill").click();
+    const dialog = page.getByTestId("add-skill-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByTestId("draft-custom-skill")).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+  });
+
+  test("model costs read in US dollars on a business that keeps its books in pounds", async ({ page }) => {
+    await openSquadAgent(page);
+    await page.getByRole("tab", { name: "History" }).click();
+    const history = page.getByTestId("agent-history");
+    await expect(history).toBeVisible({ timeout: LONG });
+    await expect(history).toContainText("$");
+    await expect(history).not.toContainText("£");
+    await page.getByRole("tab", { name: "Logs" }).click();
+    const logs = page.getByTestId("agent-logs");
+    await expect(logs).toBeVisible({ timeout: LONG });
+    await expect(logs).not.toContainText("£");
   });
 
   test("Talk opens the agent's desk as a sheet; a starter gets a reply in the agent's voice, with 2–4 quick replies", async ({ page }) => {

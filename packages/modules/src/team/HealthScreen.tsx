@@ -8,8 +8,8 @@ import { useMemo } from "react";
 import { Activity, CircleCheck, ExternalLink, HeartPulse, TriangleAlert, UserRoundPlus } from "lucide-react";
 import { Avatar, Button, Chip, DeptChip, EntityLink, Panel, StatusPill, StatusStrip, cn, formatPercent, formatRelative, type HealthDetails, type MetricTileProps } from "@foundmill/dugout";
 import { AGENT_STATUSES, type AgentStatus } from "@foundmill/shared/constants";
-import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
-import { routes } from "@foundmill/widgets/shared/routes";
+import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
+import { teamHealthCounts, teamHealthSummary } from "@foundmill/widgets/shared/health";
 import { useWidgetData } from "@foundmill/widgets/data";
 import { plural } from "../fit";
 import type { ModuleScreenProps } from "../registry";
@@ -45,12 +45,27 @@ export function healthDetails(agent: AgentRow): HealthDetails {
  */
 export function healthReason(status: AgentStatus, details: HealthDetails, now: Date): string {
   const parts: string[] = [];
-  if (status === "injured") parts.push(details.expectedReturnAt ? `Expected back ${formatRelative(details.expectedReturnAt, now)}` : "Reconnect the integration to see an expected return");
+  // Down: when it is back, else the reason names what to reconnect; only with neither does the generic line show.
+  if (status === "injured") {
+    if (details.expectedReturnAt) parts.push(`Expected back ${formatRelative(details.expectedReturnAt, now)}`);
+    else if (!details.reason) parts.push("Back once its integration is reconnected in Settings › Integrations");
+  }
   if (details.reason) parts.push(details.reason);
   const loop = "Loop detected on the last session";
   if (details.loopDetected && !parts.some((p) => p.toLowerCase().includes("loop"))) parts.push(loop);
   if (status === "degraded" && typeof details.errorRate === "number" && !parts.some((p) => /error rate/i.test(p))) parts.push(`Error rate ${formatPercent(details.errorRate, { digits: 1 })} over 24 h`);
   return parts.join(" · ");
+}
+
+/**
+ * The Health headline when nobody needs the founder: how many agents are working (healthy) out of the team. All idle
+ * is not "everyone is working".
+ */
+export function healthSummary(agents: readonly Pick<AgentRow, "status">[]): { text: string; tone: "good" | "neutral" } {
+  const working = agents.filter((a) => a.status === "healthy").length;
+  if (working === 0) return { text: "No agent is working right now", tone: "neutral" };
+  if (working === agents.length) return { text: "Everyone is working", tone: "good" };
+  return { text: `${working} of ${agents.length} working`, tone: "good" };
 }
 
 const TONE_CLASS: Record<AgentStatus, string> = { failing: "text-status-bad", injured: "text-status-bad", degraded: "text-status-warn", paused: "text-secondary", idle: "text-secondary", healthy: "text-status-good" };
@@ -72,7 +87,7 @@ function showGroup(status: AgentStatus) {
 }
 
 export function HealthScreen({ businessId }: ModuleScreenProps) {
-  const { navigate, currency = "EUR" } = useWidgetData();
+  const { navigate, currency } = useWidgetData();
   const { liveRefetchMs } = useTeamOptions();
   const now = useNow();
   const agentsQuery = useAgents();
@@ -80,9 +95,9 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
   const live = useLiveAgentStatus(agentsQuery, { debounceMs: liveRefetchMs });
   const agents = useMemo(() => withLiveStatus(agentsQuery.data?.agents, live).filter((a) => !a.archivedAt), [agentsQuery.data, live]);
   const groups = useMemo(() => groupByHealth(agents), [agents]);
-  const teamDept = departmentForModule(departments.data, "team");
-  const recruitHref = routes.department(businessId, teamDept?.slug ?? "team", "recruitment");
-  const needsYou = agents.filter((a) => a.status === "failing" || a.status === "injured" || a.status === "degraded").length;
+  const recruitHref = moduleTabHref(businessId, departments.data, "team", "recruitment");
+  // The one team-health definition Home's status strip and department cards use (idle and paused agents need nobody).
+  const summary = teamHealthSummary(teamHealthCounts(agents.map((a) => a.status)));
 
   const tiles: MetricTileProps[] = AGENT_STATUSES.map((status) => {
     const count = agents.filter((a) => a.status === status).length;
@@ -102,21 +117,20 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
         error={error}
         onRetry={agentsQuery.refetch}
         actions={
-          needsYou ? (
-            <StatusPill tone="warn" icon={TriangleAlert} data-testid="health-summary">
-              {needsYou === 1 ? "1 agent needs you" : `${needsYou} agents need you`}
-            </StatusPill>
-          ) : agents.length ? (
-            <StatusPill tone="good" icon={CircleCheck} data-testid="health-summary">
-              Everyone is working
-            </StatusPill>
-          ) : (
+          summary.tone === "neutral" ? (
             <span className="text-small text-secondary" data-testid="health-summary">
-              No agents yet
+              {summary.text}
+            </span>
+          ) : (
+            <span className="flex items-center gap-2">
+              {summary.detail ? <span className="text-small text-secondary tabular-nums">{summary.detail}</span> : null}
+              <StatusPill tone={summary.tone} icon={summary.tone === "warn" ? TriangleAlert : CircleCheck} data-testid="health-summary">
+                {summary.text}
+              </StatusPill>
             </span>
           )
         }
-        footer="Computed every minute: heartbeat, error rate over 24 h (above 10% is degraded), loop detection (failing), credential status (down with an expected return), rate limits and budget."
+        footer="Statuses change as sessions start, end, fail or loop, and when a credential lapses or a wage cap is reached. Heartbeat is an agent's last activity; errors are the share of its sessions that failed over 24 h."
       >
         <StatusStrip tiles={tiles} className="rounded-none border-0" aria-label="Agents by health" />
       </Panel>
@@ -163,11 +177,11 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
                       <dd className="min-w-0 text-body">
                         {agent.currentTask ? (
                           <a
-                            href={taskHref(businessId, agent.currentTask.id)}
+                            href={taskHref(businessId, agent.currentTask.id, departments.data)}
                             className="entity-link line-clamp-2 break-words"
                             onClick={(e) => {
                               e.preventDefault();
-                              navigate(taskHref(businessId, agent.currentTask!.id));
+                              navigate(taskHref(businessId, agent.currentTask!.id, departments.data));
                             }}
                           >
                             {agent.currentTask.title}

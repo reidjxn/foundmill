@@ -2,12 +2,14 @@
 /**
  * Product › Specification (BUILD §11.5): the block outline, one block in the collaborative editor (the host's Tiptap +
  * Yjs editor over apps/collab, or the plain fallback), pinned-block locks, and version history with compare and restore.
+ * People who may not change the Product section (viewers, advisors, staff with read access) get a read-only editor and
+ * no Pin, Publish or Restore: the API and the collab server refuse those writes anyway.
  */
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { Bot, FileText, GitCompare, History, Lock, LockOpen, Pin, RotateCcw, Upload, UserRound } from "lucide-react";
 import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DiffView, Icon, Panel, StatusPill, Textarea, cn, formatRelative, useFormatters, type StatusTone } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetQuery } from "@foundmill/widgets";
-import { useModuleEnv, type SpecEditorStatus } from "../env";
+import { useCanWrite, useModuleEnv, type SpecEditorStatus } from "../env";
 import type { ModuleScreenProps } from "../registry";
 import { FoundationsBanner, useFoundations } from "./foundations";
 import { pmToText } from "./prosemirror";
@@ -69,7 +71,7 @@ function Outline({ groups, selectedId, onSelect }: { groups: SectionGroup[]; sel
                     onClick={() => onSelect(b.id)}
                     title={blockTitle(b)}
                     className={cn(
-                      "flex min-h-row-comfortable w-full items-start gap-2 px-panel-pad py-1.5 text-left text-body outline-none transition-colors duration-micro ease-dugout hover:bg-white/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
+                      "flex min-h-row-comfortable w-full items-start gap-2 px-panel-pad py-1.5 text-left text-body transition-colors duration-micro ease-dugout hover:bg-white/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
                       active ? "row-selected text-primary" : "text-primary",
                     )}
                   >
@@ -90,7 +92,7 @@ function Outline({ groups, selectedId, onSelect }: { groups: SectionGroup[]; sel
 
 /* ---------- Editor panel ---------- */
 
-function EditorPanel({ businessId, block, onChanged }: { businessId: string; block: SpecBlockRow | undefined; onChanged: () => void }) {
+function EditorPanel({ businessId, block, canWrite, onChanged }: { businessId: string; block: SpecBlockRow | undefined; canWrite: boolean; onChanged: () => void }) {
   const env = useModuleEnv();
   const Editor = env.SpecEditor ?? PlainBlockEditor;
   const [status, setStatus] = useState<SpecEditorStatus>(env.SpecEditor ? "connecting" : "local");
@@ -111,9 +113,11 @@ function EditorPanel({ businessId, block, onChanged }: { businessId: string; blo
         block ? (
           <>
             {block.pinned ? <PinnedChip /> : null}
-            <Button size="sm" variant="ghost" icon={block.pinned ? LockOpen : Pin} onClick={() => void togglePin()} loading={action.pending === "pin"} aria-pressed={block.pinned}>
-              {block.pinned ? "Unpin" : "Pin"}
-            </Button>
+            {canWrite ? (
+              <Button size="sm" variant="ghost" icon={block.pinned ? LockOpen : Pin} onClick={() => void togglePin()} loading={action.pending === "pin"} aria-pressed={block.pinned}>
+                {block.pinned ? "Unpin" : "Pin"}
+              </Button>
+            ) : null}
           </>
         ) : null
       }
@@ -141,7 +145,7 @@ function EditorPanel({ businessId, block, onChanged }: { businessId: string; blo
           {block.pinned ? (
             <p className="mb-2 flex items-center gap-1.5 text-small text-secondary">
               <Icon icon={Lock} size="inline" className="text-status-info" />
-              Pinned: agents cannot change this block without an accepted change proposal. Your edits keep it pinned.
+              Pinned: agents cannot change this block without an accepted change proposal.{canWrite ? " Your edits keep it pinned." : ""}
             </p>
           ) : null}
           <Editor
@@ -153,6 +157,7 @@ function EditorPanel({ businessId, block, onChanged }: { businessId: string; blo
             collabToken={env.collabToken}
             initialContent={block.content}
             pinned={block.pinned}
+            readOnly={!canWrite}
             onSaved={onChanged}
             onStatusChange={onStatusChange}
           />
@@ -164,8 +169,8 @@ function EditorPanel({ businessId, block, onChanged }: { businessId: string; blo
 
 /* ---------- History panel ---------- */
 
-function HistoryPanel({ versions, onRestored, onPublished }: { versions: ReturnType<typeof useWidgetQuery<SpecVersionRow[]>>; onRestored: () => void; onPublished: () => void }) {
-  const { formatDate, formatDateShort, formatDateTime } = useFormatters();
+function HistoryPanel({ versions, canWrite, onRestored, onPublished }: { versions: ReturnType<typeof useWidgetQuery<SpecVersionRow[]>>; canWrite: boolean; onRestored: () => void; onPublished: () => void }) {
+  const { formatDate, formatDateSmart, formatDateTime } = useFormatters();
   const [from, setFrom] = useState<number | null>(null);
   const [to, setTo] = useState<number | null>(null);
   const [compareOpen, setCompareOpen] = useState(false);
@@ -214,15 +219,23 @@ function HistoryPanel({ versions, onRestored, onPublished }: { versions: ReturnT
       loading={versions.isLoading}
       error={versions.error ? versions.error.message : undefined}
       onRetry={versions.refetch}
-      empty={versions.data && list.length === 0 ? { icon: History, children: "Versions appear when a change proposal is accepted or you publish the current spec.", action: { label: "Publish version", icon: Upload, onClick: () => setPublishOpen(true) } } : undefined}
+      empty={
+        versions.data && list.length === 0
+          ? canWrite
+            ? { icon: History, children: "Versions appear when a change proposal is accepted or you publish the current spec.", action: { label: "Publish version", icon: Upload, onClick: () => setPublishOpen(true) } }
+            : { icon: History, children: "Versions appear when a change proposal is accepted or the spec is published." }
+          : undefined
+      }
       actions={
         <>
           <Button size="sm" variant="ghost" icon={GitCompare} disabled={from === null || to === null} onClick={() => setCompareOpen(true)}>
             Compare
           </Button>
-          <Button size="sm" variant="ghost" icon={Upload} onClick={() => setPublishOpen(true)}>
-            Publish
-          </Button>
+          {canWrite ? (
+            <Button size="sm" variant="ghost" icon={Upload} onClick={() => setPublishOpen(true)}>
+              Publish
+            </Button>
+          ) : null}
         </>
       }
       footer={<span>{from !== null && to !== null ? `Comparing v${from} → v${to}` : from !== null ? `v${from} selected · pick another to compare` : "Pick two versions to compare"}</span>}
@@ -233,7 +246,7 @@ function HistoryPanel({ versions, onRestored, onPublished }: { versions: ReturnT
           const selected = v.version === from || v.version === to;
           return (
             <li key={v.id} className={cn("flex items-start gap-2 px-panel-pad py-2", selected && "bg-panel-alt")} data-version={v.version}>
-              <button type="button" onClick={() => pick(v.version)} aria-pressed={selected} aria-label={`Select version ${v.version} for comparison`} className={cn("mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-full border outline-none focus-visible:outline-2 focus-visible:outline-link", selected ? "border-kit-primary bg-kit-primary" : "border-secondary")}>
+              <button type="button" onClick={() => pick(v.version)} aria-pressed={selected} aria-label={`Select version ${v.version} for comparison`} className={cn("mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-full border focus-visible:outline-2 focus-visible:outline-link", selected ? "border-kit-primary bg-kit-primary" : "border-secondary")}>
                 {selected ? <span className="size-1.5 rounded-full bg-kit-on-primary" /> : null}
               </button>
               <div className="min-w-0 flex-1">
@@ -242,7 +255,7 @@ function HistoryPanel({ versions, onRestored, onPublished }: { versions: ReturnT
                   {i === 0 ? <Chip tone="good">Latest</Chip> : null}
                   <span className="flex-1" />
                   <time dateTime={new Date(v.publishedAt).toISOString()} title={formatDateTime(v.publishedAt)} className="text-small text-secondary tabular-nums">
-                    {formatDateShort(v.publishedAt)}
+                    {formatDateSmart(v.publishedAt)}
                   </time>
                 </div>
                 <p className="line-clamp-2 break-words text-small text-secondary" title={v.changelogMd}>
@@ -252,7 +265,7 @@ function HistoryPanel({ versions, onRestored, onPublished }: { versions: ReturnT
                   <span className="tabular-nums">{v.snapshot?.blocks?.length ?? 0} blocks</span>
                   {v.publishedBy ? <AuthorRef kind="user" id={v.publishedBy} /> : <span>System</span>}
                   <span className="flex-1" />
-                  {i !== 0 ? (
+                  {i !== 0 && canWrite ? (
                     <Button size="sm" variant="ghost" icon={RotateCcw} className="h-6 px-1.5" onClick={() => setRestoreTarget(v)}>
                       Restore
                     </Button>
@@ -282,7 +295,7 @@ function HistoryPanel({ versions, onRestored, onPublished }: { versions: ReturnT
             <Button variant="ghost" onClick={() => setCompareOpen(false)}>
               Close
             </Button>
-            {compare.data && from !== null ? (
+            {compare.data && from !== null && canWrite ? (
               <Button
                 variant="default"
                 icon={RotateCcw}
@@ -364,6 +377,7 @@ export function SpecificationScreen({ businessId }: ModuleScreenProps) {
   }, [spec.data, groups, selectedId]);
 
   const block = findBlock(spec.data?.blocks, selectedId);
+  const canWrite = useCanWrite("product");
 
   return (
     <Screen name="product/specification">
@@ -380,8 +394,8 @@ export function SpecificationScreen({ businessId }: ModuleScreenProps) {
       >
         <Outline groups={groups} selectedId={selectedId} onSelect={setSelectedId} />
       </Panel>
-      <EditorPanel businessId={businessId} block={block} onChanged={refetchAll} />
-      <HistoryPanel versions={versions} onRestored={refetchAll} onPublished={refetchAll} />
+      <EditorPanel businessId={businessId} block={block} canWrite={canWrite} onChanged={refetchAll} />
+      <HistoryPanel versions={versions} canWrite={canWrite} onRestored={refetchAll} onPublished={refetchAll} />
     </Screen>
   );
 }

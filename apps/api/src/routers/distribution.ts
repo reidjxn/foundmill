@@ -1,13 +1,33 @@
 /** distribution.recommend / channels.* / campaigns.* / assets.* (BUILD §11.7; AC-11.7.2 enable/disable re-scores). */
-import { CreateCampaignInput, UpdateCampaignInput, repos } from "@foundmill/db";
+import { CreateCampaignInput, UpdateCampaignInput, hasLaunched, repos } from "@foundmill/db";
 import { HOUSE_STYLE } from "@foundmill/agents";
-import { CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, ChannelKey, type ChannelLine } from "@foundmill/shared";
+import { CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, CHANNEL_WINDOW_DAYS, ChannelKey, CurrencyCode, dayKeyIn, ValidationError, type ChannelLine } from "@foundmill/shared";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { assertAgentsRunning } from "../services/stop-guard";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
+import { modelLimited } from "../services/model-limits";
 import { Id, audit, emit, router, sectionRead, sectionWrite } from "../trpc";
+
+/**
+ * The channel window every screen labels "last 35 days": the business's today (its time zone, 0041; UTC without one)
+ * and the CHANNEL_WINDOW_DAYS − 1 days before it, as the inclusive day range the repos take (a `from` of today − 35
+ * would count 36 days).
+ */
+export function channelWindow(now: Date = new Date(), timeZone?: string | null): { from: string; to: string } {
+  const to = dayKeyIn(now, timeZone);
+  const from = new Date(Date.parse(`${to}T00:00:00.000Z`) - (CHANNEL_WINDOW_DAYS - 1) * 86_400_000).toISOString().slice(0, 10);
+  return { from, to };
+}
 
 const read = sectionRead("distribution");
 const write = sectionWrite("distribution");
+
+/**
+ * The highest cost per customer the Strategist may name, in minor units (100,000 in the major unit). Anything above is
+ * not an estimate a founder can act on; the bound also keeps the mock model's numbers plausible.
+ */
+export const CPA_RANGE_MAX_MINOR = 10_000_000;
 
 const Recommendation = z.object({
   channels: z
@@ -17,31 +37,37 @@ const Recommendation = z.object({
         fit: z.number().int().min(1).max(20),
         potential: z.number().int().min(1).max(5),
         recommended: z.boolean(),
-        cpa_range_minor: z.object({ low: z.number().int().nonnegative(), high: z.number().int().nonnegative() }),
+        cpa_range_minor: z.object({ low: z.number().int().nonnegative().max(CPA_RANGE_MAX_MINOR), high: z.number().int().nonnegative().max(CPA_RANGE_MAX_MINOR) }),
         why: z.string().min(1),
+        /** The channel cannot be automated within its terms (print bookings, linear broadcast, outdoor contracts). */
+        kit_mode_required: z.boolean().optional(),
       }),
     )
     .min(15)
     .max(15),
 });
 
+/** A campaign starts as a draft; it goes live only through `setStatus` (the transitions, `campaign.launched`, the audit). */
+const NewCampaignInput = CreateCampaignInput.omit({ status: true });
+
 export const distributionRouter = router({
   /** Distribution Strategist scores all 15 channels and picks 3–6 starters (AC-11.7.1). Writes the scores to `channels`. */
-  recommend: write.mutation(async ({ ctx }) => {
+  recommend: write.use(modelLimited("recommend")).mutation(async ({ ctx }) => {
     const [profile, enabled] = await Promise.all([repos.founders.get(ctx.db, ctx.userId), repos.channels.list(ctx.db, ctx.businessId)]);
     const result = await ctx.models.complete({
       route: "departmentLead",
       schema: Recommendation,
-      system: `You are the Distribution Strategist. Score all 15 channels 1-20 on fit and pick 3-6 starters with potential, a cost-per-customer range (minor units, Estimate) and a three-sentence why. ${HOUSE_STYLE}`,
+      system: `You are the Distribution Strategist. Score all 15 channels 1-20 on fit and pick 3-6 starters with potential, a cost-per-customer range (minor units of the business currency, low at most high, Estimate), a three-sentence why, and kit_mode_required for channels that cannot be automated within their terms. ${HOUSE_STYLE}`,
       messages: [{ role: "user", content: "```json\n" + JSON.stringify({ business: { name: ctx.business.name, archetype: ctx.business.archetype, business_mode: ctx.business.businessMode }, founder: profile ? { skills: profile.skills, budget_minor: profile.budgetMinor, target_markets: profile.targetMarkets } : null, channels: CHANNEL_KEYS, currently_enabled: enabled.filter((c) => c.enabled).map((c) => c.channelKey) }) + "\n```" }],
       attribution: { businessId: ctx.businessId, kind: "distribution_strategist" },
     });
     const scored = normaliseRecommendation(result.json);
     const channels = await ctx.rls(async (tx) => {
-      const rows = await repos.channels.upsertMany(
+      // Only the scores change: the founder's Board line, on/off state, budget and offline tracking stay (audit #339).
+      const rows = await repos.channels.saveScores(
         tx,
         ctx.businessId,
-        scored.map((c) => ({ channelKey: c.channel, line: CHANNEL_META[c.channel].line, fit: c.fit, potential: c.potential * 20, recommended: c.recommended, whyMd: c.why, kitMode: CHANNEL_META[c.channel].kitModeByDefault })),
+        scored.map((c) => ({ channelKey: c.channel, fit: c.fit, potential: c.potential * 20, recommended: c.recommended, whyMd: c.why, kitModeRequired: c.kit_mode_required })),
       );
       await audit(tx, ctx, { action: "distribution.recommend", target: { kind: "business", id: ctx.businessId }, details: { starters: scored.filter((c) => c.recommended).map((c) => c.channel), costMinor: result.cost.costMinorInt } });
       return rows;
@@ -52,7 +78,7 @@ export const distributionRouter = router({
   channels: router({
     list: read.query(({ ctx }) =>
       ctx.rls(async (tx) => {
-        const [channels, summary] = await Promise.all([repos.channels.list(tx, ctx.businessId), repos.channels.metricsSummary(tx, ctx.businessId, { from: new Date(Date.now() - 35 * 86_400_000).toISOString().slice(0, 10) })]);
+        const [channels, summary] = await Promise.all([repos.channels.list(tx, ctx.businessId), repos.channels.metricsSummary(tx, ctx.businessId, channelWindow(new Date(), ctx.business.timeZone))]);
         const lines = Object.fromEntries(CHANNEL_LINES.map((l) => [l, [] as string[]])) as Record<ChannelLine, string[]>;
         for (const c of channels) lines[c.line].push(c.channelKey);
         return { channels: channels.map((c) => ({ ...c, meta: CHANNEL_META[c.channelKey], form: summary.channels.find((s) => s.channelId === c.id) ?? null })), lines, blended: summary.blended };
@@ -67,7 +93,7 @@ export const distributionRouter = router({
         return channel;
       }),
     ),
-    budget: write.input(z.object({ channelId: Id, budgetMinor: z.number().int().nonnegative(), currency: z.string().length(3).optional() })).mutation(({ ctx, input }) =>
+    budget: write.input(z.object({ channelId: Id, budgetMinor: z.number().int().nonnegative(), currency: CurrencyCode.optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const channel = await repos.channels.setBudget(tx, ctx.businessId, input.channelId, input.budgetMinor, input.currency);
         await audit(tx, ctx, { action: "distribution.channels.budget", target: { kind: "channel", id: channel.id }, details: { budgetMinor: input.budgetMinor } });
@@ -85,37 +111,58 @@ export const distributionRouter = router({
         return { campaign, assets };
       }),
     ),
-    create: write.input(CreateCampaignInput).mutation(({ ctx, input }) =>
+    /** A new campaign is a draft in its channel's currency; launching it is `setStatus` (audit #345). */
+    create: write.input(NewCampaignInput).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
-        const campaign = await repos.campaigns.create(tx, ctx.businessId, input);
+        const channel = await repos.channels.get(tx, ctx.businessId, input.channelId);
+        if (input.currency && input.currency.toUpperCase() !== channel.currency) throw new TRPCError({ code: "BAD_REQUEST", message: `The budget is in ${channel.currency}, the ${CHANNEL_META[channel.channelKey].label} channel's currency.` });
+        const campaign = await repos.campaigns.create(tx, ctx.businessId, { ...input, status: "draft", currency: channel.currency });
         await audit(tx, ctx, { action: "distribution.campaigns.create", target: { kind: "campaign", id: campaign.id }, details: { channelId: campaign.channelId, budgetMinor: campaign.budgetMinor } });
         return campaign;
       }),
     ),
     update: write.input(z.object({ campaignId: Id, patch: UpdateCampaignInput })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
+        // A campaign's budget stays in its channel's currency after the edit as at creation (audit #345).
+        if (input.patch.currency) {
+          const channel = await repos.channels.get(tx, ctx.businessId, (await repos.campaigns.get(tx, ctx.businessId, input.campaignId)).channelId);
+          if (input.patch.currency.toUpperCase() !== channel.currency) throw new TRPCError({ code: "BAD_REQUEST", message: `The budget is in ${channel.currency}, the ${CHANNEL_META[channel.channelKey].label} channel's currency.` });
+        }
         const campaign = await repos.campaigns.update(tx, ctx.businessId, input.campaignId, input.patch);
         await audit(tx, ctx, { action: "distribution.campaigns.update", target: { kind: "campaign", id: campaign.id }, details: { fields: Object.keys(input.patch) } });
         return campaign;
       }),
     ),
-    /** Status changes; launching a campaign emits `campaign.launched`. Spend above caps is gated by the engine, not here. */
-    setStatus: write.input(z.object({ campaignId: Id, status: z.enum(CAMPAIGN_STATUSES) })).mutation(({ ctx, input }) =>
-      ctx.rls(async (tx) => {
+    /**
+     * Status changes. The first launch needs at least one approved asset and emits `campaign.launched`; resuming a
+     * campaign that already went live is neither checked nor announced again. Spend above caps is gated by the engine.
+     * Going live is refused while the team is stopped: Stop all agents paused the live campaigns, and no member sets one
+     * spending again before an owner or admin resumes the agents (pausing or ending stays allowed).
+     */
+    setStatus: write.input(z.object({ campaignId: Id, status: z.enum(CAMPAIGN_STATUSES) })).mutation(async ({ ctx, input }) => {
+      if (input.status === "live") await assertAgentsRunning(ctx, "a live campaign");
+      return ctx.rls(async (tx) => {
         const before = await repos.campaigns.get(tx, ctx.businessId, input.campaignId);
+        const launching = input.status === "live" && before.status !== "live" && !hasLaunched(before);
+        const approved = launching ? await repos.campaigns.listAssets(tx, ctx.businessId, { campaignId: before.id, approvalState: "approved" }) : [];
+        if (launching && approved.length === 0) throw new ValidationError("Launch needs at least one approved asset. Approve one of the campaign's assets first.", { campaignId: before.id });
+        // Nothing is scheduled or launched on a channel that is off the board (its engine is stopped; audit #345).
+        if ((input.status === "live" || input.status === "scheduled") && before.status !== input.status) {
+          const owner = await repos.channels.get(tx, ctx.businessId, before.channelId);
+          if (!owner.enabled) throw new TRPCError({ code: "BAD_REQUEST", message: `Put ${CHANNEL_META[owner.channelKey].label} on the board before launching its campaigns.` });
+        }
         const campaign = await repos.campaigns.setStatus(tx, ctx.businessId, input.campaignId, input.status);
-        if (input.status === "live" && before.status !== "live") {
+        if (launching) {
           const channel = await repos.channels.get(tx, ctx.businessId, campaign.channelId);
-          const assets = await repos.campaigns.listAssets(tx, ctx.businessId, { campaignId: campaign.id, approvalState: "approved" });
           await emit(tx, ctx, {
             type: "campaign.launched",
-            payload: { campaignId: campaign.id, channelId: channel.id, channelKey: channel.channelKey, name: campaign.name, goal: campaign.goal.slice(0, 500), budget: { amountMinor: campaign.budgetMinor, currency: campaign.currency }, startsAt: (campaign.startsAt ?? new Date()).toISOString(), endsAt: campaign.endsAt?.toISOString() ?? null, kitMode: channel.kitMode, assetIds: assets.map((a) => a.id), approvalId: null },
+            payload: { campaignId: campaign.id, channelId: channel.id, channelKey: channel.channelKey, name: campaign.name, goal: campaign.goal.slice(0, 500), budget: { amountMinor: campaign.budgetMinor, currency: campaign.currency }, startsAt: (campaign.startsAt ?? new Date()).toISOString(), endsAt: campaign.endsAt?.toISOString() ?? null, kitMode: channel.kitMode, assetIds: approved.map((a) => a.id), approvalId: null },
           });
         }
         await audit(tx, ctx, { action: "distribution.campaigns.set_status", target: { kind: "campaign", id: campaign.id }, details: { from: before.status, to: input.status } });
         return campaign;
-      }),
-    ),
+      });
+    }),
   }),
 
   assets: router({
@@ -128,6 +175,8 @@ export const distributionRouter = router({
 type Ctx = Parameters<Parameters<typeof write.mutation>[0]>[0]["ctx"];
 
 async function setEnabled(ctx: Ctx, channelKey: ChannelKey, enabled: boolean) {
+  // Enabling starts the channel's engine, which drafts and launches campaigns: never while the team is stopped.
+  if (enabled) await assertAgentsRunning(ctx, "a channel engine");
   const channel = await ctx.rls(async (tx) => {
     const existing = await repos.channels.getByKey(tx, ctx.businessId, channelKey);
     const row = existing ? await repos.channels.setEnabled(tx, ctx.businessId, existing.id, enabled) : await repos.channels.upsert(tx, ctx.businessId, { channelKey, line: CHANNEL_META[channelKey].line, enabled, kitMode: CHANNEL_META[channelKey].kitModeByDefault });
@@ -151,10 +200,31 @@ async function setAssetApproval(ctx: Ctx, assetId: string, state: "approved" | "
   });
 }
 
-/** Keep every channel exactly once with the spec's 3–6 starters, whatever the model returned. */
-function normaliseRecommendation(out: z.infer<typeof Recommendation>) {
+export interface ScoredChannel {
+  channel: ChannelKey;
+  fit: number;
+  /** 1–5 stars. */
+  potential: number;
+  recommended: boolean;
+  /** Cost per customer, minor units, low ≤ high (Estimate); null when the Strategist gave no usable range. */
+  cpa_range_minor: { low: number; high: number } | null;
+  why: string;
+  kit_mode_required?: boolean;
+}
+
+/**
+ * Each channel the Strategist scored, once (a repeated key keeps its last entry), in the order of CHANNEL_KEYS, with the
+ * spec's 3–6 starters among them. A channel it left out is not invented here: it keeps what is stored (its last score,
+ * or "Not scored"). A cost range comes back low ≤ high, and as null when it is empty (high 0).
+ */
+export function normaliseRecommendation(out: z.infer<typeof Recommendation>): ScoredChannel[] {
   const byKey = new Map(out.channels.map((c) => [c.channel, c]));
-  const rows = CHANNEL_KEYS.map((channel) => byKey.get(channel) ?? { channel, fit: 8, potential: 2, recommended: false, cpa_range_minor: { low: 0, high: 0 }, why: `${CHANNEL_META[channel].label} was not scored; defaulted to a neutral fit (Estimate).` });
+  const rows: ScoredChannel[] = CHANNEL_KEYS.flatMap((channel) => {
+    const c = byKey.get(channel);
+    if (!c) return [];
+    const [low, high] = [Math.min(c.cpa_range_minor.low, c.cpa_range_minor.high), Math.max(c.cpa_range_minor.low, c.cpa_range_minor.high)];
+    return [{ channel, fit: c.fit, potential: c.potential, recommended: c.recommended, cpa_range_minor: high > 0 ? { low, high } : null, why: c.why, ...(c.kit_mode_required !== undefined ? { kit_mode_required: c.kit_mode_required } : {}) }];
+  });
   const ranked = [...rows].sort((a, b) => b.fit - a.fit);
   let recommended = rows.filter((r) => r.recommended).length;
   for (const r of ranked) {

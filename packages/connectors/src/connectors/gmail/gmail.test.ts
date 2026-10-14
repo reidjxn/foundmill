@@ -31,8 +31,9 @@ describe("gmail quarantine", () => {
   });
   it("records sends in the mock outbox", async () => {
     const mock = createGmailMock();
-    await mock.callTool("send_message", { to: ["a@example.com"], subject: "s", text: "t" }, makeToolContext(mock));
-    expect(mock.sent).toHaveLength(1);
+    const ctx = makeToolContext(mock);
+    await mock.callTool("send_message", { to: ["a@example.com"], subject: "s", text: "t" }, ctx);
+    expect(mock.sentFor(ctx.businessId)).toHaveLength(1);
     const listed = await mock.callTool("list_messages", { q: "label:sent" }, makeToolContext(mock));
     expect(isUntrusted(listed.data) && (listed.data.content as { items: unknown[] }).items).toHaveLength(1);
   });

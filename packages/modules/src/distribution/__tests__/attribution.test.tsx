@@ -5,6 +5,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { AttributionScreen } from "../AttributionScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
 import { BID, JOURNEY, dataResponses, emptyResponses } from "./fixtures";
+import type { JourneyRow } from "../types";
 
 const props = { businessId: BID, departmentId: "d1" };
 
@@ -14,8 +15,9 @@ describe("AttributionScreen", () => {
     renderScreen(fake, <AttributionScreen {...props} />);
     const model = screen.getByRole("region", { name: "Model in use" });
     expect(within(model).getByText("Position-based 40/20/40")).toBeTruthy();
-    expect(within(model).getByText("1 of 3")).toBeTruthy(); // partial journeys
-    expect(within(model).getByText(/198 more paying customers/)).toBeTruthy();
+    expect(within(model).getByText("1 of 3")).toBeTruthy(); // partial journeys, over every journey (journey.attribution)
+    expect(within(model).getByText(/197 more labeled conversions/)).toBeTruthy();
+    expect(fake.queried.get("journey.list")).toEqual({ limit: 5, orderBy: "converted" });
     const wins = within(model).getByRole("region", { name: "Latest wins" });
     expect(within(wins).getAllByRole("listitem")).toHaveLength(3);
     expect(within(wins).getByText("Partial journey")).toBeTruthy();
@@ -49,11 +51,32 @@ describe("AttributionScreen", () => {
     await waitFor(() => expect(fake.navigations[1]).toBe(`/b/${BID}/d/distribution/formation?channel=print`));
   });
 
-  it("uses the data-driven model once 200 paying customers are labelled", () => {
-    const paying = Array.from({ length: 200 }, (_, i) => ({ ...(dataResponses["journey.list"] as { items: unknown[] }).items[0] as object, id: `j${i}`, conversionId: `c${i}` }));
-    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "journey.list": { items: paying, nextCursor: null } } });
+  it("a Customer Update opened here comes back here (the replay's back button reads the from path)", () => {
+    const here = `/b/${BID}/d/distribution/attribution`;
+    window.history.pushState({}, "", here);
+    try {
+      const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+      renderScreen(fake, <AttributionScreen {...props} />);
+      fireEvent.click(within(screen.getByRole("region", { name: "Latest wins" })).getAllByRole("button", { name: /Open Customer Update/ })[0]!);
+      expect(fake.navigations[0]).toBe(`/b/${BID}/journey/${JOURNEY.first}?from=${encodeURIComponent(here)}`);
+    } finally {
+      window.history.pushState({}, "", "/");
+    }
+  });
+
+  it("takes the model in use and the counts from the whole history, not from the journeys it lists", () => {
+    // The newest wins are all signups (as for Northwind's newest 200), yet the business is far past 200 conversions.
+    const signups = (dataResponses["journey.list"] as { items: JourneyRow[] }).items.map((j) => ({ ...j, conversion: { ...j.conversion, kind: "signup" as const } }));
+    const summary = { conversionCount: 9228, byKind: { payment: 2125, signup: 4600, activation: 2503 }, attributionModel: "data_driven_markov", threshold: 200, remaining: 0, journeys: 3341, partialJourneys: 283 };
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "journey.list": { items: signups, nextCursor: "next" }, "journey.attribution": summary } });
     renderScreen(fake, <AttributionScreen {...props} />);
-    expect(screen.getByText("Data-driven (Markov removal effect)")).toBeTruthy();
+    const model = screen.getByRole("region", { name: "Model in use" });
+    expect(within(model).getByText("Data-driven (Markov removal effect)")).toBeTruthy();
+    expect(within(model).getByText("9,228")).toBeTruthy();
+    expect(within(model).getByText("2,125")).toBeTruthy();
+    expect(within(model).getByText("283 of 3,341")).toBeTruthy();
+    expect(within(model).queryByText(/more labeled conversions/)).toBeNull();
+    expect(within(model).getByText(/only first-party touches were weighted/)).toBeTruthy();
   });
 
   it("handles empty, error and loading, and refetches on customer.converted", () => {
@@ -67,10 +90,14 @@ describe("AttributionScreen", () => {
     });
     expect(empty.refetches["distribution.channels.list"]).toBe(1);
     expect(empty.refetches["journey.list"]).toBe(1);
+    expect(empty.refetches["journey.attribution"]).toBe(1);
 
     const failing = createFakeSource({ businessId: BID, responses: { ...emptyResponses, "journey.list": new Error("journeys down") } });
     renderScreen(failing, <AttributionScreen {...props} />);
     expect(screen.getByText("journeys down")).toBeTruthy();
+    const noSummary = createFakeSource({ businessId: BID, responses: { ...emptyResponses, "journey.attribution": new Error("summary down") } });
+    renderScreen(noSummary, <AttributionScreen {...props} />);
+    expect(screen.getByText("summary down")).toBeTruthy();
 
     const loading = createFakeSource({ businessId: BID });
     const { container } = renderScreen(loading, <AttributionScreen {...props} />);

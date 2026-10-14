@@ -2,14 +2,23 @@
  * agentSession workflow: loop detection ends the session as failed (real activities on PGlite + the replay sandbox);
  * pause/resume/shout/decision signals reach the running activity through the control bus in order, and the
  * `progress` query reports the state.
+ *
+ * The run activity executes on the sessions task queue only, so sessions holding every session slot never stop short
+ * activities (another business's cycle, the control commands that release them); a refused start for a paused agent
+ * ends `stopped`; a parked session waits for Resume in workflow code and the next run continues it, with every nudge
+ * the parked run did not act on; a run that dies without returning books the usage of its last heartbeat.
  */
 import { repos } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
 import { MockSandboxProvider, RECORDINGS, findRecording } from "@foundmill/sandbox";
+import { Context } from "@temporalio/activity";
+import { ActivityFailure, ApplicationFailure, RetryState, TimeoutFailure, TimeoutType } from "@temporalio/common";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createActivities, type Activities, type SessionCommand, type SessionLaunch, type SessionResult } from "../../activities";
-import { agentSession, pauseSignal, progressQuery, resumeSignal, shoutSignal, decisionSignal, stopSignal } from "../../workflows";
-import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness } from "../harness";
+import { createActivities, type Activities, type SessionCommand, type SessionLaunch, type SessionResult, type SessionRunOptions } from "../../activities";
+import { AGENT_PAUSED_FAILURE, sessionTaskQueue } from "../../session-contract";
+import { agentSession, hello, pauseSignal, progressQuery, resumeSignal, shoutSignal, decisionSignal, stopSignal } from "../../workflows";
+import { failedRunUsage } from "../../workflows/agentSession";
+import { openSessionRow, setupOrchestratorHarness, wait, type OrchestratorTestHarness } from "../harness";
 import { createTemporalRig, type TemporalRig } from "./temporal";
 
 let rig: TemporalRig;
@@ -27,7 +36,7 @@ const launchStub: SessionLaunch = { sandboxMode: "mock", fellBackFrom: null, mod
 
 describe("agentSession workflow", () => {
   it("fails the session on a detected loop (same call 3×) with the real activities", async () => {
-    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId, "session:wf");
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
     const activities = createActivities(t.deps);
     const outcome = await rig.run(activities, (client, taskQueue) =>
       client.workflow.execute(agentSession, { workflowId: `session:${sessionId}`, taskQueue, args: [{ businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId }] }),
@@ -122,5 +131,218 @@ describe("agentSession workflow", () => {
     expect(outcome.result.outcome).toBe("stopped");
     expect(outcome.result.reason).toBe("founder_stop");
     expect(outcome.finish?.taskStatus).toBe("stopped");
+  });
+});
+
+const doneResult = (over: Partial<SessionResult> = {}): SessionResult => ({ outcome: "done", reason: null, blockedReason: null, approvalId: null, progress: { planStepsDone: 2, planSteps: 2, acceptanceTestsPassing: 1, acceptanceTests: 1, reviewPassed: true, merged: true, phase: "done", progress: 1, etaAt: null, at: null }, eventsEmitted: 4, toolCalls: 2, toolFailures: 0, tokensIn: 2, tokensOut: 1, costMinor: 1, durationMs: 60_000, prNumber: null, summary: "done", providerSessionId: null, ...over });
+
+/** Poll a condition in real time (the time-skipping server only skips time while a test awaits a workflow result). */
+async function until(check: () => boolean | Promise<boolean>, what: string): Promise<void> {
+  for (let i = 0; i < 1_200; i++) {
+    if (await check()) return;
+    await wait(25);
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
+/**
+ * A workflow's result, waited for in real time: awaiting `result()` lets the time-skipping server jump ahead, which
+ * would expire the timeouts of activities these tests deliberately keep running.
+ */
+async function settled<T>(handle: { describe(): Promise<{ status: { name: string } }>; result(): Promise<T> }, what: string): Promise<T> {
+  await until(async () => (await handle.describe()).status.name !== "RUNNING", what);
+  return handle.result();
+}
+
+describe("agentSession workflow: sessions on their own task queue", () => {
+  it("runs the session activity on the sessions task queue, never on the workflow's own", async () => {
+    let queue = "";
+    const activities: Partial<Activities> = {
+      async prepareSession() {
+        return launchStub;
+      },
+      async runAgentSession() {
+        queue = Context.current().info.taskQueue;
+        return doneResult();
+      },
+      async postSessionCommand() {},
+      async finishSession() {
+        return { taskStatus: "done", eventIds: [], healthChanged: false };
+      },
+    };
+    const mainQueue = await rig.run(activities, async (client, taskQueue) => {
+      await client.workflow.execute(agentSession, { workflowId: `session:${crypto.randomUUID()}`, taskQueue, args: [{ businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId: crypto.randomUUID() }] });
+      return taskQueue;
+    });
+    expect(queue).toBe(sessionTaskQueue(mainQueue));
+  });
+
+  it("sessions holding every session slot never stop short activities: another workflow runs, and Stop still reaches the held sessions", async () => {
+    const commands: { sessionId: string; command: SessionCommand }[] = [];
+    let started = 0;
+    const activities: Partial<Activities> = {
+      ...createActivities(t.deps),
+      async prepareSession() {
+        return launchStub;
+      },
+      async runAgentSession(input) {
+        started += 1;
+        // Waiting for the founder: holds its session slot (heartbeating, like the real runner) until a stop arrives.
+        while (!commands.some((c) => c.sessionId === input.sessionId && c.command.kind === "stop")) {
+          Context.current().heartbeat();
+          await wait(20);
+        }
+        return doneResult({ outcome: "stopped", reason: "founder_stop", blockedReason: "stopped" });
+      },
+      async postSessionCommand(input) {
+        commands.push(input);
+      },
+      async finishSession(_input, _launch, result) {
+        return { taskStatus: result.outcome === "stopped" ? "stopped" : "done", eventIds: [], healthChanged: false };
+      },
+    };
+    const outcome = await rig.run(
+      activities,
+      async (client, taskQueue) => {
+        const start = () => client.workflow.start(agentSession, { workflowId: `session:${crypto.randomUUID()}`, taskQueue, args: [{ businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId: crypto.randomUUID() }] });
+        const [a, b] = [await start(), await start()];
+        await until(() => started === 1, "the first session to hold the only session slot");
+        // The second session's run waits for a slot; the main queue still serves everyone else.
+        const greeting = await settled(await client.workflow.start(hello, { workflowId: `hello:${crypto.randomUUID()}`, taskQueue, args: ["Ada"] }), "another workflow");
+        const startedWhileHeld = started;
+        for (const h of [a, b]) await h.signal(stopSignal, { reason: "founder_stop", by: "founder" });
+        const results = [await settled(a, "the first session"), await settled(b, "the second session")];
+        return { greeting, startedWhileHeld, results };
+      },
+      { maxSessions: 1, maxActivities: 2 },
+    );
+    expect(outcome.greeting).toMatch(/Ada$/);
+    expect(outcome.startedWhileHeld).toBe(1);
+    expect(outcome.results.map((r) => r.result.outcome)).toEqual(["stopped", "stopped"]);
+  });
+
+  it("a start refused because the agent is paused ends the session stopped, not failed (O-06)", async () => {
+    let finished: SessionResult | null = null;
+    const activities: Partial<Activities> = {
+      async prepareSession() {
+        throw ApplicationFailure.nonRetryable("Agent Test Engineer is paused", AGENT_PAUSED_FAILURE);
+      },
+      async runAgentSession() {
+        throw new Error("must not run");
+      },
+      async postSessionCommand() {},
+      async finishSession(_input, _launch, result) {
+        finished = result;
+        return { taskStatus: "paused", eventIds: [], healthChanged: false };
+      },
+    };
+    const outcome = await rig.run(activities, (client, taskQueue) => client.workflow.execute(agentSession, { workflowId: `session:${crypto.randomUUID()}`, taskQueue, args: [{ businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId: crypto.randomUUID() }] }));
+    expect(outcome.result).toMatchObject({ outcome: "stopped", blockedReason: "stopped", reason: "not started: Agent Test Engineer is paused" });
+    expect(finished).toMatchObject({ outcome: "stopped", blockedReason: "stopped" });
+  });
+
+  it("a parked session waits for Resume without a slot; the next run continues it with the carried, unread and new nudges, and usage adds up", async () => {
+    const commands: SessionCommand[] = [];
+    const runs: (SessionRunOptions | null)[] = [];
+    let finished: SessionResult | null = null;
+    const activities: Partial<Activities> = {
+      async prepareSession() {
+        return launchStub;
+      },
+      async runAgentSession(_input, _launch, _brief, run) {
+        runs.push(run ?? null);
+        if (runs.length === 1) {
+          // Paused past the hold: the run saves its work and returns. It read the pause and nothing after it (lastSeq), and
+          // hands back one nudge it read but never acted on; "Unread" reached the list after its last poll.
+          while (!commands.some((c) => c.kind === "shout" && c.message === "Unread")) await wait(20);
+          const pause = commands.find((c) => c.kind === "pause")!;
+          return doneResult({ outcome: "stopped", reason: "paused", blockedReason: "stopped", parked: { cursor: "rec@4", carry: [{ kind: "shout", message: "Carried over" }], lastSeq: pause.seq! }, tokensIn: 10, tokensOut: 5, costMinor: 3, eventsEmitted: 6, progress: { ...doneResult().progress, progress: 0.4, merged: false } });
+        }
+        while (commands.filter((c) => c.kind === "shout").length < 4) await wait(20);
+        return doneResult();
+      },
+      async postSessionCommand({ command }) {
+        commands.push(command);
+      },
+      async finishSession(_input, _launch, result) {
+        finished = result;
+        return { taskStatus: "done", eventIds: [], healthChanged: false };
+      },
+    };
+    const outcome = await rig.run(activities, async (client, taskQueue) => {
+      const handle = await client.workflow.start(agentSession, { workflowId: `session:${crypto.randomUUID()}`, taskQueue, args: [{ businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId: crypto.randomUUID() }] });
+      await until(async () => (await handle.query(progressQuery)).state === "running", "the first run");
+      await handle.signal(pauseSignal, { by: "founder" });
+      await handle.signal(shoutSignal, { message: "Unread", by: "founder" });
+      await until(async () => (await handle.query(progressQuery)).detail?.startsWith("Paused: the session freed its place") === true, "the park");
+      const parked = await handle.query(progressQuery);
+      await handle.signal(shoutSignal, { message: "While parked", by: "founder" });
+      await wait(200);
+      const runsWhileParked = runs.length;
+      await handle.signal(resumeSignal, { by: "founder" });
+      return { parked, runsWhileParked, r: await settled(handle, "the resumed session") };
+    });
+    expect(outcome.parked).toMatchObject({ state: "paused", progress: 0.4 });
+    expect(outcome.runsWhileParked).toBe(1);
+    expect(runs).toHaveLength(2);
+    expect(runs[0]).toEqual({ fromSeq: 0, resume: null });
+    expect(runs[1]).toMatchObject({ fromSeq: 2, resume: { cursor: "rec@4", progress: { progress: 0.4 } } });
+    // The carried nudge goes first, then the one the first run never read, then the one sent while parked; all numbered
+    // for the second run (the first run's numbers are ignored by it).
+    const second = commands.filter((c): c is Extract<SessionCommand, { kind: "shout" }> => c.kind === "shout" && (c.seq ?? -1) >= runs[1]!.fromSeq);
+    expect(second.map((c) => c.message)).toEqual(["Carried over", "Unread", "While parked"]);
+    // Pause and resume are the workflow's to track while parked; the second run never sees them.
+    expect(commands.filter((c) => c.kind === "resume")).toHaveLength(0);
+    expect(outcome.r.result).toMatchObject({ outcome: "done", tokensIn: 12, tokensOut: 6, costMinor: 4, eventsEmitted: 10 });
+    expect(finished).toMatchObject({ outcome: "done", tokensIn: 12 });
+  });
+
+  it("Stop while parked finishes the session stopped with the first run's usage and no second run", async () => {
+    let runs = 0;
+    const commands: SessionCommand[] = [];
+    const activities: Partial<Activities> = {
+      async prepareSession() {
+        return launchStub;
+      },
+      async runAgentSession() {
+        runs += 1;
+        while (!commands.some((c) => c.kind === "pause")) await wait(20);
+        return doneResult({ outcome: "stopped", reason: "paused", blockedReason: "stopped", parked: { cursor: null, carry: [], lastSeq: 0 }, tokensIn: 7, tokensOut: 3, costMinor: 2 });
+      },
+      async postSessionCommand({ command }) {
+        commands.push(command);
+      },
+      async finishSession(_input, _launch, result) {
+        return { taskStatus: result.outcome === "stopped" ? "stopped" : "done", eventIds: [], healthChanged: false };
+      },
+    };
+    const outcome = await rig.run(activities, async (client, taskQueue) => {
+      const handle = await client.workflow.start(agentSession, { workflowId: `session:${crypto.randomUUID()}`, taskQueue, args: [{ businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId: crypto.randomUUID() }] });
+      await until(async () => (await handle.query(progressQuery)).state === "running", "the run");
+      await handle.signal(pauseSignal, { by: "founder" });
+      await until(async () => (await handle.query(progressQuery)).state === "paused" && runs === 1, "the park");
+      await handle.signal(stopSignal, { reason: "founder_stop", by: "founder" });
+      return settled(handle, "the stopped session");
+    });
+    expect(runs).toBe(1);
+    expect(outcome.result).toMatchObject({ outcome: "stopped", reason: "founder_stop", tokensIn: 7, tokensOut: 3, costMinor: 2, parked: null });
+    expect(outcome.finish?.taskStatus).toBe("stopped");
+  });
+});
+
+describe("a run that dies without returning (BILL-12)", () => {
+  // Proven once against the time-skipping server (a run that heartbeats, then goes silent, books this usage), which
+  // takes 80 s or more to skip the 3-minute heartbeat timeout; the mapping itself is checked here.
+  const timedOut = (details: unknown, type: TimeoutType = TimeoutType.HEARTBEAT) => new ActivityFailure("Activity task timed out", "runAgentSession", "1", RetryState.TIMEOUT, "worker-1", new TimeoutFailure("activity Heartbeat timeout", details, type));
+  const none = { tokensIn: 0, tokensOut: 0, costMinor: 0 };
+
+  it("books the usage the run's last heartbeat reported when it timed out, and nothing it cannot read", () => {
+    expect(failedRunUsage(timedOut({ sessionId: "s", events: 3, progress: 0.2, usage: { tokensIn: 1_200, tokensOut: 300, costMinor: 9 } }))).toEqual({ tokensIn: 1_200, tokensOut: 300, costMinor: 9 });
+    expect(failedRunUsage(timedOut({ usage: { tokensIn: 40, tokensOut: 2, costMinor: 1 } }, TimeoutType.START_TO_CLOSE))).toEqual({ tokensIn: 40, tokensOut: 2, costMinor: 1 });
+    // No usage, nonsense, or a failure that is not a timeout (the run returned its own usage, or spent nothing).
+    expect(failedRunUsage(timedOut(undefined))).toEqual(none);
+    expect(failedRunUsage(timedOut({ usage: { tokensIn: -5, tokensOut: "12", costMinor: Number.NaN } }))).toEqual(none);
+    expect(failedRunUsage(new ActivityFailure("Activity task failed", "runAgentSession", "1", RetryState.MAXIMUM_ATTEMPTS_REACHED, "worker-1", ApplicationFailure.create({ message: "boom" })))).toEqual(none);
+    expect(failedRunUsage(new Error("boom"))).toEqual(none);
   });
 });

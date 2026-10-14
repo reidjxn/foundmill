@@ -1,11 +1,11 @@
 /** 0004 — agents, versions, skills, training, departments, screens, dashboards, tasks, playbooks, holidays. */
 import {
-  AGENT_LAYERS, AGENT_STATUSES, AGENT_VERSION_STATES, DEPT_COLOUR_TOKENS, MODEL_KEYS, SKILL_GROUPS, TASK_KINDS, TASK_PHASES, TASK_STATUSES,
+  AGENT_LAYERS, AGENT_PAUSE_REASONS, AGENT_STATUSES, AGENT_VERSION_STATES, DEPT_COLOUR_TOKENS, MODEL_KEYS, SKILL_GROUPS, TASK_KINDS, TASK_PHASES, TASK_STATUSES,
 } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { boolean, date, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
-import { currency, emptyArray, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
+import { businessCurrency, emptyArray, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz, usdCurrency } from "./_common";
 import { businessId, businessIdNullable } from "./_refs";
 import { inboxItems, planActions } from "./inbox";
 import { roadmapItems } from "./product";
@@ -29,12 +29,15 @@ export const agents = pgTable(
     lineManagerId: uuid("line_manager_id").references((): AnyPgColumn => agents.id, { onDelete: "set null" }),
     modelKey: text("model_key", { enum: MODEL_KEYS }).notNull().default("sonnet"),
     status: text("status", { enum: AGENT_STATUSES }).notNull().default("idle"),
+    /** 0023 — why a paused agent is paused (null: by hand or before 0023); a trigger drops it when the agent leaves `paused`. */
+    pausedReason: text("paused_reason", { enum: AGENT_PAUSE_REASONS }),
     currentVersionId: uuid("current_version_id").references((): AnyPgColumn => agentVersions.id, { onDelete: "set null" }),
     autonomy: jsonb("autonomy").$type<Record<string, unknown>>().notNull().default(emptyObject),
     negotiation: jsonb("negotiation").$type<Record<string, unknown>>().notNull().default(emptyObject),
     schedule: jsonb("schedule").$type<Record<string, unknown>>().notNull().default(emptyObject),
     wageCapMinor: minor("wage_cap_minor"),
-    currency: currency(),
+    /** The wage cap caps metered model cost: US dollars (0024, 0025), never the business's currency. */
+    currency: usdCurrency(),
     avatarSeed: text("avatar_seed").notNull().default(""),
     ...timestampsWithArchive(),
   },
@@ -85,13 +88,18 @@ export const departments = pgTable(
     leadAgentId: uuid("lead_agent_id").references(() => agents.id, { onDelete: "set null" }),
     moduleKeys: text("module_keys").array().notNull().default(emptyArray),
     budgetMinor: minor("budget_minor"),
-    currency: currency(),
+    currency: businessCurrency(),
     approvers: jsonb("approvers").$type<unknown[]>().notNull().default(emptyList),
     hidden: boolean("hidden").notNull().default(false),
+    /** The G-chord letter (0040): settled by departmentsRepo on every change, so one rename never moves another's. */
+    shortcut: text("shortcut"),
+    /** The founder chose the letter in Settings › Departments: it survives a rename. */
+    shortcutChosen: boolean("shortcut_chosen").notNull().default(false),
     ...timestampsWithArchive(),
   },
   (t) => [
     uniqueIndex("departments_business_id_slug_key").on(t.businessId, t.slug),
+    uniqueIndex("departments_business_id_shortcut_key").on(t.businessId, t.shortcut).where(sql`${t.shortcut} is not null and ${t.archivedAt} is null`),
     index("departments_business_id_idx").on(t.businessId, t.position),
     index("departments_lead_agent_id_idx").on(t.leadAgentId),
   ],
@@ -154,7 +162,12 @@ export const dashboardLayouts = pgTable(
     isActive: boolean("is_active").notNull().default(true),
     ...timestampsWithArchive(),
   },
-  (t) => [index("dashboard_layouts_business_id_idx").on(t.businessId), index("dashboard_layouts_user_id_idx").on(t.userId, t.businessId)],
+  (t) => [
+    index("dashboard_layouts_business_id_idx").on(t.businessId),
+    index("dashboard_layouts_user_id_idx").on(t.userId, t.businessId),
+    // 0044: one active dashboard per person and business (the default Home).
+    uniqueIndex("dashboard_layouts_one_active_key").on(t.businessId, t.userId).where(sql`${t.isActive} and ${t.archivedAt} is null`),
+  ],
 );
 export type DashboardLayout = typeof dashboardLayouts.$inferSelect;
 export type NewDashboardLayout = typeof dashboardLayouts.$inferInsert;
@@ -191,6 +204,8 @@ export const skillTests = pgTable(
     rubric: jsonb("rubric").$type<Record<string, unknown>>().notNull().default(emptyObject),
     heldOut: boolean("held_out").notNull().default(false),
     fixturesRef: text("fixtures_ref"),
+    /** 0054: when the founder reviewed the test (null = drafted, awaiting review; only reviewed tests are scored). */
+    reviewedAt: tstz("reviewed_at"),
     ...timestampsWithArchive(),
   },
   (t) => [index("skill_tests_skill_definition_id_idx").on(t.skillDefinitionId), index("skill_tests_business_id_idx").on(t.businessId)],
@@ -232,7 +247,8 @@ export const trainingRuns = pgTable(
     toVersionId: uuid("to_version_id").references(() => agentVersions.id, { onDelete: "set null" }),
     status: text("status", { enum: TRAINING_STATUSES }).notNull().default("queued"),
     costMinor: minor("cost_minor").notNull().default(0),
-    currency: currency(),
+    /** A training run's model cost: US cents (0024), the model price list's currency. */
+    currency: usdCurrency(),
     results: jsonb("results").$type<Record<string, { old: number; new: number }>>().notNull().default(emptyObject),
     coachSummaryMd: text("coach_summary_md").notNull().default(""),
     decision: text("decision", { enum: TRAINING_DECISIONS }),
@@ -272,7 +288,7 @@ export const tasks = pgTable(
     eta: tstz("eta"),
     priority: integer("priority").notNull().default(0),
     budgetMinor: minor("budget_minor"),
-    currency: currency(),
+    currency: businessCurrency(),
     startedAt: tstz("started_at"),
     endedAt: tstz("ended_at"),
     /** When an owner or admin forgot the task's saved code (0013); sessions that started earlier cannot save it again. */
@@ -324,7 +340,8 @@ export const agentSessions = pgTable(
     tokensIn: minor("tokens_in").notNull().default(0),
     tokensOut: minor("tokens_out").notNull().default(0),
     costMinor: minor("cost_minor").notNull().default(0),
-    currency: currency(),
+    /** The session's model cost: US cents (0024), the model price list's currency. */
+    currency: usdCurrency(),
     outcome: text("outcome"),
     recordingRef: text("recording_ref"),
     ...timestamps(),
@@ -340,6 +357,33 @@ export const agentSessions = pgTable(
 export type AgentSession = typeof agentSessions.$inferSelect;
 export type NewAgentSession = typeof agentSessions.$inferInsert;
 
+/** One entry of a saved recording: the `as:{sessionId}` stream id and the session event (packages/events `SessionEvent`). */
+export interface SessionRecordingEntry {
+  id: string;
+  event: Record<string, unknown> & { kind: string };
+}
+
+/**
+ * 0053 — a finished session's events, copied from its `as:{sessionId}` stream (which then expires), so replays outlive
+ * Redis. Written by the orchestrator with the service role; members read.
+ */
+export const sessionRecordings = pgTable(
+  "session_recordings",
+  {
+    id: id(),
+    businessId: businessId(),
+    sessionId: uuid("session_id").notNull().references(() => agentSessions.id, { onDelete: "cascade" }),
+    events: jsonb("events").$type<SessionRecordingEntry[]>().notNull().default(emptyList),
+    eventCount: integer("event_count").notNull().default(0),
+    bytes: integer("bytes").notNull().default(0),
+    truncated: boolean("truncated").notNull().default(false),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("session_recordings_session_id_key").on(t.sessionId), index("session_recordings_business_id_idx").on(t.businessId, t.createdAt)],
+);
+export type SessionRecording = typeof sessionRecordings.$inferSelect;
+export type NewSessionRecording = typeof sessionRecordings.$inferInsert;
+
 export const agentMetrics = pgTable(
   "agent_metrics",
   {
@@ -353,7 +397,8 @@ export const agentMetrics = pgTable(
     approvalsRejected: integer("approvals_rejected").notNull().default(0),
     ratingAvg: numeric("rating_avg", { precision: 4, scale: 2 }),
     costMinor: minor("cost_minor").notNull().default(0),
-    currency: currency(),
+    /** Rolled up from the day's sessions: US cents (0024). */
+    currency: usdCurrency(),
     ...timestamps(),
   },
   (t) => [uniqueIndex("agent_metrics_agent_id_day_key").on(t.agentId, t.day), index("agent_metrics_business_id_idx").on(t.businessId, t.day)],
@@ -389,7 +434,7 @@ export const holidayPeriods = pgTable(
     untilCondition: jsonb("until_condition").$type<Record<string, unknown>>(),
     authority: jsonb("authority").$type<Record<string, unknown>>().notNull().default(emptyObject),
     budgetCeilingMinor: minor("budget_ceiling_minor"),
-    currency: currency(),
+    currency: businessCurrency(),
     wakeEvents: text("wake_events").array().notNull().default(emptyArray),
     startedAt: tstz("started_at"),
     endedAt: tstz("ended_at"),
@@ -397,7 +442,12 @@ export const holidayPeriods = pgTable(
     startedBy: uuid("started_by"),
     ...timestampsWithArchive(),
   },
-  (t) => [index("holiday_periods_business_id_idx").on(t.businessId, t.startedAt), index("holiday_periods_report_inbox_item_id_idx").on(t.reportInboxItemId)],
+  (t) => [
+    index("holiday_periods_business_id_idx").on(t.businessId, t.startedAt),
+    index("holiday_periods_report_inbox_item_id_idx").on(t.reportInboxItemId),
+    // 0036: at most one running vacation per business.
+    uniqueIndex("holiday_periods_one_running_idx").on(t.businessId).where(sql`started_at is not null and ended_at is null and archived_at is null`),
+  ],
 );
 export type HolidayPeriod = typeof holidayPeriods.$inferSelect;
 export type NewHolidayPeriod = typeof holidayPeriods.$inferInsert;

@@ -6,11 +6,11 @@
  */
 import { IDEATION_CARD_MAX_TOKENS, IDEATION_CARD_RESERVE_TOKENS, IDEATION_SLATE_MAX_TOKENS } from "@foundmill/agents";
 import { repos } from "@foundmill/db";
-import { MockModelClient, ModelAbortedError, ModelOutputError, ModelUnavailableError, type CompleteRequest, type ModelClient } from "@foundmill/models";
+import { MockModelClient, ModelAbortedError, ModelBillingError, ModelOutputError, ModelUnavailableError, type CompleteRequest, type ModelClient } from "@foundmill/models";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app";
 import { SINGLE_CONCEPT_MAX_TOKENS, type DraftEvent } from "../routers/idea";
-import { concurrencyLimit, IDEATION_LIMITS, IDEATION_TOO_LONG_MESSAGE, ideationLimiter, takeIdeationAllowance } from "../services/ideation";
+import { concurrencyLimit, IDEATION_LIMITS, IDEATION_TOO_LONG_MESSAGE, takeIdeationAllowance } from "../services/ideation";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -80,8 +80,9 @@ describe("idea.generate", () => {
   });
 
   it("explains a draft that ran out of room instead of showing the model error", async () => {
+    // A client that only completes (no streaming), so the slate falls back to `complete` and is cut off there.
     const truncated: ModelClient = {
-      ...hz.deps.models,
+      mode: hz.deps.models.mode,
       complete: (async () => {
         throw new ModelOutputError('Output truncated at max_tokens=3000 before valid JSON was produced for route "ideationSlate"', {}, "max_tokens");
       }) as ModelClient["complete"],
@@ -112,6 +113,24 @@ describe("idea.generate", () => {
     // Only the failed card was asked again: eight cards, nine card calls.
     expect(mock.history.filter((r) => r.route === "ideation")).toHaveLength(8);
     expect(events.filter((e) => e.type === "writing" && e.index !== 3).every((e) => (e as { attempt: number }).attempt === 1)).toBe(true);
+  });
+
+  it("fails the draft with the billing message when the model account cannot pay for a card", async () => {
+    const mock = new MockModelClient({ overrides: { ideationSlate: slateOf(8) } });
+    const asked: string[] = [];
+    const broke: ModelClient = {
+      mode: "mock",
+      streamStructured: (req) => mock.streamStructured(req),
+      complete: ((req: CompleteRequest) => {
+        if (req.route !== "ideation") return mock.complete(req as never);
+        asked.push(conceptOf(req));
+        return Promise.reject(new ModelBillingError("credit balance is too low", "credit_balance", "credits", 400));
+      }) as ModelClient["complete"],
+    };
+    const { caller } = await callerFor(broke, "billing@test.local");
+    await expect(collect(await caller.idea.draft({ prompt: "no credit" }))).rejects.toMatchObject({ code: "PAYMENT_REQUIRED", message: expect.stringMatching(/out of credit/) });
+    // Final at once: no card is asked twice.
+    expect(new Set(asked).size).toBe(asked.length);
   });
 
   it("finishes the set without a card that fails twice, as long as six remain", async () => {
@@ -186,11 +205,11 @@ describe("idea.draft limits and errors", () => {
 
 describe("drafting allowance (security review 2026-10-10)", () => {
   it("bounds drafts per person: past the allowance a draft is refused before any model call; another founder is unaffected", async () => {
-    ideationLimiter.reset();
+    hz.limits.reset();
     const mock = new MockModelClient();
     const { userId, caller } = await callerFor(mock, "ideas-allowance@test.local");
     // A set is a slate plus up to twelve cards (each retried once): every draft must count, streamed or not.
-    for (let i = 0; i < IDEATION_LIMITS.hour.limit; i++) takeIdeationAllowance(userId);
+    for (let i = 0; i < IDEATION_LIMITS.hour.limit; i++) await takeIdeationAllowance(hz.limits, userId);
     await expect(caller.idea.generate({ prompt: "x" })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
     await expect(caller.idea.generate({ prompt: "x", single: true })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
     await expect(collect(await caller.idea.draft({ prompt: "x" }))).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS", message: expect.stringMatching(/Drafting limit reached/) });
@@ -198,18 +217,18 @@ describe("drafting allowance (security review 2026-10-10)", () => {
 
     const other = await callerFor(new MockModelClient(), "ideas-allowance-other@test.local");
     expect((await other.caller.idea.generate({ prompt: "x", single: true })).ideas).toHaveLength(1);
-    ideationLimiter.reset();
+    hz.limits.reset();
   });
 
   it("a draft refused for a bad import job spends no allowance", async () => {
-    ideationLimiter.reset();
+    hz.limits.reset();
     const { userId, caller } = await callerFor(new MockModelClient(), "ideas-allowance-bad@test.local");
-    for (let i = 0; i < IDEATION_LIMITS.hour.limit - 1; i++) takeIdeationAllowance(userId);
+    for (let i = 0; i < IDEATION_LIMITS.hour.limit - 1; i++) await takeIdeationAllowance(hz.limits, userId);
     await expect(caller.idea.generate({ prompt: "x", importJobId: "not-a-real-import-job" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     // The last draft of the hour is still there.
     expect((await caller.idea.generate({ prompt: "x", single: true })).ideas).toHaveLength(1);
     await expect(caller.idea.generate({ prompt: "x", single: true })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
-    ideationLimiter.reset();
+    hz.limits.reset();
   });
 });
 

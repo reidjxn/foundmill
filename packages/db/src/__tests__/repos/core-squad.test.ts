@@ -1,4 +1,5 @@
 /** The repos written in the first pass: businesses, memberships, founders, ideas, departments, screens, dashboards, agents, skills, training, tasks, playbooks, holidays. */
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "../../repos";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
@@ -25,6 +26,18 @@ describe("businesses, memberships, founders, ideas", () => {
     await repos.businesses.archive(r.db, b.id);
     await expect(repos.businesses.get(r.db, b.id)).rejects.toThrow(/not found/);
     expect((await repos.businesses.get(r.db, b.id, { includeArchived: true })).archivedAt).toBeInstanceOf(Date);
+    // Archived: off the list, on the owner's archived list (not on a member's, not on a stranger's), and restorable.
+    expect((await repos.businesses.listForUser(r.db, r.A.ownerId)).map((x) => x.id)).not.toContain(b.id);
+    expect((await repos.businesses.listArchivedForUser(r.db, r.A.ownerId)).map((x) => x.id)).toEqual([b.id]);
+    await repos.memberships.add(r.db, b.id, { userId: r.A.memberId, role: "member" });
+    expect(await repos.businesses.listArchivedForUser(r.db, r.A.memberId)).toEqual([]);
+    expect(await repos.businesses.listArchivedForUser(r.db, r.B.ownerId)).toEqual([]);
+    const restored = await repos.businesses.restore(r.db, b.id);
+    expect(restored.archivedAt).toBeNull();
+    expect((await repos.businesses.get(r.db, b.id)).id).toBe(b.id);
+    expect(await repos.businesses.listArchivedForUser(r.db, r.A.ownerId)).toEqual([]);
+    // Restoring a business that is not archived finds nothing to restore.
+    await expect(repos.businesses.restore(r.db, b.id)).rejects.toThrow(/not found/);
   });
 
   it("memberships are per business; roles and section permissions update", async () => {
@@ -42,6 +55,11 @@ describe("businesses, memberships, founders, ideas", () => {
   it("founder profile upsert/update and ideas (account-scoped until commit)", async () => {
     const p = await repos.founders.upsert(r.db, r.A.ownerId, { displayName: "Reid", skills: { marketing: 14 }, targetMarkets: ["SE", "GB"] });
     expect(p.displayName).toBe("Reid");
+    // A display name cannot pose as the platform or its staff: other founders read it as who wrote to them (audit LS2-04).
+    for (const displayName of ["Foundmill Support", "Foundmill", "Ana (Support)", "F o u n d m i l l"]) {
+      await expect(repos.founders.upsert(r.db, r.A.ownerId, { displayName }), displayName).rejects.toThrow(/reserved/);
+      await expect(repos.founders.update(r.db, r.A.ownerId, { displayName }), displayName).rejects.toThrow(/reserved/);
+    }
     const p2 = await repos.founders.update(r.db, r.A.ownerId, { riskAppetite: "medium" });
     expect(p2.riskAppetite).toBe("medium");
     expect(p2.skills).toEqual({ marketing: 14 }); // a patch never resets defaulted fields (patchSchema)
@@ -87,6 +105,84 @@ describe("departments, screens, dashboards", () => {
     expect((await repos.dashboards.active(r.db, A, r.A.ownerId))?.id).toBe(dash.id);
     expect(await repos.dashboards.list(r.db, A, r.B.ownerId)).toHaveLength(0);
   });
+
+  it("stores each department's G letter, so renaming one never moves another's (audit AC-13)", async () => {
+    const b = await repos.businesses.create(r.db, { name: "Shortcut Hardware", createdBy: r.A.ownerId });
+    const make = (name: string) => repos.departments.create(r.db, b.id, { name, moduleKeys: [] });
+    const dev = await make("Development");
+    const ops = await make("Operations");
+    const dist = await make("Distribution");
+    const fin = await make("Finance");
+    const letter = async (id: string) => (await repos.departments.get(r.db, b.id, id)).shortcut;
+    expect([dev.shortcut, ops.shortcut, await letter(dist.id), await letter(fin.id)]).toEqual(["D", "O", "S", "F"]);
+    // The renamed department takes a letter from its new name; Distribution and Finance keep S and F (they used to
+    // move to D and N).
+    const lab = await repos.departments.update(r.db, b.id, dev.id, { name: "Formulation Lab" });
+    expect(lab.shortcut).toBe("L");
+    expect([await letter(ops.id), await letter(dist.id), await letter(fin.id)]).toEqual(["O", "S", "F"]);
+    // Moving and hiding change nothing.
+    await repos.departments.reorder(r.db, b.id, [fin.id, dist.id, ops.id, dev.id]);
+    await repos.departments.update(r.db, b.id, ops.id, { hidden: true });
+    expect([await letter(dev.id), await letter(ops.id), await letter(dist.id), await letter(fin.id)]).toEqual(["L", "O", "S", "F"]);
+    // The founder takes D for Distribution (free) and then F (Finance's): the holder gets Distribution's old letter.
+    expect((await repos.departments.setShortcut(r.db, b.id, dist.id, "d")).shortcut).toBe("D");
+    const swapped = await repos.departments.setShortcut(r.db, b.id, dist.id, "F");
+    expect([swapped.shortcut, swapped.shortcutChosen, await letter(fin.id)]).toEqual(["F", true, "D"]);
+    // A chosen letter survives a rename; "automatic" goes back to the name's.
+    expect((await repos.departments.update(r.db, b.id, dist.id, { name: "Sales" })).shortcut).toBe("F");
+    const auto = await repos.departments.setShortcut(r.db, b.id, dist.id, null);
+    expect([auto.shortcut, auto.shortcutChosen]).toEqual(["S", false]);
+    await expect(repos.departments.setShortcut(r.db, b.id, dist.id, "H")).rejects.toThrow(/A to Z other than G, H, I and C/);
+    await expect(repos.departments.setShortcut(r.db, r.B.businessId, dist.id, "Q")).rejects.toThrow(/not found/);
+    // Archiving frees the letter for the next department.
+    await repos.departments.archive(r.db, b.id, fin.id);
+    expect((await make("Data")).shortcut).toBe("D");
+  });
+
+  it("keeps the letters a business showed before 0040 (none stored) when its first department changes", async () => {
+    const b = await repos.businesses.create(r.db, { name: "Legacy Letters", createdBy: r.A.ownerId });
+    const dev = await repos.departments.create(r.db, b.id, { name: "Development", moduleKeys: [] });
+    const dist = await repos.departments.create(r.db, b.id, { name: "Distribution", moduleKeys: [] });
+    const fin = await repos.departments.create(r.db, b.id, { name: "Finance", moduleKeys: [] });
+    // As a business committed before 0040: nothing stored, the shell derives D, S, F from the names.
+    await r.db.execute(sql`update departments set shortcut = null where business_id = ${b.id}`);
+    await repos.departments.update(r.db, b.id, dev.id, { name: "Formulation Lab" });
+    const letters = await Promise.all([dev, dist, fin].map(async (d) => (await repos.departments.get(r.db, b.id, d.id)).shortcut));
+    expect(letters).toEqual(["L", "S", "F"]);
+  });
+
+  it("archive keeps the slug taken, a new department of the same name gets a free one, and restore brings back the department with the tabs it had (audit MLSL-08)", async () => {
+    const B = r.B.businessId;
+    const team = await repos.departments.create(r.db, B, { name: "Team", moduleKeys: ["team"] });
+    expect(team.slug).toBe("team");
+    const agents = await repos.screens.upsert(r.db, B, { departmentId: team.id, tabSlug: "squad", title: "Agents", layout: { widgets: [] } });
+    const removedEarlier = await repos.screens.upsert(r.db, B, { departmentId: team.id, tabSlug: "health", title: "Health", layout: { widgets: [] } });
+    await repos.screens.archive(r.db, B, removedEarlier.id);
+
+    const archived = await repos.departments.archive(r.db, B, team.id);
+    expect(archived.archivedAt).toBeInstanceOf(Date);
+    expect(archived.hidden).toBe(true);
+    expect((await repos.departments.list(r.db, B, { includeHidden: true })).map((d) => d.id)).not.toContain(team.id);
+    expect(await repos.screens.list(r.db, B, team.id)).toHaveLength(0);
+
+    // The unique (business, slug) key covers archived rows: the same name gets the next free slug instead of failing.
+    const second = await repos.departments.create(r.db, B, { name: "Team", moduleKeys: ["team"] });
+    expect(second.slug).toBe("team-2");
+    // An address given on purpose that is taken is refused, not renamed (audit AC-06).
+    await expect(repos.departments.create(r.db, B, { name: "Team", slug: "team", moduleKeys: [] })).rejects.toThrow(/already uses the address/);
+    expect((await repos.departments.create(r.db, B, { name: "Team", moduleKeys: [] })).slug).toBe("team-3");
+
+    const restored = await repos.departments.restore(r.db, B, team.id);
+    expect(restored.archivedAt).toBeNull();
+    expect(restored.hidden).toBe(false);
+    expect(restored.slug).toBe("team");
+    expect((await repos.departments.list(r.db, B)).map((d) => d.id)).toContain(team.id);
+    // Only the tab archived with the department comes back; the one removed earlier on its own stays removed.
+    expect((await repos.screens.list(r.db, B, team.id)).map((s) => s.id)).toEqual([agents.id]);
+    // Restoring a live department is a no-op; another business cannot restore it.
+    expect((await repos.departments.restore(r.db, B, team.id)).id).toBe(team.id);
+    await expect(repos.departments.restore(r.db, r.A.businessId, team.id)).rejects.toThrow(/not found/);
+  });
 });
 
 describe("agents, versions, skills, training", () => {
@@ -126,6 +222,13 @@ describe("agents, versions, skills, training", () => {
     expect(released.status).toBe("paused");
     expect(await repos.agents.pauseAll(r.db, A)).toBeGreaterThan(0);
     expect((await repos.agents.countByStatus(r.db, A)).paused).toBeGreaterThan(0);
+    // A guarded write never undoes a pause; it applies to any other status, and only within the business.
+    expect(await repos.agents.setHealthStatus(r.db, A, hired.id, "idle")).toBeNull();
+    expect((await repos.agents.get(r.db, A, hired.id)).status).toBe("paused");
+    await repos.agents.setStatus(r.db, A, hired.id, "failing");
+    expect((await repos.agents.setHealthStatus(r.db, A, hired.id, "idle"))?.status).toBe("idle");
+    expect(await repos.agents.setHealthStatus(r.db, r.B.businessId, hired.id, "healthy")).toBeNull();
+    expect((await repos.agents.get(r.db, A, hired.id)).status).toBe("idle");
 
     const session = await repos.agents.createSession(r.db, A, { agentId: hired.id, versionId: draft.id, modelKey: "sonnet" });
     const ended = await repos.agents.endSession(r.db, A, session.id, { tokensIn: 100, tokensOut: 20, costMinor: 3, outcome: "done" });
@@ -170,6 +273,75 @@ describe("agents, versions, skills, training", () => {
     expect((await repos.training.latestForAgent(r.db, A, r.A.agent2Id))?.id).toBe(run.id);
     expect((await repos.training.list(r.db, r.B.businessId)).items).toHaveLength(0);
   });
+
+  it("a model retest scores a draft copy of the live version on the new model, never the live version itself", async () => {
+    const A = r.A.businessId;
+    const hired = await repos.agents.create(r.db, A, {
+      name: "Retest Engineer",
+      agentType: "engineer",
+      modelKey: "sonnet",
+      initialVersion: { instructions: { role: "Ship small PRs", goals: ["Green CI"] }, tools: [{ connectorKey: "github", tools: ["create_pr"] }], modelKey: "sonnet" },
+    });
+    const liveId = hired.currentVersion!.id;
+    const first = await repos.training.createModelRetest(r.db, A, hired.id, { modelKey: "haiku", requestedBy: r.A.ownerId });
+    expect(first.superseded).toEqual([]);
+    const { run, draft } = first.retest!;
+    expect(draft).toMatchObject({ state: "draft", modelKey: "haiku", createdByKind: "system", createdBy: r.A.ownerId, version: 2 });
+    expect(draft.instructions).toMatchObject({ role: "Ship small PRs", goals: ["Green CI"] });
+    expect(draft.tools).toEqual([{ connectorKey: "github", tools: ["create_pr"] }]);
+    expect(run).toMatchObject({ status: "queued", fromVersionId: liveId, toVersionId: draft.id, requestedBy: r.A.ownerId });
+    expect(run.toVersionId).not.toBe(run.fromVersionId);
+    // The live version and the agent's pointer are untouched (AC-11.10.1).
+    expect((await repos.agents.get(r.db, A, hired.id)).currentVersionId).toBe(liveId);
+    expect((await repos.agents.getVersion(r.db, A, liveId)).modelKey).toBe("sonnet");
+    // A second model change supersedes the retest still in flight (and a stuck run of the old from = to shape); a
+    // founder's own training run of a draft is left alone.
+    const own = await repos.agents.createVersion(r.db, A, hired.id, { instructions: { role: "Ship smaller PRs" }, createdByKind: "user" });
+    const ownRun = await repos.training.create(r.db, A, { agentId: hired.id, fromVersionId: liveId, toVersionId: own.id });
+    const stuck = await repos.training.create(r.db, A, { agentId: hired.id, fromVersionId: liveId, toVersionId: liveId });
+    const second = await repos.training.createModelRetest(r.db, A, hired.id, { modelKey: "opus" });
+    expect(second.superseded.map((s) => s.id).sort()).toEqual([run.id, stuck.id].sort());
+    expect((await repos.training.get(r.db, A, ownRun.id)).status).toBe("queued");
+    const opusRun = second.retest!.run;
+    expect((await repos.training.get(r.db, A, opusRun.id)).status).toBe("queued");
+    // Both finish and await a decision. A change back to the live version's model has nothing new to score (no copy,
+    // no run) and withdraws the Opus results: promoting them would quietly switch the agent back to Opus. The
+    // founder's own results stay, as does their end time.
+    const finishedAt = new Date("2026-10-01T12:00:00Z");
+    await repos.training.transition(r.db, A, opusRun.id, ["queued"], { status: "awaiting_decision", endedAt: finishedAt });
+    await repos.training.transition(r.db, A, ownRun.id, ["queued"], { status: "awaiting_decision", endedAt: finishedAt });
+    const versionsBefore = (await repos.agents.listVersions(r.db, A, hired.id)).length;
+    const back = await repos.training.createModelRetest(r.db, A, hired.id, { modelKey: "sonnet" });
+    expect(back.retest).toBeNull();
+    expect(back.superseded.map((s) => s.id)).toEqual([opusRun.id]);
+    expect(await repos.training.get(r.db, A, opusRun.id)).toMatchObject({ status: "cancelled", decision: null, endedAt: finishedAt });
+    expect((await repos.training.get(r.db, A, ownRun.id)).status).toBe("awaiting_decision");
+    expect(await repos.agents.listVersions(r.db, A, hired.id)).toHaveLength(versionsBefore);
+    await repos.training.decide(r.db, A, ownRun.id, "discarded");
+    // Promoting a retest makes the copy live on the new model.
+    await repos.training.transition(r.db, A, run.id, ["cancelled"], { status: "awaiting_decision" });
+    await repos.training.decide(r.db, A, run.id, "promoted");
+    expect(await repos.agents.get(r.db, A, hired.id)).toMatchObject({ currentVersionId: draft.id, modelKey: "haiku" });
+    // An agent without a live version has nothing to retest.
+    const unversioned = await repos.agents.create(r.db, A, { name: "Unversioned", agentType: "engineer" });
+    expect(await repos.training.createModelRetest(r.db, A, unversioned.id, { modelKey: "haiku" })).toEqual({ retest: null, superseded: [] });
+  });
+
+  it("transition only moves a run from the given statuses; cancel stops a queued or running run once", async () => {
+    const A = r.A.businessId;
+    const run = await repos.training.create(r.db, A, { agentId: r.A.agentId });
+    expect(await repos.training.transition(r.db, A, run.id, ["running"], { status: "awaiting_decision" })).toBeNull();
+    expect((await repos.training.transition(r.db, A, run.id, ["queued", "running"], { status: "running", startedAt: new Date() }))?.status).toBe("running");
+    const cancelled = await repos.training.cancel(r.db, A, run.id);
+    expect(cancelled.status).toBe("cancelled");
+    expect(cancelled.endedAt).toBeInstanceOf(Date);
+    // A worker finishing afterwards cannot overwrite the cancel, and a second cancel is refused.
+    expect(await repos.training.transition(r.db, A, run.id, ["queued", "running", "grading"], { status: "awaiting_decision" })).toBeNull();
+    await expect(repos.training.cancel(r.db, A, run.id)).rejects.toThrow(/already finished/);
+    // Another business cannot reach the run.
+    await expect(repos.training.cancel(r.db, r.B.businessId, run.id)).rejects.toThrow(/not found/);
+    expect(await repos.training.transition(r.db, r.B.businessId, run.id, ["cancelled"], { status: "failed" })).toBeNull();
+  });
 });
 
 describe("a whole team in a few statements (commit)", () => {
@@ -212,6 +384,24 @@ describe("a whole team in a few statements (commit)", () => {
     ]);
     expect(seo).toMatchObject({ channelKey: "seo", enabled: true, whyMd: "kept", recommended: true });
     expect(email).toMatchObject({ channelKey: "email_automation", enabled: true, recommended: true });
+  });
+});
+
+describe("agent sessions", () => {
+  it("files a session's work under its task's department, else under its agent's departments (security review S1)", async () => {
+    const A = r.A.businessId;
+    const finance = await repos.departments.create(r.db, A, { name: "Money", slug: "money-sessions", moduleKeys: ["finance", "legal"] });
+    const growth = await repos.departments.create(r.db, A, { name: "Growth", slug: "growth-sessions", moduleKeys: ["distribution"] });
+    const task = await repos.tasks.create(r.db, A, { kind: "ops", title: "Reconcile March", departmentId: finance.id, assigneeAgentId: r.A.agent2Id });
+    const ofTask = await repos.agents.createSession(r.db, A, { agentId: r.A.agent2Id, taskId: task.id, modelKey: "sonnet" });
+    expect(await repos.agents.sessionModuleKeys(r.db, A, ofTask)).toEqual(["finance", "legal"]);
+    await repos.agents.update(r.db, A, r.A.agentId, { departmentIds: [growth.id, finance.id] });
+    const ofAgent = await repos.agents.createSession(r.db, A, { agentId: r.A.agentId, modelKey: "sonnet" });
+    expect(await repos.agents.sessionModuleKeys(r.db, A, ofAgent)).toEqual(["distribution", "finance", "legal"]);
+    await repos.agents.update(r.db, A, r.A.agentId, { departmentIds: [] });
+    expect(await repos.agents.sessionModuleKeys(r.db, A, ofAgent)).toEqual([]);
+    // Another business's departments are never read, even when an id is given.
+    expect(await repos.agents.sessionModuleKeys(r.db, r.B.businessId, ofTask)).toEqual([]);
   });
 });
 

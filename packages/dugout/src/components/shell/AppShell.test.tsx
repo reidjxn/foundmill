@@ -102,9 +102,35 @@ describe("AppShell", () => {
     expect(mark.querySelector("path")).toBeNull();
   });
 
-  it("hides the LIVE block and chip in Personal mode", () => {
+  it("the business name opens Home, the founder's other businesses and Start another business (audit IAE-08)", async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    const onOpenBusiness = vi.fn();
+    const onNewBusiness = vi.fn();
+    const businessMenu = { businesses: [{ id: "nw", name: "Northwind Skincare", current: true }, { id: "lg", name: "Ledgerly" }], onOpenBusiness, onNewBusiness };
+    render(<AppShell {...shellProps({ onNavigate, businessMenu })} />);
+    await user.click(screen.getByRole("button", { name: "Northwind Skincare: Home and your businesses" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Ledgerly" }));
+    expect(onOpenBusiness).toHaveBeenCalledWith("lg");
+    await user.click(screen.getByRole("button", { name: "Northwind Skincare: Home and your businesses" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Start another business/ }));
+    expect(onNewBusiness).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "Northwind Skincare: Home and your businesses" }));
+    await user.click(await screen.findByRole("menuitem", { name: /^Home$/ }));
+    expect(onNavigate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "home" }));
+  });
+
+  it("says when the live connection is down (audit RES-11)", () => {
+    const { rerender } = render(<AppShell {...shellProps({ connection: null })} />);
+    expect(screen.queryByTestId("connection-chip")).toBeNull();
+    rerender(<AppShell {...shellProps({ connection: { state: "reconnecting" } })} />);
+    expect(screen.getByTestId("connection-chip").getAttribute("aria-label")).toBe("Reconnecting…");
+    rerender(<AppShell {...shellProps({ connection: { state: "paused" } })} />);
+    expect(screen.getByRole("status", { name: "Live updates paused" })).toBeTruthy();
+  });
+
+  it("hides the LIVE chip in Personal mode; the sidebar shows the items the app gives it (Network stays: it is the founder's own)", () => {
     render(<AppShell {...shellProps({ mode: "personal" })} />);
-    expect(screen.queryByRole("link", { name: "Network" })).toBeNull();
     expect(screen.queryByText("LIVE")).toBeNull();
   });
 
@@ -127,6 +153,19 @@ describe("AppShell", () => {
     expect(onNavigate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "inbox" }));
     await user.click(screen.getByRole("button", { name: "Northwind Skincare: go to Home" }));
     expect(onNavigate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "home" }));
+  });
+
+  it("honors a department's stored letter in the sidebar, the chord and the help overlay", async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    // Finance stores Q (chosen in Settings › Departments): the name would give N.
+    const sidebar = NORTHWIND_SIDEBAR.map((i) => (i.id === "d-finance" ? { ...i, shortcut: "Q" } : i));
+    expect(withSidebarKeys(sidebar).find((i) => i.id === "d-finance")?.keys).toEqual(["G", "Q"]);
+    render(<AppShell {...shellProps({ onNavigate, sidebar: { items: sidebar, collapsed: false, onCollapsedChange: () => {} } })} />);
+    expect(screen.getByRole("link", { name: "Finance" }).getAttribute("aria-keyshortcuts")).toBe("G Q");
+    document.body.focus();
+    await user.keyboard("gq");
+    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: "d-finance" }));
   });
 
   it("Space continues, / opens the palette, ? opens help, Esc closes them in order", async () => {

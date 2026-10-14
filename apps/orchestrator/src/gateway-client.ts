@@ -17,7 +17,8 @@ export const DEFAULT_SERVICE_TOKEN_TTL_SECONDS = 60;
 export interface MintSessionTokenRequest {
   businessId: string;
   agentId: string;
-  sessionId: string;
+  /** An `agent_sessions` row of this agent (the gateway checks it), or null for a call outside any agent session (plan actions, imports). */
+  sessionId: string | null;
   /** `connector:tool`, `connector:*` or `*`. */
   allowedTools: string[];
   kitMode?: boolean;
@@ -165,7 +166,7 @@ export function createOfflineGatewayClient(baseUrl = "http://gateway.offline"): 
     },
     async call(_token, req) {
       calls.push(req);
-      return { outcome: "allow", result: { untrusted: true, content: null, mock: true }, costMinor: 0 };
+      return { outcome: "allow", result: { ok: true, untrusted: true, content: null, mock: true }, costMinor: 0 };
     },
     mcpUrl: (connector) => `${baseUrl}/mcp/${connector}`,
     sessionHeaders: (sessionToken) => ({ authorization: `Bearer ${sessionToken}` }),

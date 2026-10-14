@@ -17,6 +17,7 @@ import { APP_NAME } from "@foundmill/config";
 import { ARCHETYPE_LABELS, type Archetype, ENTITY_MARKUP_RE, type FoundationsDoor, ROADMAP_HORIZONS, type RoadmapHorizon } from "@foundmill/shared";
 import { FoundationsOutput, type FoundationsRoadmapItem, type FoundationsSection, type FoundationsVision, IDEA_ATTRIBUTE_LABELS, type FigureLabel, type IdeaAttributeKey, type TiptapBlock, type TiptapDoc, type TiptapParagraph, type TiptapText } from "@foundmill/models/schemas";
 import { buildSystemPrompt } from "./club-rules";
+import { modelBillingFacts, modelBillingMessage } from "./model-billing";
 import { foundationsPrompt } from "./prompts/foundations";
 import { getTemplate } from "./registry";
 import type { RouteKey } from "./types";
@@ -117,7 +118,7 @@ export function importReportOf(inputs: Pick<FoundationsInputs, "importReport">):
 // ---------------------------------------------------------------------------------------------------------------------
 
 export const FOUNDATIONS_ROUTE = "foundations" as const satisfies RouteKey;
-/** Output budget: ten to fifteen sections of Tiptap JSON plus a roadmap run well past the client's 4,096 default. */
+/** Output budget: ten to fifteen sections of Tiptap JSON plus a roadmap run well past the route's low-effort budget (8,000). */
 export const FOUNDATIONS_MAX_TOKENS = 24_000;
 /** The template whose instructions frame the call (the Product lead owns the specification and the roadmap). */
 export const FOUNDATIONS_TEMPLATE_KEY = "product_lead";
@@ -685,6 +686,9 @@ export function describeFoundationsFailure(err: unknown): string {
   const e = err as { name?: string; code?: string; status?: number } | null;
   if (e?.name === "ModelOutputError" && e.code === "max_tokens") return "The drafting agent ran out of room before it finished. Try again.";
   if (e?.name === "ModelOutputError") return "The drafting agent's answer could not be read. Try again.";
+  // Before the rate-limit check: the tier's spend cap is a 429 too, and waiting a minute does not lift it.
+  const billing = modelBillingFacts(err);
+  if (billing) return modelBillingMessage(billing, "The drafting");
   if (e?.name === "ModelRateLimitError" || e?.status === 429 || e?.code === "rate_limited") return "The model was busy. Try again in a minute.";
   if (e?.code === "auth" || e?.status === 401) return "The model key was refused. Check the Anthropic key in Settings, then try again.";
   if (e?.code === "unavailable") return "The model service did not answer. Try again in a few minutes.";
@@ -716,7 +720,7 @@ export interface FoundationsNoteStats {
  * ask; 60-180 words). Deterministic from the draft, so it needs no second model call and invents nothing.
  */
 export function foundationsReadyNote(draft: FoundationsDraft, door: FoundationsDoor, stats: FoundationsNoteStats): { subject: string; bodyMd: string } {
-  const from = door === "import" ? "the Import report and the sources you connected" : "your idea and your founder profile";
+  const from = door === "import" ? "the Import report (it says which of your sources have been read)" : "your idea and your founder profile";
   const kept = stats.sectionsKept ? `, ${stats.sectionsKept} left as the team wrote them` : "";
   const issues = stats.importedIssues ? `, including ${stats.importedIssues} open issue${stats.importedIssues === 1 ? "" : "s"} from the import` : "";
   // Model text goes in as plain, escaped text: the note is rendered as Markdown and stored without entity ids (M1).

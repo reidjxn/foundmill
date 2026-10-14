@@ -1,7 +1,8 @@
 import "./setup";
 import { describe, expect, it } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
-import { formatMoney } from "@foundmill/dugout";
+import userEvent from "@testing-library/user-event";
+import { TooltipProvider, formatMoney } from "@foundmill/dugout";
 import { OverviewScreen, forecastRunway, overviewTiles } from "../OverviewScreen";
 import { NOW, createFakeSource, renderScreen } from "./fake-source";
 import { BID, channels, dataResponses, emptyResponses, overview, overviewBlocking, pnl } from "./fixtures";
@@ -17,16 +18,24 @@ describe("overviewTiles", () => {
     expect(by.cash!.spark).toEqual([12_700_000, 11_100_000, 9_500_000, 7_900_000, 16_400_000, 15_000_000]);
     expect(by.grossBurn!.value).toEqual({ amountMinor: 3_500_000, currency: "EUR" });
     expect(by.grossBurn!.estimate).toBe("estimate");
-    expect(by.netBurn!.spark).toEqual([1_800_000, 1_600_000, 1_600_000, 1_600_000, -8_500_000, 1_400_000]);
+    // August's SAFE is financing: the spark keeps burning that month instead of dipping to −€85,000.
+    expect(by.netBurn!.spark).toEqual([1_800_000, 1_600_000, 1_600_000, 1_600_000, 1_500_000, 1_400_000]);
     expect(by.runway!.value).toBe("7.5");
     expect(by.runway!.caption).toBe("Forecast: 14.2 mo");
     expect(by.revenue!.value).toEqual({ amountMinor: 6_000_000, currency: "EUR" });
+    // Nor is the SAFE revenue: August's bar is the €20,000 of operating inflows, not €120,000.
+    expect(by.revenue!.spark).toEqual([1_200_000, 1_500_000, 1_700_000, 1_800_000, 2_000_000, 2_200_000]);
     expect(by.mrr!.value).toEqual({ amountMinor: 2_000_000, currency: "EUR" });
     expect(by.arr!.value).toEqual({ amountMinor: 24_000_000, currency: "EUR" });
     expect(by.grossMargin!.value).toBe(0.875);
     expect(by.acquisitionCost!.value).toEqual({ amountMinor: 50_000, currency: "EUR" });
     expect(by.acquisitionCost!.provenance?.note).toContain("Per channel: Paid search €500, Content and SEO €500");
-    expect(by.payback!.value).toBe("0.7");
+    // CPA €500 ÷ (MRR €20,000 × 87.5 % ÷ 120 paying customers) = 3.4 months. Dividing by the 24 customers the channels
+    // acquired instead (the old denominator) read 0.7 months, five times too short.
+    expect(by.payback!.value).toBe("3.4");
+    expect(by.payback!.caption).toBe("120 paying customers");
+    const unknownBase = Object.fromEntries(overviewTiles({ overview: { ...overview, payingCustomers: undefined }, pnl, channels, currency: "EUR", now: NOW }).map((t) => [t.key, t]));
+    expect(unknownBase.payback!.value).toBe("—");
     for (const t of tiles) expect(t.provenance?.note).toBeTruthy(); // every tile carries its hover definition
   });
 
@@ -92,5 +101,22 @@ describe("OverviewScreen", () => {
     expect(screen.getByText("The finance overview could not be loaded.")).toBeTruthy();
     fireEvent.click(screen.getAllByRole("button", { name: "Try again" })[0]!);
     expect(failing.refetches["finance.overview"]).toBe(1);
+  });
+});
+
+describe("Pin to Home (audit #394)", () => {
+  it("offers Pin to Home on the Cash panel and puts the Cash and runway widget on the active Home dashboard", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "dashboard.get": { id: "dash-1", layout: { widgets: [] } } } });
+    renderScreen(
+      fake,
+      <TooltipProvider>
+        <OverviewScreen {...props} />
+      </TooltipProvider>,
+    );
+    within(screen.getByRole("region", { name: "Cash" })).getByRole("button", { name: "Panel menu" }).focus();
+    await user.keyboard("{Enter}");
+    await user.click(await screen.findByRole("menuitem", { name: "Pin to Home" }));
+    expect(fake.mutations).toEqual([{ path: "dashboard.update", input: { dashboardId: "dash-1", layout: { widgets: [expect.objectContaining({ key: "cash_runway", x: 0, y: 0 })] } } }]);
   });
 });

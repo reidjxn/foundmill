@@ -10,6 +10,8 @@ describe("DecisionBar", () => {
     expect(costText(null)).toBe("No cost");
     expect(costText({ amountMinor: 0, currency: "EUR" })).toBe("No cost");
     expect(costText({ amountMinor: 1840000, currency: "EUR" })).toContain("18,400");
+    // A cost written with an option is not a real number yet (audit FR-10).
+    expect(costText({ amountMinor: 50000, currency: "USD" })).toBe("$500.00 (Estimate)");
     expect(reversibilityText(true)).toBe("Reversible");
     expect(reversibilityText(false)).toBe("Not reversible");
     expect(optionDescription(REORDER_OPTIONS[0]!)).toMatch(/^Recommended\. Meridian Labs ships.*Not reversible\.$/);
@@ -76,6 +78,27 @@ describe("DecisionBar", () => {
     expect(onReopen).toHaveBeenCalledTimes(1);
     rerender(<DecisionBar options={REORDER_OPTIONS} onChoose={onChoose} answered={{ text: "pause the serum" }} />);
     expect(screen.getByText("“pause the serum”")).toBeTruthy();
+  });
+
+  it("keeps the founder's place: the chosen option keeps focus while executing, then the Decided line takes it", async () => {
+    const user = userEvent.setup();
+    const onChoose = vi.fn();
+    const { rerender } = render(<DecisionBar options={REORDER_OPTIONS} onChoose={onChoose} hotkeys={false} />);
+    const option = screen.getByRole("button", { name: /Reorder 2,000 units/ });
+    option.focus();
+    await user.keyboard("{Enter}");
+    expect(onChoose).toHaveBeenCalledTimes(1);
+    rerender(<DecisionBar options={REORDER_OPTIONS} onChoose={onChoose} hotkeys={false} executing />);
+    // Busy, refusing presses, but still focused (a disabled button would have dropped focus to <body>).
+    expect(document.activeElement).toBe(option);
+    expect(option.getAttribute("aria-disabled")).toBe("true");
+    expect(option.getAttribute("aria-busy")).toBe("true");
+    await user.keyboard("{Enter}");
+    expect(onChoose).toHaveBeenCalledTimes(1);
+    rerender(<DecisionBar options={REORDER_OPTIONS} onChoose={onChoose} hotkeys={false} answered={{ optionId: REORDER_OPTIONS[0]!.id }} />);
+    const summary = screen.getByTestId("decision-bar").querySelector("[data-decision-summary]");
+    expect(document.activeElement).toBe(summary);
+    expect(summary?.textContent).toContain("Decided");
   });
 
   it("renders at most four options and skips digit hotkeys when turned off", async () => {

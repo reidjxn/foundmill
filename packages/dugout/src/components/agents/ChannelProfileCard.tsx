@@ -38,7 +38,7 @@ export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, 
           </p>
         </div>
         <div className="flex flex-col items-end">
-          <RatingFigure value={channel.fit} />
+          {channel.scored === false ? <span className="text-small text-secondary">Not scored</span> : <RatingFigure value={channel.fit} />}
           <span className="t-label">Fit</span>
         </div>
       </div>
@@ -46,10 +46,10 @@ export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, 
         {channel.recommended ? <Chip tone="kit">Recommended</Chip> : null}
         <Chip tone={channel.enabled ? "good" : "neutral"}>{channel.enabled ? "On the board" : "Off the board"}</Chip>
         {channel.paused ? <Chip tone="warn">Paused</Chip> : null}
-        {meta.kitModeByDefault ? <Chip tone="info">Offline tracking</Chip> : null}
+        {(channel.kitMode ?? meta.kitModeByDefault) ? <Chip tone="info">Offline tracking</Chip> : null}
       </div>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-        {channel.potential !== undefined ? (
+        {channel.potential !== undefined && channel.scored !== false ? (
           <div>
             <dt className="t-label">Potential</dt>
             <dd>
@@ -63,7 +63,7 @@ export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, 
             <FormGuide form={channel.form} name={`${meta.label} form`} />
           </dd>
         </div>
-        {channel.cpaRange ? (
+        {channel.cpaRange && channel.cpaRange.high.amountMinor > 0 ? (
           <div className="col-span-2">
             <dt className="t-label">Cost per customer</dt>
             <dd className="inline-flex items-center gap-1.5 tabular-nums">

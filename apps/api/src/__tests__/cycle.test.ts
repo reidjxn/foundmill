@@ -1,5 +1,6 @@
 import { repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { untilWords } from "../services/cycle";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
 async function blockingItem(hz: ApiHarness, subject: string) {
@@ -78,7 +79,12 @@ describe("business.continue without an orchestrator (BUILD §9.4 in-process cycl
     const owner = hz.caller({ userId: hz.A.ownerId });
     // Clear whatever the first cycle step left blocking, then add one known blocker.
     const open = await owner.inbox.list({ businessId: hz.A.businessId, blocking: true, state: ["unread", "read"], limit: 50 });
-    for (const i of open.items) await owner.inbox.archive({ businessId: hz.A.businessId, itemId: i.id });
+    // A blocking decision is answered, never archived away (audit RUI-14); a blocking note with nothing to choose is archived.
+    for (const i of open.items) {
+      const options = (i.decision as { options?: { id: string }[] } | null)?.options ?? [];
+      if (options.length > 0) await owner.inbox.decide({ businessId: hz.A.businessId, itemId: i.id, chosenOption: options[0]!.id });
+      else await owner.inbox.archive({ businessId: hz.A.businessId, itemId: i.id });
+    }
     const item = await blockingItem(hz, "Blocking decision");
     const cs = await owner.cycle.continueState({ businessId: hz.A.businessId });
     expect(cs).toMatchObject({ kind: "blocked", count: 1 });
@@ -153,5 +159,29 @@ describe("business.continue / pauseCycle with Temporal reachable", () => {
     await repos.tasks.setStatus(hz.db, businessId, hz.A.taskId, "paused", { force: true });
     const done = await owner.cycle.status({ businessId });
     expect(done).toMatchObject({ running: false, completedCount: 1, lastOutcome: "time_box", nextCycleNumber: 2 });
+  });
+
+  it("Continue starts a plan an earlier decision could not hand to the orchestrator (audit api-services-15)", async () => {
+    const { businessId } = hz.A;
+    // A plan left behind: executing, an action still pending, no workflow id (its planExecution start never reached Temporal).
+    const plan = await repos.plans.create(hz.db, businessId, { origin: "free_text", summaryMd: "Hire a growth agent.", status: "executing", actions: [{ type: "hire_agent", params: { role: "growth" }, status: "pending" }] });
+    // A playbook step's plan is the orchestrator's own (no planExecution workflow runs it): never started from here.
+    const playbookStep = await repos.plans.create(hz.db, businessId, { origin: "playbook", summaryMd: "Playbook step: create_task", status: "executing", actions: [{ type: "create_task", params: { title: "Step" }, status: "pending" }] });
+    expect((await repos.plans.awaitingDispatch(hz.db, businessId)).map((p) => p.id)).toEqual([plan.id]);
+    await hz.caller({ userId: hz.A.ownerId }).business.continue({ businessId });
+    expect(temporal.starts).toContainEqual({ type: "planExecution", workflowId: `plan:${plan.id}`, args: [{ businessId, planId: plan.id }] });
+    expect((await repos.plans.get(hz.db, businessId, plan.id)).workflowId).toBe(`plan:${plan.id}`);
+    expect(temporal.starts.map((x) => x.workflowId)).not.toContain(`plan:${playbookStep.id}`);
+    expect(await repos.plans.awaitingDispatch(hz.db, businessId)).toEqual([]);
+  });
+});
+
+describe("untilWords (audit VOL-X2)", () => {
+  it("reads after the bar's own 'until': no 'until until I return'", () => {
+    expect(untilWords(undefined)).toBe("you return");
+    expect(untilWords("until I return")).toBe("you return");
+    expect(untilWords("you return")).toBe("you return");
+    expect(untilWords("until the launch ships")).toBe("the launch ships");
+    expect(untilWords("MRR hits 10k")).toBe("MRR hits 10k");
   });
 });

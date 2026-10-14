@@ -7,6 +7,8 @@
  *   POST /v1/session-tokens        service JWT → session JWT for one agent session
  *   POST /v1/integrations/connect  service JWT → connect an App connector (GitHub) whose keys only the gateway holds
  *   POST /v1/integrations/health   service JWT → that integration's health check
+ *   POST /v1/billing/checkout-sessions  service JWT (api) → a Stripe Checkout session on the platform account (billing.ts)
+ *   POST /v1/domains/check         service JWT (api) → registry answers for up to 8 domain names (domains.ts)
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
  *   ALL  /mcp/:connector           session JWT → that connector's tools as an MCP streamable-HTTP server
  */
@@ -18,10 +20,13 @@ import { AppError, NotFoundError, UnauthorizedError } from "@foundmill/shared";
 import { isConfigError, type Connector, type HealthResult } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import { cedarVersion, getPolicyEngine } from "@foundmill/policy";
-import { bearerToken, mintSessionToken, verifyServiceToken, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
+import { bearerToken, mintSessionToken, sessionKey, verifyServiceToken, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
 import { toIntegrationRecord } from "./credentials";
-import { appInstallationVerified, executeToolCall, GatewayError, modeFor, type GatewayDeps } from "./pipeline";
+import { appInstallationVerified, GatewayError, modeFor, safeError, type GatewayDeps } from "./pipeline";
+import { CreateCheckoutRequest, createPlatformCheckout } from "./billing";
+import { CheckDomainsRequest, checkDomains } from "./domains";
 import { handleMcpRequest } from "./mcp";
+import { callerTrace, tracedToolCall } from "./tracing";
 import { toCandidates } from "./recipients";
 import { STATE_ERROR_CODES, stateDenial } from "./state";
 import { CallRequest, ConnectIntegrationRequest, IntegrationHealthRequest, MintSessionTokenRequest, type GatewayErrorBody, type HealthResponse, type MintSessionTokenResponse } from "./types";
@@ -31,8 +36,8 @@ export interface GatewayAppOptions {
   sessionTokenSecret: string;
   sessionTokenTtlSeconds?: number;
   sessionTokenMaxTtlSeconds?: number;
-  /** For `/health`. */
-  rateLimitStoreKind?: "memory" | "redis";
+  /** For `/health`: the rate-limit store in use (a function reads it per request; memory while a Redis store falls back). */
+  rateLimitStoreKind?: "memory" | "redis" | (() => "memory" | "redis");
   /** For `/health`: whether the database answered at boot (see db-boot.ts). Defaults to true. */
   dbReady?: () => boolean;
 }
@@ -58,10 +63,11 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     if (err instanceof ZodError) return c.json(errorBody("validation", "Invalid request", err.issues), 400);
     if (err instanceof AppError) {
       const status = err.status >= 400 && err.status < 600 ? err.status : 500;
-      if (status >= 500) deps.log.error({ err, code: err.code }, "gateway request failed");
+      if (status >= 500) deps.log.error({ err: safeError(err), code: err.code }, "gateway request failed");
       return c.json(errorBody(err.code, err.message, status < 500 ? err.details : undefined), status as 400);
     }
-    deps.log.error({ err }, "unhandled gateway error");
+    // Never the error object: a failed query carries its parameters (tool arguments) and would put them in the log.
+    deps.log.error({ err: safeError(err) }, "unhandled gateway error");
     return c.json(errorBody("internal", "Internal error"), 500);
   });
 
@@ -74,6 +80,8 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.use("/mcp/*", limit(MAX_MCP_BODY_BYTES));
   app.use("/v1/session-tokens", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/integrations/*", limit(MAX_SERVICE_BODY_BYTES));
+  app.use("/v1/billing/*", limit(MAX_SERVICE_BODY_BYTES));
+  app.use("/v1/domains/*", limit(MAX_SERVICE_BODY_BYTES));
 
   app.get("/health", (c) => {
     const engine = getPolicyEngine();
@@ -87,10 +95,11 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
       connectors: deps.registry.keys().length,
       policy: { cedar: cedarVersion(), policies: Object.keys(engine.policySet.byId).length },
       vault: deps.vault?.kind ?? "none",
-      rateLimitStore: options.rateLimitStoreKind ?? "memory",
+      rateLimitStore: typeof options.rateLimitStoreKind === "function" ? options.rateLimitStoreKind() : (options.rateLimitStoreKind ?? "memory"),
       time: now().toISOString(),
     };
-    return c.json(body);
+    // Readiness for Railway's healthcheck (railway/gateway.toml): 503 while the database is unavailable.
+    return c.json(body, db ? 200 : 503);
   });
 
   app.get("/v1/connectors", (c) => c.json({ mode: deps.mode, connectors: deps.registry.catalogue(deps.mode) }));
@@ -109,6 +118,26 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api connects App installations", 403);
     await next();
   });
+  // Foundmill's own billing: only the api opens a checkout (after its owner check).
+  app.use("/v1/billing/*", requireService);
+  app.use("/v1/billing/*", async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api opens checkouts", 403);
+    await next();
+  });
+
+  // Domain availability for the Commit screen: the api asks for a signed-in founder; the gateway reaches the registries.
+  app.use("/v1/domains/*", requireService);
+  app.use("/v1/domains/*", async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api checks domains", 403);
+    await next();
+  });
+
+  app.post("/v1/domains/check", async (c) => c.json(await checkDomains(deps, CheckDomainsRequest.parse(await c.req.json()))));
+
+  app.post("/v1/billing/checkout-sessions", async (c) => {
+    const input = CreateCheckoutRequest.parse(await c.req.json());
+    return c.json(await createPlatformCheckout(deps, input, c.var.service.svc), 201);
+  });
 
   app.post("/v1/session-tokens", async (c) => {
     const input = MintSessionTokenRequest.parse(await c.req.json());
@@ -121,6 +150,14 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     const agent = await repos.agents.get(deps.db, claims.businessId, claims.agentId).catch(() => {
       throw new GatewayError("agent_not_found", `agent ${claims.agentId} is not in business ${claims.businessId}`, 404);
     });
+    // ...and so must the session: usage, approvals and audit rows reference it, so a made-up id would let a vendor
+    // action run and then fail on bookkeeping. A call outside any agent session says so with `sessionId: null`.
+    if (claims.sessionId !== null) {
+      const session = await repos.agents.getSession(deps.db, claims.businessId, claims.sessionId).catch(() => {
+        throw new GatewayError("session_not_found", `session ${claims.sessionId} is not a session of business ${claims.businessId}; mint with sessionId null for a call outside an agent session`, 404);
+      });
+      if (session.agentId !== claims.agentId) throw new GatewayError("session_agent_mismatch", `session ${claims.sessionId} belongs to another agent`, 403);
+    }
     // ...and be allowed to work (SEC-1): no token for an archived club, a released agent or a paused one.
     const denial = stateDenial(business, agent);
     if (denial) {
@@ -134,8 +171,9 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     }
     // Recipients found in what an earlier session left behind are untrusted here from the first call (§9.8 step 4); the
     // token records that a seed exists, so a replica without it fails closed.
-    const seeded = untrusted ? deps.recipients.seed(claims.sessionId, toCandidates(untrusted), untrusted.all) : 0;
     const minted = await mintSessionToken(secret, { ...claims, untrustedSeeded: claims.untrustedSeeded || !!untrusted }, ttl, now);
+    // Keyed by the session, or by the token when the call has none (an import, a plan action, a Source Watcher read).
+    const seeded = untrusted ? await deps.recipients.seed(claims.businessId, sessionKey({ sessionId: claims.sessionId, jti: minted.jti }), toCandidates(untrusted), untrusted.all) : 0;
     await repos.audit.append(deps.db, claims.businessId, {
       actorKind: "system",
       action: "gateway.session_token.minted",
@@ -210,10 +248,12 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   };
   app.use("/v1/call", requireSession);
   app.use("/mcp/*", requireSession);
+  app.use("/v1/call", callerTrace);
+  app.use("/mcp/*", callerTrace);
 
   app.post("/v1/call", async (c) => {
     const req = CallRequest.parse(await c.req.json());
-    const { status, body } = await executeToolCall(deps, c.var.session, req);
+    const { status, body } = await tracedToolCall(deps, c.var.session, req);
     if (status === 429 && body.outcome === "rate_limited") c.header("Retry-After", String(body.retryAfterSeconds));
     return c.json(body, status);
   });

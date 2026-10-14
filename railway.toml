@@ -1,12 +1,16 @@
-# Railway config-as-code for every backend service (same Dockerfile; the APP variable selects the service).
+# Railway config-as-code for the backend services (same Dockerfile; the APP variable selects the service).
 # Railway reads this file for existing services until 2026-12-01, when config-as-code stops being read (docs/DEPLOY.md §3).
+# This is the shared base, for a service that has no file of its own: no healthcheck and no watch patterns (it rebuilds
+# on every push). api, gateway, orchestrator, composer, stream and ingest each point their "Railway config file" setting
+# at /railway/<service>.toml, which repeats everything below and adds `healthcheckPath = "/health"` and the service's
+# own `watchPatterns` (scripts/railway-config.test.mjs keeps the copies equal).
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
 restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 5
+restartPolicyMaxRetries = 10
 # Redeploys (docs/DEPLOY.md §3 "Redeploys and shutdown"). The previous deployment keeps running this long after the new
 # one is up, so there is no gap while the new one boots (two orchestrator workers on one task queue, two outbox relays
 # with `skip locked` are both fine).

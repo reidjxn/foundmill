@@ -83,6 +83,23 @@ describe("parseTouchSource — UTM, referrer and click ids", () => {
     expect(press.medium).toBe("referral");
   });
 
+  it("matches referrer hosts by label, not by substring (audit #341)", () => {
+    const channel = (referrer: string) => parseTouchSource({ url: "https://northwind.example/", referrer }).channelKey;
+    // Press and company sites whose names merely contain a social or search host's letters.
+    for (const host of ["washingtonpost.com", "independent.co.uk", "ft.com", "trustpilot.com", "learn.microsoft.com", "venturebeat.com", "dropbox.com", "netflix.com", "huffpost.com"]) {
+      expect(channel(`https://${host}/a`), host).toBe("pr");
+    }
+    // A host and its subdomains still match, and so does a brand across its country domains.
+    expect(channel("https://t.co/abc")).toBe("social");
+    expect(channel("https://l.facebook.com/l.php")).toBe("social");
+    expect(channel("https://x.com/home")).toBe("social");
+    expect(channel("https://www.google.co.uk/")).toBe("seo");
+    expect(channel("https://news.google.com/")).toBe("seo");
+    expect(channel("https://notgoogle.com/")).not.toBe("seo");
+    expect(channel("https://fakepinterest.com/")).not.toBe("social");
+    expect(channel("https://pinterest.fr/pin/1")).toBe("social");
+  });
+
   it("ignores self-referrals from the business's own hosts and reports direct", () => {
     const p = parseTouchSource({ url: "https://northwind.example/pricing", referrer: "https://shop.northwind.example/cart", registry: REGISTRY });
     expect(p.channelKey).toBeNull();
@@ -114,6 +131,27 @@ describe("parseTouchSource — UTM, referrer and click ids", () => {
   it("tolerates garbage input", () => {
     expect(parseTouchSource({ url: "not a url at all ???", referrer: "::::" }).rule).toBe("direct");
     expect(parseTouchSource({}).rule).toBe("direct");
+  });
+
+  it("looks untrusted UTM, provider and event values up as data, never as Object.prototype members (audit JM-17)", () => {
+    for (const word of ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf"]) {
+      for (const url of [`https://northwind.example/?utm_medium=${word}`, `https://northwind.example/?utm_source=${word}`, `https://northwind.example/?utm_medium=cpc&utm_source=${word}`]) {
+        const p = parseTouchSource({ url });
+        expect(typeof p.channelKey === "string" || p.channelKey === null, url).toBe(true);
+        expect(typeof p.kind, url).toBe("string");
+        expect(p.rule, url).not.toBe(`utm_medium:${word}`);
+        expect(p.rule, url).not.toBe(`utm_source:${word}`);
+      }
+      const byProvider = parseTouchSource({ provider: word });
+      expect(typeof byProvider.channelKey === "string" || byProvider.channelKey === null).toBe(true);
+      expect(byProvider.rule).not.toBe(`provider:${word}`);
+      expect(typeof parseTouchSource({ provider: "sendgrid", eventName: word }).kind).toBe("string");
+      expect(typeof parseTouchSource({ provider: "events", eventName: word }).kind).toBe("string");
+    }
+    // The unknown medium falls through to the content rule, as any unmapped value does.
+    expect(parseTouchSource({ url: "https://northwind.example/?utm_medium=constructor" })).toMatchObject({ channelKey: "content", rule: "utm_medium:unmapped:constructor" });
+    expect(parseTouchSource({ provider: "sendgrid", eventName: "constructor" })).toMatchObject({ channelKey: "email_automation", kind: "email_click" });
+    expect(parseTouchSource({ provider: "events", eventName: "toString" })).toMatchObject({ channelKey: "events", kind: "form_submit" });
   });
 });
 

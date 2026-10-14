@@ -1,18 +1,51 @@
 /**
  * The full `@foundmill/journey` Journey record for `journey.get` (BUILD §11.4; AC-11.4.3 deterministic replays).
  *
- * The `journeys` row stores touch ids, weights, the xC series, commentary, the agents who were involved and the
- * update level. Everything else the Customer Update shows (channels, captain, standout agent, attribution model,
- * xC model source, consent and the partial-journey flag, the nth of its kind, the full-update rule, stats) is derived
- * here with the same helpers the journey builder used, from repositories, and validated against the `Journey` schema,
- * so the web renders the record instead of deriving it.
+ * The `journeys` row stores touch ids, weights, the xC series, commentary, the agents who were involved, the update
+ * level and the attribution and xC models the builder used for those weights and that curve (0034). Everything else the
+ * Customer Update shows (channels, captain, standout agent, consent and the partial-journey flag, the nth of its kind,
+ * the full-update rule, stats) is derived here with the same helpers the journey builder used, from repositories, and
+ * validated against the `Journey` schema, so the web renders the record instead of deriving it. A record written before
+ * the models were stored gets the label the conversion count implies, as before.
  */
 import { LIMITS } from "@foundmill/config";
-import { repos, type Executor, type JourneyDetail } from "@foundmill/db";
-import { Journey, JourneyAgent, Touch, XcPoint, channelWeights, chooseModel, shouldPlayFullMatchDay, type ConsentState, type JourneyCaptain, type Journey as JourneyRecord, type Touch as JourneyTouch } from "@foundmill/journey";
-import type { ChannelKey } from "@foundmill/shared";
+import { isPartialConsent, repos, type Executor, type JourneyDetail } from "@foundmill/db";
+import { Journey, JourneyAgent, Touch, XcPoint, channelWeights, chooseModel, positionBased4020, shouldPlayFullMatchDay, type AttributionModel, type ConsentState, type JourneyCaptain, type Journey as JourneyRecord, type Touch as JourneyTouch } from "@foundmill/journey";
+import type { ChannelKey, ConversionKind } from "@foundmill/shared";
 
 const HOUR_MS = 3_600_000;
+
+/**
+ * The labeled conversions `chooseModel` counts: every first conversion of each kind (signups, activations, first
+ * payments, …), repeat payments left out (`countConversions`). The journey builder, `journey.get` and the Attribution
+ * screen all count on this one basis, so the model a replay names is the model the screen says is in use.
+ */
+export function labeledConversionCount(counts: Readonly<Record<ConversionKind, number>>): number {
+  return Object.values(counts).reduce((s, n) => s + n, 0);
+}
+
+export interface AttributionSummary {
+  /** Labeled conversions over the business's whole history (the basis `chooseModel` reads). */
+  conversionCount: number;
+  byKind: Record<ConversionKind, number>;
+  /** The model new Customer Updates are weighted with. */
+  attributionModel: AttributionModel;
+  /** Labeled conversions from which the data-driven model takes over. */
+  threshold: number;
+  /** Labeled conversions still to come before it does (0 once it has). */
+  remaining: number;
+  /** Every Customer Update, and how many are partial (consent other than granted). */
+  journeys: number;
+  partialJourneys: number;
+}
+
+/** The Attribution screen's "Model in use" panel, counted over every conversion and journey, never a page of them. */
+export async function attributionSummary(db: Executor, businessId: string): Promise<AttributionSummary> {
+  const [counts, consent] = await Promise.all([repos.journeys.countConversions(db, businessId), repos.journeys.consentSummary(db, businessId)]);
+  const conversionCount = labeledConversionCount(counts);
+  const threshold = LIMITS.attributionPositionBasedUntilConversions;
+  return { conversionCount, byKind: counts, attributionModel: chooseModel(conversionCount), threshold, remaining: Math.max(0, threshold - conversionCount), journeys: consent.journeys, partialJourneys: consent.partialJourneys };
+}
 
 function hasClickIds(source: Record<string, unknown>): boolean {
   const ids = source.clickIds;
@@ -61,6 +94,19 @@ export function captainOf(touches: readonly JourneyTouch[], weights: Record<stri
   return { touchId: best.id, channelKey: best.channelKey, agentId: owner, weight: weights[best.id] ?? 0 };
 }
 
+/**
+ * The model behind a stored journey. Rows carry it (`journeys.attribution_model`, written when the journey is built);
+ * for a row stored before that, it is read from the weights themselves: the 40 / 20 / 40 split of its touches is
+ * position-based, anything else was data-driven. Never today's count of conversions, which says nothing about how an
+ * earlier win was weighed (audit #330).
+ */
+export function inferAttributionModel(touches: readonly JourneyTouch[], weights: Record<string, number>): "position_based_40_20_40" | "data_driven_markov" {
+  if (touches.length === 0) return "position_based_40_20_40";
+  const split = positionBased4020(touches);
+  const same = touches.every((t) => Math.abs((weights[t.id] ?? 0) - (split[t.id] ?? 0)) < 1e-6);
+  return same ? "position_based_40_20_40" : "data_driven_markov";
+}
+
 export interface JourneyRecordResult {
   journey: JourneyRecord;
   touches: JourneyTouch[];
@@ -74,25 +120,19 @@ export async function buildJourneyRecord(db: Executor, businessId: string, detai
   const touches = toJourneyTouches(detail.touches);
   const agents = parseAgents(detail.agents);
   const weights = detail.weights ?? {};
-  const [counts, nthOfKind, p75, cpa] = await Promise.all([
+  const [counts, nthOfKind, p75, cpa, consentById] = await Promise.all([
     repos.journeys.countConversions(db, businessId),
     repos.journeys.nthOfKind(db, businessId, detail.conversionId),
     detail.conversion.kind === "payment" ? repos.journeys.paymentPercentile75(db, businessId) : Promise.resolve(null),
     repos.channels.metricsSummary(db, businessId).catch(() => null),
+    repos.journeys.consentForJourneys(db, businessId, [detail.id]),
   ]);
-  const conversionCount = Object.values(counts).reduce((s, n) => s + n, 0);
+  const conversionCount = labeledConversionCount(counts);
 
-  // Consent from the visitor the touches were stitched through (first-party only without consent, BUILD §11.4).
-  let consent: ConsentState = "unknown";
-  const visitorId = touches.find((t) => t.visitorId)?.visitorId ?? detail.touches.find((t) => t.visitorId)?.visitorId ?? null;
-  if (visitorId) {
-    try {
-      consent = (await repos.journeys.getVisitor(db, businessId, visitorId)).consentState;
-    } catch {
-      consent = "unknown";
-    }
-  }
-  const partialJourney = consent !== "granted";
+  // Consent from the visitor the touches were stitched through (first-party only without consent, BUILD §11.4); the
+  // same reading journey.list and the Attribution summary use, so the replay and the screen agree on what is partial.
+  const consent: ConsentState = consentById.get(detail.id) ?? "unknown";
+  const partialJourney = isPartialConsent(consent);
 
   const cpaByChannel = new Map<ChannelKey, number>();
   for (const c of cpa?.channels ?? []) if (c.cpaMinor !== null) cpaByChannel.set(c.channelKey, c.cpaMinor);
@@ -125,8 +165,8 @@ export async function buildJourneyRecord(db: Executor, businessId: string, detai
     channels: channelWeights(touches, weights),
     captain: captainOf(touches, weights, agents),
     playerOfTheMatch: agents[0]?.agentId ?? null,
-    attributionModel: chooseModel(conversionCount),
-    xcModelSource: conversionCount >= LIMITS.xcArchetypePriorUntilConversions ? "trained" : "archetype_prior",
+    attributionModel: detail.attributionModel ?? inferAttributionModel(touches, weights),
+    xcModelSource: detail.xcModelSource ?? (conversionCount >= LIMITS.xcArchetypePriorUntilConversions ? "trained" : "archetype_prior"),
     consent,
     partialJourney,
     nthOfKind,

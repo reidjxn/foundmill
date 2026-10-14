@@ -1,29 +1,31 @@
 "use client";
 /**
  * /new/import — Door B (BUILD §11.1, AC-11.1.5). Three phases in one screen: pick sources (GitHub repo, Drive,
- * Notion/Linear/Jira, website URL, Stripe/Shopify, bank, registry; every one read-only), watch the import job run
- * step by step, read the Scouting report (what exists, what is missing, strengths, weaknesses, first decisions,
- * roadmap seeds, "nothing pushed"). "Continue to Commit" saves the concept card describing the business and opens the
- * Commit screen with the suggested name.
+ * Notion/Linear/Jira, website URL, Stripe/Shopify, bank, registry; every one read-only), watch the job check them,
+ * read the Import report (what exists, what is missing, strengths, weaknesses, first decisions, roadmap seeds,
+ * "nothing pushed"). Nothing is read before the business exists: the report says which sources the import will read
+ * once the founder takes charge (commit starts that import) and words every strength "once …". "Continue to Commit"
+ * saves the concept card describing the business and opens the Commit screen with the suggested name.
  *
  * The job runs on the API: `import.start` returns the job, `import.status` is polled until it is done and carries the
  * report. The moment the report is on screen the card is drafted ahead (`import.prepareConcept`, held on the API and
  * not saved), so "Continue to Commit" (`import.continue`) saves it without waiting on the model (audit P7).
+ * The job id rides in the address (`?job=`), so a reload, the browser's Back, or Back from the Commit screen finds the
+ * running import or its report again instead of an empty picker (the id is signed and self-contained on the API).
  * `ImportFlow` is pure over an `ImportRunner` so it is tested with a fake runner and no tRPC.
  */
 import { useMutation } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Check, CircleDashed, FileSearch, GitBranch, Lock, Play, ShieldCheck, ThumbsUp, X } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { ArrowLeft, ArrowRight, Check, CircleDashed, Clock, FileSearch, GitBranch, Lock, Play, ShieldCheck, ThumbsUp, X } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ARCHETYPE_LABELS } from "@foundmill/shared";
 import { Button, Checkbox, Chip, Field, Input, Panel, ProgressRing, StatusPill, cn, usePrefersReducedMotion, useToast } from "@foundmill/dugout";
-import { plainWords } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
 import { IMPORT_STEPS, StudioFrame } from "../StudioFrame";
 import { commitHref } from "../ideate/concepts";
-import { IMPORT_SOURCES, IMPORT_SOURCE_GROUPS, doneSteps, normaliseSourceValue, sourceByKey, totalSteps, validateConfigs, type ImportJob, type ImportSourceKey, type ImportStartInput, type ImportStatus, type ScoutingReport, type SourceConfig, type StepStatus } from "./import-job";
+import { IMPORT_SOURCES, IMPORT_SOURCE_GROUPS, doneSteps, hasImportReader, normaliseSourceValue, sourceByKey, totalSteps, validateConfigs, type ImportJob, type ImportSourceKey, type ImportStartInput, type ImportStatus, type ScoutingReport, type SourceConfig, type StepStatus } from "./import-job";
 
 export interface ImportScreenProps {
   viewer: { email: string | null };
@@ -40,10 +42,21 @@ export const REDUCED_MOTION_STEP_MS = 1;
 /** Polls about once a step (the API's local steps take 120 ms), so the progress reads smoothly and the report shows at once. */
 export const DEFAULT_POLL_MS = 150;
 
+/** The address of the Commit screen after Import's Continue: the name, the report's archetype and the job to come back to. */
+export function commitFromImportHref(ideaId: string, report: Pick<ScoutingReport, "suggestedName" | "archetypeHint">, jobId: string): string {
+  return `${commitHref(ideaId)}?name=${encodeURIComponent(report.suggestedName)}&from=import&archetype=${encodeURIComponent(report.archetypeHint)}&job=${encodeURIComponent(jobId)}`;
+}
+
+/** `/new/import` with the job in the address (so a reload resumes it), or the bare picker. */
+export function importJobHref(jobId: string | null): string {
+  return jobId ? `/new/import?job=${encodeURIComponent(jobId)}` : "/new/import";
+}
+
 export function ImportScreen({ viewer }: ImportScreenProps) {
   const trpc = useTRPC();
   const client = useTRPCClient();
   const router = useRouter();
+  const resumeJobId = useSearchParams().get("job");
   const { toast } = useToast();
   const runner = useMemo<ImportRunner>(() => ({ start: (input) => client.import.start.mutate(input), status: (jobId) => client.import.status.query({ jobId }) }), [client]);
   const continueImport = useMutation(
@@ -56,13 +69,15 @@ export function ImportScreen({ viewer }: ImportScreenProps) {
       viewer={viewer}
       runner={runner}
       continuing={continueImport.isPending}
+      resumeJobId={resumeJobId}
+      onJob={(jobId) => router.replace(importJobHref(jobId), { scroll: false })}
       // Best effort: Continue drafts the card itself when the draft ahead is missing or failed.
       onReport={(job) => void client.import.prepareConcept.mutate({ jobId: job.id }).catch(() => undefined)}
       onContinue={(report, _configs, job) =>
         continueImport.mutate(
           // The job id rides on the saved idea so commit links the business to this import (its report and sources).
           { jobId: job.id },
-          { onSuccess: (res) => router.push(`${commitHref(res.idea.id)}?name=${encodeURIComponent(report.suggestedName)}&from=import`) },
+          { onSuccess: (res) => router.push(commitFromImportHref(res.idea.id, report, job.id)) },
         )
       }
     />
@@ -79,27 +94,39 @@ export interface ImportFlowProps {
   /** The report is on screen (once per finished job): the screen drafts the concept card ahead of Continue. */
   onReport?: (job: ImportJob, report: ScoutingReport) => void;
   continuing?: boolean;
+  /** A job in the address (`?job=`): the flow resumes it (running or report) instead of showing the picker. */
+  resumeJobId?: string | null;
+  /** The job id when one starts, and null when the founder goes back to the picker: the screen keeps the address in step. */
+  onJob?: (jobId: string | null) => void;
   /** Milliseconds between `import.status` polls (tests pass 0). */
   pollMs?: number;
 }
 
 type Phase = { kind: "pick"; error?: string } | { kind: "starting" } | { kind: "running"; job: ImportJob } | { kind: "report"; job: ImportJob; report: ScoutingReport } | { kind: "failed"; job: ImportJob | null; message: string };
 
-export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, pollMs = DEFAULT_POLL_MS }: ImportFlowProps) {
+export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, resumeJobId = null, onJob, pollMs = DEFAULT_POLL_MS }: ImportFlowProps) {
   const reduced = usePrefersReducedMotion();
   const [chosen, setChosen] = useState<Map<ImportSourceKey, string>>(() => new Map());
   const [touched, setTouched] = useState(false);
-  const [phase, setPhase] = useState<Phase>({ kind: "pick" });
+  const [phase, setPhase] = useState<Phase>(() => (resumeJobId ? { kind: "starting" } : { kind: "pick" }));
   const configs = useMemo<SourceConfig[]>(() => IMPORT_SOURCES.filter((s) => chosen.has(s.key)).map((s) => ({ key: s.key, value: chosen.get(s.key) ?? "" })), [chosen]);
   const errors = useMemo(() => validateConfigs(configs), [configs]);
   const valid = configs.length > 0 && Object.keys(errors).length === 0;
   // The polling loop stops when the run id changes (Cancel, Change sources, unmount).
   const run = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // One Continue per press: a double click reaches onContinue twice before `continuing` re-renders the button.
+  const continuingRef = useRef(false);
+  useEffect(() => {
+    if (!continuing) continuingRef.current = false;
+  }, [continuing]);
+  // The job already running or finished in the address (reload, Back, Back from Commit): picked up once on mount.
+  const resumed = useRef<string | null>(null);
 
   useEffect(
     () => () => {
       run.current++;
+      resumed.current = null;
       if (timer.current) clearTimeout(timer.current);
     },
     [],
@@ -143,7 +170,13 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, p
     setPhase({ kind: "starting" });
     runner
       .start({ sources: normalised, ...(reduced || pollMs <= 0 ? { stepMs: REDUCED_MOTION_STEP_MS } : {}) })
-      .then((status) => apply(status, id))
+      .then((status) => {
+        if (id !== run.current) return;
+        // The job goes into the address: a reload finds it again (the effect below skips the job this flow runs itself).
+        resumed.current = status.job.id;
+        onJob?.(status.job.id);
+        apply(status, id);
+      })
       .catch((err: unknown) => id === run.current && setPhase({ kind: "pick", error: errorMessage(err, "The import could not start.") }));
   }
 
@@ -151,8 +184,32 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, p
     run.current++;
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
+    resumed.current = null;
+    onJob?.(null);
     setPhase({ kind: "pick" });
   }
+
+  useEffect(() => {
+    if (!resumeJobId || resumed.current === resumeJobId) return;
+    resumed.current = resumeJobId;
+    const id = ++run.current;
+    setPhase({ kind: "starting" });
+    runner
+      .status(resumeJobId)
+      .then((status) => {
+        if (id !== run.current) return;
+        // The picker behind "Change sources" shows what this import read.
+        setChosen(new Map(status.job.sources.map((s) => [s.key as ImportSourceKey, s.value] as const)));
+        apply(status, id);
+      })
+      .catch(() => {
+        if (id !== run.current) return;
+        resumed.current = null;
+        onJob?.(null);
+        setPhase({ kind: "pick", error: "That import is no longer available. Choose the sources again." });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- picks up the job in the address once per job id
+  }, [resumeJobId]);
 
   const back = (
     <LinkButton variant="ghost" icon={ArrowLeft} href="/new">
@@ -181,6 +238,11 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, p
                             <label htmlFor={`src-${s.key}`} className="flex cursor-pointer items-center gap-2">
                               <span className="text-body-strong">{s.label}</span>
                               <Chip icon={Lock}>Read only</Chip>
+                              {hasImportReader(s.key) ? null : (
+                                <Chip tone="warn" data-testid="no-import-reader">
+                                  Not read by the import yet
+                                </Chip>
+                              )}
                             </label>
                             <p className="text-small text-secondary">{s.description}</p>
                             {on ? (
@@ -274,7 +336,7 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, p
     const total = totalSteps(job);
     const done = doneSteps(job);
     return (
-      <StudioFrame step="import" steps={IMPORT_STEPS} title="Importing" lede="The Import agent reads each source in turn. Nothing is written anywhere." viewer={viewer} actions={<Button variant="ghost" icon={X} onClick={reset}>Cancel</Button>}>
+      <StudioFrame step="import" steps={IMPORT_STEPS} title="Checking your sources" lede="Each source is checked now and read through the gateway, read only, once you take charge. Nothing is read or written before then." viewer={viewer} actions={<Button variant="ghost" icon={X} onClick={reset}>Cancel</Button>}>
         <div className="mb-gutter flex items-center gap-3" data-testid="import-progress" aria-live="polite">
           <ProgressRing value={total ? done / total : 0} size={24} strokeWidth={3} tone="kit" label="Import progress" />
           <span className="t-display-sm tabular-nums">
@@ -299,7 +361,13 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, p
           <Button variant="ghost" icon={ArrowLeft} onClick={reset}>
             Change sources
           </Button>
-          <Button variant="primary" iconRight={ArrowRight} loading={continuing} onClick={() => onContinue(report, configs, job)} data-testid="continue-to-commit">
+          <Button variant="primary" iconRight={ArrowRight} loading={continuing} onClick={() => {
+              if (continuingRef.current) return;
+              continuingRef.current = true;
+              onContinue(report, configs, job);
+            }}
+            data-testid="continue-to-commit"
+          >
             Continue to Commit
           </Button>
         </>
@@ -316,6 +384,11 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, p
               Nothing was pushed
             </StatusPill>
           ) : null}
+          {report.sources.some((s) => s.state === "read") ? null : (
+            <StatusPill tone="info" icon={Clock} data-testid="report-read-state">
+              Nothing read yet: the import reads your sources once you take charge
+            </StatusPill>
+          )}
         </div>
         <div className="grid grid-cols-2 gap-gutter">
           <ListPanel title="What exists" items={report.whatExists} tone="good" />
@@ -343,12 +416,15 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, p
               ))}
             </ol>
           </Panel>
-          <Panel title={`Roadmap seeds · ${report.roadmapSeeds.length}`} empty={report.roadmapSeeds.length === 0 ? "No tracker or repository was imported, so the Board proposes the first roadmap." : undefined} data-testid="roadmap-seeds">
+          <Panel title={`Roadmap seeds · ${report.roadmapSeeds.length}`} empty={report.roadmapSeeds.length === 0 ? "No open issues have been read, so the Board proposes the first roadmap. Issues the import reads later can be added to it." : undefined} data-testid="roadmap-seeds">
             <ul className="flex flex-col divide-y divide-line-faint">
               {report.roadmapSeeds.map((s, i) => (
                 <li key={`${s.source}-${i}`} className="flex items-center gap-3 py-1.5 first:pt-0 last:pb-0">
-                  <span className="text-body">{s.title}</span>
-                  <span className="ml-auto shrink-0 text-small text-tertiary">{sourceByKey(s.source)?.label ?? plainWords(s.source)}</span>
+                  <span className="min-w-0 flex-1 text-body">{s.title}</span>
+                  {/* An identifier ("acme/ledgerly issue #4", "Linear LIN-12"), shown as written and cut short, not re-spelled. */}
+                  <span className="min-w-0 max-w-[40%] truncate text-small text-tertiary" title={s.source}>
+                    {s.source}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -378,8 +454,9 @@ function ListPanel({ title, items, tone }: { title: string; items: string[]; ton
 const STEP_TONE: Record<StepStatus, { tone: "good" | "info" | "neutral" | "bad"; word: string }> = {
   queued: { tone: "neutral", word: "Queued" },
   running: { tone: "info", word: "Running" },
-  done: { tone: "good", word: "Done" },
-  failed: { tone: "bad", word: "Failed" },
+  done: { tone: "good", word: "Read" },
+  failed: { tone: "bad", word: "Not read" },
+  planned: { tone: "neutral", word: "After you take charge" },
 };
 
 function JobPanels({ job, compact }: { job: ImportJob; compact?: boolean }) {
@@ -392,9 +469,12 @@ function JobPanels({ job, compact }: { job: ImportJob; compact?: boolean }) {
           <Panel key={s.key} title={`${source?.label ?? s.key}${s.value ? ` · ${s.value}` : ""}`} actions={<StatusPill tone={st.tone} pulse={s.status === "running"}>{st.word}</StatusPill>} footer={s.summary ? <span>{s.summary}</span> : undefined} data-source-progress={s.key} data-status={s.status}>
             <ol className="flex flex-col gap-1">
               {s.steps.map((step) => (
-                <li key={step.id} className={cn("flex items-center gap-2 text-body", step.status === "queued" && "text-secondary")} data-step-status={step.status}>
-                  {step.status === "done" ? <Check size={14} className="text-status-good" aria-hidden /> : step.status === "running" ? <ProgressRing indeterminate size={14} label="Running" tone="kit" /> : <CircleDashed size={14} aria-hidden />}
-                  <span>{step.label}</span>
+                <li key={step.id} className={cn("flex items-center gap-2 text-body", (step.status === "queued" || step.status === "planned") && "text-secondary")} data-step-status={step.status}>
+                  {/* The icon keeps its size when a long label wraps beside it. */}
+                  <span className="inline-flex shrink-0" data-testid="step-icon">
+                    {step.status === "done" ? <Check size={14} className="text-status-good" aria-hidden /> : step.status === "failed" ? <X size={14} className="text-status-bad" aria-hidden /> : step.status === "running" ? <ProgressRing indeterminate size={14} label="Running" tone="kit" /> : step.status === "planned" ? <Clock size={14} className="text-secondary" aria-label="After you take charge" /> : <CircleDashed size={14} aria-hidden />}
+                  </span>
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{step.label}</span>
                 </li>
               ))}
             </ol>

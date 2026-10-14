@@ -6,12 +6,12 @@
  */
 import { MailService } from "@sendgrid/mail";
 import { uuid } from "@foundmill/shared";
-import { ConfigError, VendorError, type Connector, type ToolContext } from "../../contract";
+import { ConfigError, ConnectInputError, connectInputValue, VendorError, type Connector, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { bearer, createHttp, type FetchLike, type HttpClient } from "../../http";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { sendgridMock } from "./mock";
-import { allRecipients, assertNoneSuppressed, assertUnsubscribe, assertVerifiedSender, buildMailData, mapSingleSend, mapVerifiedSender, SENDGRID_BASE_URL, SENDGRID_KEY, SENDGRID_RATE_LIMITS, sendgridTools, summariseStats, type SgSingleSend, type SgStatsDay, type SgVerifiedSender } from "./tools";
+import { allRecipients, assertNoneSuppressed, assertUnsubscribe, assertVerifiedSender, buildMailData, mapSingleSend, mapVerifiedSender, SENDGRID_BASE_URL, SENDGRID_CONNECT_FIELDS, SENDGRID_KEY, SENDGRID_RATE_LIMITS, sendgridTools, summariseStats, type SgSingleSend, type SgStatsDay, type SgVerifiedSender } from "./tools";
 import { createSendgridEventWebhook, createSendgridInboundWebhook } from "./webhooks";
 
 type SgClient = Parameters<MailService["setClient"]>[0];
@@ -138,15 +138,18 @@ export function createSendgridConnector(options: LiveConnectorOptions = {}): Con
         },
         get_stats: async ({ startDate, endDate }, ctx) => summariseStats(await http(ctx).json<SgStatsDay[]>("GET", "/v3/stats", { query: { start_date: startDate, end_date: endDate, aggregated_by: "day" } })),
       },
+      connectFields: SENDGRID_CONNECT_FIELDS,
+      // The founder's own key only: sending is billed to their SendGrid account, never to the platform's (BUILD §10).
       connect: async (businessId, input) => {
-        const apiKey = typeof input === "object" && input && typeof (input as { apiKey?: unknown }).apiKey === "string" ? (input as { apiKey: string }).apiKey : undefined;
-        const h = createHttp({ connectorKey: SENDGRID_KEY, baseUrl: SENDGRID_BASE_URL, fetch, headers: { authorization: bearer(apiKey ?? keyFor()) } });
+        const apiKey = connectInputValue(input, "apiKey");
+        if (!apiKey) throw new ConnectInputError(SENDGRID_KEY, "apiKey", "Enter your SendGrid API key to connect SendGrid");
+        const h = createHttp({ connectorKey: SENDGRID_KEY, baseUrl: SENDGRID_BASE_URL, fetch, headers: { authorization: bearer(apiKey) } });
         const senders = await verifiedSenders(h);
         const createdAt = now().toISOString();
         return {
           id: uuid(), businessId, connectorKey: SENDGRID_KEY, status: senders.some((s) => s.verified) ? "connected" : "degraded", scopes: ["mail.send", "suppressions", "marketing", "stats"], accountLabel: senders.find((s) => s.verified)?.fromEmail ?? "SendGrid", externalAccountId: null,
           config: { verifiedSenders: senders.filter((s) => s.verified).map((s) => s.fromEmail) }, credentialRef: null, expiresAt: null, lastHealthAt: createdAt, createdAt,
-          ...(apiKey ? { credentialToStore: { kind: "api_key" as const, secret: apiKey } } : {}),
+          credentialToStore: { kind: "api_key" as const, secret: apiKey },
         };
       },
       healthcheck: async () => {

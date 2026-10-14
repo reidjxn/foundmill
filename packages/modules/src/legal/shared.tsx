@@ -182,7 +182,7 @@ export function fitTableHeight(rows: number, opts: { minRows?: number; maxRows?:
 /* ---------- Money ---------- */
 
 export function useCurrency(): string {
-  return useWidgetData().currency ?? "EUR";
+  return useWidgetData().currency;
 }
 
 export function fmtMoney(amountMinor: number | null | undefined, currency: string, opts: { compact?: boolean } = {}): string {

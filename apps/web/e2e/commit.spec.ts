@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, ensureDeck, logoPng, signIn } from "./helpers";
+import { LONG, devApi, ensureDeck, logoPng, signIn } from "./helpers";
 
 /**
  * /new/commit/[ideaId] — the Commit screen (BUILD §11.1; AC-11.1.6, AC-11.1.7). The test drafts a card in the
@@ -21,17 +21,62 @@ test.describe("commit", () => {
     // The choice is named in plain words ("Personal or live"), not the internal "game mode".
     await expect(page.getByRole("radiogroup", { name: "Personal or live" })).toBeVisible();
     await expect(page.getByLabel(/Spend cap per action/)).toHaveValue("250");
+    // A LIVE start asks for the 18+ confirmation only until it is on record: a founder who has given it is not asked
+    // again (the seed with a profile), one who has not is asked.
+    await page.locator('[data-option="live"] button[role="radio"]').click();
+    await expect(page.locator('[data-option="live"]')).toHaveAttribute("data-selected", "true");
+    const adult = page.getByTestId("commit-adult");
+    await expect(adult).toHaveCount(await adult.count());
+    if (await adult.count()) await expect(adult).toBeVisible();
+  });
+
+  test("Run on autopilot is a choice, off by default, and shows in the summary when chosen", async ({ page }) => {
+    const toggle = page.getByTestId("run-on-autopilot");
+    await expect(page.getByTestId("autopilot-choice")).toContainText("Run on autopilot");
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByText("Autopilot", { exact: true }).first()).toBeVisible();
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
   });
 
   test("name suggestions, live domain availability and the trademark screen with its caveat", async ({ page }) => {
     await expect(page.getByTestId("domain-checks").locator("[data-domain]")).toHaveCount(5);
     await expect(page.getByTestId("trademark-screen").locator("[data-registry]")).toHaveCount(2);
     await expect(page.getByTestId("trademark-caveat")).toContainText("Screen, not legal clearance");
+    // The screen is a heuristic over a list of well-known marks, and says so: an Estimate chip beside its label.
+    await expect(page.getByTestId("trademark-provenance")).toContainText("Estimate");
     await page.getByLabel(/Business name/).fill("Stripe Ledger");
     await expect(page.locator('[data-registry="USPTO"]')).toHaveAttribute("data-status", "conflict");
     await expect(page.locator('[data-domain="stripeledger.com"]')).toBeVisible();
     await page.locator("[data-suggestion]").first().click();
     await expect(page.getByLabel(/Business name/)).not.toHaveValue("Stripe Ledger");
+  });
+
+  test("domain availability comes from the checker, says where each answer came from, and never invents a status (#458)", async ({ page }) => {
+    const domains = page.getByTestId("domain-checks");
+    const name = page.getByLabel(/Business name/);
+    // This stack runs mock mode: a fixed list of well-known names is taken, everything else is free, and the chip says Mock.
+    await name.fill("Northwind");
+    await expect(domains.locator('[data-domain="northwind.com"]')).toHaveAttribute("data-status", "taken", { timeout: LONG });
+    await expect(domains.locator('[data-domain="northwind.com"]')).toHaveAttribute("data-provenance", "Mock");
+    await expect(page.getByTestId("domain-provenance")).toHaveText("Mock");
+    await name.fill("Quillfeather Works");
+    await expect(domains.locator('[data-domain="quillfeatherworks.com"]')).toHaveAttribute("data-status", "available", { timeout: LONG });
+    // A real registry answer is never dressed as an Estimate, and there is no premium status.
+    await expect(domains).not.toContainText("Premium");
+    await expect(page.getByTestId("domain-checked")).toContainText(/Checked \d{1,2}:\d{2} [AP]M/);
+    await expect(page.getByTestId("domain-note")).toContainText("Availability is a snapshot; registering the domain happens at a registrar. We never buy domains for you.");
+    // A name the checker cannot answer reads "Couldn't check" with a Retry, and committing stays possible.
+    await name.fill("unknown-brand");
+    const row = domains.locator('[data-domain="unknownbrand.com"]');
+    await expect(row).toHaveAttribute("data-status", "unknown", { timeout: LONG });
+    await expect(row).toContainText("Couldn't check");
+    await expect(row.getByTestId("domain-retry")).toBeVisible();
+    await expect(page.getByTestId("take-charge")).toBeEnabled();
+    // The trademark screen is labeled as an estimate, not clearance.
+    await expect(page.getByTestId("trademark-screen")).toContainText("Trademark quick screen (Estimate, not legal clearance)");
   });
 
   test("logo: the initials mark until one is chosen; generate four marks and pick one; the contrast check reads the primary", async ({ page }) => {
@@ -99,5 +144,35 @@ test.describe("commit", () => {
     await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
     // The sidebar carries the departments the commit created.
     expect(await page.locator("[data-testid=app-shell] nav a[href*='/d/']").count()).toBeGreaterThanOrEqual(1);
+    // The spend cap per action chosen on Commit (the Assisted default, 250) is kept on the business, editable in Settings › Mode.
+    const bid = /\/b\/([0-9a-f-]+)\//.exec(page.url())![1]!;
+    await page.goto(`/b/${bid}/settings/mode`);
+    await expect(page.getByTestId("spend-cap-form").getByLabel("Spend cap per action")).toHaveValue("250", { timeout: LONG });
+    // A new business starts on the free plan with this month's included credits, in US dollars.
+    await page.goto(`/b/${bid}/settings/billing`);
+    await expect(page.getByTestId("credits-balance")).toContainText("$5.00", { timeout: LONG });
+  });
+
+  test("double-clicking Take charge sends one commit and creates one business", async ({ page, playwright }) => {
+    const name = `Playwright Once ${Date.now().toString(36)}`;
+    await page.getByLabel(/Business name/).fill(name);
+    const commits: string[] = [];
+    page.on("request", (req) => {
+      if (req.url().includes("idea.commit")) commits.push(req.url());
+    });
+    await page.getByTestId("take-charge").dblclick();
+    await expect(page).toHaveURL(/\/b\/[0-9a-f-]+\/inbox\/[0-9a-f-]+/, { timeout: LONG });
+    // One call, never a batch of two (`idea.commit,idea.commit`).
+    expect(commits).toHaveLength(1);
+    expect(commits[0]).not.toContain("idea.commit,idea.commit");
+    const api = await devApi(playwright);
+    try {
+      const res = await api.get("/trpc/founder.profile.get");
+      expect(res.ok()).toBe(true);
+      const body = (await res.json()) as { result: { data: { json: { businesses: { name: string }[] } } } };
+      expect(body.result.data.json.businesses.filter((b) => b.name === name)).toHaveLength(1);
+    } finally {
+      await api.dispose();
+    }
   });
 });

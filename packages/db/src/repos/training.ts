@@ -1,10 +1,10 @@
 /** training_runs — the Training screen lifecycle (BUILD §11.10; routers agent.training.*). */
-import { ValidationError } from "@foundmill/shared";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { ConflictError, MODEL_KEYS, ValidationError } from "@foundmill/shared";
+import { and, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
-import { TRAINING_DECISIONS, TRAINING_STATUSES, trainingRuns, type TrainingRun } from "../schema";
-import { agentsRepo } from "./agents";
-import { Currency, defined, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
+import { TRAINING_DECISIONS, TRAINING_STATUSES, agentVersions, trainingRuns, type AgentVersion, type TrainingRun } from "../schema";
+import { agentsRepo, type CreateAgentVersionInput } from "./agents";
+import { Currency, changes, defined, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
 
 export const CreateTrainingRunInput = z.object({
   agentId: Id,
@@ -12,6 +12,7 @@ export const CreateTrainingRunInput = z.object({
   toVersionId: Id.nullable().optional(),
   status: z.enum(TRAINING_STATUSES).default("queued"),
   costMinor: MinorAmount.default(0),
+  /** The run's cost is model spend in US cents: left out, the column's USD default applies (0024). */
   currency: Currency.optional(),
   requestedBy: Id.nullable().optional(),
 });
@@ -30,6 +31,16 @@ export const UpdateTrainingRunInput = z.object({
   watchUntil: z.coerce.date().nullable().optional(),
 });
 export type UpdateTrainingRunInput = z.input<typeof UpdateTrainingRunInput>;
+
+export type TrainingStatus = (typeof TRAINING_STATUSES)[number];
+/** A run in one of these is in flight: the Training tab shows it as active and holds the agent's Train button. */
+export const ACTIVE_TRAINING_STATUSES = ["queued", "running", "grading"] as const satisfies readonly TrainingStatus[];
+
+/** A model change's retest (`createModelRetest`): the system's draft copy of the live version and the run that scores it. */
+export interface ModelRetest {
+  run: TrainingRun;
+  draft: AgentVersion;
+}
 
 const scoped = (businessId: string, runId: string) => and(eq(trainingRuns.businessId, businessId), eq(trainingRuns.id, runId));
 
@@ -87,7 +98,86 @@ export const trainingRepo = {
 
   async update(db: Executor, businessId: string, runId: string, input: UpdateTrainingRunInput): Promise<TrainingRun> {
     const v = parseInput(UpdateTrainingRunInput, input, "training run update");
-    return one(await db.update(trainingRuns).set(defined(v)).where(scoped(businessId, runId)).returning(), "training run", runId);
+    return one(await db.update(trainingRuns).set(changes(v, "training run")).where(scoped(businessId, runId)).returning(), "training run", runId);
+  },
+
+  /**
+   * `update`, but only while the run's status is one of `from`, in one statement, so a founder's cancel that lands
+   * between a worker's read and its write is never overwritten. Null when the run had already moved on.
+   */
+  async transition(db: Executor, businessId: string, runId: string, from: readonly TrainingStatus[], input: UpdateTrainingRunInput): Promise<TrainingRun | null> {
+    const v = parseInput(UpdateTrainingRunInput, input, "training run update");
+    const rows = await db
+      .update(trainingRuns)
+      .set(defined(v))
+      .where(and(scoped(businessId, runId), inArray(trainingRuns.status, [...from])))
+      .returning();
+    return rows[0] ?? null;
+  },
+
+  /**
+   * The founder stops a queued or running run (agent.training.cancel). A run whose worker never picked it up would
+   * otherwise stay queued, and hold the agent's Train button, for good.
+   */
+  async cancel(db: Executor, businessId: string, runId: string): Promise<TrainingRun> {
+    const run = await trainingRepo.get(db, businessId, runId);
+    const cancelled = await trainingRepo.transition(db, businessId, runId, ACTIVE_TRAINING_STATUSES, { status: "cancelled", endedAt: new Date() });
+    if (!cancelled) throw new ValidationError("This training run has already finished", { runId, status: run.status });
+    return cancelled;
+  },
+
+  /**
+   * Stop all agents (BUILD §14): every run of the business still in flight (queued, running or grading) is canceled
+   * with `coachSummaryMd`, in one statement; the caller stops their workflows. A worker's late write never overwrites
+   * the cancel (`transition`), and what the tests already cost is kept by `finalizeTrainingRun`.
+   */
+  async cancelActive(db: Executor, businessId: string, input: { coachSummaryMd: string }): Promise<TrainingRun[]> {
+    const v = parseInput(z.object({ coachSummaryMd: z.string().min(1) }), input, "training cancel");
+    return db
+      .update(trainingRuns)
+      .set({ status: "cancelled", endedAt: new Date(), coachSummaryMd: v.coachSummaryMd })
+      .where(and(eq(trainingRuns.businessId, businessId), isNull(trainingRuns.archivedAt), inArray(trainingRuns.status, [...ACTIVE_TRAINING_STATUSES])))
+      .returning();
+  },
+
+  /**
+   * A model change's retest (AC-11.10.5): a draft copy of the live version (instructions and tools) on the new model,
+   * created by the system, and a queued run that scores it against the live version. The live version itself is never
+   * the candidate (AC-11.10.1); promoting the run makes the copy live on the new model. The agent's earlier retests are
+   * canceled first (`superseded`; the caller stops their workflows): those in flight or awaiting a decision test a
+   * model the agent no longer runs (promoting one would quietly switch it back), and the old shape (the live version as
+   * its own candidate) could never start. A founder's own training runs are left alone. `retest` is null when there is
+   * nothing new to score: the agent has no live version to copy, or its live version already runs on the model (a
+   * change back to it).
+   */
+  async createModelRetest(db: Executor, businessId: string, agentId: string, input: { modelKey: (typeof MODEL_KEYS)[number]; requestedBy?: string | null }): Promise<{ retest: ModelRetest | null; superseded: TrainingRun[] }> {
+    const v = parseInput(z.object({ modelKey: z.enum(MODEL_KEYS), requestedBy: Id.nullable().optional() }), input, "model retest");
+    return db.transaction(async (tx) => {
+      const agent = await agentsRepo.get(tx, businessId, agentId);
+      const ofAgent = and(eq(trainingRuns.businessId, businessId), eq(trainingRuns.agentId, agent.id));
+      const retestCopies = tx
+        .select({ id: agentVersions.id })
+        .from(agentVersions)
+        .where(and(eq(agentVersions.businessId, businessId), eq(agentVersions.agentId, agent.id), eq(agentVersions.createdByKind, "system"), gt(agentVersions.version, 1)));
+      const inFlight = await tx
+        .update(trainingRuns)
+        .set({ status: "cancelled", endedAt: new Date() })
+        .where(and(ofAgent, inArray(trainingRuns.status, [...ACTIVE_TRAINING_STATUSES]), or(inArray(trainingRuns.toVersionId, retestCopies), eq(trainingRuns.fromVersionId, trainingRuns.toVersionId))))
+        .returning();
+      // Results already in keep their end time; only the decision they wait for is withdrawn.
+      const undecided = await tx
+        .update(trainingRuns)
+        .set({ status: "cancelled" })
+        .where(and(ofAgent, eq(trainingRuns.status, "awaiting_decision"), isNull(trainingRuns.decision), inArray(trainingRuns.toVersionId, retestCopies)))
+        .returning();
+      const superseded = [...inFlight, ...undecided];
+      if (!agent.currentVersionId) return { retest: null, superseded };
+      const live = await agentsRepo.getVersion(tx, businessId, agent.currentVersionId);
+      if (live.modelKey === v.modelKey) return { retest: null, superseded };
+      const draft = await agentsRepo.createVersion(tx, businessId, agent.id, { instructions: live.instructions as CreateAgentVersionInput["instructions"], tools: live.tools, modelKey: v.modelKey, state: "draft", createdByKind: "system", createdBy: v.requestedBy ?? null });
+      const run = await trainingRepo.create(tx, businessId, { agentId: agent.id, fromVersionId: live.id, toVersionId: draft.id, status: "queued", requestedBy: v.requestedBy ?? null });
+      return { retest: { run, draft }, superseded };
+    });
   },
 
   /**
@@ -100,19 +190,55 @@ export const trainingRepo = {
       const run = await trainingRepo.get(tx, businessId, runId);
       if (run.decision) throw new ValidationError("Training run already decided", { runId, decision: run.decision });
       if (run.status !== "awaiting_decision" && run.status !== "done") throw new ValidationError(`Training run is ${run.status}, not awaiting a decision`, { runId });
-      if (d === "promoted") {
-        if (!run.toVersionId) throw new ValidationError("Training run produced no candidate version", { runId });
-        await agentsRepo.promoteVersion(tx, businessId, run.agentId, run.toVersionId);
-      }
-      return one(
-        await tx
-          .update(trainingRuns)
-          .set({ decision: d, status: "done", endedAt: run.endedAt ?? new Date(), watchUntil: d === "promoted" ? (options.watchUntil ?? run.watchUntil) : null })
-          .where(scoped(businessId, runId))
-          .returning(),
-        "training run",
-        runId,
-      );
+      if (d === "promoted" && !run.toVersionId) throw new ValidationError("Training run produced no candidate version", { runId });
+      // The decision is claimed with one conditional update before anything else changes: of two at once (a double
+      // click, two tabs) the second waits on the row, then finds it decided and is refused, so a run is promoted once.
+      const claimed = await tx
+        .update(trainingRuns)
+        .set({ decision: d, status: "done", endedAt: run.endedAt ?? new Date(), watchUntil: d === "promoted" ? (options.watchUntil ?? run.watchUntil) : null })
+        .where(and(scoped(businessId, runId), isNull(trainingRuns.decision), inArray(trainingRuns.status, ["awaiting_decision", "done"])))
+        .returning();
+      const decided = claimed[0];
+      if (!decided) throw new ValidationError("Training run already decided", { runId });
+      if (d === "promoted") await agentsRepo.promoteVersion(tx, businessId, run.agentId, run.toVersionId!);
+      return decided;
     });
+  },
+
+  /**
+   * Ends the seven-day watch of the agent's promoted runs (a rollback moved the agent off the version they made
+   * live): their `watch_until` becomes now, so no banner offers a rollback the agent has already had.
+   */
+  async closeWatch(db: Executor, businessId: string, agentId: string): Promise<TrainingRun[]> {
+    const now = new Date();
+    return db
+      .update(trainingRuns)
+      .set({ watchUntil: now })
+      .where(and(eq(trainingRuns.businessId, businessId), eq(trainingRuns.agentId, agentId), eq(trainingRuns.decision, "promoted"), gt(trainingRuns.watchUntil, now)))
+      .returning();
+  },
+
+  /**
+   * The founder's run of a draft (agent.training.run): refused (409) while another run of the same draft is queued,
+   * running or grading, so a double click never pays for two runs. The draft's row is locked before the check, so two
+   * requests at once cannot both pass it.
+   */
+  async createForDraft(db: Executor, businessId: string, input: CreateTrainingRunInput & { toVersionId: string }): Promise<TrainingRun> {
+    return db.transaction(async (tx) => {
+      await tx.select({ id: agentVersions.id }).from(agentVersions).where(and(eq(agentVersions.businessId, businessId), eq(agentVersions.id, input.toVersionId))).for("update");
+      const active = await trainingRepo.activeForVersion(tx, businessId, input.toVersionId);
+      if (active) throw new ConflictError("This draft is already being trained; wait for its results or cancel the run", { runId: active.id });
+      return trainingRepo.create(tx, businessId, input);
+    });
+  },
+
+  /** A run of this candidate version still queued, running or grading (one run per draft at a time), or null. */
+  async activeForVersion(db: Executor, businessId: string, versionId: string): Promise<TrainingRun | null> {
+    const rows = await db
+      .select()
+      .from(trainingRuns)
+      .where(and(eq(trainingRuns.businessId, businessId), eq(trainingRuns.toVersionId, versionId), inArray(trainingRuns.status, [...ACTIVE_TRAINING_STATUSES])))
+      .limit(1);
+    return rows[0] ?? null;
   },
 };

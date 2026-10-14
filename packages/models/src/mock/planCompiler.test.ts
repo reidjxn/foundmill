@@ -1,4 +1,4 @@
-import { PLAN_ACTION_TYPES } from "@foundmill/shared";
+import { CreatePlaybookParams, PLAN_ACTION_TYPES, describePlaybook } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { PlanOutput } from "../schemas";
 import { MockModelClient, compilePlanRuleBased, detectAmounts, detectChannels, detectHardGates } from "./index";
@@ -61,6 +61,72 @@ describe("plan compiler rules (BUILD §12.3)", () => {
     expect(detectHardGates("spend €500 on paid ads")).toEqual([]);
   });
 
+  it("gates signing, never the product words sign-up, sign-in, sign-on or single sign-on (audit VRB-X2)", () => {
+    for (const text of ["sign up for the newsletter", "improve the sign-up flow", "fix the sign-in page", "add single sign-on to the roadmap", "sign-on for enterprise customers", "sign off on the brief"]) {
+      expect(detectHardGates(text).map((g) => g.gate), text).not.toContain("sign");
+    }
+    expect(types(compilePlanRuleBased("fix the sign-in page"))).toEqual(["create_task"]);
+    expect(types(compilePlanRuleBased("update the spec to add single sign-on to the acceptance criteria"))).toEqual(["update_spec"]);
+    for (const text of ["sign the Acme NDA", "countersign the agency contract", "e-sign the lease"]) expect(detectHardGates(text).map((g) => g.gate), text).toContain("sign");
+  });
+
+  it("gates moving money, never 'paid', 'refund' or 'payout' as words for it (audit AC-01)", () => {
+    const moves = ["pay the supplier invoice", "refund Mara's order", "refund the deposit", "issue a refund to Mara", "make the payout to the creator", "wire €2,000 to the agency", "send them the payment", "settle the invoice"];
+    for (const text of moves) expect(detectHardGates(text).map((g) => g.gate), text).toContain("move_money");
+    const words = [
+      "Small paid test with a hard CPA cap",
+      "Free for the first chapter, paid tier at 1,000 subscribers",
+      "Paid membership from issue one",
+      "Paid pre-orders now",
+      "paid acquisition or organic first",
+      "a paid plan for teams",
+      "Cash earlier, but refunds and consumer-law exposure if certification slips",
+      "write the refund policy",
+      "Cheaper per install if creators fit; disclosure checked before any payout",
+      "find our first paying customers",
+      "wire up the Stripe webhook",
+      "a pay-as-you-go tier",
+    ];
+    for (const text of words) expect(detectHardGates(text), text).toEqual([]);
+    // The recommended Consumer app option compiles to the paid test it names, not a founder payment.
+    expect(types(compilePlanRuleBased("Small paid test with a hard CPA cap", { agents: AGENTS }))).not.toContain("request_human_action");
+  });
+
+  it("does not read a sponsorship as the events channel", () => {
+    expect(detectChannels("sponsorship starts when reach justifies it")).toEqual([]);
+    expect(detectChannels("sponsor a trade show").map((c) => c.channel)).toEqual(["events"]);
+  });
+
+  it("templates readable summaries: the right article and no doubled full stop (audit IAE-20)", () => {
+    const plan = compilePlanRuleBased("Review the onboarding checklist before launch.");
+    expect(plan.summary).toBe("Create an ops task: Review the onboarding checklist before launch.");
+    expect(plan.actions[0]!.params.title).toBe("Review the onboarding checklist before launch");
+    expect(compilePlanRuleBased("spend €200 on email automation").summary).toMatch(/Create an Email automation task/);
+    expect(compilePlanRuleBased("research the three closest competitors").summary).toMatch(/^Create a research task: research the three/);
+    expect(compilePlanRuleBased("hire a growth agent").summary).toBe("Hire a growth agent.");
+    expect(compilePlanRuleBased("rebuild the specification from the imported sources").actions.map((a) => a.type)).toEqual(["update_spec"]);
+  });
+
+  it("only hires when the words name who joins the team (audit VIAE-X1)", () => {
+    expect(types(compilePlanRuleBased("Recruit supply by hand, then open demand"))).not.toContain("hire_agent");
+    expect(types(compilePlanRuleBased("recruit two engineers for the API"))).toEqual(["hire_agent"]);
+  });
+
+  it("gives a channel's task to the agent that runs the channel, never to whoever has 'Lead' in the title (audit FR-20)", () => {
+    const team = [
+      { id: "product", name: "Ines Ortega", role: "Product Lead" },
+      { id: "eng", name: "Kai Moreau", role: "Engineering Lead" },
+      { id: "leadgen", name: "Lead Generation Engine", role: "Channel engine" },
+    ];
+    const byName = compilePlanRuleBased("start lead generation for fintech CFOs", { agents: team });
+    expect(byName.actions.find((a) => a.type === "create_task")!.agent_id).toBe("leadgen");
+    // With the channel each agent runs, the owner wins whatever its name.
+    const owned = compilePlanRuleBased("start lead generation for fintech CFOs", { agents: [team[0]!, { id: "owner", name: "Rafa", role: "Outbound", channel: "lead_generation" }] });
+    expect(owned.actions.find((a) => a.type === "create_task")!.agent_id).toBe("owner");
+    // Nobody runs it: no agent rather than the Product Lead.
+    expect(compilePlanRuleBased("start lead generation", { agents: team.slice(0, 2) }).actions.find((a) => a.type === "create_task")!.agent_id).toBeNull();
+  });
+
   it("disables channels, hires, trains, changes models, messages and schedules", () => {
     expect(types(compilePlanRuleBased("pause paid ads for now"))).toEqual(["disable_channel"]);
     expect(compilePlanRuleBased("stop the newsletter").actions[0]!.params.channel).toBe("email_automation");
@@ -78,7 +144,7 @@ describe("plan compiler rules (BUILD §12.3)", () => {
     expect(types(compilePlanRuleBased("schedule a call with Alder next week"))).toEqual(["schedule_meeting"]);
     expect(types(compilePlanRuleBased("update the spec to add two-factor login"))).toEqual(["update_spec"]);
     expect(types(compilePlanRuleBased("push the retail portal milestone to next quarter"))).toEqual(["update_roadmap"]);
-    expect(types(compilePlanRuleBased("whenever a customer churns, create a win-back task"))).toContain("create_playbook");
+    expect(types(compilePlanRuleBased("whenever someone signs up, create a welcome task"))).toContain("create_playbook");
   });
 
   it("emits a single reply_only with one question for ambiguous or interrogative text", () => {
@@ -124,5 +190,51 @@ describe("plan compiler rules (BUILD §12.3)", () => {
     expect(r.json.actions[0]!.agent_id).toBe(AGENT_PRIYA);
     const gated = await client.complete({ route: "planCompiler", messages: [{ role: "user", content: "pay the supplier invoice" }], schema: PlanOutput });
     expect(types(gated.json)).toEqual(["request_human_action"]);
+  });
+});
+
+describe("playbooks (BUILD §11.13, AC-11.13.4, audit AC-07)", () => {
+  const playbookOf = (text: string) => {
+    const plan = compilePlanRuleBased(text, { agents: [] });
+    const actions = plan.actions.filter((a) => a.type === "create_playbook");
+    expect(actions, text).toHaveLength(1);
+    return CreatePlaybookParams.parse(actions[0]!.params);
+  };
+
+  it("compiles the acceptance sentence into a trigger, steps and an approval, with no one-off actions beside it", () => {
+    for (const text of ["When a lead replies positively, draft a reply and book a call; I approve the first message.", "Every time a lead replies positively, draft a reply and book a call; I approve the first message."]) {
+      const plan = compilePlanRuleBased(text, { agents: [] });
+      expect(types(plan), text).toEqual(["create_playbook"]);
+      const pb = playbookOf(text);
+      expect(pb.trigger).toEqual({ event: "lead.replied", where: { sentiment: "positive" } });
+      expect(pb.steps.map((s) => s.action.type)).toEqual(["create_task", "schedule_meeting"]);
+      expect(pb.approvals).toEqual([expect.objectContaining({ step: 0, scope: "first_run" })]);
+      expect(pb.source_text).toBe(text);
+      expect(describePlaybook(pb).steps[0]).toMatchObject({ text: "Draft a reply", approval: "You approve the first run" });
+    }
+  });
+
+  it("reads steps, approvals and a stop condition in other words", () => {
+    const pb = playbookOf("Whenever someone signs up, send a welcome email to the lead, then create a task to check their setup, at most 5 times; I approve every message.");
+    expect(pb.trigger.event).toBe("signup.created");
+    expect(pb.steps.length).toBeGreaterThanOrEqual(1);
+    expect(pb.stop).toEqual({ max_runs: 5 });
+    expect(pb.approvals[0]?.scope).toBe("every_run");
+  });
+
+  it("asks which event starts a rule that names none, instead of making up a trigger", () => {
+    const plan = compilePlanRuleBased("whenever the weather changes, create a win-back task", { agents: [] });
+    expect(types(plan)).toEqual(["reply_only"]);
+    expect(String(plan.actions[0]!.params.question)).toMatch(/which event/i);
+  });
+
+  it("never compiles a gated step into a running playbook", () => {
+    const plan = compilePlanRuleBased("Whenever a payment arrives, pay the supplier", { agents: [] });
+    expect(types(plan)).toEqual(["request_human_action"]);
+  });
+
+  it("keeps one-off instructions beside a standing rule apart", () => {
+    const plan = compilePlanRuleBased("Pause paid ads. Whenever a customer converts, create a thank-you task.", { agents: [] });
+    expect(types(plan).sort()).toEqual(["create_playbook", "disable_channel"]);
   });
 });

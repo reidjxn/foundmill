@@ -7,31 +7,34 @@
  * Selection lives in the URL (`/b/[bid]/inbox/[itemId]`) and is changed with `history.pushState`, which Next's app
  * router integrates with `usePathname`, so J/K never re-renders the server page.
  */
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Inbox as InboxIcon, RefreshCw } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, EmptyState, Kbd, useToast } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
+import { humanSender } from "@foundmill/widgets/shared/note-tags";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { usePageShortcuts } from "@/lib/keys";
 import { streamAwareStaleTime } from "@/lib/query-client";
-import { pollUnlessStreaming, useStreamOpen } from "@/lib/stream-status";
-import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
+import { streamPollInterval, useBusinessLive } from "@/lib/stream-status";
+import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { InboxList, type InboxListRow } from "./InboxList";
 import { ReadingPane } from "./ReadingPane";
-import { INBOX_TAB_LABELS, REFRESH_DEBOUNCE_MS, agentIndex, inboxTabs, itemIdFromPath, neighbourId, parseInboxTab, refreshGate, rowModel, type InboxTab } from "./logic";
+import { INBOX_TAB_LABELS, OLDER_PAGE_REUSE_MS, REFRESH_DEBOUNCE_MS, agentIndex, inboxTabs, itemIdFromPath, mergeFirstPage, neighbourId, parseInboxTab, refreshGate, rowModel, type InboxTab } from "./logic";
 
-/** Fresh for minutes while the event stream keeps the inbox current, 10 s while it is down. */
+/** Fresh for minutes while the business's event channel keeps the inbox current, 10 s otherwise. */
 const INBOX_LIST_STALE = streamAwareStaleTime(10_000);
 
 /** DESIGN §9: the list is 380 px wide. */
 export const INBOX_LIST_WIDTH = 380;
 const PAGE = 50;
+type InboxPage = RouterOutputs["inbox"]["list"];
 
 const EMPTY_TEXT: Record<InboxTab, string> = {
   all: "Notes from the team arrive here after each cycle. Press R to pull one now.",
@@ -48,7 +51,7 @@ export interface InboxScreenProps {
 }
 
 export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
-  const { businessId, data, departments } = useBusiness();
+  const { businessId, data, departments, access } = useBusiness();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -60,19 +63,42 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
   const selectedId = itemIdFromPath(pathname) ?? routeItemId ?? null;
 
   // --- list --------------------------------------------------------------------------------------------------------
-  // The shell refetches the inbox on every event that adds or settles an item; polling only while the stream is down.
-  const streamOpen = useStreamOpen();
-  const listQ = useInfiniteQuery(
-    trpc.inbox.list.infiniteQueryOptions(
-      { businessId, tab, limit: PAGE },
-      { getNextPageParam: (last) => last.nextCursor ?? undefined, initialCursor: null, staleTime: INBOX_LIST_STALE, refetchInterval: pollUnlessStreaming(streamOpen, 30_000) },
-    ),
+  // The shell refetches the inbox on every event that adds or settles an item; polling every 30 s while the business's
+  // channel is not live, and a slow safety net while it is (a read by another member publishes no event).
+  const streamLive = useBusinessLive(businessId);
+  const listOptions = trpc.inbox.list.infiniteQueryOptions(
+    { businessId, tab, limit: PAGE },
+    { getNextPageParam: (last) => last.nextCursor ?? undefined, initialCursor: null, staleTime: INBOX_LIST_STALE, refetchInterval: streamPollInterval(streamLive, 30_000) },
   );
+  // A refetch (an inbox event, the safety-net poll) refetches every page the reader has loaded, one request each. Here
+  // it fetches the first page and folds it into the one held (`mergeFirstPage`), and reuses the older pages for a minute,
+  // so a new note costs about one request however deep the reader has scrolled (audit SOAK-09).
+  const fetchedAt = useRef(new Map<string, number>()); // "business|tab|cursor" → when that page was fetched
+  const fetchPage = listOptions.queryFn;
+  const listQ = useInfiniteQuery({
+    ...listOptions,
+    queryFn: typeof fetchPage === "function"
+      ? async (ctx) => {
+          const cursor = ctx.pageParam ?? null;
+          const held = queryClient.getQueryData<InfiniteData<InboxPage, string | null>>(listOptions.queryKey);
+          if (cursor !== null) {
+            const at = fetchedAt.current.get(`${businessId}|${tab}|${cursor}`);
+            const kept = at !== undefined && Date.now() - at < OLDER_PAGE_REUSE_MS ? held?.pages[(held.pageParams as (string | null)[]).indexOf(cursor)] : undefined;
+            if (kept) return kept;
+            const page = await fetchPage(ctx);
+            fetchedAt.current.set(`${businessId}|${tab}|${cursor}`, Date.now());
+            return page;
+          }
+          return mergeFirstPage(held?.pages[0], await fetchPage(ctx));
+        }
+      : fetchPage,
+  });
   const pages = listQ.data?.pages;
   const agents = useMemo(() => agentIndex(departments), [departments]);
   // The founder's own notes carry the founder's initials ("JR"), never the letters of "You".
   const founderQ = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
   const founderName = founderQ.data?.profile?.displayName?.trim() || undefined;
+  const viewerId = data.membership.userId;
   const rows = useMemo<InboxListRow[]>(() => {
     const seen = new Set<string>();
     const out: InboxListRow[] = [];
@@ -81,11 +107,13 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
         if (seen.has(item.id)) continue;
         seen.add(item.id);
         const agent = item.fromAgentId ? agents.get(item.fromAgentId) : undefined;
-        out.push({ ...rowModel(item), agent: agent ? { ...agent, dept: agent.dept as DeptColourToken } : undefined, fromUser: !!item.fromUserId });
+        // The founder's own note, or another founder's words that Network filed here (never "You" for someone else).
+        const sender = humanSender(item.fromUserId, viewerId);
+        out.push({ ...rowModel(item), agent: agent ? { ...agent, dept: agent.dept as DeptColourToken } : undefined, fromUser: sender === "self", fromPerson: sender === "other" });
       }
     }
     return out;
-  }, [pages, agents]);
+  }, [pages, agents, viewerId]);
   const ids = useMemo(() => rows.map((r) => r.id), [rows]);
   const counts = pages?.[0]?.counts;
   const invalidate = useCallback((routers: readonly string[]) => Promise.all(routers.map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] }))), [queryClient]);
@@ -134,26 +162,31 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
     refresh.mutate({ businessId });
   }, [refresh, businessId, toast]);
 
-  usePageShortcuts({ onRefreshInbox: onRefresh, onNextInboxItem: onNext, onPrevInboxItem: onPrev });
+  // Refresh asks the team for a new note: viewers and advisors only read (the API refuses it for them).
+  usePageShortcuts({ onRefreshInbox: access.canChange ? onRefresh : undefined, onNextInboxItem: onNext, onPrevInboxItem: onPrev });
 
   // --- chrome ---------------------------------------------------------------------------------------------------------
-  const tabs = useMemo(() => inboxTabs(businessId, live, counts), [businessId, live, counts]);
+  const glossary = data.business.glossary;
+  const tabs = useMemo(() => inboxTabs(businessId, live, counts, glossary), [businessId, live, counts, glossary]);
+  const canRefresh = access.canChange;
   const trailing = useMemo(
-    () => (
+    () => canRefresh ? (
       <Button size="sm" variant="ghost" icon={RefreshCw} onClick={onRefresh} loading={refresh.isPending} aria-disabled={waitMs > 0 || undefined} data-testid="inbox-refresh" data-wait-ms={waitMs > 0 ? waitMs : undefined} title={waitMs > 0 ? `Settling for ${Math.ceil(waitMs / 1000)} s` : "Pull one new note"}>
         {waitMs > 0 && !refresh.isPending ? `Refreshed · ${Math.ceil(waitMs / 1000)}s` : "Refresh"}
         <Kbd>R</Kbd>
       </Button>
-    ),
-    [onRefresh, refresh.isPending, waitMs],
+    ) : undefined,
+    [onRefresh, refresh.isPending, waitMs, canRefresh],
   );
   useShellChrome({ title: "Inbox", tabs: { tabs, activeId: tab, onChange: (id) => router.push(id === "all" ? routes.inbox(businessId) : `${routes.inbox(businessId)}?tab=${id}`), trailing, "aria-label": "Inbox tabs" } }, [tabs, tab, trailing, businessId]);
 
-  if (listQ.error) return <ErrorPanel title="Inbox" message={errorMessage(listQ.error)} onRetry={() => void listQ.refetch()} />;
+  // A failed refetch keeps the loaded list on screen (with a quiet notice); only a first load that failed shows the panel.
+  if (loadFailed(listQ)) return <ErrorPanel title="Inbox" message={errorMessage(listQ.error)} onRetry={() => void listQ.refetch()} />;
 
   return (
-    <div className="flex min-h-0 flex-1" data-testid="inbox-screen" data-tab={tab} data-selected={selectedId ?? undefined}>
+    <div className="flex h-full min-h-0" data-testid="inbox-screen" data-tab={tab} data-selected={selectedId ?? undefined}>
       <aside className="flex min-h-0 shrink-0 flex-col border-r border-subtle bg-panel" style={{ width: INBOX_LIST_WIDTH }} aria-label={`${INBOX_TAB_LABELS[tab]} notes`} data-testid="inbox-pane">
+        {refreshFailed(listQ) ? <RefreshFailedNotice query={listQ} /> : null}
         <InboxList rows={rows} selectedId={selectedId} onSelect={select} loading={listQ.isLoading} hasMore={!!listQ.hasNextPage} loadingMore={listQ.isFetchingNextPage} onLoadMore={() => void listQ.fetchNextPage()} emptyText={EMPTY_TEXT[tab]} founderName={founderName} />
       </aside>
       <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Reading pane" data-testid="reading-pane">

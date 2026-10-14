@@ -13,10 +13,11 @@ import { getEventDeclaration, isEventType } from "@foundmill/events";
 import { writeEventRow } from "./events";
 import { buildManifest, checkComposerText, type ManifestEntityInput } from "@foundmill/entity-linker";
 import { ComposerOutput, type ModelClient } from "@foundmill/models";
-import { APP_NAME } from "@foundmill/config";
+import { APP_NAME, LIMITS } from "@foundmill/config";
 import { HOUSE_STYLE } from "@foundmill/agents";
-import { AppError, type EntityKind } from "@foundmill/shared";
+import { AppError, futureDeadline, type EntityKind } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
+import { noteModelCall } from "./model-calls";
 
 export interface ComposeResult {
   item: InboxItem;
@@ -35,7 +36,16 @@ export interface ComposerClient {
   narrate(businessId: string, eventIds: readonly string[], opts?: { actorUserId?: string | null }): Promise<ComposeResult>;
   /** True when the HTTP service answered recently (health). */
   reachable(): Promise<boolean>;
+  /**
+   * Ask the composer to title an ended quarter (BUILD §11.2 "Chapters … titled by Opus"; it stores the title it writes
+   * in `chapter_titles`). Fire and forget: the Ribbon shows the provisional title until then, and a quarter is asked
+   * about at most once per `CHAPTER_TITLE_RETRY_MS` by this process, whatever the answer.
+   */
+  requestChapterTitle(businessId: string, chapterId: string): void;
 }
+
+/** How long before an unanswered (or unstored) chapter title is asked for again. */
+export const CHAPTER_TITLE_RETRY_MS = 24 * 60 * 60 * 1000;
 
 export interface CreateComposerClientOptions {
   url: string;
@@ -43,6 +53,10 @@ export interface CreateComposerClientOptions {
   models: ModelClient;
   log: ApiLogger;
   fetch?: typeof globalThis.fetch;
+  /**
+   * How long refresh and narrate wait for the composer (default `LIMITS.composerClientTimeoutMs`, env
+   * COMPOSER_TIMEOUT_MS). A cold Refresh is a live Opus call; the composer abandons a note at its own, shorter deadline.
+   */
   timeoutMs?: number;
   /** Run the composer logic in-process when the service is unreachable (development/test). */
   allowFallback: boolean;
@@ -54,25 +68,51 @@ export class ComposerUnavailableError extends AppError {
   }
 }
 
+/**
+ * The composer did not answer within the client's wait. It may still be writing, so this is not "unavailable" (audit
+ * CML-04): the note appears in the Inbox if it finishes. With the default waits it cannot happen while a note is being
+ * written, since the composer gives up on a note (and answers 504 `composer_timeout`) before the client does.
+ */
+export class ComposerTimeoutError extends AppError {
+  constructor(timeoutMs: number) {
+    super("composer_timeout", `The composer did not answer within ${Math.round(timeoutMs / 1000)} seconds. If a note was being written, it will appear in your Inbox.`, 504);
+  }
+}
+
+/** Why a call to the composer service failed: no answer at all, no answer in time, or an answer that was an error. */
+type CallFailure = { kind: "unreachable"; message: string } | { kind: "timeout" } | { kind: "answered"; error: AppError };
+
+class ComposerCallError extends Error {
+  constructor(readonly failure: CallFailure) {
+    super(failure.kind === "unreachable" ? failure.message : failure.kind === "timeout" ? "timed out" : failure.error.message);
+  }
+}
+
 export function createComposerClient(opts: CreateComposerClientOptions): ComposerClient {
   const fetchImpl = opts.fetch ?? globalThis.fetch;
-  const timeoutMs = opts.timeoutMs ?? 5_000;
+  const timeoutMs = opts.timeoutMs ?? LIMITS.composerClientTimeoutMs;
 
   const post = async (path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> => {
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), timeoutMs);
+    let res: Response;
     try {
-      const res = await fetchImpl(`${opts.url.replace(/\/$/, "")}${path}`, {
+      res = await fetchImpl(`${opts.url.replace(/\/$/, "")}${path}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
-      if (!res.ok) throw new Error(`composer ${path} answered ${res.status}`);
-      return (await res.json()) as Record<string, unknown>;
+      if (res.ok) return (await res.json()) as Record<string, unknown>;
+    } catch (err) {
+      throw new ComposerCallError(controller.signal.aborted ? { kind: "timeout" } : { kind: "unreachable", message: (err as Error).message });
     } finally {
       clearTimeout(t);
     }
+    // The composer answered with an error (`{ error, message }`): its own words and status, not "unavailable".
+    const json = (await res.json().catch(() => null)) as { error?: unknown; message?: unknown; details?: unknown } | null;
+    if (typeof json?.error === "string" && typeof json.message === "string") throw new ComposerCallError({ kind: "answered", error: new AppError(json.error, json.message, res.status, json.details ?? undefined) });
+    throw new ComposerCallError({ kind: "unreachable", message: `composer ${path} answered ${res.status}` });
   };
 
   const itemFromResponse = async (businessId: string, json: Record<string, unknown>): Promise<InboxItem> => {
@@ -88,18 +128,38 @@ export function createComposerClient(opts: CreateComposerClientOptions): Compose
   };
 
   const run = async (path: string, body: Record<string, unknown>, businessId: string, local: () => Promise<LocalComposed>): Promise<ComposeResult> => {
+    // The composer service may call a model for this request, so the request's allowance counts as spent
+    // (services/model-calls.ts), unless the composer's credits gate refused it (402 `credits_exhausted`): then the
+    // credits are used up and no further call can follow, so giving the hit back cannot be farmed. The in-process
+    // path notes its calls through the api's client.
     try {
-      return await viaService(path, body, businessId);
+      const composed = await viaService(path, body, businessId);
+      noteModelCall();
+      return composed;
     } catch (err) {
-      if (!opts.allowFallback) throw new ComposerUnavailableError((err as Error).message);
-      opts.log.debug({ err: (err as Error).message, path }, "composer unreachable; composing in-process");
+      const failure: CallFailure = err instanceof ComposerCallError ? err.failure : { kind: "unreachable", message: (err as Error).message };
+      if (!(failure.kind === "answered" && failure.error.code === "credits_exhausted")) noteModelCall();
+      // Never compose a second note in-process while the service may still be writing one, nor over its answer.
+      if (failure.kind === "timeout") throw new ComposerTimeoutError(timeoutMs);
+      if (failure.kind === "answered" && (failure.error.status < 500 || !opts.allowFallback)) throw failure.error;
+      if (!opts.allowFallback) throw new ComposerUnavailableError(failure.kind === "unreachable" ? failure.message : failure.error.message);
+      opts.log.debug({ err: failure.kind === "unreachable" ? failure.message : failure.error.message, path }, "composer unreachable; composing in-process");
       const composed = await local();
       return { item: composed.item, source: "local", slot: composed.slot };
     }
   };
 
+  const chapterTitleAskedAt = new Map<string, number>();
+
   return {
     refresh: (businessId, o = {}) => run("/v1/refresh", { businessId }, businessId, () => composeLocallyWithSlot(opts.db, opts.models, businessId, { actorUserId: o.actorUserId ?? null })),
+    requestChapterTitle(businessId, chapterId) {
+      const key = `${businessId}:${chapterId}`;
+      const now = Date.now();
+      if (now - (chapterTitleAskedAt.get(key) ?? -Infinity) < CHAPTER_TITLE_RETRY_MS) return;
+      chapterTitleAskedAt.set(key, now);
+      void post("/v1/chapter-title", { businessId, quarter: chapterId }).catch((err: unknown) => opts.log.debug({ err: (err as Error).message, businessId, chapterId }, "chapter title not composed; the provisional title stays"));
+    },
     narrate: (businessId, eventIds, o = {}) =>
       run("/v1/narrate", { businessId, eventIds }, businessId, () => composeLocallyWithSlot(opts.db, opts.models, businessId, { eventIds, actorUserId: o.actorUserId ?? null })),
     async reachable() {
@@ -247,12 +307,18 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
   if (events.length === 0) {
     const candidates = localNextBestDecisions({ tasks: taskCounts, channelsEnabled: channels.length, customers30d: conversions.payment ?? 0, signups30d: conversions.signup ?? 0 });
     const open = await repos.inbox.list(db, businessId, { type: "decision", state: ["unread", "read"], limit: 100 });
-    const openSubjects = new Set(open.items.map((i) => i.subject));
-    grounded = candidates.find((c) => !openSubjects.has(c.title)) ?? candidates[open.items.length % candidates.length]!;
+    const isOpen = (c: LocalDecision) => open.items.some((i) => (i.decision as { key?: unknown } | null)?.key === localDecisionKey(c) || i.subject === c.title);
+    grounded = candidates.find((c) => !isOpen(c)) ?? null;
+    if (!grounded) {
+      // Everything the state calls for is already waiting for the founder: point at it rather than write a copy (audit CML-02).
+      const existing = open.items.find((i) => candidates.some((c) => (i.decision as { key?: unknown } | null)?.key === localDecisionKey(c) || i.subject === c.title));
+      if (existing) return { item: existing, slot: "decision" };
+      grounded = candidates[0]!;
+    }
   }
 
   const input = {
-    business: { id: business.id, name: business.name, archetype: business.archetype, business_mode: business.businessMode, glossary: business.glossary },
+    business: { id: business.id, name: business.name, archetype: business.archetype, business_mode: business.businessMode, glossary: business.glossary, currency: business.currency },
     business_name: business.name,
     app_name: APP_NAME,
     from_agent: { id: chief.id, name: chief.name, role: chief.role || "Chief of Staff" },
@@ -261,6 +327,8 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
     events: events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt, payload: e.payload, entity_ids: e.entityIds })),
     metrics,
     named_queries: NAMED_QUERIES,
+    // The model has no clock; without today's date it guesses deadlines (audit CML-13).
+    now: new Date().toISOString(),
     ...(grounded
       ? {
           type: "decision",
@@ -296,14 +364,15 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
     body_md: bodyMd.trim().length > 0 ? bodyMd : out.subject,
     status_strip: out.status_strip.slice(0, 4),
     exhibit: NAMED_QUERIES.some((q) => q.id === out.exhibit.spec_ref) ? out.exhibit : { kind: "none" as const, spec_ref: null },
-    decision: out.type === "decision" || out.type === "customer_won" ? (out.decision ?? defaultDecision()) : out.decision,
+    decision: withSaneDeadline(out.type === "decision" || out.type === "customer_won" ? (out.decision ?? defaultDecision()) : out.decision, grounded),
     blocks_continue: out.type === "decision" || out.type === "customer_won" ? true : out.blocks_continue,
     source_event_ids: eventIds,
     entity_ids: entityIds,
   };
 
   const created = await db.transaction(async (tx: DbTx) => {
-    const created = await repos.inbox.createItem(tx, businessId, item, { costMinor: result.cost.costMinorInt, currency: business.glossary.currency ?? "EUR" });
+    // The note's own cost is model spend, metered in the price list's currency (USD), never the business's currency.
+    const created = await repos.inbox.createItem(tx, businessId, item, { costMinor: result.cost.costMinorInt, currency: result.cost.currency });
     if (eventIds.length) await repos.events.markNarrated(tx, businessId, eventIds);
     const createdEventId = await writeEventRow(tx, {
       businessId,
@@ -317,7 +386,7 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
         subject: created.subject,
         blocksContinue: created.blocksContinue,
         sourceEventIds: eventIds,
-        cost: { amountMinor: result.cost.costMinorInt, currency: "EUR" },
+        cost: { amountMinor: result.cost.costMinorInt, currency: result.cost.currency },
       },
     });
     // Not narratable (catalogue): marked at once so Refresh never narrates its own notes, as the composer service does.
@@ -326,6 +395,14 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
   });
   return { item: created, slot: grounded ? "decision" : "events" };
 }
+
+/** A deadline is a future ISO timestamp within the horizon or none (audit CML-13); a grounded decision carries what it is about (audit CML-02). */
+function withSaneDeadline<D extends { expires_at: string | null }>(decision: D | null, grounded: LocalDecision | null): (D & { key?: string }) | null {
+  if (!decision) return null;
+  return { ...decision, expires_at: futureDeadline(decision.expires_at, new Date()), ...(grounded ? { key: localDecisionKey(grounded) } : {}) };
+}
+
+const localDecisionKey = (c: LocalDecision): string => `local:${c.kind}`;
 
 function defaultDecision() {
   return {

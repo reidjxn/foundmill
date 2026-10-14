@@ -74,6 +74,8 @@ describe("StaffScreen", () => {
     fireEvent.contextMenu(within(table).getByText("Owner"));
     const ownerMenu = await screen.findByRole("menu");
     expect(within(ownerMenu).getByRole("menuitem", { name: "Remove" }).getAttribute("aria-disabled")).toBe("true");
+    // Nobody edits their own role or permissions (the owner row is the signed-in owner's own).
+    expect(within(ownerMenu).getByRole("menuitem", { name: "Role and permissions…" }).getAttribute("aria-disabled")).toBe("true");
     await user.keyboard("{Escape}");
 
     fireEvent.contextMenu(within(table).getByText("Advisor"));
@@ -81,6 +83,8 @@ describe("StaffScreen", () => {
     const role = await screen.findByTestId("role-dialog");
     expect(within(role).getByText("Role and permissions for Ben Okafor")).toBeTruthy();
     await user.click(within(role).getByRole("combobox", { name: "Role" }));
+    // An owner may grant ownership from here.
+    expect(await screen.findByRole("option", { name: "Owner" })).toBeTruthy();
     await user.click(await screen.findByRole("option", { name: "Member" }));
     await user.click(within(role).getByRole("combobox", { name: "Product permission" }));
     await user.click(await screen.findByRole("option", { name: "Write" }));
@@ -95,6 +99,30 @@ describe("StaffScreen", () => {
     await waitFor(() => expect(fake.mutations[1]).toEqual({ path: "team.humans.remove", input: { userId: USER_BEN } }));
     await waitFor(() => expect(screen.getByTestId("staff-notice").textContent).toBe("Ben Okafor removed."));
     expect(fake.mutations.every((m) => m.input.userId !== ME && m.input.userId !== USER_ADA)).toBe(true);
+  });
+
+  it("an admin cannot edit the owner, cannot grant ownership and cannot edit their own row", async () => {
+    const user = userEvent.setup();
+    const asAdmin = humans.map((h) => (h.userId === ME ? { ...h, role: "admin" as const } : h.userId === USER_ADA ? { ...h, role: "owner" as const } : h));
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "team.humans.list": asAdmin, "founder.profile.get": { ...me, memberships: [{ businessId: BID, userId: ME, role: "admin" }] } } });
+    renderScreen(fake, <StaffScreen {...props} />);
+    const table = await screen.findByRole("grid", { name: "Staff" });
+    fireEvent.contextMenu(within(table).getByText("Owner"));
+    const ownerMenu = await screen.findByRole("menu");
+    expect(within(ownerMenu).getByRole("menuitem", { name: "Role and permissions…" }).getAttribute("aria-disabled")).toBe("true");
+    expect(within(ownerMenu).getByRole("menuitem", { name: "Remove" }).getAttribute("aria-disabled")).toBe("true");
+    await user.keyboard("{Escape}");
+    fireEvent.contextMenu(within(table).getByText("Admin"));
+    expect(within(await screen.findByRole("menu")).getByRole("menuitem", { name: "Role and permissions…" }).getAttribute("aria-disabled")).toBe("true");
+    await user.keyboard("{Escape}");
+
+    fireEvent.contextMenu(within(table).getByText("Advisor"));
+    await user.click(await screen.findByRole("menuitem", { name: "Role and permissions…" }));
+    const role = await screen.findByTestId("role-dialog");
+    await user.click(within(role).getByRole("combobox", { name: "Role" }));
+    expect(await screen.findByRole("option", { name: "Admin" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Owner" })).toBeNull();
+    expect(fake.mutations).toEqual([]);
   });
 
   it("shows the empty state, loading and an error with retry", async () => {

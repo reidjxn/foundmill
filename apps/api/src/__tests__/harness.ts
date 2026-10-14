@@ -8,7 +8,7 @@ import { createBusinessFixture, type BusinessFixture } from "@foundmill/db/__tes
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import type { Db } from "@foundmill/db";
 import type { StreamRedis } from "@foundmill/events";
-import { createDefaultRegistry } from "@foundmill/connectors";
+import { createDefaultRegistry, type ConnectorRegistry } from "@foundmill/connectors";
 import { loadEnv, resetEnvCache } from "@foundmill/shared";
 import { createVault, generateMasterKey } from "@foundmill/shared/crypto";
 import { createAuthVerifier } from "../auth";
@@ -18,6 +18,7 @@ import { createComposerClient } from "../services/composer";
 import { createApiModelClient } from "../services/models";
 import type { ApiGatewayClient } from "../services/gateway";
 import { silentLog } from "../services/log";
+import { MemoryRateLimitStore } from "../services/rate-limit";
 import type { RecordingResolver } from "../services/replay";
 import { createIngestClient } from "../services/simulate";
 import { createTemporalService, type TemporalClientLike } from "../services/temporal";
@@ -29,6 +30,8 @@ export interface ApiHarness {
   h: TestHarness;
   db: Db;
   deps: ApiDeps;
+  /** The deps' allowance windows (in memory): tests fill or reset them. */
+  limits: MemoryRateLimitStore;
   A: BusinessFixture;
   B: BusinessFixture;
   caller(user: CallerUser | null): ReturnType<typeof createCaller>;
@@ -49,6 +52,8 @@ export interface HarnessOptions {
   gateway?: ApiGatewayClient;
   /** Env overrides (e.g. LIVE_CONNECTORS) on top of the test environment. */
   env?: Partial<NodeJS.ProcessEnv>;
+  /** The connector registry; default: every connector this repo ships (`createDefaultRegistry()`). */
+  connectors?: ConnectorRegistry;
 }
 
 export async function createApiHarness(options: HarnessOptions): Promise<ApiHarness> {
@@ -70,15 +75,17 @@ export async function createApiHarness(options: HarnessOptions): Promise<ApiHarn
       throw new Error("composer service not running in tests");
     },
   });
+  const limits = new MemoryRateLimitStore();
   const deps: ApiDeps = {
     env,
     db,
     redis: options.redis ?? null,
+    limits,
     temporal,
     models,
     composer,
     vault: createVault(env),
-    connectors: createDefaultRegistry(),
+    connectors: options.connectors ?? createDefaultRegistry(),
     auth: createAuthVerifier({ appEnv: "test" }),
     log,
     recordings: options.recordings ?? null,
@@ -98,6 +105,11 @@ export async function createApiHarness(options: HarnessOptions): Promise<ApiHarn
       health: async () => {
         throw new Error("gateway not running in tests");
       },
+      checkDomains: async () => {
+        throw new Error("gateway not running in tests");
+      },
+      // What the gateway's Stripe connector answers in mock mode: a simulated session that returns to Billing.
+      createCheckout: async (input) => ({ mode: "mock", session: { id: `cs_mock_${input.checkoutId.replace(/-/g, "").slice(0, 20)}`, url: input.successUrl, expiresAt: new Date(Date.now() + 3_600_000).toISOString(), amountTotalMinor: input.amountMinor, currency: "USD" } }),
     },
     health: { db: async () => true, redis: async () => false, temporal: () => temporal.reachable() },
   };
@@ -106,6 +118,7 @@ export async function createApiHarness(options: HarnessOptions): Promise<ApiHarn
     h,
     db,
     deps,
+    limits,
     A,
     B,
     caller: (user) => createCaller(deps, user),
@@ -114,21 +127,31 @@ export async function createApiHarness(options: HarnessOptions): Promise<ApiHarn
 }
 
 /** A fake Temporal client that records starts and signals (and can be told to fail). */
-export function fakeTemporalClient(): TemporalClientLike & { starts: { type: string; workflowId: string; args: unknown[] }[]; signals: { workflowId: string; signal: string; args: unknown[] }[] } {
+export function fakeTemporalClient(options: { rejectDuplicates?: boolean } = {}): TemporalClientLike & { starts: { type: string; workflowId: string; args: unknown[] }[]; signals: { workflowId: string; signal: string; args: unknown[] }[]; statuses: Map<string, string> } {
   const starts: { type: string; workflowId: string; args: unknown[] }[] = [];
   const signals: { workflowId: string; signal: string; args: unknown[] }[] = [];
+  /** Workflow id → Temporal status name; a started workflow is RUNNING until a test sets another. */
+  const statuses = new Map<string, string>();
   return {
     starts,
     signals,
+    statuses,
     workflow: {
-      async start(type, options) {
-        starts.push({ type, workflowId: options.workflowId, args: options.args ?? [] });
-        return { workflowId: options.workflowId };
+      async start(type, startOptions) {
+        if (options.rejectDuplicates && statuses.get(startOptions.workflowId) === "RUNNING") throw Object.assign(new Error("Workflow execution already started"), { name: "WorkflowExecutionAlreadyStartedError" });
+        starts.push({ type, workflowId: startOptions.workflowId, args: startOptions.args ?? [] });
+        statuses.set(startOptions.workflowId, "RUNNING");
+        return { workflowId: startOptions.workflowId };
       },
       getHandle(workflowId) {
         return {
           async signal(signal, ...args) {
             signals.push({ workflowId, signal, args });
+          },
+          async describe() {
+            const name = statuses.get(workflowId);
+            if (!name) throw Object.assign(new Error("workflow not found"), { name: "WorkflowNotFoundError" });
+            return { status: { name } };
           },
         };
       },

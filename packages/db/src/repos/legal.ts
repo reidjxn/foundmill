@@ -14,7 +14,7 @@ import {
   complianceEvents, CONTRACT_STATUSES, contracts, entities, FILING_STATUSES, filings, INCORPORATION_STATUSES, incorporations, LEGAL_ENTITY_STATUSES, legalEntities,
   type ComplianceEvent, type Contract, type Filing, type Incorporation, type LegalEntity,
 } from "../schema";
-import { Currency, DateRange, defined, Id, IsoDateInput, JsonArray, MinorAmount, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page, patchSchema } from "./_shared";
+import { Currency, DateRange, changes, defined, Id, IsoDateInput, JsonArray, MinorAmount, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page, patchSchema } from "./_shared";
 
 export const CreateLegalEntityInput = z.object({
   jurisdiction: z.string().trim().min(2).max(40),
@@ -122,6 +122,13 @@ async function assertLegalEntity(db: Executor, businessId: string, legalEntityId
   if (rows.length === 0) throw new ValidationError("legalEntityId is not a legal entity of this business", { legalEntityId });
 }
 
+/** A contract's counterparty is an entity of the business (the foreign key knows nothing about tenants). */
+async function assertCounterparty(db: Executor, businessId: string, counterpartyEntityId: string | null | undefined): Promise<void> {
+  if (!counterpartyEntityId) return;
+  const rows = await db.select({ id: entities.id }).from(entities).where(and(eq(entities.businessId, businessId), eq(entities.id, counterpartyEntityId))).limit(1);
+  if (rows.length === 0) throw new ValidationError("counterpartyEntityId is not an entity of this business", { counterpartyEntityId });
+}
+
 export const legalRepo = {
   // legal entities ----------------------------------------------------------------------------------------------------
   async listEntities(db: Executor, businessId: string, options: { includeArchived?: boolean } = {}): Promise<LegalEntity[]> {
@@ -173,7 +180,7 @@ export const legalRepo = {
 
   async updateEntity(db: Executor, businessId: string, legalEntityId: string, input: UpdateLegalEntityInput): Promise<LegalEntity> {
     const v = parseInput(UpdateLegalEntityInput, input, "legal entity update");
-    return one(await db.update(legalEntities).set(defined(v)).where(scopedLe(businessId, legalEntityId)).returning(), "legal entity", legalEntityId);
+    return one(await db.update(legalEntities).set(changes(v, "legal entity")).where(scopedLe(businessId, legalEntityId)).returning(), "legal entity", legalEntityId);
   },
 
   /** Import confirm (router legal.import.confirm): a registry lookup becomes the operating entity. */
@@ -337,10 +344,7 @@ export const legalRepo = {
 
   async createContract(db: Executor, businessId: string, input: CreateContractInput): Promise<Contract> {
     const v = parseInput(CreateContractInput, input, "contract");
-    if (v.counterpartyEntityId) {
-      const rows = await db.select({ id: entities.id }).from(entities).where(and(eq(entities.businessId, businessId), eq(entities.id, v.counterpartyEntityId))).limit(1);
-      if (rows.length === 0) throw new ValidationError("counterpartyEntityId is not an entity of this business", { counterpartyEntityId: v.counterpartyEntityId });
-    }
+    await assertCounterparty(db, businessId, v.counterpartyEntityId);
     return one(
       await db
         .insert(contracts)
@@ -364,7 +368,9 @@ export const legalRepo = {
 
   async updateContract(db: Executor, businessId: string, contractId: string, input: UpdateContractInput): Promise<Contract> {
     const v = parseInput(UpdateContractInput, input, "contract update");
-    return one(await db.update(contracts).set(defined(v)).where(scopedContract(businessId, contractId)).returning(), "contract", contractId);
+    // The same check as on create: signing a contract writes events that name the counterparty (audit ARB-08).
+    await assertCounterparty(db, businessId, v.counterpartyEntityId);
+    return one(await db.update(contracts).set(changes(v, "contract")).where(scopedContract(businessId, contractId)).returning(), "contract", contractId);
   },
 
   /** Moves a contract along its lifecycle; `signed` stamps signed_at (the signature itself happened outside the platform). */

@@ -3,7 +3,7 @@ import { Lock, Share2, Trophy } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { formatMoney } from "../../lib/format";
 import { Button } from "../foundation/Button";
-import { Chip } from "../foundation/Chip";
+import { Chip, ProvenanceChip } from "../foundation/Chip";
 import { useFormatters } from "../foundation/DateFormatProvider";
 import { Icon } from "../foundation/Icon";
 import type { TrophyCard } from "./types";
@@ -37,15 +37,17 @@ export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, classNam
         {trophies.map((t) => {
           const achieved = !!t.achievedAt;
           const Wrapper = onOpen && achieved ? "button" : "div";
+          // The card grows to the row's height inside a column with the Share button under it, so the button is part of
+          // the row (never overflowing into the next row or the panel footer, where they would catch its clicks).
           return (
-            <li key={t.key} data-trophy={t.key} data-achieved={achieved || undefined}>
+            <li key={t.key} data-trophy={t.key} data-achieved={achieved || undefined} className="flex min-w-0 flex-col gap-1">
               <Wrapper
                 type={Wrapper === "button" ? "button" : undefined}
                 onClick={Wrapper === "button" ? () => onOpen?.(t.key) : undefined}
                 className={cn(
-                  "relative flex h-full w-full flex-col gap-2 overflow-hidden rounded-panel border p-panel-pad text-left",
+                  "relative flex w-full flex-1 flex-col gap-2 overflow-hidden rounded-panel border p-panel-pad text-left",
                   achieved ? "border-gold/45 bg-surface-1 shadow-elev-1 inset-shadow-rim" : "dashed-edge bg-canvas/40",
-                  Wrapper === "button" && "outline-none transition-[border-color,filter] duration-micro ease-dugout hover:border-gold hover:brightness-110 focus-visible:outline-2 focus-visible:outline-link",
+                  Wrapper === "button" && "transition-[border-color,filter] duration-micro ease-dugout hover:border-gold hover:brightness-110 focus-visible:outline-2 focus-visible:outline-link",
                 )}
                 aria-label={Wrapper === "button" ? `${t.label}, reached ${formatDate(t.achievedAt as string)}` : undefined}
               >
@@ -54,7 +56,10 @@ export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, classNam
                   <span className={cn("inline-flex size-9 shrink-0 items-center justify-center rounded-full", achieved ? "bg-gold/15 text-gold shadow-glow-gold" : "bg-white/5 text-tertiary")}>
                     <Icon icon={achieved ? Trophy : Lock} size="lg" />
                   </span>
-                  {achieved ? <Chip tone="gold">Reached</Chip> : <Chip tone="neutral">Not yet</Chip>}
+                  <span className="inline-flex items-center gap-1.5">
+                    {achieved && t.estimate ? <ProvenanceChip kind="estimate" /> : null}
+                    {achieved ? <Chip tone="gold">Reached</Chip> : <Chip tone="neutral">Not yet</Chip>}
+                  </span>
                 </div>
                 <div className="min-w-0">
                   <span className={cn("t-display-sm block break-words", achieved ? "text-primary" : "text-secondary")}>{t.label}</span>
@@ -72,10 +77,10 @@ export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, classNam
                         <dd className="break-words">{t.customerName}</dd>
                       </div>
                     ) : null}
-                    {t.amountMinor ? (
+                    {t.amountMinor && t.currency ? (
                       <div className="flex justify-between gap-2">
                         <dt className="text-secondary">Value</dt>
-                        <dd className="tabular-nums text-gold">{formatMoney({ amountMinor: t.amountMinor, currency: t.currency ?? "EUR" })}</dd>
+                        <dd className="tabular-nums text-gold">{formatMoney({ amountMinor: t.amountMinor, currency: t.currency })}</dd>
                       </div>
                     ) : null}
                   </dl>
@@ -84,7 +89,7 @@ export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, classNam
                 )}
               </Wrapper>
               {achieved && onShare && t.shareable ? (
-                <Button size="sm" variant="ghost" icon={Share2} className="mt-1 px-1.5" onClick={() => onShare(t.key)} aria-label={`Share ${t.label}`}>
+                <Button size="sm" variant="ghost" icon={Share2} className="self-start px-1.5" onClick={() => onShare(t.key)} aria-label={`Share ${t.label}`} data-trophy-share>
                   Share
                 </Button>
               ) : null}

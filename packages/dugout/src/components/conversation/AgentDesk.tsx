@@ -16,6 +16,7 @@ import { Button } from "../foundation/Button";
 import { useDateFormat } from "../foundation/DateFormatProvider";
 import { Skeleton } from "../foundation/Skeleton";
 import { Icon } from "../foundation/Icon";
+import { FocusOrigin, useReturnFocus } from "../foundation/ReturnFocus";
 import { DeskPresence } from "./DeskPresence";
 import { QuickReplies, isTypingTarget, type QuickReplyKeyModifier } from "./QuickReplies";
 import { Reaction } from "./Reaction";
@@ -59,6 +60,11 @@ export interface AgentDeskProps {
   thinkingPhrase?: string | null;
   /** Render a bubble's Markdown and `[[ent:…]]` mentions (EntityText). Plain text without it. */
   renderBubble?: (markdown: string) => ReactNode;
+  /**
+   * Render the founder's own bubbles. What the founder typed is never entity markup: `[[ent:…]]` in it must not become a
+   * link (audit FR-23). Defaults to `renderBubble`; the app passes one without mention links.
+   */
+  renderFounderBubble?: (markdown: string) => ReactNode;
   /** inline: a page section with the presence column. sheet: a right-side sheet. compact: narrow places. */
   variant?: AgentDeskVariant;
   /** Number keys send quick replies. Default true. */
@@ -148,6 +154,8 @@ export function AgentDesk(props: AgentDeskProps) {
         : OPENING_FALLBACK_REPLIES
       : offered;
 
+  // The sheet hands focus back to whatever opened it when it closes.
+  const returnFocus = useReturnFocus();
   // Keyboard continuity: a reply pressed from the keyboard unmounts with the strip; keep focus in the conversation.
   const threadRef = useRef<HTMLDivElement>(null);
   const focusInStrip = useRef(false);
@@ -218,11 +226,13 @@ export function AgentDesk(props: AgentDeskProps) {
               e.preventDefault();
               (e.currentTarget as HTMLElement | null)?.focus();
             }}
+            onCloseAutoFocus={returnFocus.onCloseAutoFocus}
             onEscapeKeyDown={(e) => {
               // Escape in the Write field closes the field, not the sheet.
               if (isTypingTarget(e.target)) e.preventDefault();
             }}
           >
+            <FocusOrigin origin={returnFocus.origin} />
             <DialogPrimitive.Title className="sr-only">{label}</DialogPrimitive.Title>
             <DeskPresence persona={persona} replying={replying} layout="band" surface="surface-3" />
             {subject ? (
@@ -281,6 +291,7 @@ function DeskThread({
   replying = false,
   thinkingPhrase,
   renderBubble,
+  renderFounderBubble,
   variant = "inline",
   onHandOff,
   onRetry,
@@ -320,6 +331,7 @@ function DeskThread({
   }, [messages.length, lastBubbles, replying, reduced]);
 
   const render = (text: string) => (renderBubble ? renderBubble(text) : text);
+  const renderFounder = (text: string) => (renderFounderBubble ? renderFounderBubble(text) : render(text));
   const { state } = presenceWords(persona, replying);
 
   return (
@@ -419,7 +431,7 @@ function DeskThread({
                       data-testid="founder-bubble"
                     >
                       <span className="sr-only">You: </span>
-                      {render(row.bubble)}
+                      {renderFounder(row.bubble)}
                       {reaction ? (
                         <Reaction reaction={reaction} by={persona.name} dept={persona.dept} />
                       ) : null}
@@ -462,7 +474,10 @@ function DeskThread({
   );
 }
 
-/** What the agent would hand off, and that nothing runs until the founder confirms the plan. */
+/**
+ * What the agent would hand off, and that nothing runs until the founder confirms the plan. A staged plan stays
+ * reviewable until it is confirmed (the review opens the stored plan; nothing is compiled twice).
+ */
 function HandOffStrip({
   message,
   onHandOff,
@@ -472,8 +487,9 @@ function HandOffStrip({
 }) {
   const h = message.handOff!;
   const staged = Boolean(message.planId);
+  const confirmed = staged && message.planConfirmed === true;
   return (
-    <div className="desk-handoff" data-testid="desk-handoff" data-gated={h.gated || undefined}>
+    <div className="desk-handoff" data-testid="desk-handoff" data-gated={h.gated || undefined} data-staged={staged || undefined} data-confirmed={confirmed || undefined}>
       <Icon icon={h.gated ? Lock : ListChecks} size="inline" className="mt-px text-tertiary" />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="font-medium text-primary">
@@ -481,12 +497,14 @@ function HandOffStrip({
         </span>
         <span className="text-pretty">{h.instruction}</span>
         <span className="text-tertiary">
-          {staged
-            ? "Plan staged. Nothing runs until you confirm it."
-            : "Nothing runs until you confirm the plan."}
+          {confirmed
+            ? "Plan confirmed. The team is on it."
+            : staged
+              ? "Plan staged. Nothing runs until you confirm it."
+              : "Nothing runs until you confirm the plan."}
         </span>
       </div>
-      {onHandOff && !staged ? (
+      {onHandOff && !confirmed ? (
         <Button
           size="sm"
           variant="default"

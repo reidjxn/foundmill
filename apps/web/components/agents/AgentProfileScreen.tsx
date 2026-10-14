@@ -7,26 +7,29 @@
  * `agent.model.set`. Data comes from `agent.profile.get`, polled every 5 s while a training run is active.
  */
 import { useQuery } from "@tanstack/react-query";
-import { Dumbbell, MessageCircle } from "lucide-react";
+import { Dumbbell, MessageCircle, UserRoundCog } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Avatar, Button, EntityLink, HealthBadge, ModelChip, ProfileHeader, formatMoney, useDateFormat, type ProfileChip, type ProfileFact, type TabItem } from "@foundmill/dugout";
+import { Avatar, Button, EntityLink, HealthBadge, IconButton, ModelChip, ProfileHeader, StatusPill, formatMoney, useDateFormat, type ProfileChip, type ProfileFact, type TabItem } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { useBusiness } from "@/components/shell/business-context";
+import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { useAgentDesk } from "@/components/conversation/DeskHost";
+import { formatDate } from "@/lib/format";
 import { AutonomyTab } from "./AutonomyTab";
 import { HistoryTab } from "./HistoryTab";
+import { LineManagerDialog } from "./LineManagerDialog";
 import { LogsTab } from "./LogsTab";
 import { ModelChangeDialog } from "./ModelChangeDialog";
 import { OverviewTab } from "./OverviewTab";
 import { ToolsTab } from "./ToolsTab";
 import { TrainingTab } from "./TrainingTab";
-import { AGENT_TABS, departmentColour, humaniseKey, meanRating, profileChips, starsFor, toSkillRows, trainingFlow, wageLabel, type AgentProfile, type AgentTab } from "./logic";
+import { AGENT_TABS, departmentColour, humaniseKey, localPeriod, meanRating, ownerManagerLabel, profileChips, starsFor, toSkillRows, trainingFlow, wageLabel, type AgentProfile, type AgentTab } from "./logic";
 
 export interface AgentProfileScreenProps {
   agentId: string;
@@ -44,16 +47,18 @@ export interface TabProps {
 
 export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
   const datePrefs = useDateFormat();
-  const { businessId, data, departments } = useBusiness();
+  const { businessId, departments } = useBusiness();
   const trpc = useTRPC();
   const router = useRouter();
   const [modelOpen, setModelOpen] = useState(false);
-  const currency = data.business.glossary?.currency ?? "EUR";
+  const [managerOpen, setManagerOpen] = useState(false);
+  const currency = useBusinessCurrency();
   const desk = useAgentDesk();
 
   const profileQ = useQuery(
     trpc.agent.profile.get.queryOptions(
-      { businessId, agentId },
+      // This month is the viewer's month, so the wage never turns to next month's empty figure early.
+      { businessId, agentId, period: localPeriod() },
       {
         staleTime: 10_000,
         refetchInterval: (q) => {
@@ -63,7 +68,7 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
       },
     ),
   );
-  const squadQ = useQuery(trpc.team.agents.list.queryOptions({ businessId }, { staleTime: 60_000, enabled: modelOpen || tab === "autonomy" }));
+  const squadQ = useQuery(trpc.team.agents.list.queryOptions({ businessId }, { staleTime: 60_000, enabled: modelOpen || managerOpen || tab === "autonomy" }));
   const profile = profileQ.data;
 
   const tabs = useMemo<TabItem[]>(() => AGENT_TABS.map((t) => ({ id: t.id, label: t.label, href: routes.agent(businessId, agentId, t.id) })), [businessId, agentId]);
@@ -79,7 +84,14 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
     [profile?.agent.name, tabs, tab, squadHref],
   );
 
-  if (profileQ.error) return <ErrorPanel title="Agent profile" message={errorMessage(profileQ.error)} onRetry={() => void profileQ.refetch()} />;
+  if (loadFailed(profileQ) && isMissing(profileQ.error)) {
+    return (
+      <NotFoundPanel title="Agent profile" heading="No such agent" back={squadHref ? { label: "Back to Agents", href: squadHref } : { label: "Go to Home", href: routes.home(businessId) }}>
+        No agent in this business has this address: the agent was let go, or the link is wrong.
+      </NotFoundPanel>
+    );
+  }
+  if (loadFailed(profileQ)) return <ErrorPanel title="Agent profile" message={errorMessage(profileQ.error)} onRetry={() => void profileQ.refetch()} />;
   if (!profile) return <ScreenSkeleton />;
 
   const agent = profile.agent;
@@ -89,13 +101,21 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
   const potential = meanRating(skillRows.map((s) => ({ value: s.potential ?? s.value })));
   // Each chip once: a Chief of Staff's role and layer are the same words.
   const chips: ProfileChip[] = profileChips(agent, profile.departments);
+  // A released agent keeps its profile as a record: no training, no conversation, no model change, no manager change.
+  const released = agent.archivedAt ? formatDate(agent.archivedAt, datePrefs) : null;
   const facts: ProfileFact[] = [
     {
       label: "Line manager",
-      value: profile.lineManager ? <EntityLink entity={{ id: profile.lineManager.id, kind: "agent", name: profile.lineManager.name, href: routes.agent(businessId, profile.lineManager.id) }} hoverCard={false} contextMenu={false} /> : <span className="text-secondary">You</span>,
+      value: (
+        <span className="inline-flex items-center gap-1" data-testid="header-line-manager">
+          {profile.lineManager ? <EntityLink entity={{ id: profile.lineManager.id, kind: "agent", name: profile.lineManager.name, href: routes.agent(businessId, profile.lineManager.id) }} hoverCard={false} contextMenu={false} /> : <span className="text-secondary">{ownerManagerLabel(profile)}</span>}
+          {released ? null : <IconButton icon={UserRoundCog} size="sm" variant="ghost" label="Change line manager" onClick={() => setManagerOpen(true)} data-testid="header-change-manager" />}
+        </span>
+      ),
     },
-    { label: wageLabel(profile.wage.period, undefined, datePrefs), value: `${formatMoney({ amountMinor: profile.wage.costMinor, currency: agent.currency ?? currency })}${profile.wage.wageCapMinor !== null ? ` of ${formatMoney({ amountMinor: profile.wage.wageCapMinor, currency: agent.currency ?? currency })}` : ""}`, provenance: "estimate" },
-    { label: "Tasks · 30 days", value: profile.metrics.reduce((s, m) => s + m.tasksDone, 0) },
+    { label: wageLabel(profile.wage.period, undefined, datePrefs), value: `${formatMoney({ amountMinor: profile.wage.costMinor, currency: profile.wage.currency })}${profile.wage.wageCapMinor !== null ? ` of ${formatMoney({ amountMinor: profile.wage.wageCapMinor, currency: profile.wage.currency })}` : ""}`, provenance: "estimate" },
+    // Tasks it finished in its sessions over the last 30 days (the History tab's strip counts the same rows).
+    { label: "Tasks · 30 days", value: profile.recent.tasksDone },
   ];
   const typeCount = squadQ.data?.agents.filter((a) => a.agentType === agent.agentType).length;
   const allCount = squadQ.data?.agents.length;
@@ -103,38 +123,53 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="agent-profile" data-agent-id={agent.id} data-tab={tab}>
+      {refreshFailed(profileQ) ? <RefreshFailedNotice query={profileQ} /> : null}
       <ProfileHeader
         avatar={<Avatar size={64} name={agent.name} agent={{ seed: agent.avatarSeed || agent.id, dept }} status={agent.status} />}
         name={agent.name}
         chips={chips}
-        status={<HealthBadge status={agent.status} />}
+        status={
+          released ? (
+            <StatusPill tone="neutral" data-testid="header-released">
+              Released {released}
+            </StatusPill>
+          ) : (
+            <HealthBadge status={agent.status} />
+          )
+        }
         facts={facts}
         stars={mean !== null ? { current: starsFor(mean) ?? 0, potential: starsFor(potential) } : undefined}
         actions={
-          <>
-            {/* The model chip is the control (it opens the model dialog); its tooltip says so, no "Click to change" label. */}
-            <span data-testid="header-model-chip" className="inline-flex" title={profile.modelLock ? "This agent's model is fixed" : "Change the model"}>
-              <ModelChip model={agent.modelKey} locked={profile.modelLock} onClick={() => setModelOpen(true)} />
+          released ? (
+            <span className="text-small text-secondary" data-testid="header-released-note">
+              Left the team; its history and logs stay here.
             </span>
-            <Button size="sm" icon={Dumbbell} onClick={() => router.push(routes.agent(businessId, agent.id, "training"))} data-testid="header-train">
-              Train
-            </Button>
-            {desk ? (
-              <Button
-                size="sm"
-                variant="primary"
-                icon={MessageCircle}
-                onClick={() => desk.open({ kind: "agent", id: agent.id }, { persona: { name: agent.name, role: agent.role || humaniseKey(agent.agentType), avatarSeed: agent.avatarSeed || agent.id, dept } })}
-                // The sheet's code is on its way before the press.
-                onPointerEnter={desk.prefetch}
-                onFocus={desk.prefetch}
-                aria-haspopup="dialog"
-                data-testid="header-talk"
-              >
-                Talk to {agent.name}
+          ) : (
+            <>
+              {/* The model chip is the control (it opens the model dialog); its tooltip says so, no "Click to change" label. */}
+              <span data-testid="header-model-chip" className="inline-flex" title={profile.modelLock ? "This agent's model is fixed" : "Change the model"}>
+                <ModelChip model={agent.modelKey} locked={profile.modelLock} onClick={() => setModelOpen(true)} />
+              </span>
+              <Button size="sm" icon={Dumbbell} onClick={() => router.push(routes.agent(businessId, agent.id, "training"))} data-testid="header-train">
+                Train
               </Button>
-            ) : null}
-          </>
+              {desk ? (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon={MessageCircle}
+                  onClick={() => desk.open({ kind: "agent", id: agent.id }, { persona: { name: agent.name, role: agent.role || humaniseKey(agent.agentType), avatarSeed: agent.avatarSeed || agent.id, dept } })}
+                  // The sheet's code is on its way before the press.
+                  onPointerEnter={desk.prefetch}
+                  onFocus={desk.prefetch}
+                  aria-haspopup="dialog"
+                  data-testid="header-talk"
+                >
+                  Talk to {agent.name}
+                </Button>
+              ) : null}
+            </>
+          )
         }
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -145,7 +180,8 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
         {tab === "history" ? <HistoryTab {...tabProps} /> : null}
         {tab === "logs" ? <LogsTab {...tabProps} /> : null}
       </div>
-      <ModelChangeDialog businessId={businessId} profile={profile} open={modelOpen} onOpenChange={setModelOpen} typeCount={typeCount} allCount={allCount} currency={currency} />
+      <ModelChangeDialog businessId={businessId} profile={profile} open={modelOpen && !released} onOpenChange={setModelOpen} typeCount={typeCount} allCount={allCount} />
+      <LineManagerDialog businessId={businessId} profile={profile} agents={squadQ.data?.agents} open={managerOpen && !released} onOpenChange={setManagerOpen} onSaved={() => void profileQ.refetch()} />
     </div>
   );
 }

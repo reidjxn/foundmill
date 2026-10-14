@@ -8,8 +8,10 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, Landmark, Receipt, Tag, X } from "lucide-react";
 import { Button, DataTable, EntityLink, MiniTable, Panel, SegmentedControl, StatusPill, cn, formatPercent, useFormatters, type DataTableColumn, type DateFormatPrefs, type RowAction, type SavedView } from "@foundmill/dugout";
+import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
 import { PNL_SECTION_LABELS, buildPnl, categoryLabel, formatMonth, isUncategorised, ledgerPnlRows, monthStart, pnlTotals, type PnlRow } from "./metrics";
 import { RecategoriseDialog } from "./RecategoriseDialog";
@@ -131,11 +133,13 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
   const now = useNow();
   const currency = useCurrency();
   const { navigate } = useWidgetData();
+  const departments = useDepartments();
   const [period, setPeriod] = useState<PnlPeriod>("3m");
   const { prefs: datePrefs, formatDateShort } = useFormatters();
   const range = useMemo(() => periodRange(period, now, datePrefs), [period, now, datePrefs]);
   const pnl = useWidgetQuery<PnlResponse>("finance.pnl", { from: range.from, to: range.to });
-  const [views, setViews] = useState<SavedView[]>(PNL_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("finance.pnl", PNL_VIEWS, { defaultViewId: "all" });
   const [selected, setSelected] = useState<PnlRow | null>(null);
   const [recat, setRecat] = useState<TransactionRow | null>(null);
   const transactions = useWidgetQuery<TransactionsListResponse>("finance.transactions.list", { from: range.from, to: range.to, limit: 500 }, { enabled: !!selected });
@@ -157,7 +161,7 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
     return [
       { id: "show", label: "Show transactions", icon: Receipt, disabled: !isLine, onSelect: (r) => setSelected(r) },
       { id: "recat", label: "Recategorize a transaction…", icon: Tag, disabled: !isLine, onSelect: (r) => setSelected(r) },
-      { id: "cash", label: "Open in Cash", icon: Landmark, separatorBefore: true, onSelect: () => navigate(routes.department(businessId, "finance", "cash")) },
+      { id: "cash", label: "Open in Cash", icon: Landmark, separatorBefore: true, onSelect: () => navigate(moduleTabHref(businessId, departments.data, "finance", "cash")) },
     ];
   };
 
@@ -199,8 +203,7 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
           aria-label="Profit and loss"
           data={rows}
           columns={columns}
-          views={views}
-          onViewsChange={setViews}
+          {...savedViews}
           defaultViewId="all"
           height={fitTableHeight(rows.length, { minRows: 6, maxRows: 40 })}
           density="compact"

@@ -97,6 +97,15 @@ describe("hard gates can never be lifted", () => {
     });
   }
 
+  it("a call flagged as a security-settings change is denied by hard-gate-security-settings in every mode, whatever the tool's hints", () => {
+    for (const mode of ["augmented", "assisted", "automated"] as const) {
+      const r = run(mode, { connector: "cloudflare_dns", name: "update_record", securitySettings: true });
+      expect(r, mode).toEqual({ outcome: "deny", reasons: ["Hard gate: this changes a security setting, which always requires a human (BUILD §2.2)"], policyIds: ["hard-gate-security-settings"] });
+    }
+    // The same tool without the flag is an ordinary call (the flag is the gateway's, per call).
+    expect(run("assisted", { connector: "cloudflare_dns", name: "update_record" }).outcome).toBe("allow");
+  });
+
   it("a hard-gated tool that is not also irreversible or spending is still denied", () => {
     const r = run("automated", { connector: "google", name: "grant_oauth_consent", hardGate: true });
     expect(r).toEqual({ outcome: "deny", reasons: ["Hard gate: this action always requires a human (BUILD §2.2)"], policyIds: ["hard-gate"] });
@@ -234,6 +243,22 @@ describe("per-agent autonomy override and holiday", () => {
     expect(toContext(input)["holidayActive"]).toBe(true);
     const r = run("automated", TOOLS.adSpend, { amountMinor: 1, holidayActive: true });
     expect(r.outcome).toBe("allow");
+  });
+  it("on vacation an Assisted or Augmented business runs as Automated: hard gates still queue (OL-26)", () => {
+    const on = (mode: BusinessMode, t: ToolCtxInput, ctx: CallContextInput = {}, a: Partial<AgentCtxInput> = {}) => evaluate({ principal: agent(a), tool: t, business: business(mode, true), context: ctx });
+    expect(effectiveBusinessMode(EvaluateInput.parse({ principal: agent(), tool: tool(), business: business("assisted", true) }))).toBe("automated");
+    // What Assisted asks for, the vacation's Automated mode does within caps.
+    expect(on("assisted", TOOLS.mergeToMain).outcome).toBe("allow");
+    expect(on("assisted", TOOLS.draftContract).outcome).toBe("allow");
+    expect(on("augmented", TOOLS.sendEmail).outcome).toBe("allow");
+    // Above the threshold still asks, and hard gates never lift.
+    expect(on("assisted", TOOLS.adSpend, { amountMinor: THRESHOLD + 1 }).outcome).toBe("ask");
+    expect(on("assisted", TOOLS.signContract).outcome).toBe("deny");
+    expect(on("assisted", TOOLS.payInvoice, { amountMinor: 100 }).outcome).toBe("deny");
+    // An agent the founder gave its own autonomy keeps it.
+    expect(on("assisted", TOOLS.sendEmail, {}, { autonomy: "augmented" }).policyIds).toEqual(["augmented-ask-external"]);
+    // Back from vacation, the business's own mode applies again.
+    expect(run("assisted", TOOLS.mergeToMain).outcome).toBe("ask");
   });
 });
 

@@ -2,6 +2,8 @@
  * The api's calls into apps/gateway for App connectors (GitHub): connecting an installation and checking its health run
  * in the gateway, the one service holding the App's keys (BUILD §2.1 rule 2), behind a one-minute service JWT of the
  * same shape as apps/gateway `signServiceToken` (`iss foundmill-gateway`, `aud foundmill-gateway/service`, `svc api`).
+ * Credit top-ups open their Stripe Checkout session there too (`createCheckout`): STRIPE_SECRET_KEY lives only in the
+ * gateway. The Commit screen's domain checks go there too (`checkDomains`): registries are reached only from the gateway.
  */
 import { randomUUID } from "node:crypto";
 import { AppError, type IntegrationStatus } from "@foundmill/shared";
@@ -27,9 +29,44 @@ export interface GatewayHealth {
   [k: string]: unknown;
 }
 
+/** A credit top-up's checkout, as the api asks for it (apps/gateway billing.ts `CreateCheckoutRequest`). */
+export interface GatewayCheckoutRequest {
+  businessId: string;
+  checkoutId: string;
+  kind: "credits";
+  amountMinor: number;
+  currency: "USD";
+  description: string;
+  successUrl: string;
+  cancelUrl: string;
+  customerEmail?: string;
+}
+
+/** The session the gateway opened: Stripe's hosted page in live mode, the success URL itself in mock mode. */
+export interface GatewayCheckout {
+  mode: "mock" | "live";
+  session: { id: string; url: string; expiresAt: string | null; amountTotalMinor: number; currency: "USD" };
+}
+
+/** One domain's answer, as the `domains` connector gives it (packages/connectors `DomainAnswer`). */
+export interface GatewayDomainAnswer {
+  domain: string;
+  status: "available" | "taken" | "unknown";
+  provenance: "Registry" | "DNS" | "Mock";
+  /** True for the DNS fallback, which is an estimate. */
+  estimate: boolean;
+  checkedAt: string;
+  registrar?: string;
+  expires?: string;
+  reason?: string;
+}
+
 export interface ApiGatewayClient {
   connect(businessId: string, connector: string, input: Record<string, unknown>): Promise<GatewayIntegrationRecord>;
   health(businessId: string, connector: string): Promise<GatewayHealth>;
+  createCheckout(input: GatewayCheckoutRequest): Promise<GatewayCheckout>;
+  /** Registry answers for up to eight domain names, on behalf of one founder (the gateway's rate-limit scope). */
+  checkDomains(ownerKey: string, domains: string[]): Promise<GatewayDomainAnswer[]>;
 }
 
 export interface CreateApiGatewayClientOptions {
@@ -75,5 +112,7 @@ export function createApiGatewayClient(opts: CreateApiGatewayClientOptions): Api
   return {
     connect: async (businessId, connector, input) => (await post<{ record: GatewayIntegrationRecord }>("/v1/integrations/connect", { businessId, connector, input })).record,
     health: async (businessId, connector) => (await post<{ health: GatewayHealth }>("/v1/integrations/health", { businessId, connector })).health,
+    createCheckout: (input) => post<GatewayCheckout>("/v1/billing/checkout-sessions", input),
+    checkDomains: async (ownerKey, domains) => (await post<{ results: GatewayDomainAnswer[] }>("/v1/domains/check", { ownerKey, domains })).results,
   };
 }

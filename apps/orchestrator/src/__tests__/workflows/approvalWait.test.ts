@@ -1,4 +1,7 @@
-/** approvalWait: waits for the `decision` signal (no timeout by default), resolves the approval, expires on timeout. */
+/**
+ * approvalWait: waits for the `decision` signal (no timeout by default), resolves the approval, expires on timeout. An
+ * answer the Inbox stored without its signal reaching the wait is found by the hourly re-read and by the timeout (O-02).
+ */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Activities, ApprovalDecision } from "../../activities";
 import { approvalWait, decisionSignal } from "../../workflows";
@@ -15,23 +18,30 @@ afterAll(async () => {
 const APPROVAL = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const BUSINESS = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
-function mockActivities(outcome: string | null = null) {
+/**
+ * `outcome` is what the row holds when the wait starts; `storedLater` is what the Inbox stores afterwards without the
+ * signal reaching the wait (seen from the second read on).
+ */
+function mockActivities(outcome: string | null = null, storedLater: "approved" | "rejected" | null = null) {
   const resolved: ApprovalDecision[] = [];
   let expired = 0;
+  let loads = 0;
   const acts: Partial<Activities> = {
     async loadApproval() {
-      return { approvalId: APPROVAL, outcome, agentId: null, planActionId: null, createdAt: "2026-10-05T08:00:00.000Z" };
+      loads += 1;
+      return { approvalId: APPROVAL, outcome: loads > 1 && storedLater ? storedLater : outcome, agentId: null, planActionId: null, createdAt: "2026-10-05T08:00:00.000Z" };
     },
     async resolveApproval({ decision }) {
       resolved.push(decision);
       return { outcome: decision.outcome, alreadyResolved: false, eventId: null };
     },
     async expireApproval() {
+      if (storedLater) return { expired: false, outcome: storedLater };
       expired += 1;
-      return { expired: true };
+      return { expired: true, outcome: "expired" };
     },
   };
-  return { acts, resolved, expired: () => expired };
+  return { acts, resolved, expired: () => expired, loads: () => loads };
 }
 
 describe("approvalWait workflow", () => {
@@ -54,6 +64,22 @@ describe("approvalWait workflow", () => {
     expect(result.outcome).toBe("expired");
     expect(m.expired()).toBe(1);
     expect(m.resolved).toEqual([]);
+  });
+
+  it("a wait with no timeout picks up an answer stored without its signal at the next hourly read", async () => {
+    const m = mockActivities(null, "approved");
+    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(approvalWait, { workflowId: wfId("approval"), taskQueue, args: [{ businessId: BUSINESS, approvalId: APPROVAL }] }));
+    expect(result).toEqual({ approvalId: APPROVAL, outcome: "approved", decidedBy: null, alreadyResolved: true });
+    expect(m.loads()).toBe(2);
+    expect(m.resolved).toEqual([]);
+  });
+
+  it("a timeout never expires an approval the founder answered: the stored answer comes back (channel engines)", async () => {
+    const m = mockActivities(null, "rejected");
+    // Shorter than one re-read, so only the timeout can find the answer.
+    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(approvalWait, { workflowId: wfId("approval"), taskQueue, args: [{ businessId: BUSINESS, approvalId: APPROVAL, timeoutMs: 10 * 60 * 1000 }] }));
+    expect(result).toEqual({ approvalId: APPROVAL, outcome: "rejected", decidedBy: null, alreadyResolved: true });
+    expect(m.expired()).toBe(0);
   });
 
   it("returns immediately for an approval that is already resolved", async () => {

@@ -93,7 +93,7 @@ function RoadmapTimelineWidget({ settings }: WidgetProps<RoadmapTimelineSettings
                 const tp = taskProgress(it);
                 return (
                   <li key={it.id}>
-                    <button type="button" onClick={open} data-roadmap-item={it.id} className="flex w-full flex-col gap-1 rounded-panel border border-subtle bg-panel-alt p-2 text-left outline-none transition-colors duration-micro ease-dugout hover:border-secondary/60 focus-visible:outline-2 focus-visible:outline-link">
+                    <button type="button" onClick={open} data-roadmap-item={it.id} className="flex w-full flex-col gap-1 rounded-panel border border-subtle bg-panel-alt p-2 text-left transition-colors duration-micro ease-dugout hover:border-secondary/60 focus-visible:outline-2 focus-visible:outline-link">
                       <span className="flex items-center justify-between gap-2">
                         <span className="truncate text-body-strong">{it.title}</span>
                         <StatusPill tone={st.tone} icon={st.icon}>

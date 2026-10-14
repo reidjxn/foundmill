@@ -12,8 +12,10 @@ import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/d
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { fitColumns, fitToGrow, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
+import { PlaybooksPanel } from "./PlaybooksPanel";
 import { AGENT_GATED_DECISIONS, DECISION_DESCRIPTIONS, DECISION_LABELS, InlineError, Screen, agentDept, agentEntity, agentHref, memberEntity, memberName, readMe, useAction, useAgents, useHumans, useMe, type Me } from "./shared";
 import type { AgentRow, HandlerKind, MembershipRow, ResponsibilitiesResponse, ResponsibilityHandler } from "./types";
 
@@ -182,7 +184,7 @@ export function DelegateDialog({ row, onOpenChange, agents, humans, departments,
 /* ---------- Screen ---------- */
 
 export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
-  const { navigate, currency = "EUR" } = useWidgetData();
+  const { navigate, currency } = useWidgetData();
   const data = useWidgetQuery<ResponsibilitiesResponse>("team.responsibilities.get", undefined);
   const agentsQuery = useAgents();
   const humansQuery = useHumans();
@@ -194,7 +196,8 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
   const humanIndex = useMemo(() => new Map((humansQuery.data ?? []).map((h) => [h.userId, h])), [humansQuery.data]);
   const ctx = useMemo(() => ({ agents: agentIndex, humans: humanIndex, me }), [agentIndex, humanIndex, me]);
   const rows = useMemo(() => toResponsibilityRows(data.data, departments.data, ctx), [data.data, departments.data, ctx]);
-  const [views, setViews] = useState<SavedView[]>(RESPONSIBILITY_VIEWS);
+  // Saved per person, business and table (audit #204), and the open view kept across the narrow/full remount.
+  const savedViews = useSavedViews("team.responsibilities", RESPONSIBILITY_VIEWS, { defaultViewId: "all" });
   const [delegate, setDelegate] = useState<ResponsibilityRowView | null>(null);
   const [selected, setSelected] = useState<DecisionType | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -202,7 +205,6 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
   // Signing can only go to a person: offer "Delegate to staff…" on the hard-gated rows only when there is someone.
   const otherStaff = (humansQuery.data ?? []).filter((h) => h.userId !== me.userId).length;
   const narrow = !!selectedRow;
-  const [viewId, setViewId] = useState<string | null>("all");
   // Each column at its minimum; the table shares the spare width by the specs' weights itself (DataTable `meta.grow`).
   const fit = narrow ? RESPONSIBILITY_FIT_NARROW : RESPONSIBILITY_FIT;
   const sizes = useMemo(() => fitColumns(null, fit, []), [fit]);
@@ -370,7 +372,7 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
       >
         <div className="min-w-0">
           {/* Remounted when the detail opens or closes, so the Covers column leaves and returns without marking the view as edited. */}
-          <DataTable<ResponsibilityRowView> key={narrow ? "with-detail" : "full"} aria-label="Responsibilities" data={rows} columns={columns} views={views} onViewsChange={setViews} activeViewId={viewId} onActiveViewChange={setViewId} defaultViewId="all" getRowId={(r) => r.decisionType} selectedIds={selectedRow ? [selectedRow.decisionType] : []} rowActions={rowActions} onRowClick={(row) => setSelected(row.decisionType)} onRowOpen={(row) => (row.gated && otherStaff === 0 ? setSelected(row.decisionType) : setDelegate(row))} height={Math.max(3, rows.length) * ROW_PX + 44} density="comfortable" exportFileName="responsibilities" footer={null} className="border-0" />
+          <DataTable<ResponsibilityRowView> key={narrow ? "with-detail" : "full"} aria-label="Responsibilities" data={rows} columns={columns} {...savedViews} defaultViewId="all" getRowId={(r) => r.decisionType} selectedIds={selectedRow ? [selectedRow.decisionType] : []} rowActions={rowActions} onRowClick={(row) => setSelected(row.decisionType)} onRowOpen={(row) => (row.gated && otherStaff === 0 ? setSelected(row.decisionType) : setDelegate(row))} height={Math.max(3, rows.length) * ROW_PX + 44} density="comfortable" exportFileName="responsibilities" footer={null} className="border-0" />
         </div>
       </Panel>
 
@@ -394,6 +396,8 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
           />
         </Panel>
       ) : null}
+
+      <PlaybooksPanel />
 
       <DelegateDialog
         row={delegate}

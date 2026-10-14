@@ -1,13 +1,14 @@
 /**
- * Pure helpers for the CRM list and entity profiles (BUILD §11.12): row models from search hits and role listings,
+ * Pure helpers for the CRM list and entity profiles (BUILD §11.12): row models from listed records and search hits,
  * grouped saved views, client-side chip filters, relationship strength (1–20), lead score stars (Estimate), intro
  * paths, activity/document/commercial derivations, the data-duties export and the merge banner. Unit-tested.
  */
 import type { FilterChipValue, SavedView } from "@foundmill/dugout";
+import { formatMoney } from "@foundmill/dugout/lib/format";
 import type { EntityKind } from "@foundmill/shared";
 import type { RouterOutputs } from "@/lib/trpc";
 import { formatDate, plainWords } from "@/lib/format";
-import { chipValue, type CrmFilterField } from "./search";
+import { chipValue, roleKey, type CrmFilterField } from "./search";
 
 export type EntityGet = RouterOutputs["crm"]["entity"]["get"];
 export type EntityRecord = EntityGet["entity"];
@@ -18,7 +19,6 @@ export type MentionRecord = EntityGet["mentions"][number];
 export type ConversionRecord = EntityGet["conversions"][number];
 export type MergeLogRecord = EntityGet["mergeHistory"][number];
 export type SearchHitRecord = RouterOutputs["crm"]["search"]["hits"][number];
-export type RoleListingRow = RouterOutputs["crm"]["roles"]["byRole"]["items"][number];
 
 export type Iso = Date | string | null | undefined;
 export function toIso(d: Iso): string | null {
@@ -68,8 +68,30 @@ function identifier(e: EntityLike, key: string): string | null {
   return typeof v === "string" && v ? v : null;
 }
 
-export function rowFromEntity(e: EntityLike, roles: Pick<EntityRoleRecord, "role" | "stage" | "ownerRef" | "startedAt" | "endedAt">[] = []): CrmRow {
-  const active = roles.filter((r) => !r.endedAt).sort((a, b) => ms(b.startedAt) - ms(a.startedAt));
+type RoleLike = Pick<EntityRoleRecord, "role" | "stage" | "ownerRef" | "startedAt" | "endedAt">;
+
+/** Which role a row speaks for when the list is filtered by role or stage (else its most recent active role). */
+export interface RowFocus {
+  role?: string;
+  stage?: string;
+}
+
+/**
+ * How far along the customer journey a stage is: the most advanced active role speaks for a record (merging a
+ * signed-up duplicate into a paying customer must not turn it into "Signed up"). Unknown stages rank lowest.
+ */
+const STAGE_RANK: Record<string, number> = { champion: 8, customer: 7, churned: 6, negotiating: 5, activated: 4, shortlisted: 3, qualified: 3, signed_up: 2, new: 1 };
+const stageRank = (stage: string | null | undefined) => STAGE_RANK[stage ?? ""] ?? 0;
+
+/** A record's active roles, the most advanced stage first and the newest first among equals. */
+function activeRoles<R extends Pick<EntityRoleRecord, "stage" | "startedAt" | "endedAt">>(roles: readonly R[]): R[] {
+  return roles.filter((r) => !r.endedAt).sort((a, b) => stageRank(b.stage) - stageRank(a.stage) || ms(b.startedAt) - ms(a.startedAt));
+}
+
+export function rowFromEntity(e: EntityLike, roles: readonly RoleLike[] = [], focus: RowFocus = {}): CrmRow {
+  const active = activeRoles(roles);
+  const same = (a: string | null | undefined, b: string | undefined) => !b || roleKey(a ?? "") === roleKey(b);
+  const primary = active.find((r) => (focus.role || focus.stage) && same(r.role, focus.role) && same(r.stage, focus.stage)) ?? active[0];
   return {
     id: e.id,
     kind: e.kind,
@@ -77,8 +99,8 @@ export function rowFromEntity(e: EntityLike, roles: Pick<EntityRoleRecord, "role
     email: identifier(e, "email"),
     domain: identifier(e, "domain"),
     roles: [...new Set(active.map((r) => r.role))],
-    stage: active[0]?.stage ?? null,
-    owner: (active.find((r) => r.ownerRef)?.ownerRef as OwnerRef | null | undefined) ?? null,
+    stage: primary?.stage ?? null,
+    owner: ((primary?.ownerRef ?? active.find((r) => r.ownerRef)?.ownerRef) as OwnerRef | null | undefined) ?? null,
     lawfulBasis: e.lawfulBasis ?? null,
     source: e.source ?? null,
     createdAt: toIso(e.createdAt) ?? new Date(0).toISOString(),
@@ -86,21 +108,8 @@ export function rowFromEntity(e: EntityLike, roles: Pick<EntityRoleRecord, "role
   };
 }
 
-export function rowsFromSearch(hits: readonly SearchHitRecord[]): CrmRow[] {
-  return hits.map((h) => ({ ...rowFromEntity(h.entity), score: h.score, matchedOn: h.matchedOn }));
-}
-
-/** Union of several role listings: one row per entity carrying every role it holds. */
-export function rowsFromRoleListings(listings: readonly RoleListingRow[][]): CrmRow[] {
-  const byId = new Map<string, { entity: RoleListingRow; roles: RoleListingRow["role"][] }>();
-  for (const list of listings) {
-    for (const item of list) {
-      const cur = byId.get(item.id);
-      if (cur) cur.roles.push(item.role);
-      else byId.set(item.id, { entity: item, roles: [item.role] });
-    }
-  }
-  return [...byId.values()].map(({ entity, roles }) => rowFromEntity(entity, roles)).sort((a, b) => a.name.localeCompare(b.name));
+export function rowsFromSearch(hits: readonly SearchHitRecord[], focus: RowFocus = {}): CrmRow[] {
+  return hits.map((h) => ({ ...rowFromEntity(h.entity, h.roles, focus), score: h.score, matchedOn: h.matchedOn }));
 }
 
 export interface RowResolvers {
@@ -108,7 +117,10 @@ export interface RowResolvers {
   departmentName?: (id: string) => string | undefined;
 }
 
-/** Client-side chip filters for the role-listing mode (search mode applies them server-side). */
+/**
+ * Client-side chip filters over rows that carry their roles. The API applies every chip it can (`chipFilters`); the
+ * screen runs this only for the rest, such as an owner name that resolves to no agent or department id.
+ */
 export function applyChipFilters(rows: readonly CrmRow[], chips: readonly FilterChipValue[], resolvers: RowResolvers = {}): CrmRow[] {
   const want = (f: CrmFilterField) => chipValue(chips, f)?.toLowerCase();
   const kind = want("kind");
@@ -118,8 +130,8 @@ export function applyChipFilters(rows: readonly CrmRow[], chips: readonly Filter
   const department = want("department");
   return rows.filter((r) => {
     if (kind && r.kind !== kind) return false;
-    if (role && !r.roles.includes(role)) return false;
-    if (stage && (r.stage ?? "").toLowerCase() !== stage) return false;
+    if (role && !r.roles.some((x) => roleKey(x) === roleKey(role))) return false;
+    if (stage && roleKey(r.stage ?? "") !== roleKey(stage)) return false;
     if (owner) {
       if (!r.owner) return false;
       const name = resolvers.ownerName?.(r.owner)?.toLowerCase() ?? r.owner.id.toLowerCase();
@@ -143,6 +155,22 @@ export function groupCounts(rows: readonly CrmRow[], by: GroupBy): { key: string
     for (const k of keys) counts.set(k, (counts.get(k) ?? 0) + 1);
   }
   return [...counts.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+}
+
+const usNumber = (n: number) => n.toLocaleString("en-US");
+
+/** What the list holds against what matches: "4,519 records", "500 of 4,519 records", "100+ matches" while more load. */
+export function loadedSummary({ mode, loaded, total, hasMore }: { mode: "list" | "search"; loaded: number; total: number | null; hasMore: boolean }): string {
+  if (mode === "search") return hasMore ? `${usNumber(loaded)} matches so far` : `${usNumber(loaded)} ${loaded === 1 ? "match" : "matches"}`;
+  const word = (total ?? loaded) === 1 ? "record" : "records";
+  if (total !== null && (hasMore || loaded < total)) return `${usNumber(loaded)} of ${usNumber(total)} ${word}`;
+  return `${usNumber(total ?? loaded)} ${word}`;
+}
+
+/** The typeahead's active hit after an arrow key: -1 is the text box itself; Down stops at the last hit, Up at the box. */
+export function nextActiveHit(current: number, step: 1 | -1, count: number): number {
+  if (count <= 0) return -1;
+  return Math.max(-1, Math.min(count - 1, current + step));
 }
 
 export const CRM_VIEWS: SavedView[] = [
@@ -192,7 +220,7 @@ export function leadScore(roles: readonly Pick<EntityRoleRecord, "role" | "stage
   const active = roles.filter((r) => !r.endedAt);
   const reasons: string[] = [];
   let score = 0;
-  const stage = active.map((r) => r.stage ?? "").find((s) => STAGE_SCORE[s] !== undefined);
+  const stage = active.map((r) => r.stage ?? "").filter((s) => STAGE_SCORE[s] !== undefined).sort((x, y) => STAGE_SCORE[y]! - STAGE_SCORE[x]!)[0];
   if (stage) {
     score += STAGE_SCORE[stage]!;
     reasons.push(`Stage: ${plainWords(stage).toLowerCase()}`);
@@ -232,8 +260,9 @@ export function introPaths(entityName: string, relationships: readonly Relations
     .slice(0, max);
 }
 
+/** The role a record's header speaks for: the most advanced active stage, the newest as the tie-break (audit #160). */
 export function primaryRole(roles: readonly EntityRoleRecord[]): EntityRoleRecord | null {
-  return roles.filter((r) => !r.endedAt).sort((a, b) => ms(b.startedAt) - ms(a.startedAt))[0] ?? null;
+  return activeRoles(roles)[0] ?? null;
 }
 
 export const STAGE_TONE: Record<string, "good" | "warn" | "bad" | "info" | "neutral"> = { customer: "good", champion: "good", activated: "info", signed_up: "info", churned: "bad", negotiating: "warn", shortlisted: "info", qualified: "info" };
@@ -279,7 +308,11 @@ export interface ActivityItem {
   href?: string;
 }
 
-export function activityItems(get: Pick<EntityGet, "interactions" | "mentions" | "conversions">, links: { inbox: (id: string) => string; journey: (conversionId: string) => string }): ActivityItem[] {
+/**
+ * The profile's Activity timeline, newest first. A win links to its Customer Update by journey id (no link when the win
+ * has none) and a payment reads in its own currency with the narrow symbol ("£35,349.99"), as on the Journey tab.
+ */
+export function activityItems(get: Pick<EntityGet, "interactions" | "mentions" | "conversions">, links: { inbox: (id: string) => string; journey: (journeyId: string) => string }): ActivityItem[] {
   const items: ActivityItem[] = [];
   for (const i of get.interactions) {
     items.push({ id: `i-${i.id}`, at: toIso(i.occurredAt) ?? new Date(0).toISOString(), kind: i.kind, title: `${i.kind.charAt(0).toUpperCase() + i.kind.slice(1)}${i.direction ? ` · ${i.direction}` : ""}`, description: i.summary || undefined, direction: i.direction, agentId: i.agentId });
@@ -288,10 +321,14 @@ export function activityItems(get: Pick<EntityGet, "interactions" | "mentions" |
     items.push({ id: `m-${m.id}`, at: toIso(m.createdAt) ?? new Date(0).toISOString(), kind: "mention", title: `Mentioned in ${containerWord(m.containerKind)}`, href: m.containerKind === "inbox_item" ? links.inbox(m.containerId) : undefined });
   }
   for (const c of get.conversions) {
-    items.push({ id: `c-${c.id}`, at: toIso(c.occurredAt) ?? new Date(0).toISOString(), kind: "conversion", title: c.kind === "payment" ? "Payment" : c.kind === "activation" ? "Activated" : "Signed up", description: c.kind === "payment" ? `${(Number(c.amountMinor) / 100).toFixed(2)} ${c.currency}` : undefined, href: links.journey(c.id) });
+    const won = isCustomerWin(c);
+    items.push({ id: `c-${c.id}`, at: toIso(c.occurredAt) ?? new Date(0).toISOString(), kind: "conversion", title: c.kind === "payment" ? (won ? "Payment" : "Repeat payment") : c.kind === "activation" ? "Activated" : "Signed up", description: c.kind === "payment" ? formatMoney({ amountMinor: Number(c.amountMinor), currency: c.currency }) : undefined, href: won && c.journeyId ? links.journey(c.journeyId) : undefined });
   }
   return items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }
+
+/** A conversion that won a customer and so has a Customer Update; a renewal or a repeat order is revenue only (no replay). */
+export const isCustomerWin = (c: Pick<ConversionRecord, "firstPayment">): boolean => c.firstPayment !== false;
 
 export interface DocumentItem {
   id: string;
@@ -327,16 +364,21 @@ export interface CommercialSummary {
   activatedAt: string | null;
 }
 
-export function commercialSummary(conversions: readonly ConversionRecord[], fallbackCurrency = "EUR"): CommercialSummary {
+/**
+ * `businessCurrency` labels a history without payments. Payments in several currencies are never added together: the
+ * total (and the monthly average) counts those in the business's currency when there are any, else the first payment's.
+ */
+export function commercialSummary(conversions: readonly ConversionRecord[], businessCurrency: string): CommercialSummary {
   const payments = conversions.filter((c) => c.kind === "payment").sort((a, b) => ms(a.occurredAt) - ms(b.occurredAt));
-  const total = payments.reduce((s, p) => s + Number(p.amountMinor), 0);
+  const currency = payments.some((p) => p.currency === businessCurrency) ? businessCurrency : (payments[0]?.currency ?? businessCurrency);
+  const total = payments.filter((p) => p.currency === currency).reduce((s, p) => s + Number(p.amountMinor), 0);
   const first = payments[0] ? toIso(payments[0].occurredAt) : null;
   const last = payments.length ? toIso(payments[payments.length - 1]!.occurredAt) : null;
   const months = first && last ? Math.max(1, Math.round((Date.parse(last) - Date.parse(first)) / (30 * 86_400_000)) + 1) : null;
   return {
     payments: payments.length,
     totalMinor: total,
-    currency: payments[0]?.currency ?? fallbackCurrency,
+    currency,
     firstPaymentAt: first,
     lastPaymentAt: last,
     monthlyMinor: months ? Math.round(total / months) : null,
@@ -372,10 +414,10 @@ export function exportEntityJson(get: EntityGet, exportedAt: Date = new Date()):
 }
 
 export function deletionRequestNote(requestedBy: string, now: Date = new Date()): string {
-  return `Deletion requested by ${requestedBy} on ${formatDate(now)}. Runs in the scheduled, audited deletion job approved by the founder at setup; suppression entry kept so the person is not re-imported.`;
+  return `Deletion requested by ${requestedBy} on ${formatDate(now)}. Runs in the nightly, audited deletion job after 7 days; suppression entry kept so the person is not re-imported.`;
 }
 
-export const RETENTION_COPY = "Leads who never became customers are deleted after 24 months by a scheduled job you approved at setup, and every run is logged. Export and deletion requests for one person start from their profile.";
+export const RETENTION_COPY = "Leads who never became customers are due for deletion after 24 months. Export and deletion requests for one person start from their profile: outreach stops at once and the nightly, logged deletion job removes the record after 7 days.";
 
 /** The open (not reverted) merge that produced this record, if any, and the merges it absorbed. */
 export function mergeBanner(get: Pick<EntityGet, "entity" | "mergeHistory" | "redirectedFrom">): { redirected: boolean; absorbed: MergeLogRecord[]; open: MergeLogRecord[] } {

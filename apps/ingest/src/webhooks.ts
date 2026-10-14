@@ -5,11 +5,17 @@
  * (`stripe`, `sendgrid`, `sendgrid-inbound`, `github`, `shopify`, `dropbox_sign`…). The raw body is never
  * parsed before the connector's `verify()` has read it — verification is over the bytes the vendor signed.
  * Order of checks: known connector → replay probe (409 for a delivery already accepted) → timestamp window
- * (401 stale) → `verify()` (401 otherwise) → claim the nonce → `normalise()` → write through the outbox.
+ * (401 stale) → `verify()` (401 otherwise) → claim the nonce → `normalise()` → (staging/production) the business has
+ * that connector connected (404 otherwise) → write through the outbox → after-commit follow-ups.
+ *
+ * Which webhooks exist depends on the deployment, not only on INTEGRATIONS_MODE: a mock connector's verifier checks
+ * signatures against secrets committed to the repository, so mock webhooks are mounted only in development and test.
+ * In staging and production a connector's webhook is mounted only when it runs live (INTEGRATIONS_MODE=live or
+ * LIVE_CONNECTORS) and verifies with real per-business or platform secrets; any other `/webhooks/<connector>` is 404.
  */
-import { DROPBOX_SIGN_CALLBACK_RESPONSE, type ConnectorWebhook } from "@foundmill/connectors";
+import { DROPBOX_SIGN_CALLBACK_RESPONSE, mockWebhooksAllowed, type ConnectorMode, type ConnectorWebhook } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
-import { AppError, NotFoundError, isUuid } from "@foundmill/shared";
+import { AppError, NotFoundError, isUuid, type IntegrationStatus } from "@foundmill/shared";
 import { ingestPlatformEvents, isValidationError, type IngestResult } from "./ingest";
 import { nonceKey } from "./nonce-store";
 import { identifyDelivery, splitConnectorSegment, withinReplayWindow, type DeliveryIdentity } from "./replay";
@@ -22,18 +28,53 @@ export interface MountedWebhook {
   segment: string;
   /** The connector's declared mount path (`/webhooks/sendgrid-inbound/:businessId`). */
   path: string;
+  /** Whether the live connector or its mock verifies deliveries. */
+  mode: ConnectorMode;
   webhook: ConnectorWebhook;
 }
 
-/** Every webhook of every connector in the current mode, keyed by its path segment. */
-export function mountedWebhooks(deps: Pick<IngestDeps, "registry" | "mode">): MountedWebhook[] {
-  return deps.registry.webhooks(deps.mode).map(({ connector, path, webhook }) => {
-    const segment = path.replace(/^\/webhooks\//, "").replace(/\/:businessId$/, "");
-    return { connector, segment, path, webhook };
-  });
+export interface WebhookMounts {
+  mounted: MountedWebhook[];
+  /** Connectors whose mock webhooks this deployment refuses (staging and production). */
+  refused: string[];
+}
+
+/** The webhooks this deployment mounts, keyed by path segment, and the connectors it refuses (see the header). */
+export function webhookMounts(deps: Pick<IngestDeps, "registry" | "mode" | "env" | "liveConnectors">): WebhookMounts {
+  const { mounted, refused } = deps.registry.mountableWebhooks({ mode: deps.mode, appEnv: deps.env.APP_ENV, liveConnectors: deps.liveConnectors });
+  return {
+    mounted: mounted.map(({ connector, mode, path, webhook }) => {
+      const segment = path.replace(/^\/webhooks\//, "").replace(/\/:businessId$/, "");
+      return { connector, segment, path, mode, webhook };
+    }),
+    refused,
+  };
+}
+
+/** Every webhook this deployment mounts, keyed by its path segment. */
+export const mountedWebhooks = (deps: Pick<IngestDeps, "registry" | "mode" | "env" | "liveConnectors">): MountedWebhook[] => webhookMounts(deps).mounted;
+
+/** Integration states that still receive the vendor's deliveries (an expired credential does not stop Stripe sending). */
+export const RECEIVING_STATUSES: readonly IntegrationStatus[] = ["connected", "degraded", "expired"];
+
+/**
+ * Outside development and test a delivery is written only for a business that connected that connector live: the
+ * `:businessId` in the URL is not part of what the vendor signs, so it is not proof on its own.
+ */
+export const requiresConnectedIntegration = (deps: Pick<IngestDeps, "env">): boolean => !mockWebhooksAllowed(deps.env.APP_ENV);
+
+async function connectedIntegration(deps: IngestDeps, businessId: string, connectorKey: string): Promise<boolean> {
+  const integration = await repos.integrations.getByKey(deps.db, businessId, connectorKey);
+  return integration !== null && integration.archivedAt === null && (RECEIVING_STATUSES as readonly string[]).includes(integration.status);
 }
 
 export const findWebhook = (mounted: readonly MountedWebhook[], segment: string): MountedWebhook | null => mounted.find((m) => m.segment === segment) ?? null;
+
+/** Whether `/webhooks/<segment>` belongs to a connector whose mock webhooks this deployment refuses. */
+function refusedSegment(deps: IngestDeps, segment: string): boolean {
+  const { connector } = splitConnectorSegment(segment);
+  return !mockWebhooksAllowed(deps.env.APP_ENV) && deps.registry.has(connector) && !(deps.mode === "live" || deps.liveConnectors.includes(connector));
+}
 
 export type WebhookOutcome =
   | { status: 200; body: { ok: true; connector: string; deliveryId: string; accepted: number; written: number; duplicates: number; eventIds: string[] } }
@@ -55,7 +96,13 @@ export async function handleWebhook(deps: IngestDeps, mounted: readonly MountedW
   const { log } = deps;
   const target = findWebhook(mounted, ctx.segment);
   const { connector } = splitConnectorSegment(ctx.segment);
-  if (!target) return { status: 404, body: { ok: false, error: "unknown_connector", message: `No webhook is mounted at /webhooks/${ctx.segment} in ${deps.mode} mode`, connector } };
+  if (!target) {
+    if (refusedSegment(deps, ctx.segment)) {
+      log.warn({ connector, env: deps.env.APP_ENV }, "mock webhook delivery refused outside development/test");
+      return { status: 404, body: { ok: false, error: "unknown_connector", message: `No webhook is mounted at /webhooks/${ctx.segment}: mock deliveries are accepted in development and test only`, connector } };
+    }
+    return { status: 404, body: { ok: false, error: "unknown_connector", message: `No webhook is mounted at /webhooks/${ctx.segment} in ${deps.mode} mode`, connector } };
+  }
   if (ctx.businessId !== null && !isUuid(ctx.businessId)) return { status: 404, body: { ok: false, error: "unknown_business", message: "businessId must be a UUID", connector } };
 
   const body = await ctx.req.clone().text();
@@ -101,6 +148,15 @@ export async function handleWebhook(deps: IngestDeps, mounted: readonly MountedW
     }
   }
 
+  if (requiresConnectedIntegration(deps)) {
+    for (const businessId of new Set(events.map((e) => e.businessId))) {
+      if (await connectedIntegration(deps, businessId, target.connector)) continue;
+      await deps.nonces.release(nonce);
+      log.warn({ connector: target.connector, businessId, deliveryId: identity.deliveryId }, "webhook for a business without that connector connected refused");
+      return { status: 404, body: { ok: false, error: "not_connected", message: `This business has no connected ${target.connector} integration`, connector: target.connector } };
+    }
+  }
+
   let result: IngestResult;
   try {
     result = await ingestPlatformEvents(deps.db, events, { source: target.connector, actor: { kind: "webhook", id: target.connector }, log });
@@ -113,6 +169,7 @@ export async function handleWebhook(deps: IngestDeps, mounted: readonly MountedW
 
   const businessIds = [...new Set(events.map((e) => e.businessId))];
   await stampWebhookRows(deps, target, businessIds);
+  deps.followups.dispatch(result);
 
   return { status: 200, body: { ok: true, connector: target.connector, deliveryId: identity.deliveryId, accepted: events.length, written: result.written, duplicates: result.duplicates, eventIds: result.eventIds } };
 }

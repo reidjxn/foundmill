@@ -6,6 +6,7 @@
  * agent_sessions per department per day (what `journey_daily_mv` rolls into agent hours and spend) and
  * channel_metrics per channel per day. Every number is synthetic; `meta.label` and the `label` fields say so.
  */
+import { createHash } from "node:crypto";
 import {
   buildJourney, buildMarkovModel, conversionPathsFromTouches, generateSyntheticJourneyData, percentile75, selectXcModel, syntheticConversionGroups, trainXcModel,
   xcSamplesFromPaths, type Conversion as JourneyConversion, type JourneyAgentInput, type MarkovModel, type SyntheticCustomer, type SyntheticJourneyData,
@@ -19,6 +20,15 @@ import {
 } from "../schema";
 import { addDays, atHour, bulkInsert, DAY_MS, dayKey, HOUR_MS, mention, money, monthKey, type SeedCtx } from "./context";
 import { agentsInDepartment, type SeededAgent, type SquadResult } from "./squad";
+
+/** Channels whose engine counts leads (the orchestrator's `LEAD_CHANNELS`): a signup through one was its lead. */
+const SEED_LEAD_CHANNELS: ReadonlySet<ChannelKey> = new Set<ChannelKey>(["lead_generation", "content", "events"]);
+
+/** A stable UUID from a key (sha256), for rows added without drawing from the seeded RNG, so every other id stays put. */
+function derivedUuid(key: string): string {
+  const h = createHash("sha256").update(key).digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-${((parseInt(h.slice(16, 17), 16) & 0x3) | 0x8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
 
 export interface JourneySeedOptions {
   businessId: string;
@@ -146,6 +156,8 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
     siteHost: opts.siteHost,
     volumeScale: ctx.volumeScale,
     today: ctx.todayKey,
+    // Nothing is dated after the instant the seed runs at (a win or a touch "later today" would read as already happened).
+    now: ctx.today,
   });
   log(`generated ${data.customers.length} customers, ${data.touches.length} touches, ${data.conversions.length} conversions, ${data.daily.length} daily rows`);
 
@@ -171,6 +183,12 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
     channelKeys: [channelKey],
   }));
 
+  // First-touch channel per visitor (lead roles below, channel metrics further down).
+  const firstChannelByVisitor = new Map<string, ChannelKey | null>();
+  for (const t of data.touches) {
+    if (t.visitorId && !firstChannelByVisitor.has(t.visitorId)) firstChannelByVisitor.set(t.visitorId, t.channelKey);
+  }
+
   // --- customers → entities + roles ----------------------------------------------------------------------------------
   const customersByEntityId = new Map(data.customers.map((c) => [c.entityId, c]));
   const distributionDept = opts.departments.find((d) => d.moduleKeys.includes("distribution")) ?? null;
@@ -178,7 +196,9 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
   const roleRows: NewEntityRole[] = [];
   const domains = ["example", "test", "invalid"];
   for (const c of data.customers) {
-    const handle = slugName(c.displayName) || "customer";
+    // The handle carries part of the record id: two customers who share a name never share an email or domain (a strong
+    // identifier belongs to one record, so the demo holds no same-identifier duplicates).
+    const handle = `${slugName(c.displayName) || "customer"}-${c.entityId.replace(/-/g, "").slice(0, 6)}`;
     const identifiers = c.kind === "organisation" ? { domain: `${handle}.${rng.pick(domains)}`, ...(opts.customerSource === "stripe" ? { stripe_id: `cus_${c.entityId.replace(/-/g, "").slice(0, 14)}` } : {}) } : { email: `${handle}@${rng.pick(["mail", "inbox", "post"])}.${rng.pick(domains)}` };
     entityRows.push({
       id: c.entityId,
@@ -203,6 +223,22 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
       startedAt: new Date(c.signupAt),
       endedAt: stage === "churned" && c.churnedAt ? new Date(c.churnedAt) : null,
     });
+    // A signup that came through a lead channel was that engine's lead (audit GTM-02): the Leads tab lists the ones who
+    // have not paid, and the channel's lead count is these records. The id is derived (no draw from the seeded RNG).
+    const firstChannel = firstChannelByVisitor.get(c.visitorId) ?? null;
+    if (firstChannel && SEED_LEAD_CHANNELS.has(firstChannel)) {
+      const owner = realByChannel.get(firstChannel)?.agent.id ?? null;
+      roleRows.push({
+        id: derivedUuid(`lead:${c.entityId}`),
+        businessId,
+        entityId: c.entityId,
+        role: "lead",
+        stage: c.paidAt ? "converted" : "qualified",
+        ownerRef: owner ? { kind: "agent", id: owner } : distributionDept ? { kind: "department", id: distributionDept.id } : null,
+        startedAt: new Date(c.signupAt),
+        endedAt: c.paidAt ? new Date(c.paidAt) : null,
+      });
+    }
   }
   await bulkInsert(db, entities, entityRows);
   await bulkInsert(db, entityRoles, roleRows);
@@ -264,8 +300,10 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
   log(`inserted ${touchRows.length} touches`);
 
   // --- events for the most recent payments (webhook-shaped, so inbox items can cite them) ---------------------------
-  const payments = data.conversions.filter((c) => c.kind === "payment");
-  const latest = payments.slice(-5);
+  // First payments are the wins; renewals are revenue on a record that is already a customer (no event, no journey).
+  // Built to the catalogue's `payment.received` schema (packages/events), like the ingest webhook writes them (#432).
+  const payments = data.conversions.filter((c) => c.kind === "payment" && c.firstPayment);
+  const latest = payments.filter((c) => c.entityId).slice(-5);
   const eventRows: NewEvent[] = [];
   const outboxRows: NewOutboxRow[] = [];
   const eventIdByConversion = new Map<string, string>();
@@ -281,12 +319,18 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
       actor: { kind: "webhook", id: opts.customerSource },
       entityIds: c.entityId ? [c.entityId] : [],
       payload: {
-        provider: opts.customerSource,
-        amountMinor: c.amountMinor,
-        currency: c.currency,
+        entityId: c.entityId,
         conversionId: c.id,
-        customerName: customer?.displayName ?? null,
-        ...(opts.customerSource === "shopify" ? { orderId: `#${10_000 + payments.length - latest.length + i}` } : { subscriptionId: `sub_${c.id.replace(/-/g, "").slice(0, 14)}` }),
+        amount: { amountMinor: c.amountMinor, currency: c.currency },
+        provider: opts.customerSource,
+        // A Shopify order number, or the Stripe invoice the subscription payment settled.
+        externalId: opts.customerSource === "shopify" ? `#${10_000 + payments.length - latest.length + i}` : `in_${c.id.replace(/-/g, "").slice(0, 14)}`,
+        firstPayment: c.firstPayment ?? true,
+        recurring: opts.customerSource === "stripe",
+        productRef: null,
+        fee: null,
+        customer: { externalId: null, email: null, name: customer?.displayName ?? null },
+        source: null,
         label: "Synthetic",
       },
       narrated: i < latest.length - 2,
@@ -307,6 +351,7 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
     currency: c.currency,
     occurredAt: new Date(c.occurredAt),
     sourceEventId: eventIdByConversion.get(c.id) ?? null,
+    firstPayment: c.firstPayment,
   }));
   await bulkInsert(db, conversions, conversionRows);
 
@@ -328,6 +373,7 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
   const recentCutoff = ctx.today.getTime() - 45 * DAY_MS;
   let seen = 0;
   for (const c of data.conversions) {
+    if (c.kind === "payment" && !c.firstPayment) continue;
     seen += 1;
     kindCount[c.kind] += 1;
     const customer = c.entityId ? customersByEntityId.get(c.entityId) : undefined;
@@ -370,6 +416,8 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
       commentary: commentaryLines(c.kind, c.amountMinor, c.currency, customer, orderedPath),
       agents: journey.agents,
       matchdayLevel: journey.matchdayLevel,
+      attributionModel: journey.attributionModel,
+      xcModelSource: journey.xcModelSource,
       viewedAt: at < ctx.today.getTime() - 10 * DAY_MS ? new Date(at + 6 * HOUR_MS + rng.int(0, 40) * HOUR_MS) : null,
       createdAt: new Date(at + 60_000),
     });
@@ -413,7 +461,8 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
     for (let k = 0; k < n; k++) {
       const member = members[(dayIndex + k) % members.length]!;
       const startedAt = atHour(day, 8, 30 + k * 20 + rng.int(0, 25));
-      const endedAt = new Date(startedAt.getTime() + hoursEach * HOUR_MS);
+      if (startedAt.getTime() >= ctx.today.getTime()) continue; // today's later sessions have not happened yet
+      const endedAt = new Date(Math.min(startedAt.getTime() + hoursEach * HOUR_MS, ctx.today.getTime()));
       const tokensIn = Math.round(hoursEach * (member.agent.modelKey === "opus" ? 120_000 : member.agent.modelKey === "haiku" ? 400_000 : 220_000) * rng.range(0.8, 1.2));
       const tokensOut = Math.round(tokensIn * rng.range(0.08, 0.16));
       const id = rng.uuid();
@@ -445,10 +494,6 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
   log(`inserted ${sessionRows.length} agent sessions`);
 
   // --- channel metrics per day -----------------------------------------------------------------------------------------
-  const firstChannelByVisitor = new Map<string, ChannelKey | null>();
-  for (const t of data.touches) {
-    if (t.visitorId && !firstChannelByVisitor.has(t.visitorId)) firstChannelByVisitor.set(t.visitorId, t.channelKey);
-  }
   type DayMetric = { spend: number; leads: number; signups: number; activations: number; customers: number; impressions: number };
   const metric = new Map<string, DayMetric>();
   const metricKey = (day: string, channel: ChannelKey) => `${day}|${channel}`;
@@ -464,10 +509,11 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
     const customer = c.entityId ? customersByEntityId.get(c.entityId) : undefined;
     const channel = customer ? (firstChannelByVisitor.get(customer.visitorId) ?? null) : null;
     const day = c.occurredAt.slice(0, 10);
-    if (c.kind === "signup") bump(day, channel, { signups: 1, leads: channel === "lead_generation" || channel === "content" || channel === "events" ? 2 : 0 });
+    // One lead per lead role written above (the Leads tab and the Attribution counts are the same records).
+    if (c.kind === "signup") bump(day, channel, { signups: 1, leads: channel && SEED_LEAD_CHANNELS.has(channel) ? 1 : 0 });
     else if (c.kind === "activation") bump(day, channel, { activations: 1 });
     else {
-      bump(day, channel, { customers: 1 });
+      if (c.firstPayment) bump(day, channel, { customers: 1 });
       const mk = c.occurredAt.slice(0, 7);
       revenueByMonth.set(mk, (revenueByMonth.get(mk) ?? 0) + c.amountMinor);
     }
@@ -526,7 +572,8 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
     revenueByMonth,
     agentSpendByMonth,
     adSpendByMonth,
-    paidCustomers: data.series.customersByDay[data.series.customersByDay.length - 1] ?? 0,
+    // Paying accounts now: every customer that has paid, less the ones that have churned since.
+    paidCustomers: data.customers.filter((c) => c.paidAt && !(c.churnedAt && Date.parse(c.churnedAt) <= ctx.today.getTime())).length,
     signups: kindCount.signup,
     activations: kindCount.activation,
     mrrMinorNow: data.series.mrrMinorByDay[data.series.mrrMinorByDay.length - 1] ?? 0,

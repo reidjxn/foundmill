@@ -9,6 +9,7 @@ import { useId, useMemo, useState } from "react";
 import { Code2, ExternalLink, Globe, RefreshCw, ScanSearch, Stamp, Trash2 } from "lucide-react";
 import { Button, Chip, DataTable, Field, Input, KeyValueList, Panel, StarRating, StatusPill, type DataTableColumn, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
 import { useWidgetQuery } from "@foundmill/widgets/data";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
 import { DISTINCTIVENESS_WORD, screenTrademark, type TrademarkScreen } from "./legal-data";
 import { InformationNotice, Screen, archetypeLabel, useLegalStatus, useNow, useOpenExternal } from "./shared";
@@ -48,7 +49,8 @@ export function IPScreen({ businessId: _businessId }: ModuleScreenProps) {
   const business = useWidgetQuery<BusinessGetResponse>("business.get", BUSINESS_INPUT);
   const status = useLegalStatus();
   const integrations = useWidgetQuery<IntegrationsListResponse>("integrations.list", INTEGRATIONS_INPUT);
-  const [views, setViews] = useState<SavedView[]>(MARK_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("legal.ip.marks", MARK_VIEWS, { defaultViewId: "all" });
   const [input, setInput] = useState("");
   const [marks, setMarks] = useState<ScreenedMark[]>([]);
   const [current, setCurrent] = useState<ScreenedMark | null>(null);
@@ -167,7 +169,7 @@ export function IPScreen({ businessId: _businessId }: ModuleScreenProps) {
       </Panel>
 
       <Panel title="Marks screened" span={12} flush empty={marks.length === 0 ? { icon: Stamp, children: "Marks you screen are listed here with their strength and objections, so you can compare candidates." } : undefined} footer={<span className="tabular-nums">{marks.length} mark{marks.length === 1 ? "" : "s"} · right-click to search the registers · this list lives in this window</span>}>
-        <DataTable<ScreenedMark> aria-label="Marks screened" data={marks} columns={columns} views={views} onViewsChange={setViews} defaultViewId="all" height={240} exportFileName="trademark-screen" rowActions={rowActions} onRowOpen={(r) => setCurrent(r)} rowClassName={(r) => (r.id === current?.id ? "bg-panel-alt" : undefined)} />
+        <DataTable<ScreenedMark> aria-label="Marks screened" data={marks} columns={columns} {...savedViews} defaultViewId="all" height={240} exportFileName="trademark-screen" rowActions={rowActions} onRowOpen={(r) => setCurrent(r)} rowClassName={(r) => (r.id === current?.id ? "bg-panel-alt" : undefined)} />
       </Panel>
     </Screen>
   );

@@ -1,7 +1,7 @@
-/** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses); 0022 — account preferences. */
-import { ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, GAME_MODES, MODEL_BILLING, PLAN_TIERS, TIME_FORMAT_PREFERENCES, VISIBILITY } from "@foundmill/shared";
+/** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses); 0022 — account preferences; 0025 — the business currency. */
+import { AGENT_STOP_REASONS, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, GAME_MODES, MODEL_BILLING, PLAN_TIERS, TIME_FORMAT_PREFERENCES, VISIBILITY } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
-import { index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { boolean, char, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { archivedAt, currency, emptyArray, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
 
@@ -59,8 +59,52 @@ export const businesses = pgTable(
     committedAt: tstz("committed_at"),
     planTier: text("plan_tier", { enum: PLAN_TIERS }).notNull().default("free"),
     modelBilling: text("model_billing", { enum: MODEL_BILLING }).notNull().default("credits"),
+    /**
+     * The founder's "Spend cap per action" (Commit, Settings › Mode; 0024), in minor units of the business currency.
+     * Above it every spend asks first, whatever the mode: the gateway lowers each agent's approval threshold to it.
+     * Null: no business cap (each agent's own threshold applies).
+     */
+    spendCapMinor: minor("spend_cap_minor"),
     glossary: jsonb("glossary").$type<Record<string, string>>().notNull().default(emptyObject),
+    /**
+     * 0025 — the currency of the business's money (ISO 4217): set at commit from the founder's choice, changed in
+     * Settings › Business. Business amounts written without a currency take it; model and credit costs stay in USD.
+     */
+    currency: char("currency", { length: 3 }).notNull().default("USD"),
     createdBy: uuid("created_by").references(() => authUsers.id, { onDelete: "set null" }),
+    /**
+     * 0023 — the team-wide stop (Stop all agents, a revoked key, used-up credits): set with its reason, cleared only by
+     * `resumeBusinessAgents`. Every path that starts work refuses while it is set.
+     */
+    agentsStoppedAt: tstz("agents_stopped_at"),
+    agentsStoppedReason: text("agents_stopped_reason", { enum: AGENT_STOP_REASONS }),
+    /**
+     * 0041 — the business's IANA time zone: Home's "today", week and month, the Journey's days and the top bar's date
+     * follow it. Null until an owner or admin first opens the business (set from their browser) or picks one; null reads
+     * as UTC.
+     */
+    timeZone: text("time_zone"),
+    /**
+     * 0044 — a seeded demo business (Northwind, Ledgerly): its numbers are synthetic, so it is never listed on the
+     * network (public views, leaderboards, community owners) for anyone outside it. Set by the seed only.
+     */
+    isDemo: boolean("is_demo").notNull().default(false),
+    /**
+     * 0055 — Autopilot: the business starts its own cycles (`autopilot` workflow, id `autopilot:<businessId>`). Off by
+     * default. `autopilotPausedReason` is set when a guard rail paused it (stop, credits, idle cycles) and cleared only
+     * when an owner or admin turns it on again; `autopilotChangedAt` is when it was last turned on (the idle streak
+     * counts from there); `autopilotNextAt` is the next planned cycle (an Estimate, written by the workflow).
+     */
+    autopilotEnabled: boolean("autopilot_enabled").notNull().default(false),
+    autopilotCadence: text("autopilot_cadence", { enum: AUTOPILOT_CADENCES }).notNull().default("every_4h"),
+    autopilotDailyHour: integer("autopilot_daily_hour").notNull().default(9),
+    autopilotMaxCyclesPerDay: integer("autopilot_max_cycles_per_day").notNull().default(6),
+    /** USD cents of model spend per UTC day; null: the credits left. */
+    autopilotSpendCeilingMinor: minor("autopilot_spend_ceiling_minor"),
+    autopilotMaxIdleCycles: integer("autopilot_max_idle_cycles").notNull().default(3),
+    autopilotPausedReason: text("autopilot_paused_reason", { enum: AUTOPILOT_PAUSE_REASONS }),
+    autopilotChangedAt: tstz("autopilot_changed_at"),
+    autopilotNextAt: tstz("autopilot_next_at"),
     ...timestampsWithArchive(),
   },
   (t) => [

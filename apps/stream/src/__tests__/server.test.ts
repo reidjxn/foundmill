@@ -4,13 +4,13 @@
  * heartbeat timeouts, Redis reader reconnects and graceful shutdown.
  */
 import { createLocalJWKSet, exportJWK, generateKeyPair } from "jose";
-import { MemoryRedis, publishSessionEvent, runOutboxRelay, writeEvent, type RedisArg, type SessionEvent } from "@foundmill/events";
+import { MemoryRedis, publishSessionEvent, publishUserSignal, runOutboxRelay, writeEvent, type RedisArg, type SessionEvent } from "@foundmill/events";
 import { FakeDb } from "@foundmill/events/testing/fake-db";
 import { EVENT_FIXTURES, FIXTURE_ENTITY_ID, fixtureId } from "@foundmill/events/testing/fixtures";
 import { afterEach, describe, expect, it } from "vitest";
 import { createTokenVerifier } from "../auth";
-import { businessChannel, CLOSE_CODES, sessionChannel } from "../protocol";
-import { BUSINESS_A, BUSINESS_B, devToken, openSocket, SESSION_A, SESSION_B, sleep, startTestServer, USER_A, USER_B, waitFor, type TestServer, type TestSocket } from "./helpers";
+import { businessChannel, CLOSE_CODES, sessionChannel, userChannel } from "../protocol";
+import { BUSINESS_A, BUSINESS_B, devToken, openSocket, SESSION_A, SESSION_A2, SESSION_B, sleep, startTestServer, USER_A, USER_B, waitFor, type TestServer, type TestSocket } from "./helpers";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -107,12 +107,30 @@ describe("membership", () => {
       [sessionChannel(SESSION_A), "forbidden"],
     ]);
     expect(t.server.subscriptions()[0]!.channels).toEqual([businessChannel(BUSINESS_B)]);
+    // Only the allowed channel is acknowledged as live; a tab never trusts a denied one.
+    await waitFor(() => sock.subscribed.length === 1, 2_000, "ack");
+    expect(sock.subscribed).toEqual([businessChannel(BUSINESS_B)]);
     await publishSessionEvent(t.redis, SESSION_A, note("secret"));
     await publishSessionEvent(t.redis, SESSION_B, note("mine"));
     await sleep(60);
     expect(sock.events).toHaveLength(0);
     expect(t.metrics.get("subscriptions_denied_total")).toBe(2);
     expect(t.server.hub.keys()).toEqual([businessChannel(BUSINESS_B)]);
+  });
+
+  it("delivers a person's LIVE signals on u:<their id> to them and to nobody else (audit #65)", async () => {
+    const t = await boot();
+    const mine = await connect(t, USER_A);
+    const other = await connect(t, USER_B);
+    mine.sub(userChannel(USER_A));
+    other.sub(userChannel(USER_A));
+    await waitFor(() => other.errors.length === 1 && t.server.hub.readerCount === 1, 2_000, "one denial, one reader");
+    expect(other.errors.map((e) => [e.ch, e.code])).toEqual([[userChannel(USER_A), "forbidden"]]);
+    await publishUserSignal(t.redis, USER_A, { kind: "connection_requested" });
+    await waitFor(() => mine.events.length === 1, 2_000, "signal delivered");
+    expect(mine.events[0]).toMatchObject({ ch: userChannel(USER_A), e: { type: "live.signal", kind: "connection_requested" } });
+    await sleep(40);
+    expect(other.events).toHaveLength(0);
   });
 
   it("rejects malformed channels and caps subscriptions per socket", async () => {
@@ -148,6 +166,11 @@ describe("protocol handling", () => {
     sock.sub(sessionChannel(SESSION_A));
     sock.sub(sessionChannel(SESSION_A));
     await waitFor(() => t.server.subscriptions()[0]?.channels.length === 1, 2_000, "subscribed once");
+    // Each sub is acknowledged (a repeat of a live channel again, so a tab that re-asks after an error learns it is live).
+    await waitFor(() => sock.subscribed.length >= 1, 2_000, "ack");
+    sock.sub(sessionChannel(SESSION_A));
+    await waitFor(() => sock.subscribed.length >= 2, 2_000, "second ack");
+    expect(new Set(sock.subscribed)).toEqual(new Set([sessionChannel(SESSION_A)]));
     await publishSessionEvent(t.redis, SESSION_A, note("one"));
     await waitFor(() => sock.events.length === 1, 2_000, "one event");
     expect(sock.events).toHaveLength(1); // not duplicated by the repeated subs
@@ -157,6 +180,22 @@ describe("protocol handling", () => {
     await sleep(60);
     expect(sock.events).toHaveLength(1);
     expect(t.metrics.get("subscriptions_open")).toBe(0);
+  });
+
+  it("counts a sub without a focus field as focused, focus:false as unfocused, and follows focus frames (RES-12)", async () => {
+    const t = await boot();
+    const sock = await connect(t);
+    sock.sub(sessionChannel(SESSION_A)); // what both clients send for the focused tile
+    sock.sub(sessionChannel(SESSION_A2), false);
+    await waitFor(() => t.server.subscriptions()[0]?.channels.length === 2, 2_000, "both subscribed");
+    expect(t.server.subscriptions()[0]!.focused).toEqual([sessionChannel(SESSION_A)]);
+    sock.send({ t: "focus", ch: sessionChannel(SESSION_A), focused: false });
+    sock.send({ t: "focus", ch: sessionChannel(SESSION_A2), focused: true });
+    await waitFor(() => t.server.subscriptions()[0]!.focused.join() === sessionChannel(SESSION_A2), 2_000, "focus moved");
+    // A repeated sub (a retry) carries the channel's current focus: focus:false unfocuses a focused channel.
+    sock.sub(sessionChannel(SESSION_A2), false);
+    await waitFor(() => t.server.subscriptions()[0]!.focused.length === 0, 2_000, "unfocused by the repeated sub");
+    expect(t.server.subscriptions()[0]!.channels).toHaveLength(2);
   });
 
   it("reports malformed frames and closes the socket after too many", async () => {
@@ -199,7 +238,8 @@ describe("coalescing and backpressure", () => {
     for (let i = 0; i < N; i++) await publishSessionEvent(t.redis, SESSION_A, note(`burst ${i}`));
     await waitFor(() => sock.events.length === N, 5_000, "all events");
     const elapsedS = (Date.now() - start) / 1000;
-    const frames = sock.frames.length;
+    // Event frames only (the subscription's ack is a control frame written outside the queue).
+    const frames = sock.frames.filter((f) => (f as { t?: string }).t === undefined).length;
     expect(frames).toBeLessThanOrEqual(Math.ceil(elapsedS * 20) + 2);
     expect(frames).toBeLessThan(N / 4); // bursts were batched into array frames
     expect(t.metrics.get("batches_out_total")).toBeGreaterThan(0);

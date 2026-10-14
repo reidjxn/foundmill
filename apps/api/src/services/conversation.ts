@@ -36,6 +36,7 @@ import {
   presenceLabel,
   quickReply,
   thinkingLine,
+  trimLabel,
   type AgentVoice,
   type ConceptCardInput,
   type ConversationRequestInput,
@@ -45,7 +46,7 @@ import {
   type NudgePreset,
   type StarterSubject,
 } from "@foundmill/agents";
-import { repos, type Agent, type AgentMessage, type AgentThread, type DbTx, type InboxItem, type PlanWithActions, type Task } from "@foundmill/db";
+import { repos, sqlState, type Agent, type AgentMessage, type AgentThread, type DbTx, type InboxItem, type PlanWithActions, type Task } from "@foundmill/db";
 import { buildManifest, stripInvalidMentions, stripMarkup, validateMarkup, type ManifestEntityInput } from "@foundmill/entity-linker";
 import { type AgentReplyOutput, type ModelClient, type PlanAction, type QuickReply } from "@foundmill/models";
 import {
@@ -60,20 +61,21 @@ import {
   type ConversationSubjectKind,
   type DeptColourToken,
   type EntityKind,
+  type PlanStatus,
 } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { audit, effectivePermission, emit, Id, type BusinessContext, type Section } from "../trpc";
-import { decideInboxItem, planContextFor, type DecideItemResult } from "./decide";
-import { compilePlan, evaluatePlan, requiresConfirmation, type ActionEvaluation } from "./plans";
-import { RateLimitedError, SlidingWindowLimiter, type WindowLimit } from "./rate-limit";
+import { audit, effectivePermission, emit, hasSectionAccess, Id, type BusinessContext, type Section } from "../trpc";
+import { decideInboxItem, decidesByText, planContextFor, type DecideItemResult } from "./decide";
+import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactText, redactValue } from "./inbox-redaction";
+import { assertInstructionSectionAccess, assertPlanSectionAccess, compilePlan, evaluatePlan, requiresConfirmation, type ActionEvaluation } from "./plans";
+import { takeOrThrow, type RateLimitStore, type WindowLimit } from "./rate-limit";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Limits: every send can be a model call (a reply, a plan compile), so sends are bounded per person and per business.
-// Process-local like the logo limits (see rate-limit.ts for the replica caveat).
+// The windows live in the api's limit store (`ctx.limits`: Redis across replicas; rate-limit.ts), like the logo limits.
 // ---------------------------------------------------------------------------------------------------------------------
 
-export const conversationLimiter = new SlidingWindowLimiter();
 const MINUTE = 60_000;
 export const CONVERSATION_LIMITS = {
   /** A person pressing quick replies as fast as replies arrive stays well inside this; a script or a stuck key does not. */
@@ -83,14 +85,12 @@ export const CONVERSATION_LIMITS = {
 } as const satisfies Record<string, WindowLimit>;
 
 /** Spends one send from every limit that applies (no business for a concept's Ask), or throws TOO_MANY_REQUESTS. */
-export function takeConversationAllowance(scope: { userId: string; businessId?: string | null }): void {
-  const entries = [
+export async function takeConversationAllowance(limits: RateLimitStore, scope: { userId: string; businessId?: string | null }): Promise<void> {
+  await takeOrThrow(limits, "Conversation", [
     { key: `conversation:burst:${scope.userId}`, rule: CONVERSATION_LIMITS.burst },
     { key: `conversation:user:${scope.userId}`, rule: CONVERSATION_LIMITS.user },
     ...(scope.businessId ? [{ key: `conversation:business:${scope.businessId}`, rule: CONVERSATION_LIMITS.business }] : []),
-  ];
-  const r = conversationLimiter.takeAll(entries);
-  if (!r.ok) throw new RateLimitedError("Conversation", r.retryAfterMs);
+  ]);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -114,6 +114,11 @@ export const SendInput = z
      * older clients.
      */
     optionId: z.string().max(40).nullable().optional(),
+    /**
+     * An id the client makes up for this message and keeps when it retries. A send whose answer was lost in transit
+     * is the same message when it comes again: the exchange already stored is returned and nothing is asked or paid for twice.
+     */
+    clientMessageId: z.string().trim().min(8).max(100).optional(),
   })
   .refine((v) => (v.text ? 1 : 0) + (v.quickReplyId ? 1 : 0) === 1, { message: "Send either text or a quick reply", path: ["text"] });
 export type SendInput = z.infer<typeof SendInput>;
@@ -186,6 +191,13 @@ export interface ConversationMessageView {
   chosenQuickReplyId: string | null;
   handOff: { instruction: string; gated: boolean } | null;
   planId: string | null;
+  /**
+   * The staged plan's status as the desk was read: a hand-off staged on another page or device still waits for
+   * `plan.confirm` while it is `pending_confirmation`, so the desk offers "Review the plan" again (audit OL-01).
+   */
+  planStatus: PlanStatus | null;
+  /** Founder messages: the id the client sent with it (so a client can tell its message arrived), else null. */
+  clientMessageId: string | null;
   /** Stored messages have been accepted by the server ("Seen"). */
   state: "seen";
 }
@@ -349,9 +361,12 @@ async function instructionsOf(tx: DbTx, ctx: BusinessContext, agent: Agent): Pro
   };
 }
 
-/** Manifest of the business (CRM entities + agents) and the entity-linker guard bound to it. */
-async function manifestFor(tx: DbTx, ctx: BusinessContext): Promise<{ entries: ManifestEntityInput[]; guard: MentionGuard }> {
-  const [crm, agents] = await Promise.all([repos.entities.manifest(tx, ctx.businessId, { limit: 300 }), repos.agents.list(tx, ctx.businessId, { limit: 200 })]);
+/**
+ * Manifest of the business (CRM entities + agents) and the entity-linker guard bound to it. The CRM half only for a
+ * person who may read the CRM (audit RUI-02): otherwise the agent knows no customer names to say to them.
+ */
+export async function manifestFor(tx: DbTx, ctx: Pick<BusinessContext, "businessId" | "membership">): Promise<{ entries: ManifestEntityInput[]; guard: MentionGuard }> {
+  const [crm, agents] = await Promise.all([hasSectionAccess(ctx.membership, "crm", "read") ? repos.entities.manifest(tx, ctx.businessId, { limit: 300 }) : Promise.resolve([]), repos.agents.list(tx, ctx.businessId, { limit: 200 })]);
   const entries: ManifestEntityInput[] = [
     ...crm.map((e) => ({ id: e.id, kind: e.kind as EntityKind, name: e.displayName, aliases: e.aliases })),
     ...agents.items.map((a) => ({ id: a.id, kind: "agent" as const, name: a.name, aliases: [], role: a.role })),
@@ -367,6 +382,10 @@ async function manifestFor(tx: DbTx, ctx: BusinessContext): Promise<{ entries: M
   };
 }
 
+/**
+ * `currency` is the business's own: an option's cost is business money, priced in it as the Inbox shows it, and an
+ * Estimate. Never the note's `inbox_items.currency`, which is the currency of what writing the note cost (audit CML-12).
+ */
 function promptSubject(r: Resolved, currency: string): ConversationSubjectInput {
   if (r.item) {
     const strip = Array.isArray(r.item.statusStrip) ? (r.item.statusStrip as Array<Record<string, unknown>>) : [];
@@ -381,7 +400,7 @@ function promptSubject(r: Resolved, currency: string): ConversationSubjectInput 
         label: o.label,
         recommended: o.recommended === true,
         consequence: o.consequence ?? "",
-        cost: typeof o.cost_minor === "number" && o.cost_minor > 0 ? formatMoney({ amountMinor: o.cost_minor, currency: r.item!.currency || currency }) : null,
+        cost: typeof o.cost_minor === "number" && o.cost_minor > 0 ? `${formatMoney({ amountMinor: o.cost_minor, currency })} (Estimate)` : null,
         reversible: typeof o.reversible === "boolean" ? o.reversible : null,
       })),
       facts: strip.flatMap((m) => (typeof m.metric === "string" && (typeof m.value === "string" || typeof m.value === "number") ? [{ label: humanise(m.metric), value: String(m.value) }] : [])),
@@ -412,7 +431,7 @@ const taskInput = (t: Task | null): ConversationTaskInput | null => (t ? { id: t
 
 const asQuickReplies = (v: unknown): QuickReply[] => (Array.isArray(v) ? (v as QuickReply[]) : []);
 
-export function toMessageViews(rows: readonly AgentMessage[]): ConversationMessageView[] {
+export function toMessageViews(rows: readonly AgentMessage[], planStatuses: ReadonlyMap<string, PlanStatus> = new Map()): ConversationMessageView[] {
   return rows.map((m, i) => {
     const quickReplies = asQuickReplies(m.quickReplies);
     const next = rows[i + 1];
@@ -428,6 +447,8 @@ export function toMessageViews(rows: readonly AgentMessage[]): ConversationMessa
       chosenQuickReplyId: chosen ?? null,
       handOff: m.handOff ? { instruction: m.handOff.instruction, gated: m.handOff.gated === true } : null,
       planId: m.planId,
+      planStatus: m.planId ? (planStatuses.get(m.planId) ?? null) : null,
+      clientMessageId: m.clientMessageId ?? null,
       state: "seen",
     };
   });
@@ -462,13 +483,60 @@ export function withoutStaleOptions(messages: ConversationMessageView[], answere
 
 export async function getConversation(ctx: BusinessContext, subject: ConversationSubject): Promise<ConversationView> {
   return ctx.rls(async (tx) => {
-    const r = await resolve(tx, ctx, subject);
-    const thread = await repos.conversations.findThread(tx, ctx.businessId, { agentId: r.agent.id, subjectKind: subject.kind, subjectId: r.subject.id });
+    const resolved = await resolve(tx, ctx, subject);
+    const thread = await repos.conversations.findThread(tx, ctx.businessId, { agentId: resolved.agent.id, subjectKind: subject.kind, subjectId: resolved.subject.id });
     const rows = thread ? await repos.conversations.listMessages(tx, ctx.businessId, thread.id, { limit: 50 }) : [];
-    const messages = withoutStaleOptions(toMessageViews(rows), r.subject.answered, r.starters);
-    const persona = await personaOf(tx, ctx, r, thread?.id ?? r.subject.id);
-    return { subject: r.subject, thread, messages, persona, starters: r.starters, quickReplies: activeQuickReplies(messages, r.starters) };
+    const planStatuses = await repos.plans.statusesById(tx, ctx.businessId, rows.flatMap((m) => (m.planId && m.handOff ? [m.planId] : [])));
+    const seen = await seenAtDesk(tx, ctx, resolved, withoutStaleOptions(toMessageViews(rows, planStatuses), resolved.subject.answered, resolved.starters));
+    const persona = await personaOf(tx, ctx, seen.r, thread?.id ?? seen.r.subject.id);
+    return { subject: seen.r.subject, thread, messages: seen.messages, persona, starters: seen.r.starters, quickReplies: activeQuickReplies(seen.messages, seen.r.starters) };
   });
+}
+
+/**
+ * The desk as a person walled from Finance or the CRM may read it (audit RUI-02): the note's title, options and figures,
+ * and every message (a thread is shared, so a reply written for the owner may name a customer or quote cash) come
+ * masked the way inbox.get masks a note. `r.item` becomes the masked note, so a prompt built from it carries nothing the
+ * person could not read.
+ */
+async function seenAtDesk(tx: DbTx, ctx: BusinessContext, r: Resolved, messages: ConversationMessageView[], chips: QuickReply[] = []): Promise<{ r: Resolved; messages: ConversationMessageView[]; chips: QuickReply[] }> {
+  const walls = inboxWalls(ctx.membership);
+  if (!isWalled(walls)) return { r, messages, chips };
+  const ids = [...(r.item ? idsOfItem(r.item) : []), ...messages.flatMap((m) => mentionIds(JSON.stringify([m.bubbles, m.quickReplies, m.handOff]))), ...mentionIds(JSON.stringify(chips))];
+  const source = await loadRedactionSource(tx, ctx.businessId, walls, ids);
+  const mask = r.item ? noteMask(r.item) : {};
+  const item = r.item ? redactInboxItem(r.item, source) : null;
+  const options = item ? itemOptions(item) : r.options;
+  // A "Go with: …" chip quotes its option cut to fit ("Go with: Send Wren Ga…"), past where a name can be matched: it is
+  // written again from the masked option, as finaliseAgentReply writes it.
+  const maskChips = (qs: unknown): QuickReply[] =>
+    asQuickReplies(redactValue(qs, source, mask)).map((q) => {
+      const option = q.kind === "choose_option" ? options.find((o) => o.id === q.option_id) : undefined;
+      return option ? quickReply(q.id, `Go with: ${trimLabel(option.label, 26)}`, `Go with ${option.label}.`, "choose_option", { option_id: option.id, recommended: q.recommended }) : q;
+    });
+  const shown: Resolved = {
+    ...r,
+    item,
+    subject: { ...r.subject, title: item ? item.subject : r.subject.title, options: r.subject.options.map((o) => ({ ...o, label: redactText(o.label, source, mask) })) },
+    options,
+    starters: maskChips(r.starters),
+  };
+  return {
+    r: shown,
+    messages: messages.map((m) => ({ ...m, bubbles: m.bubbles.map((b) => redactText(b, source, mask)), quickReplies: maskChips(m.quickReplies), handOff: m.handOff ? { ...m.handOff, instruction: redactText(m.handOff.instruction, source, mask) } : null })),
+    chips: maskChips(chips),
+  };
+}
+
+/**
+ * A send's answer as the person who sent it may read it (audit RUI-02): the two new messages quote what was pressed or
+ * typed ("Go with Send Wren Garza a thank-you." and "Going with …"), so they come back masked the way the thread is.
+ * The stored messages stay whole; anyone walled reads them through `getConversation`, which masks them again.
+ */
+async function sentAsSeen(ctx: BusinessContext, r: Resolved, sent: SendResult): Promise<SendResult> {
+  if (!isWalled(inboxWalls(ctx.membership))) return sent;
+  const seen = await ctx.rls((tx) => seenAtDesk(tx, ctx, r, sent.messages, sent.quickReplies));
+  return { ...sent, messages: seen.messages, quickReplies: seen.chips };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -482,6 +550,8 @@ interface Prepared {
   latestAgent: AgentMessage | null;
   chip: QuickReply | null;
   founderText: string;
+  /** This message (same client id) was already sent and answered: its stored exchange. */
+  replay: { founder: AgentMessage; reply: AgentMessage | null } | null;
 }
 
 async function prepare(tx: DbTx, ctx: BusinessContext, input: SendInput): Promise<Prepared> {
@@ -489,6 +559,9 @@ async function prepare(tx: DbTx, ctx: BusinessContext, input: SendInput): Promis
   const thread = await repos.conversations.findThread(tx, ctx.businessId, { agentId: r.agent.id, subjectKind: input.subject.kind, subjectId: r.subject.id });
   const history = thread ? await repos.conversations.listMessages(tx, ctx.businessId, thread.id, { limit: 12 }) : [];
   const latestAgent = thread ? await repos.conversations.latestAgentMessage(tx, ctx.businessId, thread.id) : null;
+  // A repeat of a message that was stored (its answer was lost on the way back): nothing is checked or sent again.
+  const replay = input.clientMessageId && thread ? await repos.conversations.findExchange(tx, ctx.businessId, thread.id, input.clientMessageId) : null;
+  if (replay) return { r, thread, history, latestAgent, chip: null, founderText: replay.founder.bubbles.join("\n"), replay };
   let chip: QuickReply | null = null;
   if (input.quickReplyId) {
     chip = asQuickReplies(latestAgent?.quickReplies).find((q) => q.id === input.quickReplyId) ?? r.starters.find((q) => q.id === input.quickReplyId) ?? null;
@@ -499,12 +572,14 @@ async function prepare(tx: DbTx, ctx: BusinessContext, input: SendInput): Promis
     // A chip offered before the item was decided (the DecisionBar, another tab): nothing is left to choose.
     if (chip.kind === "choose_option" && r.subject.answered) throw new ValidationError("This one is already decided, so there is nothing left to choose", { quickReplyId: chip.id, route: "stale" });
   }
-  return { r, thread, history, latestAgent, chip, founderText: chip ? chip.say : (input.text ?? "") };
+  return { r, thread, history, latestAgent, chip, founderText: chip ? chip.say : (input.text ?? ""), replay: null };
 }
 
 const preview = (text: string) => stripMarkup(text).replace(/\s+/g, " ").trim().slice(0, 140);
 
 interface WriteReplyInput {
+  /** The client's id for the founder's message (`SendInput.clientMessageId`). */
+  clientMessageId?: string | null;
   r: Resolved;
   subject: ConversationSubject;
   founderText: string;
@@ -518,10 +593,26 @@ interface WriteReplyInput {
 
 /** Founder message + agent message + two events (marked narrated: a chat is never an Inbox note) + audit, in one transaction. */
 async function writeExchange(ctx: BusinessContext, w: WriteReplyInput): Promise<{ thread: AgentThread; messages: ConversationMessageView[] }> {
+  try {
+    return await writeExchangeOnce(ctx, w);
+  } catch (err) {
+    // The same message came in twice at once and the other copy stored its exchange first: answer with that one.
+    if (!w.clientMessageId || sqlState(err) !== "23505") throw err;
+    const stored = await ctx.rls(async (tx) => {
+      const thread = await repos.conversations.findThread(tx, ctx.businessId, { agentId: w.r.agent.id, subjectKind: w.subject.kind, subjectId: w.r.subject.id });
+      const exchange = thread ? await repos.conversations.findExchange(tx, ctx.businessId, thread.id, w.clientMessageId!) : null;
+      return thread && exchange ? { thread, exchange } : null;
+    });
+    if (!stored) throw err;
+    return { thread: stored.thread, messages: toMessageViews(stored.exchange.reply ? [stored.exchange.founder, stored.exchange.reply] : [stored.exchange.founder]) };
+  }
+}
+
+async function writeExchangeOnce(ctx: BusinessContext, w: WriteReplyInput): Promise<{ thread: AgentThread; messages: ConversationMessageView[] }> {
   return ctx.rls(async (tx) => {
     const thread = await repos.conversations.ensureThread(tx, ctx.businessId, { agentId: w.r.agent.id, subjectKind: w.subject.kind, subjectId: w.r.subject.id });
     const at = new Date();
-    const founder = await repos.conversations.appendMessage(tx, ctx.businessId, { threadId: thread.id, authorKind: "founder", authorUserId: ctx.userId, bubbles: [w.founderText], chosenQuickReplyId: w.chip?.id ?? null }, { at });
+    const founder = await repos.conversations.appendMessage(tx, ctx.businessId, { threadId: thread.id, authorKind: "founder", authorUserId: ctx.userId, bubbles: [w.founderText], chosenQuickReplyId: w.chip?.id ?? null, clientMessageId: w.clientMessageId ?? null }, { at });
     const agent = await repos.conversations.appendMessage(
       tx,
       ctx.businessId,
@@ -562,10 +653,18 @@ function scriptedReply(bubbles: string[], quickReplies: QuickReply[], reaction: 
   return { bubbles, reaction, quick_replies: quickReplies, hand_off: null, refers_to: [] };
 }
 
+/** The answer a repeated message gets: the exchange stored the first time (no decision or hand-off to show again). */
+function replayedSend(p: Prepared & { replay: NonNullable<Prepared["replay"]> }): SendResult {
+  const rows = p.replay.reply ? [p.replay.founder, p.replay.reply] : [p.replay.founder];
+  return { thread: p.thread!, messages: toMessageViews(rows), quickReplies: asQuickReplies(p.replay.reply?.quickReplies), decision: null, handOff: null };
+}
+
 export async function sendConversationMessage(ctx: BusinessContext, input: SendInput): Promise<SendResult> {
   const p = await ctx.rls((tx) => prepare(tx, ctx, input));
+  if (p.replay) return replayedSend({ ...p, replay: p.replay });
+
   // Checked after the chip (a stale or write chip costs nothing), before any model call or decision.
-  takeConversationAllowance({ userId: ctx.userId, businessId: ctx.businessId });
+  await takeConversationAllowance(ctx.limits, { userId: ctx.userId, businessId: ctx.businessId });
   const { r, chip } = p;
   const voice = voiceOf(r.agent);
   const seed = `${p.thread?.id ?? r.subject.id}:${p.history.length}`;
@@ -574,13 +673,14 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
   if (chip?.kind === "choose_option" && input.subject.kind === "inbox_item" && chip.option_id) {
     const decision = await decideInboxItem(ctx, { itemId: r.subject.id, chosenOption: chip.option_id });
     const option = r.options.find((o) => o.id === chip.option_id);
-    const next = decision.requiresConfirmation ? "It's outside policy, so nothing runs until you confirm the plan." : decision.followUp ? "The plan is under way; the follow-up is in the Inbox." : "The plan is under way.";
+    // An approval's item says what the answer did ("Legal Lead carries on."), not that a plan is under way.
+    const next = decision.approval ? decision.approval.summary : decision.requiresConfirmation ? "It's outside policy, so nothing runs until you confirm the plan." : decision.followUp ? "The plan is under way; the follow-up is in the Inbox." : "The plan is under way.";
     // The first sentence of the voice's acknowledgement ("Noted."), then what was chosen.
     const fullAck = ackLine(voice, seed);
     const ack = fullAck.match(/^.*?[.!](?=\s|$)/)?.[0] ?? fullAck;
     const reply = scriptedReply([`${ack} Going with ${option?.label ?? "that option"}.`, next], [quickReply("thanks", "Thanks", "Thanks.", "acknowledge"), quickReply("what_happens_next", "What happens next?", "What happens next?", "ask")], "pleased");
-    const written = await writeExchange(ctx, { r, subject: input.subject, founderText: p.founderText, chip, reply, entityIds: [], handOffGated: false, planId: decision.plan.id, meta: { source: "decide", requiresConfirmation: decision.requiresConfirmation } });
-    return { ...written, quickReplies: reply.quick_replies, decision, handOff: null };
+    const written = await writeExchange(ctx, { clientMessageId: input.clientMessageId, r, subject: input.subject, founderText: p.founderText, chip, reply, entityIds: [], handOffGated: false, planId: decision.plan.id, meta: { source: "decide", requiresConfirmation: decision.requiresConfirmation } });
+    return sentAsSeen(ctx, r, { ...written, quickReplies: reply.quick_replies, decision, handOff: null });
   }
 
   // 2. "Review the plan" on a message that carries a hand-off → stage it (nothing runs until plan.confirm).
@@ -590,14 +690,16 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
       ["Here's what would happen.", staged.hardGates > 0 ? "Part of it is yours to do; I've listed exactly what. Nothing runs until you confirm." : "Nothing runs until you confirm it."],
       [quickReply("thanks", "Thanks", "Thanks.", "acknowledge"), quickReply("change_it", "Change it", "I want to change the plan.", "write"), quickReply("not_now", "Not now", "Not now.", "decline")],
     );
-    const written = await writeExchange(ctx, { r, subject: input.subject, founderText: p.founderText, chip, reply, entityIds: [], handOffGated: false, meta: { source: "hand_off", planId: staged.planId } });
-    return { ...written, quickReplies: reply.quick_replies, decision: null, handOff: staged };
+    const written = await writeExchange(ctx, { clientMessageId: input.clientMessageId, r, subject: input.subject, founderText: p.founderText, chip, reply, entityIds: [], handOffGated: false, meta: { source: "hand_off", planId: staged.planId } });
+    return sentAsSeen(ctx, r, { ...written, quickReplies: reply.quick_replies, decision: null, handOff: staged });
   }
 
   // 3. Everything else → the conversation route, then the server-side checks.
   const ctxData = await ctx.rls(async (tx) => {
-    const [ins, manifest, persona] = await Promise.all([instructionsOf(tx, ctx, r.agent), manifestFor(tx, ctx), personaOf(tx, ctx, r, seed)]);
-    return { ins, manifest, persona };
+    // The prompt carries only what this person may read: the masked note and thread, and no CRM names without CRM read.
+    const seen = await seenAtDesk(tx, ctx, r, toMessageViews(p.history));
+    const [ins, manifest, persona] = await Promise.all([instructionsOf(tx, ctx, r.agent), manifestFor(tx, ctx), personaOf(tx, ctx, seen.r, seed)]);
+    return { ins, manifest, persona, seen };
   });
   const requestInput: ConversationRequestInput = {
     businessName: ctx.business.name,
@@ -605,8 +707,8 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
     agent: { id: r.agent.id, name: r.agent.name, role: ctxData.persona.role, instructions: ctxData.ins.instructions, description: ctxData.ins.description, voice },
     glossary: Object.fromEntries(Object.entries(ctx.business.glossary ?? {}).filter(([from]) => from !== "currency")),
     currentWork: { task: taskInput(r.currentTask), nextTask: taskInput(r.nextTask), status: r.agent.status, presence: ctxData.persona.presence },
-    subject: promptSubject(r, "EUR"),
-    thread: p.history.map((m) => ({ author: m.authorKind, text: m.bubbles.join("\n") })),
+    subject: promptSubject(ctxData.seen.r, ctx.business.currency),
+    thread: ctxData.seen.messages.map((m) => ({ author: m.author, text: m.bubbles.join("\n") })),
     manifest: ctxData.manifest.entries.map((e) => ({ id: e.id, kind: e.kind, name: e.name, aliases: e.aliases ?? [] })),
     founderMessage: { text: p.founderText, quickReply: chip ? { id: chip.id, kind: chip.kind, option_id: chip.option_id } : null },
   };
@@ -615,6 +717,7 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
   // Open decision options (ids + labels), quoted vs trusted text: the same checks the conversation evals measure.
   const fin = finaliseAgentReply(result.json, { ...finaliseOptionsFor(requestInput), guard: ctxData.manifest.guard, fallbackQuickReplies: r.starters });
   const written = await writeExchange(ctx, {
+    clientMessageId: input.clientMessageId,
     r,
     subject: input.subject,
     founderText: p.founderText,
@@ -624,7 +727,7 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
     handOffGated: fin.handOffGates.length > 0,
     meta: { source: "model", route: result.route, model: result.model, mode: result.mode, durationMs: result.durationMs, costMinor: result.cost.costMinorInt, costLabel: "Estimate", repairs: fin.repairs.slice(0, 10) },
   });
-  return { ...written, quickReplies: fin.reply.quick_replies, decision: null, handOff: null };
+  return sentAsSeen(ctx, r, { ...written, quickReplies: fin.reply.quick_replies, decision: null, handOff: null });
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -646,6 +749,25 @@ class HandOffRaced extends Error {
  * (idempotent: a message staged before returns its plan). The founder runs it with `plan.confirm`.
  */
 export async function stageHandOff(ctx: BusinessContext, messageId: string, opts: { allowanceTaken?: boolean } = {}): Promise<HandOffPreview> {
+  return handOffAsSeen(ctx, await stageHandOffPlan(ctx, messageId, opts));
+}
+
+/** The staged hand-off as the person may read it (summary, plan and evaluations masked behind their walls). */
+async function handOffAsSeen(ctx: BusinessContext, preview: HandOffPreview): Promise<HandOffPreview> {
+  const walls = inboxWalls(ctx.membership);
+  if (!isWalled(walls)) return preview;
+  const ids = [...mentionIds(preview.summary), ...mentionIds(preview.instruction), ...mentionIds(JSON.stringify(preview.plan.actions.map((a) => a.params)))];
+  const source = await ctx.rls((tx) => loadRedactionSource(tx, ctx.businessId, walls, ids));
+  return {
+    ...preview,
+    instruction: redactText(preview.instruction, source),
+    summary: redactText(preview.summary, source),
+    plan: redactPlan(preview.plan, source),
+    evaluations: preview.evaluations.map((e) => ({ ...e, action: { ...e.action, params: redactValue(e.action.params, source) } })),
+  };
+}
+
+async function stageHandOffPlan(ctx: BusinessContext, messageId: string, opts: { allowanceTaken?: boolean }): Promise<HandOffPreview> {
   const { message, thread } = await ctx.rls(async (tx) => {
     const m = await repos.conversations.getMessage(tx, ctx.businessId, messageId);
     return { message: m, thread: await repos.conversations.getThread(tx, ctx.businessId, m.threadId) };
@@ -666,10 +788,15 @@ export async function stageHandOff(ctx: BusinessContext, messageId: string, opts
   const already = await stored(message.planId);
   if (already) return already;
 
+  // What the rule engine already sees in the instruction is checked against the person's walls before the model is paid
+  // for (SEC2 S3); the compiled plan is checked again below.
+  assertInstructionSectionAccess(ctx.membership, instruction, planCtx);
   // Compiling is a model call: it counts against the send limits (unless the send that asked for it already did).
-  if (!opts.allowanceTaken) takeConversationAllowance({ userId: ctx.userId, businessId: ctx.businessId });
+  if (!opts.allowanceTaken) await takeConversationAllowance(ctx.limits, { userId: ctx.userId, businessId: ctx.businessId });
   const compiled = await compilePlan(ctx.models, instruction, planCtx);
   const evaluations = evaluatePlan(compiled.actions, planCtx);
+  // Nobody stages work in a section they cannot write to (audit RUI-01); `plan.confirm` checks the confirmer again.
+  assertPlanSectionAccess(ctx.membership, evaluations.map((e) => ({ type: e.action.type, params: e.action.params, denied: e.outcome === "deny" })));
   const plan = await ctx
     .rls(async (tx) => {
       // Not linked to the Inbox item: a staged hand-off is not the item's decision (that stays with the founder).
@@ -707,9 +834,12 @@ export type InboxReplyResult = ({ route: "conversation" } & SendResult) | { rout
  * decision would be used up with nothing done (audit-conversation P0). The agent's reply offers "Go with: …" chips, so
  * "OK, go ahead" is one press away from a real decision.
  */
-export async function replyToInboxItem(ctx: BusinessContext, input: { itemId: string; text: string }): Promise<InboxReplyResult> {
-  if (isConversationalText(input.text)) {
-    const sent = await sendConversationMessage(ctx, { subject: { kind: "inbox_item", id: input.itemId }, text: input.text });
+export async function replyToInboxItem(ctx: BusinessContext, input: { itemId: string; text: string; clientMessageId?: string }): Promise<InboxReplyResult> {
+  // A note that asks for no decision (an Update, a Milestone, a follow-up) has nothing to decide: what the founder writes
+  // on it is a message to the agent (audit VRUI-X2).
+  const item = await ctx.rls((tx) => repos.inbox.get(tx, ctx.businessId, input.itemId));
+  if (isConversationalText(input.text) || (!decidesByText(item) && item.state !== "answered" && item.state !== "archived")) {
+    const sent = await sendConversationMessage(ctx, { subject: { kind: "inbox_item", id: input.itemId }, text: input.text, ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}) });
     return { route: "conversation", ...sent };
   }
   return { route: "decision", decision: await decideInboxItem(ctx, { itemId: input.itemId, freeText: input.text }) };
@@ -744,14 +874,17 @@ export function conceptPersona(conceptTitle: string): ConceptReply["persona"] {
  * One reply from the Research agent about a concept card, for `idea.ask` (audit-conversation §4 "Ask on a concept").
  * Same route, house rules and checks as the desk; the mock answers from the card's attributes, never "Mock …".
  */
-export async function replyAboutConcept(models: ModelClient, input: { concept: ConceptInput; question?: string; quickReplyId?: string; history?: ReadonlyArray<{ question: string; answer: string }>; userId?: string }): Promise<ConceptReply> {
+export async function replyAboutConcept(
+  models: ModelClient,
+  input: { concept: ConceptInput; question?: string; quickReplyId?: string; history?: ReadonlyArray<{ question: string; answer: string }> } & ({ userId: string; limits: RateLimitStore } | { userId?: undefined; limits?: undefined }),
+): Promise<ConceptReply> {
   const starters = conceptStarters();
   const chip = input.quickReplyId ? (starters.find((q) => q.id === input.quickReplyId) ?? null) : null;
   if (input.quickReplyId && !chip) throw new ValidationError("That quick reply is no longer available", { quickReplyId: input.quickReplyId });
   const text = chip?.say ?? input.question?.trim() ?? "";
   if (!text) throw new ValidationError("Ask a question or pick a quick reply");
   // The same per-person send limits as the desk (Ideation has no business yet).
-  if (input.userId) takeConversationAllowance({ userId: input.userId });
+  if (input.userId) await takeConversationAllowance(input.limits, { userId: input.userId });
   // Title, pitch and evidence travel as untrusted data; the house rules name a neutral principal, never the concept.
   const requestInput = conceptConversationInput({ appName: APP_NAME, concept: input.concept, text, quickReply: chip, history: input.history });
   const request = buildConversationRequest(requestInput);

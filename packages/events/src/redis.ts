@@ -122,6 +122,11 @@ export interface StreamRedis {
   exists(...keys: string[]): Promise<number>;
   quit(): Promise<unknown>;
 
+  /** EXPIRE key seconds: stream retention (keys.ts). Optional, so a client without it keeps streams until trimmed. */
+  expire?(key: string, seconds: number): Promise<number>;
+  /** XTRIM key MINID ~ threshold: drops entries older than `threshold` (a stream id) on a stream nothing writes to. */
+  xtrim?(key: string, strategy: "MINID", approximate: "~", threshold: string): Promise<number>;
+
   /** Blocking reads must not share a connection with other commands; consumers call this when present. */
   duplicate?(): StreamRedis;
 }

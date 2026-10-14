@@ -7,10 +7,12 @@
 import { agentsRepo } from "./agents";
 import { approvalsRepo } from "./approvals";
 import { auditRepo } from "./audit";
+import { autopilotRepo } from "./autopilot";
 import { businessesRepo } from "./businesses";
 import { campaignsRepo } from "./campaigns";
 import { capTableRepo } from "./capTable";
 import { channelsRepo } from "./channels";
+import { checkoutsRepo } from "./checkouts";
 import { credentialsRepo } from "./credentials";
 import { dashboardsRepo } from "./dashboards";
 import { departmentsRepo } from "./departments";
@@ -31,6 +33,7 @@ import { plansRepo } from "./plans";
 import { playbooksRepo } from "./playbooks";
 import { policiesRepo } from "./policies";
 import { productRepo } from "./product";
+import { recordingsRepo } from "./recordings";
 import { screensRepo } from "./screens";
 import { skillsRepo } from "./skills";
 import { socialRepo } from "./social";
@@ -40,9 +43,12 @@ import { usageRepo } from "./usage";
 import { workspacesRepo } from "./workspaces";
 import { conversationsRepo } from "./conversations";
 import { preferencesRepo } from "./preferences";
+import { portabilityRepo } from "./portability";
+import { tableViewsRepo } from "./table-views";
 
 export const repos = {
   businesses: businessesRepo,
+  autopilot: autopilotRepo,
   memberships: membershipsRepo,
   founders: foundersRepo,
   ideas: ideasRepo,
@@ -78,16 +84,21 @@ export const repos = {
   foundations: foundationsRepo,
   conversations: conversationsRepo,
   preferences: preferencesRepo,
+  tableViews: tableViewsRepo,
+  checkouts: checkoutsRepo,
+  portability: portabilityRepo,
+  recordings: recordingsRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
 
 export type { Executor, Page, PageInput, DateRange, DayRange } from "./_shared";
-export { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, encodeCursor, decodeCursor } from "./_shared";
+export { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, encodeCursor, decodeCursor, decodeTimeCursor, sqlState, uniqueViolation } from "./_shared";
 
 export * from "./agents";
 export * from "./approvals";
 export * from "./audit";
+export * from "./autopilot";
 export * from "./businesses";
 export * from "./campaigns";
 export * from "./capTable";
@@ -111,6 +122,7 @@ export * from "./plans";
 export * from "./playbooks";
 export * from "./policies";
 export * from "./product";
+export * from "./recordings";
 export * from "./screens";
 export * from "./skills";
 export * from "./social";
@@ -121,3 +133,6 @@ export * from "./workspaces";
 export * from "./logos";
 export * from "./conversations";
 export * from "./preferences";
+export * from "./table-views";
+export * from "./checkouts";
+export * from "./portability";

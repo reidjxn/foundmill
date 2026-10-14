@@ -7,35 +7,46 @@ import { useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widget
 import type { AuthorKind, SpecBlockRow } from "./types";
 import { pmTitle } from "./prosemirror";
 
-/** Default spec outline order (BUILD §11.5); unknown sections follow alphabetically. */
+/**
+ * Default spec outline order (BUILD §11.5), spelled as the archetype outlines (packages/agents archetypes.ts) store the
+ * sections. It only breaks ties: the outline follows the blocks' own positions first (see `groupBySection`).
+ */
 export const SECTION_ORDER = [
   "Vision",
   "Problem",
   "Customers",
   "Value proposition",
   "Features",
-  "Non-functional",
+  "Formulation / BOM",
+  "Manufacturing",
+  "Packaging",
+  "Compliance",
+  "Fulfillment",
+  "Non-functional requirements",
   "Data",
   "Integrations",
   "Pricing",
   "Metrics",
   "Risks",
-  "Formulation/BOM",
-  "Formulation",
-  "BOM",
-  "Manufacturing",
-  "Packaging",
-  "Compliance",
-  "Fulfillment",
 ] as const;
 
 const sectionRank = new Map<string, number>(SECTION_ORDER.map((s, i) => [s.toLowerCase(), i]));
-// Outlines written before the product read in US English still say "Fulfilment"; it keeps its place.
-sectionRank.set("fulfilment", sectionRank.get("fulfillment")!);
+// Older spellings keep their place: the BUILD outline's short forms and outlines written before the product read in
+// US English ("Fulfilment").
+for (const [alias, canonical] of [
+  ["non-functional", "non-functional requirements"],
+  ["formulation/bom", "formulation / bom"],
+  ["formulation", "formulation / bom"],
+  ["bom", "formulation / bom"],
+  ["fulfilment", "fulfillment"],
+] as const) {
+  sectionRank.set(alias, sectionRank.get(canonical)!);
+}
 
+/** Outline order of two section names when their blocks do not decide it: known sections first, then alphabetical. */
 export function compareSections(a: string, b: string): number {
-  const ra = sectionRank.get(a.toLowerCase());
-  const rb = sectionRank.get(b.toLowerCase());
+  const ra = sectionRank.get(a.trim().toLowerCase());
+  const rb = sectionRank.get(b.trim().toLowerCase());
   if (ra !== undefined && rb !== undefined) return ra - rb;
   if (ra !== undefined) return -1;
   if (rb !== undefined) return 1;
@@ -47,7 +58,14 @@ export interface SectionGroup {
   blocks: SpecBlockRow[];
 }
 
-/** Blocks grouped by section in outline order, blocks by position. */
+const byPosition = (x: SpecBlockRow, y: SpecBlockRow) => x.position - y.position || String(x.createdAt ?? "").localeCompare(String(y.createdAt ?? ""));
+
+/**
+ * Blocks grouped by section, blocks by position. Sections follow the outline as stored: the lowest block position in
+ * each (the archetype's outline is created in order, a new section is added after everything else), so a hardware
+ * business reads Features, Firmware and app, Formulation / BOM… and a content business keeps its own sections where
+ * the outline put them. `compareSections` only breaks ties (blocks that share a position).
+ */
 export function groupBySection(blocks: readonly SpecBlockRow[]): SectionGroup[] {
   const map = new Map<string, SpecBlockRow[]>();
   for (const b of blocks) {
@@ -56,8 +74,8 @@ export function groupBySection(blocks: readonly SpecBlockRow[]): SectionGroup[] 
     map.set(b.section, list);
   }
   return [...map.entries()]
-    .sort(([a], [b]) => compareSections(a, b))
-    .map(([section, list]) => ({ section, blocks: list.slice().sort((x, y) => x.position - y.position || String(x.createdAt ?? "").localeCompare(String(y.createdAt ?? ""))) }));
+    .map(([section, list]) => ({ section, blocks: list.slice().sort(byPosition) }))
+    .sort((a, b) => a.blocks[0]!.position - b.blocks[0]!.position || compareSections(a.section, b.section));
 }
 
 export function blockTitle(block: Pick<SpecBlockRow, "content" | "section">): string {

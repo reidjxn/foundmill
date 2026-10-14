@@ -8,11 +8,11 @@
  * bypasses RLS. `refreshDaily` is for the metrics consumer and the nightly schedule.
  */
 import { CHANNEL_KEYS, CONVERSION_KINDS, MATCHDAY_LEVELS, MILESTONE_KINDS, ValidationError, VISIBILITY, type ConversionKind } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
-  CONSENT_STATES, conversions, entities, journeyDaily, journeyDailyMv, journeys, milestones, touches, visitors,
-  type Conversion, type Journey, type JourneyDailyRow, type Milestone, type Touch, type Visitor,
+  ATTRIBUTION_MODELS, CHAPTER_MOODS, chapterTitles, CONSENT_STATES, conversions, entities, journeyDaily, journeyDailyMv, journeys, milestones, touches, visitors, XC_MODEL_SOURCES,
+  type ChapterTitle, type Conversion, type Journey, type JourneyDailyRow, type Milestone, type Touch, type Visitor,
 } from "../schema";
 import {
   bypassesRls, Currency, DateRange, DayRange, dayRange, Id, IsoDateInput, JsonArray, JsonObject, MinorAmount, one, PageInput, parseInput, rowsOf, timeKeyset, timeRange, toPage,
@@ -55,12 +55,16 @@ export const RecordConversionInput = z.object({
   currency: Currency.optional(),
   occurredAt: IsoDateInput.optional(),
   sourceEventId: Id.nullable().optional(),
+  /** False for a renewal or a repeat order: revenue, but not a new customer (0034). */
+  firstPayment: z.boolean().default(true),
 });
 export type RecordConversionInput = z.input<typeof RecordConversionInput>;
 
 export const ConversionListFilter = PageInput.extend(DateRange.shape).extend({
   kind: z.union([z.enum(CONVERSION_KINDS), z.array(z.enum(CONVERSION_KINDS))]).optional(),
   entityId: Id.optional(),
+  /** true: conversions that won a customer (repeat payments left out); false: repeat payments only; omitted: every row. */
+  firstPayment: z.boolean().optional(),
 });
 export type ConversionListFilter = z.input<typeof ConversionListFilter>;
 
@@ -72,6 +76,9 @@ export const CreateJourneyInput = z.object({
   commentary: JsonArray.default([]),
   agents: JsonArray.default([]),
   matchdayLevel: z.enum(MATCHDAY_LEVELS),
+  /** The models the builder used for `weights` and `xcSeries` (journey.get labels the record with them). */
+  attributionModel: z.enum(ATTRIBUTION_MODELS).nullable().optional(),
+  xcModelSource: z.enum(XC_MODEL_SOURCES).nullable().optional(),
 });
 export type CreateJourneyInput = z.input<typeof CreateJourneyInput>;
 
@@ -79,10 +86,20 @@ export const JourneyListFilter = PageInput.extend(DateRange.shape).extend({
   matchdayLevel: z.union([z.enum(MATCHDAY_LEVELS), z.array(z.enum(MATCHDAY_LEVELS))]).optional(),
   kind: z.enum(CONVERSION_KINDS).optional(),
   unviewedOnly: z.boolean().default(false),
+  /** `created` (default): the newest Customer Updates first; `converted`: the newest wins first, by when they happened. */
+  orderBy: z.enum(["created", "converted"]).default("created"),
 });
 export type JourneyListFilter = z.input<typeof JourneyListFilter>;
 
 export const DailyRangeFilter = DayRange.extend({ departmentId: Id.optional() });
+
+export const SetChapterTitleInput = z.object({
+  chapterId: z.string().regex(/^\d{4}-Q[1-4]$/),
+  title: z.string().trim().min(1).max(80),
+  subtitle: z.string().max(200).default(""),
+  mood: z.enum(CHAPTER_MOODS).default("steady"),
+});
+export type SetChapterTitleInput = z.input<typeof SetChapterTitleInput>;
 export type DailyRangeFilter = z.input<typeof DailyRangeFilter>;
 
 export const CreateMilestoneInput = z.object({
@@ -94,6 +111,15 @@ export const CreateMilestoneInput = z.object({
 });
 export type CreateMilestoneInput = z.input<typeof CreateMilestoneInput>;
 
+/** A `journey.list` row: the journey, its conversion and the consent behind it (see `consentForJourneys`). */
+export type JourneyListRow = Journey & { conversion: Conversion; consent: JourneyConsent; partialJourney: boolean };
+
+/** How many Customer Updates a business has and how many of them are partial (consent other than granted). */
+export interface JourneyConsentSummary {
+  journeys: number;
+  partialJourneys: number;
+}
+
 export interface JourneyDetail extends Journey {
   conversion: Conversion;
   touches: Touch[];
@@ -101,6 +127,29 @@ export interface JourneyDetail extends Journey {
 }
 
 const NIL_UUID = "00000000-0000-0000-0000-000000000000";
+export type JourneyConsent = (typeof CONSENT_STATES)[number];
+
+/**
+ * A journey's consent is that of the visitor on the earliest of its touches that came through a visitor (by time, then
+ * id), `unknown` when none did. A journey is partial unless that consent is `granted`: the builder weighted first-party
+ * touches only (`filterTouchesForConsent`). `journey.get`, `journey.list` and the Attribution summary all read it here,
+ * so a replay and the Attribution screen never disagree about which wins are partial.
+ */
+export function isPartialConsent(consent: JourneyConsent): boolean {
+  return consent !== "granted";
+}
+
+/** `journeys j` joined to the visitor `v` of its first visitor-bearing touch: one definition for every reader. */
+const journeyConsentFrom = sql`journeys j
+  left join lateral (
+    select t.visitor_id from touches t
+    where t.business_id = j.business_id and t.id = any(j.touch_ids) and t.visitor_id is not null
+    order by t.occurred_at asc, t.id asc
+    limit 1
+  ) first_touch on true
+  left join visitors v on v.business_id = j.business_id and v.id = first_touch.visitor_id`;
+const journeyConsent = sql`coalesce(v.consent_state, 'unknown')`;
+
 const toArray = <T>(v: T | T[] | undefined): T[] | undefined => (v === undefined ? undefined : Array.isArray(v) ? v : [v]);
 
 export const journeysRepo = {
@@ -211,13 +260,50 @@ export const journeysRepo = {
       .orderBy(asc(touches.occurredAt), asc(touches.id));
   },
 
+  /**
+   * Labeled paths for fitting the data-driven models (journeyBuild's Markov removal effect and xC model): the newest
+   * `maxTouches` touches since `since`, grouped per visitor (per entity when the touch has no visitor), each group
+   * marked converted when its person has a conversion. Oldest first inside a group.
+   */
+  async trainingPaths(db: Executor, businessId: string, options: { since?: Date; maxTouches?: number } = {}): Promise<Array<{ touches: Touch[]; converted: boolean }>> {
+    const rows = await db
+      .select()
+      .from(touches)
+      .where(and(eq(touches.businessId, businessId), options.since ? sql`${touches.occurredAt} >= ${options.since.toISOString()}::timestamptz` : undefined))
+      .orderBy(desc(touches.occurredAt), desc(touches.id))
+      .limit(Math.min(Math.max(1, options.maxTouches ?? 5000), 20_000));
+    const visitorIds = [...new Set(rows.map((t) => t.visitorId).filter((v): v is string => v !== null))];
+    const stitched = visitorIds.length
+      ? await db.select({ id: visitors.id, entityId: visitors.entityId }).from(visitors).where(and(eq(visitors.businessId, businessId), inArray(visitors.id, visitorIds)))
+      : [];
+    const entityOfVisitor = new Map(stitched.map((v) => [v.id, v.entityId] as const));
+    const entityOf = (t: Touch): string | null => t.entityId ?? (t.visitorId ? (entityOfVisitor.get(t.visitorId) ?? null) : null);
+    const entityIds = [...new Set(rows.map(entityOf).filter((e): e is string => e !== null))];
+    const convertedRows = entityIds.length
+      ? await db.selectDistinct({ entityId: conversions.entityId }).from(conversions).where(and(eq(conversions.businessId, businessId), inArray(conversions.entityId, entityIds)))
+      : [];
+    const converted = new Set(convertedRows.map((r) => r.entityId));
+    const groups = new Map<string, { touches: Touch[]; converted: boolean }>();
+    for (const t of rows) {
+      const key = t.visitorId ?? t.entityId;
+      if (!key) continue;
+      const group = groups.get(key) ?? { touches: [], converted: false };
+      group.touches.push(t);
+      const entityId = entityOf(t);
+      if (entityId && converted.has(entityId)) group.converted = true;
+      groups.set(key, group);
+    }
+    for (const g of groups.values()) g.touches.sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime() || a.id.localeCompare(b.id));
+    return [...groups.values()];
+  },
+
   // conversions -------------------------------------------------------------------------------------------------------
   async recordConversion(db: Executor, businessId: string, input: RecordConversionInput): Promise<Conversion> {
     const v = parseInput(RecordConversionInput, input, "conversion");
     return one(
       await db
         .insert(conversions)
-        .values({ businessId, entityId: v.entityId ?? null, kind: v.kind, amountMinor: v.amountMinor, ...(v.currency ? { currency: v.currency } : {}), occurredAt: v.occurredAt ?? new Date(), sourceEventId: v.sourceEventId ?? null })
+        .values({ businessId, entityId: v.entityId ?? null, kind: v.kind, amountMinor: v.amountMinor, ...(v.currency ? { currency: v.currency } : {}), occurredAt: v.occurredAt ?? new Date(), sourceEventId: v.sourceEventId ?? null, firstPayment: v.kind !== "payment" || v.firstPayment })
         .returning(),
       "conversion",
     );
@@ -257,6 +343,7 @@ export const journeysRepo = {
           eq(conversions.businessId, businessId),
           kinds?.length ? inArray(conversions.kind, kinds) : undefined,
           f.entityId ? eq(conversions.entityId, f.entityId) : undefined,
+          f.firstPayment === undefined ? undefined : eq(conversions.firstPayment, f.firstPayment),
           timeRange(conversions.occurredAt, f),
           ks.after(f.cursor),
         ),
@@ -266,36 +353,115 @@ export const journeysRepo = {
     return toPage(rows, f, ks);
   },
 
-  /** Counts per kind (the "nth customer" numbers the journey builder needs). */
+  /** Counts per kind (the "nth customer" numbers the journey builder needs): `payment` counts first payments only. */
   async countConversions(db: Executor, businessId: string, range: DateRange = {}): Promise<Record<ConversionKind, number>> {
     const r = parseInput(DateRange, range, "date range");
     const rows = await db
       .select({ kind: conversions.kind, n: sql<number>`count(*)::int` })
       .from(conversions)
-      .where(and(eq(conversions.businessId, businessId), timeRange(conversions.occurredAt, r)))
+      .where(and(eq(conversions.businessId, businessId), eq(conversions.firstPayment, true), timeRange(conversions.occurredAt, r)))
       .groupBy(conversions.kind);
     const out = Object.fromEntries(CONVERSION_KINDS.map((k) => [k, 0])) as Record<ConversionKind, number>;
     for (const row of rows) out[row.kind] = Number(row.n);
     return out;
   },
 
-  /** Which number this conversion is among its kind (1-based, by occurred_at then id). */
+  /**
+   * The paying customer base over a revenue window [from, to) (BUILD §11.8: payback divides the window's monthly gross
+   * profit by it): distinct customers who had paid by the window's end and had not churned before it began. A payment
+   * conversion is a customer's win (the first payment; renewals are not always recorded), so counting only the payers
+   * inside the window would count the newly acquired customers again. Churn comes from the CRM: a customer whose every
+   * `customer` role ended before the window (or is marked `churned` and was last changed before it) is out, unless they
+   * paid again inside the window. A payment with no linked customer counts once, and only inside the window (nothing
+   * says whether it repeats).
+   */
+  async countPayingCustomers(db: Executor, businessId: string, range: DateRange = {}): Promise<number> {
+    const r = parseInput(DateRange, range, "date range");
+    const to = r.to ?? new Date();
+    const from = r.from ?? to;
+    const role = (cond: SQL) => sql`exists (select 1 from entity_roles r where r.business_id = ${conversions.businessId} and r.entity_id = ${conversions.entityId} and r.role = 'customer' and ${cond})`;
+    // A role that was over before the window began; churned before = has such a role and no role that reached the window.
+    const overBefore = sql`coalesce((r.ended_at is not null and r.ended_at < ${from.toISOString()}) or (r.ended_at is null and r.stage = 'churned' and r.updated_at < ${from.toISOString()}), false)`;
+    const churnedBefore = sql`(${role(overBefore)} and not ${role(sql`not ${overBefore}`)})`;
+    const inWindow = sql`${conversions.occurredAt} >= ${from.toISOString()}`;
+    const rows = await db
+      .select({ n: sql<number>`count(distinct case when ${conversions.entityId} is not null then ${conversions.entityId}::text when ${inWindow} then ${conversions.id}::text end)::int` })
+      .from(conversions)
+      .where(and(eq(conversions.businessId, businessId), eq(conversions.kind, "payment"), timeRange(conversions.occurredAt, { to }), sql`(${conversions.entityId} is null or ${inWindow} or not ${churnedBefore})`));
+    return Number(rows[0]?.n ?? 0);
+  },
+
+  /**
+   * Amounts summed in SQL over a time range (half-open), one row per currency, largest total first: revenue is every
+   * payment (renewals and repeat orders included), never one page of rows, and never two currencies added together.
+   */
+  async sumConversions(db: Executor, businessId: string, filter: DateRange & { kind?: ConversionKind } = {}): Promise<{ currency: string; amountMinor: number; count: number }[]> {
+    const f = parseInput(DateRange.extend({ kind: z.enum(CONVERSION_KINDS).optional() }), filter, "conversion sum");
+    const total = sql<string>`coalesce(sum(${conversions.amountMinor}), 0)`;
+    const rows = await db
+      .select({ currency: conversions.currency, amountMinor: total, count: sql<number>`count(*)::int` })
+      .from(conversions)
+      .where(and(eq(conversions.businessId, businessId), f.kind ? eq(conversions.kind, f.kind) : undefined, timeRange(conversions.occurredAt, f)))
+      .groupBy(conversions.currency)
+      .orderBy(desc(total), asc(conversions.currency));
+    return rows.map((r) => ({ currency: r.currency, amountMinor: Number(r.amountMinor), count: Number(r.count) }));
+  },
+
+  /** Which number this conversion is among its kind (1-based, by occurred_at then id); payments count first payments only. */
   async nthOfKind(db: Executor, businessId: string, conversionId: string): Promise<number> {
     const c = await journeysRepo.getConversion(db, businessId, conversionId);
     const rows = await db
       .select({ n: sql<number>`count(*)::int` })
       .from(conversions)
-      .where(and(eq(conversions.businessId, businessId), eq(conversions.kind, c.kind), sql`(${conversions.occurredAt}, ${conversions.id}) <= (${c.occurredAt.toISOString()}::timestamptz, ${c.id}::uuid)`));
-    return Number(rows[0]?.n ?? 1);
+      .where(and(eq(conversions.businessId, businessId), eq(conversions.kind, c.kind), eq(conversions.firstPayment, true), sql`(${conversions.occurredAt}, ${conversions.id}) <= (${c.occurredAt.toISOString()}::timestamptz, ${c.id}::uuid)`));
+    return Math.max(1, Number(rows[0]?.n ?? 1));
   },
 
-  /** 75th percentile of payment amounts (the volume rule for a full Match Day, BUILD §11.4). Null without payments. */
+  /** Whether the entity already paid (any payment strictly earlier than `before`): a payment now is a repeat, not a new customer. */
+  async hasPaidBefore(db: Executor, businessId: string, entityId: string, before: Date): Promise<boolean> {
+    const rows = await db
+      .select({ id: conversions.id })
+      .from(conversions)
+      .where(and(eq(conversions.businessId, businessId), eq(conversions.entityId, entityId), eq(conversions.kind, "payment"), sql`${conversions.occurredAt} < ${before.toISOString()}::timestamptz`))
+      .limit(1);
+    return rows.length > 0;
+  },
+
+  /** 75th percentile of first-payment amounts (the volume rule for a full Match Day, BUILD §11.4). Null without payments. */
   async paymentPercentile75(db: Executor, businessId: string): Promise<number | null> {
     const rows = rowsOf<{ p75: string | number | null }>(
-      await db.execute(sql`select percentile_cont(0.75) within group (order by amount_minor) as p75 from conversions where business_id = ${businessId}::uuid and kind = 'payment'`),
+      await db.execute(sql`select percentile_cont(0.75) within group (order by amount_minor) as p75 from conversions where business_id = ${businessId}::uuid and kind = 'payment' and first_payment`),
     );
     const p = rows[0]?.p75;
     return p === null || p === undefined ? null : Number(p);
+  },
+
+  /**
+   * The trophy counters just before a payment (`src/milestones.ts`): first payments, first payments at or above
+   * `enterpriseMinMinor`, and the revenue in `currency` since `mrrSince`, all over the payments strictly earlier than
+   * this one (by occurred_at, then id).
+   */
+  async paymentCountersBefore(db: Executor, businessId: string, input: { conversionId: string; occurredAt: Date; currency: string; mrrSince: Date; enterpriseMinMinor: number }): Promise<{ customers: number; enterpriseContracts: number; revenueMinor: number }> {
+    const earlier = sql`(${conversions.occurredAt}, ${conversions.id}) < (${input.occurredAt.toISOString()}::timestamptz, ${input.conversionId}::uuid)`;
+    const rows = await db
+      .select({
+        customers: sql<number>`count(*) filter (where ${conversions.firstPayment})::int`,
+        enterprise: sql<number>`count(*) filter (where ${conversions.firstPayment} and ${conversions.amountMinor} >= ${input.enterpriseMinMinor})::int`,
+        revenue: sql<string>`coalesce(sum(${conversions.amountMinor}) filter (where ${conversions.currency} = ${input.currency} and ${conversions.occurredAt} > ${input.mrrSince.toISOString()}::timestamptz), 0)`,
+      })
+      .from(conversions)
+      .where(and(eq(conversions.businessId, businessId), eq(conversions.kind, "payment"), earlier));
+    const r = rows[0];
+    return { customers: Number(r?.customers ?? 0), enterpriseContracts: Number(r?.enterprise ?? 0), revenueMinor: Number(r?.revenue ?? 0) };
+  },
+
+  /** Every payment up to `until`, oldest first (the milestone catch-up replays them; one row per payment, a few columns). */
+  async paymentsUntil(db: Executor, businessId: string, until: Date): Promise<Array<Pick<Conversion, "id" | "entityId" | "amountMinor" | "currency" | "occurredAt" | "firstPayment">>> {
+    return db
+      .select({ id: conversions.id, entityId: conversions.entityId, amountMinor: conversions.amountMinor, currency: conversions.currency, occurredAt: conversions.occurredAt, firstPayment: conversions.firstPayment })
+      .from(conversions)
+      .where(and(eq(conversions.businessId, businessId), eq(conversions.kind, "payment"), sql`${conversions.occurredAt} <= ${until.toISOString()}::timestamptz`))
+      .orderBy(asc(conversions.occurredAt), asc(conversions.id));
   },
 
   // journeys ----------------------------------------------------------------------------------------------------------
@@ -309,10 +475,10 @@ export const journeysRepo = {
     return one(
       await db
         .insert(journeys)
-        .values({ businessId, conversionId: v.conversionId, touchIds: v.touchIds, weights: v.weights, xcSeries: v.xcSeries, commentary: v.commentary, agents: v.agents, matchdayLevel: v.matchdayLevel })
+        .values({ businessId, conversionId: v.conversionId, touchIds: v.touchIds, weights: v.weights, xcSeries: v.xcSeries, commentary: v.commentary, agents: v.agents, matchdayLevel: v.matchdayLevel, attributionModel: v.attributionModel ?? null, xcModelSource: v.xcModelSource ?? null })
         .onConflictDoUpdate({
           target: journeys.conversionId,
-          set: { touchIds: v.touchIds, weights: v.weights, xcSeries: v.xcSeries, commentary: v.commentary, agents: v.agents, matchdayLevel: v.matchdayLevel },
+          set: { touchIds: v.touchIds, weights: v.weights, xcSeries: v.xcSeries, commentary: v.commentary, agents: v.agents, matchdayLevel: v.matchdayLevel, attributionModel: v.attributionModel ?? null, xcModelSource: v.xcModelSource ?? null },
           setWhere: eq(journeys.businessId, businessId),
         })
         .returning(),
@@ -337,11 +503,17 @@ export const journeysRepo = {
     return rows[0] ?? null;
   },
 
-  /** Match Days newest first, with the conversion joined for the list row (kind, amount, when). */
-  async list(db: Executor, businessId: string, filter: JourneyListFilter = {}): Promise<Page<Journey & { conversion: Conversion }>> {
+  /**
+   * Customer Updates newest first (by creation, or by when the win happened with `orderBy: "converted"`), with the
+   * conversion joined for the list row (kind, amount, when) and the consent behind each one (`partialJourney`).
+   */
+  async list(db: Executor, businessId: string, filter: JourneyListFilter = {}): Promise<Page<JourneyListRow>> {
     const f = parseInput(JourneyListFilter, filter, "journey filter");
     type Row = Journey & { conversion: Conversion };
-    const ks = timeKeyset<Row>(journeys.createdAt, journeys.id, (r) => ({ at: r.createdAt, id: r.id }));
+    const ks =
+      f.orderBy === "converted"
+        ? timeKeyset<Row>(conversions.occurredAt, journeys.id, (r) => ({ at: r.conversion.occurredAt, id: r.id }))
+        : timeKeyset<Row>(journeys.createdAt, journeys.id, (r) => ({ at: r.createdAt, id: r.id }));
     const levels = toArray(f.matchdayLevel);
     const rows = await db
       .select({ journey: journeys, conversion: conversions })
@@ -360,11 +532,42 @@ export const journeysRepo = {
       )
       .orderBy(...ks.orderBy)
       .limit(f.limit + 1);
-    return toPage(
+    const page = toPage(
       rows.map((r) => ({ ...r.journey, conversion: r.conversion })),
       f,
       ks,
     );
+    const consent = await journeysRepo.consentForJourneys(db, businessId, page.items.map((j) => j.id));
+    return {
+      ...page,
+      items: page.items.map((j) => {
+        const c = consent.get(j.id) ?? "unknown";
+        return { ...j, consent: c, partialJourney: isPartialConsent(c) };
+      }),
+    };
+  },
+
+  /** The consent behind each of these journeys (`isPartialConsent` says which are partial), in one query. */
+  async consentForJourneys(db: Executor, businessId: string, journeyIds: readonly string[]): Promise<Map<string, JourneyConsent>> {
+    const ids = [...new Set(journeyIds)];
+    if (ids.length === 0) return new Map();
+    const rows = rowsOf<{ journey_id: string; consent: JourneyConsent }>(
+      await db.execute(
+        sql`select j.id as journey_id, ${journeyConsent} as consent from ${journeyConsentFrom} where j.business_id = ${businessId}::uuid and j.id in (${sql.join(
+          ids.map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )})`,
+      ),
+    );
+    return new Map(rows.map((r) => [String(r.journey_id), r.consent] as const));
+  },
+
+  /** Every Customer Update of the business and how many are partial: the Attribution screen's count, not one page's. */
+  async consentSummary(db: Executor, businessId: string): Promise<JourneyConsentSummary> {
+    const rows = rowsOf<{ journeys: number | string; partial: number | string }>(
+      await db.execute(sql`select count(*)::int as journeys, (count(*) filter (where ${journeyConsent} <> 'granted'))::int as partial from ${journeyConsentFrom} where j.business_id = ${businessId}::uuid`),
+    );
+    return { journeys: Number(rows[0]?.journeys ?? 0), partialJourneys: Number(rows[0]?.partial ?? 0) };
   },
 
   async markViewed(db: Executor, businessId: string, journeyId: string): Promise<Journey> {
@@ -422,6 +625,53 @@ export const journeysRepo = {
     return [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
   },
 
+  /**
+   * Business-wide totals per calendar quarter (every department folded together), summed in SQL: one row per quarter
+   * keyed by its first day, for chapter summaries over a business's whole life whatever range a screen shows.
+   */
+  async quarterTotals(db: Executor, businessId: string, range: DayRange = {}): Promise<Omit<JourneyDailyRow, "departmentId">[]> {
+    const f = parseInput(DayRange, range, "quarter range");
+    const relation = (await bypassesRls(db)) ? journeyDailyMv : journeyDaily;
+    const quarter = sql<string>`to_char(date_trunc('quarter', ${relation.day}), 'YYYY-MM-DD')`;
+    const rows = await db
+      .select({
+        day: quarter,
+        agentHours: sql<string>`coalesce(sum(${relation.agentHours}), 0)::numeric(14,3)::text`,
+        tasksDone: sql<number>`coalesce(sum(${relation.tasksDone}), 0)::int`,
+        spendMinor: sql<string>`coalesce(sum(${relation.spendMinor}), 0)::bigint`,
+        revenueMinor: sql<string>`coalesce(sum(${relation.revenueMinor}), 0)::bigint`,
+        signups: sql<number>`coalesce(sum(${relation.signups}), 0)::int`,
+        activations: sql<number>`coalesce(sum(${relation.activations}), 0)::int`,
+        payments: sql<number>`coalesce(sum(${relation.payments}), 0)::int`,
+        decisions: sql<number>`coalesce(sum(${relation.decisions}), 0)::int`,
+      })
+      .from(relation)
+      .where(and(eq(relation.businessId, businessId), dayRange(relation.day, f)))
+      .groupBy(quarter)
+      .orderBy(quarter);
+    return rows.map((r) => ({ businessId, day: r.day, agentHours: String(r.agentHours), tasksDone: Number(r.tasksDone), spendMinor: Number(r.spendMinor), revenueMinor: Number(r.revenueMinor), signups: Number(r.signups), activations: Number(r.activations), payments: Number(r.payments), decisions: Number(r.decisions) }));
+  },
+
+  // chapter titles (0044) ---------------------------------------------------------------------------------------------
+  /** The stored (Opus) title of each ended quarter, by chapter id ("2026-Q3"). */
+  async chapterTitles(db: Executor, businessId: string): Promise<Record<string, string>> {
+    const rows = await db.select({ chapterId: chapterTitles.chapterId, title: chapterTitles.title }).from(chapterTitles).where(eq(chapterTitles.businessId, businessId));
+    return Object.fromEntries(rows.map((r) => [r.chapterId, r.title]));
+  },
+
+  /** Stores (or replaces) a quarter's title: the composer's, once the quarter has ended (service role). */
+  async setChapterTitle(db: Executor, businessId: string, input: SetChapterTitleInput): Promise<ChapterTitle> {
+    const v = parseInput(SetChapterTitleInput, input, "chapter title");
+    return one(
+      await db
+        .insert(chapterTitles)
+        .values({ businessId, chapterId: v.chapterId, title: v.title, subtitle: v.subtitle, mood: v.mood })
+        .onConflictDoUpdate({ target: [chapterTitles.businessId, chapterTitles.chapterId], set: { title: v.title, subtitle: v.subtitle, mood: v.mood } })
+        .returning(),
+      "chapter title",
+    );
+  },
+
   /** Rebuilds the matview (service role; `refresh_journey_daily()` is security definer). */
   async refreshDaily(db: Executor): Promise<void> {
     await db.execute(sql`select refresh_journey_daily()`);
@@ -443,6 +693,29 @@ export const journeysRepo = {
       await db.insert(milestones).values({ businessId, kind: v.kind, label: v.label, achievedAt: v.achievedAt ?? new Date(), ref: v.ref ?? null, visibility: v.visibility }).returning(),
       "milestone",
     );
+  },
+
+  /**
+   * Awards a trophy milestone (`ref.trophyKey` required) once per business: a second award of the same key, from any
+   * writer, is a no-op (0028 unique index) and returns null.
+   */
+  async awardMilestone(db: Executor, businessId: string, input: CreateMilestoneInput & { ref: Record<string, unknown> & { trophyKey: string } }): Promise<Milestone | null> {
+    const v = parseInput(CreateMilestoneInput, input, "milestone");
+    const rows = await db
+      .insert(milestones)
+      .values({ businessId, kind: v.kind, label: v.label, achievedAt: v.achievedAt ?? new Date(), ref: v.ref ?? null, visibility: v.visibility })
+      .onConflictDoNothing()
+      .returning();
+    return rows[0] ?? null;
+  },
+
+  /** Trophy keys this business already holds (archived ones included: a trophy is never awarded twice). */
+  async awardedTrophyKeys(db: Executor, businessId: string): Promise<string[]> {
+    const rows = await db
+      .select({ key: sql<string>`${milestones.ref} ->> 'trophyKey'` })
+      .from(milestones)
+      .where(and(eq(milestones.businessId, businessId), sql`${milestones.ref} ->> 'trophyKey' is not null`));
+    return rows.map((r) => r.key);
   },
 
   async archiveMilestone(db: Executor, businessId: string, milestoneId: string): Promise<Milestone> {

@@ -1,4 +1,4 @@
-import { entities, repos } from "@foundmill/db";
+import { conversions, entities, repos } from "@foundmill/db";
 import { eq } from "drizzle-orm";
 import { Journey } from "@foundmill/journey";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -71,6 +71,73 @@ describe("journey.get returns the full Journey record (BUILD §11.4, AC-11.4.3)"
     await expect(hz.caller({ userId: hz.B.ownerId }).journey.get({ businessId, journeyId: row.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(hz.caller({ userId: hz.B.ownerId }).journey.get({ businessId: hz.B.businessId, journeyId: row.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
+
+  it("labels the record with the models the builder stored, not with what the conversion count implies", async () => {
+    const { businessId, entityId } = hz.A;
+    const conversion = await repos.journeys.recordConversion(hz.db, businessId, { entityId, kind: "payment", amountMinor: 2900, currency: "EUR", occurredAt: new Date("2026-09-05T10:00:00.000Z") });
+    // A business with a handful of conversions whose record was nonetheless built with the trained models (stored on the row).
+    const row = await repos.journeys.create(hz.db, businessId, { conversionId: conversion.id, matchdayLevel: "cup", attributionModel: "data_driven_markov", xcModelSource: "trained" });
+    const { journey } = await hz.caller({ userId: hz.A.ownerId }).journey.get({ businessId, journeyId: row.id });
+    expect(journey.attributionModel).toBe("data_driven_markov");
+    expect(journey.xcModelSource).toBe("trained");
+  });
+
+  it("journey.list and journey.attribution read consent the way journey.get does; the model in use counts every labeled conversion", async () => {
+    const { businessId, entityId } = hz.A;
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    // A win through a visitor who denied consent, after the win of the first test (its visitor has withdrawn by now).
+    const denied = await repos.journeys.upsertVisitor(hz.db, businessId, { anonId: "attribution-denied", entityId, consentState: "denied" });
+    const touch = await repos.journeys.recordTouch(hz.db, businessId, { visitorId: denied.id, entityId, occurredAt: new Date("2026-09-10T09:00:00.000Z"), channelKey: "social" });
+    const win = await repos.journeys.recordConversion(hz.db, businessId, { entityId, kind: "activation", occurredAt: new Date("2026-09-10T10:00:00.000Z") });
+    const deniedRow = await repos.journeys.create(hz.db, businessId, { conversionId: win.id, touchIds: [touch.id], matchdayLevel: "friendly" });
+
+    const list = await owner.journey.list({ businessId, limit: 50 });
+    for (const row of list.items) {
+      const { journey } = await owner.journey.get({ businessId, journeyId: row.id });
+      expect(row.partialJourney, `journey ${row.id}`).toBe(journey.partialJourney);
+      expect(row.consent).toBe(journey.consent);
+    }
+    expect(list.items.find((j) => j.id === deniedRow.id)?.partialJourney).toBe(true);
+
+    const counts = await repos.journeys.countConversions(hz.db, businessId);
+    const labeled = Object.values(counts).reduce((s, n) => s + n, 0);
+    const before = await owner.journey.attribution({ businessId });
+    expect(before).toMatchObject({ conversionCount: labeled, byKind: counts, attributionModel: "position_based_40_20_40", threshold: 200, remaining: 200 - labeled, journeys: list.items.length, partialJourneys: list.items.filter((j) => j.partialJourney).length });
+
+    // Past 200 labeled conversions the model is data-driven, though only a handful of them have a Customer Update (the
+    // screen used to count payments among the newest 200 journeys and claimed position-based for good).
+    await hz.db.insert(conversions).values(Array.from({ length: 200 }, (_, i) => ({ businessId, entityId, kind: "signup" as const, occurredAt: new Date(Date.parse("2026-08-01T00:00:00.000Z") + i * 60_000) })));
+    const after = await owner.journey.attribution({ businessId });
+    expect(after).toMatchObject({ conversionCount: labeled + 200, attributionModel: "data_driven_markov", remaining: 0, journeys: before.journeys });
+    // A record built before the models were stored is labeled with the same count, so the replay agrees with the screen.
+    const { journey } = await owner.journey.get({ businessId, journeyId: deniedRow.id });
+    expect(journey.attributionModel).toBe(after.attributionModel);
+
+    // Links that only know the conversion resolve through journey.forConversion, whatever the age of the win.
+    expect(await owner.journey.forConversion({ businessId, conversionId: win.id })).toEqual({ journeyId: deniedRow.id });
+    const bare = await repos.journeys.recordConversion(hz.db, businessId, { entityId, kind: "signup", occurredAt: new Date("2025-01-01T00:00:00.000Z") });
+    expect(await owner.journey.forConversion({ businessId, conversionId: bare.id })).toEqual({ journeyId: null });
+    // Tenancy: another business never resolves A's conversion, and A's numbers never include B's.
+    expect(await hz.caller({ userId: hz.B.ownerId }).journey.forConversion({ businessId: hz.B.businessId, conversionId: win.id })).toEqual({ journeyId: null });
+    expect((await hz.caller({ userId: hz.B.ownerId }).journey.attribution({ businessId: hz.B.businessId })).conversionCount).toBeLessThan(200);
+  });
+
+  it("reads the model of a row stored without one from its weights, not from the business's conversion count (audit #330)", async () => {
+    const { businessId, entityId } = hz.A;
+    const base = Date.parse("2026-09-02T10:00:00.000Z");
+    const a = await repos.journeys.recordTouch(hz.db, businessId, { entityId, occurredAt: new Date(base), channelKey: "seo", kind: "visit" });
+    const b = await repos.journeys.recordTouch(hz.db, businessId, { entityId, occurredAt: new Date(base + 3_600_000), channelKey: "email_automation", kind: "email_click" });
+    const c = await repos.journeys.recordTouch(hz.db, businessId, { entityId, occurredAt: new Date(base + 2 * 3_600_000), channelKey: "social", kind: "visit" });
+    const conversion = await repos.journeys.recordConversion(hz.db, businessId, { entityId, kind: "payment", amountMinor: 1900, currency: "EUR", occurredAt: new Date(base + 3 * 3_600_000) });
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const modelOf = async (weights: Record<string, number>) => {
+      const row = await repos.journeys.create(hz.db, businessId, { conversionId: conversion.id, touchIds: [a.id, b.id, c.id], weights, matchdayLevel: "league" });
+      return (await owner.journey.get({ businessId, journeyId: row.id })).journey.attributionModel;
+    };
+    // The 40 / 20 / 40 split is position-based whatever the business's count of wins is today; any other split is data-driven.
+    expect(await modelOf({ [a.id]: 0.4, [b.id]: 0.2, [c.id]: 0.4 })).toBe("position_based_40_20_40");
+    expect(await modelOf({ [a.id]: 0.1, [b.id]: 0.6, [c.id]: 0.3 })).toBe("data_driven_markov");
+  });
 });
 
 describe("journey.ribbon rows (the Ribbon's daily data)", () => {
@@ -111,6 +178,35 @@ describe("journey.ribbon rows (the Ribbon's daily data)", () => {
     expect(byId.get(anonymous.id)).toMatchObject({ entityName: null, journeyId: null });
     const ribbon = await owner.journey.ribbon({ businessId, from: "2026-08-01", to: "2026-08-31" });
     expect(ribbon.conversions.find((c) => c.id === paid.id)).toMatchObject({ entityName: entity!.name, journeyId: update.id });
+  });
+
+  it("names the wins the volume rule rolled into the day's results table: signups past the 100th of the kind (audit #342)", async () => {
+    const { businessId } = hz.A;
+    const early = Array.from({ length: 101 }, (_, i) => ({ businessId, kind: "signup" as const, amountMinor: 0, currency: "EUR", occurredAt: new Date(Date.UTC(2026, 5, 1, 0, i)) }));
+    await hz.db.insert(conversions).values(early);
+    const first = await repos.journeys.recordConversion(hz.db, businessId, { entityId: null, kind: "signup", amountMinor: 0, currency: "EUR", occurredAt: new Date("2026-06-20T08:00:00.000Z") });
+    const second = await repos.journeys.recordConversion(hz.db, businessId, { entityId: null, kind: "signup", amountMinor: 0, currency: "EUR", occurredAt: new Date("2026-06-20T09:00:00.000Z") });
+    const day = await hz.caller({ userId: hz.A.ownerId }).journey.roundup({ businessId, day: "2026-06-20" });
+    // Both are past the 100th signup, so neither earns a full update: both are in the round-up.
+    expect(day.conversions.map((c) => c.id).sort()).toEqual([first.id, second.id].sort());
+    expect([...day.rolledUp].sort()).toEqual([first.id, second.id].sort());
+    // Of the first day's 101 signups, only the 101st is past the hundredth.
+    const earlyDay = await hz.caller({ userId: hz.A.ownerId }).journey.roundup({ businessId, day: "2026-06-01" });
+    expect(earlyDay.conversions.length).toBe(101);
+    expect(earlyDay.rolledUp.length).toBe(1);
+  });
+
+  it("a renewal is revenue on the day's row but not a customer marker or a paying customer", async () => {
+    const { businessId, entityId } = hz.A;
+    const renewal = await repos.journeys.recordConversion(hz.db, businessId, { entityId, kind: "payment", amountMinor: 4200, currency: "EUR", occurredAt: new Date("2026-07-20T09:00:00.000Z"), firstPayment: false });
+    await repos.journeys.refreshDaily(hz.db);
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const res = await owner.journey.ribbon({ businessId, from: "2026-07-20", to: "2026-07-20" });
+    expect(res.rows.find((r) => r.day === "2026-07-20" && r.departmentId === null)).toMatchObject({ revenueMinor: 4200, payments: 0 });
+    expect(res.conversions.map((c) => c.id)).not.toContain(renewal.id);
+    expect(res.conversionCount).toBe(0);
+    const day = await owner.journey.roundup({ businessId, day: "2026-07-20" });
+    expect(day.conversions).toEqual([]);
   });
 });
 

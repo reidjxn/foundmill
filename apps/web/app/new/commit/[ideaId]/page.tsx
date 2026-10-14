@@ -1,10 +1,11 @@
 /** /new/commit/[ideaId] — the Commit screen: name, logo and brand colours, modes, archetype, "Take charge" (BUILD §11.1, AC-11.1.6/7). */
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
+import { DEFAULT_BUSINESS_CURRENCY } from "@foundmill/shared/constants";
 import { Suspense } from "react";
 import { CommitScreen } from "@/components/new/commit/CommitScreen";
 import { loadStudioViewer } from "@/components/new/viewer.server";
-import { UnreachablePage } from "@/components/shell/UnreachablePage";
+import { ApiErrorPage } from "@/components/shell/ApiErrorPage";
 
 export const metadata: Metadata = { title: "Commit" };
 export const dynamic = "force-dynamic";
@@ -16,12 +17,13 @@ export default async function CommitPage({ params }: { params: Promise<{ ideaId:
   if (!UUID_RE.test(ideaId)) notFound();
   const result = await loadStudioViewer();
   if (result.kind === "signed_out") redirect(`/login?next=${encodeURIComponent(`/new/commit/${ideaId}`)}`);
-  if (result.kind === "unreachable") return <UnreachablePage message={result.message} />;
+  if (result.kind === "unreachable") return <ApiErrorPage error={result.error} email={result.email} />;
   const { viewer } = result;
   if (!viewer.complete) redirect("/onboarding");
+  // The Commit screen offers the founder's currency; commit stores it on the business (0025). A complete viewer has a profile.
   return (
     <Suspense fallback={null}>
-      <CommitScreen ideaId={ideaId} viewer={{ email: viewer.email }} currency={viewer.profile?.currency ?? "EUR"} />
+      <CommitScreen ideaId={ideaId} viewer={{ email: viewer.email }} currency={viewer.profile?.currency ?? DEFAULT_BUSINESS_CURRENCY} />
     </Suspense>
   );
 }

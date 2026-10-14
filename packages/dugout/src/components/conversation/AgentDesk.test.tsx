@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { AgentDesk, type AgentDeskProps } from "./AgentDesk";
 import {
@@ -193,6 +194,31 @@ describe("AgentDesk", () => {
     expect(onHandOff).toHaveBeenCalledWith("m4");
   });
 
+  it("a staged plan stays reviewable until it is confirmed (after a reload, from another device)", async () => {
+    const user = userEvent.setup();
+    const onHandOff = vi.fn();
+    const last = {
+      ...JUNO_HANDOFF[3]!,
+      planId: "plan-1",
+      quickReplies: [
+        { id: "thanks", label: "Thanks" },
+        { id: "whats_next", label: "What happens after?" },
+      ],
+    };
+    const { unmount } = desk({ messages: [...JUNO_HANDOFF.slice(0, 3), last], onHandOff });
+    let strip = screen.getByTestId("desk-handoff");
+    expect(strip.textContent).toContain("Plan staged. Nothing runs until you confirm it.");
+    await user.click(within(strip).getByRole("button", { name: "Review the plan" }));
+    expect(onHandOff).toHaveBeenCalledWith("m4");
+    unmount();
+
+    desk({ messages: [...JUNO_HANDOFF.slice(0, 3), { ...last, planConfirmed: true }], onHandOff });
+    strip = screen.getByTestId("desk-handoff");
+    expect(strip.textContent).toContain("Plan confirmed. The team is on it.");
+    expect(strip.getAttribute("data-confirmed")).toBe("true");
+    expect(within(strip).queryByRole("button")).toBeNull();
+  });
+
   it("never offers the hand-off action when the founder cannot act", () => {
     const last = {
       ...JUNO_HANDOFF[3]!,
@@ -295,6 +321,29 @@ describe("AgentDesk", () => {
     expect(within(dialog).queryByRole("textbox")).toBeNull();
     await user.keyboard("{Escape}");
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("sheet: closing gives focus back to the button that opened it", async () => {
+    const user = userEvent.setup();
+    function Opener() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Ask Juno
+          </button>
+          <AgentDesk persona={JUNO} messages={JUNO_MESSAGES} label="Conversation with Juno" variant="sheet" open={open} onOpenChange={setOpen} onQuickReply={vi.fn()} onSend={vi.fn()} />
+        </>
+      );
+    }
+    render(<Opener />);
+    const opener = screen.getByRole("button", { name: "Ask Juno" });
+    opener.focus();
+    await user.keyboard("{Enter}");
+    await screen.findByRole("dialog", { name: "Conversation with Juno" });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(opener));
   });
 });
 

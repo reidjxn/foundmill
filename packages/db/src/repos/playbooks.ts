@@ -2,8 +2,12 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { playbooks, type Playbook } from "../schema";
-import { defined, Id, one, parseInput, type Executor, patchSchema } from "./_shared";
+import { changes, Id, one, parseInput, type Executor, patchSchema } from "./_shared";
 
+/**
+ * What a row may hold. The playbook contract itself lives in packages/shared (`CompiledPlaybook`): the plan action and the
+ * playbooks api validate it before a row is written; the repository stays loose so rows written under older shapes read back.
+ */
 export const CompiledPlaybook = z.object({
   trigger: z.record(z.string(), z.unknown()),
   steps: z.array(z.record(z.string(), z.unknown())),
@@ -60,7 +64,7 @@ export const playbooksRepo = {
 
   async update(db: Executor, businessId: string, playbookId: string, input: UpdatePlaybookInput): Promise<Playbook> {
     const v = parseInput(UpdatePlaybookInput, input, "playbook update");
-    return one(await db.update(playbooks).set(defined(v)).where(scoped(businessId, playbookId)).returning(), "playbook", playbookId);
+    return one(await db.update(playbooks).set(changes(v, "playbook")).where(scoped(businessId, playbookId)).returning(), "playbook", playbookId);
   },
 
   async setEnabled(db: Executor, businessId: string, playbookId: string, enabled: boolean): Promise<Playbook> {

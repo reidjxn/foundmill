@@ -17,7 +17,7 @@ describeConnectorContract("cloudflare_dns (mock)", {
     { tool: "check_email_auth", args: { zoneId: NW }, check: (r) => expect(r.data).toMatchObject({ ready: true, spf: { includesSendgrid: true }, dkim: { selectors: ["s1", "s2"] }, dmarc: { policy: "quarantine" } }) },
     { tool: "check_email_auth", args: { zoneId: LG }, check: (r) => expect(r.data).toMatchObject({ ready: false, spf: { found: true, includesSendgrid: false }, dkim: { found: false }, dmarc: { found: false } }) },
     { tool: "create_record", args: { zoneId: LG, type: "TXT", name: "_dmarc.ledgerly.app", content: "v=DMARC1; p=none" }, check: (r) => expect(r.data).toMatchObject({ type: "TXT", name: "_dmarc.ledgerly.app", ttl: 1 }) },
-    { tool: "delete_record", args: { zoneId: NW, recordId: "ffffffffffffffffffffffffffffffff" }, expectOk: false, check: (r) => expect(r.error?.code).toBe("not_found") },
+    { tool: "delete_record", args: { zoneId: NW, recordId: "ffffffffffffffffffffffffffffffff", type: "A", recordName: "northwindskincare.com" }, expectOk: false, check: (r) => expect(r.error?.code).toBe("not_found") },
   ],
 });
 
@@ -28,11 +28,17 @@ describe("cloudflare mock record lifecycle", () => {
     const created = await mock.callTool("create_record", { zoneId: LG, type: "CNAME", name: "s1._domainkey.ledgerly.app", content: "s1.domainkey.u1.wl.sendgrid.net" }, ctx);
     expect(created.ok).toBe(true);
     const id = (created.data as { id: string }).id;
-    const updated = await mock.callTool("update_record", { zoneId: LG, recordId: id, ttl: 300 }, ctx);
+    const target = { type: "CNAME", recordName: "s1._domainkey.ledgerly.app" };
+    // A change must name the record it changes; a wrong type or name is refused, and nothing changes.
+    const wrong = await mock.callTool("update_record", { zoneId: LG, recordId: id, type: "MX", recordName: "ledgerly.app", ttl: 60 }, ctx);
+    expect(wrong.ok).toBe(false);
+    expect(wrong.error?.message).toContain("not a MX record");
+    expect((await mock.callTool("delete_record", { zoneId: LG, recordId: id, type: "A", recordName: "S1._domainkey.ledgerly.app" }, ctx)).ok).toBe(false);
+    const updated = await mock.callTool("update_record", { zoneId: LG, recordId: id, ...target, ttl: 300 }, ctx);
     expect(updated.data).toMatchObject({ id, ttl: 300 });
     const auth = await mock.callTool("check_email_auth", { zoneId: LG }, ctx);
     expect(auth.data).toMatchObject({ dkim: { found: true, selectors: ["s1"] } });
-    const deleted = await mock.callTool("delete_record", { zoneId: LG, recordId: id }, ctx);
+    const deleted = await mock.callTool("delete_record", { zoneId: LG, recordId: id, type: "CNAME", recordName: "S1._DOMAINKEY.ledgerly.app" }, ctx);
     expect(deleted.data).toEqual({ deleted: true, recordId: id });
     expect(((await mock.callTool("list_records", { zoneId: LG, type: "CNAME" }, ctx)).data as { items: unknown[] }).items).toHaveLength(0);
   });

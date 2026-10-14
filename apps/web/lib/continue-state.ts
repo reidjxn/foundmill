@@ -10,7 +10,7 @@
  * - A won customer waits for its Customer Update ("Go to Journey") before the next cycle.
  */
 import type { ContinueState } from "@foundmill/dugout";
-import type { InboxItemType, InboxState } from "@foundmill/shared";
+import { vacationUntilLabel, type InboxItemType, type InboxState } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 
 export interface ContinueInboxItem {
@@ -47,10 +47,36 @@ export function respondHref(businessId: string, items: readonly ContinueInboxIte
   return first ? routes.inbox(businessId, first.id) : `${routes.inbox(businessId)}?tab=respond`;
 }
 
+/**
+ * What a vacation lasts until, as words that follow "until" ("you return", "MRR hits 10k"): the top bar puts "until" in
+ * front, so a stored "until I return" or a typed "until the launch ships" must not say it twice (audit VOL-X2).
+ */
+export function untilWords(text: string | null | undefined): string {
+  const t = (text ?? "").trim().replace(/^until\s+/i, "");
+  return !t || /^i return$/i.test(t) ? "you return" : t;
+}
+
 function holidayUntilLabel(h: NonNullable<ContinueInputs["holiday"]>): string | undefined {
   if (h.untilAt) return undefined;
-  if (typeof h.untilCondition === "string") return h.untilCondition;
-  return h.untilCondition?.text ?? "until I return";
+  // The bar adds "until" itself, so the founder's sentence loses its own ("Until until I return", audit VOL-X2).
+  return vacationUntilLabel(typeof h.untilCondition === "string" ? h.untilCondition : h.untilCondition?.text);
+}
+
+/**
+ * The "While you were away" note a finished vacation wrote (`holiday.ended` from the orchestrator carries its id; the
+ * API's own `holiday.ended`, sent the moment the founder comes back, carries none yet). Null for anything else.
+ */
+export function awayReportId(event: { type: string; payload?: Record<string, unknown> | null }): string | null {
+  if (event.type !== "holiday.ended") return null;
+  const id = event.payload?.reportInboxItemId;
+  return typeof id === "string" && id ? id : null;
+}
+
+/** Where "Go to Journey" goes: the won customer's Customer Update when the server named its journey, else its note. */
+export function journeyHref(businessId: string, state: { kind: string; journeyId?: string | null; itemId?: string | null } | null | undefined, fallbackItemId?: string | null): string {
+  if (state?.kind === "matchday" && state.journeyId) return routes.journey(businessId, state.journeyId);
+  const itemId = (state?.kind === "matchday" ? state.itemId : null) ?? fallbackItemId ?? null;
+  return itemId ? routes.inbox(businessId, itemId) : routes.inbox(businessId);
 }
 
 export function computeContinueState(input: ContinueInputs): ContinueState {

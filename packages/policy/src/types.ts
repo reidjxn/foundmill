@@ -48,6 +48,8 @@ export const ToolCtx = z.object({
   finance: z.boolean().default(false),
   /** True for tools that create or amend a contract (assisted mode asks; signing is hard-gated anyway). */
   contract: z.boolean().default(false),
+  /** True when this call changes a security setting (BUILD §2.2). Decided by the gateway from the call's arguments, not by the agent. */
+  securitySettings: z.boolean().default(false),
 });
 export type ToolCtx = z.infer<typeof ToolCtx>;
 export type ToolCtxInput = z.input<typeof ToolCtx>;

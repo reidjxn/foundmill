@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { COMMENTARY_TONES } from "@foundmill/models";
 import { PLAN_ACTION_TYPES } from "@foundmill/shared";
 import { PROMPTS, PROMPT_LIST, getPrompt } from "../prompts";
 import { PromptRenderError, definePrompt, extractPlaceholders, formatVariable } from "../prompts/template";
@@ -57,6 +58,16 @@ describe("prompt templates (BUILD §12)", () => {
     expect(cos).toContain("Respect concurrency 16, budget remaining £1,200.00 (Estimate), and rate-limit capacity 40 req/min.");
   });
 
+  it("the journey commentary prompt describes the enforced output: null for the two unanchored lines, a headline, and every tone (audit #332)", () => {
+    const text = getPrompt("journey_commentary").render({ business_name: "Ledgerly", matchday_level: "standard", customer_term: "client", touch_count: 3 });
+    expect(text).toContain('"touch_index": number | null');
+    expect(text).toContain("never a number");
+    expect(text).toContain("headline");
+    for (const tone of COMMENTARY_TONES) expect(text).toContain(tone);
+    // The tone that the replay highlights is defined as the win moment.
+    expect(text).toMatch(/goal \(the win moment/);
+  });
+
   it("the Inbox Composer and quarantined reader are routed to their locked models", () => {
     expect(getPrompt("inbox_composer").route).toBe("inboxComposer");
     expect(ROUTE_DEFAULT_MODEL.inboxComposer).toBe("opus");
@@ -93,6 +104,23 @@ describe("prompt templates (BUILD §12)", () => {
     expect(() => getPrompt("chief_of_staff_planner").render({ business_name: "L", max_agents: 0, budget: "b", capacity: "c" })).toThrow(/max_agents/);
   });
 
+  it("inserts values verbatim: a value with {braces} never counts as an unresolved placeholder (audit CML-06)", () => {
+    const rules = getPrompt("club_rules").render({ business_name: "Acme {Labs}", APP_NAME: "Foundmill" });
+    expect(rules).toContain("Acme {Labs}");
+    const composer = getPrompt("inbox_composer").render({ business_name: "Curly {Labs}", from_agent_name: "Nadia {CoS}", from_agent_role: "{role} {{x}}" });
+    expect(composer).toContain("Curly {Labs}");
+    expect(composer).toContain("Nadia {CoS}");
+    expect(composer).toContain("{role} {{x}}");
+    const p = definePrompt({ key: "verbatim", version: 1, route: "worker", description: "x", variables: z.object({ a: z.string(), b: z.string() }), text: "{{literal}} {a} then {b}" });
+    expect(p.render({ a: "{b}", b: "$& {{a}}" })).toBe("{literal} {b} then $& {{a}}");
+  });
+
+  it("refuses a placeholder left without a value, checked on the template", () => {
+    const p = definePrompt({ key: "opt", version: 1, route: "worker", description: "x", variables: z.object({ a: z.string().optional() }), text: "Hello {a}" });
+    expect(() => p.render({})).toThrow(/missing variables: a/);
+    expect(p.render({ a: "you" })).toBe("Hello you");
+  });
+
   it("definePrompt rejects undeclared and unused variables and supports escaped braces", () => {
     expect(() => definePrompt({ key: "bad", version: 1, route: "worker", description: "x", variables: z.object({ a: z.string() }), text: "{a} and {b}" })).toThrow(/undeclared placeholders: b/);
     expect(() => definePrompt({ key: "bad2", version: 1, route: "worker", description: "x", variables: z.object({ a: z.string(), c: z.string() }), text: "{a}" })).toThrow(/never appear/);
@@ -117,7 +145,8 @@ describe("prompt templates (BUILD §12)", () => {
       const vars = samples[p.key] ?? sampleFor(p.variables);
       const out = p.render(vars as never);
       expect(out.length, p.key).toBeGreaterThan(20);
-      expect(out, p.key).not.toMatch(/\{[A-Za-z_][A-Za-z0-9_]*\}/);
+      // Merge tags the text asks the model to write ({{first_name}}, SendGrid's {{{unsubscribe}}}) are literal output.
+      expect(out.replace(/\{\{\{?[A-Za-z_][A-Za-z0-9_]*\}\}\}?/g, ""), p.key).not.toMatch(/\{[A-Za-z_][A-Za-z0-9_]*\}/);
     }
   });
 });

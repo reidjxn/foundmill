@@ -7,6 +7,7 @@
 import { ArrowRight, SearchX, Sparkles, UserRound, type LucideIcon } from "lucide-react";
 import { Button, EmptyState } from "@foundmill/dugout";
 import { BrandFrame } from "./BrandFrame";
+import { SignOutButton } from "./SignOutButton";
 
 export const BRAND_PAGE_ICONS = { user: UserRound, sparkles: Sparkles, "search-x": SearchX } satisfies Record<string, LucideIcon>;
 export type BrandPageIcon = keyof typeof BRAND_PAGE_ICONS;
@@ -24,7 +25,7 @@ export interface BrandPageProps {
 
 export function BrandPage({ title, heading, description, icon, action = { label: "Go to your business", href: "/" } }: BrandPageProps) {
   return (
-    <BrandFrame title={title} footer={<a className="text-link hover:underline" href="/auth/signout">Sign out</a>}>
+    <BrandFrame title={title} footer={<SignOutButton />}>
       <div data-testid="coming-soon">
         <EmptyState
           icon={BRAND_PAGE_ICONS[icon]}

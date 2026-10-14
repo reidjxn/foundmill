@@ -52,6 +52,12 @@ export const QuietCards: Story = {
         <DepartmentCard department={{ ...quietBase, id: "q-clear", name: "Legal", dept: "dept-7", quiet: { kind: "clear", label: "All clear", text: "Nothing in progress, and nothing waiting on you." } }} className="h-full" onOpen={() => {}} />
         <DepartmentCard department={{ ...quietBase, id: "q-loading", name: "Development", dept: "dept-2", nowLoading: true }} className="h-full" onOpen={() => {}} />
       </div>
+      {/* An agent that needs the founder (never "All clear" beside a Down or Failing pill), and work that failed to load. */}
+      <div className="grid h-[368px] grid-cols-3 gap-gutter">
+        <DepartmentCard department={{ ...quietBase, id: "q-down", name: "Development", dept: "dept-2", health: "bad", healthWord: "Down", quiet: { kind: "attention", label: "Needs you", text: "Data Engineer is down", detail: "Back once reconnected" } }} className="h-full" onOpen={() => {}} onOpenQuiet={() => {}} />
+        <DepartmentCard department={{ ...quietBase, id: "q-failed", name: "Product", dept: "dept-1", quiet: { kind: "attention", label: "Last task failed", text: "Draft the pricing page copy", detail: "Oct 11" } }} className="h-full" onOpen={() => {}} onOpenQuiet={() => {}} />
+        <DepartmentCard department={{ ...quietBase, id: "q-error", name: "Retail Partnerships", dept: "dept-3", quiet: { kind: "error", label: "Couldn't load", text: "What this department is working on could not be loaded.", detail: "Retry" }, nextUp: "Couldn't load" }} className="h-full" onOpen={() => {}} onOpenQuiet={() => {}} />
+      </div>
     </div>
   ),
 };
@@ -81,7 +87,7 @@ export const Milestones: Story = {
 const digestView = () => {
   const day = data.conversions.filter((c) => c.kind === "payment").slice(-1)[0]!.occurredAt.slice(0, 10);
   const summary = summariseDay(day, { index, departments: RIBBON_DEPARTMENTS, conversions: data.conversions, milestones: data.milestones, chapters: data.chapters, today: data.today });
-  return <DayDigest summary={summary} highlights={["Scout sent the wholesale sheet to [[ent:0f7c2d1e-4b1a-4c8e-9a3b-2d5f6e7a8b9c|Nordic Beauty AB]] after the call", "Pixel merged the bundle picker; checkout tests green", "Ledger flagged the Tink consent expiring in 9 days"]} entityKinds={ENTITY_KINDS} onOpenJourney={() => {}} onOpenEntity={() => {}} onPrevDay={() => {}} onNextDay={() => {}} onClose={() => {}} />;
+  return <DayDigest summary={summary} currency="EUR" highlights={["Scout sent the wholesale sheet to [[ent:0f7c2d1e-4b1a-4c8e-9a3b-2d5f6e7a8b9c|Nordic Beauty AB]] after the call", "Pixel merged the bundle picker; checkout tests green", "Ledger flagged the Tink consent expiring in 9 days"]} entityKinds={ENTITY_KINDS} onOpenJourney={() => {}} onOpenEntity={() => {}} onPrevDay={() => {}} onNextDay={() => {}} onClose={() => {}} />;
 };
 
 export const Digest: Story = {

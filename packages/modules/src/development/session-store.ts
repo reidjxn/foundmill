@@ -5,6 +5,7 @@
  */
 import { AGENT_SESSION_EVENT_KINDS, emptySession, type AgentSessionEvent, type AgentTileSession, type SessionSeed, type TileAgent } from "@foundmill/dugout";
 import type { TaskPhase, TaskStatus } from "@foundmill/shared";
+import { MODEL_COST_CURRENCY } from "@foundmill/shared/constants";
 import { agentBranch, progressValue, toIso } from "./shared";
 import type { SessionRow, TaskRow } from "./types";
 
@@ -45,8 +46,6 @@ export interface TileSeedInput {
   session: SessionRow | null | undefined;
   agent: TileAgent;
   taskHref?: string;
-  /** The business's currency: sessions carry no currency of their own, so their cost is shown in it. */
-  currency?: string;
 }
 
 /** The longest brief a tile shows (about three lines of a tile's empty state). */
@@ -73,9 +72,11 @@ export function goalLine(goalMd: string | null | undefined): string | undefined 
 }
 
 /** The static facts a tile needs, from the task row, its open session (if any) and the agent row. */
-export function seedFromRows({ task, session, agent, taskHref, currency: businessCurrency }: TileSeedInput): SessionSeed {
+export function seedFromRows({ task, session, agent, taskHref }: TileSeedInput): SessionSeed {
   const tokens = session ? (session.tokensIn ?? 0) + (session.tokensOut ?? 0) : 0;
-  const currency = session?.currency ?? businessCurrency ?? "EUR";
+  // A session's cost is a model cost, in the pricing currency (its row says which), never the business's money; a tile
+  // without a session shows its zero the same way, so the figure does not change currency when the session opens.
+  const currency = session?.currency ?? MODEL_COST_CURRENCY;
   return {
     id: session?.id ?? placeholderSessionId(task.id),
     agent: session?.modelKey ? { ...agent, model: session.modelKey } : agent,
@@ -91,19 +92,23 @@ const PHASE_FOR_STATUS: Partial<Record<TaskStatus, TaskPhase>> = { review: "revi
 
 /**
  * A tile before any stream event: the seed plus what the task row already knows (status, stored progress, phase,
- * ETA, end time), so a tile is never blank while the stream warms up or when the session has already ended.
+ * ETA, end time), so a tile is never blank while the stream warms up or when the session has already ended. Its clock
+ * stops when the work stopped: a finished task at its end, a session that has ended at its end, and a task that is not
+ * running and has no open session (blocked, paused or in review once its session ended) when the task last moved.
  */
 export function baseSession(seed: SessionSeed, task: TaskRow, session?: SessionRow | null): AgentTileSession {
   const s = emptySession(seed);
   const phase = task.phase ?? PHASE_FOR_STATUS[task.status] ?? (task.status === "running" || task.status === "paused" || task.status === "blocked" ? "implementing" : "planning");
-  const endedAt = session?.endedAt ? toIso(session.endedAt) : task.endedAt ? toIso(task.endedAt) : null;
+  const finished = task.status === "done" || task.status === "failed" || task.status === "stopped";
+  const sessionOver = session ? !!session.endedAt : task.status !== "running";
+  const endedAt = session?.endedAt ? toIso(session.endedAt) : task.endedAt ? toIso(task.endedAt) : !session && task.updatedAt ? toIso(task.updatedAt) : null;
   return {
     ...s,
     status: task.status,
     phase,
     progress: progressValue(task.progress),
     etaAt: task.eta ? toIso(task.eta) : null,
-    endedAt: task.status === "done" || task.status === "failed" || task.status === "stopped" ? endedAt : null,
+    endedAt: finished || sessionOver ? endedAt : null,
   };
 }
 
@@ -205,8 +210,8 @@ export class SessionThrottle {
   }
 }
 
-/** Largest squad the founder's plan and key support (BUILD §11.6: tier limit, default 16, max 64). */
+/** The plan tier's concurrent-agent limit, enforced at dispatch and on a task started by hand (BUILD §10.5, §11.6; max 64). */
 export function concurrencyHint(limit: number, running: number): string {
   const n = Math.max(1, Math.min(64, Math.round(limit)));
-  return `${running} of ${n} running · ${n} is the largest team your key supports`;
+  return `${running} of ${n} running · your plan runs ${n} ${n === 1 ? "agent" : "agents"} at once`;
 }

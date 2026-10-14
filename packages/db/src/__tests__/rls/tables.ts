@@ -105,6 +105,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
     return { conversionId, matchdayLevel: "friendly" };
   }),
   spec("milestones", s.milestones, "member", () => ({ kind: "customer", label: uniq("milestone") })),
+  // 0044 chapter titles (written by the composer with the service role)
+  spec("chapter_titles", s.chapterTitles, "service", () => ({ chapterId: `${1000 + (counter() % 9000)}-Q${1 + (counter() % 4)}`, title: uniq("Chapter") })),
   // 0008 crm
   spec("entities", s.entities, "member", () => ({ kind: "person", displayName: uniq("Person"), identifiers: { email: `${uniq("p")}@x.test` } })),
   spec("entity_roles", s.entityRoles, "member", (f) => ({ entityId: f.entityId, role: "lead", stage: "new" })),
@@ -122,6 +124,10 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("cap_table_entries", s.capTableEntries, "admin", (f) => ({ holderEntityId: f.entityId, securityId: f.securityId, quantity: "1000" })),
   spec("usage_ledger", s.usageLedger, "service", (f) => ({ agentId: f.agentId, sessionId: f.sessionId, kind: "tokens", quantity: 500, costMinor: 3 })),
   spec("credit_balances", s.creditBalances, "service", () => ({ period: uniq("2026-02"), balanceMinor: 10000 })),
+  // 0033 credit top-ups through Stripe Checkout (written by the api and the ingest webhook with the service role)
+  spec("billing_checkouts", s.billingCheckouts, "service", () => ({ mode: "mock", amountMinor: 5000, currency: "USD" })),
+  // 0053 saved session recordings (the orchestrator writes them with the service role when a session finishes)
+  spec("session_recordings", s.sessionRecordings, "service", (f) => ({ sessionId: f.sessionId, events: [{ id: "1-0", event: { kind: "note", at: "2026-10-12T09:00:00.000Z", level: "info", source: "agent", text: "Started" } }], eventCount: 1, bytes: 90 })),
   // 0010 legal
   spec("legal_entities", s.legalEntities, "admin", () => ({ jurisdiction: "GB", entityType: "ltd", legalName: uniq("Legal") })),
   spec("incorporations", s.incorporations, "admin", (f) => ({ legalEntityId: f.legalEntityId, route: "kit" })),
@@ -158,6 +164,8 @@ export const NON_TENANT_TABLES = [
   "idea_versions",
   "idea_comparisons",
   "dashboard_layouts",
+  "saved_table_views",
+  "inbox_item_reads",
   "skill_definitions",
   "skill_tests",
   "suppression_list",
@@ -168,6 +176,8 @@ export const NON_TENANT_TABLES = [
   "communities",
   "community_members",
   "posts",
+  "post_reports",
+  "network_attestations",
   "leaderboards",
   "leaderboard_entries",
   "negotiation_threads",

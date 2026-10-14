@@ -5,9 +5,10 @@
 import { mockIntegrationRecord, type ToolContext } from "@foundmill/connectors";
 import { HOUSE_STYLE } from "@foundmill/agents";
 import { CreateContractInput, UpdateContractInput, repos } from "@foundmill/db";
-import { INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
+import { CurrencyCode, INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
+import { modelLimited } from "../services/model-limits";
 import { Id, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 
 const read = sectionRead("legal");
@@ -72,13 +73,14 @@ const addr = (v: unknown): Record<string, string> => (v && typeof v === "object"
 
 export const legalRouter = router({
   /** Jurisdiction recommender (AC-11.11.1): two-jurisdiction headline, up to 6 cards with a date-checked stamp. */
-  recommend: write.input(z.object({ fundraising: z.enum(["none", "angels", "vc"]).default("none"), coFounders: z.number().int().min(0).max(10).default(0) })).mutation(async ({ ctx, input }) => {
+  recommend: write.input(z.object({ fundraising: z.enum(["none", "angels", "vc"]).default("none"), coFounders: z.number().int().min(0).max(10).default(0) })).use(modelLimited("recommend")).mutation(async ({ ctx, input }) => {
     const profile = await repos.founders.get(ctx.db, ctx.userId);
     const result = await ctx.models.complete({
       route: "departmentLead",
       schema: JurisdictionRecommendation,
-      system: `You are the Legal agent. Recommend two jurisdictions for this founder and business with up to six cards. Information only, never legal or tax advice. ${HOUSE_STYLE}`,
-      messages: [{ role: "user", content: "```json\n" + JSON.stringify({ founder: profile ? { citizenship: profile.citizenship, residence: profile.residence, target_markets: profile.targetMarkets, budget_minor: profile.budgetMinor } : null, business: { archetype: ctx.business.archetype, name: ctx.business.name }, fundraising: input.fundraising, co_founders: input.coFounders }) + "\n```" }],
+      // The cards' costs are shown in the business's own currency (0025), so they are asked for in it.
+      system: `You are the Legal agent. Recommend two jurisdictions for this founder and business with up to six cards. Give every cost and the minimum capital in minor units of the business's currency (business.currency), converted where the register charges in another. Information only, never legal or tax advice. ${HOUSE_STYLE}`,
+      messages: [{ role: "user", content: "```json\n" + JSON.stringify({ founder: profile ? { citizenship: profile.citizenship, residence: profile.residence, target_markets: profile.targetMarkets, budget_minor: profile.budgetMinor, budget_currency: profile.currency } : null, business: { archetype: ctx.business.archetype, name: ctx.business.name, currency: ctx.business.currency }, fundraising: input.fundraising, co_founders: input.coFounders }) + "\n```" }],
       attribution: { businessId: ctx.businessId, kind: "jurisdiction_recommender" },
     });
     await ctx.rls((tx) => audit(tx, ctx, { action: "legal.recommend", target: { kind: "business", id: ctx.businessId }, details: { headline: result.json.headline, costMinor: result.cost.costMinorInt } }));
@@ -107,11 +109,17 @@ export const legalRouter = router({
         return { incorporation, entity, history: all };
       }),
     ),
-    /** The founder clicked submit in the supervised session (the only way past awaiting_founder, AC-11.11.4). */
+    /**
+     * The founder clicked submit in the supervised session (the only way past awaiting_founder, AC-11.11.4). The
+     * incorporation is loaded under this business first (audit ARB-01): one from another business is "not found" and no
+     * workflow hears anything; one not waiting for the founder is refused. The workflow id comes from that row.
+     */
     founderSubmitted: admin.input(z.object({ incorporationId: Id })).mutation(async ({ ctx, input }) => {
-      const workflow = await ctx.temporal.signal(workflowIds.incorporation(input.incorporationId), "founderSubmit", { by: ctx.userId, at: new Date().toISOString() });
+      const pending = await ctx.rls((tx) => repos.legal.getIncorporation(tx, ctx.businessId, input.incorporationId));
+      if (pending.status !== "awaiting_founder") throw new ValidationError(`The incorporation is ${pending.status.replace(/_/g, " ")}, not waiting for your submission`, { incorporationId: pending.id, status: pending.status });
+      const workflow = await ctx.temporal.signal(workflowIds.incorporation(pending.id), "founderSubmit", { kind: "submitted", by: ctx.userId, at: new Date().toISOString() });
       const incorporation = await ctx.rls(async (tx) => {
-        const i = await repos.legal.updateIncorporation(tx, ctx.businessId, input.incorporationId, { status: "submitted" });
+        const i = await repos.legal.updateIncorporation(tx, ctx.businessId, pending.id, { status: "submitted" });
         await audit(tx, ctx, { action: "legal.incorporate.founder_submitted", target: { kind: "incorporation", id: i.id }, details: { queued: workflow.queued } });
         return i;
       });
@@ -121,7 +129,7 @@ export const legalRouter = router({
 
   import: router({
     /** Registry lookup through the connectors (mock fixtures in mock mode). Third-party content is untrusted. */
-    lookup: read.input(LookupInput).mutation(async ({ ctx, input }): Promise<LookupResult> => {
+    lookup: read.input(LookupInput).use(modelLimited("lookup")).mutation(async ({ ctx, input }): Promise<LookupResult> => {
       const checkedAt = new Date().toISOString();
       if (input.country === "gb") {
         const company = await call<Record<string, unknown>>(ctx, "companies_house", "get_company", { companyNumber: input.regNo });
@@ -164,7 +172,8 @@ export const legalRouter = router({
           registeredAddress: z.record(z.string(), z.string()).default({}),
           officers: z.array(z.object({ name: z.string().min(1), role: z.string().min(1), appointedOn: z.string().nullable().default(null) })).default([]),
           shareCapitalMinor: z.number().int().nonnegative().nullable().default(null),
-          currency: z.string().length(3).default("EUR"),
+          /** The register's own currency for the share capital; absent: the business's currency (0025). */
+          currency: CurrencyCode.optional(),
           deadlines: z.array(z.object({ kind: z.string().min(1), dueAt: z.string() })).default([]),
         }),
       )

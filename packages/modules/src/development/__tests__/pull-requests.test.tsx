@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { PullRequestsScreen, previewFromEvent, toMergedRows, toOpenRows } from "../PullRequestsScreen";
 import { BUSINESS_ID, createFakeSource, renderScreen } from "./fake-source";
-import { TASK_BUNDLE, TASK_DONE, TASK_INDEX, agents, agentsResponse, emptyPrsResponse, mergedPrs, openPrs, prsResponse } from "./fixtures";
+import { AGENT_PIKE, TASK_BUNDLE, TASK_DONE, TASK_INDEX, agents, agentsResponse, emptyPrsResponse, mergedPrs, openPrs, prsResponse } from "./fixtures";
 
 const props = { businessId: BUSINESS_ID, departmentId: "d-dev" };
 const responses = () => ({ "dev.prs.list": prsResponse, "team.agents.list": agentsResponse });
@@ -18,7 +18,8 @@ describe("PullRequestsScreen", () => {
     expect(within(open).getByText("In review")).toBeTruthy();
     expect(within(open).getByText("In merge queue")).toBeTruthy();
     expect(within(open).getByText(`agent/${TASK_INDEX}`)).toBeTruthy();
-    expect(within(open).getAllByText("Deploying…")).toHaveLength(2);
+    expect(within(open).getAllByText("Awaiting deployment")).toHaveLength(2);
+    expect(within(open).queryByText("Deploying…")).toBeNull();
     expect(within(open).getByRole("link", { name: "Pike" })).toBeTruthy();
     expect(screen.getByTestId("pr-counts").textContent).toBe("1 in review · 1 in the merge queue");
 
@@ -35,7 +36,7 @@ describe("PullRequestsScreen", () => {
     const open = await screen.findByRole("grid", { name: "Open pull requests" });
     act(() => fake.emit({ type: "deploy.succeeded", payload: { taskId: TASK_BUNDLE, environment: "preview", provider: "vercel", url: "https://bundle-picker.preview.example", commitSha: "deadbeef0", branch: `agent/${TASK_BUNDLE}` } }));
     await waitFor(() => expect(within(open).getByRole("link", { name: /Open preview/ }).getAttribute("href")).toBe("https://bundle-picker.preview.example"));
-    expect(within(open).getAllByText("Deploying…")).toHaveLength(1);
+    expect(within(open).getAllByText("Awaiting deployment")).toHaveLength(1);
     act(() => fake.emit({ type: "pr.merged", payload: { taskId: TASK_BUNDLE } }));
     expect(fake.refetches["dev.prs.list"]).toBe(1);
   });
@@ -54,6 +55,17 @@ describe("PullRequestsScreen", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Open in Claude Code" }));
     expect(await screen.findByRole("dialog", { name: "Open in Claude Code" })).toBeTruthy();
     expect(fake.queried.get("dev.tasks.openInClaudeCode")).toEqual({ taskId: TASK_INDEX });
+  });
+
+  it("lists merges the merge queue landed without a GitHub event, with no invented line counts (TPD-14)", async () => {
+    const queued = { eventId: null, source: "merge_queue" as const, occurredAt: "2026-10-07T09:00:00Z", taskId: TASK_BUNDLE, title: "Gift wrap option at checkout", branch: `agent/${TASK_BUNDLE}`, mergedBy: { kind: "agent", id: AGENT_PIKE } };
+    renderScreen(createFakeSource({ responses: { ...responses(), "dev.prs.list": { open: [], merged: [queued, ...mergedPrs] } } }), <PullRequestsScreen {...props} />);
+    const merged = await screen.findByRole("grid", { name: "Merged pull requests" });
+    const row = within(merged).getByText("Gift wrap option at checkout").closest("[role='row']") as HTMLElement;
+    expect(within(row).getByText("Pike")).toBeTruthy();
+    expect(within(row).queryByText(/^\+/)).toBeNull();
+    expect(within(row).getAllByText("—").length).toBeGreaterThan(0);
+    expect(screen.getByText("2 merged")).toBeTruthy();
   });
 
   it("shows the empty, loading and error states", async () => {
@@ -82,6 +94,16 @@ describe("row builders", () => {
     const rows = toMergedRows([...mergedPrs, { eventId: "e2", occurredAt: "2026-10-05T10:00:00Z", taskId: TASK_DONE, mergedBy: { kind: "user", id: "u-1" } }]);
     expect(rows[0]).toMatchObject({ prLabel: "#41", mergedByName: "Pike (integration agent)" });
     expect(rows[1]).toMatchObject({ prLabel: "e2", mergedByName: "A staff member" });
+  });
+  it("toMergedRows names the agent behind a merge the queue landed itself (TPD-14)", () => {
+    const rows = toMergedRows([{ eventId: null, source: "merge_queue", occurredAt: "2026-10-05T10:00:00Z", taskId: TASK_DONE, title: "Sitemap", branch: `agent/${TASK_DONE}`, mergedBy: { kind: "agent", id: AGENT_PIKE } }], new Map(agents.map((a) => [a.id, a])));
+    expect(rows[0]).toMatchObject({ id: `task:${TASK_DONE}`, prLabel: "—", mergedByName: "Pike", title: "Sitemap" });
+    expect(toMergedRows([{ eventId: null, source: "merge_queue", occurredAt: "2026-10-05T10:00:00Z", taskId: TASK_DONE, mergedBy: { kind: "agent", id: "unknown" } }])[0]!.mergedByName).toBe("An agent");
+  });
+  it("toOpenRows never lists a non-code task as a pull request (TPD-13)", () => {
+    const rows = toOpenRows([...openPrs, { taskId: "f-1", title: "Q3 investor update", status: "review", branch: "agent/f-1", agentId: null, kind: "finance" }], new Map(), new Map());
+    expect(rows.map((r) => r.title)).not.toContain("Q3 investor update");
+    expect(rows).toHaveLength(openPrs.length);
   });
   it("previewFromEvent only reads preview deploys", () => {
     expect(previewFromEvent({ type: "deploy.succeeded", payload: { environment: "production", url: "https://x" } })).toBeNull();

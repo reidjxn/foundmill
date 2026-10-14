@@ -30,12 +30,14 @@ import {
   type RowAction,
   type SavedView,
 } from "@foundmill/dugout";
-import { CHANNEL_LINES, type ChannelKey } from "@foundmill/shared/constants";
-import { addDays, dayKey } from "@foundmill/widgets/shared/time";
+import { CHANNEL_LINES, CHANNEL_WINDOW_DAYS, type ChannelKey } from "@foundmill/shared/constants";
+import { addDays } from "@foundmill/widgets/shared/time";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
-import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
+import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import type { ModuleScreenProps } from "../registry";
-import { buildChannelViews, channelStatus, type ChannelView } from "./channel-data";
+import { buildChannelViews, channelStatus, ENGINE_STARTING_HINT, resumeStatus, type ChannelView } from "./channel-data";
 import { METRICS_WINDOW_DAYS } from "./FormationScreen";
 import { localScores, RESCORE_DEBOUNCE_MS, useDebouncedRun } from "./rescore";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
@@ -106,13 +108,13 @@ export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColum
       size: sizes.line,
       meta: { filter: "select", filterOptions: CHANNEL_LINES.map((l) => ({ value: LINE_LABELS[l], label: LINE_LABELS[l] })) },
     },
-    { id: "fit", accessorFn: (r) => r.fit, header: "Fit", size: sizes.fit, cell: ({ row }) => (row.original.persisted ? <RatingFigure value={row.original.fit} /> : <span className="text-secondary">—</span>), meta: { numeric: true } },
+    { id: "fit", accessorFn: (r) => r.fit, header: "Fit", size: sizes.fit, cell: ({ row }) => (row.original.scored ? <RatingFigure value={row.original.fit} /> : <span className="text-secondary">—</span>), meta: { numeric: true } },
     {
       id: "stars",
       accessorFn: (r) => r.stars,
       header: "Potential",
       size: sizes.stars,
-      cell: ({ row }) => (row.original.persisted ? <StarRating value={row.original.stars} label={`${row.original.meta?.label ?? row.original.channelKey} potential`} showValue /> : <span className="text-secondary">—</span>),
+      cell: ({ row }) => (row.original.scored ? <StarRating value={row.original.stars} label={`${row.original.meta?.label ?? row.original.channelKey} potential`} showValue /> : <span className="text-secondary">—</span>),
       meta: { numeric: true },
     },
     {
@@ -123,7 +125,7 @@ export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColum
       cell: ({ row }) => <CostPerCustomer view={row.original} />,
       meta: { numeric: true, label: "Cost per customer (Estimate)" },
     },
-    { id: "cpaActual", accessorFn: (r) => r.form?.cpaMinor ?? null, header: "Cost per customer, 35 days", size: sizes.cpaActual, cell: ({ row }) => <EstimatedMoney amountMinor={row.original.form?.cpaMinor ?? null} currency={row.original.currency} spendMinor={row.original.form?.spendMinor ?? null} />, meta: { numeric: true, label: "Cost per customer, 35 days (Estimate)" } },
+    { id: "cpaActual", accessorFn: (r) => r.form?.cpaMinor ?? null, header: `Cost per customer, ${CHANNEL_WINDOW_DAYS} days`, size: sizes.cpaActual, cell: ({ row }) => <EstimatedMoney amountMinor={row.original.form?.cpaMinor ?? null} currency={row.original.currency} spendMinor={row.original.form?.spendMinor ?? null} />, meta: { numeric: true, label: `Cost per customer, ${CHANNEL_WINDOW_DAYS} days (Estimate)` } },
     { id: "budget", accessorFn: (r) => r.budgetMinor, header: "Monthly budget", size: sizes.budget, cell: ({ row }) => <span className="tabular-nums">{row.original.persisted ? formatMoney({ amountMinor: row.original.budgetMinor, currency: row.original.currency }) : "—"}</span>, meta: { numeric: true } },
     {
       id: "status",
@@ -133,12 +135,12 @@ export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColum
       cell: ({ row }) => {
         const s = channelStatus(row.original);
         return (
-          <StatusPill tone={s.tone} className="whitespace-nowrap">
+          <StatusPill tone={s.tone} className="whitespace-nowrap" title={s.word === "Starting" ? ENGINE_STARTING_HINT : undefined}>
             {s.word}
           </StatusPill>
         );
       },
-      meta: { filter: "select", filterOptions: ["Running", "Paused", "Off the board", "Not scored"].map((w) => ({ value: w, label: w })) },
+      meta: { filter: "select", filterOptions: ["Running", "Starting", "Paused", "Off the board", "Not scored"].map((w) => ({ value: w, label: w })) },
     },
     { id: "enabled", accessorFn: (r) => r.enabled, header: "Running", size: sizes.enabled, cell: ({ getValue }) => (getValue() ? "Yes" : "No"), meta: { filter: "boolean" } },
     {
@@ -149,9 +151,19 @@ export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColum
       cell: ({ row }) => (row.original.kitMode ? <Chip tone="info" className="whitespace-nowrap">{OFFLINE_TRACKING_LABEL}</Chip> : <span className="text-secondary">Connected</span>),
       meta: { filter: "boolean", label: "Offline tracking" },
     },
-    { id: "leads", accessorFn: (r) => r.form?.leads ?? 0, header: "Leads, 35 days", size: sizes.leads, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue() ?? 0), { digits: 0 })}</span>, meta: { numeric: true } },
-    { id: "customers", accessorFn: (r) => r.form?.customers ?? 0, header: "Customers, 35 days", size: sizes.customers, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue() ?? 0), { digits: 0 })}</span>, meta: { numeric: true } },
+    { id: "leads", accessorFn: (r) => r.form?.leads ?? 0, header: `Leads, ${CHANNEL_WINDOW_DAYS} days`, size: sizes.leads, cell: ({ row, getValue }) => <MetricCount value={Number(getValue() ?? 0)} estimate={row.original.form?.estimate === true} />, meta: { numeric: true } },
+    { id: "customers", accessorFn: (r) => r.form?.customers ?? 0, header: `Customers, ${CHANNEL_WINDOW_DAYS} days`, size: sizes.customers, cell: ({ row, getValue }) => <MetricCount value={Number(getValue() ?? 0)} estimate={row.original.form?.estimate === true} />, meta: { numeric: true } },
   ];
+}
+
+/** A 35-day count; simulated weeks (the mock engine) carry the Estimate label. */
+export function MetricCount({ value, estimate }: { value: number; estimate: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 tabular-nums">
+      {formatNumber(value, { digits: 0 })}
+      {estimate ? <ProvenanceChip kind="estimate" appearance="word" /> : null}
+    </span>
+  );
 }
 
 /** The Strategist's cost-per-customer range when it has one, else the measured cost, else why there is none. */
@@ -174,13 +186,16 @@ export interface ChannelsScreenProps extends ModuleScreenProps {
 
 export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_MS }: ChannelsScreenProps) {
   const { navigate, currency } = useWidgetData();
-  const today = dayKey();
+  const today = useToday();
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
+  // Pin to Home (audit #394): the channels are the gallery's Channel performance widget.
+  const pinMenu = usePinToHomeMenu({ key: "channel_form_guide" });
   const campaigns = useWidgetQuery<Page<CampaignRow>>("distribution.campaigns.list", { limit: 200 });
-  const metrics = useWidgetQuery<ChannelMetricRow[]>("distribution.channels.metrics", { from: addDays(today, -METRICS_WINDOW_DAYS) });
+  const metrics = useWidgetQuery<ChannelMetricRow[]>("distribution.channels.metrics", { from: addDays(today, -(METRICS_WINDOW_DAYS - 1)) });
   const departments = useDepartments();
   const action = useAction();
-  const [views, setViews] = useState<SavedView[]>(CHANNEL_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("distribution.channels", CHANNEL_VIEWS, { defaultViewId: "all" });
   const [recommendation, setRecommendation] = useState<RecommendationRow[] | null>(null);
   const [highlight] = useState<string | null>(() => searchParam("channel"));
   const [budgetFor, setBudgetFor] = useState<ChannelView | null>(null);
@@ -189,7 +204,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
   // Toggled since the Strategist last scored: local scores until its re-score lands (rescore.ts).
   const [provisional, setProvisional] = useState(false);
   const rows = useMemo(() => {
-    const built = buildChannelViews({ channels: channels.data?.channels, campaigns: campaigns.data?.items, metrics: metrics.data, recommendation, currency: currency ?? "EUR", today });
+    const built = buildChannelViews({ channels: channels.data?.channels, campaigns: campaigns.data?.items, metrics: metrics.data, recommendation, currency, today });
     return provisional ? localScores(built) : built;
   }, [channels.data, campaigns.data, metrics.data, recommendation, currency, today, provisional]);
   const columns = useMemo(() => fitToGrow(channelColumns(), CHANNEL_FIT), []);
@@ -225,7 +240,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
   const pause = useCallback(
     async (row: ChannelView, paused: boolean) => {
       const targets = row.campaigns.filter((c) => (paused ? c.status === "live" || c.status === "scheduled" : c.status === "paused"));
-      for (const c of targets) await action.run("distribution.campaigns.setStatus", { campaignId: c.id, status: paused ? "paused" : "live" }, { key: `pause:${row.channelKey}` });
+      for (const c of targets) await action.run("distribution.campaigns.setStatus", { campaignId: c.id, status: paused ? "paused" : resumeStatus(c) }, { key: `pause:${row.channelKey}` });
       campaigns.refetch();
     },
     [action, campaigns],
@@ -251,11 +266,12 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
     [openProfile, toggle, pause],
   );
 
-  const scored = rows.filter((r) => r.persisted).length;
+  const scored = rows.filter((r) => r.scored).length;
   return (
     <Screen name="distribution/channels">
       <Panel
         title="Channels"
+        menu={pinMenu}
         span={12}
         loading={channels.isLoading}
         error={channels.error ? channels.error.message : undefined}
@@ -287,8 +303,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
           data={rows}
           columns={columns}
           getRowId={(r) => r.channelKey}
-          views={views}
-          onViewsChange={setViews}
+          {...savedViews}
           defaultViewId="all"
           rowActions={rowActions}
           onRowOpen={(r) => openProfile(r.channelKey)}

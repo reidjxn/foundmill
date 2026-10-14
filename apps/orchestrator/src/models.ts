@@ -11,10 +11,14 @@
  * is refused with `ModelRequestError("missing_api_key")` rather than quietly spending platform credits; the gateway makes
  * the same call for tool calls (`key-revoked`). Under MODEL_MODE=mock a `byok` business gets a mock client that books to
  * `byok`, so the golden path and the ledger behave the same with INTEGRATIONS_MODE=mock.
+ *
+ * A call on the platform client for a business asks the credits gate first (SEC2 S2, `assertPlatformCredits`): once the
+ * month's credits are used up (or, where calls are live, only simulated credits are left) it is refused with a
+ * non-retryable `ModelRequestError` (`credits_exhausted`, 402) before anything is spent.
  */
-import { loadByokApiKey, repos, type Db } from "@foundmill/db";
+import { assertPlatformCredits, loadByokApiKey, repos, type Db } from "@foundmill/db";
 import { createModelClient, keyFingerprint, ModelRequestError, type CompleteRequest, type CompleteResult, type CompleteResultWithJson, type ModelClient, type ModelLogger, type ModelMode, type StreamStructuredRequest, type StreamStructuredResult, type UsageSink } from "@foundmill/models";
-import { NotFoundError, type ModelBilling } from "@foundmill/shared";
+import { CreditsExhaustedError, NotFoundError, type ModelBilling } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
 import type { z } from "zod";
 
@@ -32,6 +36,8 @@ export interface BusinessModelClientOptions {
   now?: () => number;
   /** Builds the client for a business's own key (tests inject a capturing one). */
   createClient?: (opts: { mode: ModelMode; apiKey: string | null; onUsage?: UsageSink; logger?: ModelLogger }) => ModelClient;
+  /** Ask the credits gate before a call on the platform key (default true; SEC2 S2). */
+  checkCredits?: boolean;
 }
 
 export interface BusinessRoute {
@@ -97,9 +103,25 @@ export function createBusinessModelClient(platform: ModelClient, opts: BusinessM
     return { expiresAt, route: { billedTo: "byok", source: "byok" }, client };
   }
 
+  /** The platform key's ceiling (SEC2 S2): a call for a business whose credits are used up is refused before it is made. */
+  async function assertCredits(businessId: string): Promise<void> {
+    if (opts.checkCredits === false) return;
+    try {
+      await assertPlatformCredits(opts.db, businessId, { live: platform.mode === "live" });
+    } catch (err) {
+      // A business that no longer exists has nothing to charge (its route is the platform's, as `load` decides).
+      if (err instanceof NotFoundError) return;
+      // A non-retryable request error, like a missing key: activities stop on it instead of retrying a refusal.
+      if (err instanceof CreditsExhaustedError) throw new ModelRequestError(err.message, 402, "credits_exhausted", err.details);
+      throw err;
+    }
+  }
+
   async function pick(businessId: string | undefined): Promise<ModelClient> {
     if (!businessId) return platform;
-    return (await resolve(businessId)).client;
+    const entry = await resolve(businessId);
+    if (entry.route.source === "platform") await assertCredits(businessId);
+    return entry.client;
   }
 
   async function complete<T>(req: CompleteRequest<T> & { schema: z.ZodType<T> }): Promise<CompleteResultWithJson<T>>;

@@ -87,6 +87,12 @@ const norm = (s: string | null | undefined): string | null => {
   return t.length ? t : null;
 };
 
+/**
+ * A table's own entry for an untrusted key: UTM values, providers and event names come from the public internet, and a
+ * plain object also answers "constructor", "toString" or "__proto__" with an Object.prototype member.
+ */
+const own = <T>(table: Readonly<Record<string, T>>, key: string): T | undefined => (Object.hasOwn(table, key) ? table[key] : undefined);
+
 const UTM_MEDIUM_TO_CHANNEL: Record<string, ChannelKey> = {
   cpc: "paid_ads", ppc: "paid_ads", paid: "paid_ads", paid_search: "paid_ads", paidsearch: "paid_ads", paid_social: "paid_ads",
   paidsocial: "paid_ads", display: "paid_ads", retargeting: "paid_ads", remarketing: "paid_ads", banner: "paid_ads", cpm: "paid_ads",
@@ -160,8 +166,13 @@ const CODE_PREFIXES: ReadonlyArray<[prefixes: readonly string[], channel: Channe
   [["EVENT", "EXPO", "CONF", "BOOTH"], "events", "promo"],
 ];
 
+/**
+ * A host is a pattern's own or a subdomain of it ("t.co" is t.co and l.t.co, never "washingtonpost.com"); a pattern with a
+ * trailing dot ("google.") names a brand across its country domains and matches at a label boundary ("google.co.uk",
+ * "news.google.com", never "notgoogle.com").
+ */
 const hostMatches = (host: string, patterns: readonly string[]): boolean =>
-  patterns.some((p) => (p.endsWith(".") ? host.includes(p) : host === p || host.endsWith(`.${p}`) || (p.includes(".") && host.includes(p))));
+  patterns.some((p) => (p.endsWith(".") ? host.startsWith(p) || host.includes(`.${p}`) : host === p || host.endsWith(`.${p}`)));
 
 function parseUrl(url: string | null | undefined): URL | null {
   if (!url) return null;
@@ -296,8 +307,8 @@ export function parseTouchSource(input: ParseTouchSourceInput): ParsedTouchSourc
   const eventName = norm(input.eventName);
 
   // 1. Email provider events (SendGrid Event Webhook and friends) are unambiguous.
-  if (provider && (provider in UTM_SOURCE_TO_CHANNEL ? UTM_SOURCE_TO_CHANNEL[provider] === "email_automation" : /mail|email/.test(provider))) {
-    const kind = (eventName && EMAIL_EVENT_KIND[eventName]) || "email_click";
+  if (provider && (Object.hasOwn(UTM_SOURCE_TO_CHANNEL, provider) ? UTM_SOURCE_TO_CHANNEL[provider] === "email_automation" : /mail|email/.test(provider))) {
+    const kind = (eventName && own(EMAIL_EVENT_KIND, eventName)) || "email_click";
     return finish("email_automation", kind, "email", 0.95, "provider:email", { firstParty: true });
   }
 
@@ -343,9 +354,9 @@ export function parseTouchSource(input: ParseTouchSourceInput): ParsedTouchSourc
   }
 
   // 4b. Providers that name their channel (an events tool, an outbound tool) when nothing on the URL says otherwise.
-  const providerChannel = provider ? PROVIDER_TO_CHANNEL[provider] : undefined;
+  const providerChannel = provider ? own(PROVIDER_TO_CHANNEL, provider) : undefined;
   if (providerChannel && presentClickIds.length === 0 && !channelFromUtm(utm, presentClickIds)) {
-    const kind: TouchKind = (eventName && PROVIDER_EVENT_KIND[eventName]) || (u ? "visit" : "form_submit");
+    const kind: TouchKind = (eventName && own(PROVIDER_EVENT_KIND, eventName)) || (u ? "visit" : "form_submit");
     return finish(providerChannel, kind, OFFLINE_CHANNELS.has(providerChannel) ? "offline" : mediumForChannel(providerChannel), 0.8, `provider:${provider}`, { firstParty: true });
   }
 
@@ -411,7 +422,7 @@ function channelFromUtm(utm: Utm, presentClickIds: readonly ClickIdKey[]): { cha
   const medium = norm(utm.medium);
   const source = norm(utm.source);
   if (medium && medium !== "referral") {
-    const ch = UTM_MEDIUM_TO_CHANNEL[medium];
+    const ch = own(UTM_MEDIUM_TO_CHANNEL, medium);
     if (ch) {
       // utm_medium=social on an ad platform with a click id is paid social; handled by the click-id rule first.
       if (ch === "social" && presentClickIds.length) return { channelKey: "paid_ads", medium: "paid", confidence: 0.8, rule: "utm_medium:social+click_id" };
@@ -419,7 +430,7 @@ function channelFromUtm(utm: Utm, presentClickIds: readonly ClickIdKey[]): { cha
     }
   }
   if (source) {
-    const bySource = UTM_SOURCE_TO_CHANNEL[source];
+    const bySource = own(UTM_SOURCE_TO_CHANNEL, source);
     if (bySource) return { channelKey: bySource, medium: mediumForChannel(bySource), confidence: 0.7, rule: `utm_source:${source}` };
     if (medium === "referral") return { channelKey: "pr", medium: "referral", confidence: 0.5, rule: "utm_medium:referral" };
   }

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, openBusiness } from "./helpers";
+import { LONG, chooseTableView, openBusiness } from "./helpers";
 
 /**
  * Team and Development screens on the seeded Northwind business at the two desktop widths (1280, the minimum, and
@@ -10,7 +10,9 @@ import { LONG, openBusiness } from "./helpers";
 
 /** The department href for a sidebar label (department slugs are per business; names are labels over modules). */
 async function departmentBase(page: Page, label: RegExp): Promise<string> {
-  const link = page.locator("[data-testid=app-shell] nav a[href*='/d/']").filter({ hasText: label }).first();
+  // The link's name is its label plus a badge count ("Team, 1 item"), so the label is matched without the badge.
+  const name = new RegExp(label.source.replace(/\$$/, "(,|$)"), label.flags);
+  const link = page.locator("[data-testid=app-shell] nav").getByRole("link", { name }).first();
   await expect(link, `the seed gives Northwind a ${label} department`).toBeVisible({ timeout: LONG });
   return (await link.getAttribute("href"))!.replace(/(\/d\/[^/]+)\/.*$/, "$1");
 }
@@ -77,6 +79,13 @@ for (const width of [1280, 1440]) {
 
       await openTab(page, team, "staff", "team/staff");
       await expect(page.getByRole("grid", { name: "Staff" })).toBeVisible({ timeout: LONG });
+      // A member walled off a section says so ("Finance · no access"), never "Role default" (RUI-04).
+      const walled = page.getByRole("grid", { name: "Staff" }).getByText(/· no access/);
+      if (await walled.count()) await expect(walled.first()).toBeVisible();
+      // Nobody edits their own role or permissions (team.humans.role refuses it): the founder's own row offers neither.
+      await page.getByRole("grid", { name: "Staff" }).getByRole("row").filter({ hasText: "You" }).first().click({ button: "right" });
+      await expect(page.getByRole("menuitem", { name: "Role and permissions…" })).toHaveAttribute("aria-disabled", "true");
+      await page.keyboard.press("Escape");
     });
 
     test("Team: signing is never offered to agents, and Recruitment drafts an agent with the generate action", async ({ page }) => {
@@ -101,10 +110,29 @@ for (const width of [1280, 1440]) {
       await page.getByRole("button", { name: "Close" }).click();
       await expect(page.getByRole("grid", { name: "Responsibilities" }).getByRole("columnheader", { name: /covers/i })).toHaveCount(1);
 
+      // Playbooks (audit AC-07): a sentence becomes a flow the founder sees, saves off, turns on and removes again.
+      const before = await page.getByTestId("playbook-row").count();
+      await page.getByTestId("playbook-text").fill("When a lead replies positively, draft a reply and book a call; I approve the first message.");
+      await page.getByTestId("playbook-preview").click();
+      const flow = page.getByTestId("playbook-draft");
+      await expect(flow.getByTestId("playbook-when")).toContainText(/lead replies/i, { timeout: LONG });
+      await expect(flow.getByTestId("playbook-step").first()).toBeVisible();
+      await page.getByTestId("playbook-save").click();
+      await expect(page.getByTestId("playbook-row")).toHaveCount(before + 1, { timeout: LONG });
+      const saved = page.getByTestId("playbook-row").last();
+      await expect(saved.getByRole("button", { name: "Turn on" })).toBeVisible({ timeout: LONG });
+      await saved.getByRole("button", { name: "Turn on" }).click();
+      await expect(saved.getByRole("button", { name: "Turn off" })).toBeVisible({ timeout: LONG });
+      await saved.getByRole("button", { name: /^Remove/ }).click();
+      await expect(page.getByTestId("playbook-row")).toHaveCount(before, { timeout: LONG });
+
       await openTab(page, team, "recruitment", "team/recruitment");
       const draft = page.getByTestId("draft-agent");
       await expect(draft).toBeVisible({ timeout: LONG });
       await expect(draft).toBeDisabled();
+      // The builder puts the template the sentence names first (TPD-26).
+      await page.getByRole("textbox", { name: "Describe the agent" }).fill("an agent who writes our product documentation and help center articles");
+      await expect(page.getByRole("list", { name: "Suggested templates" }).getByRole("listitem").first()).toHaveAttribute("data-suggestion", "docs_writer");
       await page.getByRole("textbox", { name: "Describe the agent" }).fill("an agent who writes our weekly customer newsletter");
       await expect(page.getByRole("list", { name: "Suggested templates" })).toBeVisible();
       await expect(draft).toBeEnabled();
@@ -112,6 +140,8 @@ for (const width of [1280, 1440]) {
       const dialog = page.getByTestId("hire-dialog");
       await expect(dialog).toBeVisible();
       await expect(dialog.getByRole("heading", { name: /^Hire / })).toBeVisible();
+      // No promise of a first training run that never happens (TPD-11).
+      await expect(dialog).not.toContainText(/First training run/);
       await dialog.getByRole("button", { name: "Cancel" }).click();
       await expect(dialog).toBeHidden();
       const catalogue = page.getByRole("grid", { name: "Catalog" });
@@ -143,6 +173,18 @@ for (const width of [1280, 1440]) {
       await expect(page.getByRole("grid", { name: "Merged pull requests" })).toBeVisible({ timeout: LONG });
       await expect(page.getByText(/AC-\d/)).toHaveCount(0);
       expect(await headersInside(page, "Merged pull requests")).toEqual([]);
+      // The merge queue's own merges are listed (the seed has done code tasks), and nothing claims to be deploying (TPD-14, TPD-15).
+      await expect(page.getByRole("grid", { name: "Merged pull requests" }).getByRole("row").nth(1)).toBeVisible({ timeout: LONG });
+      await expect(page.getByText("Deploying…")).toHaveCount(0);
+      // Only code tasks are pull requests: the Formulation Chemist's stability-data task is not one (TPD-13).
+      await expect(page.getByRole("grid", { name: "Open pull requests" }).getByText(/Stability data/)).toHaveCount(0);
+
+      // The Formulation Lab (Operations) shows the Specialists and Plan tabs only, not a copy of Development (DB-11).
+      const lab = await departmentBase(page, /formulation lab/i);
+      await page.goto(`${lab}/specialists`);
+      await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/specialists", { timeout: LONG });
+      const labTabs = page.getByRole("tablist").first().getByRole("tab");
+      await expect(labTabs).toHaveText([/Specialists/, /Plan/]);
 
       await openTab(page, dev, "environments", "development/environments");
       const envs = page.getByRole("grid", { name: "Environments" });
@@ -165,9 +207,40 @@ for (const width of [1280, 1440]) {
       await openTab(page, dev, "specialists", "development/specialists");
       await expect(page.getByTestId("specialist-counts")).toBeVisible({ timeout: LONG });
       await expect(page.getByTestId("specialist-counts")).not.toContainText(/\b1 specialists\b/);
+      // Specialists are agents and tasks are tasks: "4 specialists · 30 tasks", never 30 specialists (TPD-22).
+      const counts = ((await page.getByTestId("specialist-counts").textContent()) ?? "").replace(/\s+/g, " ").trim();
+      const parsed = /^(\d+) specialists? · (\d+) tasks? · \d+ running · \d+ reporting$/.exec(counts);
+      expect(parsed, `header reads "N specialists · N tasks · …": ${counts}`).not.toBeNull();
+      expect(Number(parsed![1]), "no more specialists than tasks").toBeLessThanOrEqual(Number(parsed![2]));
+      // A ready task that never started is not finished (AC-11): the finished list never shows a Ready pill.
+      const quiet = page.getByTestId("specialists-quiet");
+      if (await quiet.count()) await expect(quiet.getByRole("table")).not.toContainText("Ready");
       const tiles = await page.getByRole("article").count();
       expect(tiles, "finished specialists with nothing to show collapse into one list, not a wall of tiles").toBeLessThanOrEqual(12);
       await expect(page.locator("[data-module-screen='development/specialists']")).not.toContainText("€");
     });
   });
 }
+
+test.describe("saved table views on module screens", () => {
+  test("Team › Agents: a view saved as new comes back after a reload, and deleting it sticks (audit #204)", async ({ page }) => {
+    await openBusiness(page);
+    const team = await departmentBase(page, /^team$/i);
+    await openTab(page, team, "squad", "team/squad");
+    await chooseTableView(page, "General");
+    const name = `E2E agents ${Date.now().toString(36)}`;
+    await page.getByRole("button", { name: /^View: / }).click();
+    await page.getByRole("menuitem", { name: "Save as new view…" }).click();
+    await page.getByLabel("Name", { exact: true }).fill(name);
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("button", { name: `View: ${name}` })).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole("grid", { name: "Agents" })).toBeVisible({ timeout: LONG });
+    await expect(page.getByRole("button", { name: `View: ${name}` })).toBeVisible({ timeout: LONG });
+    await page.getByRole("button", { name: `View: ${name}` }).click();
+    await page.getByRole("menuitem", { name: "Delete view" }).click();
+    await expect(page.getByRole("button", { name: "View: General" })).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole("button", { name: "View: General" })).toBeVisible({ timeout: LONG });
+  });
+});

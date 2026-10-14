@@ -30,6 +30,19 @@ describe("PlanScreen", () => {
     expect(screen.getByText("All tasks")).toBeTruthy();
   });
 
+  it("reopens on the view the person left it on and saves a change of view (audit #204)", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ responses: { ...responses(), "founder.tableViews.get": { views: PLAN_VIEWS, activeViewId: "done" } } });
+    renderScreen(fake, <PlanScreen {...props} />);
+    const table = await screen.findByRole("grid", { name: "Tasks" });
+    expect(fake.queried.get("founder.tableViews.get")).toEqual({ tableKey: "development.plan" });
+    expect(screen.getByRole("button", { name: /^View: Done/ })).toBeTruthy();
+    expect(within(table).getAllByRole("row")).toHaveLength(tasks.filter((t) => ["done", "failed", "stopped"].includes(t.status)).length + 1);
+    await user.click(screen.getByRole("button", { name: /^View: Done/ }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /All tasks/ }));
+    expect(fake.mutations.at(-1)).toMatchObject({ path: "founder.tableViews.save", input: { tableKey: "development.plan", activeViewId: "all" } });
+  });
+
   it("builds the task graph from a roadmap item through dev.tasks.plan", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ responses: responses(), onMutate: () => ({ tasks: tasks.slice(0, 2), graph: { tasks: tasks.slice(0, 2), edges }, costMinor: 120, costLabel: "Estimate" }) });

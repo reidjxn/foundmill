@@ -4,8 +4,10 @@
  * showing the RFQ funnel, quote table, sample tracker and shipments instead of a terminal. Data comes from the
  * specialist session's stream (structured `specialist:` notes, see specialist-data.ts).
  *
- * Live specialists and any with supplier records get a tile. Finished ones that left no records collapse into one
- * message with a compact list (never a wall of identical empty tiles); a record arriving moves its tile into the grid.
+ * Live specialists and any with supplier records get a tile. Finished ones (done, failed, stopped) that left no records
+ * collapse into one message with a compact list (never a wall of identical empty tiles); tasks that have not started
+ * yet are listed apart, never as finished; a record arriving moves its tile into the grid. The header counts the
+ * specialists (people) and their tasks separately.
  */
 import { useCallback, useMemo, useState } from "react";
 import { FlaskConical, ShieldCheck } from "lucide-react";
@@ -15,12 +17,13 @@ import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/wid
 import { plural } from "../fit";
 import type { DeptColourToken } from "@foundmill/shared";
 import type { ModuleScreenProps } from "../registry";
+import { useNow } from "./clock";
 import { OpenInClaudeCodeDialog, ReassignDialog, StopDialog } from "./dialogs";
 import { useDevScreenOptions } from "./options";
-import { latestSessionsByTask, seedFromRows } from "./session-store";
+import { isPlaceholderSessionId, latestSessionsByTask, seedFromRows } from "./session-store";
 import { InlineError, OVER_TASK_STATUSES, Screen, TaskStatusPill, isLiveStatus, taskHref, toDate, toTileAgent, useAction, useAgentIndex, useAgents, useDevDepartment } from "./shared";
 import { hasSpecialistData, specialistDataFromSession } from "./specialist-data";
-import { shoutInput } from "./TrainingGroundScreen";
+import { ReplaySeed, shoutInput } from "./TrainingGroundScreen";
 import { useSessionStreams, type TileSource } from "./useSessionStreams";
 import type { SessionsListResponse, TaskRow, TasksListResponse } from "./types";
 
@@ -53,7 +56,7 @@ export function specialistTasks(tasks: readonly TaskRow[] | undefined): TaskRow[
 }
 
 export function SpecialistsScreen({ businessId, departmentId }: ModuleScreenProps) {
-  const { navigate, currency } = useWidgetData();
+  const { navigate } = useWidgetData();
   const options = useDevScreenOptions();
   const tasks = useWidgetQuery<TasksListResponse>("dev.tasks.list", { kind: "specialist", limit: 200 });
   const sessions = useWidgetQuery<SessionsListResponse>("dev.sessions.list", { limit: 200 });
@@ -75,9 +78,9 @@ export function SpecialistsScreen({ businessId, departmentId }: ModuleScreenProp
       list.map((task) => {
         const session = byTask.get(task.id) ?? null;
         const agent = toTileAgent(agentIndex.get(task.assigneeAgentId ?? ""), task.assigneeAgentId);
-        return { seed: seedFromRows({ task, session, agent, taskHref: taskHref(businessId, deptSlug, task.id), currency }), task, session };
+        return { seed: seedFromRows({ task, session, agent, taskHref: taskHref(businessId, deptSlug, task.id) }), task, session };
       }),
-    [list, byTask, agentIndex, businessId, deptSlug, currency],
+    [list, byTask, agentIndex, businessId, deptSlug],
   );
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const streams = useSessionStreams(sources, focusedId, { flushMs: options.flushMs });
@@ -109,15 +112,26 @@ export function SpecialistsScreen({ businessId, departmentId }: ModuleScreenProp
     [streams.sessions],
   );
   const tiles = useMemo(() => items.filter((i) => i.hasData || isLiveStatus(i.session.status)), [items]);
-  const quiet = useMemo(() => items.filter((i) => !i.hasData && !isLiveStatus(i.session.status)), [items]);
+  // Finished means over (done, failed, stopped). A ready task that never started is not finished: it waits (AC-11).
+  const quiet = useMemo(() => items.filter((i) => !i.hasData && OVER_TASK_STATUSES.includes(i.session.status)), [items]);
+  const waiting = useMemo(() => items.filter((i) => !i.hasData && !isLiveStatus(i.session.status) && !OVER_TASK_STATUSES.includes(i.session.status)), [items]);
   const withData = items.filter((i) => i.hasData).length;
   const running = list.filter((t) => t.status === "running").length;
+  // The header counts people and their tasks apart: 30 tasks may be the work of 4 specialists (TPD-22).
+  const specialists = useMemo(() => new Set(list.map((t) => t.assigneeAgentId).filter((id): id is string => Boolean(id))).size, [list]);
+  const ticking = streams.sessions.some((s) => !s.queued && isLiveStatus(s.status));
+  const now = useNow({ enabled: ticking, fixed: options.now });
+  const replayIds = useMemo(() => sources.map((s) => s.seed.id).filter((id) => !isPlaceholderSessionId(id)), [sources]);
   const reassignTask = reassign ? taskOf(reassign) : null;
   const stopTask = stop ? taskOf(stop) : null;
   const claudeTask = claudeCode ? taskOf(claudeCode) : null;
 
   return (
     <Screen name="development/specialists" className="h-full">
+      {/* What each session already reported (its specialist notes) loads with the page, not only from new events. */}
+      {replayIds.map((id) => (
+        <ReplaySeed key={id} sessionId={id} onReplay={streams.ingest} />
+      ))}
       <Panel
         span={12}
         title="Specialists"
@@ -131,7 +145,7 @@ export function SpecialistsScreen({ businessId, departmentId }: ModuleScreenProp
         meta={
           list.length ? (
             <span data-testid="specialist-counts">
-              {plural(list.length, "specialist")} · {running} running · {withData} reporting
+              {plural(specialists, "specialist")} · {plural(list.length, "task")} · {running} running · {withData} reporting
             </span>
           ) : undefined
         }
@@ -143,7 +157,7 @@ export function SpecialistsScreen({ businessId, departmentId }: ModuleScreenProp
             <ShoutMenu target="all specialists" labelled disabled={running === 0} onShout={(shout) => void action.run("dev.tasks.shout", shoutInput(shout), { key: "shout:all" })} />
           </div>
         }
-        footer={action.error ? <InlineError error={action.error} /> : <span>Quotes are extracted through the quarantined reader; prices and landed costs are estimates until a supplier confirms them.</span>}
+        footer={action.error ? <InlineError error={action.error} /> : action.notice ? <span role="status">{action.notice}</span> : <span>Quotes are extracted through the quarantined reader; prices and landed costs are estimates until a supplier confirms them.</span>}
       >
         {tiles.length ? (
           <div className="flex min-h-0 flex-col" style={quiet.length ? { height: GRID_WITH_LIST_PX } : { height: GRID_HEIGHT, minHeight: 480 }}>
@@ -153,9 +167,41 @@ export function SpecialistsScreen({ businessId, departmentId }: ModuleScreenProp
               onFocusedChange={setFocusedId}
               aria-label="Specialist tiles"
               className="min-h-0 flex-1"
-              renderTile={(item, ctx) => <SpecialistTile session={item.session} data={specialistDataFromSession(item.session)} focused={ctx.focused} compact={ctx.compact} controls={controls} now={options.now} onFocus={(id) => setFocusedId(id)} onOpenTask={(task) => task.href && navigate(task.href)} />}
+              renderTile={(item, ctx) => <SpecialistTile session={item.session} data={specialistDataFromSession(item.session)} focused={ctx.focused} compact={ctx.compact} controls={controls} now={now} onFocus={(id) => setFocusedId(id)} onOpenTask={(task) => task.href && navigate(task.href)} />}
             />
           </div>
+        ) : null}
+        {waiting.length ? (
+          <section aria-label="Not started yet" className={tiles.length || quiet.length ? "border-t border-line" : undefined} data-testid="specialists-waiting">
+            <div className="flex min-w-0 flex-col gap-0.5 px-panel-pad pb-2 pt-3">
+              <p className="text-body-strong">{waiting.length === 1 ? "1 specialist task has not started yet" : `${waiting.length} specialist tasks have not started yet`}</p>
+              <p className="text-small text-secondary">They are queued for the next cycle. A tile appears here as soon as one starts.</p>
+            </div>
+            <MiniTable<SpecialistItem>
+              aria-label="Specialist tasks not started"
+              className="mx-panel-pad mb-panel-pad"
+              rows={waiting}
+              getRowKey={(i) => i.id}
+              onRowClick={(i) => i.session.task.href && navigate(i.session.task.href)}
+              columns={[
+                {
+                  id: "agent",
+                  header: "Specialist",
+                  width: 260,
+                  cell: (i) => (
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Avatar size={20} name={i.session.agent.name} agent={{ seed: i.session.agent.seed, dept: i.session.agent.dept }} status={i.session.agent.status} />
+                      <span className="min-w-0 truncate" title={i.session.agent.name}>
+                        {i.session.agent.name}
+                      </span>
+                    </span>
+                  ),
+                },
+                { id: "task", header: "Task", cell: (i) => <span className="text-secondary">{i.session.task.title}</span> },
+                { id: "status", header: "Status", numeric: true, cell: (i) => <TaskStatusPill status={i.session.status} /> },
+              ]}
+            />
+          </section>
         ) : null}
         {quiet.length ? (
           <section aria-label="Finished without supplier records" className={tiles.length ? "border-t border-line" : undefined} data-testid="specialists-quiet">

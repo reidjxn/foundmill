@@ -2,15 +2,15 @@
  * Every gallery widget renders in loading, empty and data states through a fake WidgetDataSource, and the
  * registry/presets agree on keys, surfaces and LIVE-only rules.
  */
-import { describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, render, screen, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { DateFormatProvider, formatDateShort } from "@foundmill/dugout";
 import { WidgetDataProvider } from "../data";
 import { getWidget, listWidgets, parseWidgetSettings, type AnyWidgetDefinition } from "../registry";
 import { createFakeSource, type FakeResponse } from "../testing";
 import "../widgets";
-import { BID, TODAY, dataResponses, emptyResponses } from "./fixtures";
+import { BID, TODAY, communities, dataResponses, emptyResponses, leaderboardEntries, leaderboards, posts } from "./fixtures";
 import { addDays } from "../shared/time";
 
 /** A figure (dugout `Figure`) splits its currency, digits and decimals into spans; match the whole figure's text. */
@@ -47,7 +47,7 @@ const CASES: Case[] = [
   { key: "trophy_cabinet", expectData: /2 of 8 reached/, expectEmpty: /Customer names show only/ },
   { key: "league_table", expectData: /Ledgerly/, expectEmpty: /No leaderboard is open/, live: true },
   { key: "community_feed", expectData: /annual-plan discounts/, expectEmpty: /Join a community/, live: true },
-  { key: "custom_metric", expectData: /€1,250/, expectEmpty: /Pick a named query/, settings: { mode: "query", queryId: "mrr", label: "MRR", format: "money" }, emptySettings: {} },
+  { key: "custom_metric", expectData: /€1,250/, expectEmpty: /Pick a metric from the catalog/, settings: { mode: "query", queryId: "revenue_30d", label: "Revenue, last 30 days", format: "money" }, emptySettings: {} },
 ];
 
 function mount(def: AnyWidgetDefinition, responses: Record<string, FakeResponse>, opts: { settings?: Record<string, unknown>; live?: boolean; missing?: "loading" | "empty" } = {}) {
@@ -143,6 +143,114 @@ describe("LIVE-only widgets in Personal mode", () => {
   });
 });
 
+describe("a refused or failed query is never empty data", () => {
+  const forbidden = Object.assign(new Error("You do not have read access to finance"), { data: { code: "FORBIDDEN" } });
+  it("status strip: a member walled from Finance reads No access, not €0 or 'Connect a bank'", () => {
+    const { container } = mount(getWidget("status_strip")!, { ...dataResponses(), "finance.overview": forbidden });
+    expect(container.textContent).toContain("No access");
+    expect(container.textContent).toContain("Your role has no access to Finance");
+    expect(container.textContent).not.toMatch(/Connect a bank|Finance figures appear once/);
+    // The rest of the strip still answers.
+    expect(screen.getByText("Customers this week")).toBeTruthy();
+  });
+  it("status strip: a 500 reads Couldn't load", () => {
+    const { container } = mount(getWidget("status_strip")!, { ...dataResponses(), "finance.overview": new Error("tRPC: INTERNAL_SERVER_ERROR") });
+    expect(container.textContent).toContain("Couldn't load");
+    expect(container.textContent).not.toMatch(/Connect a bank|Finance figures appear once/);
+  });
+  it("department card: Finance's Runway says No access instead of 'Not known yet'", () => {
+    const { container } = mount(getWidget("department_card")!, { ...dataResponses(), "finance.overview": forbidden }, { settings: { module: "finance" } });
+    const metric = container.querySelector("[data-department-metric]")!;
+    expect(metric.textContent).toContain("Runway");
+    expect(metric.textContent).toContain("No access");
+    expect(metric.textContent).not.toContain("Not known yet");
+  });
+});
+
+describe("Home captions in the business's words (Settings › Glossary, AC-11.13.6)", () => {
+  const glossary = { customer: "client", team: "crew" };
+  const mountGlossed = (key: string, settings: Record<string, unknown> = {}) => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses(), glossary });
+    const Component = getWidget(key)!.Component;
+    return render(
+      <WidgetDataProvider source={fake.source}>
+        <Component businessId={BID} instanceId={`${key}-1`} settings={parseWidgetSettings(getWidget(key)!, settings)} />
+      </WidgetDataProvider>,
+    );
+  };
+  it("renames nouns in tile labels, titles, stage names, milestone names and the team metric", () => {
+    expect(mountGlossed("status_strip").container.textContent).toContain("Clients this week");
+    expect(mountGlossed("revenue_customers").container.textContent).toMatch(/Revenue and clients[\s\S]*Clients, last 30 days/);
+    expect(mountGlossed("funnel").container.textContent).toContain("Clients");
+    expect(mountGlossed("trophy_cabinet").container.textContent).toMatch(/First client/);
+    expect(mountGlossed("department_card", { slot: 0, metric: "squad_health" }).container.textContent).toContain("Crew health");
+  });
+  it("renames nouns in a widget's footer text too, once (a swap does not undo itself)", () => {
+    expect(mountGlossed("trophy_cabinet").container.textContent).toContain("Client names show only when permission is recorded");
+    expect(mountGlossed("revenue_customers").container.textContent).toContain("clients = first payments");
+    expect(mountGlossed("funnel").container.textContent).toMatch(/all channels · \d+ clients/);
+  });
+  it("leaves every caption alone with an empty glossary", () => {
+    const { container } = mount(getWidget("status_strip")!, dataResponses());
+    expect(container.textContent).toContain("Customers this week");
+  });
+});
+
+describe("Home's today is the business's day (audit #196)", () => {
+  afterEach(() => vi.useRealTimers());
+  it("asks for the recent ribbon up to the business's today, not UTC's, so the strip and the top bar agree", () => {
+    // 05:35 on Oct 12 in Tokyo is still Oct 11 in UTC.
+    vi.useFakeTimers({ now: new Date("2026-10-11T20:35:00Z"), toFake: ["Date"] });
+    const tokyo = createFakeSource({ businessId: BID, responses: dataResponses(), timeZone: "Asia/Tokyo" });
+    const Strip = getWidget("status_strip")!.Component;
+    const { unmount } = render(
+      <WidgetDataProvider source={tokyo.source}>
+        <Strip businessId={BID} instanceId="status_strip-1" settings={parseWidgetSettings(getWidget("status_strip")!, {})} />
+      </WidgetDataProvider>,
+    );
+    expect(tokyo.queried.get("journey.ribbon")).toMatchObject({ to: "2026-10-12" });
+    unmount();
+    const utc = createFakeSource({ businessId: BID, responses: dataResponses() });
+    render(
+      <WidgetDataProvider source={utc.source}>
+        <Strip businessId={BID} instanceId="status_strip-1" settings={parseWidgetSettings(getWidget("status_strip")!, {})} />
+      </WidgetDataProvider>,
+    );
+    expect(utc.queried.get("journey.ribbon")).toMatchObject({ to: "2026-10-11" });
+  });
+});
+
+describe("widget bodies in a grid cell", () => {
+  it("scroll inside the cell instead of painting under the footer", () => {
+    for (const key of ["cash_runway", "revenue_customers", "funnel", "agent_of_the_week", "trophy_cabinet", "live_feed"]) {
+      const { container, unmount } = mount(getWidget(key)!, dataResponses());
+      const body = container.querySelector("[data-panel-body]");
+      expect(body?.className, key).toContain("overflow-y-auto");
+      unmount();
+    }
+  });
+});
+
+describe("LIVE widgets read the LIVE pages' words", () => {
+  it("names the board, its period and its metric from what live.leaderboards.list returns (no raw keys, no 'Metric')", () => {
+    const board = { id: leaderboards[0]!.id, period: "2026-Q4", boardKind: "customers_won", division: "b2b_saas", archetype: "b2b_saas", region: null, metric: "customers_won" };
+    const entries = leaderboardEntries.map((e) => ({ ...e, metricValue: e.businessId === BID ? 494 : e.metricValue }));
+    const { container } = mount(getWidget("league_table")!, { ...dataResponses(), "live.leaderboards.list": [board], "live.leaderboards.entries": entries }, { live: true });
+    expect(screen.getByRole("heading", { name: "Leaderboard · Customers won · B2B SaaS" })).toBeTruthy();
+    expect(screen.getByText("Customers won", { selector: "th, [role=columnheader]" })).toBeTruthy();
+    expect(container.textContent).toContain("Q4 2026 · You are #8");
+    expect(container.textContent).not.toMatch(/2026-Q4|b2b_saas|Metric/);
+  });
+
+  it("says 1 member and 1 reply, not 1 members", () => {
+    const { container } = mount(getWidget("community_feed")!, { ...dataResponses(), "live.communities.list": [{ ...communities[0]!, memberCount: 1 }], "live.communities.posts": { items: [{ ...posts.items[0]!, replyCount: 1 }] } }, { live: true });
+    expect(container.textContent).toContain("1 member");
+    expect(container.textContent).not.toContain("1 members");
+    expect(container.textContent).toContain("1 reply");
+    expect(container.textContent).not.toContain("1 replies");
+  });
+});
+
 describe("Forecast and Estimate chips", () => {
   it("label every non-real number", () => {
     mount(getWidget("cash_runway")!, dataResponses());
@@ -165,6 +273,21 @@ describe("navigation", () => {
     const { fake, container } = mount(getWidget("inbox_preview")!, dataResponses());
     (container.querySelector("[data-inbox-row]") as HTMLButtonElement).click();
     expect(fake.navigations[0]).toMatch(new RegExp(`^/b/${BID}/inbox/`));
+  });
+});
+
+describe("events", () => {
+  it("the inbox preview refetches when another member archives an item or confirms its plan (audit RUI-09)", () => {
+    const { fake } = mount(getWidget("inbox_preview")!, dataResponses());
+    const before = fake.refetches["inbox.list"] ?? 0;
+    act(() => {
+      fake.emit({ type: "inbox.item_updated", payload: { inboxItemId: "00000000-0000-4000-8000-000000000002", change: "archived", planId: null, followUpItemId: null } });
+    });
+    expect(fake.refetches["inbox.list"]).toBe(before + 1);
+    act(() => {
+      fake.emit({ type: "task.progressed", payload: {} });
+    });
+    expect(fake.refetches["inbox.list"]).toBe(before + 1);
   });
 });
 

@@ -2,8 +2,9 @@
  * Ideation Studio logic (BUILD §11.1 Door A, AC-11.1.2/3/4). Pure: the API's idea rows → Dugout `Concept`,
  * version metadata (the colour seed, lineage, Q&A travel as one tagged entry in `research.citations`, mirroring
  * apps/api/src/routers/idea.ts), Compare selection, hrefs and the per-user studio state kept in localStorage
- * (shortlist, discarded-card snapshots) that the API has no procedure for.
+ * (shortlist, the discard tray's snapshots, restored cards kept in view), settled against the API's deck.
  */
+import { CREDITS_CURRENCY } from "@foundmill/config";
 import { ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
 import { CONCEPT_ATTRIBUTE_KEYS, CONCEPT_ATTRIBUTE_LABELS, createRng, hslToRgb, kitOnPrimaryDetail, rgbToHex, type Concept, type ConceptAttribute, type ConceptEvidence, type Kit } from "@foundmill/dugout";
 import { DISPLAY_LOCALE } from "@/lib/format";
@@ -222,7 +223,10 @@ export interface DiscardedSnapshot {
 export interface StudioState {
   shortlist: string[];
   discarded: DiscardedSnapshot[];
-  /** Cards restored locally because the API has no idea.restore yet (kept in the deck until a reload). */
+  /**
+   * Cards restored from the tray (idea.restore put them back on the API), kept in view until the deck's own pages carry
+   * them: a restored card can be older than every page loaded so far.
+   */
   restored: IdeaLike[];
   lastPrompt: string;
 }
@@ -276,15 +280,63 @@ export function discardLocally(state: StudioState, idea: IdeaLike, now = new Dat
   };
 }
 
-/** Restore from the tray. `serverRestored` = the API un-archived it (so the list query will carry it again). */
-export function restoreLocally(state: StudioState, ideaId: string, serverRestored: boolean): StudioState {
-  const entry = state.discarded.find((d) => d.idea.id === ideaId);
+/**
+ * Out of the tray. `restored`: the card idea.restore answered with, kept in view (`restored`) until the deck's pages carry
+ * it. Without it the card only leaves the tray: a discard the API refused, so the card never left the API's deck.
+ */
+export function restoreLocally(state: StudioState, ideaId: string, restored?: IdeaLike | null): StudioState {
   const next = { ...state, discarded: state.discarded.filter((d) => d.idea.id !== ideaId) };
-  if (entry && !serverRestored) next.restored = [...state.restored.filter((i) => i.id !== ideaId), entry.idea];
+  if (restored) next.restored = [...state.restored.filter((i) => i.id !== ideaId), restored];
   return next;
 }
 
-/** The deck the Studio shows: the API's live ideas plus locally restored ones, minus anything in the tray. */
+/** At most this many pinned cards are asked for at once (the API's `idea.listByIds` limit). */
+export const PINNED_MAX = 100;
+
+/**
+ * The shortlisted and restored cards the loaded pages do not carry (they are older than every page so far): the Studio
+ * asks the API for these by id (`idea.listByIds`) so they stay pinned and counted (audit FR-22).
+ */
+export function pinnedIdsToLoad(state: StudioState, loaded: ReadonlySet<string>): string[] {
+  const tray = new Set(state.discarded.map((d) => d.idea.id));
+  const ids: string[] = [];
+  for (const id of [...state.shortlist, ...state.restored.map((i) => i.id)]) {
+    if (!loaded.has(id) && !tray.has(id) && !ids.includes(id)) ids.push(id);
+  }
+  return ids.slice(0, PINNED_MAX);
+}
+
+/** The loaded pages plus the pinned cards the API returned (each card once; the pages win). */
+export function withPinned(serverIdeas: readonly IdeaLike[], pinned: readonly IdeaLike[] | undefined): IdeaLike[] {
+  if (!pinned?.length) return [...serverIdeas];
+  const seen = new Set(serverIdeas.map((i) => i.id));
+  return [...serverIdeas, ...pinned.filter((i) => !seen.has(i.id))];
+}
+
+/**
+ * Keep the browser's studio state true to the API's deck. A restored card the pages now carry needs no copy here. When
+ * the API has answered for the pinned ids (`answer`): a shortlisted card it no longer has (discarded elsewhere, or now a
+ * business) leaves the shortlist, so the count matches the cards shown; a restored card the API still holds as
+ * discarded (one restored only in this browser, before the API could restore) goes back to the tray, where Restore
+ * brings it back for real; one that is gone altogether is dropped. Returns the same object when nothing changes.
+ */
+export function settlePinned(state: StudioState, loaded: ReadonlySet<string>, answer: { asked: readonly string[]; found: readonly string[]; discarded: readonly string[] } | null, now = new Date()): StudioState {
+  const found = new Set(answer?.found ?? []);
+  const missing = new Set((answer?.asked ?? []).filter((id) => !found.has(id) && !loaded.has(id)));
+  const discarded = new Set(answer?.discarded ?? []);
+  const shortlist = state.shortlist.filter((id) => !missing.has(id));
+  const backToTray = state.restored.filter((i) => missing.has(i.id) && discarded.has(i.id));
+  const restored = state.restored.filter((i) => !loaded.has(i.id) && !missing.has(i.id));
+  if (shortlist.length === state.shortlist.length && restored.length === state.restored.length) return state;
+  return {
+    ...state,
+    shortlist,
+    restored,
+    discarded: [...backToTray.map((idea) => ({ idea, discardedAt: now.toISOString() })), ...state.discarded.filter((d) => !backToTray.some((i) => i.id === d.idea.id))],
+  };
+}
+
+/** The deck the Studio shows: the API's live ideas plus restored ones not loaded yet, minus anything in the tray. */
 export function buildDeck(serverIdeas: readonly IdeaLike[], state: StudioState): IdeaLike[] {
   const trayIds = new Set(state.discarded.map((d) => d.idea.id));
   const seen = new Set<string>();
@@ -313,8 +365,11 @@ export function orderDeck(deck: readonly IdeaLike[], shortlist: readonly string[
   });
 }
 
-/** Money label for the generation cost ("Estimate · €0.12"). */
-export function costLabel(costMinor: number, currency = "EUR"): string {
+/**
+ * Money label for the generation cost ("$0.12", shown with Estimate). Model costs are metered in US dollars, the model
+ * price list's currency (`CREDITS_CURRENCY`), whatever the founder's own currency.
+ */
+export function costLabel(costMinor: number, currency: string = CREDITS_CURRENCY): string {
   try {
     return new Intl.NumberFormat(DISPLAY_LOCALE, { style: "currency", currency, currencyDisplay: "narrowSymbol", minimumFractionDigits: 2 }).format(costMinor / 100);
   } catch {

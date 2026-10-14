@@ -13,6 +13,7 @@ import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { STATUS_TONE } from "./IntegrationsTab";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
@@ -30,11 +31,13 @@ export function KeysTab() {
   const [confirmRevoke, setConfirmRevoke] = useState(false);
 
   const validate = useMutation(trpc.keys.validate.mutationOptions({ onError: (e) => t.failed(e, "Validation failed") }));
-  const set = useMutation(trpc.keys.setAnthropic.mutationOptions({ onSuccess: () => (void invalidate(["keys", "integrations"]), setApiKey(""), validate.reset(), t.saved("Key stored", "Encrypted with the business data key.")), onError: (e) => t.failed(e, "Key not stored") }));
-  const rotate = useMutation(trpc.keys.rotate.mutationOptions({ onSuccess: () => (void invalidate(["keys", "integrations"]), setApiKey(""), validate.reset(), t.saved("Key rotated", "Agents use the new key from their next call.")), onError: (e) => t.failed(e, "Key not rotated") }));
-  const revoke = useMutation(trpc.keys.revoke.mutationOptions({ onSuccess: (r) => (void invalidate(["keys", "integrations", "team", "inbox"]), setConfirmRevoke(false), t.saved("Key revoked", `${r.pausedAgents} agents paused; a note explains it in the Inbox.`)), onError: (e) => t.failed(e, "Key not revoked") }));
+  // A key stored after a revoke (or used-up credits) resumes the team by itself; the result says how many came back.
+  const resumedNote = (r: { resumed: { agents: number } | null }) => (r.resumed ? ` ${r.resumed.agents} agent${r.resumed.agents === 1 ? "" : "s"} resumed.` : "");
+  const set = useMutation(trpc.keys.setAnthropic.mutationOptions({ onSuccess: (r) => (void invalidate(["keys", "integrations", "business", "team"]), setApiKey(""), validate.reset(), t.saved("Key stored", `Encrypted with the business data key.${resumedNote(r)}`)), onError: (e) => t.failed(e, "Key not stored") }));
+  const rotate = useMutation(trpc.keys.rotate.mutationOptions({ onSuccess: (r) => (void invalidate(["keys", "integrations", "business", "team"]), setApiKey(""), validate.reset(), t.saved("Key rotated", `Agents use the new key from their next call.${resumedNote(r)}`)), onError: (e) => t.failed(e, "Key not rotated") }));
+  const revoke = useMutation(trpc.keys.revoke.mutationOptions({ onSuccess: (r) => (void invalidate(["keys", "integrations", "business", "team", "inbox"]), setConfirmRevoke(false), t.saved("Key revoked", `${r.pausedAgents} agents paused; a note explains it in the Inbox.`)), onError: (e) => t.failed(e, "Key not revoked") }));
 
-  if (status.error) return <ErrorPanel title="Keys" message={errorMessage(status.error)} onRetry={() => void status.refetch()} />;
+  if (loadFailed(status)) return <ErrorPanel title="Keys" message={errorMessage(status.error)} onRetry={() => void status.refetch()} />;
   const configured = status.data?.configured ?? false;
   const latest = status.data?.credentials[0];
   const validation = validate.data;
@@ -42,6 +45,7 @@ export function KeysTab() {
 
   return (
     <AdminOnly>
+      {refreshFailed(status) ? <RefreshFailedNotice query={status} className="flex items-center gap-2" /> : null}
       <SettingsSection title="Anthropic key" loading={status.isLoading}>
         <div className="flex items-center gap-3">
           <StatusPill tone={configured ? "good" : "neutral"} icon={KeyRound}>
@@ -108,7 +112,7 @@ export function KeysTab() {
       </SettingsSection>
       {configured ? (
         <SettingsSection title="Revoke">
-          <p className="text-body text-secondary">Revoking archives the credential, disconnects the integration, pauses every agent and posts a note in the Inbox. Agents resume when a new key is stored.</p>
+          <p className="text-body text-secondary">Revoking archives the credential, disconnects the integration, stops every agent and posts a note in the Inbox. Storing a new key resumes them by itself; on a plan with credits, an owner or admin can also press Resume agents in the top bar.</p>
           <div>
             <Button variant="danger" icon={ShieldOff} onClick={() => setConfirmRevoke(true)}>
               Revoke key
@@ -118,7 +122,7 @@ export function KeysTab() {
             <DialogContent size="sm">
               <DialogHeader>
                 <DialogTitle>Revoke the Anthropic key?</DialogTitle>
-                <DialogDescription>Every agent pauses until a new key is stored. The Inbox gets a note explaining why.</DialogDescription>
+                <DialogDescription>Every agent stops until a new key is stored, which resumes them. The Inbox gets a note explaining why.</DialogDescription>
               </DialogHeader>
               <DialogFooter>
                 <Button variant="ghost" onClick={() => setConfirmRevoke(false)}>

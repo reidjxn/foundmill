@@ -36,6 +36,7 @@ const baseArgs: JourneyRibbonProps = {
   today: twoYears.today,
   kit: NORTHWIND_KIT,
   height: 360,
+  currency: "EUR",
 };
 
 function Frame({ children }: { children: React.ReactNode }) {
@@ -110,7 +111,7 @@ export const DayOne: Story = {
       const data = useMemo(() => generateJourneyFixture({ days: 3, seed: "day-one" }), []);
       return (
         <Frame>
-          <JourneyRibbon rows={data.rows} departments={RIBBON_DEPARTMENTS} conversions={[]} milestones={data.milestones.filter((m) => m.kind === "launch")} chapters={data.chapters} forecast={data.forecast} roadmap={data.roadmap} runwayMonths={14} today={data.today} kit={NORTHWIND_KIT} defaultZoom="month" />
+          <JourneyRibbon rows={data.rows} departments={RIBBON_DEPARTMENTS} conversions={[]} milestones={data.milestones.filter((m) => m.kind === "launch")} chapters={data.chapters} forecast={data.forecast} roadmap={data.roadmap} runwayMonths={14} today={data.today} kit={NORTHWIND_KIT} defaultZoom="month" currency="EUR" />
         </Frame>
       );
     };

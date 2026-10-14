@@ -72,9 +72,26 @@ export async function unnarratedIds(db: Db, businessId: string): Promise<string[
   return rows.filter((e) => e.type !== "inbox.item_created").map((e) => e.id);
 }
 
+/** Slot keys Refresh has served for a business (buffer rows with `consumed_at`; one row per key). */
+export async function servedKeys(h: TestHarness, businessId: string): Promise<string[]> {
+  const res = await h.pg.query<{ key: string }>("select source_hash as key from composer_buffer where business_id = $1 and consumed_at is not null", [businessId]);
+  return res.rows.map((r) => r.key);
+}
+
 export async function countInbox(db: Db, businessId: string): Promise<number> {
   const page = await repos.inbox.list(db, businessId, { limit: 500 });
   return page.items.length;
+}
+
+/** The founder answers every decision that is waiting (a new press can then write a new one: audit CML-02). */
+export async function answerOpenDecisions(db: Db, businessId: string): Promise<number> {
+  const open = await repos.inbox.list(db, businessId, { type: "decision", state: ["unread", "read"], limit: 200 });
+  for (const item of open.items) {
+    const options = (item.decision as { options?: { id: string; recommended?: boolean }[] } | null)?.options ?? [];
+    const choice = options.find((o) => o.recommended) ?? options[0];
+    await repos.inbox.decide(db, businessId, item.id, choice ? { chosenOption: choice.id } : { freeText: "Noted" });
+  }
+  return open.items.length;
 }
 
 /** Count of events that are not the composer's own `inbox.item_created` rows (the "never fabricates events" check). */

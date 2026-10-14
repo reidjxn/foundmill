@@ -1,11 +1,12 @@
 /**
  * Door B source catalogue and validation (BUILD §11.1, AC-11.1.5). Pure.
  *
- * The job itself runs on the API (`import.start` / `import.status`: the orchestrator's `importBusiness` workflow when a
- * business and a worker exist, otherwise a deterministic server-side job) and the Scouting report comes back with the
- * finished status; this module keeps the picker's copy (groups, descriptions, consent notes), mirrors the API's
+ * The job itself runs on the API (`import.start` / `import.status`: before a business exists, a deterministic server-side
+ * job that checks the typed values and plans the reads; commit starts the orchestrator's `importBusiness` workflow that
+ * reads them through the gateway) and the Import report comes back with the finished status; this module keeps the picker's copy (groups, descriptions, consent notes), mirrors the API's
  * input rules so the form can refuse bad values before the round trip, and turns the report into the Ideation brief.
  */
+import { IMPORT_READERS } from "@foundmill/shared/constants";
 import type { RouterInputs, RouterOutputs } from "@/lib/trpc";
 
 /** `import.status` as the API returns it: the job with per-source steps, the report once done, the workflow handle. */
@@ -39,19 +40,24 @@ export interface ImportSource {
 }
 
 export const IMPORT_SOURCES: readonly ImportSource[] = [
-  { key: "github", label: "GitHub", group: "Code and documents", description: "Repo-scoped read through the GitHub App. Clone into the sandbox, read the top 200 files by importance, run tests if present. Never pushes.", input: "repo", placeholder: "owner/repository", connectorKey: "github", readOnly: true, consent: "Read access to one repository. Write is a separate consent later." },
+  { key: "github", label: "GitHub", group: "Code and documents", description: "Repo-scoped read through the GitHub App once you take charge: the import reads the file tree, and agents read further as they work. Never pushes.", input: "repo", placeholder: "owner/repository", connectorKey: "github", readOnly: true, consent: "Read access to one repository. Write is a separate consent later." },
   { key: "google_drive", label: "Google Drive", group: "Code and documents", description: "Decks, plans and spreadsheets in a folder you choose.", input: "none", connectorKey: "google_drive", readOnly: true, consent: "Read access to one folder." },
   { key: "notion", label: "Notion", group: "Work tracking", description: "Wiki pages and databases: specs, roadmaps, meeting notes.", input: "none", connectorKey: "notion", readOnly: true, consent: "Read access to the pages you share." },
-  { key: "linear", label: "Linear", group: "Work tracking", description: "Issues, projects and cycles become roadmap seeds.", input: "none", connectorKey: "linear", readOnly: true, consent: "Read access to one workspace." },
-  { key: "jira", label: "Jira", group: "Work tracking", description: "Epics and issues become roadmap seeds.", input: "none", connectorKey: "jira", readOnly: true, consent: "Read access to one project." },
-  { key: "website", label: "Website", group: "Code and documents", description: "Crawls your public site within robots.txt: positioning, pricing, pages.", input: "url", placeholder: "https://example.com", connectorKey: "web", readOnly: true, consent: "Public pages only; robots.txt is respected." },
+  { key: "linear", label: "Linear", group: "Work tracking", description: "Issues, projects and cycles: your backlog.", input: "none", connectorKey: "linear", readOnly: true, consent: "Read access to one workspace." },
+  { key: "jira", label: "Jira", group: "Work tracking", description: "Epics and issues: your backlog.", input: "none", connectorKey: "jira", readOnly: true, consent: "Read access to one project." },
+  { key: "website", label: "Website", group: "Code and documents", description: "Your public site: positioning, pricing, pages.", input: "url", placeholder: "https://example.com", connectorKey: "web", readOnly: true, consent: "Public pages only; robots.txt is respected." },
   { key: "stripe", label: "Stripe", group: "Revenue and money", description: "Customers, subscriptions, invoices: real revenue history.", input: "none", connectorKey: "stripe", readOnly: true, consent: "Read-only Stripe Connect. Payouts and transfers are never available to agents." },
   { key: "shopify", label: "Shopify", group: "Revenue and money", description: "Orders, products and customers from your store.", input: "none", connectorKey: "shopify", readOnly: true, consent: "Read access to orders, products, customers." },
   { key: "bank", label: "Bank (open banking)", group: "Revenue and money", description: "Balances and transactions for cash and runway. Read only.", input: "none", connectorKey: "tink", readOnly: true, consent: "Account information only; no payment initiation exists." },
-  { key: "registry", label: "Company registry", group: "Identity", description: "Legal name, officers, filing deadlines from the public register.", input: "regno", placeholder: "Registration number", connectorKey: "companies_house", readOnly: true, consent: "Public record lookup." },
+  { key: "registry", label: "Company registry", group: "Identity", description: "Legal name, officers, filing deadlines from the public register.", input: "regno", placeholder: "Registration number", connectorKey: "opencorporates", readOnly: true, consent: "Public record lookup." },
 ];
 
 export const IMPORT_SOURCE_GROUPS = ["Code and documents", "Work tracking", "Revenue and money", "Identity"] as const;
+
+/** True when the import can read the source (packages/shared `IMPORT_READERS`); the others are listed as not read. */
+export function hasImportReader(key: string): boolean {
+  return Boolean(IMPORT_READERS[key]);
+}
 
 export function sourceByKey(key: string): ImportSource | undefined {
   return IMPORT_SOURCES.find((s) => s.key === key);
@@ -111,10 +117,12 @@ export function validateConfigs(configs: readonly SourceConfig[]): Record<string
 
 /* ---------- job progress (pure over the API's shape) ---------- */
 
+/** Steps that run now; `planned` steps happen after commit and are not part of this job's progress. */
 export function totalSteps(job: ImportJob): number {
-  return job.sources.reduce((n, s) => n + s.steps.length, 0);
+  return job.sources.reduce((n, s) => n + s.steps.filter((st) => st.status !== "planned").length, 0);
 }
 
+/** Steps that have finished, either way: a source the import cannot read finishes as not read (`failed`). */
 export function doneSteps(job: ImportJob): number {
-  return job.sources.reduce((n, s) => n + s.steps.filter((st) => st.status === "done").length, 0);
+  return job.sources.reduce((n, s) => n + s.steps.filter((st) => st.status === "done" || st.status === "failed").length, 0);
 }

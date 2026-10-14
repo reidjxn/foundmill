@@ -161,9 +161,13 @@ describe("the Live sessions section", () => {
     expect(tiles()).toHaveLength(4);
     const first = grid.textContent;
     const seenTasks = new Set<string>();
-    for (let i = 0; i < 240; i++) {
+    // Two minutes on screen, read every 3 s: each act runs 6 replay ticks and renders the four tiles once. Rendering
+    // every 500 ms tick (240 renders) took 4-7 s per business here and 38-49 s on the shared CI runner, past the 30 s
+    // budget; the hook-level replay above already checks every single tick for an overdue ETA.
+    const ticksPerRead = 6;
+    for (let i = 0; i < (2 * 60_000) / (LIVE_REPLAY.intervalMs * ticksPerRead); i++) {
       act(() => {
-        vi.advanceTimersByTime(LIVE_REPLAY.intervalMs);
+        vi.advanceTimersByTime(LIVE_REPLAY.intervalMs * ticksPerRead);
       });
       expect(grid.textContent).not.toMatch(/overdue/i);
       for (const t of tiles()) seenTasks.add(t.querySelector("[data-tile-task]")?.textContent ?? "");

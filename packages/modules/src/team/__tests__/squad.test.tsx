@@ -19,7 +19,7 @@ describe("team rows", () => {
     expect(row.latestUpdate).toEqual({ at: "2026-10-07T11:50:00.000Z", text: "Picker renders; writing the Playwright test" });
     expect(toolKeys({ tools: ["github", { connectorKey: "github" }, { connectorKey: "stripe" }] })).toEqual(["github", "stripe"]);
     expect(skillRating({ rating: null, skills: [{ skillKey: "a", group: "craft", displayed: 10 }, { skillKey: "b", group: "craft", displayed: 20 }] })).toBe(7.5);
-    const mara = toSquadRow(agents.find((a) => a.id === AGENT_MARA)!);
+    const mara = toSquadRow(agents.find((a) => a.id === AGENT_MARA)!, "EUR");
     expect(mara.expectedReturnAt).toBe("2026-10-07T14:00:00.000Z");
   });
 
@@ -41,6 +41,7 @@ describe("team rows", () => {
     ]);
     expect(toModelOptions({ ...compareJuno, options: compareJuno.options.map((o) => (o.modelKey === "haiku" ? { ...o, allowed: false, warning: "Locked to Sonnet" } : o)) }, "EUR")[2]!.lockedReason).toBe("Locked to Sonnet");
     expect(describeModelSet({ updated: ["a", "b"], skipped: [{ agentId: "c", reason: "locked route" }], warnings: [], retests: [{ runId: "r1" }] }, "opus")).toBe("Model set to Opus for 2 agents · 1 skipped (locked route) · 1 retest queued");
+    expect(describeModelSet({ updated: ["a"], skipped: [], warnings: [], retests: [], superseded: ["r1", "r2"] }, "sonnet")).toBe("Model set to Sonnet for 1 agent · 2 earlier retests canceled");
   });
 });
 
@@ -105,6 +106,20 @@ describe("SquadScreen", () => {
     await waitFor(() => expect(fake.mutations).toEqual([{ path: "agent.model.set", input: { agentId: AGENT_JUNO, modelKey: "opus", applyScope: "type" } }]));
     await waitFor(() => expect(screen.getByTestId("model-notice").textContent).toBe("Model set to Opus for 2 agents · 2 retests queued"));
     expect(fake.refetches["team.agents.list"]).toBe(1);
+  });
+
+  it("shows predicted wage deltas in US dollars, the metered model cost's currency, on a business that keeps its books in pounds", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ businessId: BID, currency: "GBP", responses: { ...dataResponses, "agent.model.compare": { ...compareJuno, currency: "USD" } } });
+    renderScreen(fake, <SquadScreen {...props} />);
+    const table = await screen.findByRole("grid", { name: "Agents" });
+    const junoRow = within(table).getByRole("link", { name: "Juno" }).closest("[role='row']") as HTMLElement;
+    await user.click(within(junoRow).getByRole("button", { name: "Sonnet" }));
+    const dialog = await screen.findByTestId("model-dialog");
+    await waitFor(() => expect(dialog.textContent).toContain("+$720.00/mo"));
+    expect(dialog.textContent).not.toContain("£");
+    // An older answer without a currency still never borrows the business's.
+    expect(toModelOptions({ ...compareJuno, currency: undefined })[0]!.wageDelta).toEqual({ amountMinor: 72_000, currency: "USD" });
   });
 
   it("offers right-click verbs: open profile, change model, clone, loan, release (not for the Chief of Staff)", async () => {

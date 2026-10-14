@@ -6,9 +6,9 @@
  */
 import { z } from "zod";
 import { defineTool, type AnyToolSpec } from "../../define";
-import { addDays, isoDay, makeEvent, MOCK_NOW, uuidFromSeed } from "../../mock-utils";
+import { addDays, isoDay, makeEvent, MOCK_NOW, perBusiness, uuidFromSeed } from "../../mock-utils";
 import { filterTransactions, type BankHistory } from "../../fixtures/bank-history";
-import type { PlatformEvent, SimulateParams } from "../../contract";
+import type { PlatformEvent, SimulateParams, ToolContext } from "../../contract";
 
 const Money = z.object({ amountMinor: z.number().int(), currency: z.string().length(3) });
 
@@ -113,30 +113,42 @@ export function mockAccounts(o: BankingMockOptions): BankAccountT[] {
 
 export const mockTransaction = (t: BankHistory["transactions"][number]): BankTransactionT => ({ id: t.id, accountId: t.accountId, amount: { amountMinor: t.amountMinor, currency: t.currency }, bookedDate: t.bookedDate, valueDate: t.valueDate, description: t.description, counterparty: t.counterparty, status: t.status, reference: t.reference, category: t.category });
 
-/** Handlers for the shared tool set; a connector spreads them into `buildMockConnector`. */
-export function bankingMockHandlers(o: BankingMockOptions) {
-  const now = o.now ?? (() => MOCK_NOW);
-  const asOf = new Date(o.history.accounts[0]?.asOf ?? now().toISOString());
-  const accountIds = new Set(o.history.accounts.map((a) => a.id));
-  const accountOrThrow = (id: string | undefined) => {
+/**
+ * Handlers for the shared tool set; a connector spreads them into `buildMockConnector`. `optionsFor` gives each business
+ * its own deterministic history (the one its `bank.sync` simulation reports), resolved per call from `ctx.businessId`
+ * and kept per business, so two businesses never see the same bank accounts.
+ */
+export function bankingMockHandlers(optionsFor: (businessId: string) => BankingMockOptions) {
+  const bank = perBusiness((businessId) => {
+    const o = optionsFor(businessId);
+    const now = o.now ?? (() => MOCK_NOW);
+    const accountIds = new Set(o.history.accounts.map((a) => a.id));
+    return { o, now, asOf: new Date(o.history.accounts[0]?.asOf ?? now().toISOString()), accountIds };
+  }, 50);
+  const accountOrThrow = (accountIds: ReadonlySet<string>, id: string | undefined) => {
     if (id !== undefined && !accountIds.has(id)) throw Object.assign(new Error(`account ${id} not found`), { status: 404 });
   };
   return {
-    list_accounts: async () => ({ items: mockAccounts(o) }),
-    list_transactions: async ({ accountId, from, to, pageSize, pageToken }: { accountId?: string; from?: string; to?: string; pageSize: number; pageToken?: string }) => {
-      accountOrThrow(accountId);
+    list_accounts: async (_args: unknown, ctx: ToolContext) => ({ items: mockAccounts(bank(ctx.businessId).o) }),
+    list_transactions: async ({ accountId, from, to, pageSize, pageToken }: { accountId?: string; from?: string; to?: string; pageSize: number; pageToken?: string }, ctx: ToolContext) => {
+      const { o, asOf, accountIds } = bank(ctx.businessId);
+      accountOrThrow(accountIds, accountId);
       const start = from ?? isoDay(addDays(asOf, -90));
       const all = filterTransactions(o.history, { accountId, from: start, to }).reverse();
       const offset = pageToken ? Number.parseInt(pageToken, 10) || 0 : 0;
       const page = all.slice(offset, offset + pageSize);
       return { items: page.map(mockTransaction), nextPageToken: offset + pageSize < all.length ? String(offset + pageSize) : null };
     },
-    sync: async ({ cursor }: { cursor?: string }) => {
+    sync: async ({ cursor }: { cursor?: string }, ctx: ToolContext) => {
+      const { o, asOf } = bank(ctx.businessId);
       const since = cursor && /^\d{4}-\d{2}-\d{2}$/.test(cursor) ? cursor : isoDay(addDays(asOf, -30));
       const added = o.history.transactions.filter((t) => t.bookedDate > since);
       return { accounts: mockAccounts(o), newTransactions: added.map(mockTransaction), cursor: isoDay(asOf), hasMore: false, balanceAt: asOf.toISOString(), consentExpiresAt: o.consentExpiresAt.toISOString() };
     },
-    get_consent_status: async () => consentStatusFrom(o.consentExpiresAt, now(), o.institution, [...accountIds]),
+    get_consent_status: async (_args: unknown, ctx: ToolContext) => {
+      const { o, now, accountIds } = bank(ctx.businessId);
+      return consentStatusFrom(o.consentExpiresAt, now(), o.institution, [...accountIds]);
+    },
   };
 }
 

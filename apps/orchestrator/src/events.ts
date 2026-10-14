@@ -14,7 +14,11 @@ export interface EmittedEvent {
   type: EventType;
 }
 
-export async function emitEvent<T extends EventType>(db: Executor, input: WriteEventInput<T>): Promise<EmittedEvent> {
+/**
+ * Write one event. With `idempotencyKey` (an activity that may be retried: `cycle.started:<cycleId>`, `holiday.ended:<id>`)
+ * a repeat returns the event already written under that key instead of writing it twice.
+ */
+export async function emitEvent<T extends EventType>(db: Executor, input: WriteEventInput<T>, options: { idempotencyKey?: string } = {}): Promise<EmittedEvent> {
   const event = buildEvent(input);
   const row = await repos.events.write(db, event.businessId, {
     id: event.id,
@@ -23,6 +27,7 @@ export async function emitEvent<T extends EventType>(db: Executor, input: WriteE
     entityIds: event.entityIds,
     payload: event.payload as Record<string, unknown>,
     occurredAt: event.occurredAt,
+    ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
   });
   return { id: row.id, type: row.type as EventType };
 }

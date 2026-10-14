@@ -4,6 +4,7 @@
  * ./constants (no Zod, safe for browser bundles), and the Zod enum of the same name here. Never redeclare these elsewhere.
  */
 import { z } from "zod";
+import { CurrencyCode } from "./currency";
 import {
   GAME_MODES,
   BUSINESS_MODES,
@@ -18,6 +19,8 @@ import {
   INBOX_STATES,
   EXHIBIT_KINDS,
   AGENT_STATUSES,
+  AGENT_STOP_REASONS,
+  AGENT_PAUSE_REASONS,
   AGENT_LAYERS,
   MODEL_KEYS,
   SKILL_GROUPS,
@@ -95,6 +98,10 @@ export const ExhibitKind = z.enum(EXHIBIT_KINDS);
 export type ExhibitKind = C.ExhibitKind;
 export const AgentStatus = z.enum(AGENT_STATUSES);
 export type AgentStatus = C.AgentStatus;
+export const AgentStopReason = z.enum(AGENT_STOP_REASONS);
+export type AgentStopReason = C.AgentStopReason;
+export const AgentPauseReason = z.enum(AGENT_PAUSE_REASONS);
+export type AgentPauseReason = C.AgentPauseReason;
 export const AgentLayer = z.enum(AGENT_LAYERS);
 export type AgentLayer = C.AgentLayer;
 export const ModelKey = z.enum(MODEL_KEYS);
@@ -117,6 +124,22 @@ export const PlanStatus = z.enum(PLAN_STATUSES);
 export type PlanStatus = C.PlanStatus;
 export const PolicyOutcome = z.enum(POLICY_OUTCOMES);
 export type PolicyOutcome = C.PolicyOutcome;
+/**
+ * What choosing a pre-written Inbox option runs (BUILD §11.3; audit IAE-20, AC-01, FR-10): typed plan actions written
+ * with the option (the Board's first decision, the Import report's first decisions), so an option click never parses
+ * the option's prose. `assignee` names who does it by agent template key ("product_lead", "channel_lead_generation");
+ * without one a channel's action goes to the agent that runs the channel, anything else to the agent who asked.
+ * Amounts are minor units of the business's currency, which the plan fills in.
+ */
+export const OptionAction = z.object({
+  type: z.enum(PLAN_ACTION_TYPES),
+  params: z.record(z.string(), z.unknown()),
+  assignee: z
+    .string()
+    .regex(/^[a-z][a-z0-9_]{1,63}$/)
+    .optional(),
+});
+export type OptionAction = z.infer<typeof OptionAction>;
 export const ChannelKey = z.enum(CHANNEL_KEYS);
 export type ChannelKey = C.ChannelKey;
 export const ChannelLine = z.enum(CHANNEL_LINES);
@@ -172,7 +195,7 @@ export type DecisionType = C.DecisionType;
 export const EventType = z.enum(EVENT_TYPES);
 export type EventType = C.EventType;
 /** Money in minor units. */
-export const Money = z.object({ amountMinor: z.number().int(), currency: z.string().length(3) });
+export const Money = z.object({ amountMinor: z.number().int(), currency: CurrencyCode });
 export type Money = z.infer<typeof Money>;
 export const Actor = z.object({ kind: ActorKind, id: z.string() });
 export type Actor = z.infer<typeof Actor>;

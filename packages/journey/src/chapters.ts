@@ -44,7 +44,9 @@ export function buildChapters(input: BuildChaptersInput): Chapter[] {
     const summary = summaries.get(id) ?? emptySummary();
     const startsOn = quarterStart(year, quarter);
     const endsOn = quarterEnd(year, quarter);
-    summary.days = status === "future" ? 0 : Math.max(0, daysBetween(startsOn, status === "current" ? input.today : endsOn) + 1);
+    // The kick-off chapter counts from kick-off, not from the first day of its quarter.
+    const countFrom = index === 0 && input.startDay > startsOn ? input.startDay : startsOn;
+    summary.days = status === "future" ? 0 : Math.max(0, daysBetween(countFrom, status === "current" ? input.today : endsOn) + 1);
     const previous = chapters[chapters.length - 1];
     chapters.push(
       Chapter.parse({

@@ -49,6 +49,15 @@ describe("named query registry", () => {
     expect(cash!.rows![0]).toMatchObject({ currency: "EUR", balance_minor: 1_234_500 });
   });
 
+  it("conversions_30d counts customers won: a renewal or a repeat order is revenue, not a payment conversion (audit JM-02)", async () => {
+    const payments = async () => (await runNamedQuery(hz.db, hz.B.businessId, "conversions_30d"))!.series!.find((s) => s.key === "payment")!.points.reduce((n, p) => n + Number(p.y), 0);
+    const before = await payments();
+    const at = new Date(Date.now() - 60_000);
+    await repos.journeys.recordConversion(hz.db, hz.B.businessId, { kind: "payment", amountMinor: 4_900, currency: "EUR", occurredAt: at });
+    await repos.journeys.recordConversion(hz.db, hz.B.businessId, { kind: "payment", amountMinor: 4_900, currency: "EUR", occurredAt: at, firstPayment: false });
+    expect(await payments()).toBe(before + 1);
+  });
+
   it("sanitizeExhibit downgrades anything outside the registry to none and corrects the kind", () => {
     expect(sanitizeExhibit({ kind: "chart", spec_ref: "made_up" })).toEqual({ kind: "none", spec_ref: null });
     expect(sanitizeExhibit({ kind: "chart", spec_ref: null })).toEqual({ kind: "none", spec_ref: null });
@@ -94,6 +103,32 @@ const snapshot = (over: Partial<MetricsSnapshot> = {}): MetricsSnapshot => ({
   roadmapOpen: 1,
   roadmapSlips: [],
   ...over,
+});
+
+describe("money in the status strip is formatted as the founder reads it everywhere (audit VGTM-X3)", () => {
+  it("cash reads with the currency's narrow symbol and grouping, labeled Estimate, never as a raw number and code", () => {
+    const cash = (over: Partial<MetricsSnapshot>) => statusMetrics(snapshot({ cashMinor: 26_334_571, runwayMonths: 14, ...over })).find((m) => m.metric === "cash")!;
+    expect(cash({ currency: "GBP" })).toMatchObject({ value: "£263,345.71", label: "Estimate" });
+    expect(cash({ currency: "USD" }).value).toBe("$263,345.71");
+    expect(cash({ currency: "EUR" }).value).toBe("€263,345.71");
+    expect(cash({ currency: "GBP" }).value).not.toMatch(/\d{5,}\.\d{2} [A-Z]{3}/);
+  });
+
+  it("the note quotes it that way, with the Estimate label", async () => {
+    const generate = MOCK_ROUTES.inboxComposer.generate;
+    const seen: string[] = [];
+    const spy: MockGenerator = (ctx) => {
+      const out = generate(ctx);
+      seen.push(JSON.stringify(out));
+      return out;
+    };
+    await repos.finance.upsertAccount(hz.db, hz.A.businessId, { provider: "mock_bank", externalId: "gbp1", name: "GBP main", currency: "GBP", balanceMinor: 26_334_571 });
+    const service = hz.service({}, { inboxComposer: spy });
+    const r = await service.refresh(hz.A.businessId);
+    await service.drain(hz.A.businessId);
+    expect(r.item.bodyMd).not.toMatch(/\d{5,}\.\d{2} [A-Z]{3}/);
+    expect(seen.join(" ")).not.toMatch(/\d{5,}\.\d{2} [A-Z]{3}/);
+  });
 });
 
 describe("insight thresholds (computed, never invented)", () => {

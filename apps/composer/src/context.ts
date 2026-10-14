@@ -6,7 +6,7 @@
 import { repos, type Agent, type Business, type Event, type Executor } from "@foundmill/db";
 import { buildManifest, type Manifest, type ManifestEntityInput } from "@foundmill/entity-linker";
 import { getEventDeclaration } from "@foundmill/events";
-import { AppError, type EntityKind, type EventType } from "@foundmill/shared";
+import { AppError, EVENT_TYPES, type EntityKind, type EventType } from "@foundmill/shared";
 import { loadMetricsSnapshot, statusMetrics, type MetricsSnapshot, type StatusMetric } from "./metrics";
 
 /** How many CRM entities (beyond the ones the events name) the manifest offers for linking. */
@@ -54,12 +54,11 @@ export async function loadContext(db: Executor, businessId: string, options: Loa
     repos.entities.manifest(db, businessId, { limit: MANIFEST_LIMIT }),
     options.entityIds && options.entityIds.length > 0 ? repos.entities.manifest(db, businessId, { ids: options.entityIds }) : Promise.resolve([]),
     loadMetricsSnapshot(db, businessId, now),
-    options.skipUnnarrated ? Promise.resolve([] as Event[]) : repos.events.unnarrated(db, businessId, UNNARRATED_LOOKAHEAD),
+    options.skipUnnarrated ? Promise.resolve([] as Event[]) : unnarratedNarratable(db, businessId),
     repos.agents.chiefOfStaff(db, businessId),
   ]);
   const agents = agentsPage.items;
   if (agents.length === 0) throw new NoAgentsError(businessId);
-  const narratable = unnarrated.filter((e) => isNarratable(e.type));
   const voice = chief ?? agents[0]!;
 
   const seen = new Set<string>();
@@ -88,7 +87,7 @@ export async function loadContext(db: Executor, businessId: string, options: Loa
     agentIds: new Set(agents.map((a) => a.id)),
     metrics,
     status: statusMetrics(metrics),
-    unnarrated: narratable,
+    unnarrated,
     now,
   };
 }
@@ -102,6 +101,20 @@ export function isNarratable(type: string): boolean {
   }
 }
 
+/** Every event type the composer may narrate (the catalogue's `narratable: true`). */
+export const NARRATABLE_EVENT_TYPES: readonly EventType[] = EVENT_TYPES.filter((t) => isNarratable(t));
+
+/**
+ * The Refresh lookahead: the highest-priority un-narrated events of a narratable type only. Filtering after the limit
+ * let a cycle's dozens of task.progressed / cycle.started rows fill the window on every Refresh, so wins and cycle
+ * reports were never reached (audit EXTRA-STARVE). Those rows are marked narrated on the way, as the api's in-process
+ * path does: they never become notes and would otherwise pile up in the un-narrated index.
+ */
+async function unnarratedNarratable(db: Executor, businessId: string): Promise<Event[]> {
+  await repos.events.markUnnarratable(db, businessId, NARRATABLE_EVENT_TYPES);
+  return repos.events.unnarrated(db, businessId, UNNARRATED_LOOKAHEAD, { types: NARRATABLE_EVENT_TYPES });
+}
+
 /** The business brief as the model sees it (no numbers beyond what the metrics carry). */
 export function businessBrief(ctx: ComposeContext): Record<string, unknown> {
   const b = ctx.business;
@@ -113,6 +126,8 @@ export function businessBrief(ctx: ComposeContext): Record<string, unknown> {
     business_mode: b.businessMode,
     region: b.region,
     kit: { primary: b.kitPrimary, secondary: b.kitSecondary },
+    // The currency the business keeps its money in (0025): an amount an event does not price is in it.
+    currency: b.currency,
     glossary: ctx.glossary,
     departments_note: "Departments are labels over modules; refer to agents by their manifest entry.",
   };

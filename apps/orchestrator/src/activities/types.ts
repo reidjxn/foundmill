@@ -30,6 +30,8 @@ export interface BriefAgent {
   status: AgentStatus;
   departmentIds: string[];
   wageCapMinor: number | null;
+  /** What is left of the wage cap this period (null: uncapped). At or below zero the agent takes no work (BUILD §10.4). */
+  wageRemainingMinor?: number | null;
 }
 
 export interface BriefTask {
@@ -45,6 +47,22 @@ export interface BriefTask {
   budgetMinor: number | null;
   /** Dependencies not yet done block dispatch. */
   blocked: boolean;
+  /** A session of this task holds a gated call nobody has decided yet: starting it again would only wait on it again. */
+  awaitingApproval?: boolean;
+  /** A failed or blocked task's next automatic retry (`retry.ts`); absent for every other status. */
+  retry?: { failures: number; due: boolean; exhausted: boolean; nextAttemptAt: string | null } | null;
+  /**
+   * The founder's answer the task waits for (0030): its approval is still open, or was rejected since its last session.
+   * Such a task is not dispatched; approving makes it dispatchable again. Absent in briefs built before it existed.
+   */
+  approvalHold?: { approvalId: string; outcome: null | "rejected" } | null;
+}
+
+/** A roadmap item no task links to yet: it needs a task graph (Development › Plan) before anyone can start it. */
+export interface BriefRoadmapItem {
+  id: string;
+  title: string;
+  horizon: string;
 }
 
 export interface BusinessBrief {
@@ -59,10 +77,22 @@ export interface BusinessBrief {
   agents: BriefAgent[];
   chiefOfStaffId: string | null;
   openTasks: BriefTask[];
+  /** How many tasks a cycle could plan in all (`openTasks` lists the most important and oldest of them). */
+  openTaskTotal?: number;
+  /** Roadmap items without tasks, Now first. */
+  untaskedRoadmap?: BriefRoadmapItem[];
   pendingApprovals: number;
   blockingInboxItems: number;
-  /** Credits remaining for the period (label "Estimate"); null when unknown/uncapped. */
+  /**
+   * The team is stopped (Stop all agents, a revoked key, used-up credits; 0023): nothing is planned or dispatched until
+   * an owner or admin resumes it. Absent in briefs built before the flag existed.
+   */
+  agentsStopped?: boolean;
+  /** Credits remaining for the period in `creditsCurrency` (label "Estimate"); null for a business on its own key. */
   budgetRemainingMinor: number | null;
+  /** The currency of credits and of every model cost (USD, `CREDITS_CURRENCY`), never the business's `currency`. */
+  creditsCurrency: string;
+  /** Agents this cycle may run at once: the plan tier's limit less the sessions already open (0: none may start). */
   maxAgents: number;
   /** Rate-limit capacity summary for the planner prompt. */
   capacity: string;
@@ -94,9 +124,11 @@ export interface CyclePlan {
   modelKey: ModelKey;
   warning: string | null;
   costMinor: number;
+  /** Nothing could start, so no model was called: the cycle posts one plain note instead of a narration. */
+  idle?: boolean;
 }
 
-export type CycleTrigger = "continue" | "holiday" | "schedule" | "wake";
+export type CycleTrigger = "continue" | "holiday" | "schedule" | "wake" | "autopilot";
 
 export interface BusinessCycleInput {
   businessId: string;
@@ -157,7 +189,7 @@ export type SessionOutcome = "done" | "blocked" | "failed" | "stopped";
 export interface SessionResult {
   outcome: SessionOutcome;
   reason: string | null;
-  blockedReason: "awaiting_approval" | "dependency" | "credential" | "budget" | "rate_limit" | "loop_detected" | "error" | "shout" | "stopped" | null;
+  blockedReason: "awaiting_approval" | "approval_rejected" | "dependency" | "credential" | "budget" | "rate_limit" | "loop_detected" | "error" | "shout" | "stopped" | null;
   approvalId: string | null;
   progress: ProgressState;
   eventsEmitted: number;
@@ -166,11 +198,51 @@ export interface SessionResult {
   tokensIn: number;
   tokensOut: number;
   costMinor: number;
+  /** The exact model cost in millionths of a US cent (`costMinor` is its rounding); absent on results from before 0039. */
+  costMicroMinor?: number;
   durationMs: number;
+  /** Milliseconds a sandbox was running for this session (a live code task's acceptance run); 0 when none was used. */
+  sandboxMs?: number;
   prNumber: number | null;
   summary: string;
   /** Last SDK/replay session id for resume. */
   providerSessionId: string | null;
+  /** The model the session was moved to by a nudge ("Upgrade to Opus"); absent when it ran on its launch model throughout. */
+  modelKey?: ModelKey | null;
+  /**
+   * Set when the run handed its slot back because the session stayed paused past SESSION_PAUSE_HOLD_MINUTES (the
+   * workflow waits for Resume without holding a slot, then starts another run) or because its worker shut down
+   * (`handoff`: the workflow starts the next run at once). Never set on a finished session.
+   */
+  parked?: SessionParked | null;
+}
+
+export interface SessionParked {
+  /** Where a mock replay picks up (`<recording>@<next event index>`); null for live sessions (the work is saved). */
+  cursor: string | null;
+  /** Nudges and decisions the run read but did not act on (they came while it parked); the next run gets them. */
+  carry: SessionCommand[];
+  /**
+   * The number (`seq`) of the last control command the run read (its `fromSeq` − 1 when none). The workflow hands the
+   * next run every nudge and decision it numbered after this one too: they reached the list after the run's last poll.
+   */
+  lastSeq: number;
+  /**
+   * The worker is shutting down (a deploy, ../drain.ts): the run saved its work and returned, and the workflow starts
+   * the next run at once, on the next worker, instead of waiting for Resume. Absent on a park.
+   */
+  handoff?: boolean;
+}
+
+/** How one run of a session starts (agentSession may run several when a paused session parks and resumes). */
+export interface SessionRunOptions {
+  /** Control commands numbered below this were meant for an earlier run and are ignored. */
+  fromSeq: number;
+  /**
+   * Set when this run continues an earlier one: after a park (Resume), a hand-off from a worker that shut down, or a
+   * retry after a worker that died (absent reason = a park, as in histories from before hand-offs).
+   */
+  resume: { cursor: string | null; progress: ProgressState; reason?: "park" | "handoff" | "retry" } | null;
 }
 
 export interface SessionFinish {
@@ -254,6 +326,8 @@ export interface LoadedTrainingRun {
   modelKey: ModelKey;
   /** The draft tried to contradict a club rule; the rule still applies (AC-11.10.4). */
   clubRuleFlags: { ruleId: string; line: string; reason: string }[];
+  /** A model change's retest (AC-11.10.5): the live version copied onto another model. Absent on runs loaded before it existed. */
+  retest?: { fromModelKey: ModelKey; toModelKey: ModelKey } | null;
 }
 
 export interface SkillTestsOutcome {
@@ -264,6 +338,8 @@ export interface SkillTestsOutcome {
   tested: number;
   previousTested: number | null;
   costMinor: number;
+  /** The exact cost in millionths of a US cent (`costMinor` is its rounding); absent on outcomes from before 0039. */
+  costMicroMinor?: number;
   checksFailed: number;
 }
 
@@ -282,6 +358,8 @@ export interface HolidayInput {
   holidayId: string;
   /** Override the cadence between auto-Continues (agent-hours). */
   cadenceAgentHours?: number;
+  /** Cycles run by earlier runs of this vacation (a long vacation continues as new). */
+  cyclesRun?: number;
 }
 
 export interface LoadedHoliday {
@@ -299,17 +377,48 @@ export interface LoadedHoliday {
 
 export interface HolidayCheck {
   shouldEnd: boolean;
-  reason: "until_reached" | "condition_met" | "founder_returned" | "wake_event" | "budget_exhausted" | "kill_switch" | null;
+  reason: "until_reached" | "condition_met" | "founder_returned" | "wake_event" | "budget_exhausted" | "kill_switch" | "cycle_cap" | null;
   wakeEventType: string | null;
   wakeEventId: string | null;
   spentMinor: number;
   now: string;
 }
 
+export interface AutomatedModeInput {
+  businessId: string;
+  /** Cycles run by earlier runs of this loop (it continues as new to keep its history short). */
+  cyclesRun?: number;
+  /** Override the cadence between cycles (agent-hours). */
+  cadenceAgentHours?: number;
+}
+
+export interface LoadedAutomatedMode {
+  chiefOfStaffId: string | null;
+  authority: string[];
+  cadenceAgentHours: number;
+}
+
+export interface AutomatedModeCheck {
+  /** False once the business left Automated mode or was archived: the loop ends. */
+  active: boolean;
+  /** Why no cycle runs this tick although the loop continues. */
+  hold: "vacation" | "stopped" | null;
+  reason: string;
+}
+
 export interface HolidayDecisions {
   decided: number;
   queuedGated: number;
+  /** The items the Chief of Staff decided in this pass. */
   inboxItemIds: string[];
+  /**
+   * Plans of this vacation's decisions still to run (origin `holiday`, executing): this pass's, and any an earlier pass
+   * wrote but whose start a retry lost. The holiday workflow starts `planExecution` (`plan:<id>`) for each; one already
+   * running is left alone.
+   */
+  planIds: string[];
+  /** The items left to the founder in this pass, with the reason in words (the report lists them). */
+  waiting: { inboxItemId: string; reason: string }[];
 }
 
 export interface HolidayEnd {
@@ -375,6 +484,10 @@ export interface LoadedPlaybook {
   playbookId: string;
   enabled: boolean;
   steps: Record<string, unknown>[];
+  /** Steps that wait for the founder: `step` is an index into `steps`; `first_run` only until the playbook has run once. */
+  approvals: { step: number; scope: "first_run" | "every_run" }[];
+  /** The playbook has not run before. */
+  firstRun: boolean;
   stop: Record<string, unknown>;
   departmentId: string | null;
 }
@@ -387,10 +500,15 @@ export interface IncorporationInput {
 export interface JourneyBuildInput {
   businessId: string;
   conversionId: string;
+  /** The `customer.converted` ingest wrote for the conversion (absent when the workflow builds a journey from nothing). */
+  convertedEventId?: string | null;
+  /** Ingest could not narrate the win: narrate `convertedEventId` if it is still un-narrated. */
+  narrate?: boolean;
 }
 
 export interface JourneyBuildResult {
-  journeyId: string;
+  /** Null for a repeat payment, which has no Customer Update. */
+  journeyId: string | null;
   matchdayLevel: "friendly" | "league" | "cup";
   fullMatchDay: boolean;
   eventId: string | null;
@@ -459,9 +577,20 @@ export interface BusinessFoundationsResult {
   error: string | null;
 }
 
+/**
+ * What a schedule workflow is started with. The registered Temporal Schedules (src/schedules.ts) pass no business ids:
+ * the workflow lists the businesses when it runs, so a business committed after the schedule was registered is included.
+ * Tests and one-off runs may name them.
+ */
 export interface ScheduleInput {
-  businessIds: string[];
+  businessIds?: string[];
   /** ISO "now" for deterministic runs; defaults to the clock. */
+  at?: string;
+}
+
+/** What the schedule activities process: the businesses the workflow resolved. */
+export interface ScheduleBatch {
+  businessIds: string[];
   at?: string;
 }
 
@@ -471,6 +600,22 @@ export interface ScheduleResult {
   eventIds: string[];
   notes: string[];
 }
+
+/** A channel whose engine the reconciler makes sure is running (`engine:<channelId>`). */
+export interface EngineToEnsure {
+  businessId: string;
+  channelId: string;
+  channelKey: string;
+  engineWorkflowId: string | null;
+}
+
+/** A business whose scheduled deletion came due, with the workflows to stop before it is purged. */
+export interface DueBusinessDeletion {
+  businessId: string;
+  scheduledFor: string;
+  workflowIds: string[];
+}
+
 
 export interface HealthRefreshResult {
   changed: { agentId: string; from: AgentStatus; to: AgentStatus; reason: string }[];

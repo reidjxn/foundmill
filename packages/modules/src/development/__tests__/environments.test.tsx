@@ -47,6 +47,13 @@ describe("EnvironmentsScreen", () => {
     expect(fake.navigations[0]).toBe(`/b/${BUSINESS_ID}/d/development/plan?task=${TASK_INDEX}`);
   });
 
+  it("never adds a preview row for a non-code task in review (TPD-13)", () => {
+    const prs = { ...prsResponse, open: [...prsResponse.open, { taskId: "f-1", title: "Stability data for serum reformulation", status: "review" as const, branch: "agent/f-1", agentId: null, kind: "specialist" as const }] };
+    const rows = toEnvironmentRows(codeTasks.items, prs, [], new Map());
+    expect(rows.map((r) => r.title)).not.toContain("Stability data for serum reformulation");
+    expect(rows).toHaveLength(3);
+  });
+
   it("adds a production release row from a deploy without a task", async () => {
     const fake = createFakeSource({ responses: responses() });
     renderScreen(fake, <EnvironmentsScreen {...props} />);

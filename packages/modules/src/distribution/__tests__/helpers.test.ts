@@ -10,17 +10,16 @@ import {
   channelPaused,
   channelStatus,
   funnelStages,
-  isPartialJourney,
   lawfulBasisLabel,
-  modelInUse,
   potentialStars,
+  summaryResults,
   suppressionOf,
   toChannelToken,
   totalBudget,
   weeklyForm,
 } from "../channel-data";
 import { groupAssets } from "../CreativeScreen";
-import { AGENT, CHANNEL, TODAY, agents, assets, campaigns, channels, channelsList, journeys, leads, metrics, recommendResponse } from "./fixtures";
+import { AGENT, CHANNEL, TODAY, agents, assets, campaigns, channels, channelsList, leads, metrics, recommendResponse } from "./fixtures";
 
 describe("potentialStars", () => {
   it("reads stored stars×20 and plain stars, rounding to halves", () => {
@@ -35,24 +34,26 @@ describe("potentialStars", () => {
 
 describe("buildChannelViews", () => {
   it("returns all 15 channels in line order with stored rows merged and the rest unscored", () => {
-    const views = buildChannelViews({ channels, campaigns, metrics, today: TODAY });
+    const views = buildChannelViews({ channels, campaigns, metrics, today: TODAY , currency: "EUR" });
     expect(views).toHaveLength(15);
     expect(new Set(views.map((v) => v.channelKey))).toEqual(new Set(CHANNEL_KEYS));
     expect(views.map((v) => v.line)).toEqual([...views].sort((a, b) => ["attack", "midfield", "defence", "wings"].indexOf(a.line) - ["attack", "midfield", "defence", "wings"].indexOf(b.line)).map((v) => v.line));
     const paid = views.find((v) => v.channelKey === "paid_ads")!;
     expect(paid.persisted).toBe(true);
+    expect(paid.scored).toBe(true);
     expect(paid.stars).toBe(4);
     expect(paid.campaigns.map((c) => c.id)).toEqual([campaigns[0]!.id]);
     expect(paid.form5).toHaveLength(5);
     const geo = views.find((v) => v.channelKey === "geo")!;
     expect(geo.persisted).toBe(false);
+    expect(geo.scored).toBe(false);
     expect(geo.enabled).toBe(false);
     expect(geo.id).toBe("");
     expect(geo.form5).toEqual(["none", "none", "none", "none", "none"]);
   });
 
   it("prefers the fresh recommendation for fit, stars, cost range and why", () => {
-    const views = buildChannelViews({ channels, recommendation: recommendResponse.recommendation });
+    const views = buildChannelViews({ channels, recommendation: recommendResponse.recommendation , currency: "EUR" });
     const paid = views.find((v) => v.channelKey === "paid_ads")!;
     expect(paid.fit).toBe(18);
     expect(paid.stars).toBe(4);
@@ -63,8 +64,36 @@ describe("buildChannelViews", () => {
     expect(outdoor.persisted).toBe(false);
   });
 
+  it("a stored row the Strategist never scored (a new business's channels) is not scored: no fit, no stars, no range (audit #162)", () => {
+    const fresh = channels.map((c) => ({ ...c, scoredAt: null, fit: 1, potential: 0, whyMd: "" }));
+    const views = buildChannelViews({ channels: fresh, currency: "EUR" });
+    expect(views.filter((v) => v.scored)).toEqual([]);
+    const paid = views.find((v) => v.channelKey === "paid_ads")!;
+    expect(paid.persisted).toBe(true);
+    expect(channelStatus(views.find((v) => v.channelKey === "seo")!).word).toBe("Not scored");
+    expect(toChannelToken(paid).scored).toBe(false);
+    // The Strategist's answer scores them at once.
+    const scored = buildChannelViews({ channels: fresh, recommendation: recommendResponse.recommendation, currency: "EUR" });
+    expect(scored.every((v) => v.scored)).toBe(true);
+  });
+
+  it("shows a cost range only when it is one: an empty range is none and an inverted one is put right (audit #338)", () => {
+    const rec = recommendResponse.recommendation.map((r) => (r.channel === "paid_ads" ? { ...r, cpa_range_minor: { low: 3000, high: 1800 } } : r.channel === "social" ? { ...r, cpa_range_minor: { low: 0, high: 0 } } : r.channel === "seo" ? { ...r, cpa_range_minor: null } : r));
+    const views = buildChannelViews({ channels, recommendation: rec, currency: "EUR" });
+    expect(views.find((v) => v.channelKey === "paid_ads")!.cpaRange).toEqual({ low: 1800, high: 3000 });
+    expect(views.find((v) => v.channelKey === "social")!.cpaRange).toBeNull();
+    expect(views.find((v) => v.channelKey === "seo")!.cpaRange).toBeNull();
+    expect(toChannelToken(views.find((v) => v.channelKey === "social")!).cpaRange).toBeUndefined();
+  });
+
+  it("labels the 35-day results Estimate when the numbers are simulated (audit #158)", () => {
+    const form = channels.find((c) => c.channelKey === "paid_ads")!.form!;
+    expect(summaryResults(form, "EUR").map((r) => r.label)).toEqual(["Leads (35 days)", "Signups", "Customers", "Spend", "Cost per customer (Estimate)"]);
+    expect(summaryResults({ ...form, estimate: true }, "EUR").map((r) => r.label)).toEqual(["Leads (35 days, Estimate)", "Signups (Estimate)", "Customers (Estimate)", "Spend (Estimate)", "Cost per customer (Estimate)"]);
+  });
+
   it("marks a running channel paused when its only running campaign is paused", () => {
-    const views = buildChannelViews({ channels, campaigns });
+    const views = buildChannelViews({ channels, campaigns , currency: "EUR" });
     expect(views.find((v) => v.channelKey === "social")!.paused).toBe(true);
     expect(views.find((v) => v.channelKey === "paid_ads")!.paused).toBe(false);
     expect(channelPaused({ enabled: false }, [{ ...campaigns[1]! }])).toBe(false);
@@ -83,7 +112,7 @@ describe("weeklyForm", () => {
 });
 
 describe("tokens and status", () => {
-  const views = buildChannelViews({ channels, campaigns, metrics, recommendation: recommendResponse.recommendation, today: TODAY });
+  const views = buildChannelViews({ channels, campaigns, metrics, recommendation: recommendResponse.recommendation, today: TODAY , currency: "EUR" });
 
   it("builds a ChannelTokenData with agents, budget share, results and the cost range in the business currency", () => {
     const paid = views.find((v) => v.channelKey === "paid_ads")!;
@@ -97,6 +126,20 @@ describe("tokens and status", () => {
     expect(token.results?.map((r) => r.label)).toContain("Cost per customer (Estimate)");
   });
 
+  it("carries the channel's own offline tracking and says No spend like the Channels table", () => {
+    const print = views.find((v) => v.channelKey === "print")!;
+    expect(toChannelToken(print).kitMode).toBe(true);
+    // Outdoor is not offline-tracked by default; a channel set that way still says so on its card.
+    const outdoor = { ...views.find((v) => v.channelKey === "paid_ads")!, channelKey: "outdoor" as const, kitMode: true };
+    expect(toChannelToken(outdoor).kitMode).toBe(true);
+    expect(toChannelToken({ ...print, kitMode: false }).kitMode).toBe(false);
+    // Customers but no spend (cpa() returns 0): "No spend", never "€0.00" next to an Estimate label.
+    const free = summaryResults({ ...print.form!, spendMinor: 0, customers: 10, cpaMinor: 0 }, "GBP");
+    expect(free.find((r) => r.label === "Cost per customer (Estimate)")?.value).toBe("No spend");
+    expect(summaryResults({ ...print.form!, spendMinor: 5000, customers: 2, cpaMinor: 2500 }, "GBP").find((r) => r.label === "Cost per customer (Estimate)")?.value).toBe("£25.00");
+    expect(summaryResults({ ...print.form!, customers: 0, cpaMinor: null }, "GBP").find((r) => r.label === "Cost per customer (Estimate)")?.value).toBe("No customers yet");
+  });
+
   it("finds agents by owner id and by role text, owner first", () => {
     expect(channelAgents({ ownerAgentId: AGENT.otis, channelKey: "social" }, agents).map((a) => a.id)).toEqual([AGENT.otis]);
     expect(channelAgents({ ownerAgentId: null, channelKey: "paid_ads" }, agents).map((a) => a.id)).toEqual([AGENT.mara]);
@@ -104,10 +147,14 @@ describe("tokens and status", () => {
   });
 
   it("words the status", () => {
-    expect(channelStatus({ enabled: true, paused: false, persisted: true })).toEqual({ tone: "good", word: "Running" });
-    expect(channelStatus({ enabled: true, paused: true, persisted: true })).toEqual({ tone: "warn", word: "Paused" });
-    expect(channelStatus({ enabled: false, paused: false, persisted: true })).toEqual({ tone: "neutral", word: "Off the board" });
-    expect(channelStatus({ enabled: false, paused: false, persisted: false })).toEqual({ tone: "neutral", word: "Not scored" });
+    expect(channelStatus({ enabled: true, paused: false, persisted: true, scored: true })).toEqual({ tone: "good", word: "Running" });
+    expect(channelStatus({ enabled: true, paused: true, persisted: true, scored: true })).toEqual({ tone: "warn", word: "Paused" });
+    expect(channelStatus({ enabled: false, paused: false, persisted: true, scored: true })).toEqual({ tone: "neutral", word: "Off the board" });
+    expect(channelStatus({ enabled: false, paused: false, persisted: false, scored: false })).toEqual({ tone: "neutral", word: "Not scored" });
+    expect(channelStatus({ enabled: false, paused: false, persisted: true, scored: false })).toEqual({ tone: "neutral", word: "Not scored" });
+    // On the board without an engine is never "Running" (audit GTM-01); with one recorded it is.
+    expect(channelStatus({ enabled: true, paused: false, persisted: true, scored: true, engineWorkflowId: null })).toEqual({ tone: "warn", word: "Starting" });
+    expect(channelStatus({ enabled: true, paused: false, persisted: true, scored: true, engineWorkflowId: "engine:x" })).toEqual({ tone: "good", word: "Running" });
   });
 });
 
@@ -130,21 +177,8 @@ describe("campaigns and assets", () => {
 });
 
 describe("attribution", () => {
-  it("picks the model by labelled wins against the configured threshold", () => {
-    expect(modelInUse(2)).toEqual({ model: "position_based_40_20_40", threshold: 200, remaining: 198 });
-    expect(modelInUse(200).model).toBe("data_driven_markov");
-    expect(modelInUse(500).remaining).toBe(0);
-  });
-
-  it("flags partial journeys from the builder's flag, missing weights or no touches", () => {
-    expect(isPartialJourney(journeys[0]!)).toBe(false);
-    expect(isPartialJourney(journeys[1]!)).toBe(true);
-    expect(isPartialJourney({ touchIds: [], weights: {} })).toBe(true);
-    expect(isPartialJourney({ touchIds: ["a"], weights: {}, partialJourney: false })).toBe(false);
-  });
-
   it("builds channel rows with share of measured customers and partial labels for offline channels", () => {
-    const rows = attributionRows(buildChannelViews({ channels }), channelsList.blended);
+    const rows = attributionRows(buildChannelViews({ channels , currency: "EUR" }), channelsList.blended);
     expect(rows.map((r) => r.channelKey)).toEqual(["paid_ads", "social", "email_automation", "print"]);
     const paid = rows[0]!;
     expect(paid.share).toBeCloseTo(30 / 50, 5);

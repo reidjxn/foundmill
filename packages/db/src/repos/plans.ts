@@ -8,10 +8,10 @@
  * action states up into the plan's own status so the Inbox can show "3 of 5 done".
  */
 import { PLAN_ACTION_TYPES, PLAN_ORIGINS, PLAN_STATUSES, POLICY_OUTCOMES, ValidationError, type PlanStatus } from "@foundmill/shared";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { PLAN_ACTION_STATUSES, planActions, plans, type Plan, type PlanAction } from "../schema";
-import { defined, Id, JsonObject, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
+import { changes, Id, JsonObject, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
 
 export const PlanActionInput = z.object({
   type: z.enum(PLAN_ACTION_TYPES),
@@ -107,6 +107,29 @@ export const plansRepo = {
     return { ...plan, actions: await plansRepo.listActions(db, businessId, plan.id) };
   },
 
+  /**
+   * The Inbox items (these, or all of the business's when `inboxItemIds` is omitted) whose plan waits for the founder's
+   * go-ahead (`pending_confirmation`): the list marks them "Respond" although they are answered, so a plan staged on one
+   * device can be found and confirmed on another. Without ids it needs nothing from the page, so inbox.list sends it
+   * beside the page's own query (no extra round trip); a business has a handful of plans waiting at most.
+   */
+  async awaitingConfirmation(db: Executor, businessId: string, inboxItemIds?: readonly string[]): Promise<Set<string>> {
+    if (inboxItemIds?.length === 0) return new Set();
+    const rows = await db
+      .select({ inboxItemId: plans.inboxItemId })
+      .from(plans)
+      .where(and(eq(plans.businessId, businessId), inboxItemIds ? inArray(plans.inboxItemId, [...inboxItemIds]) : isNotNull(plans.inboxItemId), eq(plans.status, "pending_confirmation"), isNull(plans.archivedAt)))
+      .limit(500);
+    return new Set(rows.flatMap((r) => (r.inboxItemId ? [r.inboxItemId] : [])));
+  },
+
+  /** The status of each of these plans (one statement; ids of other businesses' plans are simply absent). */
+  async statusesById(db: Executor, businessId: string, planIds: readonly string[]): Promise<Map<string, PlanStatus>> {
+    if (planIds.length === 0) return new Map();
+    const rows = await db.select({ id: plans.id, status: plans.status }).from(plans).where(and(eq(plans.businessId, businessId), inArray(plans.id, [...new Set(planIds)])));
+    return new Map(rows.map((r) => [r.id, r.status]));
+  },
+
   /** Inserts the plan and its actions (positions in input order) in one transaction. */
   async create(db: Executor, businessId: string, input: CreatePlanInput): Promise<PlanWithActions> {
     const v = parseInput(CreatePlanInput, input, "plan");
@@ -138,21 +161,43 @@ export const plansRepo = {
     });
   },
 
-  /** Founder confirmed "Here is what will happen": the plan starts executing. */
+  /** Founder confirmed "Here is what will happen": the plan starts executing. Refuses a plan that is not waiting. */
   async confirm(db: Executor, businessId: string, planId: string, options: { workflowId?: string | null } = {}): Promise<Plan> {
-    return db.transaction(async (tx) => {
-      const plan = one(await tx.select().from(plans).where(scoped(businessId, planId)).limit(1), "plan", planId);
-      if (plan.status !== "pending_confirmation") throw new ValidationError(`Plan is ${plan.status}, not pending confirmation`, { planId, status: plan.status });
-      return one(
-        await tx
-          .update(plans)
-          .set({ status: "executing", confirmedAt: new Date(), ...(options.workflowId !== undefined ? { workflowId: options.workflowId } : {}) })
-          .where(scoped(businessId, planId))
-          .returning(),
-        "plan",
-        planId,
-      );
-    });
+    const claimed = await plansRepo.claimConfirmation(db, businessId, planId, options);
+    if (claimed) return claimed;
+    const plan = one(await db.select().from(plans).where(scoped(businessId, planId)).limit(1), "plan", planId);
+    throw new ValidationError(`Plan is ${plan.status}, not pending confirmation`, { planId, status: plan.status });
+  },
+
+  /**
+   * pending_confirmation → executing in one conditional update, or null when the plan is no longer waiting (another tab,
+   * device or member confirmed it first). Two confirmations at once never both run the plan: the second waits on the
+   * row, then finds it executing and gets null.
+   */
+  async claimConfirmation(db: Executor, businessId: string, planId: string, options: { workflowId?: string | null } = {}): Promise<Plan | null> {
+    const rows = await db
+      .update(plans)
+      .set({ status: "executing", confirmedAt: new Date(), ...(options.workflowId !== undefined ? { workflowId: options.workflowId } : {}) })
+      .where(and(scoped(businessId, planId), eq(plans.status, "pending_confirmation")))
+      .returning();
+    return rows[0] ?? null;
+  },
+
+  /**
+   * Plans the orchestrator should be running and is not (audit api-services-15): executing, an action still pending,
+   * and no workflow id because their dispatch never reached Temporal. Only the plans the api itself dispatches (an
+   * Inbox option, free text); a playbook step or a vacation decision is created by the orchestrator, which runs it
+   * without a `planExecution` workflow. Oldest first; the api starts them again (`redispatchPlans`) and records the
+   * workflow id once Temporal takes the start.
+   */
+  async awaitingDispatch(db: Executor, businessId: string, options: { limit?: number } = {}): Promise<Plan[]> {
+    const pending = sql`exists (select 1 from ${planActions} where ${planActions.businessId} = ${plans.businessId} and ${planActions.planId} = ${plans.id} and ${planActions.status} = 'pending')`;
+    return db
+      .select()
+      .from(plans)
+      .where(and(eq(plans.businessId, businessId), eq(plans.status, "executing"), inArray(plans.origin, ["option", "free_text"]), isNull(plans.workflowId), isNull(plans.archivedAt), pending))
+      .orderBy(asc(plans.createdAt))
+      .limit(Math.min(Math.max(options.limit ?? 20, 1), 100));
   },
 
   async setStatus(db: Executor, businessId: string, planId: string, status: PlanStatus): Promise<Plan> {
@@ -207,7 +252,7 @@ export const plansRepo = {
       patch,
       "plan action update",
     );
-    return one(await db.update(planActions).set(defined(v)).where(scopedAction(businessId, actionId)).returning(), "plan action", actionId);
+    return one(await db.update(planActions).set(changes(v, "plan action")).where(scopedAction(businessId, actionId)).returning(), "plan action", actionId);
   },
 
   /** pending/awaiting_approval → running; stamps started_at. */

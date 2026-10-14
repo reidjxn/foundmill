@@ -2,7 +2,7 @@
  * finance.overview / pnl / transactions.recategorise / forecast.update / capTable.(get, create*, update*) / wages (BUILD §11.8). Read-only module in
  * v1: no procedure here can initiate a payment (AC-11.8.5). Every derived number is labelled Estimate/Forecast.
  */
-import { LIMITS } from "@foundmill/config";
+import { CREDITS_CURRENCY, LIMITS } from "@foundmill/config";
 import { CreateEntryInput, CreateForecastInput, CreateSecurityInput, UpdateEntryInput, repos } from "@foundmill/db";
 import { z } from "zod";
 import { Id, audit, emit, router, sectionAdmin, sectionRead, sectionWrite } from "../trpc";
@@ -11,6 +11,15 @@ const read = sectionRead("finance");
 const write = sectionWrite("finance");
 const admin = sectionAdmin("finance");
 
+/** Net burn, revenue, MRR and the paying-customer base all read the same trailing full months (BUILD §11.8). */
+const TRAILING_MONTHS = 3;
+
+/** The last `months` full calendar months (UTC) before `now`'s month: [from, to). */
+function trailingMonthsWindow(now: Date, months: number): { from: Date; to: Date } {
+  const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  return { from: new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth() - months, 1)), to };
+}
+
 const Period = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "period is YYYY-MM");
 const currentPeriod = () => new Date().toISOString().slice(0, 7);
 
@@ -18,23 +27,32 @@ export const financeRouter = router({
   /** Cash, burn, runway (Estimate), revenue (cash basis) and the latest forecast. */
   overview: read.query(({ ctx }) =>
     ctx.rls(async (tx) => {
-      const [cash, burn, forecasts, monthly, conversions] = await Promise.all([
+      const window = trailingMonthsWindow(new Date(), TRAILING_MONTHS);
+      const [cash, burn, forecasts, monthly, conversions, payingCustomers] = await Promise.all([
         repos.finance.cashPosition(tx, ctx.businessId),
-        repos.finance.netBurn(tx, ctx.businessId, { months: 3 }),
+        repos.finance.netBurn(tx, ctx.businessId, { months: TRAILING_MONTHS }),
         repos.finance.latestForecasts(tx, ctx.businessId),
         repos.finance.monthlyTotals(tx, ctx.businessId, { from: new Date(Date.now() - 180 * 86_400_000) }),
         repos.journeys.countConversions(tx, ctx.businessId, { from: new Date(Date.now() - 30 * 86_400_000) }),
+        repos.journeys.countPayingCustomers(tx, ctx.businessId, window),
       ]);
       const base = cash.byCurrency[0];
       const cashMinor = base?.balanceMinor ?? 0;
       const runwayMonths = burn.netBurnMinor > 0 ? Math.round((cashMinor / burn.netBurnMinor) * 10) / 10 : null;
       const warnings = runwayMonths === null ? [] : LIMITS.runwayWarnMonths.filter((m) => runwayMonths < m);
       return {
-        cash: { amountMinor: cashMinor, currency: base?.currency ?? "EUR", accounts: cash.accounts.length, asOf: base?.oldestBalanceAt ?? null, label: "Cash in bank" },
+        // Before a bank is connected the (zero) cash reads in the business's own currency (0025), never a fixed one.
+        cash: { amountMinor: cashMinor, currency: base?.currency ?? ctx.business.currency, accounts: cash.accounts.length, asOf: base?.oldestBalanceAt ?? null, label: "Cash in bank" },
         burn: { ...burn, label: "Estimate" as const, definition: "Operating outflows minus operating inflows, trailing 3-month average, financing excluded" },
         runway: { months: runwayMonths, label: "Estimate" as const, warnings, blocksContinue: runwayMonths !== null && runwayMonths < LIMITS.runwayBlockMonths },
         revenue: { monthly, basis: "cash" as const, label: "Management P&L, unaudited, cash basis" },
         customers30d: conversions.payment ?? 0,
+        /**
+         * The paying customer base of the same trailing full months as revenue and MRR (everyone who had paid by the
+         * window's end and had not churned before it began): the payback tile divides gross profit by it (BUILD §11.8),
+         * never by the customers newly acquired (those feed acquisition cost).
+         */
+        payingCustomers: { count: payingCustomers, months: TRAILING_MONTHS, from: window.from.toISOString(), to: window.to.toISOString() },
         forecasts: Object.fromEntries(Object.entries(forecasts).map(([k, v]) => [k, v ? { ...v, label: "Forecast" as const } : null])),
       };
     }),
@@ -80,7 +98,7 @@ export const financeRouter = router({
           const crossed = [...LIMITS.runwayWarnMonths, LIMITS.runwayBlockMonths].filter((m) => runway < m).sort((a, b) => a - b)[0];
           if (crossed) {
             const [cash, burn] = await Promise.all([repos.finance.cashPosition(tx, ctx.businessId), repos.finance.netBurn(tx, ctx.businessId, { months: 3 })]);
-            const currency = cash.byCurrency[0]?.currency ?? input.currency ?? "EUR";
+            const currency = cash.byCurrency[0]?.currency ?? input.currency ?? ctx.business.currency;
             await emit(tx, ctx, {
               type: "runway.threshold_crossed",
               payload: { runwayMonths: runway, thresholdMonths: crossed, direction: "below", cash: { amountMinor: cash.byCurrency[0]?.balanceMinor ?? 0, currency }, netBurnMonthly: { amountMinor: burn.netBurnMinor, currency }, scenario: input.scenario, blocksContinue: runway < LIMITS.runwayBlockMonths },
@@ -148,11 +166,15 @@ export const financeRouter = router({
   }),
 
   /** Wage bill: per-agent cost this period (tokens, sandbox minutes, tool costs) — metered, labelled Estimate. */
-  wages: read.input(z.object({ period: Period.default(currentPeriod()) })).query(({ ctx, input }) =>
+  wages: read.input(z.object({ period: Period.optional() })).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
-      const period = input?.period ?? currentPeriod();
+      // Evaluated per request (a zod default computed at module load froze the month the process started: RA-25).
+      const period = input.period ?? currentPeriod();
       const [wages, agents] = await Promise.all([repos.usage.wages(tx, ctx.businessId, period), repos.agents.list(tx, ctx.businessId, { limit: 500 })]);
-      return { period, label: "Estimate" as const, rows: wages.map((w) => ({ ...w, wageCapMinor: agents.items.find((a) => a.id === w.agentId)?.wageCapMinor ?? null })), totalMinor: wages.reduce((a, w) => a + w.costMinor, 0) };
+      // The team's cost is platform spend metered in US dollars (`currency`), and a wage cap caps that spend, so it is in
+      // US dollars too (DECISIONS 2026-10-12): the share of the cap used compares like with like.
+      const rows = wages.map((w) => ({ ...w, wageCapMinor: agents.items.find((a) => a.id === w.agentId)?.wageCapMinor ?? null, wageCapCurrency: CREDITS_CURRENCY }));
+      return { period, label: "Estimate" as const, currency: CREDITS_CURRENCY, rows, totalMinor: wages.reduce((a, w) => a + w.costMinor, 0) };
     }),
   ),
 });

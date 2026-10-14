@@ -13,7 +13,7 @@ import { registerWidget, type WidgetProps } from "../registry";
 import { useDepartments } from "../shared/departments";
 import { WidgetFrame } from "../shared/frame";
 import { routes } from "../shared/routes";
-import { NOTE_TAG_ICONS, noteRowTag } from "../shared/note-tags";
+import { humanSender, NETWORK_SENDER, NOTE_TAG_ICONS, noteRowTag } from "../shared/note-tags";
 import type { FounderProfileResponse, InboxListResponse } from "../shared/types";
 
 export const InboxPreviewSettings = z.object({
@@ -41,7 +41,10 @@ function InboxPreviewWidget({ settings }: WidgetProps<InboxPreviewSettings>) {
   // The founder's own notes carry the founder's initials, as in the Inbox list.
   const founder = useWidgetQuery<FounderProfileResponse>("founder.profile.get", undefined);
   const founderName = founder.data?.profile?.displayName?.trim() || undefined;
-  useBusinessEvents(() => inbox.refetch(), ["inbox.item_created", "decision.made", "cycle.completed"]);
+  // Another founder's request or message (filed here by Network) never carries the founder's own initials.
+  const senderName = (fromUserId: string) => (humanSender(fromUserId, founder.data?.profile?.userId ?? fromUserId) === "self" ? (founderName ?? "You") : NETWORK_SENDER);
+  // An item archived or a plan confirmed by another member (`inbox.item_updated`) leaves or changes the list too.
+  useBusinessEvents(() => inbox.refetch(), ["inbox.item_created", "inbox.item_updated", "decision.made", "cycle.completed"]);
 
   const agentMeta = useMemo(() => {
     const map = new Map<string, { name: string; seed: string; dept: DeptColourToken }>();
@@ -85,7 +88,7 @@ function InboxPreviewWidget({ settings }: WidgetProps<InboxPreviewSettings>) {
                 )}
                 aria-label={`${item.subject}${item.blocksContinue ? ", needs an answer" : ""}${won ? ", customer won" : ""}`}
               >
-                {agent ? <Avatar size={24} name={agent.name} agent={{ seed: agent.seed, dept: agent.dept }} /> : <Avatar size={24} name={item.fromUserId ? (founderName ?? "You") : APP_NAME} />}
+                {agent ? <Avatar size={24} name={agent.name} agent={{ seed: agent.seed, dept: agent.dept }} /> : <Avatar size={24} name={item.fromUserId ? senderName(item.fromUserId) : APP_NAME} />}
                 <span className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className={cn("line-clamp-2 break-words text-body-strong", item.state === "unread" ? "text-primary" : "text-secondary")}>{item.subject}</span>
                   {/* The same tag as the Inbox list (icon + word, one vocabulary), then the one-line preview. */}

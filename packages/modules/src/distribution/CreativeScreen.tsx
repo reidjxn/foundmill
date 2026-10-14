@@ -180,6 +180,11 @@ function AssetCard({ asset, highlighted, campaign, author, businessId, pending, 
         {author ? <EntityLink entity={{ id: author.id, kind: "agent", name: author.name, href: routes.agent(businessId, author.id) }} /> : <span>Author unknown</span>}
         {asset.createdAt ? <span className="ml-auto tabular-nums">{formatRelative(asset.createdAt)}</span> : null}
       </div>
+      {asset.body ? (
+        <p className="line-clamp-4 whitespace-pre-line text-small text-secondary" data-testid="asset-body">
+          {asset.body}
+        </p>
+      ) : null}
       <div className="mt-auto flex items-center gap-1.5 pt-1">
         {isHttpRef(asset.contentRef) ? (
           <Button size="sm" variant="ghost" icon={ExternalLink} onClick={() => openPreview(asset.contentRef)} aria-label={`Preview ${title}`}>

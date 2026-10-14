@@ -232,7 +232,7 @@ export const foundationsRepo = {
       businessId,
       businessName: business.name,
       archetype: (business.archetype ?? null) as Archetype | null,
-      currency: profile?.currency ?? "EUR",
+      currency: business.currency,
       door,
       outline,
       idea,

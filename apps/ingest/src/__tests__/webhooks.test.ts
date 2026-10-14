@@ -1,6 +1,7 @@
 /**
  * Webhook receivers over a real ephemeral-port server: Stripe invoice.paid → payment.received + customer.converted
- * (+ conversion and journey rows), tampered signature 401, replay 409, stale timestamp 401, idempotent duplicate,
+ * (+ the payer added to the CRM, conversion and journey rows), a renewal is revenue only, tampered signature 401,
+ * replay 409, stale timestamp 401, idempotent duplicate,
  * SendGrid unsubscribe → lead.replied, GitHub merged PR → pr.merged (unmerged → nothing), unknown connector /
  * business 404, cross-business URL 422.
  */
@@ -53,12 +54,17 @@ describe("Stripe invoice.paid", () => {
     expect(won.entityId).toBe((payment.payload as { entityId: string }).entityId);
 
     const conversion = await repos.journeys.getConversion(hz.db, hz.A.businessId, won.conversionId as string);
-    expect(conversion).toMatchObject({ kind: "payment", sourceEventId: payment.id, currency: "EUR" });
+    expect(conversion).toMatchObject({ kind: "payment", sourceEventId: payment.id, currency: "EUR", firstPayment: true });
     expect(Number(conversion.amountMinor)).toBe(4900);
-    expect(conversion.entityId).toBeNull(); // the Stripe customer is not a CRM entity yet
+    // The payer was not in the CRM: ingest added them, and every row names that record.
+    expect(conversion.entityId).toBe(won.entityId);
+    expect(payment.entityIds).toEqual([won.entityId]);
+    const customer = await repos.entities.get(hz.db, hz.A.businessId, won.entityId as string);
+    expect(customer).toMatchObject({ kind: "person", displayName: "Anna Lind", source: "stripe", identifiers: { email: "anna.lind@example.com", stripe_id: "cus_MockAnnaLind01" } });
     const journey = await repos.journeys.forConversion(hz.db, hz.A.businessId, conversion.id);
     expect(journey?.id).toBe(won.journeyId);
     expect(journey?.matchdayLevel).toBe("cup");
+    expect(journey).toMatchObject({ attributionModel: "position_based_40_20_40", xcModelSource: "archetype_prior" });
 
     // Both rows sit in the outbox, unpublished, for the relay.
     const pending = await repos.events.outboxPending(hz.db, hz.A.businessId);
@@ -98,15 +104,23 @@ describe("Stripe invoice.paid", () => {
     expect((await repos.journeys.countConversions(hz.db, hz.A.businessId)).payment).toBe(baseA.payment! + 1);
   });
 
-  it("counts the nth payment and keeps renewals out of the first-payment flag", async () => {
+  it("records a renewal as revenue, not as a new customer: no journey and no customer.converted", async () => {
     const res = await deliver(hz.base, signedStripeRequest(hz.A.businessId, invoicePaid(1)));
     expect(res.status).toBe(200);
+    const body = await json<{ written: number; eventIds: string[] }>(res);
+    expect(body).toMatchObject({ written: 1 });
+    expect(body.eventIds).toHaveLength(1); // the payment only
     const payments = await hz.events(hz.A.businessId, "payment.received");
     expect(payments).toHaveLength(2);
     const renewal = payments.find((p) => (p.payload as { externalId: string }).externalId === ST_INVOICES[1]!.id)!;
     expect(renewal.payload).toMatchObject({ firstPayment: false, recurring: true });
     const converted = await hz.events(hz.A.businessId, "customer.converted");
-    expect(converted.map((c) => (c.payload as { nthOfKind: number }).nthOfKind).sort()).toEqual([1, 2]);
+    expect(converted.map((c) => (c.payload as { nthOfKind: number }).nthOfKind)).toEqual([1]);
+    const rows = await repos.journeys.listConversions(hz.db, hz.A.businessId, { kind: "payment", firstPayment: false });
+    expect(rows.items).toHaveLength(1);
+    expect(rows.items[0]).toMatchObject({ sourceEventId: renewal.id, firstPayment: false, entityId: (converted[0]!.payload as { entityId: string }).entityId });
+    expect(await repos.journeys.forConversion(hz.db, hz.A.businessId, rows.items[0]!.id)).toBeNull();
+    expect((await repos.journeys.countConversions(hz.db, hz.A.businessId)).payment).toBe(baseA.payment! + 1);
   });
 
   it("maps a trialing subscription to signup.created with a friendly Match Day", async () => {
@@ -118,6 +132,10 @@ describe("Stripe invoice.paid", () => {
     const converted = await hz.events(hz.B.businessId, "customer.converted");
     expect(converted).toHaveLength(1);
     expect(converted[0]!.payload).toMatchObject({ kind: "signup", matchdayLevel: "friendly", nthOfKind: 1, amount: null });
+    // No money changed hands: the conversion row is in the business's own currency (0025), never a fixed EUR.
+    const business = await repos.businesses.get(hz.db, hz.B.businessId);
+    const conversion = await repos.journeys.getConversion(hz.db, hz.B.businessId, (converted[0]!.payload as { conversionId: string }).conversionId);
+    expect(conversion.currency).toBe(business.currency);
   });
 
   it("answers 404 for a business that does not exist and releases the nonce so a retry is not a replay", async () => {
@@ -138,7 +156,7 @@ describe("SendGrid and GitHub", () => {
     expect(replies).toHaveLength(1);
     expect(replies[0]!.payload).toMatchObject({ sentiment: "unsubscribe", channelKey: "email_automation", requestsMeeting: false });
     // Not a conversion trigger: no conversion rows were added for it.
-    expect(await repos.journeys.countConversions(hz.db, hz.A.businessId)).toEqual({ ...baseA, payment: baseA.payment! + 2 });
+    expect(await repos.journeys.countConversions(hz.db, hz.A.businessId)).toEqual({ ...baseA, payment: baseA.payment! + 1 });
   });
 
   it("GitHub pull_request closed + merged → pr.merged; the same PR re-delivered is a duplicate", async () => {

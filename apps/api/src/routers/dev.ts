@@ -6,13 +6,16 @@
  */
 import { FLAGS, isSimulateEnv } from "@foundmill/config";
 import { HOUSE_STYLE } from "@foundmill/agents";
-import { TaskListFilter, codeRepositoryOf, repos, type Task } from "@foundmill/db";
+import { TaskListFilter, assertConcurrencyRoom, codeRepositoryOf, periodOf, repos, type AgentSession, type DbTx, type Executor, type Task } from "@foundmill/db";
 import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
 import { TaskGraphOutput } from "@foundmill/models";
-import { NotFoundError, ValidationError, connectorMode } from "@foundmill/shared";
+import { AppError, ForbiddenError, NotFoundError, ValidationError, connectorMode, hasSectionAccess, sessionSections, type TaskStatus } from "@foundmill/shared";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { replaySession } from "../services/replay";
+import { assertAgentsRunning } from "../services/stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds, type SignalName } from "../services/temporal";
+import { modelLimited } from "../services/model-limits";
 import { Id, adminProcedure, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 
 const read = sectionRead("development");
@@ -51,6 +54,21 @@ const SHOUT_PRESETS = ["Focus on tests", "Simplify", "Ask before schema changes"
 /** Worktree branch per task (packages/sandbox `agentBranch`; mirrored here so the API does not depend on the sandbox package). */
 export const agentBranch = (taskId: string) => `agent/${taskId}`;
 
+/**
+ * A session the member may watch: besides Development (the procedure's own wall), every module of the department its
+ * work is filed under (a Finance agent's terminal shows Finance's figures). apps/stream applies the same wall to
+ * `as:<sessionId>` (security review S1).
+ */
+async function readableSession(tx: Executor, ctx: Pick<BusinessContext, "businessId" | "membership">, sessionId: string): Promise<AgentSession> {
+  const session = await repos.agents.getSession(tx, ctx.businessId, sessionId);
+  const walled = sessionSections(await repos.agents.sessionModuleKeys(tx, ctx.businessId, session)).filter((section) => !hasSectionAccess(ctx.membership, section, "read"));
+  if (walled.length > 0) throw new ForbiddenError(`You do not have read access to ${walled.join(" and ")}, where this session's work belongs`);
+  return session;
+}
+
+/** A merged pull request row: GitHub's `pr.merged` payload (repo, PR number, diff stats…) or the merge queue's own fields. */
+type MergedPr = Record<string, unknown> & { eventId: string | null; occurredAt: Date; source: "github" | "merge_queue"; taskId?: unknown; title?: unknown };
+
 function departmentOfRoadmapItem(item: { ownerRef: unknown } | null): string | null {
   const ref = item?.ownerRef as { kind?: string; id?: string } | null | undefined;
   return ref && ref.kind === "department" && typeof ref.id === "string" ? ref.id : null;
@@ -64,46 +82,112 @@ async function openSession(ctx: BusinessContext, taskId: string) {
 async function signalTask(ctx: BusinessContext, task: Task, signal: SignalName, payload: Record<string, unknown>) {
   const session = await openSession(ctx, task.id);
   if (!session) return { queued: false, workflowId: "", reason: "no running session for this task" };
-  return ctx.temporal.signal(session.workflowId ?? workflowIds.session(session.id), signal, payload);
+  // Always the computed id: rows written before 0023 may still say `session:pending`, a workflow that never existed.
+  return ctx.temporal.signal(workflowIds.session(session.id), signal, payload);
+}
+
+/** Statuses a task may be started from by hand (Start on the Plan): never while running, in review or done. */
+export const STARTABLE_TASK_STATUSES = ["planned", "ready", "paused", "blocked", "failed", "stopped"] as const satisfies readonly TaskStatus[];
+
+/** Task start refused for the task's own state (409): already running or finished, an open dependency, its agent. */
+export class TaskStartError extends AppError {
+  constructor(message: string, details?: unknown) {
+    super("task_start_refused", message, 409, details);
+  }
+}
+
+/** The agentSession workflow was not queued (Temporal unreachable or refusing): nothing started (503). */
+export class TaskNotStartedError extends AppError {
+  constructor(message: string, details?: unknown) {
+    super("task_not_started", message, 503, details);
+  }
+}
+
+export const PlanInput = z.object({ roadmapItemId: Id.optional(), goal: z.string().max(4000).optional(), departmentId: Id.optional() });
+type PlanInput = z.infer<typeof PlanInput>;
+type PlanResult = { tasks: Task[]; graph: Awaited<ReturnType<typeof repos.tasks.graph>>; costMinor: number; costLabel: "Estimate"; reused: boolean };
+
+/** A plan written this recently for the same request is that request repeated (a double click, a retried call). */
+export const PLAN_REPEAT_WINDOW_MS = 60_000;
+/** Plans being built on this instance, by business and request: a concurrent identical request shares the one planner call. */
+const plansInFlight = new Map<string, Promise<PlanResult>>();
+
+/** What makes two plan requests the same request: the roadmap item, the goal (whitespace-insensitive) and the department. */
+export function planKey(input: PlanInput): string {
+  const goal = (input.goal ?? "").trim().replace(/\s+/g, " ");
+  return createHash("sha256").update(JSON.stringify([input.roadmapItemId ?? null, goal, input.departmentId ?? null])).digest("hex").slice(0, 32);
+}
+
+/** The plan written for this request in the repeat window, while its tasks are still there; null otherwise. */
+async function repeatedPlan(ctx: BusinessContext, tx: DbTx, key: string): Promise<PlanResult | null> {
+  const entry = await repos.audit.latestMatching(tx, ctx.businessId, "dev.tasks.plan", { planKey: key }, new Date(Date.now() - PLAN_REPEAT_WINDOW_MS));
+  const ids = (entry?.details as { taskIds?: unknown } | undefined)?.taskIds;
+  if (!Array.isArray(ids) || ids.length === 0) return null;
+  const byId = new Map((await repos.tasks.byIds(tx, ctx.businessId, ids.map(String))).filter((t) => t.archivedAt === null).map((t) => [t.id, t]));
+  const tasks = ids.map((id) => byId.get(String(id))).filter((t): t is Task => t !== undefined);
+  if (tasks.length !== ids.length) return null;
+  return { tasks, graph: await repos.tasks.graph(tx, ctx.businessId), costMinor: 0, costLabel: "Estimate", reused: true };
+}
+
+async function buildPlan(ctx: BusinessContext, input: PlanInput, key: string): Promise<PlanResult> {
+  // Before the planner is paid for: the department must be this business's own (400), as the tasks' repo insists (audit RA-07).
+  if (input.departmentId) await ctx.rls((tx) => repos.departments.assertOwned(tx, ctx.businessId, [input.departmentId], "departmentId"));
+  const repeated = await ctx.rls((tx) => repeatedPlan(ctx, tx, key));
+  if (repeated) return repeated;
+  const roadmapItem = input.roadmapItemId ? await ctx.rls((tx) => repos.product.getRoadmapItem(tx, ctx.businessId, input.roadmapItemId!)) : null;
+  const goal = input.goal ?? roadmapItem?.descriptionMd ?? roadmapItem?.title;
+  if (!goal) throw new ValidationError("Give a goal or a roadmap item to plan");
+  const blocks = await ctx.rls((tx) => repos.product.listBlocks(tx, ctx.businessId));
+  const result = await ctx.models.complete({
+    route: "planner",
+    schema: TaskGraphOutput,
+    system: `You are the Planner. Build a task graph with goals, acceptance criteria, test expectations, file-scope hints and dependencies. ${HOUSE_STYLE}`,
+    messages: [{ role: "user", content: "```json\n" + JSON.stringify({ goal, roadmap_item: roadmapItem, spec_sections: blocks.map((b) => b.section) }) + "\n```" }],
+    attribution: { businessId: ctx.businessId, kind: "planner" },
+  });
+  return ctx.rls(async (tx) => {
+    // One writer per business at a time, so a request planned on another instance meanwhile is seen, not written twice.
+    await repos.tasks.lockPlanning(tx, ctx.businessId);
+    const written = await repeatedPlan(ctx, tx, key);
+    if (written) return written;
+    const idByPlanned = new Map<string, string>();
+    const created: Task[] = [];
+    for (const t of result.json.tasks) {
+      const task = await repos.tasks.create(tx, ctx.businessId, {
+        kind: t.kind,
+        title: t.title.slice(0, 200),
+        goalMd: t.goal,
+        acceptance: t.acceptance_criteria,
+        fileScope: t.file_scope_hints,
+        roadmapItemId: roadmapItem?.id ?? null,
+        departmentId: input.departmentId ?? departmentOfRoadmapItem(roadmapItem),
+        status: "planned",
+        priority: t.hard ? 10 : 0,
+      });
+      idByPlanned.set(t.id, task.id);
+      created.push(task);
+    }
+    for (const t of result.json.tasks) for (const dep of t.depends_on) if (idByPlanned.has(dep)) await repos.tasks.addEdge(tx, ctx.businessId, idByPlanned.get(dep)!, idByPlanned.get(t.id)!);
+    await audit(tx, ctx, { action: "dev.tasks.plan", target: { kind: "roadmap_item", id: roadmapItem?.id ?? "" }, details: { tasks: created.length, costMinor: result.cost.costMinorInt, planKey: key, taskIds: created.map((t) => t.id) } });
+    return { tasks: created, graph: await repos.tasks.graph(tx, ctx.businessId), costMinor: result.cost.costMinorInt, costLabel: "Estimate" as const, reused: false };
+  });
 }
 
 export const devRouter = router({
   tasks: router({
-    /** Planner (Opus) builds a task graph from a roadmap item or a goal; tasks + edges are written (BUILD §11.6). */
-    plan: write.input(z.object({ roadmapItemId: Id.optional(), goal: z.string().max(4000).optional(), departmentId: Id.optional() })).mutation(async ({ ctx, input }) => {
-      const roadmapItem = input.roadmapItemId ? await ctx.rls((tx) => repos.product.getRoadmapItem(tx, ctx.businessId, input.roadmapItemId!)) : null;
-      const goal = input.goal ?? roadmapItem?.descriptionMd ?? roadmapItem?.title;
-      if (!goal) throw new ValidationError("Give a goal or a roadmap item to plan");
-      const blocks = await ctx.rls((tx) => repos.product.listBlocks(tx, ctx.businessId));
-      const result = await ctx.models.complete({
-        route: "planner",
-        schema: TaskGraphOutput,
-        system: `You are the Planner. Build a task graph with goals, acceptance criteria, test expectations, file-scope hints and dependencies. ${HOUSE_STYLE}`,
-        messages: [{ role: "user", content: "```json\n" + JSON.stringify({ goal, roadmap_item: roadmapItem, spec_sections: blocks.map((b) => b.section) }) + "\n```" }],
-        attribution: { businessId: ctx.businessId, kind: "planner" },
-      });
-      return ctx.rls(async (tx) => {
-        const idByPlanned = new Map<string, string>();
-        const created: Task[] = [];
-        for (const t of result.json.tasks) {
-          const task = await repos.tasks.create(tx, ctx.businessId, {
-            kind: t.kind,
-            title: t.title.slice(0, 200),
-            goalMd: t.goal,
-            acceptance: t.acceptance_criteria,
-            fileScope: t.file_scope_hints,
-            roadmapItemId: roadmapItem?.id ?? null,
-            departmentId: input.departmentId ?? departmentOfRoadmapItem(roadmapItem),
-            status: "planned",
-            priority: t.hard ? 10 : 0,
-          });
-          idByPlanned.set(t.id, task.id);
-          created.push(task);
-        }
-        for (const t of result.json.tasks) for (const dep of t.depends_on) if (idByPlanned.has(dep)) await repos.tasks.addEdge(tx, ctx.businessId, idByPlanned.get(dep)!, idByPlanned.get(t.id)!);
-        await audit(tx, ctx, { action: "dev.tasks.plan", target: { kind: "roadmap_item", id: roadmapItem?.id ?? "" }, details: { tasks: created.length, costMinor: result.cost.costMinorInt } });
-        return { tasks: created, graph: await repos.tasks.graph(tx, ctx.businessId), costMinor: result.cost.costMinorInt, costLabel: "Estimate" as const };
-      });
+    /**
+     * Planner (Opus) builds a task graph from a roadmap item or a goal; tasks + edges are written (BUILD §11.6). One plan
+     * per request (audit RA-13): a second identical request while the first is planning shares its result, and one that
+     * lands within PLAN_REPEAT_WINDOW_MS of a written plan returns that plan (`reused: true`) instead of a second graph.
+     */
+    plan: write.input(PlanInput).use(modelLimited("planner")).mutation(({ ctx, input }) => {
+      const key = planKey(input);
+      const flightKey = `${ctx.businessId}:${key}`;
+      const inFlight = plansInFlight.get(flightKey);
+      if (inFlight) return inFlight;
+      const run = buildPlan(ctx, input, key).finally(() => plansInFlight.delete(flightKey));
+      plansInFlight.set(flightKey, run);
+      return run;
     }),
 
     list: read.input(TaskListFilter).query(({ ctx, input }) =>
@@ -121,21 +205,56 @@ export const devRouter = router({
       }),
     ),
 
-    /** Start: the task becomes ready/running and an agentSession workflow is started for it. */
-    start: write.input(z.object({ taskId: Id })).mutation(async ({ ctx, input }) => {
+    /**
+     * Start: an agentSession workflow is started for the task. Refused (CONFLICT) while the team is stopped, while the
+     * task already runs (or has a session open), is in review or done, waits on an unfinished dependency, or when its
+     * agent is paused, released or at its wage cap: a start never wakes a paused agent, so it cannot undo Stop all agents.
+     * Refused with `tier_limit` (the web's upgrade prompt) when every concurrent agent the plan holds is already working.
+     * The task is claimed with one conditional update, so a double click starts one session; when the workflow cannot
+     * be queued the claim is undone and the session row closed (SERVICE_UNAVAILABLE), so a retry is not refused.
+     */
+    start: write.input(z.object({ taskId: Id })).use(modelLimited("session")).mutation(async ({ ctx, input }) => {
+      await assertAgentsRunning(ctx, "the task");
       const task = await ctx.rls((tx) => repos.tasks.get(tx, ctx.businessId, input.taskId));
       if (!task.assigneeAgentId) throw new ValidationError("Assign an agent before starting the task");
-      const assignee = await ctx.rls((tx) => repos.agents.get(tx, ctx.businessId, task.assigneeAgentId!));
-      // agent_sessions is service-written (orchestrator-owned); created on the service db before the RLS transaction.
-      const session = await repos.agents.createSession(ctx.db, ctx.businessId, { agentId: assignee.id, taskId: task.id, modelKey: assignee.modelKey });
+      if (!(STARTABLE_TASK_STATUSES as readonly TaskStatus[]).includes(task.status)) throw new TaskStartError(task.status === "running" ? "The task is already running." : `The task is ${task.status}; it cannot be started again.`, { status: task.status });
+      const [assignee, open, dependencies] = await ctx.rls((tx) => Promise.all([repos.agents.get(tx, ctx.businessId, task.assigneeAgentId!), repos.agents.listSessions(tx, ctx.businessId, { taskId: task.id, openOnly: true, limit: 1 }), repos.tasks.openDependencies(tx, ctx.businessId, task.id)]));
+      if (open.items.length > 0) throw new TaskStartError("The task already has a session running.", { sessionId: open.items[0]!.id });
+      if (dependencies.length > 0) throw new TaskStartError(`Finish what it depends on first: ${dependencies.map((d) => `"${d.title}"`).join(", ")}.`, { dependencies: dependencies.map((d) => d.id) });
+      if (assignee.archivedAt) throw new TaskStartError(`${assignee.name} has left the team. Reassign the task first.`);
+      if (assignee.status === "paused") throw new TaskStartError(assignee.pausedReason === "wage_cap" ? `${assignee.name} reached its wage cap for the month and is paused. Raise the cap on its profile or reassign the task.` : `${assignee.name} is paused. Resume the agents or reassign the task first.`, { pausedReason: assignee.pausedReason });
+      const spend = await repos.usage.agentSpend(ctx.db, ctx.businessId, assignee.id, periodOf(new Date()));
+      if (spend.remainingMinor !== null && spend.remainingMinor <= 0) throw new TaskStartError(`${assignee.name} reached its wage cap for the month. Raise the cap on its profile or reassign the task.`);
+      // The plan tier's concurrent agents (BUILD §10.5), as the cycle's dispatch counts them (SEC2 S2).
+      await assertConcurrencyRoom(ctx.db, ctx.business);
+      // Exactly one start wins the task; a second (double click, another tab) finds it running and is refused.
+      const claimed = await ctx.rls((tx) => repos.tasks.claimForStart(tx, ctx.businessId, task.id, STARTABLE_TASK_STATUSES));
+      if (!claimed) throw new TaskStartError("The task was just started.");
+      // Until the workflow is queued, any failure gives the task back and closes the row: an open session nothing runs
+      // would refuse every later start (and every cycle) of the task as already running.
+      const giveBack = async (opened: AgentSession | null) => {
+        if (opened) await repos.agents.endSession(ctx.db, ctx.businessId, opened.id, { outcome: "not_started" });
+        await ctx.rls((tx) => repos.tasks.setStatus(tx, ctx.businessId, task.id, task.status, { force: true }));
+      };
+      // agent_sessions is service-written (orchestrator-owned); created on the service db, outside the RLS transaction.
+      let session: AgentSession;
+      try {
+        session = await repos.agents.createSession(ctx.db, ctx.businessId, { agentId: assignee.id, taskId: task.id, modelKey: assignee.modelKey });
+      } catch (err) {
+        await giveBack(null);
+        throw err;
+      }
+      const workflow = await ctx.temporal.start(WORKFLOWS.agentSession, { workflowId: workflowIds.session(session.id), args: [{ businessId: ctx.businessId, agentId: assignee.id, taskId: task.id, sessionId: session.id }] });
+      if (!workflow.queued) {
+        await giveBack(session);
+        throw new TaskNotStartedError("The orchestrator did not take the session, so the task did not start. Try again in a moment.", { reason: workflow.reason ?? null });
+      }
       await ctx.rls(async (tx) => {
-        const s = session;
-        await repos.agents.setStatus(tx, ctx.businessId, task.assigneeAgentId!, "healthy");
-        if (task.status !== "running") await repos.tasks.setStatus(tx, ctx.businessId, task.id, "running", { force: true });
-        await emit(tx, ctx, { type: "task.started", payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: task.assigneeAgentId!, sessionId: s.id, roadmapItemId: task.roadmapItemId, workflowId: workflowIds.session(s.id), branch: task.kind === "code" ? agentBranch(task.id) : null } });
-        await audit(tx, ctx, { action: "dev.tasks.start", target: { kind: "task", id: task.id }, details: { sessionId: s.id } });
+        // A computed status, never over a pause (a stop that lands meanwhile wins).
+        await repos.agents.setHealthStatus(tx, ctx.businessId, assignee.id, "healthy");
+        await emit(tx, ctx, { type: "task.started", payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: assignee.id, sessionId: session.id, roadmapItemId: task.roadmapItemId, workflowId: workflowIds.session(session.id), branch: task.kind === "code" ? agentBranch(task.id) : null } });
+        await audit(tx, ctx, { action: "dev.tasks.start", target: { kind: "task", id: task.id }, details: { sessionId: session.id, from: task.status } });
       });
-      const workflow = await ctx.temporal.start(WORKFLOWS.agentSession, { workflowId: workflowIds.session(session.id), args: [{ businessId: ctx.businessId, agentId: task.assigneeAgentId, taskId: task.id, sessionId: session.id }] });
       return { session, workflow, stream: sessionStreamKey(session.id) };
     }),
 
@@ -151,6 +270,7 @@ export const devRouter = router({
     }),
 
     resume: write.input(z.object({ taskId: Id })).mutation(async ({ ctx, input }) => {
+      await assertAgentsRunning(ctx, "the task");
       const task = await ctx.rls((tx) => repos.tasks.get(tx, ctx.businessId, input.taskId));
       const workflow = await signalTask(ctx, task, SIGNALS.resume, { by: ctx.userId });
       const updated = await ctx.rls(async (tx) => {
@@ -175,7 +295,8 @@ export const devRouter = router({
       const task = await ctx.rls((tx) => repos.tasks.get(tx, ctx.businessId, input.taskId));
       const workflow = task.status === "running" ? await signalTask(ctx, task, SIGNALS.stop, { reason: "reassigned", by: ctx.userId }) : { queued: false, workflowId: "", reason: "task not running" };
       const updated = await ctx.rls(async (tx) => {
-        await repos.agents.get(tx, ctx.businessId, input.agentId);
+        const target = await repos.agents.get(tx, ctx.businessId, input.agentId);
+        if (target.archivedAt) throw new TaskStartError(`${target.name} has left the team.`);
         const t = await repos.tasks.reassign(tx, ctx.businessId, task.id, input.agentId);
         const next = task.status === "running" ? await repos.tasks.setStatus(tx, ctx.businessId, t.id, "stopped", { force: true }).then(() => repos.tasks.setStatus(tx, ctx.businessId, t.id, "ready")) : t;
         await audit(tx, ctx, { action: "dev.tasks.reassign", target: { kind: "task", id: task.id }, details: { from: task.assigneeAgentId, to: input.agentId } });
@@ -198,7 +319,11 @@ export const devRouter = router({
       const workflow = await signalTask(ctx, task, SIGNALS.stop, { reason: "founder_stop", by: ctx.userId });
       const updated = await ctx.rls(async (tx) => {
         const t = ["done", "stopped"].includes(task.status) ? task : await repos.tasks.setStatus(tx, ctx.businessId, task.id, "stopped", { force: true });
-        if (task.assigneeAgentId) await repos.agents.setStatus(tx, ctx.businessId, task.assigneeAgentId, "idle");
+        // A stop is a safety action: it never un-pauses the agent, and leaves it working when another task of its is open.
+        if (task.assigneeAgentId) {
+          const others = await repos.agents.listSessions(tx, ctx.businessId, { agentId: task.assigneeAgentId, openOnly: true, limit: 10 });
+          if (!others.items.some((s) => s.taskId !== task.id)) await repos.agents.setHealthStatus(tx, ctx.businessId, task.assigneeAgentId, "idle");
+        }
         await audit(tx, ctx, { action: "dev.tasks.stop", target: { kind: "task", id: task.id }, details: { queued: workflow.queued } });
         return t;
       });
@@ -221,14 +346,14 @@ export const devRouter = router({
     /** Where to subscribe (apps/stream multiplexes `as:{sessionId}`). */
     stream: read.input(z.object({ sessionId: Id })).query(({ ctx, input }) =>
       ctx.rls(async (tx) => {
-        const session = await repos.agents.getSession(tx, ctx.businessId, input.sessionId);
+        const session = await readableSession(tx, ctx, input.sessionId);
         return { session, channel: sessionStreamKey(session.id), live: session.endedAt === null };
       }),
     ),
-    /** The recorded events of a session (its `as:{sessionId}` stream, or the mock recording it was played from) plus where live frames arrive. */
+    /** The recorded events of a session (its saved recording once it finished, its `as:{sessionId}` stream while it runs, or the mock recording it was played from) plus where live frames arrive. */
     replay: read.input(z.object({ sessionId: Id, limit: z.number().int().min(1).max(5000).optional(), after: z.string().max(64).optional(), kinds: z.array(z.enum(SESSION_EVENT_KINDS)).optional() })).query(async ({ ctx, input }) => {
-      const session = await ctx.rls((tx) => repos.agents.getSession(tx, ctx.businessId, input.sessionId));
-      const replay = await replaySession({ redis: ctx.redis, recordings: ctx.recordings }, session, { limit: input.limit, after: input.after, kinds: input.kinds });
+      const session = await ctx.rls((tx) => readableSession(tx, ctx, input.sessionId));
+      const replay = await replaySession({ redis: ctx.redis, recordings: ctx.recordings, saved: () => ctx.rls((tx) => repos.recordings.get(tx, ctx.businessId, session.id)) }, session, { limit: input.limit, after: input.after, kinds: input.kinds });
       return { session, recordingRef: session.recordingRef, channel: sessionStreamKey(session.id), live: session.endedAt === null, ...replay };
     }),
     list: read.input(z.object({ agentId: Id.optional(), taskId: Id.optional(), openOnly: z.boolean().optional(), limit: z.number().int().min(1).max(200).default(50) })).query(({ ctx, input }) => ctx.rls((tx) => repos.agents.listSessions(tx, ctx.businessId, input))),
@@ -323,13 +448,23 @@ export const devRouter = router({
   }),
 
   prs: router({
-    /** Pull requests = tasks in review/merging/done plus `pr.merged` events (the GitHub connector is the source). */
+    /**
+     * Pull requests are code tasks only (a finance or specialist task in review has no branch): open = code tasks in
+     * review or the merge queue; merged = the `pr.merged` events GitHub reports, plus every done code task the platform's
+     * own merge queue landed (no event: in mock mode and with pushing off nothing reaches GitHub), one row per task with
+     * GitHub's event winning, newest first. So the table agrees with Environments and Home, which count done code tasks.
+     */
     list: read.query(({ ctx }) =>
       ctx.rls(async (tx) => {
-        const [tasks, merged] = await Promise.all([repos.tasks.list(tx, ctx.businessId, { status: ["review", "merging", "done"], limit: 200 }), repos.events.list(tx, ctx.businessId, { type: "pr.merged", limit: 200 })]);
+        const [tasks, events] = await Promise.all([repos.tasks.list(tx, ctx.businessId, { kind: "code", status: ["review", "merging", "done"], limit: 200 }), repos.events.list(tx, ctx.businessId, { type: "pr.merged", limit: 200 })]);
+        const fromGitHub: MergedPr[] = events.items.map((e) => ({ ...(e.payload as Record<string, unknown>), eventId: e.id, occurredAt: e.occurredAt, source: "github" as const }));
+        const reported = new Set(fromGitHub.map((m) => m.taskId).filter((id): id is string => typeof id === "string"));
+        const fromQueue: MergedPr[] = tasks.items
+          .filter((t) => t.status === "done" && !reported.has(t.id))
+          .map((t) => ({ eventId: null, occurredAt: t.endedAt ?? t.updatedAt, source: "merge_queue" as const, taskId: t.id, title: t.title, branch: agentBranch(t.id), mergedBy: t.assigneeAgentId ? { kind: "agent", id: t.assigneeAgentId } : { kind: "system", id: null } }));
         return {
-          open: tasks.items.filter((t) => t.status !== "done").map((t) => ({ taskId: t.id, title: t.title, status: t.status, branch: agentBranch(t.id), agentId: t.assigneeAgentId })),
-          merged: merged.items.map((e) => ({ eventId: e.id, occurredAt: e.occurredAt, ...(e.payload as Record<string, unknown>) })),
+          open: tasks.items.filter((t) => t.status !== "done").map((t) => ({ taskId: t.id, title: t.title, status: t.status, kind: t.kind, branch: agentBranch(t.id), agentId: t.assigneeAgentId })),
+          merged: [...fromGitHub, ...fromQueue].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()),
         };
       }),
     ),

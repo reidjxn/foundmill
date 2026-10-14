@@ -7,6 +7,7 @@
 import { createElement } from "react";
 import type { WidgetRegistryEntry, WidgetSettingField } from "@foundmill/dugout";
 import { listWidgets, parseWidgetSettings, type AnyWidgetDefinition, type WidgetSurface } from "@foundmill/widgets";
+import { WidgetInstanceProvider } from "@foundmill/widgets/shared/pin";
 import { lookupIcon } from "./icons";
 
 interface ZodLikeField {
@@ -48,7 +49,11 @@ export function settingsFieldsFromSchema(schema: unknown): WidgetSettingField[] 
   return fields.length ? fields : undefined;
 }
 
-export function toGridEntry(def: AnyWidgetDefinition, businessId: string): WidgetRegistryEntry {
+/**
+ * `pinnable`: the widget sits away from Home (a department screen), so its frame's caret menu offers Pin to Home with
+ * the settings it shows (audit #394).
+ */
+export function toGridEntry(def: AnyWidgetDefinition, businessId: string, opts: { pinnable?: boolean } = {}): WidgetRegistryEntry {
   const s = def.defaultSize;
   const Icon = lookupIcon(def.icon);
   return {
@@ -65,10 +70,15 @@ export function toGridEntry(def: AnyWidgetDefinition, businessId: string): Widge
     hidden: def.liveOnly,
     // Every @foundmill/widgets widget renders inside WidgetFrame, which draws the panel and its header.
     framed: true,
-    render: (ctx) => createElement(def.Component, { businessId, settings: parseWidgetSettings(def, ctx.settings), instanceId: ctx.item.i, editing: ctx.editing }),
+    render: (ctx) => {
+      const settings = parseWidgetSettings(def, ctx.settings);
+      const widget = createElement(def.Component, { businessId, settings, instanceId: ctx.item.i, editing: ctx.editing });
+      return opts.pinnable ? createElement(WidgetInstanceProvider, { value: { key: def.key, settings } }, widget) : widget;
+    },
   };
 }
 
 export function gridRegistry(surface: WidgetSurface, businessId: string, live: boolean): WidgetRegistryEntry[] {
-  return listWidgets(surface, live).map((def) => toGridEntry(def, businessId));
+  // Home's widgets are already on Home; everywhere else a widget can be pinned there.
+  return listWidgets(surface, live).map((def) => toGridEntry(def, businessId, { pinnable: surface !== "home" }));
 }

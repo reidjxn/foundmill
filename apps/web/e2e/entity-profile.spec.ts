@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, openBusiness } from "./helpers";
+import { LONG, chooseTableView, openBusiness } from "./helpers";
 
 /**
  * Entity profile (BUILD §11.12 profile tabs; AC-11.12.3 merge then unmerge) on the seeded Northwind Skincare records.
@@ -19,6 +19,8 @@ const KIND_CHIP = /^(Person|Organization|Agent|Staff|Member|Community|Venue)$/i;
 
 /** The first visible CRM rows: name, kind chip label and profile link. */
 async function crmRows(page: Page, limit = 12): Promise<CrmRowRef[]> {
+  // The open view is saved per person: an earlier spec may have left a sorted one open (By kind lists the agents first).
+  await chooseTableView(page, "All");
   const rows = page.getByRole("grid", { name: "CRM records" }).getByRole("row");
   await expect(rows.nth(1), "the seed gives Northwind CRM records").toBeVisible({ timeout: LONG });
   const out: CrmRowRef[] = [];
@@ -57,6 +59,32 @@ test.describe("entity profile", () => {
     await expect(page.getByTestId("journey-list")).toBeVisible({ timeout: LONG });
   });
 
+  test("Re-watch opens the win's own replay (never 'No replay for this id'); Activity shows payments as money", async ({ page }) => {
+    // A customer of the seed: its payment has a Customer Update, its older signup and activation may not.
+    await openBusiness(page, "crm");
+    await page.getByTestId("crm-search-input").fill("role:customer");
+    await page.keyboard.press("Enter");
+    const link = page.getByRole("grid", { name: "CRM records" }).getByRole("row").nth(1).getByRole("link").first();
+    await expect(link).toBeVisible({ timeout: LONG });
+    await link.click();
+    await expect(page.getByTestId("entity-profile")).toBeVisible({ timeout: LONG });
+    await page.getByRole("tab", { name: "Journey" }).click();
+    const list = page.getByTestId("journey-list");
+    await expect(list).toBeVisible({ timeout: LONG });
+    const rewatch = list.getByTestId("rewatch").last();
+    if (await rewatch.count()) {
+      await rewatch.click();
+      await expect(page.getByTestId("journey-screen")).toBeVisible({ timeout: LONG });
+      await expect(page.getByTestId("journey-not-found")).toHaveCount(0);
+      await page.getByTestId("journey-back").click();
+    }
+    await page.getByRole("tab", { name: "Activity" }).click();
+    const timeline = page.getByTestId("activity-timeline");
+    await expect(timeline).toBeVisible({ timeout: LONG });
+    // "35349.99 GBP" was the hand-rolled format; payments now read "£35,349.99".
+    await expect(timeline).not.toContainText(/\d+\.\d{2} [A-Z]{3}\b/);
+  });
+
   test("data duties: export shows the JSON; deletion is queued, never immediate", async ({ page }) => {
     await openFirstEntity(page);
     await page.getByTestId("entity-export").click();
@@ -65,6 +93,9 @@ test.describe("entity profile", () => {
     await expect(page.getByTestId("export-dialog")).toBeHidden();
     await page.getByTestId("entity-delete").click();
     await expect(page.getByTestId("delete-request-dialog")).toContainText("never runs immediately");
+    // What the request does now and later (audit RA-23): outreach suppressed at once, the record purged by the nightly job.
+    await expect(page.getByTestId("delete-request-dialog")).toContainText("Outreach to them stops now");
+    await expect(page.getByTestId("delete-request-dialog")).toContainText("nightly, audited deletion job");
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("delete-request-dialog")).toBeHidden();
   });
@@ -115,5 +146,53 @@ test.describe("entity profile", () => {
     await expect(page.getByTestId("merge-banner")).toHaveCount(0);
     const history = page.getByTestId("merge-history");
     if (await history.count()) await expect(history.getByRole("button", { name: "Unmerge" })).toHaveCount(0);
+  });
+
+  test("a merge a later one relies on says which merge to undo first; undone newest first, both records return", async ({ page }) => {
+    // Three new people: the kept one has no email, both duplicates have one, so the second merge keeps the first one's
+    // email and relies on that merge.
+    const tag = Date.now().toString(36);
+    const kept = `Merge Kept ${tag}`;
+    const first = `Merge First ${tag}`;
+    const second = `Merge Second ${tag}`;
+    const add = async (name: string, email?: string): Promise<string> => {
+      await openBusiness(page, "crm");
+      await page.getByTestId("crm-new").click();
+      const dialog = page.getByTestId("new-entity-dialog");
+      await dialog.getByLabel("Name").fill(name);
+      if (email) await dialog.getByLabel("Email").fill(email);
+      await page.getByTestId("new-entity-save").click();
+      await expect(page.getByTestId("entity-profile")).toBeVisible({ timeout: LONG });
+      await expect(page.getByTestId("profile-header")).toContainText(name);
+      return page.url();
+    };
+    const firstUrl = await add(first, `first.${tag}@merge.example`);
+    const secondUrl = await add(second, `second.${tag}@merge.example`);
+    const keptUrl = await add(kept);
+    const mergeIn = async (name: string) => {
+      await page.getByTestId("entity-merge").click();
+      const dialog = page.getByTestId("merge-dialog");
+      await dialog.getByLabel(/Find the duplicate/).fill(name);
+      await page.getByTestId("merge-matches").getByRole("option").filter({ hasText: name }).first().click();
+      await page.getByTestId("merge-confirm").click();
+      await expect(dialog).toBeHidden({ timeout: LONG });
+    };
+    await mergeIn(first);
+    await mergeIn(second);
+
+    const banner = page.getByTestId("merge-banner");
+    await expect(banner.getByTestId("unmerge-blocked")).toContainText(`Undo the later merge of “${second}” first`, { timeout: LONG });
+    await expect(banner.getByTestId("unmerge-blocked")).toContainText("the email");
+    await expect(banner.getByTestId("unmerge")).toHaveCount(1);
+    await banner.getByTestId("unmerge").click();
+    await expect(banner.getByTestId("unmerge-blocked")).toHaveCount(0, { timeout: LONG });
+    await banner.getByTestId("unmerge").click();
+    await expect(page.getByTestId("merge-banner")).toHaveCount(0, { timeout: LONG });
+
+    for (const [url, name] of [[firstUrl, first], [secondUrl, second], [keptUrl, kept]] as const) {
+      await page.goto(url);
+      await expect(page.getByTestId("profile-header")).toContainText(name, { timeout: LONG });
+      await expect(page.getByTestId("merge-banner")).toHaveCount(0);
+    }
   });
 });

@@ -15,6 +15,7 @@ import { bookUsage } from "@foundmill/db";
 import { createBusinessModelClient } from "./models";
 import { systemClock, type Clock } from "./clock";
 import { createComposerClient, createOfflineComposerClient, type ComposerClient } from "./composer-client";
+import { SessionDrain } from "./drain";
 import { MemoryControlBus, RedisControlBus, type SessionControlBus } from "./control-bus";
 import { loadOrchestratorEnv, type OrchestratorEnv } from "./env";
 import { createGatewayClient, createOfflineGatewayClient, type GatewayClient } from "./gateway-client";
@@ -34,6 +35,8 @@ export interface OrchestratorDeps {
   vault: Vault | null;
   clock: Clock;
   log: Logger;
+  /** Worker shutdown: running sessions hand their work to the next worker (./drain). */
+  drain: SessionDrain;
   /** Stop everything this process opened. */
   close(): Promise<void>;
 }
@@ -50,6 +53,7 @@ export interface CreateDepsOptions {
   vault?: Vault | null;
   clock?: Clock;
   log?: Logger;
+  drain?: SessionDrain;
 }
 
 /**
@@ -70,6 +74,8 @@ export function usageSink(db: Db, log: Logger): (event: UsageEvent) => Promise<v
         quantity: event.usage.inputTokens + event.usage.outputTokens,
         unit: "tokens",
         costMinor: Math.max(0, event.cost.costMinorInt),
+        // The exact cost (0039): sums and credits add these, so a call under half a cent is not booked at 0.
+        costMicroMinor: Math.max(0, event.cost.costMicroMinor),
         currency: event.cost.currency,
         billedTo: event.billedTo,
         occurredAt: event.occurredAt,
@@ -147,7 +153,7 @@ export function createDeps(options: CreateDepsOptions = {}): OrchestratorDeps {
           return createOfflineGatewayClient(env.GATEWAY_URL);
         })());
 
-  const composer = options.composer ?? (env.COMPOSER_URL ? createComposerClient({ baseUrl: env.COMPOSER_URL }) : createOfflineComposerClient());
+  const composer = options.composer ?? (env.COMPOSER_URL ? createComposerClient({ baseUrl: env.COMPOSER_URL, timeoutMs: env.COMPOSER_TIMEOUT_MS }) : createOfflineComposerClient());
 
   let resolved: Promise<{ provider: SandboxProvider; mode: SandboxMode; fellBackFrom: string | null }> | null = null;
   const sandbox = () => {
@@ -178,6 +184,7 @@ export function createDeps(options: CreateDepsOptions = {}): OrchestratorDeps {
     vault,
     clock: options.clock ?? systemClock,
     log,
+    drain: options.drain ?? new SessionDrain(),
     async close() {
       for (const c of closers.reverse()) {
         try {

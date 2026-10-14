@@ -31,6 +31,42 @@ describe("foundations mock (BUILD §11.1 first open, §11.5)", () => {
     expect(pricing).toMatch(/\(Estimate\)/);
   });
 
+  it("prices in the business's own currency (a dollar business never reads '€49')", async () => {
+    const draft = async (currency?: string) =>
+      (
+        await client.complete({
+          route: "foundations",
+          schema: FoundationsOutput,
+          messages: promptWith({ business: { name: "Ledgerly", archetype: "b2b_saas", ...(currency ? { currency } : {}) }, door: "ideation", outline: [{ section: "Pricing", pinned: false }], idea: { title: "Ledgerly", pitch: "Ledgerly helps accountants close the month." } }),
+        })
+      ).json;
+    const usd = await draft("USD");
+    expect(JSON.stringify(usd.sections.find((s) => s.section === "Pricing"))).toContain("$49 per team per month (Estimate)");
+    expect(usd.roadmap.find((i) => i.title === "Pricing experiment")?.description).toContain("Test $49 per team per month (Estimate)");
+    expect(JSON.stringify(usd)).not.toContain("€");
+    expect(JSON.stringify((await draft("GBP")).sections)).toContain("£49 per team per month");
+    expect(JSON.stringify((await draft()).sections)).toContain("$49 per team per month");
+  });
+
+  it("writes prices in the business's own currency, never euros (audit CML-14)", async () => {
+    const draft = async (currency: string | undefined, archetype: string) =>
+      client.complete({
+        route: "foundations",
+        schema: FoundationsOutput,
+        messages: promptWith({ business: { name: "Pricewise", archetype, ...(currency ? { currency } : {}) }, door: "ideation", outline: OUTLINE.map((section) => ({ section, pinned: false })), idea: { title: "Pricewise", pitch: "Pricewise helps teams plan." } }),
+      });
+    const text = (r: Awaited<ReturnType<typeof draft>>) => JSON.stringify([r.json.sections.find((s) => s.section === "Pricing"), r.json.roadmap.find((i) => i.title === "Pricing experiment")]);
+    const gbp = text(await draft("GBP", "b2b_saas"));
+    expect(gbp).toContain("£49 per team per month");
+    expect(gbp).not.toContain("€");
+    expect(text(await draft("USD", "b2b_saas"))).toContain("$49 per team per month");
+    expect(text(await draft("USD", "services"))).toContain("a fixed $1,200 monthly retainer");
+    expect(text(await draft("JPY", "consumer_app"))).toContain("¥6 per month or ¥48 a year");
+    // No currency (or a malformed one) reads as US dollars: never euros.
+    expect(text(await draft(undefined, "hardware"))).toContain("$249 per unit plus $9 per month");
+    expect(text(await draft("1$X", "b2b_saas"))).toContain("$49 per team per month");
+  });
+
   it("reads the Import report inside the untrusted wrapper: every roadmap seed becomes an item with its reference", async () => {
     const seeds = [
       { title: "Export to CSV", source: "acme/ledgerly issue #42" },

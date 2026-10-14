@@ -8,6 +8,7 @@
  */
 import { z } from "zod";
 import { assertSubjectAccess, ConversationSubject, getConversation, replyToInboxItem, SendInput, sendConversationMessage, stageHandOff } from "../services/conversation";
+import { modelLimited } from "../services/model-limits";
 import { businessProcedure, Id, router, sectionWrite, writeProcedure } from "../trpc";
 
 export const conversationRouter = router({
@@ -18,16 +19,17 @@ export const conversationRouter = router({
   }),
 
   /** The founder's text or a quick reply → the agent's reply (or the decide path for "Go with: …"). */
-  send: writeProcedure.input(SendInput).mutation(({ ctx, input }) => {
+  send: writeProcedure.input(SendInput).use(modelLimited("conversation")).mutation(({ ctx, input }) => {
     assertSubjectAccess(ctx, input.subject.kind, "write");
     return sendConversationMessage(ctx, input);
   }),
 
   /** Compile an agent message's hand-off and stage it for confirmation (the plan.preview shape + planId). */
-  handOff: writeProcedure.input(z.object({ messageId: Id })).mutation(({ ctx, input }) => stageHandOff(ctx, input.messageId)),
+  handOff: writeProcedure.input(z.object({ messageId: Id })).use(modelLimited("conversation")).mutation(({ ctx, input }) => stageHandOff(ctx, input.messageId)),
 
   /** Inbox free text: a question goes to the conversation (the item stays open), an instruction decides the item. */
   inboxReply: sectionWrite("inbox")
-    .input(z.object({ itemId: Id, text: z.string().trim().min(1).max(2000) }))
+    .input(z.object({ itemId: Id, text: z.string().trim().min(1).max(2000), clientMessageId: z.string().trim().min(8).max(100).optional() }))
+    .use(modelLimited("conversation"))
     .mutation(({ ctx, input }) => replyToInboxItem(ctx, input)),
 });

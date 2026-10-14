@@ -18,6 +18,12 @@ export interface AuthUser {
    * The development bypass counts as authenticated now.
    */
   authenticatedAt: Date | null;
+  /**
+   * The token shows its holder controls `email` (`emailConfirmedFromPayload`); false for an anonymous sign-in and a
+   * token without an email, and absent counts as false. The allow-list trusts an address only when this is true (SEC2
+   * S11). The development bypass counts as confirmed.
+   */
+  emailConfirmed?: boolean;
 }
 
 export interface AuthVerifier {
@@ -67,11 +73,33 @@ export function authenticatedAtFromPayload(payload: JWTPayload): Date | null {
   return seconds === null ? null : new Date(seconds * 1000);
 }
 
+/**
+ * Sign-in methods (`amr[].method`) that only work for someone who opened a link or code sent to the account's email:
+ * a magic link, an email one-time code, the sign-up confirmation, an invite, a password recovery, an email change.
+ * Supabase writes `otp` for an SMS code too; it counts only when the token also carries an email (a phone-only account
+ * has none), which "Confirm email" keeps confirmed (docs/DEPLOY.md §4).
+ */
+const INBOX_PROVING_METHODS = new Set(["magiclink", "otp", "email/signup", "invite", "recovery", "email_change"]);
+
+/**
+ * Whether a Supabase access token shows its holder controls its `email` (SEC2 S11). Supabase access tokens carry no
+ * `email_confirmed_at`; they carry `is_anonymous` and `amr`, how the session was authenticated. An anonymous sign-in
+ * never counts; otherwise only an inbox-proving sign-in does. `user_metadata.email_verified` is deliberately not
+ * trusted: a signed-in user can write their own `user_metadata`, so a client could set it for an address it cannot read.
+ * `amr` is written by Supabase Auth alone. The web signs in by magic link only, so every real session carries a proof.
+ */
+export function emailConfirmedFromPayload(payload: JWTPayload): boolean {
+  if (payload.is_anonymous === true) return false;
+  if (typeof payload.email !== "string" || !payload.email.trim()) return false;
+  const amr = Array.isArray(payload.amr) ? (payload.amr as unknown[]) : [];
+  return amr.some((entry) => INBOX_PROVING_METHODS.has(String((entry as { method?: unknown })?.method ?? "")));
+}
+
 function userFromPayload(payload: JWTPayload): AuthUser {
   const sub = payload.sub;
   if (!sub || !UUID_RE.test(sub)) throw new AuthError("token has no UUID subject");
   const email = typeof payload.email === "string" ? payload.email : null;
-  return { userId: sub, email, authenticatedAt: authenticatedAtFromPayload(payload) };
+  return { userId: sub, email, authenticatedAt: authenticatedAtFromPayload(payload), emailConfirmed: emailConfirmedFromPayload(payload) };
 }
 
 export function createAuthVerifier(opts: AuthVerifierOptions): AuthVerifier {
@@ -113,12 +141,12 @@ export function createAuthVerifier(opts: AuthVerifierOptions): AuthVerifier {
     verify,
     async resolve(authorization) {
       const token = bearerToken(authorization);
-      if (!token) return devBypass ? { userId: devBypass, email: null, authenticatedAt: new Date() } : null;
+      if (!token) return devBypass ? { userId: devBypass, email: null, authenticatedAt: new Date(), emailConfirmed: true } : null;
       try {
         return await verify(token);
       } catch {
         // In development/test a stale token must not lock the founder out of their own machine.
-        return devBypass ? { userId: devBypass, email: null, authenticatedAt: new Date() } : null;
+        return devBypass ? { userId: devBypass, email: null, authenticatedAt: new Date(), emailConfirmed: true } : null;
       }
     },
   };

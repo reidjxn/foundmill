@@ -16,9 +16,9 @@ import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
-import { journeyIdForConversion } from "@/components/journey/mapping";
-import { TIMELINE_KIND_WORD, milestoneForTrophy, otherMilestones, replayLookupWindow, replayRefOf, shareText, trophyCards } from "./milestones";
+import { TIMELINE_KIND_WORD, milestoneForTrophy, otherMilestones, replayRefOf, shareText, trophyCards } from "./milestones";
 
 const KIND_ICON = { release: Flag, decision: Gem, incorporation: Rocket, funding: Rocket, launch: Rocket, customer: Trophy, revenue: Trophy, trophy: Trophy } as const;
 
@@ -56,17 +56,16 @@ export function MilestonesScreen() {
         return;
       }
       let journeyId = ref.journeyId ?? null;
-      if (!journeyId && ref.conversionId && milestone?.achievedAt) {
-        // A ref that names the win's conversion: find its journey around the day the milestone was reached. On any
-        // failure the Customer Update screen gets the conversion id and runs its own lookup.
+      if (!journeyId && ref.conversionId) {
+        // A ref that names the win's conversion: its journey, whatever the age of the win. On any failure the Customer
+        // Update screen gets the conversion id and runs the same lookup itself.
         try {
-          const page = await queryClient.fetchQuery(trpc.journey.list.queryOptions({ businessId, ...replayLookupWindow(milestone.achievedAt), limit: 200 }, { staleTime: 60_000 }));
-          journeyId = journeyIdForConversion(ref.conversionId, page.items);
+          journeyId = (await queryClient.fetchQuery(trpc.journey.forConversion.queryOptions({ businessId, conversionId: ref.conversionId }, { staleTime: 60_000 }))).journeyId;
         } catch {
           journeyId = null;
         }
       }
-      router.push(routes.journey(businessId, journeyId ?? ref.journeyId ?? ref.conversionId!));
+      router.push(routes.journey(businessId, journeyId ?? ref.journeyId ?? ref.conversionId!, routes.milestones(businessId)));
     },
     [milestones, currency, router, businessId, toast, queryClient, trpc],
   );
@@ -94,13 +93,14 @@ export function MilestonesScreen() {
     [others],
   );
 
-  if (ribbonQ.error) return <ErrorPanel title="Milestones" message={errorMessage(ribbonQ.error)} onRetry={() => void ribbonQ.refetch()} />;
+  if (loadFailed(ribbonQ)) return <ErrorPanel title="Milestones" message={errorMessage(ribbonQ.error)} onRetry={() => void ribbonQ.refetch()} />;
   if (!ribbonQ.data) return <ScreenSkeleton />;
 
   const shareCard = shareKey ? cards.find((c) => c.key === shareKey) : undefined;
 
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="milestones-screen" data-won={won}>
+      {refreshFailed(ribbonQ) ? <RefreshFailedNotice query={ribbonQ} className="col-span-12 flex items-center gap-2" /> : null}
       <Panel
         title="Customers and revenue"
         span={12}

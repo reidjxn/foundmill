@@ -8,9 +8,10 @@ import { useMemo } from "react";
 import { BookOpenText, ExternalLink, FileText, Swords } from "lucide-react";
 import { Button, Chip, EntityText, Icon, Panel, ProvenanceChip, formatRelative, useFormatters } from "@foundmill/dugout";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { plural } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { Screen, blockTitle, findBlock } from "./shared";
-import { RESEARCH_NOTE_KINDS, SOURCE_KIND_META, coverageBySection, hostOf, linkedBlocks, relevance, topicCounts, topics } from "./sources/kinds";
+import { RESEARCH_NOTE_KINDS, SOURCE_KIND_META, coverageBySection, hostOf, isWebUri, linkedBlocks, relevance, topicCounts, topics } from "./sources/kinds";
 import type { SourceRow, SourcesListResponse, SpecBlockRow, SpecGetResponse } from "./types";
 
 function CompetitorCard({ source, onOpen }: { source: SourceRow; onOpen: () => void }) {
@@ -78,7 +79,7 @@ function CompetitorCard({ source, onOpen }: { source: SourceRow; onOpen: () => v
 }
 
 function NoteRow({ source, blocks, onOpenBlock, onOpen }: { source: SourceRow; blocks: readonly SpecBlockRow[]; onOpenBlock: (id: string) => void; onOpen: () => void }) {
-  const { formatDateShort } = useFormatters();
+  const { formatDateSmart } = useFormatters();
   const m = SOURCE_KIND_META[source.kind] ?? SOURCE_KIND_META.doc;
   const r = relevance(source);
   const linked = linkedBlocks(source).map((l) => ({ ...l, block: findBlock(blocks, l.blockId) })).filter((l) => l.block);
@@ -91,7 +92,7 @@ function NoteRow({ source, blocks, onOpenBlock, onOpen }: { source: SourceRow; b
         <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-pretty break-words text-left text-body-strong text-primary hover:underline focus-visible:outline-2 focus-visible:outline-link">
           {source.title || source.uri || "Untitled"}
         </button>
-        <span className="shrink-0 text-small text-secondary tabular-nums">{formatDateShort(source.createdAt)}</span>
+        <span className="shrink-0 text-small text-secondary tabular-nums">{formatDateSmart(source.createdAt)}</span>
       </div>
       {r.summary ? (
         <EntityText as="p" className="text-body text-primary">{String(r.summary)}</EntityText>
@@ -127,7 +128,7 @@ export function ResearchScreen({ businessId }: ModuleScreenProps) {
   const list = useWidgetQuery<SourcesListResponse>("product.sources.list", { limit: 200 });
   const spec = useWidgetQuery<SpecGetResponse>("product.spec.get", {});
   const departments = useDepartments();
-  useBusinessEvents(() => list.refetch(), ["source.added", "spec.proposal_created"]);
+  useBusinessEvents(() => list.refetch(), ["source.added", "source.scored", "spec.proposal_created"]);
 
   const sources = useMemo(() => list.data?.items ?? [], [list.data]);
   const blocks = useMemo(() => spec.data?.blocks ?? [], [spec.data]);
@@ -140,7 +141,7 @@ export function ResearchScreen({ businessId }: ModuleScreenProps) {
   const href = (tab: string, query?: string) => `${moduleHref(businessId, departments.data, "product", tab) ?? routes.department(businessId, "product", tab)}${query ?? ""}`;
   const openBlock = (blockId: string) => navigate(href("specification", `?block=${blockId}`));
   const open = (s: SourceRow) => {
-    if (s.uri && typeof window !== "undefined") window.open(s.uri, "_blank", "noopener,noreferrer");
+    if (isWebUri(s.uri) && typeof window !== "undefined") window.open(s.uri.trim(), "_blank", "noopener,noreferrer");
     else navigate(href("sources", `?source=${s.id}`));
   };
   const err = list.error ? list.error.message : undefined;
@@ -154,7 +155,7 @@ export function ResearchScreen({ businessId }: ModuleScreenProps) {
         error={err}
         onRetry={list.refetch}
         empty={list.data && competitors.length === 0 ? { icon: Swords, title: "No competitor cards yet", children: "The Research agent grounds the spec with competitor pages and pricing; add a competitor link on the Sources tab to start one." , action: { label: "Open sources", onClick: () => navigate(href("sources")) } } : undefined}
-        footer={<span className="tabular-nums">{competitors.length} competitors · pricing and market figures are the agent's estimates, not measurements</span>}
+        footer={<span className="tabular-nums">{plural(competitors.length, "competitor")} · pricing and market figures are the agent's estimates, not measurements</span>}
       >
         <div className="grid grid-cols-2 gap-3">
           {competitors.map((s) => (
@@ -174,7 +175,7 @@ export function ResearchScreen({ businessId }: ModuleScreenProps) {
       >
         {coverageMax === 0 && coverage.length ? <p className="mb-2 text-small text-secondary">No source is linked to a section yet; the Source Watcher links them as it reads.</p> : null}
         {/* A list rather than a chart: section names wrap in full and counts are whole numbers (no "0 0 0 1 1 1" ticks). */}
-        <ul role="img" aria-label={`Sources per spec section. ${coverage.map((c) => `${c.section} ${c.count}`).join(", ")}`} className="flex flex-col gap-1.5">
+        <ul aria-label="Sources per spec section" className="flex flex-col gap-1.5">
           {coverage.map((c) => (
             <li key={c.section} className="grid grid-cols-[minmax(0,1fr)_4.5rem_2rem] items-center gap-2" data-coverage={c.section}>
               <span className="break-words text-small text-primary">{c.section}</span>

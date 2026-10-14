@@ -16,7 +16,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const recommends = (fake: { mutations: { path: string }[] }) => fake.mutations.filter((m) => m.path === "distribution.recommend").length;
 
 describe("localScores", () => {
-  const view = (channelKey: string, fit: number, enabled: boolean, recommended = false, persisted = true) => ({ channelKey, fit, enabled, recommended, persisted }) as never as Parameters<typeof localScores>[0][number];
+  const view = (channelKey: string, fit: number, enabled: boolean, recommended = false, scored = true) => ({ channelKey, fit, enabled, recommended, scored }) as never as Parameters<typeof localScores>[0][number];
 
   it("puts the channels on the Board first, tops up to three by fit, and keeps fits as they were", () => {
     const out = localScores([view("seo", 11, true), view("paid_ads", 17, false, true), view("social", 16, false), view("print", 6, false), view("pr", 5, false, false, false)]);

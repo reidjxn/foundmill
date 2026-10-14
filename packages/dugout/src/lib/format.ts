@@ -150,6 +150,17 @@ export function formatDateShort(d: DateInput, prefs?: DateFormatPrefs | null): s
   return formatDate(d, "dayMonth", prefs);
 }
 
+/**
+ * "Oct 5" when the date falls in the current year (the year is implied), "Oct 5, 2027" otherwise, so a deadline next
+ * year or a version from last year never reads as this year's ("5 Oct" / "5 Oct 2027", "10-05" / "2027-10-05").
+ */
+export function formatDateSmart(d: DateInput, now: DateInput = new Date(), prefs?: DateFormatPrefs | null): string {
+  const date = toDate(d);
+  if (!isValid(date)) return "—";
+  const today = toDate(now);
+  return formatDate(date, isValid(today) && today.getFullYear() === date.getFullYear() ? "dayMonth" : "date", prefs);
+}
+
 /** "Oct 2026" ("2026-10" in ISO). */
 export function formatMonthYear(d: DateInput, prefs?: DateFormatPrefs | null): string {
   return formatDate(d, "monthYear", prefs);
@@ -220,6 +231,8 @@ export interface DateFormatters {
   formatDate(d: DateInput, pattern?: DateFormatKey | (string & {})): string;
   /** "Oct 7" */
   formatDateShort(d: DateInput): string;
+  /** "Oct 7" this year, "Oct 7, 2027" in any other (see formatDateSmart). */
+  formatDateSmart(d: DateInput, now?: DateInput): string;
   /** "Oct 2026" */
   formatMonthYear(d: DateInput): string;
   /** "3:45 PM" */
@@ -241,6 +254,7 @@ export function bindFormatters(prefs?: DateFormatPrefs | null): DateFormatters {
     prefs: p,
     formatDate: (d, pattern) => formatDate(d, typeof pattern === "string" ? pattern : "date", p),
     formatDateShort: (d) => formatDate(d, "dayMonth", p),
+    formatDateSmart: (d, now) => formatDateSmart(d, now, p),
     formatMonthYear: (d) => formatDate(d, "monthYear", p),
     formatTime: (d) => formatDate(d, "time", p),
     formatDateTime: (d) => formatDate(d, "dateTime", p),

@@ -7,11 +7,14 @@
  * the save fails) and a toast confirms it in the new format. Relative times and dates written inside agent notes are not
  * reformatted, and the help line says so. Open to every member, whatever their role: it changes nothing of the business.
  */
+import { useQuery } from "@tanstack/react-query";
 import { UserRound } from "lucide-react";
 import { useCallback } from "react";
 import { Chip, DATE_FORMAT_LABELS, DATE_FORMAT_SAMPLE, DateFormatPicker, TIME_FORMAT_LABELS, bindFormatters, type DateFormatPrefs } from "@foundmill/dugout";
 import { useClientNow } from "@/lib/today";
 import { useDatePreferences } from "@/components/providers/DateFormatHost";
+import { useTRPC } from "@/lib/trpc-react";
+import { AccountId } from "./AccountId";
 import { Hint, SettingsSection, useSettingsToast } from "./shared";
 
 /** The one field a choice changed, or null when it changed nothing. */
@@ -34,6 +37,8 @@ export function PreferencesTab() {
   const { prefs, save } = useDatePreferences();
   const t = useSettingsToast();
   const now = useClientNow();
+  const trpc = useTRPC();
+  const viewer = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
 
   const onChange = useCallback(
     (next: DateFormatPrefs) => {
@@ -51,19 +56,24 @@ export function PreferencesTab() {
   );
 
   return (
-    <SettingsSection
-      title="Preferences"
-      actions={
-        <Chip tone="neutral" icon={UserRound} data-testid="preferences-scope">
-          Just for you
-        </Chip>
-      }
-      data-testid="preferences-panel"
-    >
-      <Hint>
-        How you read dates and times, in every business you open; nobody else’s view changes. Relative times such as “3 min ago” and dates written inside agent notes stay as they are.
-      </Hint>
-      <DateFormatPicker value={prefs} onChange={onChange} now={now} />
-    </SettingsSection>
+    <>
+      <SettingsSection
+        title="Preferences"
+        actions={
+          <Chip tone="neutral" icon={UserRound} data-testid="preferences-scope">
+            Just for you
+          </Chip>
+        }
+        data-testid="preferences-panel"
+      >
+        <Hint>
+          How you read dates and times, in every business you open; nobody else’s view changes. Relative times such as “3 min ago” and dates written inside agent notes stay as they are.
+        </Hint>
+        <DateFormatPicker value={prefs} onChange={onChange} now={now} />
+      </SettingsSection>
+      <SettingsSection title="Your account ID" data-testid="account-id-panel">
+        <AccountId accountId={viewer.data?.userId} />
+      </SettingsSection>
+    </>
   );
 }

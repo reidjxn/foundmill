@@ -8,14 +8,18 @@
  * (old → new per skill) → Promote / Discard → 7-day watch banner with one-click rollback (`rollback`).
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Dumbbell, Eye, FlaskConical, History, Save, Sparkles, Undo2 } from "lucide-react";
+import { CircleStop, Dumbbell, Eye, FlaskConical, History, Save, Sparkles, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CREDITS_CURRENCY } from "@foundmill/config";
 import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, InstructionsEditor, KeyValueList, MODEL_LABELS, ModelPicker, Panel, ProgressRing, ProvenanceChip, SkillGrid, TabBar, TrainingResults, formatDuration, formatMoney, formatRelative, instructionsEqual, useDateFormat, type AgentInstructions, type InstructionComment, type InstructionViolation, type TabItem } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { readOnlyReason } from "@/lib/access";
+import { useBusiness } from "@/components/shell/business-context";
 import { formatDayMonth } from "@/lib/format";
 import type { TabProps } from "./AgentProfileScreen";
+import { CustomSkillsPanel } from "./CustomSkillsPanel";
 import { ModelChangeDialog } from "./ModelChangeDialog";
 import { ToolGrantsEditor } from "./ToolsTab";
 import {
@@ -25,13 +29,17 @@ import {
   coachProposals,
   currentVersion,
   grantsEqual,
+  grantsWiden,
   instructionVersions,
+  isRetestRun,
   latestDraft,
+  localPeriod,
   modelOptions,
   parseInstructions,
   parseToolGrants,
   readFocus,
   runProgress,
+  runStalled,
   toSkillRows,
   toTrainingResults,
   trainingFlow,
@@ -41,10 +49,14 @@ import {
   type TrainingSubTab,
 } from "./logic";
 
-export function TrainingTab({ businessId, profile, currency, refetch }: TabProps) {
+export function TrainingTab({ businessId, profile, refetch }: TabProps) {
+  // Viewers and advisors read the instructions and the results; saving a draft and training are changes (RUI-05).
+  const { access } = useBusiness();
+  const canChange = access.canChange;
   const datePrefs = useDateFormat();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const { isAdmin } = useBusiness();
   const agent = profile.agent;
   const live = currentVersion(profile);
   const draftVersion = latestDraft(profile.versions);
@@ -54,7 +66,9 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
   const [sub, setSub] = useState<TrainingSubTab>("instructions");
   const [instructions, setInstructions] = useState<AgentInstructions>(() => parseInstructions(baseVersion?.instructions ?? {}));
   const [tools, setTools] = useState<ToolGrant[]>(() => parseToolGrants(baseVersion?.tools));
-  const draftModel: ModelKey = baseVersion?.modelKey ?? agent.modelKey;
+  // A draft keeps the model it was saved on (a preview on another model); edits of the live version train on the model
+  // the agent runs now, which a model change sets before its retest is decided.
+  const draftModel: ModelKey = draftVersion?.modelKey ?? agent.modelKey;
   const [savedVersionId, setSavedVersionId] = useState<string | null>(draftVersion?.id ?? null);
   const [savedSnapshot, setSavedSnapshot] = useState<AgentInstructions | null>(draftVersion ? parseInstructions(draftVersion.instructions) : null);
   const [violations, setViolations] = useState<InstructionViolation[]>([]);
@@ -81,9 +95,11 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
   const liveInstructions = useMemo(() => parseInstructions(live?.instructions ?? {}), [live]);
   const dirtySinceSave = savedSnapshot ? !instructionsEqual(instructions, savedSnapshot) : !instructionsEqual(instructions, liveInstructions);
   const trainable = savedVersionId !== null && !dirtySinceSave;
+  // A released agent keeps its training history as a record; it is not trained again (the API refuses it too).
+  const released = !!agent.archivedAt;
   const versions = useMemo(() => instructionVersions(profile.versions), [profile.versions]);
   const skills = useMemo(() => toSkillRows(profile.skills, profile.trainingRuns), [profile.skills, profile.trainingRuns]);
-  const flow = useMemo(() => trainingFlow(profile.trainingRuns), [profile.trainingRuns]);
+  const flow = useMemo(() => trainingFlow(profile.trainingRuns, new Date(), profile.agent.currentVersionId), [profile.trainingRuns, profile.agent.currentVersionId]);
   const proposals = useMemo(() => coachProposals(focus, skills), [focus, skills]);
 
   // --- mutations and queries ----------------------------------------------------------------------------------------
@@ -130,8 +146,20 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
   );
   const discard = useMutation(
     trpc.agent.training.discard.mutationOptions({
-      onSuccess: () => {
-        setNotice({ tone: "info", text: "Draft discarded. The live version is unchanged." });
+      onSuccess: (r) => {
+        // A model change applies at once; discarding its retest keeps the live version but not the old model.
+        setNotice({ tone: "info", text: isRetestRun(r, profile.versions) ? `Retest discarded. The live version is unchanged; ${agent.name} keeps working on ${MODEL_LABELS[agent.modelKey]} until you change the model back.` : "Draft discarded. The live version is unchanged." });
+        void invalidateAgent();
+        refetch();
+      },
+      onError: (err) => setNotice({ tone: "bad", text: errorMessage(err) }),
+    }),
+  );
+  const cancel = useMutation(
+    trpc.agent.training.cancel.mutationOptions({
+      onSuccess: (r) => {
+        // Canceling a retest does not undo the model change it was scoring; say so, as Discard does.
+        setNotice({ tone: "info", text: isRetestRun(r.run, profile.versions) ? `Retest canceled. The live version is unchanged; ${agent.name} keeps working on ${MODEL_LABELS[agent.modelKey]}.` : "Training canceled. The live version is unchanged." });
         void invalidateAgent();
         refetch();
       },
@@ -148,7 +176,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
       onError: (err) => setNotice({ tone: "bad", text: errorMessage(err) }),
     }),
   );
-  const compareQ = useQuery(trpc.agent.model.compare.queryOptions({ businessId, agentId: agent.id }, { enabled: sub === "model", staleTime: 60_000 }));
+  const compareQ = useQuery(trpc.agent.model.compare.queryOptions({ businessId, agentId: agent.id, period: localPeriod() }, { enabled: sub === "model", staleTime: 60_000 }));
   const [applyModel, setApplyModel] = useState<ModelKey | null>(null);
 
   const doSave = (modelKey?: ModelKey) => saveDraft.mutate({ businessId, agentId: agent.id, instructions, tools: tools.length ? tools : undefined, modelKey: modelKey ?? draftModel, comment: comments[comments.length - 1]?.text });
@@ -164,6 +192,9 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
   const subTabs: TabItem[] = TRAINING_SUB_TABS.map((t) => ({ id: t.id, label: t.label, badge: t.id === "focus" && focus.length ? focus.length : undefined }));
   const results = flow.awaiting && resultsQ.data ? toTrainingResults(resultsQ.data, profile.skills) : [];
   const busy = saveDraft.isPending || run.isPending;
+  // Retry runs the draft that failed (a model change's retest copy included) while it is still a draft.
+  const failedDraft = flow.failed ? (profile.versions.find((v) => v.id === flow.failed?.toVersionId && v.state === "draft") ?? null) : null;
+  const retryFailed = failedDraft ? () => run.mutate({ businessId, agentId: agent.id, versionId: failedDraft.id }) : savedVersionId ? trainSaved : undefined;
 
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="agent-training" data-phase={flow.phase}>
@@ -188,18 +219,21 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
       ) : null}
 
       {flow.active ? (
-        <Panel title="Training in progress" span={12} data-testid="training-progress">
+        <Panel title="Training in progress" span={12} data-testid="training-progress" data-run-id={flow.active.id}>
           <div className="flex items-center gap-4">
             <ProgressRing value={runProgress(flow.active, estimateQ.data?.durationMinutes ?? 3)} size={40} strokeWidth={3} tone="kit" label="Training progress" />
             <div className="flex flex-col">
               <span className="text-body-strong text-primary">{RUN_PHASE_LABEL[flow.active.status] ?? flow.active.status}</span>
-              <span className="text-small text-secondary">
-                Started {formatRelative(flow.active.startedAt ?? flow.active.createdAt)} · target 2–5 minutes · the live version keeps working
+              <span className="text-small text-secondary" data-testid="training-progress-note">
+                {runStalled(flow.active) ? `Queued ${formatRelative(flow.active.createdAt)} and not started yet. If it does not start soon, cancel it and train again.` : `Started ${formatRelative(flow.active.startedAt ?? flow.active.createdAt)} · target 2–5 minutes · the live version keeps working`}
               </span>
             </div>
             <span className="ml-auto inline-flex items-center gap-1 text-small text-secondary">
               <Icon icon={FlaskConical} size="inline" /> Held-out tests are never shown
             </span>
+            <Button size="sm" variant="ghost" icon={CircleStop} loading={cancel.isPending} onClick={() => cancel.mutate({ businessId, runId: flow.active!.id })} data-testid="cancel-training">
+              Cancel run
+            </Button>
           </div>
         </Panel>
       ) : null}
@@ -216,7 +250,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
               coachExplanation={resultsQ.data.coachSummaryMd || "The Coach's explanation arrives with the grading pass."}
               candidateVersion={profile.versions.find((v) => v.id === flow.awaiting?.toVersionId)?.version}
               liveVersion={live?.version}
-              cost={{ amountMinor: Number(flow.awaiting.costMinor ?? 0), currency: flow.awaiting.currency ?? currency }}
+              cost={{ amountMinor: Number(flow.awaiting.costMinor ?? 0), currency: flow.awaiting.currency ?? CREDITS_CURRENCY }}
               durationMs={flow.awaiting.startedAt && flow.awaiting.endedAt ? Date.parse(String(flow.awaiting.endedAt)) - Date.parse(String(flow.awaiting.startedAt)) : undefined}
               onPromote={() => promote.mutate({ businessId, runId: flow.awaiting!.id })}
               onDiscard={() => discard.mutate({ businessId, runId: flow.awaiting!.id })}
@@ -227,7 +261,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
         </div>
       ) : null}
 
-      {flow.failed ? <Panel title="Last run failed" span={12} error="The training run failed before grading. Save the draft again and retry; nothing changed on the live version." onRetry={savedVersionId ? trainSaved : undefined} /> : null}
+      {flow.failed ? <Panel title="Last run failed" span={12} error={`The training run failed before grading; nothing changed on the live version.${retryFailed ? " Retry runs the same draft again." : " Save the draft again to retry."}`} onRetry={retryFailed} data-testid="training-failed" /> : null}
 
       {/* editor ----------------------------------------------------------------------------------------------------- */}
       <Panel
@@ -238,10 +272,10 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
           <span className="inline-flex items-center gap-2">
             {live ? <Chip tone="neutral">Live v{live.version}</Chip> : <Chip tone="warn">No live version</Chip>}
             {savedVersionId ? <Chip tone={dirtySinceSave ? "info" : "good"}>{dirtySinceSave ? "Draft edited" : `Draft v${profile.versions.find((v) => v.id === savedVersionId)?.version ?? "?"} saved`}</Chip> : dirtySinceSave ? <Chip tone="info">Unsaved edits</Chip> : null}
-            <Button size="sm" icon={Save} onClick={() => doSave()} loading={saveDraft.isPending} disabled={!dirtySinceSave && !!savedVersionId} data-testid="save-draft">
+            <Button size="sm" icon={Save} onClick={() => doSave()} loading={saveDraft.isPending} disabled={!canChange || released || (!dirtySinceSave && !!savedVersionId)} title={canChange ? undefined : readOnlyReason(access)} data-testid="save-draft">
               Save draft
             </Button>
-            <Button size="sm" variant="primary" icon={Dumbbell} onClick={() => setTrainOpen(true)} disabled={busy || !!flow.active || (!dirtySinceSave && !savedVersionId)} data-testid="train">
+            <Button size="sm" variant="primary" icon={Dumbbell} onClick={() => setTrainOpen(true)} disabled={!canChange || released || busy || !!flow.active || (!dirtySinceSave && !savedVersionId)} title={canChange ? undefined : readOnlyReason(access)} data-testid="train">
               Train
             </Button>
           </span>
@@ -302,7 +336,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
           {sub === "model" ? (
             <div className="grid grid-cols-12 gap-gutter" data-testid="training-model">
               <div className="col-span-7">
-                {compareQ.data ? <ModelPicker options={modelOptions(compareQ.data, currency)} value={previewModel ?? agent.modelKey} onChange={(m) => setPreviewModel(m === agent.modelKey ? null : m)} disabled={profile.modelLock} /> : <p className="text-small text-secondary">{compareQ.error ? errorMessage(compareQ.error) : "Loading model comparison…"}</p>}
+                {compareQ.data ? <ModelPicker options={modelOptions(compareQ.data, CREDITS_CURRENCY)} value={previewModel ?? agent.modelKey} onChange={(m) => setPreviewModel(m === agent.modelKey ? null : m)} disabled={profile.modelLock} /> : <p className="text-small text-secondary">{compareQ.error ? errorMessage(compareQ.error) : "Loading model comparison…"}</p>}
                 {profile.modelLock ? <p className="mt-2 text-small text-secondary">{profile.route === "inboxComposer" ? "The Inbox Composer is locked to Opus." : "This agent's route is locked to its model."}</p> : null}
               </div>
               <div className="col-span-5 flex flex-col gap-3">
@@ -312,9 +346,9 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
                     <KeyValueList
                       items={[
                         { label: "Tests", value: estimateQ.data ? `${estimateQ.data.tests} across ${estimateQ.data.skills} skills` : "…", numeric: true },
-                        { label: "Cost", value: estimateQ.data ? <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: estimateQ.data.costMinor, currency })} <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
+                        { label: "Cost", value: estimateQ.data ? <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: estimateQ.data.costMinor, currency: estimateQ.data.currency })} <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
                         { label: "Duration", value: estimateQ.data ? `about ${estimateQ.data.durationMinutes} min` : "…", numeric: true },
-                        { label: "Wage delta", value: compareQ.data ? <span className="inline-flex items-center gap-1">{formatMoney(modelOptions(compareQ.data, currency).find((o) => o.key === previewModel)?.wageDelta ?? { amountMinor: 0, currency })}/mo <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
+                        { label: "Wage delta", value: compareQ.data ? <span className="inline-flex items-center gap-1">{formatMoney(modelOptions(compareQ.data, CREDITS_CURRENCY).find((o) => o.key === previewModel)?.wageDelta ?? { amountMinor: 0, currency: CREDITS_CURRENCY })}/mo <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
                         { label: "Skill deltas", value: "From the preview run" },
                       ]}
                     />
@@ -340,6 +374,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
               <p className="text-small text-secondary">Tool changes are part of the draft and are retested when you train.</p>
               <ToolGrantsEditor businessId={businessId} value={tools} onChange={(t) => setTools(t)} />
               {!grantsEqual(tools, parseToolGrants(baseVersion?.tools)) ? <Chip tone="info">Tools changed in this draft</Chip> : null}
+              {!isAdmin && grantsWiden(parseToolGrants(live?.tools), tools) ? <Chip tone="warn" data-testid="tools-admin-only">Only an owner or admin can give this agent new tools</Chip> : null}
             </div>
           ) : null}
         </div>
@@ -372,7 +407,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
             <KeyValueList
               items={[
                 { label: "Tests", value: estimateQ.data ? `${estimateQ.data.tests} across ${estimateQ.data.skills} skills (half held out)` : "…" },
-                { label: "Cost", value: estimateQ.data ? <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: estimateQ.data.costMinor, currency })} <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
+                { label: "Cost", value: estimateQ.data ? <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: estimateQ.data.costMinor, currency: estimateQ.data.currency })} <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
                 { label: "Duration", value: estimateQ.data ? `about ${formatDuration(estimateQ.data.durationMinutes * 60_000)}` : "…", numeric: true },
                 { label: "Model", value: MODEL_LABELS[draftModel] },
               ]}
@@ -390,7 +425,8 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
         </DialogContent>
       </Dialog>
 
-      <ModelChangeDialog businessId={businessId} profile={profile} open={!!applyModel} onOpenChange={(o) => !o && setApplyModel(null)} preselect={applyModel} currency={currency} />
+      <ModelChangeDialog businessId={businessId} profile={profile} open={!!applyModel} onOpenChange={(o) => !o && setApplyModel(null)} preselect={applyModel} />
+      <CustomSkillsPanel businessId={businessId} profile={profile} onChanged={refetch} />
     </div>
   );
 }

@@ -19,6 +19,7 @@ function renderRibbon(extra: Partial<React.ComponentProps<typeof JourneyRibbon>>
   const utils = render(
     <JourneyRibbon
       ref={ref}
+      currency="EUR"
       rows={data.rows}
       departments={RIBBON_DEPARTMENTS}
       conversions={data.conversions}
@@ -84,7 +85,7 @@ describe("JourneyRibbon", () => {
   it("opens a Customer Update from a day with one payment and the day from a bar with several", async () => {
     const user = userEvent.setup();
     const { onOpenJourney, onOpenDay, container } = renderRibbon({ defaultZoom: "month" });
-    const single = Array.from(container.querySelectorAll("[data-marker='payment'][data-count='1']")).find((el) => /Opens the Customer Update/.test(el.getAttribute("aria-label") ?? "")) as SVGGElement | undefined;
+    const single = Array.from(container.querySelectorAll("[data-marker='payment'][data-count='1']")).find((el) => /Opens the Customer Update/.test(el.getAttribute("data-label") ?? "")) as SVGGElement | undefined;
     expect(single).toBeTruthy();
     await user.click(single as unknown as Element);
     expect(onOpenJourney).toHaveBeenCalledTimes(1);
@@ -92,21 +93,49 @@ describe("JourneyRibbon", () => {
     await user.click(screen.getByRole("button", { name: "All time" }));
     const bucket = Array.from(container.querySelectorAll("[data-marker='payment']")).find((el) => Number(el.getAttribute("data-count")) > 1) as SVGGElement | undefined;
     expect(bucket).toBeTruthy();
-    (bucket as unknown as HTMLElement).focus();
-    fireEvent.keyDown(bucket as unknown as Element, { key: "Enter" });
+    await user.click(bucket as unknown as Element);
     expect(onOpenDay).toHaveBeenCalledTimes(1);
     expect(onOpenDay.mock.calls[0]?.[0]).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it("scrolls with arrow keys and wheel, clamps, and Home returns to today", () => {
+  it("is one Tab stop: the payment bars are pointer targets, and arrow keys walk the days with a spoken readout", async () => {
+    const user = userEvent.setup();
+    const { onOpenDay, onOpenJourney, container } = renderRibbon({ defaultZoom: "month" });
+    const root = screen.getByRole("group", { name: /Journey ribbon/ });
+    // Nothing inside the aria-hidden plot takes focus (it used to hold one Tab stop per payment bar).
+    expect(container.querySelectorAll("svg [tabindex], svg [role=button]")).toHaveLength(0);
+    expect(root.getAttribute("aria-label")).toContain("Arrow keys move through the days");
+    root.focus();
+    await user.keyboard("{ArrowLeft}");
+    const scrubber = container.querySelector("[data-scrubber]");
+    const day = scrubber?.getAttribute("data-key-day");
+    expect(day).toBe(new Date(Date.parse(`${data.today}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10));
+    // The label column and the live readout follow the keyboard's day.
+    const readout = container.querySelector("[data-ribbon-day-readout]")!;
+    expect(readout.getAttribute("aria-live")).toBe("polite");
+    expect(readout.textContent).toMatch(/new signups, .* paying customers, .* agent hours\.$/);
+    expect(container.querySelector("[data-on-this-day]")).toBeTruthy();
+    await user.keyboard("{Enter}");
+    expect(onOpenDay.mock.calls.length + onOpenJourney.mock.calls.length).toBe(1);
+    if (onOpenDay.mock.calls.length) expect(onOpenDay).toHaveBeenCalledWith(day);
+    // Escape lets go of the day; the readout empties.
+    await user.keyboard("{Escape}");
+    expect(container.querySelector("[data-scrubber]")).toBeNull();
+    expect(readout.textContent).toBe("");
+  });
+
+  it("scrolls with Shift+arrow keys and wheel, clamps, keeps the keyboard's day in view, and Home returns to today", () => {
     renderRibbon();
     const root = screen.getByRole("group", { name: /Journey ribbon/ });
     const start = Number(root.getAttribute("data-scroll-x"));
     const exact = Number(root.getAttribute("data-scroll-x"));
-    fireEvent.keyDown(root, { key: "ArrowRight" });
-    expect(Number(root.getAttribute("data-scroll-x"))).toBeCloseTo(exact + PLOT_W * 0.1, -0.5);
     fireEvent.keyDown(root, { key: "ArrowLeft", shiftKey: true });
-    expect(Number(root.getAttribute("data-scroll-x"))).toBeCloseTo(Math.max(0, exact + PLOT_W * 0.1 - PLOT_W * 0.5), -0.5);
+    expect(Number(root.getAttribute("data-scroll-x"))).toBeCloseTo(Math.max(0, exact - PLOT_W * 0.5), -0.5);
+    fireEvent.keyDown(root, { key: "ArrowRight", shiftKey: true });
+    expect(Number(root.getAttribute("data-scroll-x"))).toBeCloseTo(exact, -0.5);
+    // A plain arrow walks the days; the window moves only once the day nears its edge.
+    fireEvent.keyDown(root, { key: "ArrowLeft" });
+    expect(Number(root.getAttribute("data-scroll-x"))).toBeCloseTo(exact, -0.5);
     fireEvent.wheel(root, { deltaY: 100000 });
     const max = Number(root.getAttribute("data-scroll-x"));
     fireEvent.wheel(root, { deltaY: 100 });
@@ -187,7 +216,7 @@ describe("JourneyRibbon", () => {
     const { rerender } = renderRibbon({ zoom: "month" });
     const root = screen.getByRole("group", { name: /Journey ribbon/ });
     expect(root.getAttribute("data-zoom")).toBe("month");
-    rerender(<JourneyRibbon rows={data.rows} departments={RIBBON_DEPARTMENTS} today={data.today} width={1200} overlay="none" animateIn={false} zoom="all" />);
+    rerender(<JourneyRibbon rows={data.rows} departments={RIBBON_DEPARTMENTS} today={data.today} width={1200} overlay="none" animateIn={false} zoom="all" currency="EUR" />);
     expect(screen.getByRole("group", { name: /Journey ribbon/ }).getAttribute("data-zoom")).toBe("all");
   });
 });

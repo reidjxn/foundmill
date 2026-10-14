@@ -12,6 +12,7 @@ export * from "./calibration";
 export * from "./club-rules";
 export * from "./archetypes";
 export * from "./foundations";
+export * from "./model-billing";
 export * from "./foundations-staged";
 export * from "./ideation";
 export * from "./registry";
@@ -20,6 +21,10 @@ export * from "./skills";
 export * from "./voice";
 export * from "./nudges";
 export * from "./conversation";
+export * from "./source-watcher";
+export * from "./community-screen";
+export * from "./channel-creative";
+export * from "./custom-skills";
 export * as prompts from "./prompts";
 export {
   type PromptTemplate,

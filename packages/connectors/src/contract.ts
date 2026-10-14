@@ -16,6 +16,19 @@ export type ConnectorPhase = 1 | 2 | 3;
 export interface ConnectorAuth {
   kind: ConnectorAuthKind;
   scopes?: string[];
+  /**
+   * The live connector runs on the platform's own key (`PlatformSecrets`) for a business that connected it without
+   * storing a credential of its own: the public registries, Voyage, E2B, Anthropic on credits, and Stripe Connect (the
+   * platform key acting for the business's connected account). The gateway then needs a connected integration row, not
+   * a stored secret. Absent or false: a live call needs the business's own credential.
+   */
+  platformKey?: boolean;
+  /**
+   * The live connect() runs the OAuth authorization-code flow (Google, Notion, Shopify): without `code` it answers the
+   * vendor's consent page as `config.authorizeUrl` for the `state` and `redirectUri` the host passes, and stores
+   * nothing; with the `code` the vendor sent back (and the same `redirectUri`) it exchanges it.
+   */
+  authorizationCode?: boolean;
 }
 
 /**
@@ -121,12 +134,28 @@ export interface ToolLogger {
 export interface ToolContext {
   businessId: string;
   agentId: string;
-  sessionId: string;
+  /** The agent session the call belongs to; null for a call the platform makes for the business outside one (a plan action, an import). */
+  sessionId: string | null;
   integration: IntegrationRecord;
   /** Decrypted secret for this integration; absent for `auth.kind === "none"` and for platform-key connectors. */
   credential?: DecryptedCredential;
   log: ToolLogger;
   mode: ConnectorMode;
+  /**
+   * Set by the gateway: stores a credential the connector refreshed during this call (a new OAuth access token), sealed
+   * in place of the old one, so the next call reuses it instead of refreshing again. Connectors call it best effort.
+   */
+  onCredentialRefreshed?: (credential: DecryptedCredential) => Promise<void>;
+}
+
+/** Hand a refreshed credential to the host (`ctx.onCredentialRefreshed`); a failure to store it never fails the call. */
+export async function reportRefreshedCredential(ctx: ToolContext, credential: DecryptedCredential, connectorKey: string): Promise<void> {
+  if (!ctx.onCredentialRefreshed) return;
+  try {
+    await ctx.onCredentialRefreshed(credential);
+  } catch (e) {
+    ctx.log.warn({ connector: connectorKey, businessId: ctx.businessId, reason: e instanceof Error ? e.name : "unknown" }, "refreshed credential could not be stored; the next call refreshes again");
+  }
 }
 
 export interface ToolError {
@@ -173,11 +202,31 @@ export interface ConnectorWebhook {
   normalise(req: Request): Promise<PlatformEvent[]>;
 }
 
+/**
+ * One value the founder enters in Settings › Integrations to connect a connector live: a field of its `connect()` input,
+ * typically a key the vendor issued to the founder's own account, so the vendor bills the founder (BUILD §10), never
+ * the platform. The web renders the connect dialog from these; the api refuses a live connect that lacks a required one.
+ */
+export interface ConnectField {
+  /** Key in the `connect()` input (`apiKey`, `apiToken`...). */
+  name: string;
+  /** Label in the dialog ("API key"). */
+  label: string;
+  /** Masked while typed; `connect()` hands it back only as `credentialToStore` (sealed), never in settings or logs. */
+  secret: boolean;
+  required: boolean;
+  placeholder?: string;
+  /** What the key must allow and who is billed, one sentence. */
+  hint?: string;
+}
+
 export interface Connector<Cfg = unknown> {
   key: string; // e.g. "sendgrid"
   displayName: string;
   phase: ConnectorPhase;
   auth: ConnectorAuth;
+  /** What the founder enters to connect it live (see ConnectField); absent when connecting needs no input or is an OAuth/App flow. */
+  connectFields?: ConnectField[];
   connect(businessId: string, input: unknown): Promise<IntegrationRecord>;
   healthcheck(integration: IntegrationRecord): Promise<HealthResult>;
   tools: McpToolDefinition[]; // JSON-schema inputs/outputs
@@ -185,6 +234,12 @@ export interface Connector<Cfg = unknown> {
   webhooks?: ConnectorWebhook[];
   rateLimits: { perMinute?: number; perDay?: number };
   costModel?: (name: string, args: unknown) => number; // minor units
+  /**
+   * What a call would cost in minor units, from the tool's own cost function or the connector's `costModel`, before it
+   * runs; null when the connector declares none or the arguments do not parse. The gateway's spend policy reads this, not
+   * a number the calling agent reports.
+   */
+  estimateCostMinor?: (name: string, args: unknown) => number | null;
   policyHints: PolicyHints;
   mock: Connector<Cfg>; // same surface, deterministic fixtures
 }
@@ -215,6 +270,20 @@ export class ConfigError extends AppError {
 }
 
 export const isConfigError = (e: unknown): e is ConfigError => e instanceof ConfigError || (e instanceof AppError && e.code === "connector_unconfigured");
+
+/** Thrown by a live `connect()` when the founder did not enter a field it needs (400; the message is shown as is). */
+export class ConnectInputError extends AppError {
+  constructor(connectorKey: string, field: string, message: string) {
+    super("connect_input_required", message, 400, { connectorKey, field });
+    this.name = "ConnectInputError";
+  }
+}
+
+/** A non-empty string field of a `connect()` input, trimmed; undefined when absent. */
+export function connectInputValue(input: unknown, name: string): string | undefined {
+  const v = input && typeof input === "object" ? (input as Record<string, unknown>)[name] : undefined;
+  return typeof v === "string" && v.trim().length > 0 ? v.trim() : undefined;
+}
 
 /** Vendor HTTP failure surfaced by the shared http client; mapped to `ToolError` by the builder. */
 export class VendorError extends AppError {

@@ -17,8 +17,6 @@ export const CallContextInput = z.object({
   recipient: z.string().min(1).max(500).optional(),
   recipientCountry: z.string().length(2).optional(),
   localTimeAtRecipient: z.string().min(1).max(40).optional(),
-  /** Overrides the session's kit-mode flag for this call (only upwards: a kit-mode session stays kit mode). */
-  kitMode: z.boolean().optional(),
   /** Optional plan action this call executes; links the approval to the plan. */
   planActionId: Id.optional(),
 });

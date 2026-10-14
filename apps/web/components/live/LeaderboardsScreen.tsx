@@ -7,12 +7,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { ListOrdered, Trophy } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { DataTable, DeltaBadge, Panel, ShellLink, formatRelative, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { boardKindLabel, boardScope, boardTitle, describeMetric, formatMetricValue, periodLabel, positionLabel } from "@/lib/live";
 import { errorMessage, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { useTableViews } from "@/lib/table-views";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { PersonalNotice } from "./shared";
@@ -46,7 +47,8 @@ export function LeaderboardsScreen() {
 
   const boardsQ = useQuery(trpc.live.leaderboards.list.queryOptions(undefined, { staleTime: 30_000 }));
   const positionsQ = useQuery(trpc.live.leaderboards.positions.queryOptions({ businessId }, { staleTime: 30_000 }));
-  const [views, setViews] = useState<SavedView[]>(BOARD_VIEWS);
+  // Saved per person across their businesses: the LIVE pages are the account's, not one business's (audit #204).
+  const savedViews = useTableViews("live.leaderboards", BOARD_VIEWS, { defaultViewId: "all" });
 
   const positions = useMemo(() => positionsQ.data ?? [], [positionsQ.data]);
   const mine = useMemo(() => new Map(positions.map((p) => [p.leaderboardId, p])), [positions]);
@@ -124,8 +126,7 @@ export function LeaderboardsScreen() {
           aria-label="Leaderboards"
           data={rows}
           columns={columns}
-          views={views}
-          onViewsChange={setViews}
+          {...savedViews}
           defaultViewId="all"
           rowActions={rowActions}
           onRowOpen={(r) => open(r.id)}

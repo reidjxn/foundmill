@@ -5,15 +5,17 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { formatMoney, type ChannelTokenData, type FormCell } from "@foundmill/dugout";
-import { CHANNEL_KEYS, CHANNEL_META, type ApprovalState, type CampaignStatus, type ChannelKey, type ChannelLine } from "@foundmill/shared/constants";
+import { CHANNEL_KEYS, CHANNEL_META, CHANNEL_WINDOW_DAYS, type ApprovalState, type CampaignStatus, type ChannelKey, type ChannelLine } from "@foundmill/shared/constants";
 import { weekKey } from "@foundmill/widgets/shared/time";
-import type { AgentRow, AssetRow, BlendedSummary, CampaignRow, ChannelMetricRow, ChannelRow, ChannelSummaryRow, JourneyRow, RecommendationRow } from "./types";
+import type { AgentRow, AssetRow, BlendedSummary, CampaignRow, ChannelMetricRow, ChannelRow, ChannelSummaryRow, RecommendationRow } from "./types";
 
 /* ---------- Roster ---------- */
 
 export interface ChannelView extends ChannelRow {
   /** False when the API has no row for the channel yet (never scored, never enabled). */
   persisted: boolean;
+  /** The Distribution Strategist has scored it (a stored score or this session's answer); else fit and stars are blank. */
+  scored: boolean;
   /** 0–5 in halves. */
   stars: number;
   cpaRange: { low: number; high: number } | null;
@@ -45,6 +47,7 @@ const defaultRow = (key: ChannelKey, currency: string): ChannelRow => ({
   potential: 0,
   recommended: false,
   whyMd: "",
+  scoredAt: null,
   budgetMinor: 0,
   currency,
   kitMode: CHANNEL_META[key].kitModeByDefault,
@@ -57,12 +60,13 @@ export interface BuildChannelViewsInput {
   campaigns?: readonly CampaignRow[];
   metrics?: readonly ChannelMetricRow[];
   recommendation?: readonly RecommendationRow[] | null;
-  currency?: string;
+  /** The business's own currency, for a channel not stored yet (a stored one carries its own). */
+  currency: string;
   today?: string;
 }
 
 /** All 15 channels in line order, each merged with its stored row, recommendation, campaigns and five-week form. */
-export function buildChannelViews({ channels, campaigns = [], metrics = [], recommendation, currency = "EUR", today }: BuildChannelViewsInput): ChannelView[] {
+export function buildChannelViews({ channels, campaigns = [], metrics = [], recommendation, currency, today }: BuildChannelViewsInput): ChannelView[] {
   const byKey = new Map((channels ?? []).map((c) => [c.channelKey, c]));
   const recByKey = new Map((recommendation ?? []).map((r) => [r.channel, r]));
   return CHANNEL_KEYS.map((key) => {
@@ -70,13 +74,16 @@ export function buildChannelViews({ channels, campaigns = [], metrics = [], reco
     const row: ChannelRow = stored ? { ...defaultRow(key, currency), ...stored } : defaultRow(key, currency);
     const rec = recByKey.get(key);
     const mine = campaigns.filter((c) => c.channelId === row.id && row.id);
-    const cpaRange = rec ? rec.cpa_range_minor : null;
+    // A range only when it is one (high above zero, low at most high); an empty or unscored range shows nothing.
+    const range = rec?.cpa_range_minor ?? null;
+    const cpaRange = range && range.high > 0 ? { low: Math.min(range.low, range.high), high: Math.max(range.low, range.high) } : null;
     const cap = cpaRange?.high ?? row.form?.cpaMinor ?? null;
     return {
       ...row,
       fit: clampFit(rec?.fit ?? row.fit),
       recommended: rec ? rec.recommended : row.recommended,
       persisted: !!stored,
+      scored: !!rec || !!stored?.scoredAt,
       stars: rec ? potentialStars(rec.potential) : potentialStars(row.potential),
       cpaRange,
       why: (rec?.why ?? row.whyMd ?? "").trim(),
@@ -167,6 +174,7 @@ export function toChannelToken(view: ChannelView, opts: TokenOptions = {}): Chan
   return {
     key: view.channelKey,
     fit: view.fit,
+    scored: view.scored,
     recommended: view.recommended,
     enabled: view.enabled,
     form: view.form5,
@@ -176,18 +184,23 @@ export function toChannelToken(view: ChannelView, opts: TokenOptions = {}): Chan
     agents,
     budgetShare: total > 0 ? view.budgetMinor / total : undefined,
     paused: view.paused,
+    // The channel's own setting, as the Channels table shows it (not the channel's default).
+    kitMode: !!view.kitMode,
     results,
   };
 }
 
+/** The 35-day results on the channel profile; simulated weeks (the mock engine) label every figure Estimate. */
 export function summaryResults(form: ChannelSummaryRow, currency: string): Array<{ label: string; value: string }> {
   const money = (minor: number) => formatMoney({ amountMinor: minor, currency }, { compact: Math.abs(minor) >= 1_000_000 });
+  const est = form.estimate ? " (Estimate)" : "";
   return [
-    { label: "Leads (35 days)", value: String(form.leads) },
-    { label: "Signups", value: String(form.signups) },
-    { label: "Customers", value: String(form.customers) },
-    { label: "Spend", value: money(form.spendMinor) },
-    { label: "Cost per customer (Estimate)", value: form.cpaMinor === null ? "No customers yet" : money(form.cpaMinor) },
+    { label: `Leads (${CHANNEL_WINDOW_DAYS} days${form.estimate ? ", Estimate" : ""})`, value: String(form.leads) },
+    { label: `Signups${est}`, value: String(form.signups) },
+    { label: `Customers${est}`, value: String(form.customers) },
+    { label: `Spend${est}`, value: money(form.spendMinor) },
+    // As the Channels table says it (EstimatedMoney): a channel that spent nothing has no cost to estimate.
+    { label: "Cost per customer (Estimate)", value: form.cpaMinor === null ? "No customers yet" : form.cpaMinor === 0 && !form.spendMinor ? "No spend" : money(form.cpaMinor) },
   ];
 }
 
@@ -197,12 +210,20 @@ export function totalBudget(views: readonly Pick<ChannelView, "enabled" | "budge
 
 /* ---------- Status ---------- */
 
-export type ChannelStatusWord = "Running" | "Paused" | "Off the board" | "Not scored";
+export type ChannelStatusWord = "Running" | "Starting" | "Paused" | "Off the board" | "Not scored";
 
-export function channelStatus(view: Pick<ChannelView, "enabled" | "paused" | "persisted">): { tone: "good" | "warn" | "neutral"; word: ChannelStatusWord } {
+/** Why a channel on the board reads "Starting": its engine has not started (yet). */
+export const ENGINE_STARTING_HINT = "On the board, but its engine has not started yet. It starts within 15 minutes; until then nothing is drafted or launched.";
+
+/**
+ * A channel on the board is "Running" only when its engine is recorded (`engineWorkflowId`); one without an engine reads
+ * "Starting" (audit GTM-01). A row from before the field existed (undefined) is taken as running.
+ */
+export function channelStatus(view: Pick<ChannelView, "enabled" | "paused" | "scored"> & { persisted?: boolean; engineWorkflowId?: string | null }): { tone: "good" | "warn" | "neutral"; word: ChannelStatusWord } {
   if (view.enabled && view.paused) return { tone: "warn", word: "Paused" };
+  if (view.enabled && view.persisted !== false && view.engineWorkflowId === null) return { tone: "warn", word: "Starting" };
   if (view.enabled) return { tone: "good", word: "Running" };
-  if (!view.persisted) return { tone: "neutral", word: "Not scored" };
+  if (!view.scored) return { tone: "neutral", word: "Not scored" };
   return { tone: "neutral", word: "Off the board" };
 }
 
@@ -239,9 +260,30 @@ export const CAMPAIGN_TRANSITIONS: Record<CampaignStatus, readonly CampaignStatu
   pending_approval: ["draft", "scheduled", "live", "ended"],
   scheduled: ["live", "paused", "draft", "ended"],
   live: ["paused", "ended"],
-  paused: ["live", "ended"],
+  paused: ["live", "scheduled", "ended"],
   ended: [],
 };
+
+/**
+ * Whether the campaign ever went live (`config.launchedAt`, packages/db `hasLaunched`): going live after that is a
+ * resume, which neither needs an approved asset again nor counts as a launch. A campaign paused before this was
+ * recorded counts as launched unless it was paused while scheduled.
+ */
+export function campaignLaunched(c: Pick<CampaignRow, "status" | "config">): boolean {
+  const config = c.config ?? {};
+  if (typeof config.launchedAt === "string" || c.status === "live") return true;
+  return c.status === "paused" && config.pausedFrom !== "scheduled";
+}
+
+/** Where Resume takes a paused campaign: back to Scheduled when it was paused before it went live, else Live. */
+export function resumeStatus(c: Pick<CampaignRow, "config">): CampaignStatus {
+  return c.config?.pausedFrom === "scheduled" ? "scheduled" : "live";
+}
+
+/** "Launch needs at least one approved asset" (the API refuses the same): a first launch without one is blocked. */
+export function launchBlocked(c: Pick<CampaignRow, "status" | "config">, approvedAssets: number): boolean {
+  return canTransition(c.status, "live") && c.status !== "paused" && !campaignLaunched(c) && approvedAssets === 0;
+}
 
 export const CAMPAIGN_STATUS_WORDS: Record<CampaignStatus, { word: string; tone: "good" | "warn" | "bad" | "info" | "neutral" }> = {
   draft: { word: "Draft", tone: "neutral" },
@@ -288,20 +330,6 @@ export const APPROVAL_WORDS: Record<ApprovalState, { word: string; tone: "good" 
 export type AttributionModelKey = "position_based_40_20_40" | "data_driven_markov";
 
 export const MODEL_LABELS: Record<AttributionModelKey, string> = { position_based_40_20_40: "Position-based 40/20/40", data_driven_markov: "Data-driven (Markov removal effect)" };
-
-/** Position-based until the configured number of labelled wins, data-driven from then on (packages/journey `chooseModel`). */
-export function modelInUse(winCount: number): { model: AttributionModelKey; threshold: number; remaining: number } {
-  const threshold = LIMITS.attributionPositionBasedUntilConversions;
-  const model: AttributionModelKey = winCount < threshold ? "position_based_40_20_40" : "data_driven_markov";
-  return { model, threshold, remaining: Math.max(0, threshold - winCount) };
-}
-
-/** A journey is partial when consent removed touches: the builder's flag, or fewer weighted touches than touch ids, or no touches at all. */
-export function isPartialJourney(row: Pick<JourneyRow, "touchIds" | "weights" | "partialJourney">): boolean {
-  if (typeof row.partialJourney === "boolean") return row.partialJourney;
-  if (!row.touchIds.length) return true;
-  return Object.keys(row.weights ?? {}).length < row.touchIds.length;
-}
 
 export const OFFLINE_LINE: ChannelLine = "wings";
 

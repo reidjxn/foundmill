@@ -1,7 +1,8 @@
 /** channels (formation, metrics, suppression), campaigns + assets, journeys (visitors → touches → conversions → journey, journey_daily, milestones). */
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { repos } from "../../repos";
+import { hasLaunched, isPartialConsent, repos, resumeStatus } from "../../repos";
+import * as s from "../../schema";
 import { day, NIL, setupRepoHarness, type RepoHarness } from "./helpers";
 
 let r: RepoHarness;
@@ -96,6 +97,38 @@ describe("campaigns and assets", () => {
     const ended = await repos.campaigns.setStatus(r.db, r.A.businessId, c.id, "ended");
     expect(ended.endsAt).toBeInstanceOf(Date);
   });
+
+  it("a pause remembers where it interrupted: a scheduled campaign resumes scheduled, a live one resumes live and was never launched twice", async () => {
+    const mk = (name: string) => repos.campaigns.create(r.db, r.A.businessId, { channelId: r.A.channelId, name });
+    // Paused while scheduled: not launched yet, resumes to scheduled.
+    const scheduled = await mk("Creator seeding");
+    await repos.campaigns.setStatus(r.db, r.A.businessId, scheduled.id, "scheduled");
+    expect(hasLaunched(scheduled)).toBe(false);
+    const pausedEarly = await repos.campaigns.setStatus(r.db, r.A.businessId, scheduled.id, "paused");
+    expect(pausedEarly.config).toMatchObject({ pausedFrom: "scheduled" });
+    expect(hasLaunched(pausedEarly)).toBe(false);
+    expect(resumeStatus(pausedEarly)).toBe("scheduled");
+    const back = await repos.campaigns.setStatus(r.db, r.A.businessId, scheduled.id, "scheduled");
+    expect(back.status).toBe("scheduled");
+    expect(back.config).not.toHaveProperty("pausedFrom");
+
+    // Launched, paused, resumed, paused, resumed: launchedAt is set once and every resume counts as a resume.
+    const going = await mk("Always on");
+    await repos.campaigns.setStatus(r.db, r.A.businessId, going.id, "scheduled");
+    const live = await repos.campaigns.setStatus(r.db, r.A.businessId, going.id, "live");
+    const launchedAt = (live.config as { launchedAt?: string }).launchedAt;
+    expect(launchedAt).toEqual(expect.any(String));
+    expect(hasLaunched(live)).toBe(true);
+    const paused = await repos.campaigns.setStatus(r.db, r.A.businessId, going.id, "paused");
+    expect(paused.config).toMatchObject({ pausedFrom: "live", launchedAt });
+    expect(hasLaunched(paused)).toBe(true);
+    expect(resumeStatus(paused)).toBe("live");
+    const resumed = await repos.campaigns.setStatus(r.db, r.A.businessId, going.id, resumeStatus(paused));
+    expect(resumed.config).toMatchObject({ launchedAt });
+    // A campaign paused before the bookkeeping existed (no pausedFrom) counts as launched and resumes live.
+    expect(hasLaunched({ status: "paused", config: {} })).toBe(true);
+    expect(resumeStatus({ status: "paused", config: {} })).toBe("live");
+  });
 });
 
 describe("journeys", () => {
@@ -146,6 +179,50 @@ describe("journeys", () => {
     await expect(repos.journeys.create(r.db, r.A.businessId, { conversionId: r.A.conversionIds[0]!, touchIds: [touches[0]!.id, r.B.visitorId], matchdayLevel: "friendly" })).rejects.toThrow(/touches of this business/);
   });
 
+  it("paying customers are everyone who had paid by the window's end and had not churned before it, not the new ones", async () => {
+    const june = { from: day("2026-06-01"), to: day("2026-07-01") };
+    const b = r.A.businessId;
+    expect(await repos.journeys.countPayingCustomers(r.db, b, june)).toBe(0);
+    const customer = async (name: string, paidOn: string, role?: { stage: string; startedAt?: string; endedAt?: string; updatedAt?: string }) => {
+      const entity = await repos.entities.create(r.db, b, { kind: "person", displayName: name });
+      await repos.journeys.recordConversion(r.db, b, { entityId: entity.id, kind: "payment", amountMinor: 4900, occurredAt: day(paidOn) });
+      if (role) await r.db.insert(s.entityRoles).values({ businessId: b, entityId: entity.id, role: "customer", stage: role.stage, startedAt: day(role.startedAt ?? paidOn), endedAt: role.endedAt ? day(role.endedAt) : null, ...(role.updatedAt ? { updatedAt: day(role.updatedAt) } : {}) });
+      return entity.id;
+    };
+    // Won before the window and still paying: part of the base although they pay no new conversion in June (a
+    // conversion is the win; renewals are not conversions everywhere).
+    await customer("Since January", "2026-01-15", { stage: "customer" });
+    await customer("No CRM role", "2026-02-10");
+    // Churned before the window: out. Churned during it: still in (they paid for part of it).
+    await customer("Ended in March", "2026-01-20", { stage: "churned", endedAt: "2026-03-01" });
+    await customer("Marked churned in April", "2026-01-25", { stage: "churned", updatedAt: "2026-04-01" });
+    await customer("Ended mid-June", "2026-02-01", { stage: "churned", endedAt: "2026-06-15" });
+    const back = await customer("Churned, then back", "2026-01-05", { stage: "churned", endedAt: "2026-02-01" });
+    await repos.entities.addRole(r.db, b, back, { role: "customer", stage: "customer", startedAt: day("2026-05-01") });
+    // Churned, came back in April and left again mid-June: a customer for part of the window, so still in.
+    const backAndGone = await customer("Back in April, gone mid-June", "2026-01-08", { stage: "churned", endedAt: "2026-02-01" });
+    await r.db.insert(s.entityRoles).values({ businessId: b, entityId: backAndGone, role: "customer", stage: "churned", startedAt: day("2026-04-01"), endedAt: day("2026-06-15") });
+    // The CRM says churned before the window, but they paid again in June: paying, so in.
+    const paidAgain = await customer("Ended in March, paid in June", "2026-01-12", { stage: "churned", endedAt: "2026-03-01" });
+    await repos.journeys.recordConversion(r.db, b, { entityId: paidAgain, kind: "payment", amountMinor: 4900, occurredAt: day("2026-06-09") });
+    // An open customer role with no stage recorded is a customer.
+    await r.db.insert(s.entityRoles).values({ businessId: b, entityId: await customer("Open role, no stage", "2026-02-20"), role: "customer", stage: null, startedAt: day("2026-02-20") });
+    // Won in June, paying three times: one customer. A June payment with no linked customer counts once; one from May
+    // without a customer cannot be told apart from a repeat, so it stays out. July is after the window.
+    const fresh = await customer("Won in June", "2026-06-02", { stage: "customer" });
+    for (const d of ["2026-06-12", "2026-06-22"]) await repos.journeys.recordConversion(r.db, b, { entityId: fresh, kind: "payment", amountMinor: 4900, occurredAt: day(d) });
+    await repos.journeys.recordConversion(r.db, b, { entityId: null, kind: "payment", amountMinor: 4900, occurredAt: day("2026-06-06") });
+    await repos.journeys.recordConversion(r.db, b, { entityId: null, kind: "payment", amountMinor: 4900, occurredAt: day("2026-05-06") });
+    await customer("Won in July", "2026-07-03", { stage: "customer" });
+    await repos.journeys.recordConversion(r.db, b, { entityId: r.A.entityId, kind: "signup", occurredAt: day("2026-06-07") });
+    // Since January, No CRM role, Ended mid-June, Churned then back, Back in April and gone mid-June, Ended in March and
+    // paid in June, Open role with no stage, Won in June, the June payment without a customer.
+    expect(await repos.journeys.countPayingCustomers(r.db, b, june)).toBe(9);
+    expect(await repos.journeys.countPayingCustomers(r.db, r.B.businessId, june)).toBe(0);
+    // Under RLS a stranger counts nobody in A.
+    expect(await r.as(r.B.ownerId, (tx) => repos.journeys.countPayingCustomers(tx, b, june))).toBe(0);
+  });
+
   it("get/list/markViewed/commentary", async () => {
     const detail = await repos.journeys.get(r.db, r.A.businessId, journeyId);
     expect(detail.conversion.amountMinor).toBe(9900);
@@ -161,6 +238,49 @@ describe("journeys", () => {
     expect((await repos.journeys.get(r.db, r.A.businessId, journeyId)).commentary).toHaveLength(1);
     expect((await r.svc((tx) => repos.journeys.list(tx, r.B.businessId))).items.map((j) => j.id)).not.toContain(journeyId);
     expect((await repos.journeys.forConversion(r.db, r.A.businessId, conversionId))?.id).toBe(journeyId);
+  });
+
+  it("every journey carries the consent of its first visitor touch; the summary counts partial journeys over all of them", async () => {
+    // The journey above came through a visitor who granted consent: measured, not partial.
+    const listed = await repos.journeys.list(r.db, r.A.businessId, { kind: "payment" });
+    const measured = listed.items.find((j) => j.id === journeyId)!;
+    expect(measured.consent).toBe("granted");
+    expect(measured.partialJourney).toBe(false);
+    // A visitor who denied consent, and a win without any visitor touch (consent unknown): both partial, as journey.get says.
+    const denied = await repos.journeys.upsertVisitor(r.db, r.A.businessId, { anonId: "anon-denied", consentState: "denied" });
+    const granted = await repos.journeys.upsertVisitor(r.db, r.A.businessId, { anonId: "anon-granted-later", consentState: "granted" });
+    const [deniedTouch, laterGranted] = await repos.journeys.recordTouches(r.db, r.A.businessId, [
+      { visitorId: denied.id, entityId: r.A.entityId, occurredAt: day("2026-09-04"), channelKey: "social" },
+      { visitorId: granted.id, entityId: r.A.entityId, occurredAt: day("2026-09-05"), channelKey: "content" },
+    ]);
+    const deniedWin = await repos.journeys.recordConversion(r.db, r.A.businessId, { entityId: r.A.entityId, kind: "activation", occurredAt: day("2026-09-06") });
+    const bareWin = await repos.journeys.recordConversion(r.db, r.A.businessId, { entityId: r.A.entityId, kind: "signup", occurredAt: day("2026-08-20") });
+    const deniedJourney = await repos.journeys.create(r.db, r.A.businessId, { conversionId: deniedWin.id, touchIds: [laterGranted!.id, deniedTouch!.id], matchdayLevel: "friendly" });
+    const bareJourney = await repos.journeys.create(r.db, r.A.businessId, { conversionId: bareWin.id, matchdayLevel: "friendly" });
+    const consent = await repos.journeys.consentForJourneys(r.db, r.A.businessId, [journeyId, deniedJourney.id, bareJourney.id]);
+    // The earliest visitor touch decides (the denied visitor's, though the granted visitor's touch is listed first).
+    expect(Object.fromEntries(consent)).toEqual({ [journeyId]: "granted", [deniedJourney.id]: "denied", [bareJourney.id]: "unknown" });
+    expect(isPartialConsent("granted")).toBe(false);
+    expect(isPartialConsent("withdrawn")).toBe(true);
+    const all = await repos.journeys.list(r.db, r.A.businessId, { limit: 50 });
+    expect(all.items.find((j) => j.id === deniedJourney.id)?.partialJourney).toBe(true);
+    expect(all.items.find((j) => j.id === bareJourney.id)?.partialJourney).toBe(true);
+    // Not a page's count: every journey of the business, and nothing of another business.
+    expect(await repos.journeys.consentSummary(r.db, r.A.businessId)).toEqual({ journeys: all.items.length, partialJourneys: all.items.filter((j) => j.partialJourney).length });
+    expect(all.items.filter((j) => j.partialJourney).length).toBe(all.items.length - 1);
+    expect((await repos.journeys.consentForJourneys(r.db, r.B.businessId, [journeyId])).size).toBe(0);
+    // Newest wins first by when they happened (creation order says nothing about that), paged on the same key.
+    const byWin = await repos.journeys.list(r.db, r.A.businessId, { orderBy: "converted", limit: 2 });
+    expect(byWin.items.map((j) => j.conversion.occurredAt.toISOString().slice(0, 10))).toEqual(
+      all.items
+        .map((j) => j.conversion.occurredAt.toISOString().slice(0, 10))
+        .sort()
+        .reverse()
+        .slice(0, 2),
+    );
+    const rest = await repos.journeys.list(r.db, r.A.businessId, { orderBy: "converted", limit: 50, cursor: byWin.nextCursor });
+    expect(rest.items.map((j) => j.id)).toContain(bareJourney.id);
+    expect(rest.items.at(-1)?.id).toBe(bareJourney.id);
   });
 
   it("dailyRange reads journey_daily (matview for the service role, barrier view for members)", async () => {
@@ -187,5 +307,55 @@ describe("journeys", () => {
     expect(all.map((m) => m.kind)).toEqual(["customer", "launch"]);
     expect(await repos.journeys.listMilestones(r.db, r.A.businessId, { kind: "launch", from: day("2026-09-01") })).toHaveLength(0);
     expect(await repos.journeys.listMilestones(r.db, r.B.businessId)).toHaveLength(0);
+  });
+});
+
+describe("first payments (0034)", () => {
+  it("a repeat payment is revenue only: counts, nth of a kind, p75 and journey_daily count customers from first payments", async () => {
+    const b = r.B.businessId;
+    const before = await repos.journeys.countConversions(r.db, b);
+    const first = await repos.journeys.recordConversion(r.db, b, { entityId: r.B.entityId, kind: "payment", amountMinor: 5_000, occurredAt: day("2026-08-01") });
+    expect(first.firstPayment).toBe(true);
+    expect(await repos.journeys.hasPaidBefore(r.db, b, r.B.entityId, day("2026-08-01"))).toBe(false);
+    expect(await repos.journeys.hasPaidBefore(r.db, b, r.B.entityId, day("2026-08-02"))).toBe(true);
+    const renewal = await repos.journeys.recordConversion(r.db, b, { entityId: r.B.entityId, kind: "payment", amountMinor: 900_000, occurredAt: day("2026-08-15"), firstPayment: false });
+    const second = await repos.journeys.recordConversion(r.db, b, { entityId: r.B.entity2Id, kind: "payment", amountMinor: 7_000, occurredAt: day("2026-08-20") });
+    // firstPayment only means something for payments: a signup is always counted.
+    const signup = await repos.journeys.recordConversion(r.db, b, { kind: "signup", occurredAt: day("2026-08-20"), firstPayment: false });
+    expect(signup.firstPayment).toBe(true);
+
+    expect(await repos.journeys.countConversions(r.db, b)).toEqual({ ...before, payment: before.payment + 2, signup: before.signup + 1 });
+    expect(await repos.journeys.nthOfKind(r.db, b, second.id)).toBe(2); // not 3: the renewal is not a customer
+    expect(await repos.journeys.paymentPercentile75(r.db, b)).toBeLessThan(900_000);
+    expect((await repos.journeys.listConversions(r.db, b, { kind: "payment", firstPayment: false })).items.map((c) => c.id)).toEqual([renewal.id]);
+    expect((await repos.journeys.listConversions(r.db, b, { kind: "payment", firstPayment: true, from: day("2026-08-01"), to: day("2026-08-31") })).items.map((c) => c.id).sort()).toEqual([first.id, second.id].sort());
+
+    await repos.journeys.refreshDaily(r.db);
+    const [aug15] = await repos.journeys.dailyTotals(r.db, b, { from: "2026-08-15", to: "2026-08-15" });
+    expect(aug15).toMatchObject({ payments: 0 });
+    expect(Number(aug15!.revenueMinor)).toBe(900_000);
+  });
+
+  it("journeys store the models the builder used; entities can be created at a caller-chosen id", async () => {
+    const conversion = await repos.journeys.recordConversion(r.db, r.B.businessId, { kind: "activation", occurredAt: day("2026-08-21") });
+    const j = await repos.journeys.create(r.db, r.B.businessId, { conversionId: conversion.id, matchdayLevel: "league", attributionModel: "data_driven_markov", xcModelSource: "trained" });
+    expect(j).toMatchObject({ attributionModel: "data_driven_markov", xcModelSource: "trained" });
+    const plain = await repos.journeys.create(r.db, r.B.businessId, { conversionId: conversion.id, matchdayLevel: "league" });
+    expect(plain).toMatchObject({ id: j.id, attributionModel: null, xcModelSource: null });
+    await expect(repos.journeys.create(r.db, r.B.businessId, { conversionId: conversion.id, matchdayLevel: "league", attributionModel: "guesswork" as never })).rejects.toThrow();
+
+    const id = "5b1c0d6e-7f80-5a91-8b2c-3d4e5f607182";
+    const person = await repos.entities.create(r.db, r.B.businessId, { id, kind: "person", displayName: "Chosen Id" });
+    expect(person.id).toBe(id);
+    await expect(repos.entities.create(r.db, r.A.businessId, { id, kind: "person", displayName: "Same id elsewhere" })).rejects.toThrow();
+  });
+
+  it("trainingPaths groups recent touches per visitor and marks the groups whose person converted", async () => {
+    const paths = await repos.journeys.trainingPaths(r.db, r.A.businessId, { since: day("2026-08-01") });
+    const stitched = paths.find((p) => p.touches.some((t) => t.channelKey === "seo"));
+    expect(stitched?.converted).toBe(true); // entity2 signed up and paid in "conversions are recorded…"
+    expect(stitched!.touches.map((t) => t.channelKey)).toEqual(["seo", "paid_ads"]);
+    expect(await repos.journeys.trainingPaths(r.db, r.A.businessId, { since: day("2026-12-01") })).toEqual([]);
+    expect((await repos.journeys.trainingPaths(r.db, r.B.businessId)).flatMap((p) => p.touches).every((t) => t.businessId === r.B.businessId)).toBe(true);
   });
 });

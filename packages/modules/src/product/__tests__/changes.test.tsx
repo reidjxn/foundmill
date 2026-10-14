@@ -63,6 +63,16 @@ describe("ChangesScreen", () => {
     expect(JSON.stringify(edited)).toContain("yearly statement");
   });
 
+  it("a pending hunk whose block changed since it was drafted is decided against the block as it reads now", () => {
+    const fake = createFakeSource({ businessId: BID, responses });
+    renderScreen(fake, <ChangesScreen businessId={BID} departmentId="d1" />);
+    // The Features block gained an acceptance line after the proposal; the Pricing hunk's "ours" is the live block.
+    const features = screen.getByRole("region", { name: /^Change 2:/ });
+    expect(within(features).getByText(/This block changed after the proposal was drafted/)).toBeTruthy();
+    expect(within(features).getAllByText(/Acceptance: a reminder is sent 3 days after due date/).length).toBeGreaterThan(0);
+    expect(within(screen.getByRole("region", { name: /^Change 1:/ })).queryByText(/This block changed after/)).toBeNull();
+  });
+
   it("accepts all or rejects the whole proposal from the header and the right-click verbs", async () => {
     const fake = createFakeSource({ businessId: BID, responses });
     renderScreen(fake, <ChangesScreen businessId={BID} departmentId="d1" />);

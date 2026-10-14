@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { SpecialistsScreen, specialistTasks } from "../SpecialistsScreen";
 import { BUSINESS_ID, createFakeSource, renderScreen } from "./fake-source";
-import { SESSION_SOURCING, TASK_SOURCING, agentsResponse, departments, emptyTasksResponse, rawFrame, sessionsResponse, sourcingEvents, tasks, tasksResponse } from "./fixtures";
+import { AGENT_PIKE, SESSION_SOURCING, TASK_SOURCING, agentsResponse, departments, emptyTasksResponse, rawFrame, sessionsResponse, sourcingEvents, tasks, tasksResponse } from "./fixtures";
 
 const props = { businessId: BUSINESS_ID, departmentId: "d-dev" };
 const specialistResponse = { ...tasksResponse, items: tasks.filter((t) => t.kind === "specialist") };
@@ -19,11 +19,11 @@ describe("SpecialistsScreen", () => {
     for (const name of ["RFQ funnel", "Quotes", "Samples", "Shipments"]) expect(within(tile).getByRole("tab", { name })).toBeTruthy();
     expect(within(tile).queryByRole("tab", { name: "Terminal" })).toBeNull();
     // Nothing in the funnel yet: the tile says so in its own state, over its own task (no generic line shared by every tile).
-    expect(within(tile).getByText("No RFQs sent yet")).toBeTruthy();
+    expect(within(tile).getByText("No supplier records yet")).toBeTruthy();
     expect(within(tile).getByText("Wren on Supplier brief for the serum pump.")).toBeTruthy();
     expect(fake.queried.get("dev.tasks.list")).toEqual({ kind: "specialist", limit: 200 });
     expect(fake.subscriberCount(`as:${SESSION_SOURCING}`)).toBe(1);
-    expect(screen.getByTestId("specialist-counts").textContent).toBe("1 specialist · 1 running · 0 reporting");
+    expect(screen.getByTestId("specialist-counts").textContent).toBe("1 specialist · 1 task · 1 running · 0 reporting");
     expect(screen.getByText("Human gate on every purchase order")).toBeTruthy();
   });
 
@@ -40,7 +40,31 @@ describe("SpecialistsScreen", () => {
     expect(within(list).getByText("Supplier quote comparison #1")).toBeTruthy();
     expect(within(list).getByText("Done")).toBeTruthy();
     expect(within(list).getByText("2h 20m")).toBeTruthy();
-    expect(screen.getByTestId("specialist-counts").textContent).toBe("2 specialists · 1 running · 0 reporting");
+    expect(screen.getByTestId("specialist-counts").textContent).toBe("1 specialist · 2 tasks · 1 running · 0 reporting");
+  });
+
+  it("counts specialists as distinct agents, not tasks (TPD-22)", async () => {
+    const more = [1, 2, 3].map((n) => ({ ...tasks[4]!, id: `sp-done-${n}`, title: `Quote comparison #${n}`, status: "done" as const, startedAt: "2026-10-06T09:00:00Z", endedAt: "2026-10-06T10:00:00Z" }));
+    const other = { ...tasks[4]!, id: "sp-pike", title: "Landed cost model", assigneeAgentId: AGENT_PIKE, status: "done" as const, startedAt: "2026-10-06T09:00:00Z", endedAt: "2026-10-06T10:00:00Z" };
+    const fake = createFakeSource({ responses: { ...responses(), "dev.tasks.list": { ...specialistResponse, items: [...specialistResponse.items, ...more, other] } } });
+    renderScreen(fake, <SpecialistsScreen {...props} />);
+    await screen.findByRole("region", { name: "Specialist tiles" });
+    expect(screen.getByTestId("specialist-counts").textContent).toBe("2 specialists · 5 tasks · 1 running · 0 reporting");
+  });
+
+  it("lists ready specialist tasks that never started as not started, never as finished (AC-11)", async () => {
+    const ready = [1, 2].map((n) => ({ ...tasks[4]!, id: `sp-ready-${n}`, title: `Stability data request #${n}`, status: "ready" as const, progress: "0", phase: null, startedAt: null }));
+    const fake = createFakeSource({ responses: { ...responses(), "dev.tasks.list": { ...specialistResponse, items: ready } } });
+    renderScreen(fake, <SpecialistsScreen {...props} />);
+    const waiting = await screen.findByTestId("specialists-waiting");
+    expect(within(waiting).getByText("2 specialist tasks have not started yet")).toBeTruthy();
+    const list = within(waiting).getByRole("table", { name: "Specialist tasks not started" });
+    expect(within(list).getByText("Stability data request #1")).toBeTruthy();
+    expect(within(list).getAllByText("Ready")).toHaveLength(2);
+    expect(screen.queryByTestId("specialists-quiet")).toBeNull();
+    expect(screen.queryByText(/finished specialist task/)).toBeNull();
+    expect(screen.queryByRole("region", { name: "Specialist tiles" })).toBeNull();
+    expect(screen.getByTestId("specialist-counts").textContent).toBe("1 specialist · 2 tasks · 0 running · 0 reporting");
   });
 
   it("fills the funnel, quotes, samples and shipments from the session's structured notes", async () => {

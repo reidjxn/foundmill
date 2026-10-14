@@ -22,7 +22,6 @@ describe("journal", () => {
   it("is readable by drizzle's own migrator and by our reader, in the same order", () => {
     const theirs = readMigrationFiles({ migrationsFolder: MIGRATIONS_DIR });
     const ours = readMigrations();
-    expect(theirs).toHaveLength(22);
     expect(ours.map((m) => m.tag)).toEqual(readJournal().entries.map((e) => e.tag));
     expect(theirs.map((m) => m.folderMillis)).toEqual(ours.map((m) => m.when));
     expect(ours.map((m) => m.tag)).toEqual([
@@ -48,6 +47,28 @@ describe("journal", () => {
       "0020_agent_conversations",
       "0021_us_english_copy",
       "0022_account_preferences",
+      "0023_business_controls",
+      "0024_billing_enforcement",
+      "0025_business_currency",
+      "0026_membership_guards",
+      "0027_live_social_delivery",
+      "0028_journey_runtime",
+      "0030_approvals_inbox",
+      "0031_settings_lifecycle",
+      "0033_payments",
+      "0034_first_payments",
+      "0035_owner_lock",
+      "0036_agents_orchestration",
+      "0039_money_billing",
+      "0040_design_system",
+      "0041_widgets_modules",
+      "0044_home_api_data",
+      "0046_gtm_services",
+      "0048_inbox_services",
+      "0052_product_development",
+      "0053_production_deploy_ci",
+      "0054_team",
+      "0055_autopilot",
     ]);
     // strictly increasing `when` so drizzle applies them in order
     const whens = ours.map((m) => m.when);
@@ -115,7 +136,20 @@ describe("structural invariants", () => {
     for (const c of cur) expect([c.data_type, c.character_maximum_length], c.table_name).toEqual(["character", 3]);
     const tablesWithMinor = new Set(r.rows.map((c) => c.table_name));
     const tablesWithCurrency = new Set(cur.map((c) => c.table_name));
-    for (const t of tablesWithMinor) expect(tablesWithCurrency.has(t), `${t} has *_minor but no currency`).toBe(true);
+    // businesses.spend_cap_minor (0024) is in the business currency, the businesses.currency column of 0025.
+    const currencyFromBusiness = new Set(["businesses"]);
+    for (const t of tablesWithMinor) if (!currencyFromBusiness.has(t)) expect(tablesWithCurrency.has(t), `${t} has *_minor but no currency`).toBe(true);
+    // Credits and platform costs (the ledger, a session's, a training run's and the daily metrics' cost) are US dollars (0024).
+    const defaults = (await rows<{ table_name: string; column_default: string }>(sql`
+      select table_name, column_default from information_schema.columns
+       where table_schema = 'public' and column_name = 'currency' and table_name in ('usage_ledger', 'credit_balances', 'agent_sessions', 'training_runs', 'agent_metrics')`)).rows;
+    expect(defaults.map((d) => [d.table_name, d.column_default.replace(/::bpchar$/, "")]).sort()).toEqual([
+      ["agent_metrics", "'USD'"],
+      ["agent_sessions", "'USD'"],
+      ["credit_balances", "'USD'"],
+      ["training_runs", "'USD'"],
+      ["usage_ledger", "'USD'"],
+    ]);
   });
   it("vector(1024) columns exist (or the documented real[] fallback when pgvector is absent)", async () => {
     const r = await rows<{ table_name: string; udt_name: string }>(sql`select table_name, udt_name from information_schema.columns where column_name = 'embedding'`);

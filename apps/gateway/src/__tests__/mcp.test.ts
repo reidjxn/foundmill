@@ -68,7 +68,7 @@ describe("MCP endpoint", () => {
     }
   });
 
-  it("untrusted content read over MCP registers recipients for the session like /v1/call does", async () => {
+  it("untrusted content read over MCP registers recipients for the business like /v1/call does", async () => {
     const sessionId = await g.newSession();
     const client = await connect(await g.token({ sessionId }));
     try {

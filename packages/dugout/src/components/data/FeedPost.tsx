@@ -11,6 +11,13 @@ export interface FeedPostProps extends Omit<HTMLAttributes<HTMLElement>, "childr
   author: string;
   /** Chip or link after the name: the business the author posted for. */
   badge?: ReactNode;
+  /** Chips after the badge about the post itself: "Edited", "Held for review". */
+  status?: ReactNode;
+  /**
+   * The post's own controls at the end of its header, usually a "More" menu (report, edit, delete, a moderator's hide
+   * or remove). Omitted: nothing.
+   */
+  actions?: ReactNode;
   at: Date | string;
   /** The post text, already rendered. */
   children: ReactNode;
@@ -31,10 +38,10 @@ export interface FeedPostProps extends Omit<HTMLAttributes<HTMLElement>, "childr
 }
 
 /**
- * One post in a community feed: avatar, author, business badge, relative time, the text, a Reply button and a
- * replies toggle (a disclosure: `aria-expanded`). Replies nest one level under `thread`.
+ * One post in a community feed: avatar, author, business badge, status chips, relative time, the post's own controls,
+ * the text, a Reply button and a replies toggle (a disclosure: `aria-expanded`). Replies nest one level under `thread`.
  */
-export function FeedPost({ author, badge, at, children, replyCount, onReply, onToggleReplies, repliesOpen, thread, datePrefs, className, ...rest }: FeedPostProps) {
+export function FeedPost({ author, badge, status, actions, at, children, replyCount, onReply, onToggleReplies, repliesOpen, thread, datePrefs, className, ...rest }: FeedPostProps) {
   const count = replyCount ?? 0;
   return (
     <article className={cn("flex flex-col gap-1.5 border-b border-subtle/50 px-panel-pad py-2.5 last:border-b-0", className)} data-feed-post {...rest}>
@@ -42,11 +49,16 @@ export function FeedPost({ author, badge, at, children, replyCount, onReply, onT
         <Avatar size={24} name={author} />
         <span className="t-body-strong min-w-0 truncate text-primary">{author}</span>
         {badge}
+        {status}
         <time dateTime={new Date(at).toISOString()} title={formatDateTime(at, datePrefs)} className="ml-auto shrink-0 text-small text-secondary">
           {formatRelative(at)}
         </time>
+        {actions ? <span className="-my-1 flex shrink-0 items-center">{actions}</span> : null}
       </header>
-      <div className="pl-8 text-body text-primary">{children}</div>
+      {/* A long unbroken word or URL wraps instead of running past the panel's edge (where it was clipped). */}
+      <div className="min-w-0 pl-8 text-body text-primary wrap-anywhere" data-feed-post-body>
+        {children}
+      </div>
       {onReply || onToggleReplies ? (
         <footer className="flex items-center gap-1 pl-7">
           {onToggleReplies ? (

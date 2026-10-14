@@ -10,11 +10,11 @@
  * outside the registry (AC-11.3.6) and never puts an unknown id in front of the founder (AC-11.3.1).
  */
 import { clubRulesPrompt, prompts } from "@foundmill/agents";
-import { APP_NAME } from "@foundmill/config";
+import { APP_NAME, LIMITS } from "@foundmill/config";
 import type { ComposerItem, Event } from "@foundmill/db";
 import { checkComposerText, linkComposerText, stripMarkup, type LinkedText, type ValidationResult } from "@foundmill/entity-linker";
-import { ComposerOutput, type ChatMessage, type CompleteResultWithJson, type ModelClient, type ModelLogger, type TokenUsage } from "@foundmill/models";
-import { AppError, type InboxItemType } from "@foundmill/shared";
+import { ComposerOutput, ModelAbortedError, type ChatMessage, type CompleteResultWithJson, type ModelClient, type ModelLogger, type TokenUsage } from "@foundmill/models";
+import { AppError, futureDeadline, type InboxItemType } from "@foundmill/shared";
 import { businessBrief, type ComposeContext } from "./context";
 import type { NextBestDecision } from "./decisions";
 import { namedQueryCatalogue, sanitizeExhibit } from "./exhibits";
@@ -34,6 +34,8 @@ export interface ComposeOptions {
   onInvalidLinks: "reject" | "strip";
   /** Rate-limit scope / cost attribution for the model calls. */
   scope?: string;
+  /** Longest the note may take before it is abandoned (`ComposeTimeoutError`); default `LIMITS.composerDeadlineMs`. */
+  deadlineMs?: number;
 }
 
 export interface ComposedNote {
@@ -63,6 +65,18 @@ export class ComposerRejectedError extends AppError {
   constructor(message: string, details?: unknown) {
     super("composer_rejected", message, 422, details);
     this.name = "ComposerRejectedError";
+  }
+}
+
+/**
+ * The note was not ready within the compose deadline and was abandoned: nothing was written, no event was marked
+ * narrated. The deadline sits below the api's and the orchestrator's wait (`LIMITS.composerClientTimeoutMs`), so a
+ * caller hears this instead of timing out while the note is still being written (audit CML-04).
+ */
+export class ComposeTimeoutError extends AppError {
+  constructor(deadlineMs: number) {
+    super("composer_timeout", `The note took longer than ${Math.round(deadlineMs / 1000)} seconds to write, so nothing was added. Try again.`, 504, { deadlineMs });
+    this.name = "ComposeTimeoutError";
   }
 }
 
@@ -105,10 +119,16 @@ export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record
     metrics: ctx.status.map((m) => ({ metric: m.metric, value: m.value, source: m.source, label: m.label })),
     named_queries: namedQueryCatalogue(),
     glossary: ctx.glossary,
+    // The model has no clock: without today's date it guesses deadlines, and a guessed one in the past locks the options.
+    now: ctx.now.toISOString(),
   };
   switch (brief.mode) {
-    case "events":
-      return { ...base, events: brief.events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt.toISOString(), actor: e.actor, entity_ids: e.entityIds, payload: e.payload })) };
+    case "events": {
+      const events = brief.events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt.toISOString(), actor: e.actor, entity_ids: e.entityIds, payload: e.payload }));
+      // Wins the volume rule rolled up: one results note for the day, not a story per win.
+      const rolled = brief.events.length > 0 && brief.events.every((e) => e.type === "customer.converted" && (e.payload as { fullMatchDay?: unknown } | null)?.fullMatchDay === false);
+      return rolled ? { ...base, events, note: "These wins were rolled up into the day's results table (volume rule): write one short results note that counts them by kind, names no more than three customers from the manifest, and does not narrate any journey." } : { ...base, events };
+    }
     case "insight":
       return {
         ...base,
@@ -154,6 +174,23 @@ export interface ComposeDeps {
 }
 
 export async function composeNote(deps: ComposeDeps, ctx: ComposeContext, brief: ComposeBrief, options: ComposeOptions): Promise<ComposedNote> {
+  const deadlineMs = options.deadlineMs ?? LIMITS.composerDeadlineMs;
+  const deadline = AbortSignal.timeout(deadlineMs);
+  try {
+    const note = await composeWithin(deps, ctx, brief, options, deadline);
+    // The entity sweep cannot be stopped mid-call; a note finished past the deadline is still abandoned unwritten.
+    if (deadline.aborted) throw new ComposeTimeoutError(deadlineMs);
+    return note;
+  } catch (err) {
+    if (deadline.aborted && (err instanceof ModelAbortedError || err instanceof ComposeTimeoutError)) {
+      deps.log.warn({ businessId: ctx.businessId, slot: brief.mode, deadlineMs }, "composer note abandoned at the deadline; nothing written");
+      throw err instanceof ComposeTimeoutError ? err : new ComposeTimeoutError(deadlineMs);
+    }
+    throw err;
+  }
+}
+
+async function composeWithin(deps: ComposeDeps, ctx: ComposeContext, brief: ComposeBrief, options: ComposeOptions, signal: AbortSignal): Promise<ComposedNote> {
   const events = brief.mode === "events" ? brief.events : [];
   const eventIds = events.map((e) => e.id);
   const system = systemPrompt(ctx);
@@ -162,7 +199,7 @@ export async function composeNote(deps: ComposeDeps, ctx: ComposeContext, brief:
   const attribution = { businessId: ctx.businessId, agentId: ctx.voice.id, kind: "inbox_composer" };
 
   const call = (msgs: ChatMessage[]): Promise<CompleteResultWithJson<ComposerOutput>> =>
-    deps.models.complete({ route: "inboxComposer", schema: ComposerSchema, system, messages: msgs, attribution, cacheSystem: true, scope: options.scope ?? `composer:${ctx.businessId}` });
+    deps.models.complete({ route: "inboxComposer", schema: ComposerSchema, system, messages: msgs, attribution, cacheSystem: true, scope: options.scope ?? `composer:${ctx.businessId}`, signal });
 
   let result = await call(messages);
   let usage = result.usage;
@@ -222,7 +259,10 @@ export async function composeNote(deps: ComposeDeps, ctx: ComposeContext, brief:
       ? {
           options: decision.options.map((o) => ({ ...o, id: plain(o.id).slice(0, 40) || "option", label: plain(o.label).slice(0, 120) || "Option", consequence: plain(o.consequence) })),
           free_text: decision.free_text,
-          expires_at: decision.expires_at,
+          // A deadline is a future ISO timestamp within a bounded horizon, or none (audit CML-13).
+          expires_at: futureDeadline(decision.expires_at, ctx.now),
+          // The grounded decision this note is about, so Refresh does not write it twice while it is open (audit CML-02).
+          ...(brief.mode === "decision" ? { key: brief.decision.identity } : {}),
         }
       : null,
     blocks_continue: blocksContinueFor(type, ctx, events),

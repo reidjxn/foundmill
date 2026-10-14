@@ -22,6 +22,7 @@ export * from "./foundation/Kbd";
 export * from "./foundation/Tooltip";
 export * from "./foundation/HoverCard";
 export * from "./foundation/Dialog";
+export * from "./foundation/ReturnFocus";
 export * from "./foundation/DropdownMenu";
 export * from "./foundation/ContextMenu";
 // Menu classes (server-safe strings): triggerChevronClass turns a trigger's chevron while its menu is open.

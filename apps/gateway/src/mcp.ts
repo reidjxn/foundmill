@@ -14,7 +14,8 @@ import { APP_NAME } from "@foundmill/config";
 import { AppError, NotFoundError } from "@foundmill/shared";
 import type { Connector, McpToolDefinition } from "@foundmill/connectors";
 import { CallRequest } from "./types";
-import { executeToolCall, GatewayError, modeFor, type GatewayDeps } from "./pipeline";
+import { GatewayError, modeFor, safeError, type GatewayDeps } from "./pipeline";
+import { tracedToolCall } from "./tracing";
 import { toolAllowed, type SessionToken } from "./tokens";
 
 export const MCP_SERVER_VERSION = "0.1.0";
@@ -47,7 +48,7 @@ export function createMcpServer(deps: GatewayDeps, session: SessionToken, connec
   server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
     const req = CallRequest.parse({ connector: connector.key, tool: request.params.name, args: request.params.arguments ?? {} });
     try {
-      const { status, body } = await executeToolCall(deps, session, req);
+      const { status, body } = await tracedToolCall(deps, session, req);
       return {
         content: [{ type: "text", text: JSON.stringify(body) }],
         structuredContent: body as unknown as Record<string, unknown>,
@@ -55,7 +56,7 @@ export function createMcpServer(deps: GatewayDeps, session: SessionToken, connec
       };
     } catch (e) {
       const err = e instanceof AppError ? { code: e.code, message: e.message, status: e.status } : { code: "internal", message: "Tool call failed", status: 500 };
-      if (!(e instanceof AppError)) deps.log.error({ err: e }, "mcp tools/call failed");
+      if (!(e instanceof AppError)) deps.log.error({ err: safeError(e) }, "mcp tools/call failed");
       const body = { outcome: "error" as const, error: err };
       return { content: [{ type: "text", text: JSON.stringify(body) }], structuredContent: body, isError: true };
     }

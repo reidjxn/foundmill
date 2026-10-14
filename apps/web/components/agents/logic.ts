@@ -9,7 +9,7 @@ import type { AgentInstructions, DateFormatPrefs, InstructionVersion, Instructio
 import { MODEL_LABELS, positionLevelFor } from "@foundmill/dugout";
 import { usSpelling } from "@foundmill/shared/us-spelling";
 import type { RouterOutputs } from "@/lib/trpc";
-import { formatMonthYear } from "@/lib/format";
+import { formatMonthYear, MODEL_COST_CURRENCY } from "@/lib/format";
 
 export type AgentProfile = RouterOutputs["agent"]["profile"]["get"];
 export type AgentRow = AgentProfile["agent"];
@@ -174,7 +174,8 @@ export function developmentSeries(skills: readonly SkillRow[], runs: readonly Tr
       const at = toIso(r.endedAt ?? r.createdAt);
       if (!res || !at) continue;
       if (points.length === 0) points.push({ at: toIso(r.startedAt ?? r.createdAt) ?? at, value: clampRating(res.old) });
-      points.push({ at, value: clampRating(r.decision === "promoted" || r.decision === null ? res.new : res.old) });
+      // A canceled run never applied, like a discarded one: a retest withdrawn by a later model change keeps its results.
+      points.push({ at, value: clampRating(r.decision === "promoted" || (r.decision === null && r.status !== "cancelled") ? res.new : res.old) });
     }
     points.push({ at: now.toISOString(), value: s.value });
     return { skillId: s.id, name: s.name, points };
@@ -219,8 +220,24 @@ export function currentVersion(profile: Pick<AgentProfile, "agent" | "versions">
   return profile.versions.find((v) => v.id === profile.agent.currentVersionId) ?? profile.versions.find((v) => v.state === "live") ?? null;
 }
 
+/**
+ * A model change's retest copy (agent.model.set): the live version copied by the system onto the new model. The
+ * system's only other versions are an agent's first (version 1, set up with the business or a clone).
+ */
+export function isRetestVersion(v: Pick<AgentVersionRecord, "createdByKind" | "version">): boolean {
+  return v.createdByKind === "system" && v.version > 1;
+}
+
+/** A run that retests a model change: it scores a retest copy, or (the old shape, never started) the live version itself. */
+export function isRetestRun(run: Pick<TrainingRunRecord, "fromVersionId" | "toVersionId">, versions: readonly AgentVersionRecord[]): boolean {
+  if (run.toVersionId && run.fromVersionId === run.toVersionId) return true;
+  const candidate = versions.find((v) => v.id === run.toVersionId);
+  return !!candidate && isRetestVersion(candidate);
+}
+
+/** The newest draft the founder or the Coach wrote: the editing base. A retest copy never is, so it cannot replace a draft in progress. */
 export function latestDraft(versions: readonly AgentVersionRecord[]): AgentVersionRecord | null {
-  return versions.filter((v) => v.state === "draft").sort((a, b) => b.version - a.version)[0] ?? null;
+  return versions.filter((v) => v.state === "draft" && !isRetestVersion(v)).sort((a, b) => b.version - a.version)[0] ?? null;
 }
 
 /** Map the API's club-rule violations (offending line + reason) onto the editor's section/index flags (AC-11.10.4). */
@@ -267,11 +284,16 @@ export interface TrainingFlow {
   failed: TrainingRunRecord | null;
 }
 
-export function trainingFlow(runs: readonly TrainingRunRecord[], now: Date = new Date()): TrainingFlow {
+/**
+ * Where the agent's training stands. The seven-day watch belongs to the version a promotion made live: given the
+ * agent's live version (`liveVersionId`), a promoted run whose version is no longer live (rolled back since) has no
+ * watch, so no banner offers a rollback the agent has already had.
+ */
+export function trainingFlow(runs: readonly TrainingRunRecord[], now: Date = new Date(), liveVersionId?: string | null): TrainingFlow {
   const byRecency = runs.slice().sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
   const active = byRecency.find((r) => (ACTIVE_RUN_STATUSES as readonly string[]).includes(r.status)) ?? null;
   const awaiting = byRecency.find((r) => r.decision === null && (r.status === "awaiting_decision" || r.status === "done")) ?? null;
-  const promoted = byRecency.find((r) => r.decision === "promoted" && r.watchUntil && toMillis(r.watchUntil) > now.getTime()) ?? null;
+  const promoted = byRecency.find((r) => r.decision === "promoted" && r.watchUntil && toMillis(r.watchUntil) > now.getTime() && (liveVersionId === undefined || r.toVersionId === liveVersionId)) ?? null;
   const watch = promoted ? { run: promoted, until: toIso(promoted.watchUntil)!, daysLeft: Math.max(0, Math.ceil((toMillis(promoted.watchUntil) - now.getTime()) / 86_400_000)) } : null;
   const failed = byRecency[0]?.status === "failed" ? byRecency[0] : null;
   const phase: TrainingPhase = active ? "active" : awaiting ? "awaiting" : failed ? "failed" : watch ? "watch" : "idle";
@@ -279,6 +301,12 @@ export function trainingFlow(runs: readonly TrainingRunRecord[], now: Date = new
 }
 
 export const RUN_PHASE_LABEL: Record<string, string> = { queued: "Queued", running: "Running tests", grading: "Grading", awaiting_decision: "Awaiting your decision", done: "Done", failed: "Failed", cancelled: "Canceled" };
+
+/** A run still queued after this long has most likely lost its worker; the tab says so next to Cancel. */
+export const STALLED_RUN_MINUTES = 10;
+export function runStalled(run: Pick<TrainingRunRecord, "status" | "createdAt">, now: Date = new Date()): boolean {
+  return run.status === "queued" && now.getTime() - toMillis(run.createdAt) > STALLED_RUN_MINUTES * 60_000;
+}
 
 /** Progress of an active run from its status and elapsed time against the estimate (Estimate; never token-based). */
 export function runProgress(run: Pick<TrainingRunRecord, "status" | "startedAt" | "createdAt">, estimateMinutes: number, now: Date = new Date()): number {
@@ -403,8 +431,8 @@ export function modelOptions(compare: ModelCompare, currency: string): ModelOpti
     key: o.modelKey,
     label: MODEL_LABELS[o.modelKey],
     description: MODEL_DESCRIPTIONS[o.modelKey],
-    skillDelta: o.predictedSkillDelta ?? 0,
-    wageDelta: { amountMinor: o.predictedWageMinor - base, currency },
+    skillDelta: o.predictedSkillDelta ?? null,
+    wageDelta: { amountMinor: o.predictedWageMinor - base, currency: compare.currency ?? currency },
     lockedReason: o.allowed ? undefined : (o.warning ?? "Locked for this agent's route."),
     warning: o.allowed && o.warning ? o.warning : undefined,
   }));
@@ -421,7 +449,10 @@ export function modelChangeWarnings(agent: Pick<AgentRow, "agentType" | "layer" 
 export function describeModelSet(result: ModelSetResult, modelKey: ModelKey): string {
   const parts = [`Model set to ${MODEL_LABELS[modelKey]} for ${result.updated.length} ${result.updated.length === 1 ? "agent" : "agents"}`];
   if (result.skipped.length) parts.push(`${result.skipped.length} skipped (${[...new Set(result.skipped.map((s) => s.reason))].join("; ")})`);
-  if (result.retests.length) parts.push(`${result.retests.length} ${result.retests.length === 1 ? "retest" : "retests"} queued`);
+  // While the team is stopped the retests wait for Resume agents (they spend credits); the model changes at once.
+  if (result.retests.length) parts.push(`${result.retests.length} ${result.retests.length === 1 ? "retest" : "retests"} queued${result.retestsWaitForResume ? ` (${result.retests.length === 1 ? "starts" : "start"} when the agents resume)` : ""}`);
+  // Retests of a model the agents no longer run, still in flight or awaiting a decision, were canceled (agent.model.set).
+  if (result.superseded.length) parts.push(`${result.superseded.length} earlier ${result.superseded.length === 1 ? "retest" : "retests"} canceled`);
   if (result.warnings.length) parts.push(result.warnings.join("; "));
   return parts.join(" · ");
 }
@@ -471,16 +502,58 @@ export const AUTONOMY_MODE_COPY: Record<AutonomyMode, { label: string; descripti
   higher: { label: "Act more freely", description: "One notch more autonomous than the business mode, within the caps below. Hard gates still apply." },
 };
 
+/**
+ * What the Autonomy tab edits. Money and the percentage stay the text the founder typed ("250", "1,250.50", "25k")
+ * while they type; they become minor units only when read for validation and save (`readAutonomyDraft`). Rewriting
+ * the field from minor units on every keystroke turned "25" into "2.01" (audit WEB-03).
+ */
+export interface AutonomyDraft {
+  mode: AutonomyMode;
+  spendCap: string;
+  approvalThreshold: string;
+}
+export interface NegotiationDraft {
+  enabled: boolean;
+  priceMin: string;
+  priceMax: string;
+  walkAway: string;
+  maxConcession: string;
+  topics: string[];
+}
+
+export function autonomyDraft(form: AutonomyForm): AutonomyDraft {
+  return { mode: form.mode, spendCap: formatMajor(form.spendCapMinor), approvalThreshold: formatMajor(form.approvalThresholdMinor) };
+}
+export function negotiationDraft(form: NegotiationForm): NegotiationDraft {
+  return { enabled: form.enabled, priceMin: formatMajor(form.priceMinMinor), priceMax: formatMajor(form.priceMaxMinor), walkAway: formatMajor(form.walkAwayMinor), maxConcession: form.maxConcessionPct === null ? "" : String(form.maxConcessionPct), topics: form.topics };
+}
+/** The draft in minor units. Text that is not an amount reads as NaN, which validation names instead of saving a guess. */
+export function readAutonomyDraft(draft: AutonomyDraft): AutonomyForm {
+  return { mode: draft.mode, spendCapMinor: parseMajor(draft.spendCap), approvalThresholdMinor: parseMajor(draft.approvalThreshold) };
+}
+export function readNegotiationDraft(draft: NegotiationDraft): NegotiationForm {
+  return { enabled: draft.enabled, priceMinMinor: parseMajor(draft.priceMin), priceMaxMinor: parseMajor(draft.priceMax), walkAwayMinor: parseMajor(draft.walkAway), maxConcessionPct: parsePercent(draft.maxConcession), topics: draft.topics };
+}
+
+const AMOUNT_HINT = "as an amount, like 250 or 12.50";
+
 /** Mirrors the API's rules: negotiation needs a walk-away and at least one price limit; caps must be non-negative. */
 export function validateNegotiation(form: NegotiationForm): string | null {
+  // Unreadable text is refused even with negotiation off: the limits are saved either way.
+  if (Number.isNaN(form.priceMinMinor)) return `Enter the price floor ${AMOUNT_HINT}.`;
+  if (Number.isNaN(form.priceMaxMinor)) return `Enter the price ceiling ${AMOUNT_HINT}.`;
+  if (Number.isNaN(form.walkAwayMinor)) return `Enter the walk-away amount ${AMOUNT_HINT}.`;
+  if (form.maxConcessionPct !== null && !(form.maxConcessionPct >= 0 && form.maxConcessionPct <= 100)) return "Max concession is a percentage between 0 and 100.";
+  if ([form.priceMinMinor, form.priceMaxMinor, form.walkAwayMinor].some((v) => v !== null && v < 0)) return "Negotiation limits cannot be negative.";
   if (!form.enabled) return null;
   if (form.walkAwayMinor === null) return "Set a walk-away amount before enabling negotiation.";
   if (form.priceMinMinor === null && form.priceMaxMinor === null) return "Set a price floor or a price ceiling before enabling negotiation.";
   if (form.priceMinMinor !== null && form.priceMaxMinor !== null && form.priceMinMinor > form.priceMaxMinor) return "The price floor is above the ceiling.";
-  if (form.maxConcessionPct !== null && (form.maxConcessionPct < 0 || form.maxConcessionPct > 100)) return "Max concession is a percentage between 0 and 100.";
   return null;
 }
 export function validateAutonomy(form: AutonomyForm): string | null {
+  if (Number.isNaN(form.spendCapMinor)) return `Enter the spend cap ${AMOUNT_HINT}.`;
+  if (Number.isNaN(form.approvalThresholdMinor)) return `Enter the approval threshold ${AMOUNT_HINT}.`;
   if (form.spendCapMinor !== null && form.spendCapMinor < 0) return "The spend cap cannot be negative.";
   if (form.approvalThresholdMinor !== null && form.approvalThresholdMinor < 0) return "The approval threshold cannot be negative.";
   // A zero cap is the default "no spending of its own" (every spend asks), not a conflict with the threshold.
@@ -502,15 +575,35 @@ export function negotiationToInput(form: NegotiationForm): { enabled: boolean; p
   };
 }
 
-/** "12.50" → 1250 minor units; blank → null. */
+/**
+ * A typed amount in minor units: "12.50" → 1250, "1,250" → 125000 (the comma groups thousands, US English), "25k" →
+ * 2500000 (the shorthand MoneyInput expands at rest), blank → null. Anything else, a fraction of a cent included, is
+ * NaN: the form says so instead of saving a different number.
+ */
 export function parseMajor(text: string): number | null {
-  const t = text.replace(/[^\d.,-]/g, "").replace(",", ".");
+  const t = text.trim().replace(/[\s,'_$£€¥]/g, "");
   if (!t) return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? Math.round(n * 100) : null;
+  const m = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))([kmb])?$/i.exec(t);
+  if (!m) return Number.NaN;
+  const [, sign, int = "0", fracA, fracB, unit] = m;
+  // Shift the decimal point on the digits themselves (cents, plus the shorthand's thousands), so no float rounding.
+  const shift = 2 + (unit ? { k: 3, m: 6, b: 9 }[unit.toLowerCase() as "k" | "m" | "b"] : 0);
+  const frac = (fracA ?? fracB ?? "").padEnd(shift, "0");
+  if (/[^0]/.test(frac.slice(shift))) return Number.NaN;
+  const minor = Number(`${int}${frac.slice(0, shift)}`);
+  if (!Number.isSafeInteger(minor)) return Number.NaN;
+  return sign === "-" && minor !== 0 ? -minor : minor;
 }
+/** A stored amount as the text its field starts from: 25000 → "250", 1250 → "12.50", null → "". */
 export function formatMajor(minor: number | null): string {
-  return minor === null ? "" : (minor / 100).toFixed(2);
+  if (minor === null || !Number.isFinite(minor)) return "";
+  return minor % 100 === 0 ? String(minor / 100) : (minor / 100).toFixed(2);
+}
+/** "15" or "12.5%" → the number; blank → null; anything else → NaN. */
+export function parsePercent(text: string): number | null {
+  const t = text.trim().replace(/%$/, "").trim();
+  if (!t) return null;
+  return /^\d+(?:\.\d+)?$/.test(t) ? Number(t) : Number.NaN;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -552,6 +645,15 @@ export function grantsEqual(a: readonly ToolGrant[], b: readonly ToolGrant[]): b
   return key(a) === key(b);
 }
 
+/**
+ * True when `next` grants a tool `live` does not (`connector:*` covers every tool of its connector). Giving an agent new
+ * tools is an owner's or admin's call (the api refuses anyone else, SEC-7); removing tools is anyone's with Team write.
+ */
+export function grantsWiden(live: readonly ToolGrant[], next: readonly ToolGrant[]): boolean {
+  const has = new Set(live.flatMap((g) => g.tools.map((t) => `${g.connectorKey}:${t}`)));
+  return next.some((g) => g.tools.some((t) => !has.has(`${g.connectorKey}:${t}`) && !has.has(`${g.connectorKey}:*`)));
+}
+
 export function grantedTools(grants: readonly ToolGrant[]): number {
   return grants.reduce((s, g) => s + g.tools.length, 0);
 }
@@ -571,6 +673,8 @@ export interface SessionRow {
   currency: string;
   outcome: string;
   taskId: string | null;
+  /** The task's title, when the session worked on one that still exists. */
+  taskTitle: string | null;
   live: boolean;
   recordingRef: string | null;
 }
@@ -588,9 +692,10 @@ export function sessionRows(sessions: readonly SessionRecord[], now: Date = new 
         model: s.modelKey,
         tokens: Number(s.tokensIn ?? 0) + Number(s.tokensOut ?? 0),
         costMinor: Number(s.costMinor ?? 0),
-        currency: s.currency ?? "EUR",
+        currency: MODEL_COST_CURRENCY, // model costs are always dollars, whatever currency the business keeps its books in
         outcome: s.outcome ?? (endedAt ? "ended" : "running"),
         taskId: s.taskId ?? null,
+        taskTitle: s.task?.title ?? null,
         live: !endedAt,
         recordingRef: s.recordingRef ?? null,
       };
@@ -727,6 +832,49 @@ export function profileChips(agent: Pick<AgentRow, "role" | "agentType" | "layer
   add(agent.layer === "assistant" ? "Chief of Staff" : humaniseKey(agent.layer));
   for (const d of departments) add(d.name, d.colourToken);
   return out;
+}
+
+/**
+ * The month the viewer is in, as a period (YYYY-MM), from their own clock and time zone: the profile asks for this
+ * month's wage, so it never shows next month's empty figure before the viewer's month has ended (billing months are
+ * UTC calendar months).
+ */
+export function localPeriod(now: Date = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** An agent of the team as the line-manager picker needs it (`team.agents.list` rows). */
+export interface LineManagerCandidate {
+  id: string;
+  name: string;
+  role?: string | null;
+  lineManagerId?: string | null;
+  archivedAt?: string | Date | null;
+}
+
+/**
+ * The agents `agentId` may report to: still on the team, not itself, and not one that reports to it at any depth (the
+ * hierarchy stays a tree), by name.
+ */
+export function lineManagerOptions(agentId: string, agents: readonly LineManagerCandidate[]): { value: string; label: string }[] {
+  const byId = new Map(agents.map((a) => [a.id, a]));
+  const reportsTo = (candidate: LineManagerCandidate): boolean => {
+    const seen = new Set<string>();
+    for (let up = candidate.lineManagerId ?? null; up && !seen.has(up); up = byId.get(up)?.lineManagerId ?? null) {
+      if (up === agentId) return true;
+      seen.add(up);
+    }
+    return false;
+  };
+  return agents
+    .filter((a) => a.id !== agentId && !a.archivedAt && !reportsTo(a))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((a) => ({ value: a.id, label: a.role ? `${a.name} · ${a.role}` : a.name }));
+}
+
+/** Who an agent reports to when it has no agent line manager: the business's founder ("You" for the founder). */
+export function ownerManagerLabel(profile: Pick<AgentProfile, "reportsToOwner">): string {
+  return profile.reportsToOwner?.isViewer ? "You" : "Founder";
 }
 
 /** "2026-10" → "Wage this month" in October 2026, else "Wage in September 2026" ("Wage in 2026-09" for ISO `prefs`). */

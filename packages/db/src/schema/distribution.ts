@@ -1,11 +1,14 @@
 /** 0006 — distribution: channels, campaigns, assets, channel metrics, suppression list. */
 import { APPROVAL_STATES, ASSET_KINDS, CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES } from "@foundmill/shared";
 import { boolean, date, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import { currency, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
+import { businessCurrency, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
 import { businessId, businessIdNullable } from "./_refs";
 import { agents } from "./agents";
 
 export const SUPPRESSION_SCOPES = ["business", "platform"] as const;
+/** 0046 — where a channel_metrics row's numbers came from; `estimate` rows (the mock engine's simulated week) are labeled Estimate. */
+export const CHANNEL_METRIC_SOURCES = ["measured", "estimate"] as const;
+export type ChannelMetricSource = (typeof CHANNEL_METRIC_SOURCES)[number];
 
 export const channels = pgTable(
   "channels",
@@ -19,8 +22,10 @@ export const channels = pgTable(
     potential: numeric("potential", { precision: 5, scale: 2 }).notNull().default("0"),
     recommended: boolean("recommended").notNull().default(false),
     whyMd: text("why_md").notNull().default(""),
+    /** 0046 — when the Distribution Strategist last scored this channel; null: never scored (fit and potential are column defaults). */
+    scoredAt: tstz("scored_at"),
     budgetMinor: minor("budget_minor").notNull().default(0),
-    currency: currency(),
+    currency: businessCurrency(),
     kitMode: boolean("kit_mode").notNull().default(false),
     ownerAgentId: uuid("owner_agent_id").references(() => agents.id, { onDelete: "set null" }),
     engineWorkflowId: text("engine_workflow_id"),
@@ -46,7 +51,7 @@ export const campaigns = pgTable(
     goal: text("goal").notNull().default(""),
     status: text("status", { enum: CAMPAIGN_STATUSES }).notNull().default("draft"),
     budgetMinor: minor("budget_minor").notNull().default(0),
-    currency: currency(),
+    currency: businessCurrency(),
     startsAt: tstz("starts_at"),
     endsAt: tstz("ends_at"),
     config: jsonb("config").$type<Record<string, unknown>>().notNull().default(emptyObject),
@@ -70,6 +75,8 @@ export const assets = pgTable(
     kind: text("kind", { enum: ASSET_KINDS }).notNull(),
     title: text("title").notNull().default(""),
     contentRef: text("content_ref"),
+    /** The drafted text (an email, a post, an ad's copy, a print brief; 0028), at most 8,000 characters. */
+    body: text("body"),
     approvalState: text("approval_state", { enum: APPROVAL_STATES }).notNull().default("draft"),
     authoredByAgentId: uuid("authored_by_agent_id").references(() => agents.id, { onDelete: "set null" }),
     ...timestampsWithArchive(),
@@ -93,13 +100,15 @@ export const channelMetrics = pgTable(
     campaignId: uuid("campaign_id").references(() => campaigns.id, { onDelete: "set null" }),
     day: date("day", { mode: "string" }).notNull(),
     spendMinor: minor("spend_minor").notNull().default(0),
-    currency: currency(),
+    currency: businessCurrency(),
     impressions: minor("impressions").notNull().default(0),
     leads: integer("leads").notNull().default(0),
     signups: integer("signups").notNull().default(0),
     activations: integer("activations").notNull().default(0),
     customers: integer("customers").notNull().default(0),
     cpaMinor: minor("cpa_minor"),
+    /** 0046 — `measured` (a connector reported it) or `estimate` (the mock engine's simulated week). */
+    source: text("source", { enum: CHANNEL_METRIC_SOURCES }).notNull().default("measured"),
     ...timestamps(),
   },
   (t) => [

@@ -18,18 +18,32 @@ export async function importBusiness(input: ImportBusinessInput): Promise<Import
   const results: ImportSourceResult[] = [];
   // Sources import a few at a time (each is a gateway round-trip with rate limits behind it).
   const queue = [...input.sourceIds];
+  // A source the run could not read is written as failed on its row (the import job reads the rows), so the Import screen
+  // always reaches its report; the row is only marked when the activity could not write it itself.
+  const fail = async (sourceId: string, reason: string) => {
+    results.push({ sourceId, ok: false, summary: reason });
+    try {
+      await acts.failImportSource({ businessId: input.businessId, sourceId, reason });
+    } catch {
+      /* the import job's deadline reports a row that could not be written */
+    }
+  };
   const worker = async () => {
     for (;;) {
+      // Check the stop before taking a source: one taken and then dropped would never be reported as not read.
+      if (stopped) return;
       const sourceId = queue.shift();
-      if (!sourceId || stopped) return;
+      if (!sourceId) return;
       try {
         results.push(await acts.importSource({ businessId: input.businessId, sourceId }));
       } catch (err) {
-        results.push({ sourceId, ok: false, summary: `failed: ${(err as Error).message}`.slice(0, 300) });
+        await fail(sourceId, `failed: ${(err as Error).message}`.slice(0, 300));
       }
     }
   };
   await Promise.all(Array.from({ length: Math.min(3, Math.max(1, queue.length)) }, worker));
+  // Stopped before every source was read: the rest are reported as not read, on their rows.
+  for (const sourceId of queue.splice(0)) await fail(sourceId, "failed: the import was stopped before this source was read");
   const { inboxItemId } = await acts.finishImport({ businessId: input.businessId, results });
   await condition(allHandlersFinished);
   return { results, inboxItemId };

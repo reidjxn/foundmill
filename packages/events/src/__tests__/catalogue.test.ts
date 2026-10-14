@@ -130,6 +130,25 @@ describe("event catalogue", () => {
     expect(bad({ visionReady: "yes" })).toThrow(ValidationError);
   });
 
+  it("connection.requested and message.received: delivered to the recipient as human messages by the api, never narrated (audit #65)", () => {
+    for (const type of ["connection.requested", "message.received"] as const) {
+      const decl = EVENTS[type];
+      expect(decl.narratable, type).toBe(false);
+      expect(decl.consumers, type).not.toContain("composer");
+      expect(decl.consumers, type).toContain("stream");
+    }
+    expect(() => parsePayload("message.received", { ...EVENT_FIXTURES["message.received"], preview: "x".repeat(281) })).toThrow(ValidationError);
+  });
+
+  it("business.updated: the settings fields a save changed, pushed to open tabs, never narrated (audit RES-07)", () => {
+    const decl = EVENTS["business.updated"];
+    expect(decl.consumers).toEqual(["stream"]);
+    expect(decl.narratable).toBe(false);
+    expect(parsePayload("business.updated", { fields: ["name"] }).fields).toEqual(["name"]);
+    expect(() => parsePayload("business.updated", { fields: [] })).toThrow(ValidationError);
+    expect(() => parsePayload("business.updated", { fields: ["planTier"] })).toThrow(ValidationError);
+  });
+
   it("conversation.message_posted: a desk message for stream and metrics, never narrated (audit-conversation §4)", () => {
     const decl = EVENTS["conversation.message_posted"];
     expect(decl.narratable).toBe(false);
@@ -142,6 +161,29 @@ describe("event catalogue", () => {
     expect(bad({ author: "system" })).toThrow(ValidationError);
     expect(bad({ quickReplyIds: ["a", "b", "c", "d", "e"] })).toThrow(ValidationError);
     expect(bad({ quickReplyIds: ["Not An Id"] })).toThrow(ValidationError);
+  });
+
+  it("membership.changed: who and what kind of change, for apps/stream only, never narrated (security review S1)", () => {
+    const decl = EVENTS["membership.changed"];
+    expect(decl.narratable).toBe(false);
+    expect([...decl.consumers]).toEqual(["stream"]);
+    expect(parsePayload("membership.changed", EVENT_FIXTURES["membership.changed"])).toEqual({ userId: EVENT_FIXTURES["membership.changed"].userId, change: "updated" });
+    const bad = (patch: Record<string, unknown>) => () => parsePayload("membership.changed", { ...EVENT_FIXTURES["membership.changed"], ...patch });
+    expect(bad({ userId: "someone" })).toThrow(ValidationError);
+    expect(bad({ change: "promoted" })).toThrow(ValidationError);
+  });
+
+  it("agent.message_sent: a typed message between agents (BUILD §9.9), never narrated", () => {
+    const decl = EVENTS["agent.message_sent"];
+    expect(decl.narratable).toBe(false);
+    expect([...decl.consumers].sort()).toEqual(["metrics", "stream"]);
+    const outside = parsePayload("agent.message_sent", { ...EVENT_FIXTURES["agent.message_sent"], sessionId: undefined, taskId: undefined });
+    expect(outside).toMatchObject({ type: "request", sessionId: null, taskId: null });
+    const bad = (patch: Record<string, unknown>) => () => parsePayload("agent.message_sent", { ...EVENT_FIXTURES["agent.message_sent"], ...patch });
+    expect(bad({ type: "chat" })).toThrow(ValidationError);
+    expect(bad({ subject: "" })).toThrow(ValidationError);
+    expect(bad({ body: "x".repeat(4001) })).toThrow(ValidationError);
+    expect(bad({ toAgentId: "not-an-id" })).toThrow(ValidationError);
   });
 
   it("declareEvent refuses a type outside EVENT_TYPES at runtime", () => {

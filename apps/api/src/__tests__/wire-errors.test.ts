@@ -1,19 +1,21 @@
 /**
  * What goes over the wire (security review): request ids are plain tokens or replaced; an INTERNAL error reads as a generic
  * line with the request id outside development and test, whether a procedure or the context factory raised it, and carries
- * no stack; a foreign-key violation is "not found" when a write names a missing row and a conflict when a delete is blocked.
+ * no stack; a foreign-key violation is "not found" when a write names a missing row and a conflict when a delete is blocked;
+ * a row-level-security denial is "forbidden" and a unique violation a conflict, never a 500.
  */
 import { TRPCError } from "@trpc/server";
-import { repos } from "@foundmill/db";
+import { repos, withRls } from "@foundmill/db";
+import { clearPlatformBillingRefusal, ModelBillingError, notePlatformBillingRefusal } from "@foundmill/models";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app";
 import { requestIdFrom } from "../request-id";
-import { foreignKeyViolation, internalErrorMessage, toTRPCError } from "../trpc";
+import { databaseRefusal, foreignKeyViolation, internalErrorMessage, toTRPCError } from "../trpc";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
 beforeAll(async () => {
-  hz = await createApiHarness({ prefix: "wire", env: { APP_ENV: "staging" } });
+  hz = await createApiHarness({ prefix: "wire", env: { APP_ENV: "staging", LIVE_MODE: "1" } });
 }, 120_000);
 afterAll(() => hz.close());
 
@@ -91,6 +93,42 @@ describe("INTERNAL errors outside development and test", () => {
   });
 });
 
+describe("model calls Anthropic refused to bill (audit BILL-06, CML-07)", () => {
+  it("reach the founder as a plain 402 naming who acts, never 'Something went wrong', and the health check reports them", async () => {
+    clearPlatformBillingRefusal();
+    const refused = new ModelBillingError('Anthropic refused to bill route "conversation" on the platform key: the account\'s credit balance is too low (400)', "credit_balance", "credits", 400, "invalid_request_error");
+    const spy = vi.spyOn(repos.social, "unreadCount").mockRejectedValueOnce(refused);
+    try {
+      const res = await call(signedIn(), { "x-request-id": "req-billing1" });
+      expect(res.status).toBe(402);
+      const err = (await res.json()) as { error: { json: { message: string; data: { code: string; appCode?: string; details?: Record<string, unknown> } } } };
+      expect(err.error.json.data.code).toBe("PAYMENT_REQUIRED");
+      expect(err.error.json.data.appCode).toBe("model_billing");
+      expect(err.error.json.data.details).toMatchObject({ reason: "credit_balance", billedTo: "credits", alerted: true });
+      expect(err.error.json.message).toMatch(/out of credit\. Our team has been alerted, and nothing was charged to your credits/);
+      expect(err.error.json.message).not.toMatch(/Something went wrong|invalid_request_error|platform key/);
+    } finally {
+      spy.mockRestore();
+    }
+    // The client recorded the refusal for the platform key: /health says so while the database check stays green.
+    notePlatformBillingRefusal("spend_limit", "chiefOfStaff");
+    try {
+      const health = await createApp(hz.deps).request("/health");
+      expect(health.status).toBe(200);
+      expect(((await health.json()) as { modelBilling: unknown }).modelBilling).toMatchObject({ ok: false, reason: "spend_limit", route: "chiefOfStaff", count: 1 });
+    } finally {
+      clearPlatformBillingRefusal();
+    }
+    expect(((await (await createApp(hz.deps).request("/health")).json()) as { modelBilling: unknown }).modelBilling).toEqual({ ok: true });
+  });
+
+  it("a business's own key that cannot pay tells the founder to fund it", () => {
+    const mapped = toTRPCError(new ModelBillingError("refused", "spend_limit", "byok", 429, "rate_limit_error"));
+    expect(mapped.code).toBe("PAYMENT_REQUIRED");
+    expect(mapped.message).toMatch(/your Anthropic account has reached its spend limit\. Raise the limit in the Anthropic Console/);
+  });
+});
+
 describe("foreign-key violations", () => {
   const pg = (message: string, constraint?: string) => new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed query: …", cause: Object.assign(new Error("Failed query: …"), { cause: Object.assign(new Error(message), { code: "23503", constraint }) }) });
 
@@ -101,9 +139,35 @@ describe("foreign-key violations", () => {
     const inUse = toTRPCError(pg('update or delete on table "posts" violates foreign key constraint "posts_parent_post_id_fkey" on table "posts"'));
     expect(inUse.code).toBe("CONFLICT");
     expect(inUse.message).not.toMatch(/posts|constraint/);
-    // A code we set on purpose is left alone, and a database error that is not a foreign key stays INTERNAL.
+    // A code we set on purpose is left alone, and a database fault that is not the caller's doing stays INTERNAL.
     expect(toTRPCError(new TRPCError({ code: "FORBIDDEN", message: "No", cause: Object.assign(new Error("x"), { code: "23503" }) })).code).toBe("FORBIDDEN");
-    expect(toTRPCError(new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "x", cause: Object.assign(new Error("dup"), { code: "23505" }) })).code).toBe("INTERNAL_SERVER_ERROR");
+    expect(toTRPCError(new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "x", cause: Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" }) })).code).toBe("INTERNAL_SERVER_ERROR");
+  });
+
+  it("a row-level-security denial is FORBIDDEN and a unique violation a CONFLICT, through tRPC's INTERNAL wrapper (audit RA-08)", async () => {
+    // The real driver error: a viewer's insert into audit_log under RLS, wrapped the way tRPC hands it to the middleware.
+    let rls: unknown;
+    try {
+      await withRls(hz.db, { userId: hz.A.viewerId }, (tx) => repos.audit.append(tx, hz.A.businessId, { actorKind: "user", actorId: hz.A.viewerId, action: "test.denied", target: {}, details: {} }));
+    } catch (err) {
+      rls = err;
+    }
+    expect(rls).toBeDefined();
+    const wrapped = toTRPCError(new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed query: insert into \"audit_log\" …", cause: rls as Error }));
+    expect(wrapped.code).toBe("FORBIDDEN");
+    expect(wrapped.message).toBe("Not permitted for this business");
+    expect(databaseRefusal(rls)?.kind).toBe("forbidden");
+    // The same seen without a SQLSTATE (only the message), and a grant refusal.
+    expect(toTRPCError(new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "x", cause: new Error('new row violates row-level security policy for table "audit_log"') })).code).toBe("FORBIDDEN");
+    expect(toTRPCError(new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "x", cause: Object.assign(new Error("permission denied for table credentials"), { code: "42501" }) })).code).toBe("FORBIDDEN");
+    // A unique violation: CONFLICT, with no SQL in the message; its constraint is named for the log.
+    const dup = new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed query: …", cause: Object.assign(new Error("Failed query: …"), { cause: Object.assign(new Error('duplicate key value violates unique constraint "departments_business_id_slug_key"'), { code: "23505" }) }) });
+    const conflict = toTRPCError(dup);
+    expect(conflict.code).toBe("CONFLICT");
+    expect(conflict.message).not.toMatch(/departments|constraint|duplicate key/);
+    expect(databaseRefusal(dup.cause)).toEqual({ kind: "duplicate", constraint: "departments_business_id_slug_key" });
+    // A code we set on purpose still wins.
+    expect(toTRPCError(new TRPCError({ code: "NOT_FOUND", message: "No", cause: Object.assign(new Error("dup"), { code: "23505" }) })).code).toBe("NOT_FOUND");
   });
 
   it("names the kind and the constraint for the log", () => {

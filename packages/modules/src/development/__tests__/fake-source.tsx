@@ -20,6 +20,8 @@ export interface FakeSource {
   refetches: Record<string, number>;
   queried: Map<string, Record<string, unknown> | undefined>;
   subscriberCount(channel?: string): number;
+  /** Whether the stream would treat `channel` as focused (undefined when never subscribed). */
+  focusOf(channel: string): boolean | undefined;
 }
 
 export const BUSINESS_ID = "00000000-0000-4000-8000-000000000001";
@@ -40,6 +42,8 @@ export function createFakeSource(opts: { businessId?: string; responses?: Record
   const mutations: { path: string; input: Record<string, unknown> }[] = [];
   const refetches: Record<string, number> = {};
   const queried = new Map<string, Record<string, unknown> | undefined>();
+  /** Each channel's focus as the stream would see it (subscribe options, then setFocus). */
+  const focus = new Map<string, boolean>();
 
   const compute = (path: string, input: Record<string, unknown> | undefined, options?: QueryOptions): QueryState<unknown> => {
     const key = `${path}|${JSON.stringify(input ?? null)}|${options?.enabled === false ? "off" : "on"}`;
@@ -86,13 +90,17 @@ export function createFakeSource(opts: { businessId?: string; responses?: Record
     navigate(href) {
       navigations.push(href);
     },
-    subscribe(channel, handler) {
+    subscribe(channel, handler, so) {
       const set = handlers.get(channel) ?? new Set();
       set.add(handler);
       handlers.set(channel, set);
+      focus.set(channel, so?.focused ?? true);
       return () => {
         set.delete(handler);
       };
+    },
+    setFocus(channel, focused) {
+      focus.set(channel, focused);
     },
   };
 
@@ -111,6 +119,9 @@ export function createFakeSource(opts: { businessId?: string; responses?: Record
     queried,
     subscriberCount(channel = `ev:${businessId}`) {
       return handlers.get(channel)?.size ?? 0;
+    },
+    focusOf(channel) {
+      return focus.get(channel);
     },
   };
 }

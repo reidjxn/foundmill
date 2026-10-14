@@ -1,8 +1,12 @@
 // @vitest-environment happy-dom
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CONCEPT_ATTRIBUTE_KEYS, TooltipProvider } from "@foundmill/dugout";
-import { CommitForm, type CommitLogoApi } from "../commit/CommitScreen";
+import { TRPCClientError } from "@trpc/client";
+import { domainCandidates } from "@foundmill/shared";
+import { CommitForm, archetypeParam, commitSteps, departmentColour, importHref, upgradeHrefOf, type CommitDomainApi, type CommitLogoApi } from "../commit/CommitScreen";
+import type { DomainCheck } from "../commit/naming";
+import { IMPORT_STEPS, STUDIO_STEPS } from "../StudioFrame";
 import { META_KIND, type IdeaLike } from "../ideate/concepts";
 
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
@@ -46,10 +50,21 @@ function fakeLogoApi(over: Partial<CommitLogoApi> = {}): CommitLogoApi & { gener
   } as never;
 }
 
+const CHECKED_AT = "2026-10-13T15:45:00.000Z";
+const answer = (domain: string, status: DomainCheck["status"] = "available", over: Partial<DomainCheck> = {}): DomainCheck => ({ domain, status, provenance: "Registry", estimate: false, checkedAt: CHECKED_AT, ...over });
+
+/** `idea.domainCheck` answered from the registry: every candidate available unless `statuses` says otherwise. */
+function fakeDomainApi(statuses: Record<string, Partial<DomainCheck>> = {}, over: Partial<CommitDomainApi> = {}): CommitDomainApi & { check: ReturnType<typeof vi.fn> } {
+  return {
+    check: vi.fn(async (input: { name: string } | { domains: string[] }) => ("name" in input ? domainCandidates(input.name) : input.domains).map((d) => answer(d, "available", statuses[d]))),
+    ...over,
+  } as never;
+}
+
 function renderForm(onCommit = vi.fn(), extra: Partial<React.ComponentProps<typeof CommitForm>> = {}) {
   render(
     <TooltipProvider>
-      <CommitForm idea={idea} viewer={{ email: null }} currency="EUR" onCommit={onCommit} logoApi={fakeLogoApi()} {...extra} />
+      <CommitForm idea={idea} viewer={{ email: null }} currency="EUR" onCommit={onCommit} logoApi={fakeLogoApi()} domainApi={fakeDomainApi()} {...extra} />
     </TooltipProvider>,
   );
   return onCommit;
@@ -68,22 +83,33 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(screen.getByTestId("kit-contrast").dataset.passes).toBe("true");
   });
 
-  it("screens domains and trademarks after the name settles", async () => {
+  it("offers Live only where LIVE is open (audit VLS2-X1)", () => {
+    renderForm();
+    expect(document.querySelector('[data-option="live"]')).not.toBeNull();
+    cleanup();
+    renderForm(vi.fn(), { liveOpen: false });
+    expect(document.querySelector('[data-option="live"]')).toBeNull();
+    expect(document.querySelector('[data-option="personal"]')?.getAttribute("data-selected")).toBe("true");
+    expect(screen.getByTestId("live-closed-note").textContent).toContain("Live is not open yet");
+  });
+
+  it("screens the trademark after the name settles, as an Estimate and not a registry search", async () => {
     vi.useFakeTimers();
     try {
       renderForm();
       await act(async () => {
         vi.advanceTimersByTime(500);
       });
-      expect(document.querySelectorAll("[data-domain]")).toHaveLength(5);
-      expect(document.querySelector('[data-domain="ledgerly.com"]')).toBeTruthy();
       expect(document.querySelectorAll("[data-registry]")).toHaveLength(2);
-      expect(screen.getAllByText("Estimate").length).toBeGreaterThan(0);
+      expect(screen.getByTestId("trademark-screen").textContent).toMatch(/Trademark quick screen \(Estimate, not legal clearance\)/);
+      expect(screen.getByTestId("trademark-provenance").textContent).toMatch(/Estimate/);
+      // "Ledgerly" starts like the known mark "ledger": said about that list, with the mark named (nothing invented).
+      expect(document.querySelector("[data-registry]")?.textContent).toMatch(/LEDGER.*Close to a known mark/);
+      expect(screen.getByTestId("trademark-caveat").textContent).toMatch(/A heuristic.*not a registry search/);
     } finally {
       vi.useRealTimers();
     }
   });
-
   it("changes the default spend cap with the business mode until the founder edits it", () => {
     renderForm();
     fireEvent.click(screen.getByLabelText(/Automated/));
@@ -91,6 +117,22 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     fireEvent.change(screen.getByLabelText(/Spend cap per action/), { target: { value: "75" } });
     fireEvent.click(screen.getByLabelText(/Augmented/));
     expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("75");
+  });
+
+  it("offers Run on autopilot, off by default, and sends the choice with idea.commit", async () => {
+    const onCommit = renderForm();
+    const toggle = screen.getByRole("switch", { name: "Run on autopilot" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ autopilot: false });
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit.mock.calls[1]![0]).toMatchObject({ autopilot: true });
   });
 
   it("submits the idea.commit input and blocks an empty name", async () => {
@@ -107,11 +149,31 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect((screen.getByLabelText(/Business name/) as HTMLInputElement).value).toBe(suggested);
     fireEvent.click(document.querySelector<HTMLElement>('[data-option="live"] button[role="radio"]')!);
     fireEvent.change(screen.getByTestId("kit-primary-hex"), { target: { value: "#1b4fd8" } });
+    // A LIVE start asks the founder to confirm that they are 18 or older (the network is for adults) before it goes.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge-bottom"));
+    });
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("alert").some((a) => /18 or older/.test(a.textContent ?? ""))).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox", { name: /I am 18 or older/ }));
     await act(async () => {
       fireEvent.click(screen.getByTestId("take-charge-bottom"));
     });
     expect(onCommit).toHaveBeenCalledTimes(1);
-    expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: suggested, gameMode: "live", archetype: "b2b_saas", businessMode: "assisted", currency: "EUR", spendCapMinor: 25_000, kit: { primary: "#1b4fd8" } });
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: suggested, gameMode: "live", confirmAdult: true, archetype: "b2b_saas", businessMode: "assisted", currency: "EUR", spendCapMinor: 25_000, kit: { primary: "#1b4fd8" } });
+  });
+
+  it("does not ask again for a LIVE start once the founder's 18+ confirmation is on record, and never for Personal", async () => {
+    const onCommit = renderForm(vi.fn(), { adultConfirmed: true });
+    expect(screen.queryByTestId("commit-adult")).toBeNull();
+    fireEvent.click(document.querySelector<HTMLElement>('[data-option="live"] button[role="radio"]')!);
+    expect(screen.queryByTestId("commit-adult")).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge-bottom"));
+    });
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ gameMode: "live" });
+    expect(onCommit.mock.calls[0]![0]).not.toHaveProperty("confirmAdult");
   });
 
   it("starts with the initials mark (no shield), generates four marks, picks one, takes its colours and commits it", async () => {
@@ -213,6 +275,16 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(screen.getByTestId("take-charge").textContent).toMatch(/Setting up…/);
   });
 
+  it("turns the plan's business limit into an upgrade prompt that opens Billing of the business whose plan sets it", () => {
+    const refusal = new TRPCClientError("The Free plan holds 1 business and you already own 1.", { result: { error: { code: -32003, message: "x", data: { code: "FORBIDDEN", httpStatus: 403, appCode: "tier_limit", details: { limit: "businesses", tier: "free", allowed: 1, used: 1, planBusinessId: "b1" } } } } } as never);
+    expect(upgradeHrefOf(refusal)).toBe("/b/b1/settings/billing");
+    expect(upgradeHrefOf(new TRPCClientError("Seats", { result: { error: { code: -32003, message: "x", data: { appCode: "tier_limit", details: { limit: "seats", planBusinessId: "b1" } } } } } as never))).toBeNull();
+    expect(upgradeHrefOf(new Error("network"))).toBeNull();
+    renderForm(vi.fn(), { error: refusal.message, upgradeHref: upgradeHrefOf(refusal) });
+    expect(screen.getByRole("alert").textContent).toMatch(/Free plan holds 1 business/);
+    expect(screen.getByTestId("commit-upgrade").getAttribute("href")).toBe("/b/b1/settings/billing");
+  });
+
   it("shows the team the archetype seeds", () => {
     renderForm(vi.fn(), {
       preview: {
@@ -225,5 +297,276 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     const squad = screen.getByTestId("squad-preview");
     expect(squad.textContent).toMatch(/Chief of Staff/);
     expect(squad.textContent).toMatch(/1 agent · 1 department · 1 channel on/);
+  });
+
+  it("preselects the Import report's archetype over the card's and says where it came from (audit IAE-10)", () => {
+    renderForm(vi.fn(), { suggestedArchetype: "services" });
+    expect(document.querySelector('[data-option="services"]')?.getAttribute("data-selected")).toBe("true");
+    expect(document.querySelector('[data-option="b2b_saas"]')?.getAttribute("data-selected")).not.toBe("true");
+    expect(screen.getByText("From the import report")).toBeTruthy();
+    expect(screen.queryByText("From the card")).toBeNull();
+  });
+
+  it("draws Import's own trail when it came from Import (audit IAE-18)", () => {
+    renderForm(vi.fn(), { steps: commitSteps(true, "job-1") });
+    const ids = Array.from(document.querySelectorAll("[data-step-item]")).map((n) => n.getAttribute("data-step-item"));
+    expect(ids).toEqual(IMPORT_STEPS.map((s) => s.id));
+    expect(ids).not.toContain("ideate");
+    expect(document.querySelector('[data-step-item="import"] a')?.getAttribute("href")).toBe("/new/import?job=job-1");
+  });
+});
+
+/** Lets the debounce fire and the promises settle. */
+async function settle(ms = 500) {
+  await act(async () => {
+    vi.advanceTimersByTime(ms);
+  });
+  await act(async () => {});
+}
+
+const domainsBox = () => screen.getByTestId("domain-checks");
+const rowFor = (domain: string) => domainsBox().querySelector(`[data-domain="${domain}"]`) as HTMLElement;
+
+describe("CommitForm domain checker (audit #458: a real lookup, never a guess)", () => {
+  it("asks the registry once the name settles and draws Available, Taken and 'Couldn't check' with where each came from", async () => {
+    vi.useFakeTimers();
+    try {
+      const domainApi = fakeDomainApi({ "ledgerly.com": { status: "taken", registrar: "MarkMonitor Inc.", expires: "2028-09-14" }, "ledgerly.io": { status: "unknown", reason: "The registry is busy. Try again in a minute." } });
+      renderForm(vi.fn(), { domainApi });
+      expect(domainsBox().textContent).toMatch(/Checking/);
+      await settle();
+      expect(domainApi.check).toHaveBeenCalledTimes(1);
+      expect(domainApi.check.mock.calls[0]![0]).toEqual({ name: "Ledgerly" });
+      expect(domainApi.check.mock.calls[0]![1]).toBeInstanceOf(AbortSignal);
+      expect(domainsBox().querySelectorAll("[data-domain]")).toHaveLength(5);
+      expect(rowFor("ledgerly.com").dataset.status).toBe("taken");
+      expect(rowFor("ledgerly.com").textContent).toMatch(/Taken/);
+      expect(rowFor("ledgerly.com").title).toBe("Registered with MarkMonitor Inc., expires 2028-09-14");
+      expect(rowFor("ledgerly.co").textContent).toMatch(/Available/);
+      expect(rowFor("ledgerly.io").dataset.status).toBe("unknown");
+      expect(rowFor("ledgerly.io").textContent).toMatch(/Couldn't check/);
+      expect(rowFor("ledgerly.io").textContent).toMatch(/The registry is busy/);
+      expect(rowFor("ledgerly.io").querySelector('[data-testid="domain-retry"]')).toBeTruthy();
+      expect(rowFor("ledgerly.com").querySelector('[data-testid="domain-retry"]')).toBeNull();
+      // Registry answers: a "Registry" chip, no Estimate chip anywhere in the Domains column, and the time it was checked.
+      expect([...domainsBox().querySelectorAll('[data-testid="domain-provenance"]')].map((c) => c.textContent)).toEqual(["Registry"]);
+      expect(domainsBox().querySelector('[data-provenance="estimate"]')).toBeNull();
+      expect(domainsBox().textContent).not.toMatch(/Estimate/);
+      expect(screen.getByTestId("domain-checked").textContent).toMatch(/^Checked \d{1,2}:\d{2} (AM|PM)\.\s*$/);
+      expect(screen.getByTestId("domain-note").textContent).toContain("Availability is a snapshot; registering the domain happens at a registrar. We never buy domains for you.");
+      // Premium is not claimed anywhere: the registry cannot tell it.
+      expect(domainsBox().textContent).not.toMatch(/Premium/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a DNS answer reads 'DNS (Estimate)'; the mock reads 'Mock'", async () => {
+    vi.useFakeTimers();
+    try {
+      const domainApi = fakeDomainApi({
+        "ledgerly.io": { provenance: "DNS", estimate: true, reason: "It has no DNS records. This TLD has no public registry lookup, so this is an estimate." },
+        "ledgerly.co": { provenance: "DNS", estimate: true, status: "taken" },
+        "ledgerly.com": { provenance: "Mock" },
+      });
+      renderForm(vi.fn(), { domainApi });
+      await settle();
+      expect([...domainsBox().querySelectorAll('[data-testid="domain-provenance"]')].map((c) => c.textContent)).toEqual(["Registry", "DNS (Estimate)", "Mock"]);
+      expect(rowFor("ledgerly.io").dataset.provenance).toBe("DNS");
+      expect(rowFor("ledgerly.io").textContent).toMatch(/this is an estimate/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("debounces: typing asks once, for the final name", async () => {
+    vi.useFakeTimers();
+    try {
+      const domainApi = fakeDomainApi();
+      renderForm(vi.fn(), { domainApi });
+      const input = screen.getByLabelText(/Business name/);
+      for (const value of ["N", "No", "Nor", "Nort", "Northwind HQ"]) {
+        fireEvent.change(input, { target: { value } });
+        await act(async () => {
+          vi.advanceTimersByTime(100);
+        });
+      }
+      expect(domainApi.check).not.toHaveBeenCalled();
+      await settle();
+      expect(domainApi.check).toHaveBeenCalledTimes(1);
+      expect(domainApi.check.mock.calls[0]![0]).toEqual({ name: "Northwind HQ" });
+      expect(rowFor("northwindhq.com")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a slow answer for an old name never overwrites the newer list, and the old request is cancelled", async () => {
+    vi.useFakeTimers();
+    try {
+      let releaseOld!: (rows: DomainCheck[]) => void;
+      const signals: AbortSignal[] = [];
+      const domainApi = fakeDomainApi(
+        {},
+        {
+          check: vi.fn((input: { name: string } | { domains: string[] }, signal?: AbortSignal) => {
+            signals.push(signal!);
+            if ("name" in input && input.name === "Ledgerly") return new Promise<DomainCheck[]>((resolve) => (releaseOld = resolve));
+            return Promise.resolve(("name" in input ? domainCandidates(input.name) : input.domains).map((d) => answer(d)));
+          }),
+        },
+      );
+      renderForm(vi.fn(), { domainApi });
+      await settle(); // the first name is asked and is still waiting
+      expect(domainApi.check).toHaveBeenCalledTimes(1);
+      fireEvent.change(screen.getByLabelText(/Business name/), { target: { value: "Northwind" } });
+      // The old rows are not shown for the new name while it is checked.
+      expect(domainsBox().querySelector("[data-domain]")).toBeNull();
+      await settle();
+      expect(signals[0]!.aborted).toBe(true);
+      expect(rowFor("northwind.com")).toBeTruthy();
+      // The old answer arrives late, as taken: it is dropped.
+      await act(async () => {
+        releaseOld(domainCandidates("Ledgerly").map((d) => answer(d, "taken")));
+      });
+      expect(rowFor("northwind.com").dataset.status).toBe("available");
+      expect(domainsBox().querySelector('[data-domain="ledgerly.com"]')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("when the call itself fails every row says 'Couldn't check' with a Retry that asks for that domain only", async () => {
+    vi.useFakeTimers();
+    try {
+      let fail = true;
+      const domainApi = fakeDomainApi(
+        {},
+        {
+          check: vi.fn(async (input: { name: string } | { domains: string[] }) => {
+            if (fail) throw new Error("gateway down");
+            return ("name" in input ? domainCandidates(input.name) : input.domains).map((d) => answer(d));
+          }),
+        },
+      );
+      renderForm(vi.fn(), { domainApi });
+      await settle();
+      const rows = [...domainsBox().querySelectorAll("[data-domain]")] as HTMLElement[];
+      expect(rows).toHaveLength(5);
+      for (const row of rows) {
+        expect(row.dataset.status).toBe("unknown");
+        expect(row.textContent).toMatch(/Couldn't check/);
+        expect(row.querySelector('[data-testid="domain-retry"]')).toBeTruthy();
+      }
+      // No invented status, no provenance chip, no time, no Estimate.
+      expect(domainsBox().querySelector('[data-testid="domain-provenance"]')).toBeNull();
+      expect(domainsBox().querySelector('[data-testid="domain-checked"]')).toBeNull();
+      expect(domainsBox().textContent).not.toMatch(/Available|Taken|Estimate/);
+      // Retry one: it asks for that domain only, and only that row changes.
+      fail = false;
+      fireEvent.click(rowFor("ledgerly.ai").querySelector('[data-testid="domain-retry"]')!);
+      await act(async () => {});
+      expect(domainApi.check.mock.calls.at(-1)![0]).toEqual({ domains: ["ledgerly.ai"] });
+      expect(rowFor("ledgerly.ai").dataset.status).toBe("available");
+      expect(rowFor("ledgerly.com").dataset.status).toBe("unknown");
+      expect(screen.getByTestId("domain-checked").textContent).toMatch(/Checked/);
+      // A retry that fails again keeps the row as it was, with its Retry.
+      fail = true;
+      fireEvent.click(rowFor("ledgerly.io").querySelector('[data-testid="domain-retry"]')!);
+      await act(async () => {});
+      expect(rowFor("ledgerly.io").dataset.status).toBe("unknown");
+      expect(rowFor("ledgerly.io").querySelector('[data-testid="domain-retry"]')).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a Retry answered after the name changed is dropped", async () => {
+    vi.useFakeTimers();
+    try {
+      let release!: (rows: DomainCheck[]) => void;
+      const domainApi = fakeDomainApi(
+        { "ledgerly.io": { status: "unknown", reason: "busy" } },
+        {
+          check: vi.fn((input: { name: string } | { domains: string[] }) => {
+            if ("domains" in input) return new Promise<DomainCheck[]>((resolve) => (release = resolve));
+            return Promise.resolve(domainCandidates(input.name).map((d) => answer(d, d.endsWith(".io") ? "unknown" : "available", d.endsWith(".io") ? { reason: "busy" } : {})));
+          }),
+        },
+      );
+      renderForm(vi.fn(), { domainApi });
+      await settle();
+      fireEvent.click(rowFor("ledgerly.io").querySelector('[data-testid="domain-retry"]')!);
+      fireEvent.change(screen.getByLabelText(/Business name/), { target: { value: "Ledgerlyx" } });
+      await settle();
+      await act(async () => {
+        release([answer("ledgerly.io", "taken")]);
+      });
+      expect(domainsBox().querySelector('[data-domain="ledgerly.io"]')).toBeNull();
+      expect(rowFor("ledgerlyx.io").dataset.status).toBe("unknown");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks nothing for an empty name or one that cannot make a domain, and says so", async () => {
+    vi.useFakeTimers();
+    try {
+      const domainApi = fakeDomainApi();
+      renderForm(vi.fn(), { domainApi });
+      await settle();
+      expect(domainApi.check).toHaveBeenCalledTimes(1);
+      fireEvent.change(screen.getByLabelText(/Business name/), { target: { value: "日本" } });
+      await settle();
+      expect(domainApi.check).toHaveBeenCalledTimes(1);
+      expect(domainsBox().textContent).toMatch(/Add letters or numbers/);
+      fireEvent.change(screen.getByLabelText(/Business name/), { target: { value: "" } });
+      await settle();
+      expect(domainsBox().textContent).toMatch(/Type a name to check domains/);
+      expect(domainApi.check).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("any status still lets the founder commit", async () => {
+    vi.useFakeTimers();
+    try {
+      const onCommit = vi.fn();
+      renderForm(onCommit, { domainApi: fakeDomainApi({ "ledgerly.com": { status: "taken" } }) });
+      await settle();
+      expect(rowFor("ledgerly.com").dataset.status).toBe("taken");
+      fireEvent.click(screen.getByTestId("take-charge"));
+      expect(onCommit).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("commit screen helpers", () => {
+  it("the trail is the studio's unless the founder came from Import", () => {
+    expect(commitSteps(false, "job-1")).toBe(STUDIO_STEPS);
+    expect(commitSteps(true, null).find((s) => s.id === "import")?.href).toBe("/new/import");
+  });
+
+  it("Back from Commit returns to the finished import when its job is known", () => {
+    expect(importHref("a.b")).toBe("/new/import?job=a.b");
+    expect(importHref(null)).toBe("/new/import");
+  });
+
+  it("reads only known archetypes from the address", () => {
+    expect(archetypeParam("b2b_saas")).toBe("b2b_saas");
+    expect(archetypeParam("crest")).toBeNull();
+    expect(archetypeParam(null)).toBeNull();
+  });
+
+  it("an agent wears its own department's color, not the color of its place in the list (audit AC-15)", () => {
+    const preview = { departments: [{ slug: "product", colourToken: "dept-1" as const }, { slug: "development", colourToken: "dept-2" as const }, { slug: "team", colourToken: "dept-6" as const }] };
+    expect(departmentColour(preview, "development")).toBe("dept-2");
+    expect(departmentColour(preview, "team")).toBe("dept-6");
+    expect(departmentColour(preview, null)).toBe("dept-1");
+    expect(departmentColour(preview, "unknown")).toBe("dept-1");
+    expect(departmentColour({ departments: [] }, "x")).toBe("dept-1");
   });
 });

@@ -24,7 +24,7 @@ import { AgentTile } from "./AgentTile";
 import { generateMockSessionEvents, mockSessionSeed } from "./mock";
 import { reduceSessionEvents } from "./progress";
 import { TerminalView, needsReplay } from "./TerminalView";
-import { SpecialistTile, specialistEmptyCopy } from "./SpecialistTile";
+import { SpecialistTile, defaultSpecialistView, specialistEmptyCopy } from "./SpecialistTile";
 import { isInteractiveTarget, sessionPill } from "./TileFrame";
 import type { StdoutChunk } from "./types";
 
@@ -150,14 +150,52 @@ describe("AgentTile", () => {
   });
 
   it("an empty terminal shows the task's goal, so no two waiting tiles read alike; a small tile keeps only its prompt", () => {
-    const waiting = { ...session, stdout: [], task: { ...session.task, goal: "Add pause and skip to the refill subscription." } };
+    const waiting = { ...session, stdout: [], notes: [], lastNote: null, toolCalls: [], files: [], awaitingApprovalId: null, task: { ...session.task, goal: "Add pause and skip to the refill subscription." } };
     const { unmount } = render(<AgentTile session={waiting} now={NOW} terminalRenderer="plain" />);
     expect(screen.getByText(/Add pause and skip to the refill subscription\./)).toBeTruthy();
     expect(screen.queryByText("Lines stream in here as the session runs.")).toBeNull();
     unmount();
-    render(<AgentTile session={waiting} now={NOW} compact terminalRenderer="plain" />);
+    const { container } = render(<AgentTile session={waiting} now={NOW} compact terminalRenderer="plain" />);
     expect(screen.queryByText(/Add pause and skip/)).toBeNull();
     expect(screen.getByText(/waiting for .*'s first output/)).toBeTruthy();
+    // One clipped line in a small tile: the prompt never grows over the header (SOAK-07).
+    expect(container.querySelector("[data-terminal-prompt]")?.className).toMatch(/truncate/);
+    expect(container.querySelector("[data-terminal-empty]")?.className).toMatch(/overflow-hidden/);
+    expect(container.querySelector("[role=tabpanel]")?.className).toMatch(/overflow-hidden/);
+  });
+
+  it("an empty terminal says what the session did instead of claiming it wrote nothing (TPD-35)", () => {
+    const quiet = { ...session, stdout: [], status: "blocked" as const };
+    const approval = { ...quiet, toolCalls: [...quiet.toolCalls, { callId: "c9", tool: "run_migration", connectorKey: null, status: "awaiting_approval" as const, argsSummary: "", at: START, approvalId: "a1" }] };
+    const { unmount } = render(<AgentTile session={approval} now={NOW} terminalRenderer="plain" />);
+    expect(screen.getByText("Waiting for your approval: run_migration")).toBeTruthy();
+    expect(screen.queryByText(/has not written anything yet/)).toBeNull();
+    unmount();
+    const noted = { ...quiet, toolCalls: [], awaitingApprovalId: null, notes: [{ at: START, level: "info" as const, source: "agent" as const, text: "Reading the usage table schema." }, { at: START, level: "info" as const, source: "shout" as const, text: "Focus on tests" }] };
+    render(<AgentTile session={noted} now={NOW} terminalRenderer="plain" />);
+    expect(screen.getByText("Reading the usage table schema.")).toBeTruthy();
+  });
+
+  it("a session no worker has picked up reads Queued, with no clock and no streaming prompt (SOAK-08)", () => {
+    const queued = { ...session, status: "running" as const, phase: "implementing" as const, queued: true, stdout: [], notes: [], lastNote: null, toolCalls: [], files: [] };
+    const { container } = render(<AgentTile session={queued} now={NOW} terminalRenderer="plain" />);
+    expect(screen.getAllByText("Queued").length).toBeGreaterThan(0);
+    expect(screen.getByText("Queued, waiting for a worker")).toBeTruthy();
+    expect(screen.queryByText(/session attached · streaming/)).toBeNull();
+    expect(container.querySelector("[data-terminal-empty]")?.getAttribute("data-terminal-empty")).toBe("queued");
+    expect(within(screen.getByTestId("tile-footer")).queryByTitle("Elapsed")).toBeNull();
+    expect(within(screen.getByTestId("tile-footer")).getByText("Queued")).toBeTruthy();
+    expect(sessionPill(queued)).toMatchObject({ word: "Queued", tone: "neutral" });
+    // A blocked session is not queued, whatever the flag says.
+    expect(sessionPill({ ...queued, status: "blocked" }).word).toBe("Waiting");
+  });
+
+  it("keeps the Estimate label on the cost at every width (SOAK-07)", () => {
+    render(<AgentTile session={session} now={NOW} compact terminalRenderer="plain" />);
+    const footer = screen.getByTestId("tile-footer");
+    // The chip for roomy footers and the plain word for the smallest: one of the two is always shown by the container query.
+    expect(footer.querySelectorAll("[data-provenance=estimate]")).toHaveLength(2);
+    expect([...footer.querySelectorAll("[data-provenance=estimate]")].map((e) => e.className).join(" ")).toMatch(/@xs\/foot:hidden/);
   });
 
   it("focus click ignores controls and calls onFocus from the body", async () => {
@@ -183,11 +221,24 @@ describe("SpecialistTile empty views", () => {
     const user = userEvent.setup();
     const sp = { ...session, status: "paused" as const, task: { ...session.task, kind: "specialist" as const, goal: "Review the second carton proof against the labelling checklist." } };
     render(<SpecialistTile session={sp} data={empty} now={NOW} />);
-    expect(screen.getByText("Paused · no RFQs sent")).toBeTruthy();
+    // Nothing in any view: the line names no view (a carton proof never sends an RFQ, TPD-23).
+    expect(screen.getByText("Paused · no supplier records yet")).toBeTruthy();
+    expect(screen.queryByText(/no RFQs sent/)).toBeNull();
     expect(screen.getByText("Review the second carton proof against the labelling checklist.")).toBeTruthy();
     expect(screen.queryByText(/funnel fills as RFQs go out/)).toBeNull();
     await user.click(screen.getByRole("tab", { name: "Samples" }));
     expect(screen.getByText("Paused · no samples requested")).toBeTruthy();
+  });
+});
+
+describe("SpecialistTile opening view (TPD-23)", () => {
+  const sp = { ...session, status: "review" as const, phase: "review" as const, task: { ...session.task, kind: "specialist" as const, goal: "Stability data for the serum reformulation." } };
+  it("opens on the first view with records: a chemist's samples, not an empty RFQ funnel", () => {
+    const sample = { id: "s1", supplier: "Lab A", stage: "testing" as const };
+    expect(defaultSpecialistView({ rfq: [], quotes: [], samples: [sample], shipments: [] })).toBe("samples");
+    expect(defaultSpecialistView({ rfq: [], quotes: [], samples: [], shipments: [] })).toBe("funnel");
+    expect(specialistEmptyCopy("funnel", sp, { allEmpty: true }).title).toBe("In review · no supplier records yet");
+    expect(specialistEmptyCopy("funnel", { ...sp, status: "running" }, { allEmpty: true }).title).toBe("No supplier records yet");
   });
 });
 

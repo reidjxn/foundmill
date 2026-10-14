@@ -1,9 +1,12 @@
 import { useId, type CSSProperties, type HTMLAttributes } from "react";
+import { CircleAlert, CircleX, Pause, TriangleAlert } from "lucide-react";
 import type { AgentStatus, DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { deptColourVar, mixWith } from "../../lib/colour";
 import { initials } from "../../lib/format";
 import { createRng, hashSeed } from "../../lib/seed";
+import { Icon, type IconComponent } from "./Icon";
+import { agentStatusTone } from "./StatusPill";
 
 /** DESIGN §6: 18–64, plus 68 for the conversation's presence portrait. Any number works; these are the steps. */
 export const AVATAR_SIZES = [18, 20, 22, 24, 26, 28, 32, 36, 48, 64, 68] as const;
@@ -104,21 +107,41 @@ export function generateAvatar(spec: AgentAvatarSpec): string {
   );
 }
 
-/** Map the shared agent status vocabulary to a ring tone. */
+/** Map the shared agent status vocabulary to a ring tone (paused is neutral, as its pill is: not a warning). */
 export function ringForStatus(status: AgentStatus | undefined): AvatarRing {
   switch (status) {
     case "healthy":
       return "good";
     case "degraded":
-    case "paused":
       return "warn";
     case "failing":
     case "injured":
       return "bad";
     case "idle":
+    case "paused":
       return "idle";
     default:
       return "none";
+  }
+}
+
+/**
+ * The shape that goes with the ring's colour, so health never rests on hue alone (DESIGN §2, WCAG 1.4.1): a dashed ring
+ * for an agent at rest (idle, paused) and a glyph badge for one that needs looking at (degraded, failing, Down,
+ * paused). Exported for tests.
+ */
+export function statusGlyph(status: AgentStatus | undefined): IconComponent | null {
+  switch (status) {
+    case "degraded":
+      return TriangleAlert;
+    case "failing":
+      return CircleX;
+    case "injured":
+      return CircleAlert;
+    case "paused":
+      return Pause;
+    default:
+      return null;
   }
 }
 
@@ -138,7 +161,8 @@ const PRESENCE_TONE: Record<AvatarPresence, string> = {
   down: "tone-status-bad",
 };
 
-const RING_WORD: Record<AvatarRing, string> = { good: "healthy", warn: "waiting", bad: "failing", idle: "idle", none: "" };
+/** Words for a bare ring tone (no status given). With a status, the label uses the status's own word (agentStatusTone). */
+const RING_WORD: Record<AvatarRing, string> = { good: "healthy", warn: "needs attention", bad: "failing", idle: "idle", none: "" };
 const PRESENCE_WORD: Record<AvatarPresence, string> = { live: "live", working: "working", available: "available", away: "away", down: "down" };
 
 /**
@@ -181,7 +205,10 @@ export interface AvatarProps extends Omit<HTMLAttributes<HTMLSpanElement>, "chil
 export function Avatar({ size = 32, name, agent, status, ring, presence, surface, src, stacked, className, style, ...rest }: AvatarProps) {
   const uid = useId();
   const tone = ring ?? ringForStatus(status);
-  const words = [RING_WORD[tone], presence ? PRESENCE_WORD[presence] : ""].filter(Boolean);
+  // The status's own word ("degraded", "paused", "down"), as its pill says it; a bare ring falls back to its tone's word.
+  const statusWord = status && !ring ? agentStatusTone(status).word.toLowerCase() : RING_WORD[tone];
+  const words = [statusWord, presence ? PRESENCE_WORD[presence] : ""].filter(Boolean);
+  const glyph = ring ? null : statusGlyph(status);
   const label = words.length ? `${name}, ${words.join(", ")}` : name;
   const geo = avatarGeometry(size);
   const breathes = presence === "live" || presence === "working";
@@ -216,7 +243,12 @@ export function Avatar({ size = 32, name, agent, status, ring, presence, surface
           </span>
         )}
       </span>
-      {tone !== "none" ? <span aria-hidden className="avatar-ring" data-lit={breathes || undefined} /> : null}
+      {tone !== "none" ? <span aria-hidden className="avatar-ring" data-lit={breathes || undefined} data-dashed={tone === "idle" || undefined} /> : null}
+      {glyph ? (
+        <span aria-hidden className="avatar-glyph" style={{ width: geo.dot + 2, height: geo.dot + 2, right: geo.dotInset - 1, top: geo.dotInset - 1 }} data-glyph={status}>
+          <Icon icon={glyph} size={geo.dot} strokeWidth={2.25} />
+        </span>
+      ) : null}
       {breathes ? <span aria-hidden className="avatar-breathe" /> : null}
       {presence ? (
         <span

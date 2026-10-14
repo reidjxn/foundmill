@@ -19,7 +19,7 @@ export function createGoogleCalendarConnector(options: LiveConnectorOptions = {}
       key: GOOGLE_CALENDAR_KEY,
       displayName: "Google Calendar",
       phase: 1,
-      auth: { kind: "oauth", scopes: GOOGLE_CALENDAR_SCOPES },
+      auth: { kind: "oauth", scopes: GOOGLE_CALENDAR_SCOPES, authorizationCode: true },
       tools: googleCalendarTools,
       rateLimits: GOOGLE_CALENDAR_RATE_LIMITS,
       now,

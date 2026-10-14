@@ -44,13 +44,14 @@ import {
   type FoundationsStepContext,
   type FoundationsUsage,
 } from "@foundmill/agents/foundations-steps";
+import { CREDITS_CURRENCY } from "@foundmill/config";
 import { repos, type Executor } from "@foundmill/db";
 import type { OrchestratorDeps } from "../deps";
 import { agentActor, emitEvent, systemActor } from "../events";
 import type { BusinessFoundationsInput, FoundationsDrafted, FoundationsPlanned, FoundationsStepDone } from "./types";
 
-/** Errors a retry cannot fix: the key was refused, or the model declined. */
-const NON_RETRYABLE_CODES = new Set(["auth", "refusal", "request"]);
+/** Errors a retry cannot fix: the key was refused, the model declined, or the model account cannot pay (until someone adds credit). */
+const NON_RETRYABLE_CODES = new Set(["auth", "refusal", "request", "billing"]);
 
 /**
  * The only failure type the drafting activities throw, and the only one whose message the workflow stores as the
@@ -208,7 +209,7 @@ export function createFoundationsActivities(deps: OrchestratorDeps) {
             businessId: input.businessId,
             type: "inbox.item_created",
             actor: agentActor(item.fromAgentId),
-            payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: { amountMinor: Number(input.model.costMinor ?? 0), currency: "EUR" } },
+            payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: { amountMinor: Number(input.model.costMinor ?? 0), currency: CREDITS_CURRENCY } },
           });
         },
         // Open tabs refetch on it and turn ready at once.

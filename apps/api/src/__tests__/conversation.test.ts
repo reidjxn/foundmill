@@ -4,10 +4,11 @@
  * Inbox questions that never use up a decision, and tenancy (business, role and section).
  */
 import { CONVERSATION_MAX_TOKENS, CONVERSATION_RESERVE_TOKENS, hasClubRulesPrefix } from "@foundmill/agents";
-import { repos } from "@foundmill/db";
+import { inboxItems, repos } from "@foundmill/db";
+import { eq } from "drizzle-orm";
 import { MockModelClient, PRICING_CURRENCY, type CompleteRequest, type ModelClient } from "@foundmill/models";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { CONVERSATION_LIMITS, conceptStarters, conversationLimiter, replyAboutConcept } from "../services/conversation";
+import { CONVERSATION_LIMITS, conceptStarters, replyAboutConcept } from "../services/conversation";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -19,7 +20,7 @@ beforeAll(async () => {
 afterEach(() => {
   hz.deps.models = original;
   // Each test starts with a full allowance (the limits have their own tests below).
-  conversationLimiter.reset();
+  hz.limits.reset();
 });
 afterAll(() => hz.close());
 
@@ -82,6 +83,17 @@ describe("agent.conversation.get", () => {
 });
 
 describe("agent.conversation.send", () => {
+  it("prices option costs in the business currency as an Estimate, never in the note's own model-cost currency (audit CML-12)", async () => {
+    const client = recordingModels();
+    const item = await decisionItem("Which channel carries the first spend?");
+    // The composer stores what writing the note cost (USD) on the row; it says nothing about the decision's money.
+    await hz.db.update(inboxItems).set({ currency: "JPY" }).where(eq(inboxItems.id, item.id));
+    await owner().agent.conversation.send({ businessId: hz.A.businessId, subject: { kind: "inbox_item", id: item.id }, quickReplyId: "why_that_one" });
+    const prompt = JSON.stringify(conversationRequests(client)[0]!.messages);
+    expect(prompt).toContain("(Estimate)");
+    expect(prompt).not.toMatch(/¥|JPY/);
+  });
+
   it("answers a question with the house rules first, stores both messages, emits two un-narrated events, and leaves the decision open", async () => {
     const client = recordingModels();
     const item = await decisionItem("Paid acquisition first?");
@@ -194,8 +206,14 @@ describe("agent.conversation.send", () => {
     expect(again.planId).toBe(staged.planId);
     expect(again.source).toBe("stored");
 
+    // After a reload the desk still knows the staged plan waits (audit OL-01), so it can offer the review again.
+    const subject = { kind: "agent" as const, id: hz.A.agentId };
+    const handOffMessage = async () => (await owner().agent.conversation.get({ businessId: hz.A.businessId, subject })).messages.find((m) => m.id === reply.id)!;
+    expect(await handOffMessage()).toMatchObject({ planId: staged.planId, planStatus: "pending_confirmation" });
+
     const confirmed = await owner().plan.confirm({ businessId: hz.A.businessId, planId: staged.planId });
     expect(confirmed.exec.executed.length).toBe(3);
+    expect((await handOffMessage()).planStatus).toBe("done");
   });
 
   it("a double press on Review the plan stages one plan, not two", async () => {
@@ -296,7 +314,7 @@ describe("races and limits (adversarial)", () => {
   it("bounds sends per person (TOO_MANY_REQUESTS, nothing written) without blocking another member of the business", async () => {
     const client = recordingModels();
     const subject = { kind: "agent" as const, id: hz.A.agentId };
-    for (let i = 0; i < CONVERSATION_LIMITS.burst.limit; i++) conversationLimiter.takeAll([{ key: `conversation:burst:${hz.A.ownerId}`, rule: CONVERSATION_LIMITS.burst }]);
+    for (let i = 0; i < CONVERSATION_LIMITS.burst.limit; i++) await hz.limits.take([{ key: `conversation:burst:${hz.A.ownerId}`, rule: CONVERSATION_LIMITS.burst }]);
     const calls = conversationRequests(client).length;
     const thread = await repos.conversations.findThread(hz.db, hz.A.businessId, { agentId: hz.A.agentId, subjectKind: "agent", subjectId: hz.A.agentId });
     const count = thread ? (await repos.conversations.listMessages(hz.db, hz.A.businessId, thread.id, { limit: 200 })).length : 0;
@@ -313,14 +331,14 @@ describe("races and limits (adversarial)", () => {
 
   it("bounds sends per business across its members, and a concept's Ask per person", async () => {
     recordingModels();
-    for (let i = 0; i < CONVERSATION_LIMITS.business.limit; i++) conversationLimiter.takeAll([{ key: `conversation:business:${hz.A.businessId}`, rule: CONVERSATION_LIMITS.business }]);
+    for (let i = 0; i < CONVERSATION_LIMITS.business.limit; i++) await hz.limits.take([{ key: `conversation:business:${hz.A.businessId}`, rule: CONVERSATION_LIMITS.business }]);
     const member = hz.caller({ userId: hz.A.memberId });
     await expect(member.agent.conversation.send({ businessId: hz.A.businessId, subject: { kind: "agent", id: hz.A.agentId }, text: "What's next?" })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
 
     const concept = { id: "00000000-0000-4000-8000-0000000000c1", title: "Nornest", pitch: "Refill subscriptions for skincare.", attributes: { market_size: { value: 12, evidence: "EU refill market" } } };
-    for (let i = 0; i < CONVERSATION_LIMITS.burst.limit; i++) conversationLimiter.takeAll([{ key: `conversation:burst:someone`, rule: CONVERSATION_LIMITS.burst }]);
-    await expect(replyAboutConcept(hz.deps.models, { concept, quickReplyId: conceptStarters()[0]!.id, userId: "someone" })).rejects.toMatchObject({ status: 429 });
-    await expect(replyAboutConcept(hz.deps.models, { concept, quickReplyId: conceptStarters()[0]!.id, userId: "someone-else" })).resolves.toMatchObject({ persona: { name: "Research agent" } });
+    for (let i = 0; i < CONVERSATION_LIMITS.burst.limit; i++) await hz.limits.take([{ key: `conversation:burst:someone`, rule: CONVERSATION_LIMITS.burst }]);
+    await expect(replyAboutConcept(hz.deps.models, { concept, quickReplyId: conceptStarters()[0]!.id, userId: "someone", limits: hz.limits })).rejects.toMatchObject({ status: 429 });
+    await expect(replyAboutConcept(hz.deps.models, { concept, quickReplyId: conceptStarters()[0]!.id, userId: "someone-else", limits: hz.limits })).resolves.toMatchObject({ persona: { name: "Research agent" } });
   });
 });
 

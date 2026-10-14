@@ -36,15 +36,27 @@ export function specialistViewEmpty(view: SpecialistView, data: SpecialistData):
   return data.shipments.length === 0;
 }
 
+const VIEW_ORDER: readonly SpecialistView[] = ["funnel", "quotes", "samples", "shipments"];
+
+/** The view a specialist tile opens on: the first with something to show, else the RFQ funnel. */
+export function defaultSpecialistView(data: SpecialistData): SpecialistView {
+  return VIEW_ORDER.find((v) => !specialistViewEmpty(v, data)) ?? "funnel";
+}
+
+/** What every view says when a specialist has no supplier records at all (a chemist's stability task never sends an RFQ). */
+const NO_RECORDS = { noneYet: "No supplier records yet", none: "no supplier records yet" };
+
 /**
  * The empty line of one specialist tile's view, specific to that tile: what the view is still missing, in the
  * session's own state ("Paused · no RFQs sent"), over the task's brief (its goal, else the agent and the task). A
- * wall of specialist tiles never repeats one generic sentence.
+ * wall of specialist tiles never repeats one generic sentence. With `allEmpty` (nothing in any view, on the view the
+ * tile opened on) the line names no view: "In review · no supplier records yet", not an RFQ the specialist never had
+ * to send (TPD-23).
  */
-export function specialistEmptyCopy(view: SpecialistView, session: Pick<AgentTileSession, "status" | "phase" | "agent" | "task">): { title: string; body: string } {
-  const v = VIEW_EMPTY[view];
+export function specialistEmptyCopy(view: SpecialistView, session: Pick<AgentTileSession, "status" | "phase" | "agent" | "task" | "queued">, opts: { allEmpty?: boolean } = {}): { title: string; body: string } {
+  const v = opts.allEmpty ? NO_RECORDS : VIEW_EMPTY[view];
   const word = sessionPill(session).word;
-  const title = session.status === "running" ? v.noneYet : `${word === "Review" ? "In review" : word} · ${v.none}`;
+  const title = session.status === "running" && !session.queued ? v.noneYet : `${word === "Review" ? "In review" : word} · ${v.none}`;
   const goal = session.task.goal?.trim();
   return { title, body: goal || `${session.agent.name} on ${session.task.title}.` };
 }
@@ -206,15 +218,21 @@ export interface SpecialistTileProps {
   className?: string;
 }
 
-/** Specialist tile (BUILD §11.6): RFQ funnel, quote table, sample tracker and shipment list instead of a terminal. */
-export function SpecialistTile({ session, data, view: viewProp, defaultView = "funnel", onViewChange, focused, compact, controls, onFocus, onOpenTask, now, className }: SpecialistTileProps) {
-  const [viewState, setViewState] = useState<SpecialistView>(defaultView);
-  const view = viewProp ?? viewState;
+/**
+ * Specialist tile (BUILD §11.6): RFQ funnel, quote table, sample tracker and shipment list instead of a terminal. Until
+ * the founder picks a view it shows the first one with records (a formulation chemist's samples, a logistics
+ * specialist's shipments), and with no records anywhere a line that names no view.
+ */
+export function SpecialistTile({ session, data, view: viewProp, defaultView, onViewChange, focused, compact, controls, onFocus, onOpenTask, now, className }: SpecialistTileProps) {
+  const [viewState, setViewState] = useState<SpecialistView | null>(null);
+  const opening = defaultView ?? defaultSpecialistView(data);
+  const view = viewProp ?? viewState ?? opening;
   const setView = (v: string) => {
     setViewState(v as SpecialistView);
     onViewChange?.(v as SpecialistView);
   };
-  const empty = specialistViewEmpty(view, data) ? specialistEmptyCopy(view, session) : null;
+  const allEmpty = VIEW_ORDER.every((v) => specialistViewEmpty(v, data));
+  const empty = specialistViewEmpty(view, data) ? specialistEmptyCopy(view, session, { allEmpty: allEmpty && !viewProp && viewState === null }) : null;
   return (
     <TileFrame session={session} views={SPECIALIST_VIEWS} view={view} onViewChange={setView} focused={focused} compact={compact} controls={controls} onFocus={onFocus} onOpenTask={onOpenTask} now={now} className={className}>
       <div className="h-full min-h-0 overflow-auto bg-panel [container-type:size]">

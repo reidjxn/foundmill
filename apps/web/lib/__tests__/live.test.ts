@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  boardKindLabel, canSpeakAsBusiness, boardScope, boardTitle, counterpartId, describeMetric, findDirectThread, formResults, formatMetricValue, groupConnections, humanise, joinNames,
-  otherParticipants, periodLabel, personName, positionLabel, threadTitle, UNNAMED_PERSON, VISIBILITY_OPTIONS, visibilityLabel,
+  askToConnectBlocker, boardKindLabel, canSpeakAsBusiness, boardScope, boardTitle, connectStateOf, counterpartId, describeMetric, findDirectThread, formResults, formatMetricValue, groupConnections, humanise, joinNames,
+  leaveBlocker, leftNote, otherParticipants, periodLabel, personName, positionLabel, postStatusLabel, threadParticipants, threadSubject, REPORT_REASONS, reportReasonLabel, requestOutcome, threadTitle, UNNAMED_PERSON, VISIBILITY_OPTIONS, visibilityLabel,
 } from "../live";
 
 const ME = "00000000-0000-4000-8000-0000000000aa";
@@ -14,6 +14,11 @@ describe("profile visibility", () => {
     expect(VISIBILITY_OPTIONS.map((o) => o.label)).toEqual(["Public", "Connections", "Community", "Private"]);
     expect(VISIBILITY_OPTIONS.every((o) => o.description.length > 10)).toBe(true);
     expect(VISIBILITY_OPTIONS[0]!.description).toContain("Foundmill");
+    // Every setting says that people you write to or ask to connect see your name, which is what the name lookup does.
+    const copy = Object.fromEntries(VISIBILITY_OPTIONS.map((o) => [o.value, o.description]));
+    expect(copy.private).toBe("Nobody, except people you write to or ask to connect.");
+    expect(copy.connections).toContain("anyone you write to or ask to connect");
+    expect(copy.community).toContain("anyone you write to or ask to connect");
     expect(visibilityLabel("community")).toBe("Community");
     expect(visibilityLabel("nonsense")).toBe("Private");
   });
@@ -33,6 +38,7 @@ describe("people", () => {
     expect(joinNames([card("Ana"), card("Ben"), card("Cal"), card("Dee")])).toBe("Ana, Ben and 2 others");
     expect(joinNames([card(null)])).toBe("A founder");
     expect(joinNames([card("Ana"), card(null, "u1"), card(null, "u2")])).toBe("Ana and 2 founders");
+    expect(joinNames([card("Ana"), card("Ben"), card("Cal"), card("Dee")], { all: true })).toBe("Ana, Ben, Cal and Dee");
     expect(joinNames([])).toBe("A founder");
   });
 });
@@ -67,16 +73,78 @@ describe("message threads", () => {
   it("lists who else is in a thread", () => {
     expect(otherParticipants(group, ME)).toEqual([ANA, BEN]);
   });
-  it("titles a thread by its subject, else by who it is with", () => {
-    expect(threadTitle(named, ME, names)).toBe("Intro");
+  it("titles a thread by who it is with, never by the subject the sender chose (audit GLS2F-06, LS2-04)", () => {
+    expect(threadTitle(named, ME, names)).toBe("A founder");
     expect(threadTitle(direct, ME, names)).toBe("Ana");
     expect(threadTitle(group, ME, names)).toBe("Ana and Ben");
     expect(threadTitle({ id: "t4", participantIds: [ME, CAL], subject: null }, ME, names)).toBe("A founder");
+    const spoof = { id: "t5", participantIds: [ME, ANA], subject: "Foundmill Support: verify your account" };
+    expect(threadTitle(spoof, ME, names)).toBe("Ana");
+    expect(threadSubject(spoof)).toBe("Foundmill Support: verify your account");
+  });
+  it("names every participant of a group in the header, and keeps the subject as a separate line", () => {
+    const crowd = { id: "t6", participantIds: [ME, ANA, BEN, CAL], subject: "Launch" };
+    expect(threadTitle(crowd, ME, names)).toBe("Ana, Ben and 1 other");
+    expect(threadParticipants(crowd, ME, names)).toBe("Ana, Ben and A founder");
+    expect(threadParticipants(direct, ME, names)).toBe("Ana");
+    expect(threadParticipants(group, ME, names)).toBe("Ana and Ben");
+    expect(threadSubject(named)).toBe("Intro");
+    expect(threadSubject(direct)).toBeNull();
+    expect(threadSubject({ subject: "   " })).toBeNull();
   });
   it("finds the one-to-one thread with a person, never a group thread", () => {
     expect(findDirectThread([group, direct, named], ME, ANA)?.id).toBe("t1");
     expect(findDirectThread([group], ME, ANA)).toBeUndefined();
     expect(findDirectThread([direct], ME, BEN)).toBeUndefined();
+    // A group that shrank to the two of us (Ben left) is still a group: a Send to Ana opens our direct thread instead.
+    const shrunk = { id: "t5", participantIds: [ME, ANA], subject: null, kind: "group" as const };
+    expect(findDirectThread([shrunk], ME, ANA)).toBeUndefined();
+    expect(findDirectThread([shrunk, { ...direct, kind: "direct" as const }], ME, ANA)?.id).toBe("t1");
+  });
+});
+
+describe("asking to connect and moderation copy (audit #28, #34, #66)", () => {
+  const row = (id: string, fromUser: string, toUser: string, status: "requested" | "accepted" | "blocked") => ({ id, fromUser, toUser, status });
+  it("reads where the viewer stands with a person from their own rows", () => {
+    const rows = [row("1", ME, ANA, "accepted"), row("2", ME, BEN, "requested"), row("3", CAL, ME, "requested")];
+    expect(connectStateOf(rows, ME, ME)).toBe("self");
+    expect(connectStateOf(rows, ME, ANA)).toBe("connected");
+    expect(connectStateOf(rows, ME, BEN)).toBe("requested");
+    expect(connectStateOf(rows, ME, CAL)).toBe("incoming");
+    expect(connectStateOf([row("4", ME, CAL, "blocked")], ME, CAL)).toBe("blocked");
+    expect(connectStateOf(rows, ME, "00000000-0000-4000-8000-0000000000ff")).toBe("none");
+  });
+
+  it("tells what a sent request came to (a leaderboard row cannot know its owner beforehand)", () => {
+    expect(requestOutcome(row("1", ME, ANA, "requested"), ME)).toBe("sent");
+    expect(requestOutcome(row("2", ANA, ME, "requested"), ME)).toBe("incoming");
+    expect(requestOutcome(row("3", ANA, ME, "accepted"), ME)).toBe("connected");
+  });
+
+  it("asks only from a LIVE business the founder may speak for, and says why not", () => {
+    const live = { gameMode: "live", committedAt: new Date(), archivedAt: null };
+    expect(askToConnectBlocker({ business: live, membership: { role: "owner" } })).toBeNull();
+    expect(askToConnectBlocker({ business: { ...live, gameMode: "personal" }, membership: { role: "owner" } })).toMatch(/LIVE business/);
+    expect(askToConnectBlocker({ business: live, membership: { role: "viewer" } })).toMatch(/role/);
+    expect(askToConnectBlocker({ business: live, membership: { role: "member", sectionPermissions: { live: "read" } } })).toMatch(/role/);
+  });
+
+  it("names a post's status, the reasons to report, and who left a thread", () => {
+    expect(postStatusLabel("pending_review")).toBe("Held for review");
+    expect(postStatusLabel("hidden")).toBe("Hidden by a moderator");
+    expect(postStatusLabel("visible")).toBeNull();
+    expect(REPORT_REASONS.map((r) => r.value)).toEqual(["spam", "harassment", "personal_data", "scam", "off_topic", "other"]);
+    expect(reportReasonLabel("personal_data")).toBe("Someone's personal data");
+    const names: Record<string, string> = { [ANA]: "Ana", [BEN]: "Ben" };
+    expect(leftNote([], () => undefined)).toBeNull();
+    expect(leftNote([ANA, BEN], (id) => ({ userId: id, displayName: names[id] ?? null }))).toBe("Ana and Ben left this conversation");
+  });
+
+  it("keeps the owner of a community joined by invitation in it, and lets everyone else leave", () => {
+    expect(leaveBlocker({ role: "owner", visibility: "private" })).toMatch(/invitation only/);
+    expect(leaveBlocker({ role: "owner", visibility: "public" })).toBeNull();
+    expect(leaveBlocker({ role: "moderator", visibility: "private" })).toBeNull();
+    expect(leaveBlocker({ role: null, visibility: "private" })).toBeNull();
   });
 });
 

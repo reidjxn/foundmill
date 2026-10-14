@@ -5,7 +5,7 @@
  */
 import { repos, type Executor } from "@foundmill/db";
 import { LIMITS } from "@foundmill/config";
-import { CHANNEL_META, type ChannelKey, type TaskStatus } from "@foundmill/shared";
+import { CHANNEL_META, formatMoney, type ChannelKey, type TaskStatus } from "@foundmill/shared";
 
 const DAY_MS = 86_400_000;
 const dayKey = (d: Date): string => d.toISOString().slice(0, 10);
@@ -73,7 +73,8 @@ export function blocksForRunway(runwayMonths: number | null): boolean {
 }
 
 export async function loadMetricsSnapshot(db: Executor, businessId: string, now = new Date()): Promise<MetricsSnapshot> {
-  const [cash, burn, week, month, tasks, enabledChannels, recent, previous, roadmap] = await Promise.all([
+  const [business, cash, burn, week, month, tasks, enabledChannels, recent, previous, roadmap] = await Promise.all([
+    repos.businesses.get(db, businessId),
     repos.finance.cashPosition(db, businessId),
     repos.finance.netBurn(db, businessId, { asOf: now }),
     repos.journeys.countConversions(db, businessId, { from: daysAgo(now, 7), to: now }),
@@ -88,7 +89,8 @@ export async function loadMetricsSnapshot(db: Executor, businessId: string, now 
   // Cash: the first (alphabetical) currency with accounts, which for a single-currency club is its only one. Multi-currency
   // conversion at the ECB rate belongs to the Finance module; here we never add currencies together.
   const primary = cash.byCurrency[0] ?? null;
-  const currency = primary?.currency ?? enabledChannels[0]?.currency ?? "EUR";
+  // Before a bank is connected, the business's own currency (0025), never a fixed one.
+  const currency = primary?.currency ?? business.currency;
   const cashMinor = primary ? primary.balanceMinor : null;
   const runwayMonths = estimateRunwayMonths(cashMinor, burn.netBurnMinor);
 
@@ -137,7 +139,8 @@ export interface StatusMetric {
 /** The ≤ 4 live metrics offered for the status strip, each with provenance (a named query or table) and a label. */
 export function statusMetrics(s: MetricsSnapshot): StatusMetric[] {
   const out: StatusMetric[] = [];
-  if (s.cashMinor !== null) out.push({ metric: "cash", value: `${(s.cashMinor / 100).toFixed(2)} ${s.currency}`, source: "cash_position", label: "Estimate" });
+  // Money reaches the note's prose as the founder reads it everywhere else: the currency's narrow symbol, grouped (audit VGTM-X3).
+  if (s.cashMinor !== null) out.push({ metric: "cash", value: formatMoney({ amountMinor: s.cashMinor, currency: s.currency }), source: "cash_position", label: "Estimate" });
   if (s.runwayMonths !== null) out.push({ metric: "runway", value: `${s.runwayMonths} months`, source: "cash_position", label: "Estimate" });
   out.push({ metric: "customers_week", value: String(s.customersWeek), source: "conversions_30d", label: null });
   out.push({ metric: "tasks_running", value: String(s.tasks.running), source: "tasks_by_status", label: null });

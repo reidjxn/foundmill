@@ -4,6 +4,8 @@
  * or `CHANNEL_META` does not download Zod. The Zod enums of the same names live in ./types and are built from these
  * tuples; "@foundmill/shared" exports both. Never redeclare these elsewhere.
  */
+import { IMPORT_TOOLS } from "./import-routes";
+
 export const GAME_MODES = ["live", "personal"] as const;
 export type GameMode = (typeof GAME_MODES)[number];
 
@@ -19,6 +21,19 @@ export type ModelBilling = (typeof MODEL_BILLING)[number];
 
 export const DATA_REGIONS = ["eu", "us"] as const;
 export type DataRegion = (typeof DATA_REGIONS)[number];
+
+/**
+ * The currencies a founder picks from (ISO 4217): their profile's, and the one a business keeps its money in (chosen at
+ * commit, changed in Settings › Business; `businesses.currency`, 0025). Model and credit costs are always in USD.
+ */
+export const CURRENCIES = ["EUR", "USD", "GBP", "SEK", "NOK", "DKK", "CHF", "CAD", "AUD"] as const;
+/** A business created without a currency (no founder profile to take it from) keeps its money in US dollars (0025). */
+export const DEFAULT_BUSINESS_CURRENCY = "USD";
+/**
+ * Model costs (a session, a training run, an Inbox note) are not business money: they are metered in the model price
+ * list's currency (packages/models `PRICING_CURRENCY`), whatever currency the business keeps its money in.
+ */
+export const MODEL_COST_CURRENCY = "USD";
 
 export const ARCHETYPES = ["b2b_saas", "consumer_app", "marketplace", "dtc_physical", "hardware", "services", "content_media"] as const;
 export type Archetype = (typeof ARCHETYPES)[number];
@@ -59,6 +74,17 @@ export type ExhibitKind = (typeof EXHIBIT_KINDS)[number];
 export const AGENT_STATUSES = ["healthy", "degraded", "failing", "injured", "paused", "idle"] as const;
 export type AgentStatus = (typeof AGENT_STATUSES)[number];
 
+/**
+ * Why a whole team was stopped (`businesses.agents_stopped_reason`, 0023): Stop all agents, a revoked Anthropic key or
+ * used-up credits. Only an owner or admin clears it (`business.resumeAgents`); a new key or a top-up clears its own.
+ */
+export const AGENT_STOP_REASONS = ["kill_switch", "key_revoked", "credits_exhausted"] as const;
+export type AgentStopReason = (typeof AGENT_STOP_REASONS)[number];
+
+/** Why one agent is paused (`agents.paused_reason`, 0023): a team-wide stop, or its own wage cap for the period. */
+export const AGENT_PAUSE_REASONS = [...AGENT_STOP_REASONS, "wage_cap"] as const;
+export type AgentPauseReason = (typeof AGENT_PAUSE_REASONS)[number];
+
 export const AGENT_LAYERS = ["assistant", "lead", "worker", "utility"] as const;
 export type AgentLayer = (typeof AGENT_LAYERS)[number];
 
@@ -76,6 +102,11 @@ export type TaskKind = (typeof TASK_KINDS)[number];
 
 export const TASK_STATUSES = ["planned", "ready", "running", "paused", "blocked", "review", "merging", "done", "failed", "stopped"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
+/**
+ * Statuses a cycle may start a task from. A failed or blocked task comes back with a backoff and a limit; `stopped` is the
+ * founder's "Stop and discard", which only Start undoes. One list for the planner, the brief and the mock planner.
+ */
+export const PLANNABLE_TASK_STATUSES = ["planned", "ready", "paused", "blocked", "failed"] as const satisfies readonly TaskStatus[];
 
 export const TASK_PHASES = ["planning", "implementing", "testing", "review", "merge", "done"] as const;
 export type TaskPhase = (typeof TASK_PHASES)[number];
@@ -103,6 +134,13 @@ export type ChannelKey = (typeof CHANNEL_KEYS)[number];
 
 export const CHANNEL_LINES = ["attack", "midfield", "defence", "wings"] as const;
 export type ChannelLine = (typeof CHANNEL_LINES)[number];
+
+/**
+ * The window every channel figure covers ("last 35 days"): the API's channel summary (today and the 34 days before it,
+ * both ends included), the Channel Board, Attribution, the funnel and Finance's acquisition cost all read and label
+ * this one window.
+ */
+export const CHANNEL_WINDOW_DAYS = 35;
 
 export const CHANNEL_META: Record<ChannelKey, { label: string; line: ChannelLine; coreMetric: string; kitModeByDefault: boolean }> = {
   lead_generation: { label: "Lead generation", line: "attack", coreMetric: "Qualified leads/week", kitModeByDefault: false },
@@ -153,6 +191,13 @@ export type InteractionKind = (typeof INTERACTION_KINDS)[number];
 export const SOURCE_KINDS = ["doc", "issue", "feedback", "transcript", "competitor", "legal", "finance"] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
+/**
+ * Door B (BUILD §11.1): the one read-only gateway call that reads each import source, keyed by the import source key
+ * (apps/api `IMPORT_SOURCE_KEYS`). apps/api words the Import report from it and the orchestrator's `importSource` makes
+ * the call; a source without a reader (null) is reported as not read, never as imported.
+ */
+export const IMPORT_READERS: Readonly<Record<string, { connector: string; tool: string } | null>> = IMPORT_TOOLS;
+
 export const PROPOSAL_STATUSES = ["open", "accepted", "partially_accepted", "rejected"] as const;
 export type ProposalStatus = (typeof PROPOSAL_STATUSES)[number];
 
@@ -192,6 +237,17 @@ export type IncorporationRoute = (typeof INCORPORATION_ROUTES)[number];
 export const SECURITY_KINDS = ["common", "preferred", "option", "warrant", "safe", "note"] as const;
 export type SecurityKind = (typeof SECURITY_KINDS)[number];
 
+/**
+ * Bank transaction category keys that are not operating cash flow (BUILD §11.8: net burn is "operating outflows −
+ * operating inflows, financing excluded"), normalized (lower case, `_` and `-` read as spaces). One list for both
+ * readers: packages/db `netBurn` leaves these out of burn, and the finance module's chart of accounts files exactly
+ * these under Financing and Transfers, so the burn tiles and the P&L agree on what a raise is.
+ */
+export const NON_OPERATING_CATEGORY_KEYS = {
+  financing: ["financing", "funding", "investment", "equity", "safe", "loan", "loan repayment", "grant", "founder loan", "director loan", "share capital"],
+  transfers: ["transfer", "transfers", "internal transfer", "between accounts"],
+} as const satisfies Record<string, readonly string[]>;
+
 export const USAGE_KINDS = ["tokens", "sandbox", "tool", "training"] as const;
 export type UsageKind = (typeof USAGE_KINDS)[number];
 
@@ -206,6 +262,7 @@ export type DecisionType = (typeof DECISION_TYPES)[number];
 /** Event types (BUILD §8.1 plus platform-internal ones). Payload schemas live in packages/events. */
 export const EVENT_TYPES = [
   "idea.committed", "spec.proposal_created", "spec.version_published",
+  "source.added", "source.scored",
   "task.started", "task.progressed", "task.completed", "task.blocked",
   "pr.merged", "deploy.succeeded",
   "lead.created", "lead.replied", "campaign.launched", "channel.threshold_breached",
@@ -213,12 +270,15 @@ export const EVENT_TYPES = [
   "bank.balance_updated", "runway.threshold_crossed",
   "agent.health_changed", "credential.expiring", "training.completed", "agent.promoted",
   "approval.requested", "approval.resolved",
-  "mode.changed", "holiday.started", "holiday.ended",
+  "mode.changed", "holiday.started", "holiday.ended", "business.updated",
   "filing.due", "contract.signed",
   "connection.requested", "message.received", "negotiation.message",
-  "cycle.started", "cycle.completed", "inbox.item_created", "decision.made",
+  "cycle.started", "cycle.completed", "inbox.item_created", "inbox.item_updated", "decision.made",
+  "autopilot.changed", "autopilot.cycle_started",
   "foundations.progressed",
   "conversation.message_posted",
+  "membership.changed",
+  "agent.message_sent",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

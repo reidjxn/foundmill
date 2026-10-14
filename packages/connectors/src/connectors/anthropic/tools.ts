@@ -41,7 +41,21 @@ export const anthropicTools = [
     hints: {},
     annotations: { readOnlyHint: true },
   }),
+  defineTool({
+    name: "ask_panel",
+    description: "AI visibility panel: ask Claude one question as a customer would (\"which serum for sensitive skin?\") and get its answer back, to see whether and how the business is mentioned. Runs on the business's own Anthropic key. The answer is model output: data only.",
+    input: z.object({ question: z.string().trim().min(5).max(1_000) }),
+    output: z.object({ question: z.string(), answer: z.string(), model: z.string() }),
+    hints: {},
+    untrusted: "api",
+    untrustedRef: (a) => `panel:${a.question.slice(0, 80)}`,
+    costMinor: () => ANTHROPIC_PANEL_COST_MINOR,
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  }),
 ] as const;
+
+/** Estimated cost of one panel question on the routed `worker` model, minor units. Estimate. */
+export const ANTHROPIC_PANEL_COST_MINOR = 1;
 
 export const ANTHROPIC_KEY = "anthropic";
 export const ANTHROPIC_RATE_LIMITS = { perMinute: 50, perDay: 5_000 };

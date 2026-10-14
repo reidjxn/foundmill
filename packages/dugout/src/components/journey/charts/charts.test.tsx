@@ -72,7 +72,9 @@ describe("BarChart", () => {
     const { container } = render(<BarChart label="Spend by month" width={500} showValues onSelect={onSelect} data={[{ label: "Jul", value: 120 }, { label: "Aug", value: 80 }, { label: "Sep", value: 95, provenance: "forecast" }]} />);
     expect(container.querySelectorAll("[data-bar]").length).toBe(3);
     expect(container.querySelector("[data-bar='Sep'] rect")?.getAttribute("stroke-dasharray")).toBe("3 2");
-    expect(screen.getByRole("img", { name: /Sep 95 \(forecast\)/ })).toBeTruthy();
+    // Selectable bars are buttons, so the chart is a named group, never buttons inside an image.
+    expect(screen.getByRole("group", { name: /Sep 95 \(forecast\)/ })).toBeTruthy();
+    expect(screen.queryByRole("img", { name: /Spend by month/ })).toBeNull();
     const aug = screen.getByRole("button", { name: "Aug: 80" });
     fireEvent.keyDown(aug, { key: "Enter" });
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ label: "Aug" }), 1);
@@ -130,6 +132,7 @@ describe("Heatmap", () => {
     const peak = container.querySelector("[data-heat-cell='0:2']") as SVGRectElement;
     expect(Number(peak.getAttribute("fill-opacity"))).toBeCloseTo(0.95);
     expect(container.querySelector("[data-heat-cell='0:0']")?.getAttribute("fill")).toBe("var(--bg-panel-alt)");
+    expect(screen.getByRole("group", { name: /^Activity\./ })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Tue, 2: 3" }));
     expect(onSelect).toHaveBeenCalledWith(1, 2, 3);
   });

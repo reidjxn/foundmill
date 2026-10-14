@@ -5,9 +5,18 @@
  * onboarding) is a hard gate (BUILD §2.2): the tool exists only as a human-action descriptor.
  */
 import { z } from "zod";
+import type { ConnectField } from "../../contract";
 import { defineTool } from "../../define";
 
 export const STRIPE_KEY = "stripe";
+
+/**
+ * What the founder enters in Settings › Integrations to connect their own Stripe account live (a Connect account comes
+ * from the `start_connect_onboarding` hard gate instead).
+ */
+export const STRIPE_CONNECT_FIELDS: ConnectField[] = [
+  { name: "apiKey", label: "Restricted key", secret: true, required: true, placeholder: "rk_live_…", hint: "A restricted key from your Stripe dashboard with read access plus write access to customers, invoices and Checkout. Stripe fees stay on your account." },
+];
 export const STRIPE_API_VERSION = "2025-09-30.clover";
 export const STRIPE_DASHBOARD_URL = "https://dashboard.stripe.com";
 
@@ -48,6 +57,7 @@ export type InvoiceT = z.infer<typeof Invoice>;
 export const CheckoutSession = z.object({ id: z.string(), url: z.string().nullable(), mode: z.enum(["payment", "subscription", "setup"]), status: z.string().nullable(), paymentStatus: z.string(), amountTotalMinor: z.number().int().nullable(), currency: z.string().nullable(), customerEmail: z.string().nullable(), expiresAt: z.string().nullable() });
 
 export const Payout = z.object({ id: z.string(), amountMinor: z.number().int(), currency: z.string(), status: z.string(), arrivalDate: z.string(), automatic: z.boolean(), description: z.string().nullable() });
+export const Charge = z.object({ id: z.string(), customerId: z.string().nullable(), amountMinor: z.number().int(), refundedMinor: z.number().int(), currency: z.string(), status: z.string(), paid: z.boolean(), refunded: z.boolean(), invoiceId: z.string().nullable(), created: z.string(), description: z.string().nullable() });
 
 const LineItem = z.object({ description: z.string().min(1).max(500), amountMinor: z.number().int().positive(), quantity: z.number().int().positive().default(1) });
 
@@ -74,6 +84,7 @@ export const stripeTools = [
     output: CheckoutSession,
     hints: {},
   }),
+  defineTool({ name: "list_charges", description: "Payments taken, newest first, with how much of each was refunded; filter by customer.", input: z.object({ customerId: StripeId("cus").optional(), limit: z.number().int().min(1).max(100).default(25) }), output: z.object({ items: z.array(Charge), hasMore: z.boolean() }), hints: {}, untrusted: "api", untrustedRef: (a) => `charges:${a.customerId ?? "all"}`, annotations: { readOnlyHint: true } }),
   defineTool({ name: "list_payouts", description: "Recent payouts to the bank account.", input: z.object({ limit: z.number().int().min(1).max(100).default(10) }), output: z.object({ items: z.array(Payout) }), hints: {}, annotations: { readOnlyHint: true } }),
   defineTool({
     name: "create_payout",
@@ -101,7 +112,7 @@ export const stripeTools = [
     description: "HARD GATE (BUILD §2.2): Stripe Connect onboarding accepts Stripe's terms and verifies the founder's identity; only the founder can complete it.",
     input: z.object({ country: z.string().length(2).default("SE"), reason: z.string().max(1000).optional() }),
     hints: { hardGate: true, irreversible: true },
-    humanAction: (a) => ({ title: "Complete Stripe onboarding yourself", instructions: `Create or connect the Stripe account for ${a.country} in the Stripe dashboard, accept the Connected Account Agreement and complete identity verification. Then paste the account id (acct_…) into Settings → Integrations → Stripe.`, url: `${STRIPE_DASHBOARD_URL}/register` }),
+    humanAction: (a) => ({ title: "Complete Stripe onboarding yourself", instructions: `Create or connect the Stripe account for ${a.country} in the Stripe dashboard, accept the Connected Account Agreement and complete identity verification. Then connect it in Settings → Integrations → Stripe with a restricted API key from that account (Developers → API keys): an account id alone is not accepted, because it does not prove the account is yours.`, url: `${STRIPE_DASHBOARD_URL}/register` }),
   }),
 ] as const;
 
@@ -111,14 +122,18 @@ export const STRIPE_RATE_LIMITS = { perMinute: 60, perDay: 20_000 };
 export interface StCustomer { id: string; object?: "customer"; deleted?: boolean; email?: string | null; name?: string | null; created: number; currency?: string | null; balance?: number; delinquent?: boolean | null; metadata?: Record<string, string> }
 export interface StInvoiceLine { description?: string | null; amount: number; quantity?: number | null; price?: { nickname?: string | null; product?: string | { name?: string } | null } | null; pricing?: { price_details?: { price?: string; product?: string } } }
 export interface StInvoice {
-  id: string; number?: string | null; customer?: string | { id: string } | null; customer_email?: string | null; status?: string | null; currency: string; amount_due: number; amount_paid: number;
+  id: string; number?: string | null; customer?: string | { id: string } | null; customer_email?: string | null; customer_name?: string | null; status?: string | null; currency: string; amount_due: number; amount_paid: number;
   subscription?: string | { id: string } | null; parent?: { subscription_details?: { subscription?: string | { id: string } | null } | null } | null; billing_reason?: string | null; created: number; due_date?: number | null;
   status_transitions?: { paid_at?: number | null } | null; hosted_invoice_url?: string | null; lines?: { data: StInvoiceLine[] }; metadata?: Record<string, string>;
 }
 export interface StCheckoutSession { id: string; url?: string | null; mode: "payment" | "subscription" | "setup"; status?: string | null; payment_status: string; amount_total?: number | null; currency?: string | null; customer?: string | { id: string } | null; customer_email?: string | null; customer_details?: { email?: string | null; name?: string | null } | null; expires_at?: number | null; subscription?: string | null; payment_intent?: string | null; metadata?: Record<string, string> | null }
 export interface StSubscription { id: string; customer: string | { id: string }; status: string; created: number; trial_end?: number | null; currency?: string; items?: { data: { price?: { id?: string; nickname?: string | null; product?: string | { name?: string } | null } }[] }; metadata?: Record<string, string> }
 export interface StPayout { id: string; amount: number; currency: string; status: string; arrival_date: number; automatic: boolean; description?: string | null }
-export interface StAccount { id: string; business_profile?: { name?: string | null } | null; country?: string; default_currency?: string; charges_enabled?: boolean; payouts_enabled?: boolean; type?: string | null; settings?: { dashboard?: { display_name?: string | null } } }
+/** Metadata the platform puts on a Connect account it creates for a business: the proof an account id belongs to that business (`provenAccountFor`). */
+export const STRIPE_BUSINESS_METADATA_KEY = "foundmill_business_id";
+
+export interface StCharge { id: string; customer: string | null; amount: number; amount_refunded: number; currency: string; status: string; paid: boolean; refunded: boolean; invoice?: string | null; created: number; description?: string | null }
+export interface StAccount { id: string; metadata?: Record<string, string> | null; business_profile?: { name?: string | null } | null; country?: string; default_currency?: string; charges_enabled?: boolean; payouts_enabled?: boolean; type?: string | null; settings?: { dashboard?: { display_name?: string | null } } }
 export interface StBalance { available: { amount: number; currency: string }[]; pending: { amount: number; currency: string }[] }
 export interface StEvent<T = unknown> { id: string; type: string; created: number; livemode?: boolean; account?: string; data: { object: T } }
 
@@ -139,6 +154,7 @@ export const mapInvoice = (i: StInvoice): InvoiceT => ({
 
 export const mapCheckoutSession = (s: StCheckoutSession): z.infer<typeof CheckoutSession> => ({ id: s.id, url: s.url ?? null, mode: s.mode, status: s.status ?? null, paymentStatus: s.payment_status, amountTotalMinor: s.amount_total ?? null, currency: s.currency?.toUpperCase() ?? null, customerEmail: s.customer_email ?? s.customer_details?.email ?? null, expiresAt: iso(s.expires_at) });
 
+export const mapCharge = (c: StCharge): z.infer<typeof Charge> => ({ id: c.id, customerId: c.customer ?? null, amountMinor: c.amount, refundedMinor: c.amount_refunded, currency: c.currency.toUpperCase(), status: c.status, paid: c.paid, refunded: c.refunded, invoiceId: c.invoice ?? null, created: iso(c.created)!, description: c.description ?? null });
 export const mapPayout = (p: StPayout): z.infer<typeof Payout> => ({ id: p.id, amountMinor: p.amount, currency: p.currency.toUpperCase(), status: p.status, arrivalDate: iso(p.arrival_date)!, automatic: p.automatic, description: p.description ?? null });
 
 export const mapAccount = (a: StAccount) => ({ id: a.id, businessName: a.business_profile?.name ?? a.settings?.dashboard?.display_name ?? null, country: a.country ?? "", defaultCurrency: (a.default_currency ?? "").toUpperCase(), chargesEnabled: a.charges_enabled ?? false, payoutsEnabled: a.payouts_enabled ?? false, type: a.type ?? null });

@@ -218,6 +218,22 @@ describe("TabBar", () => {
     expect(screen.queryByRole("button", { name: "Formation views" })).toBeNull();
   });
 
+  it("keeps the tablist to tabs: the caret is a 24 px button beside it, laid over a slot in its tab's cell", () => {
+    render(<TabBar tabs={DISTRIBUTION_TABS} activeId="channels" activeSubViewId="paid" />);
+    const list = screen.getByRole("tablist", { name: "Screen tabs" });
+    // A tablist may own only tabs (axe aria-required-children): no button that is not a tab, no menu trigger.
+    expect([...list.querySelectorAll("button, a, [aria-haspopup]")].filter((el) => el.getAttribute("role") !== "tab" && !el.closest("[aria-hidden=true]"))).toEqual([]);
+    const caret = screen.getByRole("button", { name: "Channels views" });
+    expect(caret.closest("[role=tablist]")).toBeNull();
+    expect(caret.getAttribute("aria-haspopup")).toBe("menu");
+    // At least 24 px wide (WCAG 2.5.8) and no longer pulled into its tab by a negative margin.
+    expect(caret.className).toContain("w-target");
+    expect(caret.className).not.toMatch(/-ml-/);
+    const slot = screen.getByRole("tab", { name: /Channels/ }).parentElement?.querySelector("[data-tab-caret-slot]");
+    expect(slot?.getAttribute("aria-hidden")).toBe("true");
+    expect(slot?.className).toContain("w-target");
+  });
+
   it("puts counts in a pill, red with ink when the count needs the founder", () => {
     render(<TabBar tabs={[{ id: "all", label: "All" }, { id: "respond", label: "Respond", badge: 4, badgeTone: "bad" }, { id: "archive", label: "Archive", badge: 23 }]} activeId="all" />);
     expect(screen.getByLabelText("4 items").getAttribute("data-tone")).toBe("bad");
@@ -245,6 +261,7 @@ describe("TabBar", () => {
       const onChange = vi.fn();
       const { rerender } = render(<TabBar tabs={DISTRIBUTION_TABS} activeId="formation" onChange={onChange} />);
       const more = await screen.findByRole("button", { name: "More tabs" });
+      expect(more.closest("[role=tablist]")).toBeNull();
       expect(screen.getAllByRole("tab").filter((t) => !t.closest("[aria-hidden=true]")).map((t) => t.id)).toEqual(["tab-formation", "tab-channels"]);
       await user.click(more);
       await user.click(await screen.findByRole("menuitem", { name: "Creative" }));

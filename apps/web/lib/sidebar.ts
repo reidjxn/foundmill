@@ -1,12 +1,14 @@
 /**
  * Sidebar items for the shell (BUILD §5.3, DESIGN §8): Home, Inbox (badge: items to respond to), departments in the
- * founder's order (badge: unread items from that department's agents), CRM, the LIVE block, foot items.
+ * founder's order (badge: unread items from that department's agents), CRM, the LIVE block (Network in every mode,
+ * badged with what waits for the founder), foot items.
  * Pure and unit-tested; the layout feeds it `department.list` + `inbox.list`.
  */
 import { Globe, Home, Inbox, KeyRound, LogOut, Settings, Trophy, Users, Users2, type LucideIcon } from "lucide-react";
 import type { SidebarBrand, SidebarItem } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
+import { canOpenDepartment, FULL_ACCESS, type Access } from "./access";
 import { iconByName } from "./icons";
 
 export interface SidebarDepartment {
@@ -17,6 +19,9 @@ export interface SidebarDepartment {
   colourToken: DeptColourToken;
   position: number;
   hidden?: boolean;
+  /** The stored G-chord letter (departments.shortcut); null until the API settles one. */
+  shortcut?: string | null;
+  moduleKeys?: readonly string[];
   squad?: readonly { id: string }[];
   tabs: readonly { slug: string; position: number }[];
 }
@@ -34,6 +39,13 @@ export interface SidebarInput {
   /** First page of inbox items; unread ones from a department's agents badge that department. */
   inboxItems?: readonly SidebarInboxItem[];
   live: boolean;
+  /**
+   * The founder's LIVE counts from `live.summary`: `total` (unread messages, requests and invitations) badges Network
+   * in every mode, `moderation` (posts waiting in communities they moderate) badges Communities.
+   */
+  network?: { total: number; moderation: number };
+  /** What the person may open (audit RUI-05): walled departments and a walled CRM are not listed. Default: everything. */
+  access?: Access;
 }
 
 export const SIDEBAR_IDS = { home: "home", inbox: "inbox", crm: "crm", milestones: "milestones", settings: "settings", keys: "keys", signOut: "sign-out", network: "network", communities: "communities", leaderboards: "leaderboards" } as const;
@@ -66,6 +78,7 @@ export function departmentBadges(departments: readonly SidebarDepartment[], item
 
 export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
   const bid = input.businessId;
+  const access = input.access ?? FULL_ACCESS;
   const respond = input.inboxCounts?.respond ?? 0;
   const badges = departmentBadges(input.departments, input.inboxItems);
   const items: SidebarItem[] = [
@@ -73,13 +86,17 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
     { id: SIDEBAR_IDS.inbox, label: "Inbox", icon: Inbox, href: routes.inbox(bid), group: "main", fixed: "inbox", badge: respond || undefined, badgeTone: "bad" },
   ];
   for (const d of orderedVisibleDepartments(input.departments)) {
-    items.push({ id: d.id, label: d.name, icon: iconByName(d.icon) as LucideIcon, href: departmentHref(bid, d), group: "department", dept: d.colourToken, badge: badges.get(d.id) || undefined });
+    if (!canOpenDepartment(access, d)) continue;
+    items.push({ id: d.id, label: d.name, icon: iconByName(d.icon) as LucideIcon, href: departmentHref(bid, d), group: "department", dept: d.colourToken, shortcut: d.shortcut ?? null, badge: badges.get(d.id) || undefined });
   }
-  items.push({ id: SIDEBAR_IDS.crm, label: "CRM", icon: Users, href: routes.crm(bid), group: "main", fixed: "crm" });
+  if (access.canRead("crm")) items.push({ id: SIDEBAR_IDS.crm, label: "CRM", icon: Users, href: routes.crm(bid), group: "main", fixed: "crm" });
   items.push({ id: SIDEBAR_IDS.milestones, label: "Milestones", icon: Trophy, href: `/b/${bid}/milestones`, group: "main" });
+  // Network is the founder's own (their connections, messages and invitations), so it is there in every mode with its
+  // badge: a request or a message must reach a founder whichever business they have open. Communities and Leaderboards
+  // are about the business on the network, so they appear once it is LIVE.
+  items.push({ id: SIDEBAR_IDS.network, label: "Network", icon: Globe, href: "/network", group: "live", badge: input.network?.total || undefined });
   if (input.live) {
-    items.push({ id: SIDEBAR_IDS.network, label: "Network", icon: Globe, href: "/network", group: "live" });
-    items.push({ id: SIDEBAR_IDS.communities, label: "Communities", icon: Users2, href: "/communities", group: "live" });
+    items.push({ id: SIDEBAR_IDS.communities, label: "Communities", icon: Users2, href: "/communities", group: "live", badge: input.network?.moderation || undefined });
     items.push({ id: SIDEBAR_IDS.leaderboards, label: "Leaderboards", icon: Trophy, href: "/leaderboards", group: "live" });
   }
   items.push({ id: SIDEBAR_IDS.settings, label: "Settings", icon: Settings, href: routes.settings(bid, "business"), group: "foot" });
@@ -92,6 +109,8 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
 /** The LIVE pages sit outside /b/[bid] (BUILD §6.2); each lights its own sidebar item, whichever business is current. */
 const LIVE_ROUTE_ITEMS = [
   ["/network", SIDEBAR_IDS.network],
+  // A public profile is reached from search or the Network; it lights the Network item.
+  ["/profiles", SIDEBAR_IDS.network],
   ["/communities", SIDEBAR_IDS.communities],
   ["/leaderboards", SIDEBAR_IDS.leaderboards],
 ] as const;

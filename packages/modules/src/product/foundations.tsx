@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { CircleCheck, CircleDashed, Compass, LoaderCircle } from "lucide-react";
 import { Avatar, Chip, EntityLink, FoundationsStatus, Icon, LiveRun, Panel, ProvenanceChip, StatusPill, cn, foundationsNeedsAttention, useDateFormat, type GridSpan, type LiveRunItem, type LiveRunStep } from "@foundmill/dugout";
 import type { DeptColourToken, RoadmapHorizon } from "@foundmill/shared";
-import { moduleHref, routes, useDepartments, useHostStreamOpen, useWidgetData, useWidgetQuery, type QueryState } from "@foundmill/widgets";
+import { failedWithoutData, isForbidden, moduleHref, routes, useDepartments, useHostStreamOpen, useWidgetData, useWidgetQuery, type QueryState } from "@foundmill/widgets";
 import { PlainDoc } from "./PlainDoc";
 import { errorMessage, useAction } from "./shared";
 import type { FoundationsProgress, FoundationsResponse, FoundationsVision } from "./types";
@@ -28,7 +28,7 @@ export const FOUNDATIONS_STREAM_POLL_MS = 10_000;
 
 /** What the drafting reads, by door. */
 export function foundationsBasis(door: FoundationsResponse["door"]): string {
-  return door === "import" ? "From the Import report and the sources you connected at sign-up." : "From your idea and your founder profile.";
+  return door === "import" ? "From the Import report and the sources you chose at sign-up." : "From your idea and your founder profile.";
 }
 
 /** "10 specification sections · 11 roadmap items, 4 in Now · 3 imported issues" (null when the summary is empty). */
@@ -96,7 +96,11 @@ export function FoundationsBanner({ foundations, span = 12, showReady = false, d
   const departments = useDepartments({ enabled: showReady });
   const retry = useAction();
   const f = foundations.data;
-  if (!f) return null;
+  if (!f) {
+    // A failed read is not "no foundations": say so with Try again (a person walled from Product sees nothing here).
+    if (failedWithoutData(foundations) && !isForbidden(foundations.error)) return <Panel span={span} title="Foundations" error={`The vision, specification and roadmap could not be loaded. ${errorMessage(foundations.error)}`} onRetry={foundations.refetch} className={className} data-testid="foundations-status" />;
+    return null;
+  }
   const state = foundationsDisplayState(f);
   const readyNews = showReady && state === "ready" && foundations.sawDrafting;
   if (state === "none" || (!foundationsNeedsAttention(state) && !readyNews)) return null;

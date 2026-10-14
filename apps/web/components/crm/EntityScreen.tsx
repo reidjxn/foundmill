@@ -3,7 +3,9 @@
  * Entity profile (BUILD §11.12 "Profile tabs"): ProfileHeader (kind, roles, owner, since, relationship strength
  * 1–20, lead score stars) and the tabs Overview · Activity · Relationships (graph + intro paths) · Commercial ·
  * Documents · Notes · Journey (re-watch replays). Merge from the header, unmerge from the merge history
- * (AC-11.12.3); data duties (export, deletion request) live in the header actions.
+ * (AC-11.12.3): Unmerge reverts only what that merge changed, and while a later merge relies on it the history
+ * says which merge to undo first instead of offering the button. Data duties (export, deletion request) live in
+ * the header actions.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, Download, GitMerge, Handshake, Mail, MessageSquare, Pencil, Phone, Play, ScrollText, StickyNote, Trash2, Undo2, UserRoundPlus, Users } from "lucide-react";
@@ -18,9 +20,10 @@ import { useBusiness, useBusinessCurrency } from "@/components/shell/business-co
 import { plainWords } from "@/lib/format";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { AddRoleDialog, DeleteRequestDialog, EditEntityDialog, ExportDialog, MergeDialog, useCrmInvalidate } from "./dialogs";
-import { ENTITY_TABS, KIND_WORD, LAWFUL_BASIS_LABEL, STAGE_TONE, VISIBILITY_WORD, activityItems, commercialSummary, documentItems, introPaths, leadScore, mergeBanner, primaryRole, relationshipStrength, containerWord, roleWord, sourceWord, stageWord, strengthRating, type EntityGet, type EntityTab, type OwnerRef } from "./logic";
+import { ENTITY_TABS, KIND_WORD, LAWFUL_BASIS_LABEL, STAGE_TONE, VISIBILITY_WORD, activityItems, commercialSummary, documentItems, introPaths, isCustomerWin, leadScore, mergeBanner, primaryRole, relationshipStrength, containerWord, roleWord, sourceWord, stageWord, strengthRating, type EntityGet, type EntityTab, type OwnerRef } from "./logic";
 import { RelationshipGraph } from "./RelationshipGraph";
 
 export interface EntityScreenProps {
@@ -62,6 +65,8 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
   const [dialog, setDialog] = useState<"merge" | "edit" | "export" | "delete" | "role" | null>(null);
   useEffect(() => {
     if (search.get("export") === "1") setDialog("export");
+    // A mention's right-click "Assign agent" / "Add to list" lands here with the role dialog open (lib/entity-resolver).
+    else if (search.get("role") === "1") setDialog("role");
   }, [search]);
   // A merged-away id redirects to the surviving record (the API resolves it; keep the URL honest).
   useEffect(() => {
@@ -74,7 +79,11 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
         void invalidate();
         toast({ title: "Merge undone", description: `${r.merged.displayName} is a separate record again.`, tone: "good" });
       },
-      onError: (err) => toast({ title: "Unmerge failed", description: errorMessage(err), tone: "bad" }),
+      onError: (err) => {
+        // CONFLICT: a later merge relies on this one; the message names the merge to undo first.
+        if (trpcErrorCode(err) === "CONFLICT") void invalidate();
+        toast({ title: trpcErrorCode(err) === "CONFLICT" ? "This merge cannot be undone yet" : "Unmerge failed", description: errorMessage(err), tone: "bad" });
+      },
     }),
   );
   const endRole = useMutation(
@@ -84,7 +93,14 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
     }),
   );
 
-  if (getQ.error) return <ErrorPanel title="Record" message={trpcErrorCode(getQ.error) === "NOT_FOUND" ? "No record with this id in this business." : errorMessage(getQ.error)} onRetry={() => void getQ.refetch()} />;
+  if (loadFailed(getQ) && isMissing(getQ.error)) {
+    return (
+      <NotFoundPanel title="Record" heading="No such record" back={{ label: "Back to the CRM", href: routes.crm(businessId) }}>
+        Nothing in this business has this address: the record was deleted, merged away, or the link is wrong.
+      </NotFoundPanel>
+    );
+  }
+  if (loadFailed(getQ)) return <ErrorPanel title="Record" message={errorMessage(getQ.error)} onRetry={() => void getQ.refetch()} />;
   if (!get) return <ScreenSkeleton />;
 
   const entity = get.entity;
@@ -117,6 +133,7 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="entity-profile" data-entity-id={entity.id} data-tab={tab}>
+      {refreshFailed(getQ) ? <RefreshFailedNotice query={getQ} /> : null}
       <ProfileHeader avatar={<Avatar size={64} name={entity.displayName} src={entity.avatarUrl ?? undefined} />} name={entity.displayName} chips={chips} status={role?.stage ? <StatusPill tone={STAGE_TONE[role.stage] ?? "neutral"}>{stageWord(role.stage)}</StatusPill> : undefined} facts={facts} stars={{ current: score.stars }} actions={headerActions} />
       {banner.redirected || banner.absorbed.length ? (
         <div className="flex flex-wrap items-center gap-2 border-b border-subtle bg-panel-alt px-gutter py-1.5 text-small text-secondary" data-testid="merge-banner">
@@ -125,9 +142,13 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
           {banner.absorbed.map((m) => (
             <span key={m.id} className="inline-flex items-center gap-2">
               Absorbed a duplicate {formatRelative(m.createdAt)}.
-              <Button size="sm" variant="ghost" icon={Undo2} loading={unmerge.isPending} onClick={() => unmerge.mutate({ businessId, mergeLogId: m.id })} data-testid="unmerge">
-                Unmerge
-              </Button>
+              {m.undoBlocked ? (
+                <span data-testid="unmerge-blocked">{m.undoBlocked}</span>
+              ) : (
+                <Button size="sm" variant="ghost" icon={Undo2} loading={unmerge.isPending} onClick={() => unmerge.mutate({ businessId, mergeLogId: m.id })} data-testid="unmerge">
+                  Unmerge
+                </Button>
+              )}
             </span>
           ))}
         </div>
@@ -213,7 +234,15 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
                         <span>
                           {m.keptId === entity.id ? "Absorbed a duplicate record" : "Merged into another record"} {formatRelative(m.createdAt)}, {MERGED_BY[m.byKind] ?? `by ${plainWords(m.byKind).toLowerCase()}`}
                         </span>
-                        {m.revertedAt ? <Chip tone="neutral">Reverted {formatRelative(m.revertedAt)}</Chip> : m.keptId === entity.id ? <Button size="sm" variant="ghost" icon={Undo2} className="ml-auto" loading={unmerge.isPending} onClick={() => unmerge.mutate({ businessId, mergeLogId: m.id })}>Unmerge</Button> : null}
+                        {m.revertedAt ? (
+                          <Chip tone="neutral">Reverted {formatRelative(m.revertedAt)}</Chip>
+                        ) : m.keptId !== entity.id ? null : m.undoBlocked ? (
+                          <span className="ml-auto max-w-reading text-small text-secondary">{m.undoBlocked}</span>
+                        ) : (
+                          <Button size="sm" variant="ghost" icon={Undo2} className="ml-auto" loading={unmerge.isPending} onClick={() => unmerge.mutate({ businessId, mergeLogId: m.id })}>
+                            Unmerge
+                          </Button>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -243,7 +272,7 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
 // --- tabs -------------------------------------------------------------------------------------------------------------
 
 function ActivityTab({ get, businessId, squad }: { get: EntityGet; businessId: string; squad?: { id: string; name: string; avatarSeed: string; departments: { colourToken: string }[] }[] }) {
-  const items = useMemo(() => activityItems(get, { inbox: (id) => routes.inbox(businessId, id), journey: (id) => routes.journey(businessId, id) }), [get, businessId]);
+  const items = useMemo(() => activityItems(get, { inbox: (id) => routes.inbox(businessId, id), journey: (id) => routes.journey(businessId, id, routes.crm(businessId, get.entity.id, "activity")) }), [get, businessId]);
   const events: TimelineEvent[] = items.map((i) => {
     const agent = i.agentId ? squad?.find((a) => a.id === i.agentId) : undefined;
     return {
@@ -411,18 +440,26 @@ function NotesTab({ get, businessId }: { get: EntityGet; businessId: string }) {
 function JourneyTab({ get, businessId }: { get: EntityGet; businessId: string }) {
   const { formatDateTime } = useFormatters();
   const router = useRouter();
-  const wins = get.conversions.slice().sort((a, b) => Date.parse(String(b.occurredAt)) - Date.parse(String(a.occurredAt)));
+  // Renewals and repeat orders are revenue (Commercial tab), not wins: they have no replay.
+  const wins = get.conversions.filter(isCustomerWin).sort((a, b) => Date.parse(String(b.occurredAt)) - Date.parse(String(a.occurredAt)));
   return (
-    <Panel title="Customer Updates" span={12} empty={wins.length === 0 ? { icon: Play, children: "Each win (sign-up, activation, payment) has a replay: first touch, who was involved, the win moment and the debrief." } : undefined} footer="Replays open the Customer Update for that win." data-testid="journey-list">
+    <Panel title="Customer Updates" span={12} empty={wins.length === 0 ? { icon: Play, children: "Each win (sign-up, activation, payment) has a replay: first touch, who was involved, the win moment and the debrief." } : undefined} footer="Re-watch opens the Customer Update for that win." data-testid="journey-list">
       <ul className="flex flex-col divide-y divide-subtle">
         {wins.map((c) => (
           <li key={c.id} className="flex items-center gap-3 py-2 text-body">
             <StatusPill tone={c.kind === "payment" ? "good" : "info"}>{c.kind === "payment" ? "Payment" : c.kind === "activation" ? "Activation" : "Sign-up"}</StatusPill>
             <span className="text-secondary">{formatDateTime(c.occurredAt)}</span>
             {c.kind === "payment" ? <span className="tabular-nums">{formatMoney({ amountMinor: Number(c.amountMinor), currency: c.currency })}</span> : null}
-            <Button size="sm" icon={Play} className="ml-auto" onClick={() => router.push(routes.journey(businessId, c.id))} data-testid="rewatch">
-              Re-watch
-            </Button>
+            {/* Re-watch opens the win's own Customer Update; a win recorded without one has nothing to replay. */}
+            {c.journeyId ? (
+              <Button size="sm" icon={Play} className="ml-auto" onClick={() => c.journeyId && router.push(routes.journey(businessId, c.journeyId, routes.crm(businessId, get.entity.id, "journey")))} data-testid="rewatch">
+                Re-watch
+              </Button>
+            ) : (
+              <span className="ml-auto text-small text-secondary" data-testid="no-replay">
+                No replay recorded
+              </span>
+            )}
           </li>
         ))}
       </ul>

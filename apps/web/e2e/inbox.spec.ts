@@ -7,6 +7,8 @@ import { LONG, NORTHWIND_BUSINESS_ID, UUID, ensureDeck, openBusiness, signIn } f
  * run). Stack and commands: e2e/README.md.
  */
 const rowsOf = (page: Page) => page.getByTestId("inbox-list").getByRole("option");
+/** Ledgerly (seed): on vacation, with a spend its Paid Ads agent asked the founder to approve. */
+const LEDGERLY_BUSINESS_ID = "b1e5e5e5-0000-4000-8000-000000000002";
 
 async function openInbox(page: Page, tab?: string): Promise<void> {
   await openBusiness(page, `inbox${tab ? `?tab=${tab}` : ""}`);
@@ -56,6 +58,9 @@ test.describe("inbox", () => {
     await expect(page.getByTestId("inbox-item-header")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("type-pill")).toBeVisible();
     await expect(page.getByTestId("inbox-note")).toBeVisible();
+    // The owner is walled from nothing: no figure or customer detail of the note is hidden (inbox.get item.redacted).
+    await expect(page.getByTestId("redacted-notice")).toHaveCount(0);
+    await expect(page.getByTestId("inbox-note")).not.toContainText("(amount hidden)");
   });
 
   test("AC-11.3.2: R adds exactly one new item; a second R inside the debounce only shows the wait", async ({ page }) => {
@@ -109,11 +114,15 @@ test.describe("inbox", () => {
     await expect(confirm.or(answered).first()).toBeVisible({ timeout: LONG });
     if (await confirm.isVisible()) {
       await expect(confirm.getByRole("heading", { name: "Here is what will happen" })).toBeVisible();
+      // A costed option reaches the plan as a budget the founder confirms; its amount is an Estimate (audit FR-10, OL-11).
+      await expect(confirm.getByTestId("confirm-plan-lines")).toContainText("(Estimate)");
       await page.getByTestId("confirm-plan-go").click();
       await expect(confirm).toBeHidden({ timeout: LONG });
     }
     await expect(item).toHaveAttribute("data-state", "answered");
     await expect(answered).toBeVisible();
+    // An action left to the founder never reads "Confirmed by you" while its plan still awaits confirmation (VOL-X1).
+    if (await answered.getByText("Awaiting your confirmation").isVisible()) await expect(answered.getByText("Confirmed by you")).toHaveCount(0);
     // Decided from the DecisionBar: the desk keeps 2–4 replies but no longer offers "Go with: …" (no second decision).
     await expect(desk.locator('[data-quick-reply="go_with"]')).toHaveCount(0, { timeout: LONG });
     const left = desk.getByTestId("quick-replies").locator("[data-quick-reply]:not([data-quick-reply=write])");
@@ -137,7 +146,6 @@ test.describe("inbox", () => {
     await decision.click();
     const item = page.getByTestId("inbox-item");
     await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
-    const stateBefore = await item.getAttribute("data-state");
     // The persona line never repeats itself ("Chief of Staff Chief of Staff").
     const header = page.getByTestId("inbox-item-header");
     const persona = (await header.getByTestId("persona-link").innerText()).trim();
@@ -162,7 +170,8 @@ test.describe("inbox", () => {
     await page.keyboard.press("Alt+2");
     await expect.poll(() => agentBubbles.count(), { timeout: LONG }).toBeGreaterThan(before);
     // The question did not decide anything: the item and its DecisionBar are still open.
-    await expect(item).toHaveAttribute("data-state", stateBefore!);
+    // (Opening a note marks it read, so unread may turn read meanwhile; answered it is not.)
+    await expect(item).toHaveAttribute("data-state", /^(unread|read)$/);
     await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
     await expect(page.getByTestId("answered-panel")).toHaveCount(0);
 
@@ -184,7 +193,6 @@ test.describe("inbox", () => {
     await decision.click();
     const item = page.getByTestId("inbox-item");
     await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
-    const stateBefore = await item.getAttribute("data-state");
     const desk = page.getByTestId("agent-desk");
     const replies = desk.getByTestId("quick-replies").locator("[data-quick-reply]:not([data-quick-reply=write]):not([data-quick-reply=go_with])");
     await expect(replies.first()).toBeVisible({ timeout: LONG });
@@ -198,24 +206,56 @@ test.describe("inbox", () => {
     await expect(founderBubbles).toHaveCount(foundersBefore + 1, { timeout: LONG });
     await expect(desk.getByTestId("read-receipt").last()).toContainText("Not sent", { timeout: LONG });
     const words = (await founderBubbles.last().innerText()).replace(/^You:\s*/, "").trim();
-    await expect(desk.getByTestId("agent-bubble").filter({ hasText: "didn't reach me" }).last()).toBeVisible();
+    await expect(desk.getByTestId("agent-bubble").filter({ hasText: "couldn't confirm your message" }).last()).toBeVisible();
     const retry = desk.locator('[data-quick-reply="local-retry"]');
     await expect(retry).toBeVisible();
     await expect(retry).toHaveAttribute("data-likeliest", "true");
     // Nothing was decided and nothing was resent on its own.
-    await expect(item).toHaveAttribute("data-state", stateBefore!);
+    // (Opening a note marks it read, so unread may turn read meanwhile; answered it is not.)
+    await expect(item).toHaveAttribute("data-state", /^(unread|read)$/);
     await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
 
     await page.unroute(offline);
     const agentBubbles = desk.getByTestId("agent-bubble");
     await retry.click();
-    await expect(desk.getByTestId("agent-bubble").filter({ hasText: "didn't reach me" })).toHaveCount(0, { timeout: LONG });
+    await expect(desk.getByTestId("agent-bubble").filter({ hasText: "couldn't confirm your message" })).toHaveCount(0, { timeout: LONG });
     await expect(desk.getByTestId("read-receipt").last()).not.toContainText("Not sent", { timeout: LONG });
     await expect.poll(() => agentBubbles.count(), { timeout: LONG }).toBeGreaterThan(0);
     await expect(founderBubbles.last()).toContainText(words);
     await expect(founderBubbles).toHaveCount(foundersBefore + 1);
     await expect(desk.locator('[data-quick-reply="local-retry"]')).toHaveCount(0);
-    await expect(item).toHaveAttribute("data-state", stateBefore!);
+    await expect(item).toHaveAttribute("data-state", /^(unread|read)$/);
+  });
+
+  test("a reply lost on its way back is not reported as unsent, and nothing is posted twice (audit RES-09)", async ({ page }) => {
+    await openInbox(page, "respond");
+    const decision = rowsOf(page).filter({ hasText: "Approve batch 002" }).first();
+    await expect(decision, "the seed gives Northwind the batch 002 decision").toBeVisible({ timeout: LONG });
+    await decision.click();
+    await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-type", "decision", { timeout: LONG });
+    const desk = page.getByTestId("agent-desk");
+    const replies = desk.getByTestId("quick-replies").locator("[data-quick-reply]:not([data-quick-reply=write]):not([data-quick-reply=go_with])");
+    await expect(replies.first()).toBeVisible({ timeout: LONG });
+    const founderBubbles = desk.getByTestId("founder-bubble");
+    const foundersBefore = await founderBubbles.count();
+
+    // The api takes the message and answers it; the answer never reaches the browser.
+    const lost = /\/trpc\/[^?]*agent\.conversation\.send/;
+    await page.route(lost, async (route) => {
+      try {
+        await route.fetch();
+        await route.abort("connectionreset");
+      } catch {
+        // The page moved on (or the route was released) while the api was still answering.
+      }
+    });
+    await replies.first().click();
+    // The desk asks the server and finds the message there: the exchange shows, with nothing to send again.
+    await expect(founderBubbles).toHaveCount(foundersBefore + 1, { timeout: LONG });
+    await expect(desk.getByTestId("read-receipt").last()).not.toContainText("Not sent", { timeout: LONG });
+    await expect(desk.locator('[data-quick-reply="local-retry"]')).toHaveCount(0);
+    await expect(desk.getByTestId("agent-bubble").filter({ hasText: "couldn't confirm your message" })).toHaveCount(0);
+    await page.unroute(lost);
   });
 
   test("number keys in an agent's sheet opened over a decision answer the sheet, never the note underneath", async ({ page }) => {
@@ -226,7 +266,6 @@ test.describe("inbox", () => {
     const item = page.getByTestId("inbox-item");
     await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
     await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
-    const stateBefore = await item.getAttribute("data-state");
     // The command palette's Ask row opens the Chief of Staff's desk as a sheet over the note.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.keyboard.press("Control+k");
@@ -246,9 +285,22 @@ test.describe("inbox", () => {
     await expect(page.getByTestId("confirm-plan")).toHaveCount(0);
     await sheet.getByRole("button", { name: "Close" }).click();
     await expect(sheet).toBeHidden();
-    await expect(item).toHaveAttribute("data-state", stateBefore!);
+    // (Opening a note marks it read, so unread may turn read meanwhile; answered it is not.)
+    await expect(item).toHaveAttribute("data-state", /^(unread|read)$/);
     await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
     await expect(page.getByTestId("answered-panel")).toHaveCount(0);
+  });
+
+  test("a money decision reads in the business's own currency: pounds for Northwind, never euros", async ({ page }) => {
+    // The options' costs used to read a glossary entry nothing writes, so every business saw "€37,200.00" here.
+    await openInbox(page, "respond");
+    const decision = rowsOf(page).filter({ hasText: "Approve batch 002" }).first();
+    await expect(decision, "the seed gives Northwind the batch 002 decision").toBeVisible({ timeout: LONG });
+    await decision.click();
+    const bar = page.getByTestId("decision-bar");
+    await expect(bar).toHaveAttribute("data-state", "open", { timeout: LONG });
+    await expect(bar).toContainText("£37,200.00");
+    await expect(bar).not.toContainText("€");
   });
 
   test("a \"Go with: …\" quick reply decides the note through the decide path", async ({ page }) => {
@@ -273,6 +325,152 @@ test.describe("inbox", () => {
     await expect(answered).toBeVisible();
     // The agent acknowledges in the thread.
     await expect(desk.getByTestId("agent-bubble").filter({ hasText: /Going with/ }).last()).toBeVisible({ timeout: LONG });
+  });
+
+  test("an agent's request names the agent, the call and the amount; Reject sends the founder's reason (audit FR-01)", async ({ page }) => {
+    await signIn(page);
+    await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/inbox?tab=all`);
+    await expect(page.getByTestId("inbox-list")).toBeVisible({ timeout: LONG });
+    // The seed's pending approval has its decision item: "<agent> asks to run Foundmill › set budget".
+    const request = rowsOf(page).filter({ hasText: /asks to run .+ › set budget/ }).first();
+    await expect(request, "the seed gives Ledgerly an agent's request to approve").toBeVisible({ timeout: LONG });
+    await request.click();
+    const panel = page.getByTestId("approval-panel");
+    await expect(panel).toBeVisible({ timeout: LONG });
+    await expect(panel.getByTestId("approval-agent")).toHaveAttribute("href", new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/agents/${UUID}/overview$`));
+    await expect(panel.getByTestId("approval-action")).toHaveText(/ › set budget$/);
+    await expect(panel.getByTestId("approval-amount")).toHaveText("£600.00");
+    const item = page.getByTestId("inbox-item");
+    await expect(item).toHaveAttribute("data-type", "decision");
+    // The seed's request is used up by the first run; a re-run without a fresh seed finds it answered.
+    if ((await item.getAttribute("data-state")) !== "answered") {
+      const bar = page.getByTestId("decision-bar");
+      await expect(bar).toHaveAttribute("data-state", "open");
+      const options = bar.getByRole("group", { name: "Options" }).getByRole("button");
+      await expect(options.filter({ hasText: "Approve" })).toBeVisible();
+      await panel.getByTestId("approval-reason").fill("Keep the budget until the close is done");
+      const decided = page.waitForRequest((req) => req.method() === "POST" && /\/trpc\/[^?]*inbox\.decide/.test(req.url()));
+      await options.filter({ hasText: "Reject" }).click();
+      const body = (await decided).postData() ?? "";
+      expect(body).toContain("reject_request");
+      expect(body).toContain("Keep the budget until the close is done");
+      await expect(page.getByText(/^You rejected .+ request to run .+ › set budget/).first()).toBeVisible({ timeout: LONG });
+    }
+    await expect(item).toHaveAttribute("data-state", "answered", { timeout: LONG });
+    await expect(panel.getByTestId("approval-reason")).toHaveCount(0);
+    await expect(panel).toContainText(/Rejected|Approved/);
+    await expect(page.getByTestId("answered-panel")).toBeVisible();
+  });
+
+  test("a plan waiting for the go-ahead survives a reload: it stays in Respond, its spend reads as waiting, and Review confirms it once", async ({ page }) => {
+    await signIn(page);
+    const { bid, itemId } = await commitFreshBusiness(page, `Playwright Go-ahead ${Date.now().toString(36)}`);
+    const item = page.getByTestId("inbox-item");
+    await expect(item).toHaveAttribute("data-type", "decision");
+    // An instruction typed to the agent decides the note; the spend is above the approval threshold, so it waits.
+    await page.locator("[data-decision-ask]").click();
+    const write = page.getByTestId("agent-desk").getByRole("textbox", { name: /^Reply to / });
+    await expect(write).toBeFocused();
+    await write.fill("Spend up to $500 on LinkedIn ads targeting fintech CFOs next week");
+    await page.keyboard.press("Enter");
+    const confirm = page.getByTestId("confirm-plan");
+    await expect(confirm).toBeVisible({ timeout: LONG });
+    await confirm.getByRole("button", { name: "Not now" }).click();
+    await expect(confirm).toBeHidden();
+
+    // A reload (or another device): nothing the deciding page remembered. The note still asks for the go-ahead.
+    await page.goto(`/b/${bid}/inbox/${itemId}?tab=respond`);
+    const answered = page.getByTestId("answered-panel");
+    await expect(answered).toBeVisible({ timeout: LONG });
+    await expect(item).toHaveAttribute("data-state", "answered");
+    await expect(page.getByTestId("type-pill")).toContainText("Needs your go-ahead");
+    await expect(page.locator(`[data-inbox-row="${itemId}"]`)).toHaveAttribute("data-needs-answer", "true", { timeout: LONG });
+    // The spend action reads as waiting, never as confirmed (audit VOL-X1); nothing to open yet.
+    await expect(answered.getByTestId("ask-chip")).toHaveText(["Needs your go-ahead"]);
+    await expect(answered.locator("[data-follow-up-link]")).toHaveCount(0);
+
+    await answered.getByTestId("reopen-confirmation").click();
+    await expect(confirm).toBeVisible();
+    await expect(confirm.getByRole("heading", { name: "Here is what will happen" })).toBeVisible();
+    await expect(confirm.getByTestId("confirm-plan-lines").locator('[data-outcome="ask"]')).toHaveCount(1);
+    await page.getByTestId("confirm-plan-go").click();
+    await expect(confirm).toBeHidden({ timeout: LONG });
+    await expect(answered.getByTestId("reopen-confirmation")).toHaveCount(0, { timeout: LONG });
+    await expect(answered.getByTestId("ask-chip")).toHaveText(["Confirmed"], { timeout: LONG });
+    await expect(page.getByTestId("type-pill")).not.toContainText("Needs your go-ahead");
+    // A task is a task: the answered panel never sends "Open the plan" to the unrelated task list (audit FR-08).
+    await expect(answered.getByRole("button", { name: "Open the plan" })).toHaveCount(0);
+    // Confirmed, it leaves Respond.
+    await page.reload();
+    await expect(page.getByTestId("inbox-screen")).toHaveAttribute("data-tab", "respond", { timeout: LONG });
+    await expect(page.locator(`[data-inbox-row="${itemId}"]`)).toHaveCount(0, { timeout: LONG });
+  });
+
+  // The seeded Northwind decision with a spend option, a deadline five days after the seed and "Blocks Continue" (its id
+  // is new with every seed, so it is read from the list).
+  async function northwindDecisionId(page: Page): Promise<string> {
+    await openInbox(page, "respond");
+    const row = rowsOf(page).filter({ hasText: "Approve batch 002" }).first();
+    await expect(row, "the seed gives Northwind the batch 002 decision").toBeVisible({ timeout: LONG });
+    const id = await row.getAttribute("data-inbox-row");
+    expect(id).toBeTruthy();
+    return id!;
+  }
+
+  test("the list and the reading pane scroll on their own; the page behind them never moves (audit OL-03)", async ({ page }) => {
+    const decisionId = await northwindDecisionId(page);
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/inbox/${decisionId}`);
+    await expect(page.getByTestId("inbox-item")).toBeVisible({ timeout: LONG });
+    const main = page.getByTestId("shell-content");
+    const size = await main.evaluate((el) => ({ scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }));
+    expect(size.scrollHeight).toBeLessThanOrEqual(size.clientHeight + 1);
+    const before = (await page.getByTestId("inbox-pane").boundingBox())!.y;
+    await page.getByTestId("reading-pane").hover();
+    await page.mouse.wheel(0, 600);
+    expect(await main.evaluate((el) => el.scrollTop)).toBe(0);
+    expect((await page.getByTestId("inbox-pane").boundingBox())!.y).toBe(before);
+  });
+
+  test("a decision past its deadline stays open and keeps blocking Continue; the page does not claim the team moved on (audit VCML-X2)", async ({ page }) => {
+    const decisionId = await northwindDecisionId(page);
+    await page.clock.setFixedTime(new Date("2027-01-15T12:00:00Z"));
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/inbox/${decisionId}`);
+    await expect(page.getByTestId("inbox-item")).toBeVisible({ timeout: LONG });
+    const bar = page.getByTestId("decision-bar");
+    await expect(bar.getByTestId("past-deadline")).toContainText("past its deadline");
+    await expect(page.getByText("the team moved on")).toHaveCount(0);
+    const options = bar.getByRole("group", { name: "Options" }).getByRole("button");
+    expect(await options.count()).toBeGreaterThanOrEqual(2);
+    for (let i = 0; i < (await options.count()); i += 1) await expect(options.nth(i)).toBeEnabled();
+    await expect(page.getByRole("button", { name: /^Respond to \d+ items?$/ })).toBeVisible();
+  });
+
+  test("a double click on an option sends one decision and shows one outcome (audit RES-10)", async ({ page }) => {
+    await signIn(page);
+    await commitFreshBusiness(page, `Playwright Double ${Date.now().toString(36)}`);
+    let sent = 0;
+    await page.route("**/trpc/**", async (route) => {
+      sent += (route.request().url().match(/inbox\.decide/g) ?? []).length;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await route.continue();
+    });
+    await page.getByTestId("decision-bar").getByRole("group", { name: "Options" }).getByRole("button").first().dblclick();
+    await expect(page.getByTestId("confirm-plan").or(page.getByTestId("answered-panel")).first()).toBeVisible({ timeout: LONG });
+    expect(sent).toBe(1);
+    await expect(page.getByText("Could not record the decision")).toHaveCount(0);
+  });
+
+  test("status-strip captions never show a raw ISO month, and the founder's own note carries the founder's initials (audit OL-17, OL-28)", async ({ page }) => {
+    await openInbox(page);
+    const rows = rowsOf(page);
+    const total = Math.min(await rows.count(), 12);
+    for (let i = 0; i < total; i += 1) {
+      await rows.nth(i).click();
+      await expect(page.getByTestId("inbox-item-header")).toBeVisible({ timeout: LONG });
+      const strip = page.getByTestId("status-strip");
+      if (await strip.count()) await expect(strip).not.toContainText(/\b\d{4}-\d{2}\b/);
+      if ((await page.getByTestId("inbox-item").getAttribute("data-type")) === "human_message") await expect(page.getByTestId("inbox-item-header")).not.toContainText(/\bYO\b/);
+    }
   });
 
   test("a won customer opens its Customer Update", async ({ page }) => {

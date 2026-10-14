@@ -5,9 +5,9 @@
  */
 import { useMemo, useState } from "react";
 import { z } from "zod";
-import { CircleCheck, CircleX, Coins, GitMerge, Handshake, Hourglass, MessageSquare, Play, Radio, Rocket, Trophy, UserPlus, type LucideIcon } from "lucide-react";
+import { CircleCheck, CircleX, Coins, GitMerge, Handshake, Hourglass, MessageSquare, Play, Radio, Rocket, Trophy, UserPlus, Users, type LucideIcon } from "lucide-react";
 import { Timeline, formatMoney, type StatusTone, type TimelineEvent } from "@foundmill/dugout";
-import { useBusinessEvents, useWidgetQuery, type WidgetEvent } from "../data";
+import { useBusinessEvents, useGlossary, useWidgetQuery, type WidgetEvent } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { WidgetFrame } from "../shared/frame";
 import type { Page, TaskRow } from "../shared/types";
@@ -32,9 +32,10 @@ interface Described {
 function str(v: unknown): string | undefined {
   return typeof v === "string" && v ? v : undefined;
 }
+/** An event's money carries its own currency (packages/events `Money`); an amount without one is not shown at all. */
 function money(v: unknown): string | undefined {
   const m = v as { amountMinor?: number; currency?: string } | undefined;
-  return m && typeof m.amountMinor === "number" ? formatMoney({ amountMinor: m.amountMinor, currency: m.currency ?? "EUR" }) : undefined;
+  return m && typeof m.amountMinor === "number" && typeof m.currency === "string" ? formatMoney({ amountMinor: m.amountMinor, currency: m.currency }) : undefined;
 }
 
 /** Plain, specific words for each event (DESIGN §10); colour always comes with an icon and a word. */
@@ -72,7 +73,13 @@ export function describeEvent(e: WidgetEvent): Described {
     case "cycle.completed":
       return { title: `Cycle ${String(p.cycleNumber ?? "")} ${str(p.outcome) ?? "completed"}`.replace("  ", " "), description: `${String(p.tasksCompleted ?? 0)} tasks done`, icon: CircleCheck, tone: "good" };
     case "inbox.item_created":
+      // A reader walled from Finance or the CRM gets the note without its subject (apps/stream walls).
       return { title: str(p.subject) ?? "New inbox note", icon: MessageSquare, tone: p.blocksContinue ? "bad" : "neutral", statusWord: p.blocksContinue ? "Respond" : undefined };
+    case "inbox.item_updated":
+      // Ids only (no subject), so a member walled from the item learns nothing beyond the change itself.
+      return p.change === "plan_confirmed" ? { title: "Plan confirmed", icon: CircleCheck, tone: "good", statusWord: "Confirmed" } : { title: "Inbox note archived", icon: MessageSquare, tone: "neutral" };
+    case "membership.changed":
+      return { title: p.change === "added" ? "Staff member added" : p.change === "removed" ? "Staff member removed" : "Staff access changed", icon: Users, tone: "neutral" };
     default:
       return { title: e.type.replace(/[._]/g, " "), icon: Radio, tone: "neutral" };
   }
@@ -108,10 +115,12 @@ function LiveFeedWidget({ settings }: WidgetProps<LiveFeedSettings>) {
     if (settings.quiet && QUIET_TYPES.has(e.type)) return;
     setLive((prev) => [toTimelineEvent(e, new Date().toISOString()), ...prev].slice(0, settings.max));
   });
+  const g = useGlossary();
   const events = useMemo(() => {
     const seen = new Set(live.map((e) => e.id));
-    return [...live, ...seedFromTasks(tasks.data?.items ?? []).filter((e) => !seen.has(e.id))].slice(0, settings.max);
-  }, [live, tasks.data, settings.max]);
+    // Lines in the business's words ("Customer won" → "Client won").
+    return [...live, ...seedFromTasks(tasks.data?.items ?? []).filter((e) => !seen.has(e.id))].slice(0, settings.max).map((e) => (typeof e.title === "string" ? { ...e, title: g(e.title) } : e));
+  }, [live, tasks.data, settings.max, g]);
   return (
     <WidgetFrame
       title="Live feed"
@@ -131,7 +140,8 @@ export const liveFeedWidget = registerWidget<LiveFeedSettings>({
   description: "Everything that happens in the business, as it happens.",
   icon: "radio",
   surfaces: ["home", "department"],
-  defaultSize: { w: 4, h: 12, minW: 3, minH: 8 },
+  // A feed: the body scrolls; this shows about eight events.
+  defaultSize: { w: 4, h: 14, minW: 3, minH: 8 },
   settingsSchema: LiveFeedSettings,
   defaultSettings: LiveFeedSettings.parse({}),
   Component: LiveFeedWidget,

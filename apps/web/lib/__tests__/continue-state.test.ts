@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeContinueState, firstBlockingItem, respondHref, unviewedWin, type ContinueInboxItem } from "../continue-state";
+import { awayReportId, computeContinueState, firstBlockingItem, journeyHref, respondHref, unviewedWin, type ContinueInboxItem } from "../continue-state";
 
 const item = (over: Partial<ContinueInboxItem>): ContinueInboxItem => ({ id: "i1", type: "update", state: "unread", blocksContinue: false, ...over });
 
@@ -30,8 +30,10 @@ describe("computeContinueState", () => {
   it("holiday wins over everything and carries the until", () => {
     const until = new Date("2026-11-01T00:00:00Z");
     expect(computeContinueState({ blocking: 2, items: [], cycle: { running: true }, holiday: { untilAt: until } })).toEqual({ kind: "holiday", until, untilLabel: undefined });
-    expect(computeContinueState({ blocking: 0, holiday: { untilAt: null, untilCondition: { text: "until MRR hits 10k" } } })).toEqual({ kind: "holiday", until: null, untilLabel: "until MRR hits 10k" });
-    expect(computeContinueState({ blocking: 0, holiday: { untilAt: null, untilCondition: null } })).toMatchObject({ kind: "holiday", untilLabel: "until I return" });
+    expect(computeContinueState({ blocking: 0, holiday: { untilAt: null, untilCondition: { text: "until MRR hits 10k" } } })).toEqual({ kind: "holiday", until: null, untilLabel: "MRR hits 10k" });
+    expect(computeContinueState({ blocking: 0, holiday: { untilAt: null, untilCondition: null } })).toMatchObject({ kind: "holiday", untilLabel: "you return" });
+    // A stored "until I return" reads "you return" after the bar's own "until" (audit VOL-X2).
+    expect(computeContinueState({ blocking: 0, holiday: { untilAt: null, untilCondition: { text: "until I return" } } })).toMatchObject({ untilLabel: "you return" });
   });
 
   it("finds the first red item and the first unviewed win", () => {
@@ -46,5 +48,19 @@ describe("computeContinueState", () => {
     expect(respondHref("biz", items)).toBe("/b/biz/inbox/b");
     expect(respondHref("biz", undefined)).toBe("/b/biz/inbox?tab=respond");
     expect(respondHref("biz", [item({ id: "c", type: "customer_won" })])).toBe("/b/biz/inbox?tab=respond");
+  });
+
+  it("Go to Journey opens the won customer's journey, and the win's note only when no journey is known (audit OL-27)", () => {
+    expect(journeyHref("biz", { kind: "matchday", journeyId: "j1", itemId: "i1" }, "i0")).toBe("/b/biz/journey/j1");
+    expect(journeyHref("biz", { kind: "matchday", journeyId: null, itemId: "i1" }, "i0")).toBe("/b/biz/inbox/i1");
+    expect(journeyHref("biz", null, "i0")).toBe("/b/biz/inbox/i0");
+    expect(journeyHref("biz", { kind: "idle" }, undefined)).toBe("/b/biz/inbox");
+  });
+
+  it("Come back waits for the 'While you were away' note: only holiday.ended with its report id opens it", () => {
+    expect(awayReportId({ type: "holiday.ended", payload: { reportInboxItemId: "r1" } })).toBe("r1");
+    expect(awayReportId({ type: "holiday.ended", payload: {} })).toBeNull();
+    expect(awayReportId({ type: "holiday.ended", payload: null })).toBeNull();
+    expect(awayReportId({ type: "inbox.item_created", payload: { reportInboxItemId: "r1" } })).toBeNull();
   });
 });

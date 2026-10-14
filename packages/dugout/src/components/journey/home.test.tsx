@@ -107,6 +107,18 @@ describe("SquadPulse", () => {
     fireEvent.click(document.activeElement as HTMLElement);
     expect(onSelect).toHaveBeenCalledWith(days[5], 10, expect.any(Array));
   });
+  it("gives each visible hour label a box three columns wide and keeps a screen-reader header for every hour", () => {
+    // A label box one column wide (about 24 px at 1280) cannot hold "12 AM" (about 35 px): no-clip.spec flagged all 8.
+    render(<SquadPulse departments={RIBBON_DEPARTMENTS} days={days} cells={cells} />);
+    const headers = screen.getAllByRole("columnheader");
+    expect(headers.map((h) => h.getAttribute("aria-label"))).toEqual(Array.from({ length: 24 }, (_, h) => (h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`)));
+    const visible = headers.filter((h) => !h.classList.contains("sr-only"));
+    expect(visible.map((h) => h.textContent)).toEqual(["12 AM", "3 AM", "6 AM", "9 AM", "12 PM", "3 PM", "6 PM", "9 PM"]);
+    for (const h of visible) {
+      expect(h.className).toContain("flex-[3]");
+      expect(h.className).not.toMatch(/\b(flex-1|invisible)\b/);
+    }
+  });
 });
 
 describe("TrophyCabinet", () => {
@@ -125,6 +137,28 @@ describe("TrophyCabinet", () => {
     expect(onShare).toHaveBeenCalledWith("customer_1");
     expect(screen.queryByRole("button", { name: /1,000th customer/ })).toBeNull();
   });
+
+  it("lays each card and its Share button out as one column of the row (the button never overflows under the next card)", () => {
+    const { container } = render(<TrophyCabinet trophies={trophyFixtures()} onOpen={() => {}} onShare={() => {}} />);
+    const share = screen.getByRole("button", { name: "Share First customer" });
+    const cell = share.closest("[data-trophy]")!;
+    // The cell is a flex column: the card takes the row's spare height (flex-1, not h-full of the row) and the button
+    // sits under it inside the cell, so the grid row is sized to hold both.
+    expect(cell.className).toMatch(/\bflex\b/);
+    expect(cell.className).toMatch(/\bflex-col\b/);
+    const card = cell.firstElementChild!;
+    expect(card.className).toMatch(/\bflex-1\b/);
+    expect(card.className).not.toMatch(/\bh-full\b/);
+    expect(cell.lastElementChild).toBe(share);
+    for (const c of container.querySelectorAll("[data-trophy]")) expect(c.firstElementChild!.className).not.toMatch(/\bh-full\b/);
+  });
+
+  it("labels a reached milestone whose figure is an estimate (an MRR milestone of a business without subscriptions)", () => {
+    const { container } = render(<TrophyCabinet trophies={trophyFixtures().map((t) => (t.key === "customer_1" ? { ...t, estimate: true } : t))} />);
+    const estimated = container.querySelectorAll("[data-trophy] [data-provenance='estimate']");
+    expect(estimated.length).toBe(1);
+    expect(container.querySelector("[data-trophy='customer_1'] [data-provenance='estimate']")).toBeTruthy();
+  });
 });
 
 describe("DayDigest", () => {
@@ -135,7 +169,7 @@ describe("DayDigest", () => {
     const dayWithPayment = data.conversions.find((c) => c.kind === "payment")!.occurredAt.slice(0, 10);
     const summary = summariseDay(dayWithPayment, { index, departments: RIBBON_DEPARTMENTS, conversions: data.conversions, milestones: data.milestones, chapters: data.chapters, today: data.today });
     const onOpenJourney = vi.fn();
-    render(<DayDigest summary={summary} highlights={["Scout closed [[ent:0f7c2d1e-4b1a-4c8e-9a3b-2d5f6e7a8b9c|Nordic Beauty AB]]"]} onOpenJourney={onOpenJourney} onOpenEntity={() => {}} />);
+    render(<DayDigest summary={summary} currency="EUR" highlights={["Scout closed [[ent:0f7c2d1e-4b1a-4c8e-9a3b-2d5f6e7a8b9c|Nordic Beauty AB]]"]} onOpenJourney={onOpenJourney} onOpenEntity={() => {}} />);
     expect(screen.getByRole("region", { name: /Day digest/ })).toBeTruthy();
     expect(screen.getByText("Agent hours")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Nordic Beauty AB" })).toBeTruthy();
@@ -143,5 +177,23 @@ describe("DayDigest", () => {
     await user.click(replay);
     expect(onOpenJourney).toHaveBeenCalledWith(summary.conversions[0]!.id);
     expect(screen.getByText(/won today/)).toBeTruthy();
+  });
+
+  it("moves the wins the volume rule rolled up out of the Wins list and into the day's results table (audit #342)", async () => {
+    const user = userEvent.setup();
+    const data = generateJourneyFixture({ days: 40, seed: "digest" });
+    const index = indexDailyRows(data.rows, RIBBON_DEPARTMENTS);
+    const day = data.conversions.find((c) => c.kind === "payment")!.occurredAt.slice(0, 10);
+    const summary = summariseDay(day, { index, departments: RIBBON_DEPARTMENTS, conversions: data.conversions, milestones: data.milestones, chapters: data.chapters, today: data.today });
+    const rolled = summary.conversions[0]!;
+    const onOpenJourney = vi.fn();
+    const row = { conversionId: rolled.id, kind: rolled.kind, level: "friendly" as const, customerName: rolled.entityName ?? null, entityId: rolled.entityId, channelKey: null, amountMinor: rolled.amountMinor, currency: rolled.currency, occurredAt: rolled.occurredAt };
+    const { container } = render(<DayDigest summary={summary} currency="EUR" roundup={[row]} onOpenJourney={onOpenJourney} />);
+    expect(container.querySelector("[data-roundup]")).toBeTruthy();
+    expect(container.querySelector(`[data-roundup-row='${rolled.id}']`)).toBeTruthy();
+    // The rolled-up win has its row in the table, not a second entry in the Wins list.
+    expect(screen.queryAllByRole("button", { name: /Open the Customer Update/ }).length).toBe(Math.min(8, summary.conversions.length - 1));
+    await user.click(container.querySelector(`[data-roundup-row='${rolled.id}'] button`) as HTMLElement);
+    expect(onOpenJourney).toHaveBeenCalledWith(rolled.id);
   });
 });

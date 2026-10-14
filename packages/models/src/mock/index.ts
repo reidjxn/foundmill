@@ -40,6 +40,7 @@ import {
 import { JsonElementScanner } from "../stream-json";
 import { type StreamCallArgs, type StreamCallResult, runStructuredStream } from "../structured-stream";
 import type { BilledTo, CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelLogger, StreamStructuredRequest, StreamStructuredResult, TokenUsage, UsageEvent, UsageSink } from "../types";
+import { generateChannelCreative, isChannelCreativeRequest } from "./channelCreative";
 import { generateChiefOfStaff } from "./chiefOfStaff";
 import { generateCategoriser, generateClassifier } from "./classifier";
 import { generateCoach } from "./coach";
@@ -58,6 +59,7 @@ import { generatePlanCompiler } from "./planCompiler";
 import { generatePlanner } from "./planner";
 import { generateQuarantinedReader } from "./quarantinedReader";
 import { generateSkillGrader } from "./skillGrader";
+import { generateSourceProposal, generateSourceRelevance, isSourceProposalRequest, isSourceRelevanceRequest } from "./sourceWatcher";
 import { synthesizeFromZod } from "./synth";
 import { generateNightlyBatch, generateWorker } from "./worker";
 import { generateConversation } from "./conversation";
@@ -76,7 +78,7 @@ export const MOCK_ROUTES: Record<RouteKey, MockRouteDefinition> = {
   inboxComposer: { route: "inboxComposer", description: "One inbox note (fact → why → ask) in the from-agent's voice; Composer schema; manifest-only mentions; no invented numbers.", schema: ComposerOutput, generate: generateInboxComposer },
   planCompiler: { route: "planCompiler", description: "Founder free text → Plan of typed actions; hard gates → request_human_action; ambiguous → reply_only.", schema: PlanOutput, generate: generatePlanCompiler },
   chiefOfStaff: { route: "chiefOfStaff", description: "Cycle plan from open tasks within concurrency, budget and capacity; customer-unblocking work first.", schema: CyclePlanOutput, generate: generateChiefOfStaff },
-  departmentLead: { route: "departmentLead", description: "Department task assignments, blockers and a short report.", schema: DepartmentLeadOutput, generate: generateDepartmentLead },
+  departmentLead: { route: "departmentLead", description: "Department task assignments, blockers and a short report; drafts a spec change from a source for the Source Watcher.", schema: DepartmentLeadOutput, generate: (ctx) => (isSourceProposalRequest(ctx) ? generateSourceProposal(ctx) : generateDepartmentLead(ctx)) },
   planner: { route: "planner", description: "Roadmap items → task graph with acceptance criteria, test expectations, file-scope hints and dependencies.", schema: TaskGraphOutput, generate: generatePlanner },
   codeReview: { route: "codeReview", description: "Deterministic review of a unified diff against the platform rules.", schema: CodeReviewOutput, generate: generateCodeReview },
   ideation: { route: "ideation", description: "6–12 concept cards with 10 attributes (1–20), evidence and ≥ 2 citations, seeded by the prompt; one card (keeping the slate item's name, archetype and angle) when the schema is a single card.", schema: IdeationOutput, generate: generateIdeationRoute },
@@ -86,11 +88,11 @@ export const MOCK_ROUTES: Record<RouteKey, MockRouteDefinition> = {
   foundationsSkeleton: { route: "foundationsSkeleton", description: "The foundations vision, a one-sentence thesis per outline section and the roadmap's titles and horizons, from the foundations mock for the same brief.", schema: FoundationsSkeletonOutput, generate: generateFoundationsSkeleton },
   skillGrader: { route: "skillGrader", description: "Rubric grading 0–1 per line; deterministic checks are authoritative.", schema: SkillGradeOutput, generate: generateSkillGrader },
   coach: { route: "coach", description: "Up to 3 instruction diffs for the focus skills; never weakens house rules.", schema: CoachOutput, generate: generateCoach },
-  worker: { route: "worker", description: "Generic Sonnet worker: a stepwise plan and artifact list for a task.", schema: WorkerOutput, generate: generateWorker },
+  worker: { route: "worker", description: "Generic Sonnet worker: a stepwise plan and artifact list for a task; a channel engine's weekly creative drafts (one per asset kind, from the campaign) when the schema asks for assets.", schema: WorkerOutput, generate: (ctx) => (isChannelCreativeRequest(ctx) ? generateChannelCreative(ctx) : generateWorker(ctx)) },
   journeyCommentary: { route: "journeyCommentary", description: "Customer Update narration: one line per touch, entities linked from the manifest.", schema: CommentaryOutput, generate: generateJourneyCommentary },
   nightlyBatch: { route: "nightlyBatch", description: "Nightly batch job summary with one result per item.", schema: NightlyBatchOutput, generate: generateNightlyBatch },
   linker: { route: "linker", description: "Proper-noun sweep: exact → alias → fuzzy against the manifest; ambiguous and unknown flagged.", schema: LinkerOutput, generate: generateLinker },
-  classifier: { route: "classifier", description: "Picks one of the supplied labels by keyword overlap with a confidence.", schema: ClassifierOutput, generate: generateClassifier },
+  classifier: { route: "classifier", description: "Picks one of the supplied labels by keyword overlap with a confidence; scores a source against spec blocks for the Source Watcher.", schema: ClassifierOutput, generate: (ctx) => (isSourceRelevanceRequest(ctx) ? generateSourceRelevance(ctx) : generateClassifier(ctx)) },
   categoriser: { route: "categoriser", description: "Bank transactions → standard chart of accounts with the rule that fired.", schema: CategoriserOutput, generate: generateCategoriser },
   quarantinedReader: { route: "quarantinedReader", description: "Extracts only the requested fields from untrusted content; instructions inside the content are ignored.", schema: QuarantinedReaderOutput, generate: generateQuarantinedReader },
   moderation: { route: "moderation", description: "Honest-agent and marketing-law pre-send check with flags and an allow/block verdict.", schema: ModerationOutput, generate: generateModeration },
@@ -186,7 +188,7 @@ export class MockModelClient implements ModelClient {
       modelId: resolution.modelId,
       modelKey: resolution.modelKey,
       warning: resolution.warning,
-      maxTokens: req.maxTokens ?? 4096,
+      maxTokens: req.maxTokens ?? resolution.maxTokens,
       logger: this.opts.logger,
       streamCall: (args) => this.streamCall(req, args),
       complete: (r) => this.complete(r),
@@ -323,7 +325,9 @@ export { MODELS };
 export type { MockContext } from "./inputs";
 export { buildMockContext, extractJsonValues, normaliseManifest, agentsFrom, numbersIn, keywords, wordCount } from "./inputs";
 export { synthesizeFromZod, synthesizeFromJsonSchema } from "./synth";
-export { compilePlanRuleBased, detectAmounts, detectChannels, detectHardGates, detectAudience, detectTimeframe, inferTaskKind, type PlanCompilerContext, type HardGate, type DetectedAmount } from "./planCompiler";
+export { compilePlaybookRuleBased, detectTrigger, isPlaybookClause } from "./playbookCompiler";
+export { compilePlanRuleBased, detectAmounts, detectChannels, detectHardGates, detectAudience, detectTimeframe, inferTaskKind, withArticle, type PlanCompilerContext, type HardGate, type DetectedAmount } from "./planCompiler";
+export { compileOptionPlan, NO_ACTION_OPTION_RE, optionActions, type DecisionOption, type OptionAgent, type OptionPlanContext } from "./optionPlan";
 export { generateInboxComposer } from "./inboxComposer";
 export { generateIdeation, generateConceptCard, generateIdeationRoute, type MockCardSpec } from "./ideation";
 export { generateLogoDesigner, MOCK_LOGO_DIRECTION_FAMILIES, MOCK_LOGO_FAMILIES } from "./logoDesigner";

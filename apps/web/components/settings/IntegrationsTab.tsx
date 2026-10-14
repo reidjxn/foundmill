@@ -7,17 +7,21 @@
  * staging only.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Activity, ExternalLink, FlaskConical, FolderGit2, Plug, Unplug } from "lucide-react";
+import { Activity, ExternalLink, FlaskConical, FolderGit2, KeyRound, Plug, Unplug } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { Button, Chip, IconButton, SimpleSelect, StatusPill, useDateFormat, type StatusTone, type DateFormatPrefs } from "@foundmill/dugout";
+import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, SimpleSelect, StatusPill, useDateFormat, type StatusTone, type DateFormatPrefs } from "@foundmill/dugout";
 import type { IntegrationStatus } from "@foundmill/shared";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { ShellLinkButton } from "@/components/live/ShellLinkButton";
 import { simulatePanelAvailable } from "@/lib/env";
 import { formatDateTime, plainWords, plural } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
+import { OAuthFinish } from "./OAuthFinish";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
 
@@ -86,9 +90,105 @@ export function connectorDetail(c: { tools: readonly unknown[] }, integ: { accou
   return parts.join(" · ");
 }
 
+/**
+ * Connectors managed on another tab: the Anthropic key decides who pays for model calls (`model_billing`), pauses and
+ * resumes the team and posts the Inbox note, so it is stored, rotated and revoked in Settings › Keys only (audit
+ * ARB-04). Its row here shows the state and links there instead of a generic Connect or Disconnect.
+ */
+export const MANAGED_ON_KEYS_TAB: ReadonlySet<string> = new Set(["anthropic"]);
+
 /** Leaves for a vendor's consent page in this tab (a seam for tests). */
 export const navigation = { assign: (url: string) => window.location.assign(url) };
 const navigateTo = (url: string) => navigation.assign(url);
+
+/** A field the founder enters to connect a connector live (its `connectFields` in the catalogue). */
+export interface ConnectFieldView {
+  name: string;
+  label: string;
+  secret: boolean;
+  required: boolean;
+  placeholder?: string;
+  hint?: string;
+}
+
+/** True when Connect must first ask for the founder's own key: the connector runs live and declares fields to enter. */
+export function needsConnectFields(c: { live?: boolean; connectFields?: readonly ConnectFieldView[] }): boolean {
+  return Boolean(c.live) && (c.connectFields?.length ?? 0) > 0;
+}
+
+/** The `connect()` input from what was typed (trimmed; empty optional fields left out), or null while a required one is empty. */
+export function connectInputFrom(fields: readonly ConnectFieldView[], values: Record<string, string>): Record<string, string> | null {
+  const input: Record<string, string> = {};
+  for (const f of fields) {
+    const v = (values[f.name] ?? "").trim();
+    if (!v && f.required) return null;
+    if (v) input[f.name] = v;
+  }
+  return input;
+}
+
+/**
+ * Asks for the key from the founder's own vendor account (masked, never shown again) and connects with it, so the
+ * vendor bills the founder and agents act on the founder's account, never the platform's.
+ */
+export function ConnectFieldsDialog({ connector, pending, onConnect, onClose }: { connector: { key: string; displayName: string; connectFields: readonly ConnectFieldView[] } | null; pending: boolean; onConnect: (input: Record<string, string>) => void; onClose: () => void }) {
+  const [values, setValues] = useState<Record<string, string>>({});
+  // What was typed belongs to one opening of the dialog: when it closes (a successful connect closes it from outside)
+  // or opens for another connector, the key is forgotten, never offered to the next vendor or kept in memory.
+  const [openFor, setOpenFor] = useState<string | null>(connector?.key ?? null);
+  if ((connector?.key ?? null) !== openFor) {
+    setOpenFor(connector?.key ?? null);
+    setValues({});
+  }
+  const input = connector ? connectInputFrom(connector.connectFields, values) : null;
+  const close = () => {
+    setValues({});
+    onClose();
+  };
+  return (
+    <Dialog open={connector !== null} onOpenChange={(open) => (open ? undefined : close())}>
+      <DialogContent size="sm" data-testid="connect-fields-dialog">
+        {connector ? (
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (input) onConnect(input);
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Connect {connector.displayName}</DialogTitle>
+              <DialogDescription>Use your own {connector.displayName} account: {connector.displayName} bills it for what agents do. The key is encrypted with the business data key and never shown again.</DialogDescription>
+            </DialogHeader>
+            {connector.connectFields.map((f) => (
+              <Field key={f.name} htmlFor={`connect-${connector.key}-${f.name}`} label={f.label} hint={f.hint}>
+                <Input
+                  id={`connect-${connector.key}-${f.name}`}
+                  name={f.name}
+                  mono={f.secret}
+                  type={f.secret ? "password" : "text"}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={f.placeholder}
+                  value={values[f.name] ?? ""}
+                  onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
+                />
+              </Field>
+            ))}
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={close}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" icon={KeyRound} disabled={!input} loading={pending}>
+                Connect
+              </Button>
+            </DialogFooter>
+          </form>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export function IntegrationsTab() {
   const datePrefs = useDateFormat();
@@ -97,13 +197,16 @@ export function IntegrationsTab() {
   const invalidate = useInvalidateRouters();
   const t = useSettingsToast();
   const list = useQuery(trpc.integrations.list.queryOptions({ businessId }));
+  /** The connector whose key dialog is open (Connect on a live API-key connector). */
+  const [keyForKey, setKeyForKey] = useState<string | null>(null);
   const connect = useMutation(
     trpc.integrations.connect.mutationOptions({
       onSuccess: (r) => {
         void invalidate(["integrations"]);
         if (r.consentUrl) {
           // The vendor's page opens in this tab: a new tab opened after the request returns is a pop-up browsers block
-          // (Safari always). The vendor sends the founder back here to finish (GitHub: /integrations/github/callback).
+          // (Safari always). The vendor sends the founder back here to finish (GitHub: /integrations/github/callback;
+          // Google, Notion, Shopify: /integrations/oauth/callback, finished in OAuthFinish).
           t.info("Your consent is needed", "Opening the vendor's page; the connection completes when you accept and come back here.");
           navigateTo(r.consentUrl);
         } else t.saved("Connected", r.record.accountLabel ?? undefined);
@@ -133,11 +236,14 @@ export function IntegrationsTab() {
     installState &&
     connect.mutate({ businessId, connectorKey: "github", input: { installationId: Number(pendingInstallation), code: installCode, state: installState } }, { onSettled: () => router.replace(pathname ?? `/b/${businessId}/settings/integrations`) });
 
-  if (list.error) return <ErrorPanel title="Integrations" message={errorMessage(list.error)} onRetry={() => void list.refetch()} />;
+  if (loadFailed(list)) return <ErrorPanel title="Integrations" message={errorMessage(list.error)} onRetry={() => void list.refetch()} />;
   const rows = list.data?.catalogue ?? [];
+  const keyFor = rows.find((r) => r.key === keyForKey) ?? null;
+  const setKeyFor = (c: { key: string } | null) => setKeyForKey(c?.key ?? null);
 
   return (
     <AdminOnly>
+      {refreshFailed(list) ? <RefreshFailedNotice query={list} className="flex items-center gap-2" /> : null}
       {pendingInstallation ? (
         <SettingsSection title="Finish connecting GitHub">
           <div className="flex items-center gap-3" data-testid="github-installation">
@@ -156,6 +262,7 @@ export function IntegrationsTab() {
           </div>
         </SettingsSection>
       ) : null}
+      <OAuthFinish businessId={businessId} connectors={rows} pending={connect.isPending} onFinish={(connectorKey, input, done) => connect.mutate({ businessId, connectorKey, input }, { onSettled: done })} />
       <SettingsSection wide title="Connectors" meta={list.data ? plural(rows.filter((r) => r.integration && r.integration.status !== "disconnected").length, "connected", "connected") : undefined} actions={list.data ? <Chip tone={list.data.mode === "mock" ? "info" : "good"}>{modeLabel(list.data.mode, rows)}</Chip> : undefined} loading={list.isLoading}>
         <Hint>Consents and API keys are yours to grant: a connector that needs one opens the vendor's page and waits for you. Secrets are stored encrypted and never shown again.</Hint>
         <ul className="flex flex-col" data-testid="connector-list">
@@ -180,13 +287,17 @@ export function IntegrationsTab() {
                   {integ?.lastError ? <span className="break-words text-small text-status-bad">{integ.lastError}</span> : null}
                 </span>
                 <span className="flex shrink-0 items-center gap-1 pt-0.5">
-                  {connected ? (
+                  {MANAGED_ON_KEYS_TAB.has(c.key) ? (
+                    <ShellLinkButton size="sm" icon={KeyRound} href={routes.settings(businessId, "keys")} data-testid="manage-in-keys">
+                      Manage in Keys
+                    </ShellLinkButton>
+                  ) : connected ? (
                     <>
                       <IconButton label={`Check ${c.displayName} health`} icon={Activity} size="sm" disabled={health.isPending} onClick={() => integ && health.mutate({ businessId, integrationId: integ.id })} />
                       <IconButton label={`Disconnect ${c.displayName}`} icon={Unplug} size="sm" disabled={disconnect.isPending} onClick={() => integ && disconnect.mutate({ businessId, integrationId: integ.id })} />
                     </>
                   ) : (
-                    <Button size="sm" icon={c.auth.kind === "oauth" ? ExternalLink : Plug} loading={connect.isPending && connect.variables?.connectorKey === c.key} onClick={() => connect.mutate({ businessId, connectorKey: c.key, input: {} })}>
+                    <Button size="sm" icon={needsConnectFields(c) ? KeyRound : c.auth.kind === "oauth" ? ExternalLink : Plug} loading={connect.isPending && connect.variables?.connectorKey === c.key} onClick={() => (needsConnectFields(c) ? setKeyFor(c) : connect.mutate({ businessId, connectorKey: c.key, input: {} }))}>
                       Connect
                     </Button>
                   )}
@@ -196,6 +307,12 @@ export function IntegrationsTab() {
           })}
         </ul>
       </SettingsSection>
+      <ConnectFieldsDialog
+        connector={keyFor}
+        pending={connect.isPending}
+        onClose={() => setKeyFor(null)}
+        onConnect={(input) => keyFor && connect.mutate({ businessId, connectorKey: keyFor.key, input }, { onSuccess: () => setKeyFor(null) })}
+      />
       {simulatePanelAvailable() ? <SimulatePanel businessId={businessId} connectors={rows.filter((c) => c.simulations.length > 0).map((c) => ({ key: c.key, label: c.displayName, simulations: c.simulations }))} /> : null}
     </AdminOnly>
   );

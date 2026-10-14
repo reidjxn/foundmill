@@ -15,6 +15,7 @@ import {
   EventType,
   ModelKey,
   ModuleKey,
+  OptionAction,
   SkillGroup,
   TaskKind,
 } from "@foundmill/shared";
@@ -343,6 +344,11 @@ export const DepartmentSeed = z.object({
   colourToken: DeptColourToken,
   position: z.number().int().nonnegative(),
   moduleKeys: z.array(ModuleKey).min(1),
+  /**
+   * The module tabs this department shows, in order, when it is not every tab of its modules (Operations sits over the
+   * development module's Specialists and Plan only, not a second copy of Development). Absent: every tab.
+   */
+  tabSlugs: z.array(z.string().min(1)).min(1).optional(),
   leadTemplateKey: SnakeKey,
   memberTemplateKeys: z.array(SnakeKey),
   budgetMinor: z.number().int().nonnegative(),
@@ -359,14 +365,25 @@ export const FirstCycleTask = z.object({
 });
 export type FirstCycleTask = z.infer<typeof FirstCycleTask>;
 
-export const BoardDecisionOption = z.object({
-  id: z.string().min(1),
-  label: z.string().min(1),
-  recommended: z.boolean(),
-  consequence: z.string().min(1),
-  costMinor: z.number().int().nonnegative(),
-  reversible: z.boolean(),
-});
+/** The spend an option's actions carry: its budgets and approved spends (minor units). */
+const spendOf = (actions: readonly OptionAction[]): number =>
+  actions.filter((a) => a.type === "set_budget" || a.type === "approve_spend").reduce((n, a) => n + (typeof a.params.amount_minor === "number" ? a.params.amount_minor : 0), 0);
+
+/**
+ * A Board option runs its own typed actions (audit IAE-20, AC-01): nothing is parsed out of its words on the click, and
+ * the cost it shows is exactly what its actions budget, so the plan carries the amount policy checks (audit FR-10).
+ */
+export const BoardDecisionOption = z
+  .object({
+    id: z.string().min(1),
+    label: z.string().min(1),
+    recommended: z.boolean(),
+    consequence: z.string().min(1),
+    costMinor: z.number().int().nonnegative(),
+    reversible: z.boolean(),
+    actions: z.array(OptionAction).min(1).max(8),
+  })
+  .refine((o) => spendOf(o.actions) === o.costMinor, { message: "an option's budgets and approved spends add up to its cost", path: ["actions"] });
 
 export const BoardDecision = z
   .object({

@@ -41,6 +41,7 @@ import type { ModuleScreenProps } from "../registry";
 import { OpenInClaudeCodeDialog, ReassignDialog, StopDialog } from "./dialogs";
 import { TileNudgeAck, nudgeMenuPresets, nudgeShoutInput, useNudgePersona, type SentNudge } from "./nudges";
 import { useDevScreenOptions } from "./options";
+import { useNow } from "./clock";
 import { concurrencyHint, isPlaceholderSessionId, openSessionsByTask, seedFromRows } from "./session-store";
 import { InlineError, LIVE_TASK_STATUSES, Screen, liveTasks, taskHref, toTileAgent, useAction, useAgentIndex, useAgents } from "./shared";
 import { specialistDataFromSession } from "./specialist-data";
@@ -81,8 +82,24 @@ export function toGraphNodes(tasks: readonly TaskRow[], edges: readonly { fromTa
 
 const GRID_HEIGHT = "calc(100vh - 232px)";
 
+/**
+ * Loads what a session streamed before this tab subscribed (`dev.sessions.replay`) into its tile: the stream only
+ * carries events published after the subscription, so without it a tile opened mid-session showed no output and a
+ * stale phase until something new happened (TPD-35). One per visible tile; the focused tile's scrubber replays the same
+ * events. A replay that read the stream and found it empty marks a running session as queued for a worker (SOAK-08).
+ */
+export function ReplaySeed({ sessionId, onReplay }: { sessionId: string; onReplay: (sessionId: string, events: readonly unknown[], opts: { streamEmpty: boolean }) => void }) {
+  const replay = useWidgetQuery<SessionReplayResponse>("dev.sessions.replay", { sessionId });
+  useEffect(() => {
+    if (!replay.data) return;
+    const events = replay.data.events ?? [];
+    onReplay(sessionId, events, { streamEmpty: replay.data.source === "stream" && events.length === 0 });
+  }, [sessionId, replay.data, onReplay]);
+  return null;
+}
+
 export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps) {
-  const { navigate, currency } = useWidgetData();
+  const { navigate } = useWidgetData();
   const options = useDevScreenOptions();
   const tasks = useWidgetQuery<TasksListResponse>("dev.tasks.list", { status: [...LIVE_TASK_STATUSES], limit: 200 });
   const sessions = useWidgetQuery<SessionsListResponse>("dev.sessions.list", { openOnly: true, limit: 200 });
@@ -109,28 +126,25 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
       live.map((task) => {
         const session = openByTask.get(task.id) ?? null;
         const agent = toTileAgent(agentIndex.get(task.assigneeAgentId ?? ""), task.assigneeAgentId);
-        // Costs in the business's currency (sessions carry none of their own), never a stray €.
-        return { seed: seedFromRows({ task, session, agent, taskHref: taskHref(businessId, deptSlug, task.id), currency }), task, session };
+        return { seed: seedFromRows({ task, session, agent, taskHref: taskHref(businessId, deptSlug, task.id) }), task, session };
       }),
-    [live, openByTask, agentIndex, businessId, deptSlug, currency],
+    [live, openByTask, agentIndex, businessId, deptSlug],
   );
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const streams = useSessionStreams(sources, focusedId, { flushMs: options.flushMs });
   const taskOf = useCallback((sessionId: string) => sources.find((s) => s.seed.id === sessionId)?.task ?? null, [sources]);
 
-  // Replay (scrubber) for the focused tile.
+  // Replay (scrubber) for the focused tile. Every tile's recorded events are loaded by its ReplaySeed below.
   const [replay, setReplay] = useState<{ position: number; playing: boolean; speed: ScrubberSpeed; live: boolean }>({ position: 0, playing: false, speed: 1, live: true });
   useEffect(() => {
     setReplay({ position: 0, playing: false, speed: 1, live: true });
   }, [focusedId]);
   const focusedSource = focusedId ? sources.find((s) => s.seed.id === focusedId) ?? null : null;
-  const replayQuery = useWidgetQuery<SessionReplayResponse>("dev.sessions.replay", { sessionId: focusedId ?? "" }, { enabled: !!focusedId && !isPlaceholderSessionId(focusedId) });
-  useEffect(() => {
-    if (focusedId && replayQuery.data?.events?.length) streams.ingest(focusedId, replayQuery.data.events);
-  }, [focusedId, replayQuery.data, streams]);
   const focusedEvents = focusedId ? streams.eventsFor(focusedId) : [];
-  const now = options.now ?? new Date();
+  // Elapsed and ETA tick every second while something is live (VSOAK2-X1); a queued session has no clock.
+  const ticking = streams.sessions.some((s) => !s.queued && (s.status === "running" || s.status === "review" || s.status === "merging"));
+  const now = useNow({ enabled: ticking, fixed: options.now });
   const focusedLength = focusedSource ? sessionLengthMs(focusedEvents, focusedSource.seed.startedAt, streams.byId.get(focusedSource.seed.id)?.endedAt ?? null, now) : 0;
   const replaySession = focusedId && !replay.live ? streams.replayAt(focusedId, replay.position) : null;
 
@@ -156,7 +170,8 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
   const sendNudge = (sessionId: string, input: Record<string, unknown>, text: string) => {
     const task = taskOf(sessionId);
     if (!task) return;
-    void action.run("dev.tasks.shout", { ...input, taskId: task.id }, { key: `shout:${task.id}`, then: () => acknowledge(sessionId, task.assigneeAgentId ?? null, text) });
+    // The agent's "Noted." appears only when the nudge reached the session; otherwise the screen says it did not.
+    void action.run("dev.tasks.shout", { ...input, taskId: task.id }, { key: `shout:${task.id}`, then: (_result, delivery) => delivery && delivery.delivered === delivery.total && delivery.total > 0 && acknowledge(sessionId, task.assigneeAgentId ?? null, text) });
   };
   const focusedAgentId = focusedSource?.task.assigneeAgentId ?? null;
   const focusedPersona = useNudgePersona(focusedAgentId).persona;
@@ -178,7 +193,11 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
 
   const tier = plan.data?.tier;
   const limit = tier ? TIERS[tier].maxConcurrentAgents : 16;
-  const running = live.filter((t) => t.status === "running").length;
+  // Started sessions no worker has picked up yet are queued, not running.
+  const queued = streams.sessions.filter((s) => s.queued && s.status === "running").length;
+  const running = live.filter((t) => t.status === "running").length - queued;
+  const replayIds = useMemo(() => sources.map((s) => s.seed.id).filter((id) => !isPlaceholderSessionId(id)), [sources]);
+  const ingest = streams.ingest;
 
   const graphNodes = useMemo(() => {
     const rows = graph.data?.items ?? [];
@@ -204,6 +223,9 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
 
   return (
     <Screen name="development/training-ground" className="h-full">
+      {replayIds.map((id) => (
+        <ReplaySeed key={id} sessionId={id} onReplay={ingest} />
+      ))}
       <Panel
         span={12}
         title="Live sessions"
@@ -217,7 +239,7 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
         actions={
           <div className="flex items-center gap-2">
             <span className="text-small text-secondary tabular-nums" data-testid="ground-counts">
-              {live.length} live · {running} running
+              {live.length} live · {running} running{queued ? ` · ${queued} queued` : ""}
             </span>
             <GroundViewToggle value={view} onChange={setView} />
             <ShoutMenu target="all agents" labelled onShout={(shout) => void action.run("dev.tasks.shout", shoutInput(shout), { key: "shout:all" })} disabled={running === 0} />
@@ -228,6 +250,11 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
             {concurrencyHint(limit, running)}
             {!plan.data ? <ProvenanceChip kind="estimate" /> : null}
             {action.error ? <InlineError error={action.error} /> : null}
+            {action.notice ? (
+              <span role="status" className="text-secondary" data-testid="ground-notice">
+                {action.notice}
+              </span>
+            ) : null}
             {action.pending?.startsWith("shout") ? <span className="text-secondary">Sending nudge…</span> : null}
           </span>
         }
@@ -260,7 +287,7 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
               className="min-h-0 flex-1"
               renderTile={(item, ctx) => {
                 const session = ctx.focused && replaySession ? replaySession : item.session;
-                const common = { session, focused: ctx.focused, compact: ctx.compact, controls, now: options.now, onFocus: (id: string) => setFocusedId(id), onOpenTask: (task: { href?: string }) => task.href && navigate(task.href) };
+                const common = { session, focused: ctx.focused, compact: ctx.compact, controls, now, onFocus: (id: string) => setFocusedId(id), onOpenTask: (task: { href?: string }) => task.href && navigate(task.href) };
                 const tile = session.task.kind === "specialist" ? <SpecialistTile {...common} data={specialistDataFromSession(session)} /> : <AgentTile {...common} terminalRenderer={options.terminalRenderer} diffEngine={options.diffEngine} />;
                 const ack = acks[item.id];
                 if (!ack) return tile;
@@ -279,7 +306,7 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
                   events={focusedEvents}
                   startedAt={focusedSource.seed.startedAt}
                   endedAt={streams.byId.get(focusedSource.seed.id)?.endedAt ?? null}
-                  now={options.now}
+                  now={now}
                   position={replay.live ? focusedLength : replay.position}
                   onPositionChange={(position) => setReplay((r) => ({ ...r, position, live: false }))}
                   playing={replay.playing}

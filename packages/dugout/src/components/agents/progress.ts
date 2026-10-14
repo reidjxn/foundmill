@@ -4,6 +4,7 @@
  * Everything is pure.
  */
 import type { TaskPhase, TaskStatus } from "@foundmill/shared";
+import { MODEL_COST_CURRENCY } from "@foundmill/shared/constants";
 import { formatDuration } from "../../lib/format";
 import type {
   AgentSessionEvent,
@@ -76,7 +77,8 @@ export function emptySession(seed: SessionSeed): AgentTileSession {
     startedAt: seed.startedAt,
     endedAt: null,
     tokens: seed.tokens ?? 0,
-    cost: seed.cost ?? { amountMinor: 0, currency: "EUR" },
+    // A session's cost is a model cost, metered in the pricing currency (USD), until the seed names its own.
+    cost: seed.cost ?? { amountMinor: 0, currency: MODEL_COST_CURRENCY },
     etaAt: null,
     lastNote: null,
     plan: seed.plan ? seed.plan.map((p) => ({ ...p })) : [],

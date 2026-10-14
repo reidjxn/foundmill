@@ -3,19 +3,39 @@
  * Signals reach the running activity through the session control bus (`postSessionCommand`); the `progress` query
  * reports the ring state the workflow knows about. Loop detection (same tool+args 3×) fails the session inside the
  * runner; a pause holds the replay / SDK until resume; a decision releases a tool call waiting for approval.
+ *
+ * The run activity is the only one on the sessions task queue (../session-contract), so sessions that work for hours or
+ * wait for the founder never take a slot from cycles, plans or the control activities that reach them. Waiting is
+ * bounded in the runner: a gated call left undecided for APPROVAL_WAIT_MINUTES ends the session `blocked` (the approval
+ * stays open), and a session paused for SESSION_PAUSE_HOLD_MINUTES "parks": the run saves its work and returns, this
+ * workflow waits for Resume or Stop without any slot, then starts the next run where the last one stopped.
+ *
+ * Deploys: a worker that shuts down hands its sessions off (../drain.ts): the run saves its work and returns a
+ * hand-off, and the next run starts at once, on the next worker, where the last one stopped. A run whose worker died
+ * without handing off (no heartbeat for three minutes) is tried again and continues from its last heartbeat.
  */
-import { ActivityCancellationType, CancellationScope, allHandlersFinished, condition, isCancellation, proxyActivities, setHandler, workflowInfo } from "@temporalio/workflow";
-import type { Activities, AgentSessionInput, ProgressSnapshot, SessionCommand, SessionFinish, SessionLaunch, SessionResult } from "../activities";
+import { ActivityCancellationType, ActivityFailure, ApplicationFailure, CancellationScope, TimeoutFailure, allHandlersFinished, condition, isCancellation, patched, proxyActivities, setHandler, workflowInfo, type ActivityOptions } from "@temporalio/workflow";
+import type { Activities, AgentSessionInput, ProgressSnapshot, SessionCommand, SessionFinish, SessionLaunch, SessionResult, SessionRunOptions } from "../activities";
+import { AGENT_PAUSED_FAILURE, CANCELLED_REASON, SESSION_QUEUE_PATCH, sessionTaskQueue, usageFromHeartbeat, type RunUsage } from "../session-contract";
 import { decisionSignal, pauseSignal, progressQuery, resumeSignal, shoutSignal, stopSignal } from "./signals";
 
 const acts = proxyActivities<Activities>({ startToCloseTimeout: "5 minutes", retry: { maximumAttempts: 3, initialInterval: "2 seconds" } });
 const control = proxyActivities<Activities>({ startToCloseTimeout: "30 seconds", retry: { maximumAttempts: 5 } });
-const runner = proxyActivities<Activities>({
+const RUNNER: ActivityOptions = {
   startToCloseTimeout: "8 hours",
   heartbeatTimeout: "3 minutes",
   retry: { maximumAttempts: 1 },
   cancellationType: ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
-});
+};
+/** A parked session nobody resumes ends `stopped` after this long. */
+const PARK_LIMIT = "7 days";
+/**
+ * Since 2026-10-12 a run is tried again when its worker died without handing it off (a crash, or the shutdown's force
+ * deadline): the retry continues from the last heartbeat (activities/session.ts `retriedFrom`). A patch, so histories
+ * recorded with a single attempt replay unchanged.
+ */
+export const RUNNER_RETRY_PATCH = "session-runner-retry";
+const RUNNER_RETRY = { maximumAttempts: 3, initialInterval: "5 seconds" } as const;
 
 export interface AgentSessionOutcome {
   result: SessionResult;
@@ -28,23 +48,66 @@ export interface AgentSessionWorkflowInput extends AgentSessionInput {
   briefText?: string | null;
 }
 
+/** The activity's own error rather than Temporal's "Activity task failed" wrapper. */
+const failureMessage = (err: unknown): string => (err instanceof ActivityFailure && err.cause ? err.cause.message : (err as Error).message);
+
+/**
+ * What a failed run spent: a run that timed out (its worker lost, or no heartbeat for too long) books the usage its
+ * last heartbeat reported (an Estimate); any other failure returned before spending or booked its own.
+ */
+export const failedRunUsage = (err: unknown): RunUsage => usageFromHeartbeat(err instanceof ActivityFailure && err.cause instanceof TimeoutFailure ? err.cause.lastHeartbeatDetails : null);
+
+/** One session made of several runs (a park and a resume): usage and counts add up, the last run says how it ended. */
+export function combineRuns(a: SessionResult, b: SessionResult): SessionResult {
+  return {
+    ...b,
+    eventsEmitted: a.eventsEmitted + b.eventsEmitted,
+    toolCalls: a.toolCalls + b.toolCalls,
+    toolFailures: a.toolFailures + b.toolFailures,
+    tokensIn: a.tokensIn + b.tokensIn,
+    tokensOut: a.tokensOut + b.tokensOut,
+    costMinor: a.costMinor + b.costMinor,
+    costMicroMinor: (a.costMicroMinor ?? a.costMinor * 1_000_000) + (b.costMicroMinor ?? b.costMinor * 1_000_000),
+    durationMs: a.durationMs + b.durationMs,
+    sandboxMs: (a.sandboxMs ?? 0) + (b.sandboxMs ?? 0),
+    prNumber: b.prNumber ?? a.prNumber,
+    modelKey: b.modelKey ?? a.modelKey,
+  };
+}
+
 export async function agentSession(input: AgentSessionWorkflowInput): Promise<AgentSessionOutcome> {
   const snapshot: ProgressSnapshot = { state: "pending", progress: 0, phase: null, planStepsDone: 0, planSteps: 0, acceptanceTestsPassing: 0, acceptanceTests: 0, reviewPassed: false, merged: false, etaAt: null, updatedAt: null, detail: null };
+  // Histories from before the sessions queue keep scheduling the run on the workflow's own queue.
+  const onQueue: ActivityOptions = patched(SESSION_QUEUE_PATCH) ? { ...RUNNER, taskQueue: sessionTaskQueue(workflowInfo().taskQueue) } : RUNNER;
+  const runner = proxyActivities<Activities>(patched(RUNNER_RETRY_PATCH) ? { ...onQueue, retry: RUNNER_RETRY } : onQueue);
   const queued: SessionCommand[] = [];
   let running = false;
+  let parked = false;
   let stopRequested: { reason: string; by: string | null } | null = null;
+  /** The founder's last word on pausing, wherever the session stands: a parked session waits until it is `false`. */
+  let pausedByFounder = false;
+  /** Every command posted to the control bus is numbered; a run ignores numbers from before it started. */
+  let nextSeq = 0;
+  /** The nudges and decisions posted to the current run: a parked run says which of them it never read. */
+  let postedToRun: SessionCommand[] = [];
   let flushing: Promise<void> = Promise.resolve();
 
   const deliver = (command: SessionCommand) => {
     if (command.kind === "stop") stopRequested = { reason: command.reason, by: command.by ?? null };
+    if (command.kind === "pause") pausedByFounder = true;
+    if (command.kind === "resume") pausedByFounder = false;
     if (command.kind === "pause" && snapshot.state === "running") snapshot.state = "paused";
-    if (command.kind === "resume" && snapshot.state === "paused") snapshot.state = "running";
+    if (command.kind === "resume" && snapshot.state === "paused" && !parked) snapshot.state = "running";
     if (!running) {
+      // A parked session has no run to tell: `pausedByFounder` and `stopRequested` carry pause, resume and stop.
+      if (parked && command.kind !== "shout" && command.kind !== "decision") return;
       queued.push(command);
       return;
     }
+    const numbered: SessionCommand = { ...command, seq: nextSeq++ };
+    if (numbered.kind === "shout" || numbered.kind === "decision") postedToRun.push(numbered);
     // Serialise control activities so commands reach the runner in signal order.
-    flushing = flushing.then(() => control.postSessionCommand({ sessionId: input.sessionId, command })).catch(() => undefined);
+    flushing = flushing.then(() => control.postSessionCommand({ sessionId: input.sessionId, command: numbered })).catch(() => undefined);
   };
 
   setHandler(pauseSignal, (p) => deliver({ kind: "pause", by: p?.by ?? null, at: p?.at }));
@@ -53,7 +116,7 @@ export async function agentSession(input: AgentSessionWorkflowInput): Promise<Ag
   setHandler(shoutSignal, (p) => deliver({ kind: "shout", message: p.message, preset: p.preset ?? null, modelKey: p.modelKey ?? null, by: p.by ?? null, at: p.at }));
   setHandler(decisionSignal, (d) => {
     if (!d.approvalId) return;
-    deliver({ kind: "decision", approvalId: d.approvalId, outcome: d.outcome, by: d.by ?? null });
+    deliver({ kind: "decision", approvalId: d.approvalId, outcome: d.outcome, by: d.by ?? null, note: d.note ?? null });
   });
   setHandler(progressQuery, () => snapshot);
 
@@ -80,9 +143,13 @@ export async function agentSession(input: AgentSessionWorkflowInput): Promise<Ag
   try {
     launch = await acts.prepareSession(input);
   } catch (err) {
-    snapshot.state = "failed";
-    snapshot.detail = (err as Error).message;
-    const result = fail(`prepare failed: ${(err as Error).message}`.slice(0, 500), "error", "failed");
+    // An agent paused before its session could start (founder pause, Stop all agents, the credits pause) is not a
+    // failure: the session ends stopped and the agent stays paused.
+    const agentPaused = err instanceof ActivityFailure && err.cause instanceof ApplicationFailure && err.cause.type === AGENT_PAUSED_FAILURE;
+    const message = failureMessage(err);
+    snapshot.state = agentPaused ? "stopped" : "failed";
+    snapshot.detail = message;
+    const result = agentPaused ? fail(`not started: ${message}`.slice(0, 500), "stopped", "stopped") : fail(`prepare failed: ${message}`.slice(0, 500), "error", "failed");
     let finish: SessionFinish | null;
     try {
       finish = await acts.finishSession(input, { sandboxMode: "mock", fellBackFrom: null, modelKey: "sonnet", modelId: "", recordingKey: null, allowedTools: [], mcpConnectors: [], envNames: [], modelBilling: "credits", branch: `agent/${input.taskId}`, maxTurns: 0, planSteps: 0, acceptanceTests: 0 }, result);
@@ -101,18 +168,59 @@ export async function agentSession(input: AgentSessionWorkflowInput): Promise<Ag
     snapshot.state = "stopped";
     result = fail(stop.reason, "stopped", "stopped");
   } else {
-    snapshot.state = "running";
-    running = true;
-    const backlog = queued.splice(0, queued.length);
-    for (const c of backlog) deliver(c);
-    try {
-      result = await CancellationScope.nonCancellable(() => runner.runAgentSession(input, launch, input.briefText ?? null));
-    } catch (err) {
-      if (isCancellation(err)) result = fail("cancelled", "stopped", "stopped");
-      else result = fail(`run failed: ${(err as Error).message}`.slice(0, 500), "error", "failed");
+    let total: SessionResult | null = null;
+    let resume: SessionRunOptions["resume"] = null;
+    for (;;) {
+      snapshot.state = "running";
+      running = true;
+      const run: SessionRunOptions = { fromSeq: nextSeq, resume };
+      postedToRun = [];
+      const backlog = queued.splice(0, queued.length);
+      for (const c of backlog) deliver(c);
+      let r: SessionResult;
+      try {
+        r = await CancellationScope.nonCancellable(() => runner.runAgentSession(input, launch, input.briefText ?? null, run));
+      } catch (err) {
+        if (isCancellation(err)) r = fail(CANCELLED_REASON, "stopped", "stopped");
+        // A run that died without returning still books what it spent, as of its last heartbeat (an Estimate).
+        else r = { ...fail(`run failed: ${failureMessage(err)}`.slice(0, 500), "error", "failed"), ...failedRunUsage(err) };
+      }
+      running = false;
+      await flushing;
+      total = total ? combineRuns(total, r) : r;
+      if (!r.parked) break;
+      if (r.parked.handoff && !pausedByFounder && stopRequested === null) {
+        // The run's worker shut down (a deploy): the work is saved, and the next run starts at once on whichever worker
+        // takes it, from where this one stopped. Nudges and decisions it did not act on go with it, and so do the ones
+        // numbered after the last it read (they reached the list after its last poll).
+        const handoffLastSeq = r.parked.lastSeq;
+        queued.unshift(...r.parked.carry, ...postedToRun.filter((c) => (c.seq ?? -1) > handoffLastSeq));
+        resume = { cursor: r.parked.cursor, progress: r.progress, reason: "handoff" };
+        continue;
+      }
+
+      // Parked: the run saved its work and freed its slot while the founder keeps the session paused. Wait here for
+      // Resume or Stop; nudges and decisions that reach a parked session go to the next run, and so do the ones this run
+      // read but did not act on (`carry`) or never read (numbered after `lastSeq`: they reached the list after its last
+      // poll, and the run cleared it).
+      parked = true;
+      snapshot.state = "paused";
+      snapshot.progress = r.progress.progress;
+      snapshot.detail = "Paused: the session freed its place and continues on Resume.";
+      const lastSeq = r.parked.lastSeq;
+      const unread = postedToRun.filter((c) => (c.seq ?? -1) > lastSeq);
+      queued.unshift(...r.parked.carry, ...unread);
+      resume = { cursor: r.parked.cursor, progress: r.progress };
+      const woke = await condition(() => !pausedByFounder || stopRequested !== null, PARK_LIMIT);
+      parked = false;
+      const stop = stopRequested as { reason: string; by: string | null } | null;
+      if (stop || !woke) {
+        total = { ...total, outcome: "stopped", reason: stop ? stop.reason : "paused for a week", blockedReason: "stopped", summary: stop ? `Stopped: ${stop.reason}.` : "Stopped after a week paused.", parked: null };
+        break;
+      }
+      snapshot.detail = null;
     }
-    running = false;
-    await flushing;
+    result = total;
   }
 
   Object.assign(snapshot, {
@@ -133,7 +241,7 @@ export async function agentSession(input: AgentSessionWorkflowInput): Promise<Ag
   try {
     finish = await acts.finishSession(input, launch, result);
   } catch (err) {
-    snapshot.detail = `finish failed: ${(err as Error).message}`;
+    snapshot.detail = `finish failed: ${failureMessage(err)}`;
   }
   snapshot.state = result.outcome === "done" ? "done" : result.outcome === "failed" ? "failed" : result.outcome === "blocked" ? "blocked" : "stopped";
   await condition(allHandlersFinished);

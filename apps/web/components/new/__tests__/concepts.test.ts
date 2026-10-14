@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CONCEPT_ATTRIBUTE_KEYS, isHexColour, kitOnPrimaryDetail } from "@foundmill/dugout";
 import { STEERING_CHIPS, steerBrief } from "../ideate/IdeationStudio";
-import { COMPARE_MAX, EMPTY_STUDIO_STATE, META_KIND, attributeChanges, buildDeck, citationsOf, commitHref, compareHref, costLabel, discardLocally, kitFromSeed, lineageOf, orderDeck, parseCompareIds, parseStudioState, qaBubbles, qaOf, readMeta, restoreLocally, toConcept, toggleSelection, versionToConcept, type IdeaLike, type IdeaVersionLike } from "../ideate/concepts";
+import { COMPARE_MAX, EMPTY_STUDIO_STATE, META_KIND, attributeChanges, buildDeck, citationsOf, commitHref, compareHref, costLabel, discardLocally, kitFromSeed, lineageOf, orderDeck, parseCompareIds, parseStudioState, pinnedIdsToLoad, qaBubbles, qaOf, readMeta, restoreLocally, settlePinned, toConcept, toggleSelection, versionToConcept, withPinned, type IdeaLike, type IdeaVersionLike } from "../ideate/concepts";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -101,13 +101,51 @@ describe("studio state: discard is reversible (AC-11.1.3)", () => {
     expect(state.discarded.map((d) => d.idea.id)).toEqual([A]);
     expect(state.shortlist).toEqual([]);
     expect(buildDeck([a, b], state).map((i) => i.id)).toEqual([B]);
-    // The API has no restore: the snapshot returns locally.
-    state = restoreLocally(state, A, false);
+    // idea.restore answered: the card it returned stays in view even when the loaded pages do not carry it.
+    const live = idea(A, { title: "Ledgerly (live)" });
+    state = restoreLocally(state, A, live);
     expect(state.discarded).toEqual([]);
-    expect(buildDeck([b], state).map((i) => i.id)).toEqual([B, A]);
-    // A server-side restore does not duplicate the card.
-    const s2 = restoreLocally(discardLocally(EMPTY_STUDIO_STATE, a), A, true);
+    expect(buildDeck([b], state).map((i) => i.title)).toEqual(["Ledgerly", "Ledgerly (live)"]);
+    // Once the pages carry it, it is there once.
+    expect(buildDeck([a, b], state)).toHaveLength(2);
+    // A discard the API refused only leaves the tray: the card never left the API's deck.
+    const s2 = restoreLocally(discardLocally(EMPTY_STUDIO_STATE, a), A);
+    expect(s2.restored).toEqual([]);
     expect(buildDeck([a], s2)).toHaveLength(1);
+  });
+
+  it("asks the API for shortlisted and restored cards older than the loaded pages, never for the tray's", () => {
+    const state = { ...EMPTY_STUDIO_STATE, shortlist: [A, B], restored: [idea(C)], discarded: [{ idea: idea(B), discardedAt: "2026-10-07T13:00:00Z" }] };
+    expect(pinnedIdsToLoad(state, new Set([A]))).toEqual([C]);
+    expect(pinnedIdsToLoad({ ...state, discarded: [] }, new Set())).toEqual([A, B, C]);
+    expect(pinnedIdsToLoad(state, new Set([A, C]))).toEqual([]);
+    // The pinned cards join the pages once; the pages' copy wins.
+    expect(withPinned([idea(A)], [idea(A, { title: "Old copy" }), idea(C)]).map((i) => `${i.id}:${i.title}`)).toEqual([`${A}:Ledgerly`, `${C}:Ledgerly`]);
+  });
+
+  it("keeps a shortlisted card older than every loaded page pinned and counted (audit FR-22)", () => {
+    const old = idea(C, { createdAt: "2026-09-01T09:00:00Z", current: version({ createdAt: "2026-09-01T09:00:00Z" }) });
+    const page = [idea(A, { current: version({ createdAt: "2026-10-07T12:00:00Z" }) }), idea(B, { current: version({ createdAt: "2026-10-07T11:00:00Z" }) })];
+    const state = { ...EMPTY_STUDIO_STATE, shortlist: [C] };
+    const deck = orderDeck(buildDeck(withPinned(page, [old]), state), state.shortlist);
+    expect(deck.map((i) => i.id)).toEqual([C, A, B]);
+    expect(state.shortlist.filter((id) => deck.some((d) => d.id === id))).toHaveLength(1);
+  });
+
+  it("settles the studio against the API: gone cards leave the shortlist, a card only restored locally goes back to the tray", () => {
+    const now = new Date("2026-10-08T09:00:00Z");
+    const state = { ...EMPTY_STUDIO_STATE, shortlist: [A, B], restored: [idea(C), idea("44444444-4444-4444-8444-444444444444")] };
+    // No answer yet: only restored cards the pages now carry are dropped.
+    const loaded = settlePinned(state, new Set([C]), null, now);
+    expect(loaded.restored.map((i) => i.id)).toEqual(["44444444-4444-4444-8444-444444444444"]);
+    expect(loaded.shortlist).toEqual([A, B]);
+    // The API answered: A is live, B became a business, C is still discarded on the API (restored only in this browser).
+    const settled = settlePinned(state, new Set(), { asked: [A, B, C, "44444444-4444-4444-8444-444444444444"], found: [A, "44444444-4444-4444-8444-444444444444"], discarded: [C] }, now);
+    expect(settled.shortlist).toEqual([A]);
+    expect(settled.restored.map((i) => i.id)).toEqual(["44444444-4444-4444-8444-444444444444"]);
+    expect(settled.discarded).toEqual([{ idea: idea(C), discardedAt: "2026-10-08T09:00:00.000Z" }]);
+    // Nothing to change: the same object, so the studio does not write again.
+    expect(settlePinned(settled, new Set(), { asked: [A], found: [A], discarded: [] }, now)).toBe(settled);
   });
 
   it("orders shortlisted cards first, then newest", () => {
@@ -123,8 +161,9 @@ describe("studio state: discard is reversible (AC-11.1.3)", () => {
     expect(parseStudioState(JSON.stringify({ shortlist: [A, 3], discarded: [{ idea: { id: B } }, { nope: true }], lastPrompt: 7 }))).toEqual({ shortlist: [A], discarded: [{ idea: { id: B } }], restored: [], lastPrompt: "" });
   });
 
-  it("labels model cost as money", () => {
-    expect(costLabel(12)).toBe("€0.12");
+  it("labels model cost as money in US dollars, the currency model prices are metered in (never a silent euro)", () => {
+    expect(costLabel(12)).toBe("$0.12");
+    expect(costLabel(12, "GBP")).toBe("£0.12");
   });
 });
 

@@ -3,10 +3,10 @@
  * distribution.assets.approve/reject).
  */
 import { APPROVAL_STATES, ASSET_KINDS, CAMPAIGN_STATUSES, ValidationError, type CampaignStatus } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { assets, campaigns, channels, type Asset, type Campaign } from "../schema";
-import { Currency, defined, Id, IsoDateInput, JsonObject, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page, patchSchema } from "./_shared";
+import { approvals, assets, campaigns, channels, type Asset, type Campaign } from "../schema";
+import { Currency, changes, defined, Id, IsoDateInput, JsonObject, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page, patchSchema } from "./_shared";
 
 export const CreateCampaignInput = z.object({
   channelId: Id,
@@ -36,6 +36,8 @@ export const CreateAssetInput = z.object({
   kind: z.enum(ASSET_KINDS),
   title: z.string().max(200).default(""),
   contentRef: z.string().max(2048).nullable().optional(),
+  /** The drafted text (0028). */
+  body: z.string().max(8000).nullable().optional(),
   approvalState: z.enum(APPROVAL_STATES).default("draft"),
   authoredByAgentId: Id.nullable().optional(),
 });
@@ -49,15 +51,53 @@ export const AssetListFilter = z.object({
 });
 export type AssetListFilter = z.input<typeof AssetListFilter>;
 
-/** Allowed status moves (BUILD §11.7 engine: plan → create → approve → launch → measure → learn). */
+/**
+ * Allowed status moves (BUILD §11.7 engine: plan → create → approve → launch → measure → learn). A paused campaign
+ * resumes to the status it was paused from (`config.pausedFrom`): live again, or still scheduled.
+ */
 export const CAMPAIGN_TRANSITIONS: Record<CampaignStatus, readonly CampaignStatus[]> = {
   draft: ["pending_approval", "scheduled", "ended"],
   pending_approval: ["draft", "scheduled", "live", "ended"],
   scheduled: ["live", "paused", "draft", "ended"],
   live: ["paused", "ended"],
-  paused: ["live", "ended"],
+  paused: ["live", "scheduled", "ended"],
   ended: [],
 };
+
+/** The bookkeeping `setStatus` keeps in a campaign's `config`. */
+export interface CampaignLaunchState {
+  /** When the campaign first went live (set once; a resume never sets it again). */
+  launchedAt?: string;
+  /** The status a paused campaign was paused from (`live` or `scheduled`), restored on resume. */
+  pausedFrom?: CampaignStatus;
+}
+
+function launchState(c: Pick<Campaign, "config">): CampaignLaunchState {
+  const config = (c.config ?? {}) as Record<string, unknown>;
+  return {
+    launchedAt: typeof config.launchedAt === "string" ? config.launchedAt : undefined,
+    pausedFrom: typeof config.pausedFrom === "string" && (CAMPAIGN_STATUSES as readonly string[]).includes(config.pausedFrom) ? (config.pausedFrom as CampaignStatus) : undefined,
+  };
+}
+
+/**
+ * Whether the campaign has ever gone live. Going live after that is a resume, not a launch: no new
+ * `campaign.launched`, and the approved-asset rule (checked at the first launch) is not asked again. A campaign paused
+ * before this bookkeeping existed counts as launched unless it was paused while scheduled.
+ */
+export function hasLaunched(c: Pick<Campaign, "status" | "config">): boolean {
+  const s = launchState(c);
+  if (s.launchedAt || c.status === "live") return true;
+  return c.status === "paused" && s.pausedFrom !== "scheduled";
+}
+
+/** Where Resume takes a paused campaign: back to scheduled when it was paused before it went live, else live. */
+export function resumeStatus(c: Pick<Campaign, "status" | "config">): CampaignStatus {
+  return launchState(c).pausedFrom === "scheduled" ? "scheduled" : "live";
+}
+
+/** Campaigns that have not ended: what taking a channel off the board ends. */
+const OPEN_STATUSES = CAMPAIGN_STATUSES.filter((s) => s !== "ended");
 
 const scoped = (businessId: string, campaignId: string) => and(eq(campaigns.businessId, businessId), eq(campaigns.id, campaignId));
 const scopedAsset = (businessId: string, assetId: string) => and(eq(assets.businessId, businessId), eq(assets.id, assetId));
@@ -122,9 +162,18 @@ export const campaignsRepo = {
     );
   },
 
+  /** Edits a campaign. The dates are checked as they will be stored (the patch over the row), as `create` checks them. */
   async update(db: Executor, businessId: string, campaignId: string, input: UpdateCampaignInput): Promise<Campaign> {
     const v = parseInput(UpdateCampaignInput, input, "campaign update");
-    return one(await db.update(campaigns).set(defined(v)).where(scoped(businessId, campaignId)).returning(), "campaign", campaignId);
+    return db.transaction(async (tx) => {
+      if (v.startsAt !== undefined || v.endsAt !== undefined) {
+        const current = one(await tx.select().from(campaigns).where(scoped(businessId, campaignId)).for("update").limit(1), "campaign", campaignId);
+        const startsAt = v.startsAt === undefined ? current.startsAt : v.startsAt;
+        const endsAt = v.endsAt === undefined ? current.endsAt : v.endsAt;
+        if (startsAt && endsAt && endsAt < startsAt) throw new ValidationError("endsAt is before startsAt", { startsAt, endsAt });
+      }
+      return one(await tx.update(campaigns).set(changes(v, "campaign")).where(scoped(businessId, campaignId)).returning(), "campaign", campaignId);
+    });
   },
 
   async setStatus(db: Executor, businessId: string, campaignId: string, status: CampaignStatus, options: { force?: boolean } = {}): Promise<Campaign> {
@@ -136,10 +185,14 @@ export const campaignsRepo = {
         throw new ValidationError(`Campaign cannot move from ${current.status} to ${s}`, { campaignId, from: current.status, to: s });
       }
       const now = new Date();
+      // Launch bookkeeping: when it first went live, and what a pause interrupted (so Resume restores it).
+      const { pausedFrom: _resumed, ...config } = (current.config ?? {}) as Record<string, unknown>;
+      if (s === "paused") config.pausedFrom = current.status;
+      if (s === "live" && typeof config.launchedAt !== "string" && !hasLaunched(current)) config.launchedAt = now.toISOString();
       return one(
         await tx
           .update(campaigns)
-          .set({ status: s, ...(s === "live" && !current.startsAt ? { startsAt: now } : {}), ...(s === "ended" ? { endsAt: current.endsAt && current.endsAt < now ? current.endsAt : now } : {}) })
+          .set({ status: s, config, ...(s === "live" && !current.startsAt ? { startsAt: now } : {}), ...(s === "ended" ? { endsAt: current.endsAt && current.endsAt < now ? current.endsAt : now } : {}) })
           .where(scoped(businessId, campaignId))
           .returning(),
         "campaign",
@@ -148,8 +201,60 @@ export const campaignsRepo = {
     });
   },
 
+  /** Whether any campaign of the channel ever went live (`starts_at` is stamped on the first move to live). */
+  async channelHasLaunched(db: Executor, businessId: string, channelId: string): Promise<boolean> {
+    const rows = await db
+      .select({ id: campaigns.id })
+      .from(campaigns)
+      .where(and(eq(campaigns.businessId, businessId), eq(campaigns.channelId, channelId), isNotNull(campaigns.startsAt)))
+      .limit(1);
+    return rows.length > 0;
+  },
+
   async archive(db: Executor, businessId: string, campaignId: string): Promise<Campaign> {
     return one(await db.update(campaigns).set({ archivedAt: new Date() }).where(scoped(businessId, campaignId)).returning(), "campaign", campaignId);
+  },
+
+  /**
+   * Ends every open campaign of a channel (draft, waiting for approval, scheduled, live or paused) and expires the
+   * pending launch approvals the engine asked for them: taking a channel off the board is the full stop (DECISIONS
+   * 2026-10-07), so nothing keeps spending on it. Returns the campaigns it ended.
+   */
+  async endForChannel(db: Executor, businessId: string, channelId: string): Promise<Campaign[]> {
+    const ended = await db
+      .update(campaigns)
+      .set({ status: "ended", endsAt: sql`case when ${campaigns.endsAt} is not null and ${campaigns.endsAt} < now() then ${campaigns.endsAt} else now() end` })
+      .where(and(eq(campaigns.businessId, businessId), eq(campaigns.channelId, channelId), inArray(campaigns.status, OPEN_STATUSES)))
+      .returning();
+    if (ended.length) {
+      await db
+        .update(approvals)
+        .set({ outcome: "expired", byKind: "system", resolvedAt: new Date() })
+        .where(and(eq(approvals.businessId, businessId), isNull(approvals.resolvedAt), eq(approvals.tool, "launch_campaign"), inArray(sql<string>`${approvals.args} ->> 'campaignId'`, ended.map((c) => c.id))));
+    }
+    return ended;
+  },
+
+  /**
+   * The channel's most recent campaign that actually went live (live, paused or ended after a launch), other than
+   * `exceptId`; null when none has. The engine's approve step reads it: a channel's first campaign is a new campaign.
+   */
+  async lastLaunched(db: Executor, businessId: string, channelId: string, exceptId?: string): Promise<Campaign | null> {
+    const rows = await db
+      .select()
+      .from(campaigns)
+      .where(
+        and(
+          eq(campaigns.businessId, businessId),
+          eq(campaigns.channelId, channelId),
+          inArray(campaigns.status, ["live", "paused", "ended"]),
+          isNotNull(campaigns.startsAt),
+          exceptId ? ne(campaigns.id, exceptId) : undefined,
+        ),
+      )
+      .orderBy(desc(campaigns.startsAt))
+      .limit(1);
+    return rows[0] ?? null;
   },
 
   /** Budget committed to campaigns per channel (live, scheduled and pending). */
@@ -192,7 +297,7 @@ export const campaignsRepo = {
     return one(
       await db
         .insert(assets)
-        .values({ businessId, campaignId: v.campaignId ?? null, kind: v.kind, title: v.title, contentRef: v.contentRef ?? null, approvalState: v.approvalState, authoredByAgentId: v.authoredByAgentId ?? null })
+        .values({ businessId, campaignId: v.campaignId ?? null, kind: v.kind, title: v.title, contentRef: v.contentRef ?? null, body: v.body ?? null, approvalState: v.approvalState, authoredByAgentId: v.authoredByAgentId ?? null })
         .returning(),
       "asset",
     );
@@ -200,13 +305,26 @@ export const campaignsRepo = {
 
   async updateAsset(db: Executor, businessId: string, assetId: string, input: { title?: string; contentRef?: string | null }): Promise<Asset> {
     const v = parseInput(z.object({ title: z.string().max(200).optional(), contentRef: z.string().max(2048).nullable().optional() }), input, "asset update");
-    return one(await db.update(assets).set(defined(v)).where(scopedAsset(businessId, assetId)).returning(), "asset", assetId);
+    return one(await db.update(assets).set(changes(v, "asset")).where(scopedAsset(businessId, assetId)).returning(), "asset", assetId);
   },
 
   /** draft → pending → approved | rejected (router distribution.assets.approve/reject). */
   async setAssetApproval(db: Executor, businessId: string, assetId: string, approvalState: (typeof APPROVAL_STATES)[number]): Promise<Asset> {
     const s = parseInput(z.enum(APPROVAL_STATES), approvalState, "approval state");
     return one(await db.update(assets).set({ approvalState: s }).where(scopedAsset(businessId, assetId)).returning(), "asset", assetId);
+  },
+
+  /**
+   * The founder approved a campaign's launch (or the business runs automated within its caps): every draft or pending
+   * asset of the campaign is approved with it. Assets the founder rejected stay rejected. Returns the approved ids.
+   */
+  async approveCampaignAssets(db: Executor, businessId: string, campaignId: string): Promise<string[]> {
+    const rows = await db
+      .update(assets)
+      .set({ approvalState: "approved" })
+      .where(and(eq(assets.businessId, businessId), eq(assets.campaignId, campaignId), isNull(assets.archivedAt), inArray(assets.approvalState, ["draft", "pending"])))
+      .returning({ id: assets.id });
+    return rows.map((r) => r.id);
   },
 
   async archiveAsset(db: Executor, businessId: string, assetId: string): Promise<Asset> {

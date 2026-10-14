@@ -49,6 +49,10 @@ export interface MonthlyTotal {
   outflowMinor: number;
   netMinor: number;
   count: number;
+  /** Operating inflows: financing and transfers between own accounts left out (the burn tiles read these). */
+  operatingInflowMinor?: number;
+  /** Operating outflows: loan repayments and transfers left out. */
+  operatingOutflowMinor?: number;
 }
 export interface CategoryTotal {
   category: string | null;
@@ -154,10 +158,14 @@ export interface WageRow {
   toolCalls: number;
   trainingMinor: number;
   wageCapMinor: number | null;
+  /** The wage cap's currency: US dollars, like the metered cost it caps (absent from older answers). */
+  wageCapCurrency?: string | null;
 }
 export interface WagesResponse {
   period: string;
   label: "Estimate";
+  /** The currency every cost here is in: US dollars, the model price list's (absent from older answers). */
+  currency?: string;
   rows: WageRow[];
   totalMinor: number;
 }

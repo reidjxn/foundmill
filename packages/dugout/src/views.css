@@ -42,6 +42,11 @@
 @utility row-selected {
   background-color: color-mix(in oklab, var(--accent) 9%, transparent);
   box-shadow: inset 2px 0 0 var(--accent);
+  /* A tinted chip on the selected plate keeps its tint over the panel, not over the plate: the plate's blue under a
+     red or blue chip fill dropped the chip's word to 4.15:1 (WCAG 1.4.3). */
+  & .chip-tone {
+    background-color: color-mix(in oklab, var(--tone, var(--text-2)) 12%, var(--surface-1));
+  }
 }
 /* A scroll cue: a shadow that fades in at an edge with more content behind it (set data-more-left / data-more-right). */
 @utility scroll-cues {

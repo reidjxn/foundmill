@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { LIMITS } from "@foundmill/config";
 import { TRPCClientError } from "@trpc/client";
-import { apiTrpcUrl, createApiLinks, createUntypedApiClient, errorMessage, isStreamingOperation, resolveBearer, STREAMING_PROCEDURES, trpcErrorCode, trpcPathPrefix, trpcQueryKey } from "../trpc";
+import { apiTrpcUrl, appErrorCode, createApiLinks, createUntypedApiClient, errorMessage, fetchWithTimeout, fieldConflictOf, forbiddenMessage, isNotInvited, NO_ACCESS_PREFIX, isStreamingOperation, notInvitedReason, RATE_LIMITED_MESSAGE, REQUEST_TIMEOUT_MESSAGE, resolveBearer, STREAMING_PROCEDURES, tierLimitOf, trpcErrorCode, trpcPathPrefix, trpcQueryKey } from "../trpc";
+import { makeQueryClient } from "../query-client";
 import { routersToInvalidate, withBusiness } from "../widget-data";
 
 describe("trpc helpers", () => {
@@ -35,6 +37,99 @@ describe("trpc helpers", () => {
     expect(errorMessage("weird", "fallback")).toBe("fallback");
   });
 
+  it("reads a conflict on a form field (a taken slug) and nothing from other errors", () => {
+    const conflict = new TRPCClientError("That slug is taken", { result: { error: { code: -32009, message: "x", data: { code: "CONFLICT", httpStatus: 409, appCode: "conflict", details: { field: "slug" } } } } } as never);
+    expect(fieldConflictOf(conflict)).toEqual({ field: "slug", message: "That slug is taken" });
+    const noField = new TRPCClientError("That already exists", { result: { error: { code: -32009, message: "x", data: { code: "CONFLICT", httpStatus: 409, appCode: "conflict" } } } } as never);
+    expect(fieldConflictOf(noField)).toBeNull();
+    expect(fieldConflictOf(new Error("x"))).toBeNull();
+  });
+
+  it("reads a plan tier limit refusal (an upgrade prompt), and nothing from other errors", () => {
+    const tier = new TRPCClientError("The Free plan holds 1 business", { result: { error: { code: -32003, message: "x", data: { code: "FORBIDDEN", httpStatus: 403, appCode: "tier_limit", details: { limit: "businesses", tier: "free", allowed: 1, used: 1, planBusinessId: "b1" } } } } } as never);
+    expect(tierLimitOf(tier)).toEqual({ limit: "businesses", planBusinessId: "b1" });
+    const forbidden = new TRPCClientError("Forbidden", { result: { error: { code: -32003, message: "x", data: { code: "FORBIDDEN", httpStatus: 403, appCode: "forbidden" } } } } as never);
+    expect(tierLimitOf(forbidden)).toBeNull();
+    expect(tierLimitOf(new Error("x"))).toBeNull();
+  });
+
+  it("reads the API's own code: not invited (SIGNUP_ALLOWLIST) and rate limits", () => {
+    const err = (message: string, code: string, appCode?: string) => new TRPCClientError(message, { result: { error: { code: -32003, message, data: { code, httpStatus: code === "FORBIDDEN" ? 403 : 429, ...(appCode ? { appCode } : {}) } } } } as never);
+    const notInvited = err("This address is not on the invite list yet.", "FORBIDDEN", "not_invited");
+    expect(appErrorCode(notInvited)).toBe("not_invited");
+    expect(isNotInvited(notInvited)).toBe(true);
+    expect(isNotInvited(err("You are not a member of this business", "FORBIDDEN"))).toBe(false);
+    expect(isNotInvited(new Error("x"))).toBe(false);
+    // A rate limit reads as the API's own sentence, or a friendly line when it sent none.
+    expect(errorMessage(err("Refresh limit reached. Try again in 2 minutes.", "TOO_MANY_REQUESTS", "rate_limited"))).toBe("Refresh limit reached. Try again in 2 minutes.");
+    expect(errorMessage(err("Too Many Requests", "TOO_MANY_REQUESTS"))).toBe(RATE_LIMITED_MESSAGE);
+  });
+
+  it("says a refusal in product words, never the API's keys and role names (audit RUI-05)", () => {
+    const refused = (message: string) => new TRPCClientError(message, { result: { error: { code: -32003, message, data: { code: "FORBIDDEN", httpStatus: 403 } } } } as never);
+    expect(errorMessage(refused("You do not have read access to finance"))).toBe("No access to Finance. Ask an owner or admin if you need it.");
+    expect(errorMessage(refused("You do not have read access to crm"))).toBe(`${NO_ACCESS_PREFIX}CRM. Ask an owner or admin if you need it.`);
+    expect(errorMessage(refused("You do not have write access to legal"))).toBe("You can read Legal but not change it. Ask an owner or admin for write access.");
+    expect(errorMessage(refused("Your role (viewer) cannot perform changes"))).toBe("As a viewer you can follow this business, but not change it.");
+    expect(errorMessage(refused("Your role (advisor) cannot perform changes"))).toBe("As an advisor you can follow this business, but not change it.");
+    expect(errorMessage(refused("Your role (member) cannot perform administration"))).toBe("Only an owner or admin can do this.");
+    expect(errorMessage(refused("Your role (admin) cannot perform owner actions"))).toBe("Only the owner can do this.");
+    // The plan refusal already explains itself in words; a sentence the API wrote is kept.
+    expect(forbiddenMessage("You do not have write access to finance and legal, and this plan would pay a bill. Someone with that access can decide it.")).toContain("Someone with that access can decide it.");
+    expect(errorMessage(refused("You are not a member of this business"))).toBe("You are not a member of this business");
+  });
+
+  it("never retries a query the API refused for a rate limit (a retry spends the allowance again)", () => {
+    const retry = makeQueryClient().getDefaultOptions().queries?.retry as (count: number, err: unknown) => boolean;
+    expect(retry(0, { data: { code: "TOO_MANY_REQUESTS" } })).toBe(false);
+    expect(retry(0, { data: { code: "FORBIDDEN" } })).toBe(false);
+    // Used-up credits (SEC2): a retry is refused the same way.
+    // A model account that cannot pay (`model_billing`) stays refused until someone adds credit.
+    expect(retry(0, { data: { code: "PAYMENT_REQUIRED" } })).toBe(false);
+    expect(retry(0, { data: { code: "INTERNAL_SERVER_ERROR" } })).toBe(true);
+  });
+
+  it("tells a listed address that is not confirmed yet from one that is not on the list (SEC2 S11)", () => {
+    const err = (details?: Record<string, unknown>) => new TRPCClientError("x", { result: { error: { code: -32003, message: "x", data: { code: "FORBIDDEN", httpStatus: 403, appCode: "not_invited", ...(details ? { details } : {}) } } } } as never);
+    expect(notInvitedReason(err({ reason: "email_unconfirmed" }))).toBe("email_unconfirmed");
+    expect(notInvitedReason(err({ reason: "not_listed" }))).toBe("not_listed");
+    expect(notInvitedReason(err())).toBe("not_listed");
+    expect(notInvitedReason(new Error("x"))).toBe("not_listed");
+  });
+
+  it("never retries a malformed input, which is refused the same way every time (audit WEB-14)", () => {
+    const retry = makeQueryClient().getDefaultOptions().queries?.retry as (count: number, err: unknown) => boolean;
+    expect(retry(0, { data: { code: "BAD_REQUEST" } })).toBe(false);
+    expect(retry(0, { data: { code: "NOT_FOUND" } })).toBe(false);
+  });
+
+  it("bounds every plain request: a read that never answers is aborted with a plain sentence (audit RES-13)", async () => {
+    const seen: (AbortSignal | undefined)[] = [];
+    const hang: typeof fetch = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        seen.push(init?.signal ?? undefined);
+        init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
+      });
+    const bounded = fetchWithTimeout(hang, { query: 20, mutation: 60 });
+    await expect(bounded("http://api/trpc/inbox.list", { method: "GET" })).rejects.toThrow(REQUEST_TIMEOUT_MESSAGE);
+    await expect(bounded("http://api/trpc/business.stopAllAgents", { method: "POST" })).rejects.toThrow(REQUEST_TIMEOUT_MESSAGE);
+    expect(seen).toHaveLength(2);
+  });
+
+  it("keeps the caller's own abort, and leaves an answer that came in time alone", async () => {
+    const answer: typeof fetch = (_input, init) =>
+      new Promise((resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
+        setTimeout(() => resolve(new Response("{}")), 5);
+      });
+    const bounded = fetchWithTimeout(answer, { query: 1_000, mutation: 1_000 });
+    await expect(bounded("http://api/trpc/inbox.list", { method: "GET" })).resolves.toBeInstanceOf(Response);
+    const caller = new AbortController();
+    const pending = bounded("http://api/trpc/inbox.list", { method: "GET", signal: caller.signal });
+    caller.abort(new Error("unmounted"));
+    await expect(pending).rejects.toThrow("unmounted");
+  });
+
   it("derives the tRPC url", () => {
     expect(apiTrpcUrl("https://api.foundmill.com/")).toBe("https://api.foundmill.com/trpc");
   });
@@ -63,5 +158,18 @@ describe("trpc helpers", () => {
     expect(paths.filter((p) => p.includes("idea.draft") || p.includes("idea.logo.stream")).sort()).toEqual(["idea.draft", "idea.logo.stream"]);
     // Plain queries still share one batch.
     expect(paths).toContain("inbox.list,cycle.status");
+  });
+
+  it("never batches more calls than the API accepts in one request (LIMITS.trpcMaxBatchSize)", async () => {
+    const urls: string[] = [];
+    const fetchSpy = (async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      return new Response("{}", { status: 500, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const client = createUntypedApiClient({ getToken: () => "jwt", url: "http://api.test/trpc", fetch: fetchSpy });
+    await Promise.allSettled(Array.from({ length: LIMITS.trpcMaxBatchSize + 5 }, (_, i) => client.query("inbox.get", { businessId: "b", itemId: `i${i}` })));
+    const sizes = urls.map((u) => new URL(u).pathname.replace("/trpc/", "").split(",").length);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(LIMITS.trpcMaxBatchSize);
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(LIMITS.trpcMaxBatchSize + 5);
   });
 });

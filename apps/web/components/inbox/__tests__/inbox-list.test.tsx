@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render } from "@testing-library/react";
+import { APP_NAME } from "@foundmill/config";
 import { InboxList, type InboxListRow } from "../InboxList";
 import { ConfirmPlanDialog } from "../ReadingPane";
 
@@ -49,6 +50,41 @@ describe("InboxList (DESIGN §9 rows)", () => {
     expect(onSelect).toHaveBeenCalledWith("i1");
     expect(r.getByTestId("inbox-load-more")).toBeTruthy();
   });
+  it("gives a person's note the founder's initials only when it is their own; another founder's words come from Network (audit #65)", () => {
+    const r = render(
+      <InboxList
+        rows={[row({ id: "own", agent: undefined, fromUser: true }), row({ id: "theirs", agent: undefined, fromUser: false, fromPerson: true }), row({ id: "team", agent: undefined, fromUser: false })]}
+        selectedId={null}
+        onSelect={vi.fn()}
+        loading={false}
+        hasMore={false}
+        onLoadMore={vi.fn()}
+        emptyText=""
+        founderName="Jamie Reyes"
+      />,
+    );
+    const avatarOf = (id: string) => r.container.querySelector(`[data-inbox-row='${id}'] [role='img']`)?.getAttribute("aria-label");
+    expect(avatarOf("own")).toBe("Jamie Reyes");
+    expect(avatarOf("theirs")).toBe("Network");
+    expect(avatarOf("team")).toBe(APP_NAME);
+  });
+
+  it("draws only the rows near the viewport once hundreds of notes are loaded (audit SOAK-09)", () => {
+    const rows = Array.from({ length: 400 }, (_, i) => row({ id: `n${i}`, subject: `Note ${i}` }));
+    const r = render(<InboxList rows={rows} selectedId="n300" onSelect={vi.fn()} loading={false} hasMore onLoadMore={vi.fn()} emptyText="" />);
+    const drawn = r.getAllByRole("option");
+    expect(drawn.length).toBeGreaterThan(0);
+    expect(drawn.length).toBeLessThan(60);
+    // The first rows are drawn and the list says how long it is, for assistive technology.
+    expect(drawn[0]?.getAttribute("aria-posinset")).toBe("1");
+    expect(drawn[0]?.getAttribute("aria-setsize")).toBe("400");
+    expect(r.getByTestId("inbox-list").getAttribute("data-virtual")).toBe("true");
+  });
+  it("draws every row of a short list", () => {
+    const r = render(<InboxList rows={Array.from({ length: 30 }, (_, i) => row({ id: `s${i}` }))} selectedId={null} onSelect={vi.fn()} loading={false} hasMore={false} onLoadMore={vi.fn()} emptyText="" />);
+    expect(r.getAllByRole("option")).toHaveLength(30);
+    expect(r.getByTestId("inbox-list").getAttribute("data-virtual")).toBeNull();
+  });
   it("shows a skeleton while loading and the empty line otherwise", () => {
     const a = render(<InboxList rows={[]} selectedId={null} onSelect={vi.fn()} loading hasMore={false} onLoadMore={vi.fn()} emptyText="Nothing" />);
     expect(a.getByTestId("inbox-list-loading")).toBeTruthy();
@@ -66,7 +102,6 @@ describe("ConfirmPlanDialog ('Here is what will happen')", () => {
         open
         onOpenChange={vi.fn()}
         summary="Enable paid ads with a €500 cap."
-        currency="EUR"
         onConfirm={onConfirm}
         lines={[
           { label: "Enable channel paid ads", outcome: "allow", hardGate: false, cost: null, reasons: [] },
@@ -82,5 +117,22 @@ describe("ConfirmPlanDialog ('Here is what will happen')", () => {
     expect(r.getAllByText("€500.00").length).toBeGreaterThanOrEqual(1);
     fireEvent.click(r.getByTestId("confirm-plan-go"));
     expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a total per currency when the lines are in more than one (never '£300' lines under a '€300' total)", () => {
+    const r = render(
+      <ConfirmPlanDialog
+        open
+        onOpenChange={vi.fn()}
+        summary=""
+        onConfirm={vi.fn()}
+        lines={[
+          { label: "Set budget for paid ads", outcome: "ask", hardGate: false, cost: { amountMinor: 30_000, currency: "GBP" }, reasons: [] },
+          { label: "Set budget for seo", outcome: "allow", hardGate: false, cost: { amountMinor: 20_000, currency: "USD" }, reasons: [] },
+        ]}
+      />,
+    );
+    expect(r.getByTestId("confirm-plan-total").textContent).toContain("£300.00 + $200.00");
+    expect(r.getByText(/listed side by side, not converted/)).toBeTruthy();
   });
 });

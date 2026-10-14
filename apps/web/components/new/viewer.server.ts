@@ -4,7 +4,7 @@
  *
  * Returns one of three outcomes so each page decides its own redirect:
  *   - signed out → the caller redirects to /login?next=
- *   - API unreachable → the caller renders UnreachablePage
+ *   - API unreachable, or the account is not on the invite list → the caller renders ApiErrorPage with the error
  *   - ok → the viewer (email, profile, businesses)
  */
 import { serverApi } from "@/lib/trpc-server";
@@ -14,13 +14,15 @@ import { formatNumber } from "@/lib/format";
 export type FounderProfileGet = RouterOutputs["founder"]["profile"]["get"];
 
 export interface StudioViewer {
+  /** The account ID a co-founder adds this person by. */
+  userId: string | null;
   email: string | null;
   profile: FounderProfileGet["profile"];
   complete: boolean;
   businesses: FounderProfileGet["businesses"];
 }
 
-export type StudioViewerResult = { kind: "signed_out" } | { kind: "unreachable"; message: string } | { kind: "ok"; viewer: StudioViewer };
+export type StudioViewerResult = { kind: "signed_out" } | { kind: "unreachable"; message: string; error: unknown; email: string | null } | { kind: "ok"; viewer: StudioViewer };
 
 export async function loadStudioViewer(): Promise<StudioViewerResult> {
   const server = await serverApi();
@@ -29,10 +31,10 @@ export async function loadStudioViewer(): Promise<StudioViewerResult> {
     const data = await server.api.founder.profile.get.query();
     return {
       kind: "ok",
-      viewer: { email: data.email ?? server.auth.email, profile: data.profile, complete: data.complete, businesses: data.businesses },
+      viewer: { userId: data.userId ?? null, email: data.email ?? server.auth.email, profile: data.profile, complete: data.complete, businesses: data.businesses },
     };
   } catch (err) {
-    return { kind: "unreachable", message: errorMessage(err, "The API did not answer.") };
+    return { kind: "unreachable", message: errorMessage(err, "The API did not answer."), error: err, email: server.auth.email };
   }
 }
 

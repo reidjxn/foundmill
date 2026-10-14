@@ -90,6 +90,34 @@ describe("Conversation", () => {
     expect(items[1]!.querySelector("time")!.getAttribute("datetime")).toBe(messages[1]!.at);
   });
 
+  it("offers 'Load earlier messages' only when older ones exist, and older messages arriving on top keep what is being read where it is", () => {
+    const onLoadEarlier = vi.fn();
+    const { rerender } = render(<Conversation label="Conversation" messages={messages} onSend={() => undefined} />);
+    expect(screen.queryByRole("button", { name: "Load earlier messages" })).toBeNull();
+    rerender(<Conversation label="Conversation" messages={messages} onSend={() => undefined} hasEarlier onLoadEarlier={onLoadEarlier} />);
+    // The control is the first item of the log; the messages keep their order after it.
+    const log = screen.getByRole("log", { name: "Conversation" }) as HTMLDivElement;
+    expect(Array.from(log.querySelectorAll("li p")).map((p) => p.textContent)).toEqual(["Hello\nthere", "Hi Priya"]);
+
+    // The log is 600 px tall and the reader is at its top when they ask for earlier messages.
+    let height = 600;
+    Object.defineProperty(log, "scrollHeight", { configurable: true, get: () => height });
+    log.scrollTop = 0;
+    fireEvent.click(screen.getByRole("button", { name: "Load earlier messages" }));
+    expect(onLoadEarlier).toHaveBeenCalledTimes(1);
+
+    // They arrive above (the log grows by 400 px): the reader stays on the message they were reading, not at the bottom.
+    height = 1000;
+    const older: ConversationMessage = { id: "z", author: "Priya Nair", body: "Earlier", at: iso(300) };
+    rerender(<Conversation label="Conversation" messages={[older, ...messages]} onSend={() => undefined} hasEarlier onLoadEarlier={onLoadEarlier} />);
+    expect(log.scrollTop).toBe(400);
+    expect(Array.from(log.querySelectorAll("li p")).map((p) => p.textContent)).toEqual(["Earlier", "Hello\nthere", "Hi Priya"]);
+
+    // A new newest message does scroll to the bottom.
+    rerender(<Conversation label="Conversation" messages={[older, ...messages, { id: "n", author: "Priya Nair", body: "Now", at: iso(0) }]} onSend={() => undefined} />);
+    expect(log.scrollTop).toBe(1000);
+  });
+
   it("sends through the composer and shows empty, loading and error states instead of the log", async () => {
     const onSend = vi.fn();
     const { rerender } = render(<Conversation label="Conversation" messages={[]} empty="Say hello." onSend={onSend} />);
@@ -135,10 +163,39 @@ describe("FeedPost", () => {
     expect(screen.getByRole("button", { name: "1 reply" }).getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("A reply")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+    // A post's own controls and status chips sit in its header; neither is rendered when omitted.
+    expect(screen.queryByRole("button", { name: "More for this post" })).toBeNull();
+    const onMore = vi.fn();
+    rerender(
+      <FeedPost author="Jamie Reyes" at={iso(95)} status={<span>Held for review</span>} actions={<button type="button" aria-label="More for this post" onClick={onMore} />}>
+        First touch halved.
+      </FeedPost>,
+    );
+    expect(screen.getByText("Held for review").closest("header")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "More for this post" }));
+    expect(onMore).toHaveBeenCalledTimes(1);
   });
 
   it("a reply carries no actions", () => {
     render(<FeedPost author="Priya Nair" at={iso(3)}>Which countries?</FeedPost>);
     expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+});
+
+describe("long unbroken words (LS2-09)", () => {
+  const token = `https://example.com/${"w".repeat(400)}`;
+  it("wrap anywhere inside a bubble that never grows past its row", () => {
+    render(<Conversation label="Thread" messages={[{ id: "a", author: "Priya Nair", body: token, at: iso(1) }]} onSend={() => undefined} />);
+    const bubble = screen.getByText(token);
+    // break-words keeps the token as the bubble's min-content (152,652 px wide); anywhere lets it break.
+    expect(bubble.className).toContain("wrap-anywhere");
+    expect(bubble.className).not.toContain("break-words");
+    expect(bubble.className).toContain("max-w-full");
+  });
+  it("wrap anywhere in a feed post's body instead of running past the clipped panel", () => {
+    render(<FeedPost author="Priya Nair" at={iso(3)}>{token}</FeedPost>);
+    const body = screen.getByText(token).closest("[data-feed-post-body]")!;
+    expect(body.className).toContain("wrap-anywhere");
+    expect(body.className).toContain("min-w-0");
   });
 });

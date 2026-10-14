@@ -2,20 +2,23 @@
 /**
  * Team › Recruitment (BUILD §6.3, §11.9, §11.13): the catalogue of agent templates (team.agents.catalogue) with a
  * saved view per family and "Hire…" into a department (team.agents.hire); the agent builder entry (a sentence →
- * the closest templates, hired under a custom name; Opus drafting of instructions and skills runs on the first
- * training run); and team moves: release, clone, loan between departments.
+ * the closest templates, hired under a custom name with the template's instructions, tools and skills; training from
+ * the profile tunes them); and team moves: release, clone, loan between departments.
  */
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, Copy, ExternalLink, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
+import { CREDITS_CURRENCY } from "@foundmill/config";
 import { Button, Chip, DataTable, DeptChip, ModelChip, Panel, ProvenanceChip, Textarea, formatMoney, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleKey } from "@foundmill/shared/constants";
+import { useModuleEnv } from "../env";
 import { fitColumns, fitToGrow, humanise, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { CloneDialog, HireDialog, LoanDialog, ReleaseDialog } from "./dialogs";
-import { AgentCell, AgentStatusWordPill, FAMILY_LABELS, Screen, agentDept, agentEntity, agentHref, suggestTemplates, useAgents, useNow } from "./shared";
+import { AgentCell, AgentStatusWordPill, FAMILY_LABELS, Screen, agentDept, agentEntity, agentHref, isChiefOfStaff, isChiefOfStaffType, suggestTemplates, useAgents, useNow } from "./shared";
 import type { AgentRow, TemplateRow } from "./types";
 
 export interface CatalogueRow extends TemplateRow {
@@ -56,10 +59,31 @@ export const MOVES_FIT: Record<string, ColumnFit> = {
   status: { min: 200, grow: 1 },
 };
 
-/** The department a template works in: the department over its module (departments are labels over modules). */
-export function moduleLabel(module: string | null | undefined, departments: readonly DepartmentRow[] | undefined): string {
-  if (!module) return "Any";
-  return departmentForModule(departments, module as ModuleKey)?.name ?? humanise(module);
+/**
+ * The department a template is hired into by default: the department over its module (departments are labels over
+ * modules). Specialists and the Operations Lead share the development module with the engineers, but in a physical
+ * business they work in Operations (the department its Operations Lead leads, over the development module's
+ * Specialists tab), so that department wins for them when the business has one.
+ */
+export function departmentForTemplate(template: Pick<TemplateRow, "module" | "family" | "key">, departments: readonly DepartmentRow[] | undefined, agents: readonly Pick<AgentRow, "id" | "agentType">[] | undefined): DepartmentRow | undefined {
+  if (!template.module) return undefined;
+  const moduleKey = template.module as ModuleKey;
+  if (template.family === "specialist" || template.key === OPERATIONS_LEAD) {
+    const operations = (departments ?? [])
+      .filter((d) => !d.hidden && d.moduleKeys.includes(moduleKey))
+      .sort((a, b) => a.position - b.position)
+      .find((d) => (agents ?? []).some((a) => a.id === (d.leadAgentId ?? d.lead?.id) && a.agentType === OPERATIONS_LEAD));
+    if (operations) return operations;
+  }
+  return departmentForModule(departments, moduleKey);
+}
+
+const OPERATIONS_LEAD = "operations_lead";
+
+/** The department a template works in, by name, for the catalog's Department column. */
+export function moduleLabel(template: Pick<TemplateRow, "module" | "family" | "key">, departments: readonly DepartmentRow[] | undefined, agents?: readonly Pick<AgentRow, "id" | "agentType">[]): string {
+  if (!template.module) return "Any";
+  return departmentForTemplate(template, departments, agents)?.name ?? humanise(template.module);
 }
 
 const FAMILY_ORDER: Record<TemplateRow["family"], number> = { assistant: 0, lead: 1, worker: 2, channel: 3, specialist: 4, utility: 5 };
@@ -73,15 +97,17 @@ export function toCatalogueRows(catalogue: readonly TemplateRow[] | undefined, a
 }
 
 export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProps) {
-  const { navigate, currency = "EUR" } = useWidgetData();
+  const { navigate, currency } = useWidgetData();
   const now = useNow();
   const catalogue = useWidgetQuery<TemplateRow[]>("team.agents.catalogue", {});
   const agentsQuery = useAgents();
   const departments = useDepartments();
   const rows = useMemo(() => toCatalogueRows(catalogue.data, agentsQuery.data?.agents), [catalogue.data, agentsQuery.data]);
   const team = useMemo(() => (agentsQuery.data?.agents ?? []).filter((a) => !a.archivedAt), [agentsQuery.data]);
-  const [catalogueViews, setCatalogueViews] = useState<SavedView[]>(CATALOGUE_VIEWS);
-  const [movesViews, setMovesViews] = useState<SavedView[]>(MOVES_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const catalogueSavedViews = useSavedViews("team.recruitment.catalog", CATALOGUE_VIEWS, { defaultViewId: "all" });
+  const movesSavedViews = useSavedViews("team.recruitment.moves", MOVES_VIEWS, { defaultViewId: "all" });
+  const { readOnly } = useModuleEnv();
   const [hire, setHire] = useState<{ template: TemplateRow; name?: string } | null>(null);
   const [release, setRelease] = useState<AgentRow | null>(null);
   const [clone, setClone] = useState<AgentRow | null>(null);
@@ -92,7 +118,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
   const best = suggestions[0]?.template ?? null;
   const open = (agentId: string) => navigate(agentHref(businessId, agentId));
   const refetch = () => agentsQuery.refetch();
-  const draft = () => best && setHire({ template: best });
+  const draft = () => best && !readOnly && setHire({ template: best });
   // Each column at its minimum; the tables share their spare width by the specs' weights themselves (`meta.grow`).
   const catalogueSizes = useMemo(() => fitColumns(null, CATALOGUE_FIT, []), []);
   const movesSizes = useMemo(() => fitColumns(null, MOVES_FIT, []), []);
@@ -113,7 +139,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         ),
       },
       { id: "family", accessorKey: "family", header: "Family", size: catalogueSizes.family, cell: ({ row }) => <Chip>{row.original.familyLabel}</Chip>, meta: { filter: "select", filterOptions: (Object.keys(FAMILY_LABELS) as TemplateRow["family"][]).map((f) => ({ value: f, label: FAMILY_LABELS[f] })) }, sortingFn: (a, b) => FAMILY_ORDER[a.original.family] - FAMILY_ORDER[b.original.family] },
-      { id: "module", accessorFn: (r) => moduleLabel(r.module, departments.data), header: "Department", size: catalogueSizes.module, meta: { label: "Department" }, cell: ({ row }) => <span className={row.original.module ? "text-primary" : "text-secondary"}>{moduleLabel(row.original.module, departments.data)}</span> },
+      { id: "module", accessorFn: (r) => moduleLabel(r, departments.data, agentsQuery.data?.agents), header: "Department", size: catalogueSizes.module, meta: { label: "Department" }, cell: ({ row }) => <span className={row.original.module ? "text-primary" : "text-secondary"}>{moduleLabel(row.original, departments.data, agentsQuery.data?.agents)}</span> },
       { id: "model", accessorKey: "modelKey", header: "Model", size: catalogueSizes.model, cell: ({ row }) => <ModelChip model={row.original.modelKey} /> },
       {
         id: "skills",
@@ -141,7 +167,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         meta: { numeric: true, csv: (r) => r.wageCapMinor / 100 },
         cell: ({ row }) => (
           <span className="inline-flex items-center gap-1.5 whitespace-nowrap tabular-nums">
-            {formatMoney({ amountMinor: row.original.wageCapMinor, currency })}
+            {formatMoney({ amountMinor: row.original.wageCapMinor, currency: CREDITS_CURRENCY })}
             <span className="t-unit">/mo</span>
             <ProvenanceChip kind="estimate" />
           </span>
@@ -149,9 +175,9 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
       },
       { id: "hired", accessorKey: "hired", header: "In team", size: catalogueSizes.hired, meta: { numeric: true }, cell: ({ row }) => (row.original.hired ? row.original.hired : <span className="text-tertiary">—</span>) },
     ], CATALOGUE_FIT),
-    [currency, catalogueSizes, departments.data],
+    [catalogueSizes, departments.data, agentsQuery.data],
   );
-  const catalogueActions = (row: CatalogueRow): RowAction<CatalogueRow>[] => [{ id: "hire", label: "Hire…", icon: UserRoundPlus, onSelect: () => setHire({ template: row }) }];
+  const catalogueActions = (row: CatalogueRow): RowAction<CatalogueRow>[] => readOnly ? [] : [{ id: "hire", label: "Hire…", icon: UserRoundPlus, onSelect: () => setHire({ template: row }) }];
 
   const movesColumns = useMemo<DataTableColumn<AgentRow>[]>(
     () => fitToGrow<AgentRow>([
@@ -189,14 +215,15 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
   );
   const movesActions = (agent: AgentRow): RowAction<AgentRow>[] => [
     { id: "open", label: "Open profile", icon: ExternalLink, onSelect: () => open(agent.id) },
-    { id: "clone", label: "Clone…", icon: Copy, separatorBefore: true, onSelect: () => setClone(agent) },
+    // One Chief of Staff per business: it is never cloned, and the designated one is never released.
+    { id: "clone", label: "Clone…", icon: Copy, separatorBefore: true, disabled: isChiefOfStaffType(agent), onSelect: () => setClone(agent) },
     { id: "loan", label: "Loan to department…", icon: ArrowLeftRight, onSelect: () => setLoan(agent) },
-    { id: "release", label: "Release", icon: UserRoundMinus, variant: "danger", separatorBefore: true, disabled: agent.agentType === "chief_of_staff", onSelect: () => setRelease(agent) },
+    { id: "release", label: "Release", icon: UserRoundMinus, variant: "danger", separatorBefore: true, disabled: isChiefOfStaff(agent), onSelect: () => setRelease(agent) },
   ];
 
   return (
     <Screen name="team/recruitment">
-      <Panel span={12} title="Agent builder" glow="brand" footer="The closest template gives the new agent a head start; its first training run drafts the description, instructions, skills and tools. Hiring needs no approval; the wage cap is an estimate until the first month closes.">
+      <Panel span={12} title="Agent builder" glow="brand" footer="The closest template gives the new agent its description, instructions, skills and tools; train it from its profile to tune them. Hiring needs no approval; the wage cap is an estimate until the first month closes.">
         <div className="flex flex-col gap-3">
           <Textarea
             value={sentence}
@@ -247,7 +274,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
                       <Chip key={w}>{w}</Chip>
                     ))}
                   </span>
-                  <Button size="sm" icon={UserRoundPlus} onClick={() => setHire({ template: s.template })} className="mt-auto self-start">
+                  <Button size="sm" icon={UserRoundPlus} onClick={() => setHire({ template: s.template })} disabled={Boolean(readOnly)} title={readOnly} className="mt-auto self-start">
                     Hire from this template
                   </Button>
                 </li>
@@ -275,7 +302,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         footer={notice ? <span data-testid="recruitment-notice" className="text-secondary">{notice}</span> : "Double-click or right-click a template to hire it into a department. Wage caps are estimates."}
       >
         <div className="min-w-0">
-          <DataTable<CatalogueRow> aria-label="Catalog" data={rows} columns={catalogueColumns} views={catalogueViews} onViewsChange={setCatalogueViews} defaultViewId="all" rowActions={catalogueActions} onRowOpen={(row) => setHire({ template: row })} height={Math.min(480, Math.max(240, rows.length * 34 + 44))} density="comfortable" exportFileName="catalogue" className="border-0" />
+          <DataTable<CatalogueRow> aria-label="Catalog" data={rows} columns={catalogueColumns} {...catalogueSavedViews} defaultViewId="all" rowActions={catalogueActions} onRowOpen={(row) => !readOnly && setHire({ template: row })} height={Math.min(480, Math.max(240, rows.length * 34 + 44))} density="comfortable" exportFileName="catalogue" className="border-0" />
         </div>
       </Panel>
 
@@ -290,7 +317,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         footer="Release stops running tasks and keeps the history. Clone copies instructions, tools, model and skills. Loan adds a department; move replaces it."
       >
         <div className="min-w-0">
-          <DataTable<AgentRow> aria-label="Team moves" data={team} columns={movesColumns} views={movesViews} onViewsChange={setMovesViews} defaultViewId="all" rowActions={movesActions} onRowOpen={(a) => open(a.id)} height={Math.min(420, Math.max(200, team.length * 28 + 44))} exportFileName="team-moves" className="border-0" />
+          <DataTable<AgentRow> aria-label="Team moves" data={team} columns={movesColumns} {...movesSavedViews} defaultViewId="all" rowActions={movesActions} onRowOpen={(a) => open(a.id)} height={Math.min(420, Math.max(200, team.length * 28 + 44))} exportFileName="team-moves" className="border-0" />
         </div>
       </Panel>
 
@@ -300,9 +327,9 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         onOpenChange={(o) => !o && setHire(null)}
         departments={departments.data}
         defaultDepartmentId={departmentId}
-        currency={currency}
+        preferredDepartmentId={hire ? departmentForTemplate(hire.template, departments.data, agentsQuery.data?.agents)?.id : undefined}
         onHired={(agent, template) => {
-          setNotice(`${agent.name ?? template.name} hired. First training run queued.`);
+          setNotice(`${agent.name ?? template.name} hired. Train it from its profile to tune its skills.`);
           setSentence("");
           refetch();
         }}

@@ -1,6 +1,6 @@
 /** skill_definitions, skill_tests, agent_skills — attribute ratings (BUILD §11.10; routers agent.profile.*). */
-import { SKILL_GROUPS } from "@foundmill/shared";
-import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
+import { SKILL_GROUPS, ValidationError } from "@foundmill/shared";
+import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agentSkills, skillDefinitions, skillTests, type AgentSkill, type SkillDefinition, type SkillTest } from "../schema";
 import { Id, JsonObject, numericText, one, parseInput, type Executor } from "./_shared";
@@ -21,6 +21,8 @@ export const CreateSkillTestInput = z.object({
   rubric: JsonObject.default({}),
   heldOut: z.boolean().default(false),
   fixturesRef: z.string().max(2048).nullable().optional(),
+  /** False for a drafted test that waits for the founder's review (0054); only reviewed tests are scored. */
+  reviewed: z.boolean().default(true),
 });
 export type CreateSkillTestInput = z.input<typeof CreateSkillTestInput>;
 
@@ -91,13 +93,87 @@ export const skillsRepo = {
     );
   },
 
-  /** Tests for a definition. Held-out tests come back redacted unless `includeHeldOut` (the training runner). */
-  async listTests(db: Executor, businessId: string, definitionId: string, options: { includeHeldOut?: boolean } = {}): Promise<(SkillTest | RedactedSkillTest)[]> {
+  /**
+   * Discards a custom skill: the definition and every test drafted for it are archived together, so adding a skill of
+   * the same name later starts from its own tests only.
+   */
+  async discardCustom(db: Executor, businessId: string, definitionId: string): Promise<SkillDefinition> {
+    return db.transaction(async (tx) => {
+      const def = await skillsRepo.getDefinition(tx, businessId, definitionId);
+      if (!def.custom || def.businessId !== businessId) throw new ValidationError("Only a custom skill can be discarded", { definitionId });
+      const now = new Date();
+      await tx.update(skillTests).set({ archivedAt: now }).where(and(eq(skillTests.businessId, businessId), eq(skillTests.skillDefinitionId, definitionId), isNull(skillTests.archivedAt)));
+      return skillsRepo.archiveDefinition(tx, businessId, definitionId);
+    });
+  },
+
+  /** The business's (or the platform's) definition of a skill for an agent type, or null. */
+  async findDefinition(db: Executor, businessId: string, agentType: string, skillKey: string): Promise<SkillDefinition | null> {
+    const rows = await db
+      .select()
+      .from(skillDefinitions)
+      .where(and(or(isNull(skillDefinitions.businessId), eq(skillDefinitions.businessId, businessId)), eq(skillDefinitions.agentType, agentType), eq(skillDefinitions.skillKey, skillKey), isNull(skillDefinitions.archivedAt)))
+      .orderBy(sql`${skillDefinitions.businessId} is null`)
+      .limit(1);
+    return rows[0] ?? null;
+  },
+
+  /**
+   * The business's custom skills for an agent type with their test counts (live tests only): how many were drafted,
+   * how many the founder reviewed and how many of those are held out. A skill with tests and none reviewed is awaiting
+   * review.
+   */
+  async listCustom(db: Executor, businessId: string, agentType: string): Promise<(SkillDefinition & { tests: number; reviewed: number; heldOut: number })[]> {
+    const defs = await db
+      .select()
+      .from(skillDefinitions)
+      .where(and(eq(skillDefinitions.businessId, businessId), eq(skillDefinitions.agentType, agentType), eq(skillDefinitions.custom, true), isNull(skillDefinitions.archivedAt)))
+      .orderBy(asc(skillDefinitions.createdAt));
+    if (defs.length === 0) return [];
+    const counts = await db
+      .select({ id: skillTests.skillDefinitionId, tests: sql<number>`count(*)::int`, reviewed: sql<number>`count(*) filter (where ${skillTests.reviewedAt} is not null)::int`, heldOut: sql<number>`count(*) filter (where ${skillTests.heldOut} and ${skillTests.reviewedAt} is not null)::int` })
+      .from(skillTests)
+      .where(and(eq(skillTests.businessId, businessId), inArray(skillTests.skillDefinitionId, defs.map((d) => d.id)), isNull(skillTests.archivedAt)))
+      .groupBy(skillTests.skillDefinitionId);
+    return defs.map((d) => {
+      const c = counts.find((x) => x.id === d.id);
+      return { ...d, tests: Number(c?.tests ?? 0), reviewed: Number(c?.reviewed ?? 0), heldOut: Number(c?.heldOut ?? 0) };
+    });
+  },
+
+  /**
+   * The founder's review of a drafted custom skill (BUILD §11.10 "founder reviews before it counts"): the visible
+   * tests they keep and every held-out test (never shown, AC-11.10.2) are marked reviewed; the visible ones they drop
+   * are archived. Returns how many count now.
+   */
+  async reviewTests(db: Executor, businessId: string, definitionId: string, keepIds: readonly string[]): Promise<{ reviewed: number; dropped: number }> {
+    const keep = parseInput(z.array(Id), [...keepIds], "test ids");
+    return db.transaction(async (tx) => {
+      const def = await skillsRepo.getDefinition(tx, businessId, definitionId);
+      if (!def.custom || def.businessId !== businessId) throw new ValidationError("Only a custom skill's tests are reviewed here", { definitionId });
+      const drafted = await tx
+        .select({ id: skillTests.id, heldOut: skillTests.heldOut })
+        .from(skillTests)
+        .where(and(eq(skillTests.businessId, businessId), eq(skillTests.skillDefinitionId, definitionId), isNull(skillTests.archivedAt), isNull(skillTests.reviewedAt)));
+      const unknown = keep.filter((id) => !drafted.some((t) => t.id === id && !t.heldOut));
+      if (unknown.length) throw new ValidationError("Keep only tests drafted for this skill and waiting for review", { unknown });
+      const kept = drafted.filter((t) => t.heldOut || keep.includes(t.id)).map((t) => t.id);
+      const dropped = drafted.filter((t) => !kept.includes(t.id)).map((t) => t.id);
+      if (!drafted.some((t) => !t.heldOut && keep.includes(t.id))) throw new ValidationError("Keep at least one visible test, or discard the skill");
+      const now = new Date();
+      if (kept.length) await tx.update(skillTests).set({ reviewedAt: now }).where(and(eq(skillTests.businessId, businessId), inArray(skillTests.id, kept)));
+      if (dropped.length) await tx.update(skillTests).set({ archivedAt: now }).where(and(eq(skillTests.businessId, businessId), inArray(skillTests.id, dropped)));
+      return { reviewed: kept.length, dropped: dropped.length };
+    });
+  },
+
+  /** Tests for a definition. Held-out tests come back redacted unless `includeHeldOut` (the training runner); `reviewedOnly` leaves out drafts. */
+  async listTests(db: Executor, businessId: string, definitionId: string, options: { includeHeldOut?: boolean; reviewedOnly?: boolean } = {}): Promise<(SkillTest | RedactedSkillTest)[]> {
     await skillsRepo.getDefinition(db, businessId, definitionId);
     const rows = await db
       .select()
       .from(skillTests)
-      .where(and(eq(skillTests.skillDefinitionId, definitionId), or(isNull(skillTests.businessId), eq(skillTests.businessId, businessId)), isNull(skillTests.archivedAt)))
+      .where(and(eq(skillTests.skillDefinitionId, definitionId), or(isNull(skillTests.businessId), eq(skillTests.businessId, businessId)), isNull(skillTests.archivedAt), options.reviewedOnly ? isNotNull(skillTests.reviewedAt) : undefined))
       .orderBy(asc(skillTests.createdAt));
     if (options.includeHeldOut) return rows;
     return rows.map((t) => (t.heldOut ? { id: t.id, skillDefinitionId: t.skillDefinitionId, heldOut: true } : t));
@@ -109,7 +185,7 @@ export const skillsRepo = {
     return one(
       await db
         .insert(skillTests)
-        .values({ businessId: def.businessId === null ? null : businessId, skillDefinitionId: v.skillDefinitionId, task: v.task, rubric: v.rubric, heldOut: v.heldOut, fixturesRef: v.fixturesRef ?? null })
+        .values({ businessId: def.businessId === null ? null : businessId, skillDefinitionId: v.skillDefinitionId, task: v.task, rubric: v.rubric, heldOut: v.heldOut, fixturesRef: v.fixturesRef ?? null, reviewedAt: v.reviewed ? new Date() : null })
         .returning(),
       "skill test",
     );
@@ -118,6 +194,19 @@ export const skillsRepo = {
   // agent skills ------------------------------------------------------------------------------------------------------
   async listForAgent(db: Executor, businessId: string, agentId: string): Promise<AgentSkill[]> {
     return db.select().from(agentSkills).where(and(eq(agentSkills.businessId, businessId), eq(agentSkills.agentId, agentId))).orderBy(asc(agentSkills.group), asc(agentSkills.skillKey));
+  },
+
+  /** `listForAgent` for several agents in one statement (the Team table), by agent id; every id asked for has a list. */
+  async listForAgents(db: Executor, businessId: string, agentIds: readonly string[]): Promise<Map<string, AgentSkill[]>> {
+    const out = new Map(agentIds.map((id) => [id, [] as AgentSkill[]]));
+    if (agentIds.length === 0) return out;
+    const rows = await db
+      .select()
+      .from(agentSkills)
+      .where(and(eq(agentSkills.businessId, businessId), inArray(agentSkills.agentId, [...agentIds])))
+      .orderBy(asc(agentSkills.group), asc(agentSkills.skillKey));
+    for (const row of rows) out.get(row.agentId)?.push(row);
+    return out;
   },
 
   /**

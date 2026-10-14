@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { FormationScreen } from "../FormationScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
-import { BID, CAMPAIGN, CHANNEL, dataResponses, emptyResponses, recommendResponse } from "./fixtures";
+import { BID, CAMPAIGN, CHANNEL, channelsList, dataResponses, emptyResponses, recommendResponse } from "./fixtures";
 
 // The Strategist re-scores right after a toggle here; rescore.test.tsx covers the two-second wait.
 const props = { businessId: BID, departmentId: "d1", animateEntrance: false, rescoreDelayMs: 0 };
@@ -14,8 +14,9 @@ describe("FormationScreen", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <FormationScreen {...props} />);
     const board = screen.getByRole("region", { name: "Channel Board" });
-    const tokens = within(board).getAllByRole("button", { name: /fit \d+ of 20/ });
-    expect(tokens).toHaveLength(15);
+    // Six channels carry a stored score; the other nine were never scored and say so instead of showing a default fit.
+    expect(within(board).getAllByRole("button", { name: /fit \d+ of 20/ })).toHaveLength(6);
+    expect(within(board).getAllByRole("button", { name: /not scored yet/ })).toHaveLength(9);
     const paid = within(board).getByRole("button", { name: /^Paid advertising, fit 17 of 20/ });
     expect(paid.getAttribute("aria-pressed")).toBe("true");
     expect(paid.getAttribute("aria-label")).toContain("recommended");
@@ -24,6 +25,13 @@ describe("FormationScreen", () => {
     expect(within(board).getByRole("group", { name: /^Off the board: All 15 channels are available/ })).toBeTruthy();
     expect(screen.getByText("4 of 15 running")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Re-score" })).toBeTruthy();
+  });
+
+  it("never counts a channel without an engine as running: it reads 'starting' (audit GTM-01)", () => {
+    const withoutEngine = { ...channelsList, channels: channelsList.channels.map((c, i) => ({ ...c, engineWorkflowId: c.enabled && i === 0 ? null : c.enabled ? `engine:${c.id}` : null })) };
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "distribution.channels.list": withoutEngine } });
+    renderScreen(fake, <FormationScreen {...props} />);
+    expect(screen.getByText("3 of 15 running · 1 starting")).toBeTruthy();
   });
 
   it("moves a channel to the bench with Enter → disable, then re-scores through distribution.recommend and refetches", async () => {
@@ -101,7 +109,7 @@ describe("FormationScreen", () => {
     renderScreen(empty, <FormationScreen {...props} />);
     expect(screen.getByRole("status").textContent).toContain("All 15 channels are off the board");
     expect(screen.getByRole("region", { name: "Channel Board" })).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /fit 1 of 20/ })).toHaveLength(15);
+    expect(screen.getAllByRole("button", { name: /not scored yet/ })).toHaveLength(15);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Get recommendation" }));
     });

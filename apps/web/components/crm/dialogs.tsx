@@ -2,15 +2,17 @@
 /**
  * CRM dialogs: new record (`crm.entity.create`), merge (search the other record, choose which survives →
  * `crm.entity.merge`, reversible, AC-11.12.3), rename/edit (`crm.entity.update`), export (data duty: JSON of
- * everything held), deletion request (recorded for the founder-approved scheduled job), add role (`crm.roles.add`).
+ * everything held), deletion request (outreach suppressed at once; the nightly deletion job removes the record after 7 days), add role (`crm.roles.add`).
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, GitMerge, Search, Trash2, UserRoundPlus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { downloadText } from "@/lib/download";
 import { plainWords } from "@/lib/format";
 import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ENTITY_KIND_ICONS, ENTITY_KIND_LABELS, Field, Icon, Input, RadioGroup, RadioOption, SimpleSelect, Textarea, useToast } from "@foundmill/dugout";
 import type { EntityKind } from "@foundmill/shared";
-import { errorMessage, trpcErrorCode, trpcPathPrefix } from "@/lib/trpc";
+import { TRPCClientError } from "@trpc/client";
+import { appErrorCode, errorMessage, trpcErrorCode, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useUntypedApi } from "@/components/providers/AppProviders";
 import { LAWFUL_BASES, LAWFUL_BASIS_LABEL, deletionRequestNote, exportEntityJson, type EntityGet, type EntityRecord } from "./logic";
@@ -29,7 +31,14 @@ export function useCrmInvalidate() {
 
 // --- new record -----------------------------------------------------------------------------------------------------
 
-export function NewEntityDialog({ businessId, open, onOpenChange, onCreated }: { businessId: string; open: boolean; onOpenChange: (o: boolean) => void; onCreated: (entity: EntityRecord) => void }) {
+/** The record a refused "New record" matched (`duplicate_entity`: a live record already holds the email or domain). */
+function duplicateOf(err: unknown): { id: string; displayName: string; message: string } | null {
+  if (appErrorCode(err) !== "duplicate_entity" || !(err instanceof TRPCClientError)) return null;
+  const existing = (err.data as { details?: { existing?: { id?: string; displayName?: string } } } | undefined)?.details?.existing;
+  return existing?.id ? { id: existing.id, displayName: existing.displayName ?? "That record", message: err.message } : null;
+}
+
+export function NewEntityDialog({ businessId, open, onOpenChange, onCreated, onOpenExisting }: { businessId: string; open: boolean; onOpenChange: (o: boolean) => void; onCreated: (entity: EntityRecord) => void; onOpenExisting?: (entityId: string) => void }) {
   const trpc = useTRPC();
   const { toast } = useToast();
   const invalidate = useCrmInvalidate();
@@ -38,11 +47,13 @@ export function NewEntityDialog({ businessId, open, onOpenChange, onCreated }: {
   const [email, setEmail] = useState("");
   const [domain, setDomain] = useState("");
   const [lawfulBasis, setLawfulBasis] = useState<string>("legitimate_interest");
+  const [duplicate, setDuplicate] = useState<{ id: string; displayName: string; message: string } | null>(null);
   useEffect(() => {
     if (!open) {
       setName("");
       setEmail("");
       setDomain("");
+      setDuplicate(null);
     }
   }, [open]);
   const create = useMutation(
@@ -53,7 +64,11 @@ export function NewEntityDialog({ businessId, open, onOpenChange, onCreated }: {
         onOpenChange(false);
         onCreated(e);
       },
-      onError: (err) => toast({ title: "Could not add the record", description: errorMessage(err), tone: "bad" }),
+      onError: (err) => {
+        const dup = duplicateOf(err);
+        if (dup) setDuplicate(dup);
+        else toast({ title: "Could not add the record", description: errorMessage(err), tone: "bad" });
+      },
     }),
   );
   const identifiers: Record<string, string> = {};
@@ -88,6 +103,28 @@ export function NewEntityDialog({ businessId, open, onOpenChange, onCreated }: {
             <Field htmlFor="new-basis" label="Lawful basis" hint="Why the business may hold this person's data (recorded per person).">
               <SimpleSelect id="new-basis" value={lawfulBasis} onValueChange={setLawfulBasis} options={LAWFUL_BASES.map((b) => ({ value: b, label: LAWFUL_BASIS_LABEL[b]! }))} />
             </Field>
+          ) : null}
+          {duplicate ? (
+            <div role="alert" className="flex flex-col gap-2 rounded-md border border-line bg-panel p-3 text-small" data-testid="new-entity-duplicate">
+              <p className="text-status-warn">{duplicate.message}</p>
+              <div className="flex flex-wrap gap-2">
+                {onOpenExisting ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      onOpenChange(false);
+                      onOpenExisting(duplicate.id);
+                    }}
+                    data-testid="new-entity-open-existing"
+                  >
+                    Open {duplicate.displayName}
+                  </Button>
+                ) : null}
+                <Button variant="ghost" loading={create.isPending} onClick={() => create.mutate({ businessId, kind, displayName: name.trim(), identifiers, aliases: [], lawfulBasis: kind === "person" ? lawfulBasis : null, allowDuplicate: true })} data-testid="new-entity-add-anyway">
+                  Add anyway
+                </Button>
+              </div>
+            </div>
           ) : null}
         </DialogBody>
         <DialogFooter>
@@ -139,7 +176,7 @@ export function MergeDialog({ businessId, source, open, onOpenChange, onMerged }
       <DialogContent size="md" data-testid="merge-dialog">
         <DialogHeader>
           <DialogTitle>Merge {source.displayName}</DialogTitle>
-          <DialogDescription>Roles, relationships, mentions, interactions and identifiers move to the record you keep. Merges are audited and can be undone exactly.</DialogDescription>
+          <DialogDescription>Roles, relationships, mentions, interactions and identifiers move to the record you keep. Merges are audited and can be undone: undoing one takes back only what it brought in, so later edits stay.</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
           <Field htmlFor="merge-search" label={`Find the duplicate ${ENTITY_KIND_LABELS[source.kind].toLowerCase()}`}>
@@ -313,19 +350,6 @@ export function AddRoleDialog({ businessId, entityId, open, onOpenChange, roles 
 
 // --- data duties: export and deletion request ----------------------------------------------------------------------
 
-export function downloadText(filename: string, text: string, type = "application/json"): void {
-  if (typeof document === "undefined") return;
-  const blob = new Blob([text], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 export function ExportDialog({ get, open, onOpenChange }: { get: EntityGet; open: boolean; onOpenChange: (o: boolean) => void }) {
   const json = useMemo(() => exportEntityJson(get), [get]);
   const filename = `${get.entity.displayName.replace(/[^\w-]+/g, "-").toLowerCase()}-export.json`;
@@ -382,7 +406,7 @@ export function DeleteRequestDialog({ businessId, entity, requestedBy, open, onO
     }
     setBusy(false);
     void invalidate();
-    toast({ title: "Deletion requested", description: "Queued for the founder-approved scheduled job; the audit log records the request.", tone: "info" });
+    toast({ title: "Deletion requested", description: "Outreach to them stops now. The nightly deletion job removes the record in 7 days; the audit log records the request.", tone: "info" });
     onOpenChange(false);
   };
   return (
@@ -390,7 +414,7 @@ export function DeleteRequestDialog({ businessId, entity, requestedBy, open, onO
       <DialogContent size="sm" data-testid="delete-request-dialog">
         <DialogHeader>
           <DialogTitle>Request deletion of {entity.displayName}</DialogTitle>
-          <DialogDescription>Deletion never runs immediately. It is queued for the scheduled, audited job the founder approved at setup; a suppression entry stops re-import.</DialogDescription>
+          <DialogDescription>Deletion never runs immediately. Outreach to them stops now and a suppression entry stops re-import; the nightly, audited deletion job removes the record 7 days after the request.</DialogDescription>
         </DialogHeader>
         <DialogBody>
           <Field htmlFor="delete-reason" label="Reason" hint="Optional: the person asked, data is wrong, retention rule.">

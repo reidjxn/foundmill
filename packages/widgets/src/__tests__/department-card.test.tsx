@@ -6,7 +6,7 @@ import { getWidget, parseWidgetSettings } from "../registry";
 import { createFakeSource } from "../testing";
 import "../widgets";
 import { formatDate, type DateFormatPrefs } from "@foundmill/dugout";
-import { departmentHealth, headlineMetric, metricKeyFor, nowLines, quietLine, toSquad } from "../widgets/department-card";
+import { departmentHealth, headlineMetric, metricKeyFor, monthEndCash, nowLines, quietLine, toSquad } from "../widgets/department-card";
 import { addDays } from "../shared/time";
 import type { InboxItemRow } from "../shared/types";
 import { AGENT, BID, DEPT, TODAY, dataResponses, departments, inbox, ribbon, tasks } from "./fixtures";
@@ -105,6 +105,18 @@ describe("department card widget", () => {
     expect(container.querySelector("[data-now-quiet-line]")).toBeNull();
   });
 
+  it("says it could not load the department's work, with a retry, instead of calling it quiet (no Healthy from an empty list)", () => {
+    const responses = { ...dataResponses(), "dev.tasks.list": (input: Record<string, unknown> | undefined) => (input?.departmentId ? new Error("tRPC: INTERNAL_SERVER_ERROR") : { ...tasks, items: [] }) };
+    const { fake, container } = mountCard({ slot: 1 }, createFakeSource({ businessId: BID, responses }));
+    expect(container.querySelector("[data-now-quiet]")).toBeNull();
+    expect(container.querySelector("[data-now-quiet-line]")?.getAttribute("data-now-quiet-line")).toBe("error");
+    expect(screen.queryByText("Nothing queued")).toBeNull();
+    // Distribution's lead is degraded: the word comes from the team alone.
+    expect(screen.getByText("Degraded")).toBeTruthy();
+    screen.getByRole("button", { name: /^Couldn't load: What this department is working on could not be loaded/ }).click();
+    expect(fake.refetches["dev.tasks.list"]).toBeGreaterThanOrEqual(1);
+  });
+
   it("opens the agent profile and the department tab", () => {
     const { fake } = mountCard({ slot: 0 });
     screen.getByRole("button", { name: /^Beacon, Backend/ }).click();
@@ -127,8 +139,12 @@ describe("department card logic", () => {
     const squad = toSquad(dev, {}, tasks.items);
     expect(departmentHealth(squad, [])).toEqual({ health: "good", word: "Healthy" });
     expect(departmentHealth(squad, tasks.items)).toEqual({ health: "warn", word: "Waiting" });
-    expect(departmentHealth(toSquad(dev, { [AGENT.cove]: "injured" }, []), [])).toEqual({ health: "bad", word: "Failing" });
+    // Team › Health's words: a down agent (injured) is "Down", never "Failing"; a failing one wins over it.
+    expect(departmentHealth(toSquad(dev, { [AGENT.cove]: "injured" }, []), [])).toEqual({ health: "bad", word: "Down" });
+    expect(departmentHealth(toSquad(dev, { [AGENT.cove]: "injured", [AGENT.beacon]: "failing" }, []), [])).toEqual({ health: "bad", word: "Failing" });
     expect(departmentHealth(toSquad(dev, { [AGENT.cove]: "degraded" }, []), [])).toEqual({ health: "warn", word: "Degraded" });
+    // Idle and paused agents are healthy; tasks that failed to load never turn into a health word.
+    expect(departmentHealth(toSquad(dev, { [AGENT.atlas]: "idle", [AGENT.beacon]: "paused" }, []), null)).toEqual({ health: "good", word: "Healthy" });
   });
   it("writes Now lines with entity markup and caps them at three", () => {
     const squad = toSquad(dev, {}, tasks.items);
@@ -144,9 +160,25 @@ describe("department card logic", () => {
     expect(headlineMetric({ ...base, key: "tasks_done" }).series.length).toBe(14);
     expect(headlineMetric({ ...base, key: "blended_cpa", channels: dataResponses()["distribution.channels.list"] as never })).toMatchObject({ value: "€131.82", provenance: "estimate" });
     expect(headlineMetric({ ...base, key: "runway", finance: dataResponses()["finance.overview"] as never })).toMatchObject({ value: "8.7 mo", provenance: "estimate" });
-    expect(headlineMetric({ ...base, key: "squad_health" }).value).toBe("67%");
+    // Idle agents are healthy (the status strip's definition): Atlas and Beacon on tasks, Cove idle → 100%.
+    expect(headlineMetric({ ...base, key: "squad_health" }).value).toBe("100%");
+    expect(headlineMetric({ ...base, key: "squad_health", squad: toSquad(dev, { [AGENT.cove]: "degraded" }, []) }).value).toBe("67%");
     expect(headlineMetric({ ...base, key: "roadmap_on_track", roadmap: dataResponses()["product.roadmap.list"] as never }).value).toBe("2/3");
     expect(headlineMetric({ ...base, key: "next_filing", compliance: dataResponses()["legal.compliance.list"] as never }).value).toBe("19");
+  });
+});
+
+describe("Finance and Legal card lines", () => {
+  const base = { rows: ribbon(14).rows, days: lastDays(14), squad: [], currency: "EUR", today: dayKey() };
+  it("plots the business's month-end cash under Runway, not the department's (always zero) revenue", () => {
+    const finance = { cash: { amountMinor: 100_000, currency: "EUR", accounts: 1, asOf: null, label: "Bank" }, burn: { netBurnMinor: 10_000, grossBurnMinor: 20_000, months: 3, label: "Estimate" }, runway: { months: 10, label: "Estimate", warnings: [], blocksContinue: false }, revenue: { monthly: [{ month: "2026-09", inflowMinor: 5_000, outflowMinor: 20_000, netMinor: -15_000, count: 3 }, { month: "2026-10", inflowMinor: 2_000, outflowMinor: 7_000, netMinor: -5_000, count: 2 }], basis: "cash", label: "Cash basis" }, customers30d: 0, forecasts: {} } as const;
+    expect(monthEndCash(finance as never)).toEqual([105_000, 100_000]);
+    expect(headlineMetric({ ...base, key: "runway", finance: finance as never })).toMatchObject({ series: [105_000, 100_000], seriesLabel: "Cash at month end, last 2 months", provenance: "estimate" });
+    // No bank: no line at all rather than a flat zero.
+    expect(monthEndCash({ ...finance, cash: { ...finance.cash, accounts: 0 } } as never)).toEqual([]);
+  });
+  it("draws no line under Days to next filing (no daily series measures a filing calendar)", () => {
+    expect(headlineMetric({ ...base, key: "next_filing", compliance: dataResponses()["legal.compliance.list"] as never }).series).toEqual([]);
   });
 });
 
@@ -188,6 +220,20 @@ describe("quiet department line", () => {
     const older: InboxItemRow = { ...decision, id: "older", subject: "An older call", createdAt: new Date(`${addDays(TODAY, -3)}T08:00:00.000Z`) as unknown as string };
     const newer: InboxItemRow = { ...decision, createdAt: new Date(decision.createdAt) as unknown as string };
     expect(quietLine({ ...base, inbox: [older, newer], done: [] })).toMatchObject({ text: decision.subject, detail: "1 more in the Inbox" });
+  });
+
+  it("puts an agent who needs the founder first, as Team › Health does, and never says all clear beside it", () => {
+    const failing = toSquad(departments[0]!, { [AGENT.beacon]: "failing" }, []);
+    expect(quietLine({ ...base, inbox: inbox.items, done: tasks.items, squad: failing })).toEqual({ kind: "attention", label: "Needs you", text: "Beacon is failing", detail: "Sessions are stopped until you look", agentId: AGENT.beacon });
+    const down = toSquad(departments[0]!, { [AGENT.cove]: "injured", [AGENT.atlas]: "degraded" }, []);
+    expect(quietLine({ ...base, inbox: [], done: [], squad: down })).toMatchObject({ kind: "attention", text: "Cove is down", detail: "1 more agent needs you", agentId: AGENT.cove });
+    // Idle agents need nobody.
+    expect(quietLine({ ...base, inbox: [], done: [], squad: toSquad(departments[0]!, { [AGENT.atlas]: "idle" }, []) })).toMatchObject({ kind: "clear" });
+  });
+
+  it("says when the department's last task failed instead of naming an older finished one", () => {
+    const failed = { ...tasks.items.find((t) => t.status === "done")!, id: "failed-task", title: "Migrate the invoices table", status: "failed" as const, endedAt: `${TODAY}T10:00:00.000Z` };
+    expect(quietLine({ ...base, inbox: [], done: [...tasks.items, failed] })).toMatchObject({ kind: "attention", label: "Last task failed", text: "Migrate the invoices table", taskId: "failed-task" });
   });
 
   it("claims nothing while the Inbox or the finished tasks are not known", () => {

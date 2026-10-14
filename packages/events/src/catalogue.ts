@@ -17,6 +17,8 @@ import {
   Actor,
   AgentStatus,
   Archetype,
+  AUTOPILOT_CADENCES,
+  AUTOPILOT_PAUSE_REASONS,
   BusinessMode,
   ChannelKey,
   ConversationAuthorKind,
@@ -31,6 +33,7 @@ import {
   Money,
   Severity,
   SkillGroup,
+  SourceKind,
   TaskKind,
   TaskPhase,
   ValidationError,
@@ -178,6 +181,43 @@ const specVersionPublished = declareEvent(
   },
 );
 
+const sourceAdded = declareEvent(
+  "source.added",
+  z.object({
+    sourceId: Id,
+    kind: SourceKind,
+    title: z.string().max(400),
+    uri: z.string().max(2048).nullable(),
+    /** Who added it: the founder by hand, an import, or a connector feeding the Sources tab. */
+    addedBy: z.enum(["user", "import", "connector", "agent"]),
+  }),
+  {
+    doc: "A source joined Product › Sources. The Source Watcher reads it (public pages through the gateway's web connector), scores it against the spec and may raise a change proposal.",
+    consumers: ["source-watcher", "stream"],
+    narratable: false,
+  },
+);
+
+const sourceScored = declareEvent(
+  "source.scored",
+  z.object({
+    sourceId: Id,
+    kind: SourceKind,
+    /** `scored`: read and scored; `unreachable`: the page could not be read (robots.txt, a login, an error); `failed`: the read did not finish (retried on the next sweep). */
+    status: z.enum(["scored", "unreachable", "failed"]),
+    /** Spec blocks the source is relevant to (score at or above the watcher's threshold), best first. */
+    relevantBlockIds: z.array(Id),
+    /** Best relevance score across the spec, 0 to 1 (an Estimate from the classifier); null when nothing was scored. */
+    topScore: Fraction.nullable(),
+    severity: Severity.nullable(),
+  }),
+  {
+    doc: "The Source Watcher read a source and wrote its relevance (summary, spec blocks, topics) so Sources and Research fill in; when a block is out of date because of it, `spec.proposal_created` follows.",
+    consumers: ["stream"],
+    narratable: false,
+  },
+);
+
 // ---------------------------------------------------------------------------------------------------
 // Development
 // ---------------------------------------------------------------------------------------------------
@@ -251,6 +291,7 @@ const taskCompleted = declareEvent(
 
 export const TASK_BLOCKED_REASONS = [
   "awaiting_approval",
+  "approval_rejected",
   "dependency",
   "credential",
   "budget",
@@ -451,6 +492,17 @@ const TouchSource = z.object({
   code: z.string().nullable().default(null),
 });
 
+/**
+ * Who converted, as the vendor reported them: ingest links the conversion to the CRM record with this external id
+ * or email, or adds the customer to the CRM (null when the vendor reported nobody).
+ */
+const ConvertingCustomer = z.object({
+  /** The vendor's own customer id (Stripe `cus_…`, Shopify customer id). */
+  externalId: z.string().min(1).max(200).nullable().default(null),
+  email: z.string().max(320).nullable().default(null),
+  name: z.string().max(200).nullable().default(null),
+});
+
 const signupCreated = declareEvent(
   "signup.created",
   z.object({
@@ -464,6 +516,7 @@ const signupCreated = declareEvent(
     /** Where the signup came from (auth provider, product analytics, Shopify customer...). */
     provider: z.string().min(1).max(60),
     consentState: z.enum(["granted", "denied", "unknown"]),
+    customer: ConvertingCustomer.nullable().default(null),
   }),
   {
     doc: "A new signup (conversion kind `signup`). Triggers journeyBuild; Match Day level friendly.",
@@ -518,9 +571,12 @@ const paymentReceived = declareEvent(
     productRef: z.string().max(200).nullable().default(null),
     /** Net of refunds known at the time; null when the provider does not report fees. */
     fee: Money.nullable().default(null),
+    customer: ConvertingCustomer.nullable().default(null),
+    /** Where the order came from when the provider reports it (Shopify landing site, referrer, discount code). */
+    source: TouchSource.nullable().default(null),
   }),
   {
-    doc: "Money came in from a customer (Stripe invoice.paid, checkout.session.completed, Shopify orders/create, signed contract). Conversion kind `payment`; triggers journeyBuild; Match Day level cup.",
+    doc: "Money came in from a customer (Stripe invoice.paid, checkout.session.completed, Shopify orders/create, signed contract). Only a first payment (`firstPayment`) is a conversion that wins a customer and triggers journeyBuild (Match Day level cup); renewals and repeat orders count as revenue only.",
     consumers: ["journey", "metrics", "playbooks"],
     narratable: false,
   },
@@ -751,6 +807,22 @@ const approvalResolved = declareEvent(
 // Modes and holiday
 // ---------------------------------------------------------------------------------------------------
 
+/** Settings › Business fields `business.update` changes (and the glossary). */
+export const BUSINESS_SETTINGS_FIELDS = ["name", "slug", "archetype", "kitPrimary", "kitSecondary", "currency", "glossary"] as const;
+
+const businessUpdated = declareEvent(
+  "business.updated",
+  z.object({
+    /** The fields this save changed (values are read back through `business.get`, never carried here). */
+    fields: z.array(z.enum(BUSINESS_SETTINGS_FIELDS)).min(1),
+  }),
+  {
+    doc: "An owner or admin saved Settings › Business or the glossary. apps/stream pushes it so every open tab (another tab of the same founder, a co-founder) refetches `business.get`: the top bar and the settings form show the new name and brand colors at once, and a stale form never saves over them (audit RES-07, RUI-08). Never narrated.",
+    consumers: ["stream"],
+    narratable: false,
+  },
+);
+
 const modeChanged = declareEvent(
   "mode.changed",
   z.discriminatedUnion("scope", [
@@ -801,6 +873,8 @@ export const HOLIDAY_END_REASONS = [
   "wake_event",
   "budget_exhausted",
   "kill_switch",
+  /** The vacation reached its safety limit of cycles without the founder coming back (MAX_HOLIDAY_CYCLES). */
+  "cycle_cap",
 ] as const;
 export const HolidayEndReason = z.enum(HOLIDAY_END_REASONS);
 export type HolidayEndReason = z.infer<typeof HolidayEndReason>;
@@ -824,7 +898,7 @@ const holidayEnded = declareEvent(
     reportInboxItemId: Id.nullable().default(null),
   }),
   {
-    doc: "The vacation ended (date, condition, founder return, wake event, budget, kill switch). The Inbox opens on the While-you-were-away report.",
+    doc: "The vacation ended (date, condition, founder return, wake event, budget, kill switch, cycle safety limit). The Inbox opens on the While-you-were-away report.",
     consumers: ["composer", "metrics", "playbooks"],
   },
 );
@@ -891,8 +965,12 @@ const connectionRequested = declareEvent(
     message: z.string().max(1000).nullable().default(null),
   }),
   {
-    doc: "Another LIVE founder asked to connect. Shown in the Inbox Messages tab; accept/block are human actions.",
-    consumers: ["composer", "playbooks"],
+    doc:
+      "Another LIVE founder asked to connect. Written into each LIVE business the RECIPIENT speaks for (owner or admin), once per new request, " +
+      "never into the requester's; the api files it in that business's Inbox Messages tab as a human message itself, so the composer never narrates it. " +
+      "Accept, ignore and block are human actions on Network.",
+    consumers: ["playbooks", "stream"],
+    narratable: false,
   },
 );
 
@@ -910,8 +988,12 @@ const messageReceived = declareEvent(
     negotiation: z.boolean(),
   }),
   {
-    doc: "A human-to-human LIVE message arrived. Agents may draft a reply but never send it without the founder pressing Send.",
-    consumers: ["composer", "playbooks"],
+    doc:
+      "A human-to-human LIVE message arrived. Written into each LIVE business a recipient speaks for (not the sender's, not for a thread the recipient muted); " +
+      "the api files a human message in that Inbox's Messages tab itself (one unread note per thread), so the composer never narrates it. " +
+      "Agents may draft a reply but never send it without the founder pressing Send.",
+    consumers: ["playbooks", "stream"],
+    narratable: false,
   },
 );
 
@@ -964,7 +1046,7 @@ const cycleStarted = declareEvent(
     cycleId: Id,
     cycleNumber: z.number().int().positive(),
     workflowId: z.string().min(1),
-    trigger: z.enum(["continue", "holiday", "schedule", "wake"]),
+    trigger: z.enum(["continue", "holiday", "schedule", "wake", "autopilot"]),
     timeBoxAgentHours: z.number().positive(),
     /** Tasks the Chief of Staff planned for this cycle. */
     plannedTaskIds: z.array(Id),
@@ -1000,6 +1082,42 @@ const cycleCompleted = declareEvent(
   },
 );
 
+const autopilotChanged = declareEvent(
+  "autopilot.changed",
+  z.object({
+    /** What happened: an owner or admin turned it on or off or changed its settings, or a guard rail paused it. */
+    change: z.enum(["turned_on", "turned_off", "settings_changed", "paused"]),
+    pausedReason: z.enum(AUTOPILOT_PAUSE_REASONS).nullable().default(null),
+    cadence: z.enum(AUTOPILOT_CADENCES),
+    dailyHour: z.number().int().min(0).max(23),
+    maxCyclesPerDay: z.number().int().min(1).max(24),
+    /** The day's spend ceiling in USD (an Estimate); null: the credits left. */
+    spendCeiling: Money.nullable().default(null),
+    maxIdleCycles: z.number().int().min(1).max(10),
+  }),
+  {
+    doc: "Autopilot was turned on or off, its settings changed, or a guard rail (Stop all agents, used-up credits, failed or empty cycles) paused it. Only an owner or admin turns it back on.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const autopilotCycleStarted = declareEvent(
+  "autopilot.cycle_started",
+  z.object({
+    cycleNumber: z.number().int().positive(),
+    workflowId: z.string().min(1),
+    cadence: z.enum(AUTOPILOT_CADENCES),
+    /** Autopilot cycles started today (UTC), this one included. */
+    cyclesToday: z.number().int().positive(),
+  }),
+  {
+    doc: "Autopilot started the next businessCycle through the same entry point as Continue (trigger `autopilot`); every approval, hard gate and policy check applies as for a founder press.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
 const inboxItemCreated = declareEvent(
   "inbox.item_created",
   z.object({
@@ -1016,6 +1134,24 @@ const inboxItemCreated = declareEvent(
   {
     doc: "The composer wrote an inbox item. apps/stream pushes it to open tabs; metrics count decisions outstanding. Never narrated again.",
     consumers: ["metrics", "stream"],
+    narratable: false,
+  },
+);
+
+const inboxItemUpdated = declareEvent(
+  "inbox.item_updated",
+  z.object({
+    inboxItemId: Id,
+    /** Archived by a member, or the plan the item was answered with confirmed (its follow-up Update written). */
+    change: z.enum(["archived", "plan_confirmed"]),
+    /** The confirmed plan (`plan_confirmed`); null otherwise. */
+    planId: Id.nullable().default(null),
+    /** The follow-up Update the confirmation wrote; null when none. */
+    followUpItemId: Id.nullable().default(null),
+  }),
+  {
+    doc: "An inbox item changed without a new decision: archived, or its plan confirmed (BUILD §11.3). apps/stream pushes it so every member's open Inbox, reading pane and Respond count refetch at once instead of acting on an item that is gone. Ids only, no subject, so it tells a member walled from the item nothing.",
+    consumers: ["stream"],
     narratable: false,
   },
 );
@@ -1101,6 +1237,54 @@ const conversationMessagePosted = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// Staff access (security review S1)
+// ---------------------------------------------------------------------------------------------------
+
+export const MEMBERSHIP_CHANGES = ["added", "updated", "removed"] as const;
+
+const membershipChanged = declareEvent(
+  "membership.changed",
+  z.object({
+    /** The staff member whose access changed. Nothing else: the role and section permissions stay on the row. */
+    userId: Id,
+    change: z.enum(MEMBERSHIP_CHANGES),
+  }),
+  {
+    doc: "A person was added to the business, removed from it, or had their role or section permissions changed (team.humans.*). apps/stream re-checks that person's open subscriptions at once and closes the ones they may no longer read; open tabs refetch the business and the staff list. Never narrated.",
+    consumers: ["stream"],
+    narratable: false,
+  },
+);
+
+// -------------------------------------------------------------------------------------------------
+// Agent ↔ agent typed messages (BUILD §9.9)
+// ---------------------------------------------------------------------------------------------------
+
+export const AGENT_MESSAGE_TYPES = ["request", "inform", "review"] as const;
+
+const agentMessageSent = declareEvent(
+  "agent.message_sent",
+  z.object({
+    messageId: Id,
+    /** request (asks for something), inform (reports something), review (asks for a review): no free-form chat. */
+    type: z.enum(AGENT_MESSAGE_TYPES),
+    fromAgentId: Id,
+    toAgentId: Id,
+    /** The agent session it was sent from (null outside one). */
+    sessionId: Id.nullable().default(null),
+    taskId: Id.nullable().default(null),
+    subject: z.string().min(1).max(200),
+    /** Agent-written text: the recipient reads it as data from another agent, never as instructions. */
+    body: z.string().min(1).max(4000),
+  }),
+  {
+    doc: "An agent sent a typed message (request, inform or review) to another agent of the team through the platform tools (`platform.send_message`); the recipient reads it with `platform.list_messages`. The event is the message's only store. Never narrated: agents coordinating is not Inbox news.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
 
@@ -1112,6 +1296,8 @@ export const EVENTS = {
   "idea.committed": ideaCommitted,
   "spec.proposal_created": specProposalCreated,
   "spec.version_published": specVersionPublished,
+  "source.added": sourceAdded,
+  "source.scored": sourceScored,
   "task.started": taskStarted,
   "task.progressed": taskProgressed,
   "task.completed": taskCompleted,
@@ -1137,6 +1323,7 @@ export const EVENTS = {
   "mode.changed": modeChanged,
   "holiday.started": holidayStarted,
   "holiday.ended": holidayEnded,
+  "business.updated": businessUpdated,
   "filing.due": filingDue,
   "contract.signed": contractSigned,
   "connection.requested": connectionRequested,
@@ -1144,10 +1331,15 @@ export const EVENTS = {
   "negotiation.message": negotiationMessage,
   "cycle.started": cycleStarted,
   "cycle.completed": cycleCompleted,
+  "autopilot.changed": autopilotChanged,
+  "autopilot.cycle_started": autopilotCycleStarted,
   "inbox.item_created": inboxItemCreated,
+  "inbox.item_updated": inboxItemUpdated,
   "decision.made": decisionMade,
   "foundations.progressed": foundationsProgressed,
   "conversation.message_posted": conversationMessagePosted,
+  "membership.changed": membershipChanged,
+  "agent.message_sent": agentMessageSent,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
 
 export type EventsRegistry = typeof EVENTS;

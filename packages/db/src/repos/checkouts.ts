@@ -1,0 +1,111 @@
+/**
+ * billing_checkouts (0033): credit top-ups paid through Stripe Checkout on the platform account (BUILD §10.5).
+ *
+ * The api opens a row (`create`), asks the gateway for the session and records it (`attachSession`), or records why it
+ * could not (`markFailed`). Settling it (granting the credits) is `settleCreditCheckout` in ../payments.ts, which locks
+ * the row with `lockForSettlement` so a session announced twice is granted once. Rows are written with the service role
+ * (app roles only read this table); the api checks the caller's role and billing section first.
+ */
+import { and, desc, eq, sql } from "drizzle-orm";
+import { z } from "zod";
+import { BILLING_CHECKOUT_MODES, billingCheckouts, type BillingCheckout } from "../schema";
+import { Id, maybeOne, MinorAmount, one, parseInput, type Executor } from "./_shared";
+
+export const CreateCheckoutInput = z.object({
+  mode: z.enum(BILLING_CHECKOUT_MODES),
+  amountMinor: MinorAmount.positive(),
+  createdBy: Id.nullable().optional(),
+});
+export type CreateCheckoutInput = z.input<typeof CreateCheckoutInput>;
+
+export const AttachSessionInput = z.object({
+  mode: z.enum(BILLING_CHECKOUT_MODES),
+  externalId: z.string().min(1).max(255),
+  checkoutUrl: z.string().min(1).max(2000),
+  expiresAt: z.coerce.date().nullable().optional(),
+});
+export type AttachSessionInput = z.input<typeof AttachSessionInput>;
+
+export interface PaidSettlement {
+  paidAt: Date;
+  paidEventId: string;
+  grantedPeriod: string;
+  creditBalanceId: string;
+}
+
+export const checkoutsRepo = {
+  /** Opens a top-up for `amountMinor` USD cents (credits are USD). */
+  async create(db: Executor, businessId: string, input: CreateCheckoutInput): Promise<BillingCheckout> {
+    const v = parseInput(CreateCheckoutInput, input, "checkout");
+    return one(await db.insert(billingCheckouts).values({ businessId, kind: "credits", status: "open", mode: v.mode, amountMinor: v.amountMinor, currency: "USD", createdBy: v.createdBy ?? null }).returning(), "checkout");
+  },
+
+  /** Records the Checkout session the gateway created for an open row. */
+  async attachSession(db: Executor, businessId: string, checkoutId: string, input: AttachSessionInput): Promise<BillingCheckout> {
+    const v = parseInput(AttachSessionInput, input, "checkout session");
+    const rows = await db
+      .update(billingCheckouts)
+      .set({ mode: v.mode, externalId: v.externalId, checkoutUrl: v.checkoutUrl, expiresAt: v.expiresAt ?? null })
+      .where(and(eq(billingCheckouts.businessId, businessId), eq(billingCheckouts.id, checkoutId), eq(billingCheckouts.status, "open")))
+      .returning();
+    return one(rows, "checkout", checkoutId);
+  },
+
+  /** No session could be created (payments not set up, the gateway or Stripe refused): the row is closed with why. */
+  async markFailed(db: Executor, businessId: string, checkoutId: string, failure: string): Promise<BillingCheckout | null> {
+    const rows = await db
+      .update(billingCheckouts)
+      .set({ status: "failed", failure: failure.slice(0, 500) })
+      .where(and(eq(billingCheckouts.businessId, businessId), eq(billingCheckouts.id, checkoutId), eq(billingCheckouts.status, "open")))
+      .returning();
+    return maybeOne(rows);
+  },
+
+  /** Stripe closed the session unpaid (`checkout.session.expired`). A paid row is left as it is. */
+  async markExpired(db: Executor, businessId: string, checkoutId: string): Promise<BillingCheckout | null> {
+    const rows = await db
+      .update(billingCheckouts)
+      .set({ status: "expired" })
+      .where(and(eq(billingCheckouts.businessId, businessId), eq(billingCheckouts.id, checkoutId), eq(billingCheckouts.status, "open")))
+      .returning();
+    return maybeOne(rows);
+  },
+
+  async get(db: Executor, businessId: string, checkoutId: string): Promise<BillingCheckout> {
+    const id = parseInput(Id, checkoutId, "checkout id");
+    return one(await db.select().from(billingCheckouts).where(and(eq(billingCheckouts.businessId, businessId), eq(billingCheckouts.id, id))).limit(1), "checkout", checkoutId);
+  },
+
+  /** The business's latest top-ups, newest first (the Billing tab). */
+  async listRecent(db: Executor, businessId: string, limit = 10): Promise<BillingCheckout[]> {
+    return db.select().from(billingCheckouts).where(eq(billingCheckouts.businessId, businessId)).orderBy(desc(billingCheckouts.createdAt)).limit(Math.max(1, Math.min(50, limit)));
+  },
+
+  /**
+   * USD cents granted to `period` by simulated payments (mock checkouts marked paid). Those credits are labeled and
+   * never pay for live model calls (../billing.ts `platformCredits`).
+   */
+  async mockGrantedMinor(db: Executor, businessId: string, period: string): Promise<number> {
+    const [row] = await db
+      .select({ total: sql<number>`coalesce(sum(${billingCheckouts.amountMinor}), 0)::bigint` })
+      .from(billingCheckouts)
+      .where(and(eq(billingCheckouts.businessId, businessId), eq(billingCheckouts.mode, "mock"), eq(billingCheckouts.status, "paid"), eq(billingCheckouts.grantedPeriod, period)));
+    return Number(row?.total ?? 0);
+  },
+
+  /** The row, locked until the caller's transaction ends (settlement reads and writes it once). */
+  async lockForSettlement(tx: Executor, businessId: string, checkoutId: string): Promise<BillingCheckout | null> {
+    const rows = await tx.select().from(billingCheckouts).where(and(eq(billingCheckouts.businessId, businessId), eq(billingCheckouts.id, checkoutId))).for("update").limit(1);
+    return maybeOne(rows);
+  },
+
+  /** open → paid, with what settled it (call inside the transaction that granted the credits). */
+  async markPaid(tx: Executor, businessId: string, checkoutId: string, s: PaidSettlement): Promise<BillingCheckout> {
+    const rows = await tx
+      .update(billingCheckouts)
+      .set({ status: "paid", paidAt: s.paidAt, paidEventId: s.paidEventId, grantedPeriod: s.grantedPeriod, creditBalanceId: s.creditBalanceId })
+      .where(and(eq(billingCheckouts.businessId, businessId), eq(billingCheckouts.id, checkoutId)))
+      .returning();
+    return one(rows, "checkout", checkoutId);
+  },
+};

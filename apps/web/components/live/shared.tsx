@@ -1,13 +1,16 @@
 "use client";
-/** Small pieces the three LIVE screens share: the Personal-mode notice, the people lookup and the business logo. */
-import { useQuery } from "@tanstack/react-query";
-import { Lock } from "lucide-react";
-import { useMemo } from "react";
-import { Avatar, BusinessLogo as LogoSquare, StatusPill, cn } from "@foundmill/dugout";
+/**
+ * Small pieces the three LIVE screens share: the Personal-mode notice, the 18+ confirmation, the people lookup and the
+ * business logo.
+ */
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Lock, ShieldCheck } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Avatar, BusinessLogo as LogoSquare, Button, Checkbox, Label, StatusPill, cn, useToast } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { UNNAMED_PERSON } from "@/lib/live";
 import { useTRPC } from "@/lib/trpc-react";
-import type { RouterOutputs } from "@/lib/trpc";
+import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useBusiness } from "@/components/shell/business-context";
 import { ShellLinkButton } from "./ShellLinkButton";
 
@@ -59,11 +62,55 @@ export function PersonalNotice({ className }: { className?: string }) {
         Personal
       </StatusPill>
       <p className="min-w-0 flex-1 text-body text-secondary">
-        {data.business.name} is a Personal business, so it is not listed on the network or on leaderboards. Your own connections, messages and communities stay available.
+        {data.liveOpen
+          ? `${data.business.name} is a Personal business, so it is not listed on the network or on leaderboards. Your own connections, messages and communities stay available.`
+          : `Live is not open yet, so ${data.business.name} stays Personal and is not listed on the network or on leaderboards.`}
       </p>
-      <ShellLinkButton href={routes.settings(businessId, "mode")} size="sm">
-        Open Settings › Mode
-      </ShellLinkButton>
+      {data.liveOpen ? (
+        <ShellLinkButton href={routes.settings(businessId, "mode")} size="sm">
+          Open Settings › Mode
+        </ShellLinkButton>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Shown above a LIVE screen until the founder confirms that they are 18 or older (BUILD §11.14: the network is for
+ * adults). Reading stays open; the API refuses asking to connect, accepting, writing, joining and posting until then.
+ * The answer comes from `live.summary`, the query behind the shell's Network badge, so it costs no extra call.
+ */
+export function AdultNotice({ className }: { className?: string }) {
+  const trpc = useTRPC();
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [checked, setChecked] = useState(false);
+  const summary = useQuery(trpc.live.summary.queryOptions(undefined, { staleTime: 10_000, retry: false }));
+  const confirm = useMutation(
+    trpc.live.profile.confirmAdult.mutationOptions({
+      onSuccess: () => {
+        void qc.invalidateQueries({ queryKey: trpcPathPrefix("live.summary") as unknown[] });
+        toast({ title: "Confirmed", description: "You can connect, write, join and post on the network.", tone: "good" });
+      },
+      onError: (err) => toast({ title: "Not confirmed", description: errorMessage(err), tone: "bad" }),
+    }),
+  );
+  if (summary.data?.adultConfirmed !== false) return null;
+  return (
+    <div className={cn("surface-panel flex items-center gap-3 px-panel-pad py-2", className)} data-testid="adult-notice">
+      <StatusPill tone="warn" icon={ShieldCheck}>
+        18+
+      </StatusPill>
+      <p className="min-w-0 flex-1 text-body text-secondary">The network is for adults. Confirm that you are 18 or older before you connect, write, join or post.</p>
+      <span className="flex shrink-0 items-center gap-2">
+        <Checkbox id="adult-confirm" checked={checked} onCheckedChange={(v) => setChecked(v === true)} />
+        <Label htmlFor="adult-confirm" className="normal-case tracking-normal text-body text-primary">
+          I am 18 or older
+        </Label>
+      </span>
+      <Button size="sm" variant="primary" disabled={!checked} loading={confirm.isPending} onClick={() => confirm.mutate({ confirm: true })} data-testid="adult-confirm">
+        Confirm
+      </Button>
     </div>
   );
 }

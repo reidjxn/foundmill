@@ -126,6 +126,7 @@ describe("service-role calls are scoped by the repository", () => {
     await expect(r.svc((tx) => repos.channels.get(tx, r.A.businessId, r.B.channelId))).rejects.toThrow(/not found/);
     await expect(r.svc((tx) => repos.journeys.getConversion(tx, r.A.businessId, r.B.conversionIds[0]!))).rejects.toThrow(/not found/);
     await expect(r.svc((tx) => repos.events.get(tx, r.A.businessId, r.B.eventIds[0]!))).rejects.toThrow(/not found/);
+    expect((await r.svc((tx) => repos.inbox.byIds(tx, r.A.businessId, [r.A.inboxItemId, r.B.inboxItemId]))).map((i) => i.id)).toEqual([r.A.inboxItemId]);
   });
 
   it("writes that name another business's child rows are refused", async () => {
@@ -135,5 +136,12 @@ describe("service-role calls are scoped by the repository", () => {
     await expect(r.svc((tx) => repos.channels.setEnabled(tx, r.A.businessId, r.B.channelId, true))).rejects.toThrow(/not found/);
     await expect(r.svc((tx) => repos.finance.recategorise(tx, r.A.businessId, r.B.accountId, "x"))).rejects.toThrow(/not found/);
     expect(await r.svc((tx) => repos.events.markNarrated(tx, r.A.businessId, r.B.eventIds))).toBe(0);
+    // The composer's sweep of rows it never narrates stays inside the business it was called for.
+    const bPending = (await r.svc((tx) => repos.events.unnarrated(tx, r.B.businessId, 500))).length;
+    expect(bPending).toBeGreaterThan(0);
+    expect(await r.svc((tx) => repos.events.markUnnarratable(tx, r.A.businessId, []))).toBeGreaterThan(0);
+    expect(await r.svc((tx) => repos.events.unnarrated(tx, r.B.businessId, 500))).toHaveLength(bPending);
+    expect(await r.svc((tx) => repos.inbox.bufferMarkServed(tx, r.A.businessId, { candidate: { type: "update", from_agent_id: r.A.agentId, subject: "s", body_md: "b" }, sourceHash: "decision:scoped", priority: 100 }))).toMatchObject({ businessId: r.A.businessId });
+    expect((await r.svc((tx) => repos.inbox.bufferServed(tx, r.B.businessId, ["decision:scoped"]))).size).toBe(0);
   });
 });

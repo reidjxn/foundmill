@@ -12,6 +12,7 @@ export interface HireOptions {
   /** Display name override (the founder renames freely). */
   name?: string;
   createdBy?: string | null;
+  /** The wage cap's currency; absent: US dollars, the model price list's (a wage cap caps metered model cost; 0024, 0025). */
   currency?: string;
 }
 
@@ -37,7 +38,7 @@ export async function hireFromTemplate(tx: Executor, businessId: string, templat
     negotiation: template.negotiation ?? {},
     schedule: template.schedule ?? {},
     wageCapMinor: template.wageCapMinor,
-    currency: opts.currency ?? "EUR",
+    currency: opts.currency,
     avatarSeed: `${businessId}:${template.key}`,
     initialVersion: { instructions: template.instructions, tools: template.tools, modelKey: template.modelKey, createdByKind: "system", createdBy: opts.createdBy ?? null },
   });
@@ -92,7 +93,7 @@ export async function hireMany(tx: Executor, businessId: string, plans: PlannedH
         negotiation: template.negotiation ?? {},
         schedule: template.schedule ?? {},
         wageCapMinor: template.wageCapMinor,
-        currency: opts.currency ?? "EUR",
+        currency: opts.currency,
         avatarSeed: `${businessId}:${template.key}`,
         initialVersion: { instructions: template.instructions, tools: template.tools, modelKey: template.modelKey, createdByKind: "system" as const, createdBy: opts.createdBy ?? null },
       };

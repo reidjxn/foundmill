@@ -8,8 +8,11 @@
  * - `at` is `startAt + tMs / speed` (or `startAt + tMs` when speed is infinite): the recording's own
  *   clock, so a pause or an approval hold never reorders timestamps.
  * - A recorded `hold` pauses the replay after its event until `decide(approvalId, outcome)` (the
- *   orchestrator's `approval` signal), `resume()` or the hold's own auto-resolve timer. A rejection emits a
- *   `denied` tool_call plus a system note and ends the replay as `stopped`.
+ *   orchestrator's `approval` signal) or the hold's own auto-resolve timer. `resume()` only ends a `pause()`: a call
+ *   waiting for the founder stays waiting (audit FR-07). A rejection emits a `denied` tool_call plus a system note and
+ *   ends the replay as `stopped`.
+ * - A recording ref `<key>@<index>` (the cursor `snapshot()` returns) continues a replay an earlier sandbox stopped
+ *   part-way: a paused agent session that handed its worker slot back resumes where it was.
  */
 import { ValidationError } from "@foundmill/shared";
 import { SandboxFileNotFoundError, SandboxStateError } from "../errors";
@@ -98,6 +101,11 @@ export interface ReplayOptions {
   sleep?: Sleep;
   /** Override every recorded hold: wait for `decide()` or resolve after N replay-ms. Default: as recorded. */
   holds?: "as_recorded" | "wait" | { autoResolveAfterMs: number; outcome?: ApprovalDecision };
+  /**
+   * Continue a replay an earlier run stopped part-way: the first `startIndex` events were emitted by that run and are
+   * skipped. Without `startAt` the timeline picks up from now (the next event is stamped after the last one emitted).
+   */
+  startIndex?: number;
 }
 
 export class SessionReplay {
@@ -127,7 +135,9 @@ export class SessionReplay {
     this.sessionId = sessionId;
     this.speed = opts.speed ?? 1;
     this.now = opts.now ?? (() => new Date());
-    this.startAt = opts.startAt ?? this.now();
+    this.index = Math.max(0, Math.min(recording.events.length, Math.floor(opts.startIndex ?? 0)));
+    const resumedAtMs = this.index > 0 ? recording.events[this.index - 1]!.tMs : 0;
+    this.startAt = opts.startAt ?? new Date(this.now().getTime() - this.offsetMs(resumedAtMs));
     this.sleep = opts.sleep ?? (this.speed === Infinity ? immediateSleep : realSleep);
     this.holds = opts.holds ?? "as_recorded";
     let resolve!: (s: ReplaySummary) => void;
@@ -171,8 +181,12 @@ export class SessionReplay {
 
   /** Deterministic timestamp for a recorded offset. */
   atFor(tMs: number): string {
-    const offset = this.speed === Infinity ? tMs : Math.round(tMs / this.speed);
-    return new Date(this.startAt.getTime() + offset).toISOString();
+    return new Date(this.startAt.getTime() + this.offsetMs(tMs)).toISOString();
+  }
+
+  /** Wall-clock offset of a recorded offset from `startAt`. */
+  private offsetMs(tMs: number): number {
+    return this.speed === Infinity ? tMs : Math.round(tMs / this.speed);
   }
 
   /** Start (or return the in-flight) replay. Resolves when the recording ends or the replay is stopped. */
@@ -187,14 +201,13 @@ export class SessionReplay {
     if (this.status_ === "playing") this.status_ = "paused";
   }
 
-  /** Resume after `pause()`; also releases a pending hold without a decision (treated as approved). */
+  /** Resume after `pause()`. A pending hold is not answered by it: only `decide()`, its own auto-resolve or `stop()` end a hold. */
   resume(): void {
     this.paused = false;
     if (this.status_ === "paused") this.status_ = "playing";
     const wake = this.wake;
     this.wake = null;
     wake?.();
-    if (this.pending) this.pending.resolve("resume");
   }
 
   /** Answer a pending approval. Returns false when no hold with that id is waiting. */
@@ -210,6 +223,7 @@ export class SessionReplay {
     this.status_ = "stopped";
     this.abort.abort();
     this.resume();
+    this.pending?.resolve("resume");
     if (!this.running) this.finish();
   }
 
@@ -259,7 +273,7 @@ export class SessionReplay {
   private async run(): Promise<ReplaySummary> {
     const events = this.recording.events;
     if (this.status_ !== "stopped") this.status_ = "playing";
-    let prevTMs = 0;
+    let prevTMs = this.index > 0 ? events[this.index - 1]!.tMs : 0;
     while (this.index < events.length && !this.isStopped()) {
       const rec = events[this.index]!;
       const delay = this.scaleMs(rec.tMs - prevTMs);
@@ -311,15 +325,28 @@ export class SessionReplay {
   }
 }
 
-/** Pick the recording for a spec: explicit key, else a stable hash of the task id over the available recordings. */
+/**
+ * A recording reference: a key, or a key and the next event to play (`<key>@<index>`, the cursor `snapshot()` returns),
+ * so a replay stopped part-way can continue in a new sandbox.
+ */
+export function parseRecordingRef(ref: string): { key: string; startIndex: number } {
+  const m = /^(.+)@(\d+)$/.exec(ref);
+  return m ? { key: m[1]!, startIndex: Number(m[2]) } : { key: ref, startIndex: 0 };
+}
+
+/** Pick the recording for a spec: explicit key (or `<key>@<index>`), else a stable hash of the task id over the available recordings. */
 export function pickRecording(recordings: readonly Recording[], spec: Pick<SandboxSpec, "taskId" | "recording">): Recording {
   if (recordings.length === 0) throw new ValidationError("No recordings available for the mock sandbox");
   if (spec.recording) {
-    const found = recordings.find((r) => r.key === spec.recording);
-    if (!found) throw new ValidationError(`Unknown recording "${spec.recording}". Known: ${recordings.map((r) => r.key).join(", ")}`);
+    const { key } = parseRecordingRef(spec.recording);
+    const found = recordings.find((r) => r.key === key);
+    if (!found) throw new ValidationError(`Unknown recording "${key}". Known: ${recordings.map((r) => r.key).join(", ")}`);
     return found;
   }
-  return recordings[stableHash32(spec.taskId) % recordings.length]!;
+  // Without a named recording only a session that ends well is picked; failed and blocked ones are chosen by key (audit IAE-22).
+  const done = recordings.filter((r) => r.outcome === "done");
+  const pool = done.length > 0 ? done : recordings;
+  return pool[stableHash32(spec.taskId) % pool.length]!;
 }
 
 export interface MockSandboxOptions extends ReplayOptions {
@@ -514,6 +541,7 @@ export class MockSandboxProvider implements SandboxProvider {
     // Imported lazily by name to keep this file's dependency graph obvious; same check every provider runs.
     const { assertNoLongLivedCredentials } = await import("../credentials");
     assertNoLongLivedCredentials(spec.envShortLived);
-    return new MockSandbox(spec, pickRecording(this.recordings, spec), this.opts);
+    const startIndex = spec.recording ? parseRecordingRef(spec.recording).startIndex : 0;
+    return new MockSandbox(spec, pickRecording(this.recordings, spec), startIndex > 0 ? { ...this.opts, startIndex } : this.opts);
   }
 }

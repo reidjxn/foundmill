@@ -182,4 +182,26 @@ describe("LogoPicker", () => {
     setup({ saving: true, value: { source: "upload", dataUrl: mark("#000000"), colours: [], label: "logo.png" } });
     for (const id of ["logo-upload", "logo-generate", "logo-clear"]) expect((screen.getByTestId(id) as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it("is one Tab stop and the arrow keys move between the marks, wrapping; a click chooses (audit A11Y-20)", async () => {
+    const props = setup();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("logo-generate"));
+    });
+    const [first, second] = screen.getAllByTestId("logo-option") as HTMLButtonElement[];
+    expect(screen.getByRole("radiogroup", { name: "Generated logos" })).toBeTruthy();
+    expect([first!.tabIndex, second!.tabIndex]).toEqual([0, -1]);
+    first!.focus();
+    fireEvent.keyDown(first!, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(second);
+    expect([first!.tabIndex, second!.tabIndex]).toEqual([-1, 0]);
+    fireEvent.keyDown(second!, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(first!, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(second);
+    // Moving focus chooses nothing; Enter or Space on a button is a click, and that chooses.
+    expect(props.onChange).not.toHaveBeenCalled();
+    fireEvent.click(second!);
+    expect(props.onChange).toHaveBeenCalledTimes(1);
+  });
 });

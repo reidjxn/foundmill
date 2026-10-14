@@ -8,6 +8,12 @@
  *   `effort` keep the API default. Dropped on a model without the parameter (Haiku 4.5).
  * - `speed: "fast"` → Opus fast mode (beta `fast-mode-2026-02-01`, top-level `speed: "fast"`, up to 2.5× output speed at
  *   2× the price). Honoured only when MODEL_FAST_MODE is on, so it costs nothing until someone opts in.
+ * - `maxTokens` → `max_tokens` for a call that sends none (a request's own `maxTokens` wins). Opus 5.5 and Sonnet 5.5
+ *   always think, and the thinking counts toward `max_tokens`, so a thinking route's budget is the reply plus the
+ *   thinking at the route's effort: `THINKING_MAX_TOKENS` at the API default effort (Opus `medium`, Sonnet `high`),
+ *   `LOW_EFFORT_MAX_TOKENS` at `low`. Haiku 4.5 does not think unless asked, so its routes keep `PLAIN_MAX_TOKENS`. An
+ *   override onto a thinking model never runs below that model's floor (a classifier moved to Opus still has room to
+ *   think). Both thinking budgets stay well inside a non-streaming call's time limit.
  */
 import type { Effort, Speed } from "./types";
 
@@ -19,6 +25,15 @@ export const MODELS = {
 export type ModelId = (typeof MODELS)[keyof typeof MODELS];
 export type ModelKey = keyof typeof MODELS;
 
+/**
+ * Older models a real Anthropic account still lists. Nothing routes to them; the mock `list_models` tool reports them
+ * as not routed, so an agent reading the list sees what a live account shows.
+ */
+export const LISTED_UNROUTED_MODELS = [
+  { id: "claude-sonnet-4-5-20250929", displayName: "Claude Sonnet 4.5", createdAt: "2025-09-29T00:00:00Z" },
+  { id: "claude-opus-4-1-20250805", displayName: "Claude Opus 4.1", createdAt: "2025-08-05T00:00:00Z" },
+] as const;
+
 /** What each model accepts (Anthropic model docs, 2026-10-09): Haiku 4.5 has no `effort`; fast mode is Opus only. */
 export const MODEL_CAPABILITIES: Record<ModelKey, { effort: boolean; fastMode: boolean }> = {
   opus: { effort: true, fastMode: true },
@@ -29,6 +44,21 @@ export const MODEL_CAPABILITIES: Record<ModelKey, { effort: boolean; fastMode: b
 /** Beta header for Opus fast mode (Claude API only; not Bedrock, Vertex or Foundry). */
 export const FAST_MODE_BETA = "fast-mode-2026-02-01";
 
+/**
+ * Models that always think (Opus 5.5 and Sonnet 5.5: adaptive thinking cannot be turned off, and it counts toward
+ * `max_tokens`). Haiku 4.5 only thinks when a budget is sent, which this platform never does.
+ */
+export const ALWAYS_THINKS: Record<ModelKey, boolean> = { opus: true, sonnet: true, haiku: false };
+
+/**
+ * `max_tokens` budgets (audit CML-03). A planner graph of 15 tasks, 15 scored channels or six jurisdiction cards is
+ * 1.5k–3.5k tokens of JSON written after the thinking, so the default-effort budget leaves room for both; the low-effort
+ * budget matches what the first-draft callers size for themselves (3k–8k).
+ */
+export const THINKING_MAX_TOKENS = 16_000;
+export const LOW_EFFORT_MAX_TOKENS = 8_000;
+export const PLAIN_MAX_TOKENS = 4_096;
+
 export interface RouteDefinition {
   model: ModelKey;
   locked?: boolean;
@@ -36,38 +66,40 @@ export interface RouteDefinition {
   batch?: boolean;
   effort?: Effort;
   speed?: Extract<Speed, "fast">;
+  /** `max_tokens` when the request sends none: the reply plus the thinking at the route's effort (header). */
+  maxTokens: number;
 }
 
 export const ROUTES = {
-  inboxComposer: { model: "opus", locked: true }, // Inbox always Opus
-  planCompiler: { model: "opus", locked: true },
-  chiefOfStaff: { model: "opus", warnOnDowngrade: true },
-  departmentLead: { model: "opus" },
-  planner: { model: "opus" },
-  codeReview: { model: "opus" },
+  inboxComposer: { model: "opus", locked: true, maxTokens: THINKING_MAX_TOKENS }, // Inbox always Opus
+  planCompiler: { model: "opus", locked: true, maxTokens: THINKING_MAX_TOKENS },
+  chiefOfStaff: { model: "opus", warnOnDowngrade: true, maxTokens: THINKING_MAX_TOKENS },
+  departmentLead: { model: "opus", maxTokens: THINKING_MAX_TOKENS },
+  planner: { model: "opus", maxTokens: THINKING_MAX_TOKENS },
+  codeReview: { model: "opus", maxTokens: THINKING_MAX_TOKENS },
   // Concept cards, compare and the card Q&A (Ideation Studio): first drafts the founder waits on.
-  ideation: { model: "opus", effort: "low", speed: "fast" },
+  ideation: { model: "opus", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
   // A short slate of names and angles drafted before the cards are written in parallel (audit P2).
-  ideationSlate: { model: "opus", effort: "low", speed: "fast" },
-  logoDesigner: { model: "opus", effort: "low", speed: "fast" }, // business logo marks as SVG (Commit screen, Settings › Business)
+  ideationSlate: { model: "opus", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  logoDesigner: { model: "opus", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS }, // business logo marks as SVG (Commit screen, Settings › Business)
   // Vision, first specification and first roadmap, drafted once when a new business is first opened (BUILD §11.1, §11.5).
-  foundations: { model: "opus", effort: "low", speed: "fast" },
+  foundations: { model: "opus", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
   // The vision and a one-line thesis per section, drafted first so sections can be written in parallel (audit P3).
-  foundationsSkeleton: { model: "opus", effort: "low", speed: "fast" },
-  skillGrader: { model: "opus" },
-  coach: { model: "opus" },
-  worker: { model: "sonnet" },
-  journeyCommentary: { model: "sonnet" },
-  nightlyBatch: { model: "sonnet", batch: true },
-  linker: { model: "haiku" },
-  classifier: { model: "haiku" },
-  categoriser: { model: "haiku" },
-  quarantinedReader: { model: "haiku" },
-  moderation: { model: "haiku" },
+  foundationsSkeleton: { model: "opus", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  skillGrader: { model: "opus", maxTokens: THINKING_MAX_TOKENS },
+  coach: { model: "opus", maxTokens: THINKING_MAX_TOKENS },
+  worker: { model: "sonnet", maxTokens: THINKING_MAX_TOKENS },
+  journeyCommentary: { model: "sonnet", maxTokens: THINKING_MAX_TOKENS },
+  nightlyBatch: { model: "sonnet", batch: true, maxTokens: THINKING_MAX_TOKENS },
+  linker: { model: "haiku", maxTokens: PLAIN_MAX_TOKENS },
+  classifier: { model: "haiku", maxTokens: PLAIN_MAX_TOKENS },
+  categoriser: { model: "haiku", maxTokens: PLAIN_MAX_TOKENS },
+  quarantinedReader: { model: "haiku", maxTokens: PLAIN_MAX_TOKENS },
+  moderation: { model: "haiku", maxTokens: PLAIN_MAX_TOKENS },
   // Talking to an agent at their desk (audit-conversation §4): 1–3 short bubbles and 2–4 quick replies the founder waits
   // on, so Opus at low effort; callers cache the system prompt (house rules + instructions) and size max_tokens for the
   // reply (~700 tokens) plus the thinking Opus 5.5 always does, which counts toward max_tokens.
-  conversation: { model: "opus", effort: "low" },
+  conversation: { model: "opus", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
 } as const satisfies Record<string, RouteDefinition>;
 export type RouteKey = keyof typeof ROUTES;
 
@@ -82,6 +114,8 @@ export type RouteResolution = {
   effort?: Effort;
   /** `fast` when the route asks for fast mode and the resolved model has it (the client still needs MODEL_FAST_MODE). */
   speed?: Extract<Speed, "fast">;
+  /** `max_tokens` for a request that sends none: the route's budget, raised to the resolved model's thinking floor. */
+  maxTokens: number;
 };
 
 const RANK: Record<ModelKey, number> = { haiku: 0, sonnet: 1, opus: 2 };
@@ -108,8 +142,18 @@ export function resolveModel(route: RouteKey, override?: ModelKey): RouteResolut
     }
   }
   const caps = MODEL_CAPABILITIES[modelKey];
-  const resolution: RouteResolution = { route, modelKey, modelId: MODELS[modelKey], locked, warning, batch: def.batch === true };
-  if (def.effort && caps.effort) resolution.effort = def.effort;
+  const effort = def.effort && caps.effort ? def.effort : undefined;
+  const resolution: RouteResolution = { route, modelKey, modelId: MODELS[modelKey], locked, warning, batch: def.batch === true, maxTokens: maxTokensFor(def.maxTokens, modelKey, effort) };
+  if (effort) resolution.effort = effort;
   if (def.speed === "fast" && caps.fastMode) resolution.speed = "fast";
   return resolution;
+}
+
+/**
+ * The `max_tokens` a call runs with when it sends none: the route's budget, never below the thinking floor of the model
+ * that serves it at that effort (a request's own `effort` is applied by the client and does not move this default).
+ */
+export function maxTokensFor(routeBudget: number, modelKey: ModelKey, effort?: Effort): number {
+  if (!ALWAYS_THINKS[modelKey]) return routeBudget;
+  return Math.max(routeBudget, effort === "low" ? LOW_EFFORT_MAX_TOKENS : THINKING_MAX_TOKENS);
 }

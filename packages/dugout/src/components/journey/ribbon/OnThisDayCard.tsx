@@ -30,7 +30,8 @@ export const DEPT_TONE: Record<string, string> = { "dept-1": "tone-dept-1", "dep
 export interface OnThisDayCardProps {
   summary: DaySummary;
   forecastPoint?: ForecastPoint | null;
-  currency?: string;
+  /** The business's own currency (ISO 4217): every amount here is formatted in it. */
+  currency: string;
   onOpenJourney?: (conversionId: string) => void;
   className?: string;
 }
@@ -38,7 +39,7 @@ export interface OnThisDayCardProps {
 const KIND_WORD = { signup: "Signup", activation: "Activation", payment: "Payment" } as const;
 
 /** The Ribbon's hover scrubber card (BUILD §11.2 "On this day"). Compact; the click target opens the DayDigest. */
-export function OnThisDayCard({ summary, forecastPoint, currency = "EUR", onOpenJourney, className }: OnThisDayCardProps) {
+export function OnThisDayCard({ summary, forecastPoint, currency, onOpenJourney, className }: OnThisDayCardProps) {
   const { formatDate } = useFormatters();
   const p = summary.point;
   const top = summary.departments.filter((d) => d.hours > 0).slice(0, 4);

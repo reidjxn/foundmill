@@ -3,12 +3,14 @@
  *
  * `createItem` accepts the Composer output shape verbatim (snake_case, BUILD §11.3 "Composer output schema"),
  * validates it with Zod and checks that every referenced agent, event and entity belongs to the business,
- * so a note can never carry an id from another club.
+ * so a note can never carry an id from another business. Every note an agent or the product writes is stored in the
+ * business's own words (Settings › Glossary, AC-11.13.6): `applyGlossary` runs on its subject, body and decision
+ * options here, the one place every composed and templated note passes through.
  */
-import { EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, ValidationError, type InboxItemType, type InboxState } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
+import { EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, OptionAction, ValidationError, applyGlossary, type InboxItemType, type InboxState } from "@foundmill/shared";
+import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
-import { agents, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItems, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
+import { agents, businesses, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItemReads, inboxItems, plans, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
 import { Currency, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
 
 // --- Composer output schema (BUILD §11.3) ------------------------------------------------------------------------------
@@ -20,6 +22,8 @@ export const ComposerOption = z.object({
   consequence: z.string(),
   cost_minor: z.number().int().nonnegative(),
   reversible: z.boolean(),
+  /** What choosing it runs, written with the option (the Board's and the Import report's options; audit IAE-20). */
+  actions: z.array(OptionAction).min(1).max(8).optional(),
 });
 
 export const ComposerStatusMetric = z.object({ metric: z.string().min(1), source: z.string().min(1) });
@@ -28,7 +32,13 @@ export const ComposerDecision = z
   .object({
     options: z.array(ComposerOption).min(2).max(4),
     free_text: z.boolean(),
+    /** A deadline: an ISO timestamp in the future, or null (the composer validates what the model writes; audit CML-13). */
     expires_at: z.string().nullable(),
+    /**
+     * What a grounded next-best decision is about (its kind and facts, never the rotation), so Refresh does not write the
+     * same open decision twice (audit CML-02). Set by the composer service; absent on every other note.
+     */
+    key: z.string().min(1).max(200).optional(),
   })
   .refine((d) => d.options.filter((o) => o.recommended).length === 1, { message: "exactly one option must be recommended", path: ["options"] })
   .refine((d) => new Set(d.options.map((o) => o.id)).size === d.options.length, { message: "option ids must be unique", path: ["options"] });
@@ -59,6 +69,28 @@ export const CreateItemOptions = z.object({
 });
 export type CreateItemOptions = z.input<typeof CreateItemOptions>;
 
+type ParsedComposerItem = z.output<typeof ComposerItem>;
+
+/** The business's glossary (empty when it has none). */
+async function businessGlossary(db: Executor, businessId: string): Promise<Record<string, string>> {
+  const rows = await db.select({ glossary: businesses.glossary }).from(businesses).where(eq(businesses.id, businessId)).limit(1);
+  return rows[0]?.glossary ?? {};
+}
+
+/** A rename never breaks the shape's limits: a longer word trims the text at the limit with an ellipsis. */
+const clampText = (text: string, max: number) => (text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`);
+
+/** The note in the business's own words: subject, body and decision options (ids, costs and flags unchanged). */
+export function inBusinessWords(v: ParsedComposerItem, glossary: Record<string, string>): ParsedComposerItem {
+  const g = (text: string) => applyGlossary(text, glossary);
+  return {
+    ...v,
+    subject: clampText(g(v.subject), 80),
+    body_md: g(v.body_md),
+    decision: v.decision ? { ...v.decision, options: v.decision.options.map((opt) => ({ ...opt, label: clampText(g(opt.label), 120), consequence: g(opt.consequence) })) } : null,
+  };
+}
+
 /** Tabs of the Inbox list (BUILD §11.3 layout). */
 export const INBOX_TABS = ["all", "respond", "customers", "updates", "messages", "archive"] as const;
 export type InboxTab = (typeof INBOX_TABS)[number];
@@ -66,12 +98,32 @@ export type InboxTab = (typeof INBOX_TABS)[number];
 /** Types that ask the founder for something; they sit in Respond until answered. */
 export const RESPOND_TYPES: readonly InboxItemType[] = ["decision", "customer_won", "warning"];
 
+/**
+ * The item's plan waits for the founder's go-ahead ("Here is what will happen", `plan.confirm`): it was answered, so
+ * Continue is free, but it still asks for something, so it stays in Respond until the plan is confirmed (audit OL-01).
+ */
+const awaitingConfirmation = sql`exists (select 1 from ${plans} where ${plans.businessId} = ${inboxItems.businessId} and ${plans.inboxItemId} = ${inboxItems.id} and ${plans.status} = 'pending_confirmation' and ${plans.archivedAt} is null)`;
+
+/**
+ * A note's state as this person sees it (0048): `unread` becomes `read` once they have a receipt for it; answered,
+ * archived and a state the system wrote as `read` are the same for everyone. No viewer: the stored state.
+ */
+function stateFor(viewerId?: string | null): SQL<InboxState> {
+  if (!viewerId) return sql<InboxState>`"inbox_items"."state"`;
+  // Qualified by hand: a single-table select strips the table from the columns of its SQL fields, and the bare `id` would
+  // then be the receipt's own.
+  return sql<InboxState>`case when "inbox_items"."state" = 'unread' and exists (select 1 from "inbox_item_reads" "r" where "r"."inbox_item_id" = "inbox_items"."id" and "r"."user_id" = ${viewerId}::uuid) then 'read' else "inbox_items"."state" end`;
+}
+
 function tabCondition(tab: InboxTab) {
   switch (tab) {
     case "all":
       return sql`${inboxItems.state} <> 'archived'`;
     case "respond":
-      return and(inArray(inboxItems.state, ["unread", "read"]), or(eq(inboxItems.blocksContinue, true), inArray(inboxItems.type, [...RESPOND_TYPES])));
+      return or(
+        and(inArray(inboxItems.state, ["unread", "read"]), or(eq(inboxItems.blocksContinue, true), inArray(inboxItems.type, [...RESPOND_TYPES]))),
+        and(eq(inboxItems.state, "answered"), awaitingConfirmation),
+      );
     case "customers":
       return and(sql`${inboxItems.state} <> 'archived'`, eq(inboxItems.type, "customer_won"));
     case "updates":
@@ -129,20 +181,26 @@ async function assertOwnedIds(db: Executor, businessId: string, v: z.output<type
 }
 
 export const inboxRepo = {
-  async list(db: Executor, businessId: string, filter: InboxListFilter = {}): Promise<Page<InboxItem>> {
+  /**
+   * `viewerId` is who is looking: with it, `state` reads `read` for a note that person has opened (their receipt, 0048)
+   * and `unread` for one they have not, whatever others did; the `state` filter follows. Without it (the composer, the
+   * orchestrator) the stored state is used as it is.
+   */
+  async list(db: Executor, businessId: string, filter: InboxListFilter = {}, viewerId?: string | null): Promise<Page<InboxItem>> {
     const f = parseInput(InboxListFilter, filter, "inbox filter");
+    const state = stateFor(viewerId);
     const ks = timeKeyset<InboxItem>(inboxItems.createdAt, inboxItems.id, (r) => ({ at: r.createdAt, id: r.id }));
     const states = toArray(f.state);
     const types = toArray(f.type);
     const rows = await db
-      .select()
+      .select({ ...getTableColumns(inboxItems), state })
       .from(inboxItems)
       .where(
         and(
           eq(inboxItems.businessId, businessId),
           isNull(inboxItems.archivedAt),
           tabCondition(f.tab),
-          states?.length ? inArray(inboxItems.state, states) : undefined,
+          states?.length ? inArray(state, states) : undefined,
           types?.length ? inArray(inboxItems.type, types) : undefined,
           f.fromAgentId ? eq(inboxItems.fromAgentId, f.fromAgentId) : undefined,
           f.blocking === undefined ? undefined : eq(inboxItems.blocksContinue, f.blocking),
@@ -154,8 +212,15 @@ export const inboxRepo = {
     return toPage(rows, f, ks);
   },
 
-  async get(db: Executor, businessId: string, itemId: string): Promise<InboxItem> {
-    return one(await db.select().from(inboxItems).where(scoped(businessId, itemId)).limit(1), "inbox item", itemId);
+  /** One note; with `viewerId` its `state` is that person's (see `list`). */
+  async get(db: Executor, businessId: string, itemId: string, viewerId?: string | null): Promise<InboxItem> {
+    return one(await db.select({ ...getTableColumns(inboxItems), state: stateFor(viewerId) }).from(inboxItems).where(scoped(businessId, itemId)).limit(1), "inbox item", itemId);
+  },
+
+  /** Several items in one query (ids of another business, or of nothing, are left out). */
+  async byIds(db: Executor, businessId: string, itemIds: readonly string[]): Promise<InboxItem[]> {
+    if (itemIds.length === 0) return [];
+    return db.select().from(inboxItems).where(and(eq(inboxItems.businessId, businessId), inArray(inboxItems.id, [...itemIds])));
   },
 
   /** Items that block Continue and are still unanswered (AC-11.3.3: the button reads "Respond · N"). */
@@ -167,23 +232,23 @@ export const inboxRepo = {
     return Number(rows[0]?.n ?? 0);
   },
 
+  /** Items per tab, in one statement (a `count(*) filter (where …)` per tab) rather than one query per tab. */
   async countByTab(db: Executor, businessId: string): Promise<Record<InboxTab, number>> {
-    const out = {} as Record<InboxTab, number>;
-    for (const tab of INBOX_TABS) {
-      const rows = await db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(inboxItems)
-        .where(and(eq(inboxItems.businessId, businessId), isNull(inboxItems.archivedAt), tabCondition(tab)));
-      out[tab] = Number(rows[0]?.n ?? 0);
-    }
-    return out;
+    const counts = Object.fromEntries(INBOX_TABS.map((tab) => [tab, sql<number>`count(*) filter (where ${tabCondition(tab) ?? sql`true`})::int`]));
+    const rows = await db.select(counts).from(inboxItems).where(and(eq(inboxItems.businessId, businessId), isNull(inboxItems.archivedAt)));
+    const row: Record<string, unknown> = rows[0] ?? {};
+    return Object.fromEntries(INBOX_TABS.map((tab) => [tab, Number(row[tab] ?? 0)])) as Record<InboxTab, number>;
   },
 
-  /** Persists one Composer note. Validates the §11.3 shape and that every referenced id belongs to the business. */
+  /**
+   * Persists one Composer note. Validates the §11.3 shape and that every referenced id belongs to the business, then
+   * renames nouns with the business glossary (a person's own message is theirs and is stored as written).
+   */
   async createItem(db: Executor, businessId: string, item: ComposerItem, options: CreateItemOptions = {}): Promise<InboxItem> {
-    const v = parseInput(ComposerItem, item, "composer item");
+    const parsed = parseInput(ComposerItem, item, "composer item");
     const o = parseInput(CreateItemOptions, options, "inbox item options");
-    await assertOwnedIds(db, businessId, v);
+    await assertOwnedIds(db, businessId, parsed);
+    const v = parsed.type === "human_message" ? parsed : inBusinessWords(parsed, await businessGlossary(db, businessId));
     return one(
       await db
         .insert(inboxItems)
@@ -215,11 +280,35 @@ export const inboxRepo = {
     return inboxRepo.createItem(db, businessId, { type: "human_message", from_agent_id: null, subject: v.subject, body_md: v.bodyMd, entity_ids: v.entityIds }, { fromUserId: v.fromUserId });
   },
 
-  async markRead(db: Executor, businessId: string, itemId: string): Promise<InboxItem> {
-    return one(await db.update(inboxItems).set({ state: "read" }).where(and(scoped(businessId, itemId), eq(inboxItems.state, "unread"))).returning().then((rows) => (rows.length ? rows : db.select().from(inboxItems).where(scoped(businessId, itemId)))), "inbox item", itemId);
+  /**
+   * `userId` opened the note: their receipt (0048), and nobody else's markers move. Any member keeps their own, the
+   * viewers and advisors the Inbox policy keeps from writing notes included. Without a `userId` the system read it for
+   * the whole business (the Chief of Staff deciding a win on vacation): the stored state becomes `read`.
+   */
+  async markRead(db: Executor, businessId: string, itemId: string, userId?: string | null): Promise<InboxItem> {
+    const item = await inboxRepo.get(db, businessId, itemId);
+    if (item.state !== "unread") return inboxRepo.get(db, businessId, itemId, userId);
+    if (!userId) {
+      await db.update(inboxItems).set({ state: "read" }).where(and(scoped(businessId, itemId), eq(inboxItems.state, "unread")));
+      return inboxRepo.get(db, businessId, itemId);
+    }
+    await db.insert(inboxItemReads).values({ businessId, inboxItemId: itemId, userId }).onConflictDoNothing();
+    return inboxRepo.get(db, businessId, itemId, userId);
   },
 
-  async archive(db: Executor, businessId: string, itemId: string): Promise<InboxItem> {
+  /**
+   * Moves a note to the Archive. A decision that blocks Continue and still waits for its answer cannot be archived
+   * (BUILD §11.3: Continue stays blocked until red items are answered): archiving it would clear the gate with nobody
+   * having decided and could never be undone. Answered notes, and blocking notes that offer nothing to choose (a
+   * warning), archive as before. `force` is for the system closing a note whose question was settled some other way.
+   */
+  async archive(db: Executor, businessId: string, itemId: string, options: { force?: boolean } = {}): Promise<InboxItem> {
+    const item = await inboxRepo.get(db, businessId, itemId);
+    const choices = (item.decision as { options?: unknown[] } | null)?.options;
+    // `force`: the system closing a request that was settled some other way (an expired approval), not the founder.
+    if (!options.force && item.blocksContinue && (item.state === "unread" || item.state === "read") && Array.isArray(choices) && choices.length > 0) {
+      throw new ValidationError("This decision is waiting for your answer. Choose an option or write what to do; it can be archived once it is answered.", { itemId, state: item.state });
+    }
     return one(await db.update(inboxItems).set({ state: "archived" }).where(scoped(businessId, itemId)).returning(), "inbox item", itemId);
   },
 
@@ -276,7 +365,11 @@ export const inboxRepo = {
       .orderBy(desc(composerBuffer.priority), asc(composerBuffer.createdAt));
   },
 
-  /** Adds a candidate (validated as a Composer item); the same source hash replaces the earlier candidate. */
+  /**
+   * Adds a candidate (validated as a Composer item); the same source hash replaces the earlier candidate. A candidate
+   * that was already served stays served (`consumedAt` is kept): an unchanged insight is a note the founder has, and
+   * reviving it served the same note, and paid for it, on every Refresh (audit CML-01). Check `consumedAt` on the row.
+   */
   async bufferPush(db: Executor, businessId: string, input: BufferCandidateInput): Promise<ComposerBufferRow> {
     const v = parseInput(BufferCandidateInput, input, "buffer candidate");
     return one(
@@ -285,8 +378,34 @@ export const inboxRepo = {
         .values({ businessId, candidate: v.candidate as Record<string, unknown>, sourceHash: v.sourceHash, priority: v.priority, valid: true })
         .onConflictDoUpdate({
           target: [composerBuffer.businessId, composerBuffer.sourceHash],
-          set: { candidate: v.candidate as Record<string, unknown>, priority: v.priority, valid: true, consumedAt: null },
+          set: { candidate: v.candidate as Record<string, unknown>, priority: v.priority, valid: true },
         })
+        .returning(),
+      "buffer candidate",
+    );
+  },
+
+  /** Which of these source hashes were already served (their buffer row is consumed). */
+  async bufferServed(db: Executor, businessId: string, sourceHashes: readonly string[]): Promise<Set<string>> {
+    if (sourceHashes.length === 0) return new Set();
+    const rows = await db
+      .select({ sourceHash: composerBuffer.sourceHash })
+      .from(composerBuffer)
+      .where(and(eq(composerBuffer.businessId, businessId), inArray(composerBuffer.sourceHash, [...new Set(sourceHashes)]), isNotNull(composerBuffer.consumedAt)));
+    return new Set(rows.map((r) => r.sourceHash));
+  },
+
+  /**
+   * Records a candidate written on demand (Refresh's cold path) as served under its source hash, so the background
+   * refill does not write the same note again. A row already there is marked served in place.
+   */
+  async bufferMarkServed(db: Executor, businessId: string, input: BufferCandidateInput): Promise<ComposerBufferRow> {
+    const v = parseInput(BufferCandidateInput, input, "buffer candidate");
+    return one(
+      await db
+        .insert(composerBuffer)
+        .values({ businessId, candidate: v.candidate as Record<string, unknown>, sourceHash: v.sourceHash, priority: v.priority, valid: true, consumedAt: new Date() })
+        .onConflictDoUpdate({ target: [composerBuffer.businessId, composerBuffer.sourceHash], set: { consumedAt: sql`coalesce(${composerBuffer.consumedAt}, now())` } })
         .returning(),
       "buffer candidate",
     );

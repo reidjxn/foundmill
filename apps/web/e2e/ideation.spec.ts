@@ -244,6 +244,15 @@ test.describe("ideation studio", () => {
     await expect(page.getByTestId("discard-tray")).toContainText(targetName);
     await page.getByTestId("restore-button").first().click();
     await expect(cards).toHaveCount(before + 1);
+    // Restore is real (idea.restore, audit FR-12): after a reload the card is still in the deck, and Commit opens its form
+    // instead of an error panel that names a raw id.
+    await page.reload();
+    const restored = cards.filter({ hasText: targetName }).first();
+    await expect(restored).toBeVisible({ timeout: LONG });
+    await restored.locator("xpath=..").getByTestId("commit-link").click();
+    await expect(page).toHaveURL(/\/new\/commit\//);
+    await expect(page.getByLabel(/Business name/)).toBeVisible({ timeout: LONG });
+    await expect(page.getByText(/not found/i)).toHaveCount(0);
   });
 
   test("AC-11.1.4: selecting 2, 3 and 4 cards compares them with a radar and a verdict; a fifth tick is refused", async ({ page }) => {

@@ -16,9 +16,9 @@
  */
 import { buildIdeationCardRequest, buildIdeationSlateRequest, buildSingleConceptRequest, IDEATION_AGENT_NAME, IDEATION_MAX_CONCEPTS, IDEATION_MIN_CONCEPTS, type IdeationBrief } from "@foundmill/agents";
 import { repos, type CreateIdeaInput, type IdeaWithVersion } from "@foundmill/db";
-import { ModelAbortedError, ModelOutputError, streamStructured, type ConceptCard, type IdeationSlateItem, type ModelClient, type ModelMode } from "@foundmill/models";
+import { isModelBillingError, ModelAbortedError, ModelOutputError, streamStructured, type ConceptCard, type IdeationSlateItem, type ModelClient, type ModelMode } from "@foundmill/models";
 import { AppError, type Archetype } from "@foundmill/shared";
-import { RateLimitedError, SlidingWindowLimiter, type WindowLimit } from "./rate-limit";
+import { takeOrThrow, type LimitEntry, type LimitTicket, type RateLimitStore, type WindowLimit } from "./rate-limit";
 
 /** Cards written at once (the rest wait for a free slot). Six keeps a twelve-card set to two waves without a burst of twelve. */
 export const IDEATION_CARD_CONCURRENCY = 6;
@@ -33,10 +33,10 @@ type Db = Parameters<typeof repos.ideas.createMany>[0];
 // ---------------------------------------------------------------------------------------------------------------------
 // Allowance: a set is a slate plus up to twelve card calls (each retried once) on the platform key, and Ideation needs
 // no business, so any signed-in account could otherwise draft in a loop. Every draft (a set, Import's single card, a
-// card drafted ahead for Import) spends one. Process-local, like the logo and conversation limits (rate-limit.ts).
+// card drafted ahead for Import) and every Compare spends one. The windows live in the api's limit store (Redis across
+// replicas, rate-limit.ts), like the logo and conversation allowances.
 // ---------------------------------------------------------------------------------------------------------------------
 
-export const ideationLimiter = new SlidingWindowLimiter();
 const HOUR = 60 * 60_000;
 export const IDEATION_LIMITS = {
   /** A founder drafting, reading and drafting again stays well inside this; a script or a stuck button does not. */
@@ -44,13 +44,15 @@ export const IDEATION_LIMITS = {
   day: { limit: 60, windowMs: 24 * HOUR },
 } as const satisfies Record<string, WindowLimit>;
 
+/** The windows one draft spends for `userId`. */
+export const ideationAllowanceEntries = (userId: string): LimitEntry[] => [
+  { key: `ideation:hour:${userId}`, rule: IDEATION_LIMITS.hour },
+  { key: `ideation:day:${userId}`, rule: IDEATION_LIMITS.day },
+];
+
 /** Spends one draft from the founder's allowance, or throws TOO_MANY_REQUESTS (nothing is drafted). */
-export function takeIdeationAllowance(userId: string): void {
-  const r = ideationLimiter.takeAll([
-    { key: `ideation:hour:${userId}`, rule: IDEATION_LIMITS.hour },
-    { key: `ideation:day:${userId}`, rule: IDEATION_LIMITS.day },
-  ]);
-  if (!r.ok) throw new RateLimitedError("Drafting", r.retryAfterMs);
+export function takeIdeationAllowance(limits: RateLimitStore, userId: string): Promise<LimitTicket> {
+  return takeOrThrow(limits, "Drafting", ideationAllowanceEntries(userId));
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -119,6 +121,8 @@ export interface DraftInput {
 export interface DraftDeps {
   db: Db;
   models: ModelClient;
+  /** The api's allowance windows (`ctx.limits`): every draft spends one (`takeIdeationAllowance`). */
+  limits: RateLimitStore;
   userId: string;
   log?: { warn(obj: unknown, msg?: string): void };
 }
@@ -222,7 +226,7 @@ export async function draftIdeas(deps: DraftDeps, input: DraftInput, opts: Draft
   const signal = opts.signal;
   const { models } = deps;
   // Before anything else: a refused draft calls no model and writes nothing.
-  takeIdeationAllowance(deps.userId);
+  await takeIdeationAllowance(deps.limits, deps.userId);
   const brief: IdeationBrief = { prompt: input.prompt.trim() || SURPRISE_PROMPT, archetypeHint: input.archetypeHint ?? null, founder: await founderBrief(deps.db, deps.userId) };
   const meta = input.importJobId ? { import_job_id: input.importJobId } : {};
   const writer = new IdeaBatchWriter(deps.db, deps.userId);
@@ -272,6 +276,9 @@ export async function draftIdeas(deps: DraftDeps, input: DraftInput, opts: Draft
         });
       } catch (err) {
         if (isAbort(err, cardsAbort.signal)) throw err;
+        // The model account cannot pay: every other card would be refused too, and "could not finish this concept" would
+        // hide why. Final at once; the draft fails with the founder-facing billing message (audit BILL-06).
+        if (isModelBillingError(err)) throw err;
         const message = err instanceof Error ? err.message : String(err);
         deps.log?.warn({ index, attempt, err: message }, "ideation card failed");
         if (attempt < attempts) continue;

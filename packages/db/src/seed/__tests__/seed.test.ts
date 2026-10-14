@@ -12,7 +12,7 @@ import type { Db } from "../../client";
 import { repos } from "../../repos";
 import * as s from "../../schema";
 import { createTestDb, type TestHarness } from "../../testing/pglite";
-import { BOOTSTRAPPED_COMMUNITY_SLUG, LEDGERLY_BUSINESS_ID, LEDGERLY_COMMUNITY_SLUG, NORTHWIND_BUSINESS_ID, SEED_COMMUNITY_SLUGS, seedDemo, type SeedDemoResult } from "../index";
+import { BOOTSTRAPPED_COMMUNITY_SLUG, deleteDemoBusinesses, demoSeedState, LEDGERLY_BUSINESS_ID, LEDGERLY_COMMUNITY_SLUG, NORTHWIND_BUSINESS_ID, SEED_COMMUNITY_SLUGS, seedDemo, type SeedDemoResult } from "../index";
 
 const TODAY = new Date("2026-10-07T12:00:00.000Z");
 const SEED_OPTS = { today: TODAY, days: 730, volumeScale: 0.3 };
@@ -50,7 +50,7 @@ describe("seedDemo on PGlite", () => {
     expect(await repos.founders.get(db, result.owner.userId)).not.toBeNull();
   });
 
-  it("builds the departments of each archetype, renamed for Northwind, each with every module tab", async () => {
+  it("builds the departments of each archetype, renamed for Northwind, each with its module tabs", async () => {
     const nw = await repos.departments.list(db, NORTHWIND_BUSINESS_ID);
     const lg = await repos.departments.list(db, LEDGERLY_BUSINESS_ID);
     expect(nw).toHaveLength(7);
@@ -60,9 +60,13 @@ describe("seedDemo on PGlite", () => {
     for (const d of [...nw, ...lg]) {
       expect(d.leadAgentId).toBeTruthy();
       const screens = await repos.screens.list(db, d.businessId, d.id);
-      expect(screens.length).toBeGreaterThanOrEqual(5);
+      // Operations runs on the development module but only needs its Specialists and Plan tabs (DB-11).
+      expect(screens.length).toBeGreaterThanOrEqual(d.slug === "operations" ? 2 : 5);
       expect(screens.every((sc) => (sc.layout.widgets[0] as { key: string }).key.startsWith("module:"))).toBe(true);
     }
+    // The Formulation Lab does not duplicate Development's six tabs.
+    const labScreens = await repos.screens.list(db, NORTHWIND_BUSINESS_ID, nw.find((d) => d.slug === "operations")!.id);
+    expect(labScreens.map((s) => s.tabSlug)).toEqual(["specialists", "plan"]);
     // Formulation Lab holds the sourcing and formulation specialists.
     const lab = nw.find((d) => d.slug === "operations")!;
     const labAgents = await repos.agents.list(db, NORTHWIND_BUSINESS_ID, { departmentId: lab.id, limit: 50 });
@@ -134,7 +138,28 @@ describe("seedDemo on PGlite", () => {
       const won = items.find((i) => i.type === "customer_won")!;
       expect(won.sourceEventIds.length).toBeGreaterThan(0);
     }
-    expect(await repos.inbox.countBlocking(db, NORTHWIND_BUSINESS_ID)).toBe(1);
+    // The composer's type rule (DECISIONS): an open decision and an open win block Continue, in the demo as in a real
+    // business (audit OL-32). Northwind has one of each.
+    expect(await repos.inbox.countBlocking(db, NORTHWIND_BUSINESS_ID)).toBe(2);
+    for (const id of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
+      const open = (await repos.inbox.list(db, id, { limit: 100 })).items.filter((i) => (i.type === "decision" || i.type === "customer_won") && (i.state === "unread" || i.state === "read"));
+      expect(open.length).toBeGreaterThan(0);
+      for (const i of open) expect(i.blocksContinue, `${i.type}: ${i.subject}`).toBe(true);
+    }
+  });
+
+  it("counts a lead for every lead record: the Leads tab lists the leads who have not paid (audit GTM-02)", async () => {
+    for (const businessId of [LEDGERLY_BUSINESS_ID, NORTHWIND_BUSINESS_ID]) {
+      const counted = (await repos.channels.metricsSummary(db, businessId, { from: "2000-01-01", to: "2100-01-01" })).channels.reduce((n, c) => n + c.leads, 0);
+      const records = Number(
+        ((await db.execute(sql`select count(*)::int as n from entity_roles where business_id = ${businessId}::uuid and role = 'lead'`)) as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 0,
+      );
+      expect(records).toBe(counted);
+      const open = await repos.entities.listByRole(db, businessId, "lead", { limit: 500 });
+      // Open leads are the ones who never paid; a lead who paid became a customer and its lead role ended then.
+      for (const lead of open.items) expect(lead.role.stage).toBe("qualified");
+      if (records > 0) expect(open.items.length).toBeGreaterThan(0);
+    }
   });
 
   it("fills the modules: channels, campaigns, spec, roadmap, tasks with sessions, finance, legal, integrations, dashboards", async () => {
@@ -177,6 +202,19 @@ describe("seedDemo on PGlite", () => {
     expect(new Set(proposal.hunks.map((h) => h.specBlockId)).size).toBe(3);
     expect(await repos.product.listProposals(db, LEDGERLY_BUSINESS_ID, { limit: 50 })).toMatchObject({ items: [] });
 
+    // Seeded sources read as the Source Watcher writes them (summary, linked blocks of the business, topics), so the
+    // Sources table and Research coverage are filled (packages/modules product/sources/kinds.ts).
+    for (const businessId of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
+      const blockIds = new Set((await repos.product.listBlocks(db, businessId)).map((b) => b.id));
+      for (const src of (await repos.product.listSources(db, businessId, { limit: 50 })).items) {
+        const rel = src.relevance as { summary?: unknown; blocks?: { blockId: string; score: number }[]; topics?: unknown[] };
+        expect(typeof rel.summary, src.title).toBe("string");
+        expect(rel.blocks?.length, src.title).toBeGreaterThan(0);
+        for (const b of rel.blocks!) expect(blockIds.has(b.blockId), `${src.title} links a block of its business`).toBe(true);
+        expect(rel.topics?.length, src.title).toBeGreaterThan(0);
+      }
+    }
+
     const tasks = await repos.tasks.list(db, LEDGERLY_BUSINESS_ID, { limit: 500 });
     const statuses = new Set(tasks.items.map((t) => t.status));
     for (const st of ["running", "review", "blocked", "merging", "done", "ready", "planned", "stopped"]) expect(statuses.has(st as never), `task status ${st}`).toBe(true);
@@ -198,7 +236,10 @@ describe("seedDemo on PGlite", () => {
       expect(integrations.every((i) => i.status === "mock" || i.status === "degraded")).toBe(true);
       const dashboard = await repos.dashboards.active(db, businessId, result.owner.userId);
       expect(dashboard?.preset).toBe("founder");
-      expect(dashboard?.layout.widgets.length).toBe(10);
+      // Ribbon, status strip, team pulse and inbox, plus a department card for each visible department.
+      const departments = await repos.departments.list(db, businessId);
+      expect(dashboard?.layout.widgets.filter((w) => (w as { key: string }).key === "department_card")).toHaveLength(departments.length);
+      expect(dashboard?.layout.widgets.length).toBe(departments.length + 4);
       expect(await count(s.usageLedger, businessId)).toBeGreaterThan(0);
     }
     const nwLegal = (await repos.legal.primaryEntity(db, NORTHWIND_BUSINESS_ID))!;
@@ -206,7 +247,18 @@ describe("seedDemo on PGlite", () => {
     const suppliers = await repos.entities.listByRole(db, NORTHWIND_BUSINESS_ID, "supplier");
     expect(suppliers.items.length).toBe(6);
     expect((await repos.entities.listRelationships(db, NORTHWIND_BUSINESS_ID, suppliers.items[0]!.id)).length).toBeGreaterThan(0);
-  });
+    // The CRM list's "kind:organization role:supplier" (crm.entity.list): the same six, each with its role and stage.
+    const listed = await repos.entities.listWithRoles(db, NORTHWIND_BUSINESS_ID, { kind: "organisation", role: "supplier", limit: 500 });
+    expect(listed.items.map((e) => e.id).sort()).toEqual(suppliers.items.map((e) => e.id).sort());
+    expect(listed.items.every((e) => e.roles.some((r) => r.role === "supplier" && !!r.stage && !!r.ownerRef))).toBe(true);
+    // "customers": every active customer counts, not just the first page.
+    const customerRoles = await db.execute(sql`select count(distinct r.entity_id)::int as n from entity_roles r join entities e on e.id = r.entity_id where r.business_id = ${NORTHWIND_BUSINESS_ID}::uuid and r.role = 'customer' and r.ended_at is null and e.archived_at is null and e.merged_into_id is null`);
+    const customerCount = Number((customerRoles as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 0);
+    const customerPage = await repos.entities.listWithRoles(db, NORTHWIND_BUSINESS_ID, { role: "customer", limit: 5 });
+    expect(customerCount).toBeGreaterThan(5);
+    expect(customerPage.total).toBe(customerCount);
+    expect(customerPage.items.every((e) => e.roles.some((r) => r.role === "customer"))).toBe(true);
+  }, 600_000); // the role-filtered CRM page scans every seeded customer on PGlite (slow, not wrong)
 
   it("gives Ledgerly its LIVE extras: holiday, GitHub repo, Stripe payments, cap table with two SAFEs, community, leaderboard, training", async () => {
     const holiday = await repos.holidays.current(db, LEDGERLY_BUSINESS_ID);
@@ -240,6 +292,51 @@ describe("seedDemo on PGlite", () => {
     expect((await repos.training.latestForAgent(db, LEDGERLY_BUSINESS_ID, backend.id))?.decision).toBe("promoted");
   });
 
+  it("each business's billing tells one story: usage billed the way it pays for models, credits only for credits, no key connection without a key (BILL-05, DB-16)", async () => {
+    for (const businessId of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
+      const business = await repos.businesses.get(db, businessId);
+      const usage = await db.select().from(s.usageLedger).where(eq(s.usageLedger.businessId, businessId));
+      expect(usage.length).toBeGreaterThan(0);
+      expect(new Set(usage.map((u) => u.billedTo))).toEqual(new Set([business.modelBilling]));
+      const balances = await db.select().from(s.creditBalances).where(eq(s.creditBalances.businessId, businessId));
+      expect(balances.length > 0).toBe(business.modelBilling === "credits");
+      // A BYOK connection exists only with a stored credential behind it: the demo seeds none, so none runs on its own key.
+      const anthropic = (await db.select().from(s.integrations).where(eq(s.integrations.businessId, businessId))).filter((i) => i.connectorKey === "anthropic");
+      const keys = await db.select().from(s.credentials).where(eq(s.credentials.businessId, businessId));
+      if (business.modelBilling === "byok" || anthropic.length > 0) expect(keys.length).toBeGreaterThan(0);
+    }
+    expect((await repos.businesses.get(db, LEDGERLY_BUSINESS_ID)).modelBilling).toBe("credits");
+  });
+
+  it("keeps the demo data consistent: nothing dated after the seed, CRM stages backed by wins, one record per email or domain, renewals as revenue (audit #159 #331)", async () => {
+    // The `n` of a single-row `select count(*)::int as n ...`.
+    const scalar = async (q: string): Promise<number> => Number(((await db.execute(sql.raw(q))) as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 0);
+    const now = TODAY.toISOString();
+    for (const businessId of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
+      // No touch, conversion or agent session is later than the instant the seed ran at.
+      for (const [table, column] of [["touches", "occurred_at"], ["conversions", "occurred_at"], ["agent_sessions", "started_at"]] as const) {
+        const n = await scalar(`select count(*)::int as n from ${table} where business_id = '${businessId}' and ${column} > '${now}'`);
+        expect(n, `${table} after the seed in ${businessId}`).toBe(0);
+      }
+      // A customer or churned stage has a first payment; an activated one has an activation win.
+      const noPayment = await scalar(`select count(*)::int as n from entity_roles r where r.business_id = '${businessId}' and r.role = 'customer' and r.stage in ('customer','churned') and exists (select 1 from conversions c where c.entity_id = r.entity_id and c.kind = 'signup') and not exists (select 1 from conversions c where c.entity_id = r.entity_id and c.kind = 'payment' and c.first_payment)`);
+      expect(noPayment, `customer stages without a payment in ${businessId}`).toBe(0);
+      const noActivation = await scalar(`select count(*)::int as n from entity_roles r where r.business_id = '${businessId}' and r.role = 'customer' and r.stage = 'activated' and exists (select 1 from conversions c where c.entity_id = r.entity_id and c.kind = 'signup') and not exists (select 1 from conversions c where c.entity_id = r.entity_id and c.kind = 'activation')`);
+      expect(noActivation, `activated stages without an activation in ${businessId}`).toBe(0);
+      // A strong identifier belongs to one live record.
+      const sharedEmail = await scalar(`select count(*)::int as n from (select identifiers->>'email' as e from entities where business_id = '${businessId}' and identifiers ? 'email' and archived_at is null group by 1 having count(*) > 1) d`);
+      expect(sharedEmail, `shared emails in ${businessId}`).toBe(0);
+      const sharedDomain = await scalar(`select count(*)::int as n from (select identifiers->>'domain' as d from entities where business_id = '${businessId}' and identifiers ? 'domain' and archived_at is null group by 1 having count(*) > 1) d`);
+      expect(sharedDomain, `shared domains in ${businessId}`).toBe(0);
+    }
+    // The subscription business's renewals are payments that are not new customers: its revenue is the records' revenue.
+    const renewals = await scalar(`select count(*)::int as n from conversions where business_id = '${LEDGERLY_BUSINESS_ID}' and kind = 'payment' and not first_payment`);
+    expect(renewals).toBeGreaterThan(0);
+    // Northwind has no subscriptions: its "MRR" milestones are trailing 30-day revenue and say Estimate.
+    const mrr = await db.select().from(s.milestones).where(eq(s.milestones.businessId, NORTHWIND_BUSINESS_ID));
+    for (const m of mrr.filter((x) => String((x.ref as Record<string, unknown>)?.trophyKey ?? "").startsWith("mrr_"))) expect(m.ref).toMatchObject({ estimate: true });
+  }, 120_000);
+
   it("RLS: the demo owner sees both businesses and their journey_daily rows; a stranger sees none", async () => {
     const stranger = await h.createUser("stranger@test.local");
     const mine = await h.asUser(result.owner.userId).run((tx) => repos.businesses.listForUser(tx, result.owner.userId));
@@ -265,14 +362,47 @@ describe("seedDemo on PGlite", () => {
     const beforeProposals = await count(s.changeProposals, NORTHWIND_BUSINESS_ID);
     expect(beforeProposals).toBe(1);
     expect(await repos.founders.get(db, result.owner.userId)).not.toBeNull();
+
+    // Real founders use the public seed communities, and a real business keeps its own audit chain (#232).
+    const fintech = (await repos.social.getCommunityBySlug(db, LEDGERLY_COMMUNITY_SLUG))!;
+    const bootstrapped = (await repos.social.getCommunityBySlug(db, BOOTSTRAPPED_COMMUNITY_SLUG))!;
+    const real = await h.createUser("real-founder@test.local");
+    await repos.social.joinCommunity(db, real, bootstrapped.id);
+    await repos.social.joinCommunity(db, real, fintech.id);
+    const realPost = await repos.social.createPost(db, { communityId: bootstrapped.id, authorUserId: real, bodyMd: "We bootstrapped to our first 40 customers on founder-led sales." });
+    const demoPost = (await repos.social.listPosts(db, fintech.id)).items.find((p) => p.authorUserId === result.owner.userId && /first-touch to outbound/.test(p.bodyMd))!;
+    const realReply = await repos.social.createPost(db, { communityId: fintech.id, authorUserId: real, parentPostId: demoPost.id, bodyMd: "Same for us in the Nordics." });
+    const [realBusiness] = await db.insert(s.businesses).values({ name: "Real Co", slug: "real-co", createdBy: real, archetype: "b2b_saas" }).returning({ id: s.businesses.id });
+    await repos.audit.append(db, realBusiness!.id, { actorKind: "user", actorId: real, action: "business.create" });
+
     // ownerProfile: false (SEED_OWNER_PROFILE=0) leaves the demo owner without a profile, even one an earlier seed created.
     const again = await seedDemo(db, { ...SEED_OPTS, refreshDaily: false, ownerProfile: false });
+
+    // The communities, the real founder's memberships, post and reply survive; the demo founder's posts are the same
+    // rows again (re-attached to the rebuilt Ledgerly), not copies.
+    expect((await repos.social.getCommunityBySlug(db, LEDGERLY_COMMUNITY_SLUG))?.id).toBe(fintech.id);
+    expect((await repos.social.getCommunityBySlug(db, BOOTSTRAPPED_COMMUNITY_SLUG))).toMatchObject({ id: bootstrapped.id, memberCount: 1 });
+    expect((await repos.social.getCommunityBySlug(db, LEDGERLY_COMMUNITY_SLUG))?.memberCount).toBe(2);
+    expect(await repos.social.isMember(db, real, bootstrapped.id)).toBe(true);
+    expect(await repos.social.isMember(db, real, fintech.id)).toBe(true);
+    expect(await repos.social.isMember(db, again.owner.userId, fintech.id)).toBe(true);
+    const survivors = await db.select({ id: s.posts.id }).from(s.posts).where(eq(s.posts.authorUserId, real));
+    expect(survivors.map((p) => p.id).sort()).toEqual([realPost.id, realReply.id].sort());
+    const demoPosts = await db.select({ id: s.posts.id, businessId: s.posts.businessId }).from(s.posts).where(eq(s.posts.authorUserId, again.owner.userId));
+    expect(demoPosts).toHaveLength(3);
+    expect(demoPosts.map((p) => p.id)).toContain(demoPost.id);
+    expect(demoPosts.every((p) => p.businessId === LEDGERLY_BUSINESS_ID)).toBe(true);
+    expect((await repos.audit.list(db, realBusiness!.id)).items.map((e) => e.action)).toEqual(["business.create"]);
+    // The rebuild named each demo business to the audit trigger; it never disabled the trigger for everyone.
+    const trigger = await db.execute(sql`select tgenabled from pg_trigger where tgname = 'audit_log_immutable'`);
+    expect((trigger as unknown as { rows: { tgenabled: string }[] }).rows[0]?.tgenabled).toBe("O");
+    expect(await demoSeedState(db)).toEqual({ present: ["northwind-skincare", "ledgerly"], complete: true });
     expect(again.owner.userId).toBe(result.owner.userId);
     expect(await repos.founders.get(db, result.owner.userId)).toBeNull();
     expect(await count(s.changeProposals, NORTHWIND_BUSINESS_ID)).toBe(beforeProposals);
     expect(await count(s.proposalHunks, NORTHWIND_BUSINESS_ID)).toBe(3);
     const all = await db.select({ slug: s.businesses.slug, id: s.businesses.id }).from(s.businesses);
-    expect(all).toHaveLength(2);
+    expect(all.map((b) => b.slug).sort()).toEqual(["ledgerly", "northwind-skincare", "real-co"]);
     expect(all.find((b) => b.slug === "ledgerly")?.id).toBe(LEDGERLY_BUSINESS_ID);
     const after = await db.select({ id: s.conversions.id, amountMinor: s.conversions.amountMinor }).from(s.conversions).where(eq(s.conversions.businessId, NORTHWIND_BUSINESS_ID)).orderBy(s.conversions.id);
     expect(after).toEqual(before);
@@ -284,4 +414,37 @@ describe("seedDemo on PGlite", () => {
     const owners = await db.select({ id: s.memberships.id }).from(s.memberships).where(eq(s.memberships.userId, result.owner.userId));
     expect(owners).toHaveLength(2);
   }, 600_000);
+
+  // Last: it deletes Ledgerly. Every table, trigger and foreign key of a fully seeded business, not a hand-made fixture.
+  it("the scheduled business deletion purges a fully seeded business, its audit chain included, and leaves the other whole (audit MLSL-20)", async () => {
+    const tables = ((await db.execute(sql`select table_name from information_schema.columns where table_schema = 'public' and column_name = 'business_id' and table_name in (select table_name from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE') order by table_name`)) as unknown as { rows: { table_name: string }[] }).rows.map((r) => r.table_name);
+    const counts = async (businessId: string) => {
+      const out: Record<string, number> = {};
+      for (const t of tables) out[t] = Number(((await db.execute(sql.raw(`select count(*)::int as n from "${t}" where business_id = '${businessId}'`))) as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 0);
+      return out;
+    };
+    const ledgerly = await counts(LEDGERLY_BUSINESS_ID);
+    expect(ledgerly.audit_log).toBeGreaterThan(0);
+    expect(ledgerly.cap_table_entries).toBeGreaterThan(0);
+    const northwind = await counts(NORTHWIND_BUSINESS_ID);
+
+    expect(await repos.businesses.purge(db, LEDGERLY_BUSINESS_ID)).toBe(true);
+    const after = await counts(LEDGERLY_BUSINESS_ID);
+    expect(Object.entries(after).filter(([, n]) => n > 0)).toEqual([]);
+    expect(await counts(NORTHWIND_BUSINESS_ID)).toEqual(northwind);
+    // The real business an earlier test made is not Ledgerly's and stays too.
+    expect((await db.select({ slug: s.businesses.slug }).from(s.businesses)).map((b) => b.slug).sort()).toEqual(["northwind-skincare", "real-co"]);
+  });
+
+  it("never builds over a real business that took a demo slug while the demo was absent (#232)", async () => {
+    // The purge test above removed Ledgerly: build the pair again, then delete it, as a demo that was absent.
+    await seedDemo(db, { ...SEED_OPTS, days: 30, refreshDaily: false });
+    expect(await deleteDemoBusinesses(db)).toBe(2);
+    expect(await demoSeedState(db)).toEqual({ present: [], complete: false });
+    const squatter = await h.createUser("squatter@test.local");
+    const [taken] = await db.insert(s.businesses).values({ name: "Ledgerly Accounting", slug: "ledgerly", createdBy: squatter, archetype: "b2b_saas" }).returning({ id: s.businesses.id });
+    await expect(seedDemo(db, { ...SEED_OPTS, days: 30, refreshDaily: false })).rejects.toThrow(/"ledgerly" belongs to a real business/);
+    expect(await deleteDemoBusinesses(db)).toBe(0);
+    expect((await db.select({ id: s.businesses.id }).from(s.businesses).where(eq(s.businesses.slug, "ledgerly")))[0]?.id).toBe(taken!.id);
+  }, 120_000);
 });

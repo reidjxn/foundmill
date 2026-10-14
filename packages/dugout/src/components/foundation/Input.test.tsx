@@ -5,6 +5,10 @@ import userEvent from "@testing-library/user-event";
 import { Search, X } from "lucide-react";
 import { Input } from "./Input";
 import { IconButton } from "./IconButton";
+import { Field, fieldDescribedBy } from "./Label";
+import { MoneyInput } from "./MoneyInput";
+import { SimpleSelect } from "./Select";
+import { Textarea } from "./Textarea";
 
 describe("Input", () => {
   it("draws the field on the wrapper at the md height, with a borderless input inside", () => {
@@ -83,5 +87,59 @@ describe("Input", () => {
     await user.click(screen.getByRole("button", { name: "Clear" }));
     expect(screen.getByRole("textbox", { name: "Tags" })).toBe(before);
     expect((before as HTMLInputElement).value).toBe("");
+  });
+});
+
+describe("Field wires its control (A11Y-16)", () => {
+  it("links the error, marks the field required and invalid, without the caller passing anything", () => {
+    const { rerender } = render(
+      <Field htmlFor="commit-name" label="Business name" required hint="Shown on the logo">
+        <Input id="commit-name" />
+      </Field>,
+    );
+    const input = screen.getByRole("textbox", { name: /Business name/ });
+    expect(input.getAttribute("aria-describedby")).toBe("commit-name-hint");
+    expect(input.getAttribute("aria-required")).toBe("true");
+    expect(input.getAttribute("aria-invalid")).toBeNull();
+    rerender(
+      <Field htmlFor="commit-name" label="Business name" required error="Give the business a name.">
+        <Input id="commit-name" />
+      </Field>,
+    );
+    expect(input.getAttribute("aria-describedby")).toBe("commit-name-error");
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(document.getElementById("commit-name-error")?.textContent).toContain("Give the business a name.");
+  });
+
+  it("keeps the caller's own description first and never repeats an id", () => {
+    render(
+      <Field htmlFor="budget" label="Budget" error="Too high">
+        <Input id="budget" aria-describedby={`budget-note ${fieldDescribedBy("budget", { error: true })}`} />
+      </Field>,
+    );
+    expect(screen.getByRole("textbox", { name: "Budget" }).getAttribute("aria-describedby")).toBe("budget-note budget-error");
+  });
+
+  it("reaches MoneyInput, Textarea and a Select's trigger, and only the control it labels", () => {
+    render(
+      <>
+        <Field htmlFor="cap" label="Cap" required error="Enter an amount">
+          <MoneyInput id="cap" currency="USD" />
+        </Field>
+        <Field htmlFor="notes" label="Notes" hint="Optional">
+          <Textarea id="notes" />
+          <Input id="other" aria-label="Other" />
+        </Field>
+        <Field htmlFor="stage" label="Stage" required>
+          <SimpleSelect id="stage" options={[{ value: "a", label: "A" }]} />
+        </Field>
+      </>,
+    );
+    const cap = screen.getByRole("textbox", { name: "Cap" });
+    // The error first, then the currency segment MoneyInput names itself with.
+    expect([cap.getAttribute("aria-describedby")?.split(" ")[0], cap.getAttribute("aria-required"), cap.getAttribute("aria-invalid")]).toEqual(["cap-error", "true", "true"]);
+    expect(screen.getByRole("textbox", { name: "Notes" }).getAttribute("aria-describedby")).toBe("notes-hint");
+    expect(screen.getByRole("textbox", { name: "Other" }).getAttribute("aria-describedby")).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Stage" }).getAttribute("aria-required")).toBe("true");
   });
 });

@@ -125,7 +125,8 @@ export const Conversion = z.object({
   entityId: Id.nullable().default(null),
   kind: ConversionKind,
   amountMinor: MinorAmount.default(0),
-  currency: Currency.default("EUR"),
+  /** The conversion's own currency (a payment's; for a sign-up, the business's). No fixed default. */
+  currency: Currency,
   occurredAt: IsoDateTime,
   sourceEventId: Id.nullable().default(null),
   /** Set by the payment connector: the customer's first payment is what makes it a cup tie. */

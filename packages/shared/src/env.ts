@@ -14,7 +14,6 @@ const Env = z.object({
   /** Mock model client only: simulated writing time per streamed element, in ms (0 = instant, the default). */
   MOCK_MODEL_STREAM_MS: z.coerce.number().int().min(0).max(600_000).catch(0).default(0),
   APP_URL: z.string().default("http://localhost:3000"),
-  DATA_REGION: z.enum(["eu", "us"]).default("eu"),
   LOG_LEVEL: z.string().default("info"),
   PORT: z.coerce.number().optional(),
   API_PORT: z.coerce.number().default(4000),
@@ -26,10 +25,14 @@ const Env = z.object({
   SOCIAL_PORT: z.coerce.number().default(4006),
   GATEWAY_URL: z.string().default("http://localhost:4001"),
   COMPOSER_URL: z.string().default("http://localhost:4002"),
+  /** apps/api and apps/orchestrator: how long a composer call (refresh, narrate) may take; unset = LIMITS.composerClientTimeoutMs. Keep it above the composer's deadline. */
+  COMPOSER_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).optional().catch(undefined),
   INGEST_URL: z.string().default("http://localhost:4005"),
   SUPABASE_URL: z.string().optional(),
   SUPABASE_ANON_KEY: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  /** apps/api, apps/stream, apps/collab: verifies legacy HS256 Supabase tokens without JWKS (optional; JWKS is used otherwise). */
+  SUPABASE_JWT_SECRET: z.string().optional(),
   DATABASE_URL: z.string().optional(),
   /** apps/api: longest wait at boot for the migration lock (and for table locks a migration needs) before exiting 1 (docs/DEPLOY.md §3). */
   MIGRATION_LOCK_TIMEOUT_MS: z.coerce.number().int().min(100).max(600_000).catch(60_000).default(60_000),
@@ -48,6 +51,12 @@ const Env = z.object({
   SESSION_TOKEN_SECRET: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  /**
+   * apps/ingest: signing secret of the platform Stripe endpoint for Foundmill's own billing (`POST /billing/stripe`:
+   * credit top-ups paid through Checkout). Separate from STRIPE_WEBHOOK_SECRET (the businesses' own Stripe events) so
+   * a delivery signed for one can never pass as the other; unset refuses every billing delivery.
+   */
+  STRIPE_BILLING_WEBHOOK_SECRET: z.string().optional(),
   SENDGRID_API_KEY: z.string().optional(),
   SENDGRID_WEBHOOK_PUBLIC_KEY: z.string().optional(),
   GITHUB_APP_ID: z.string().optional(),
@@ -58,16 +67,81 @@ const Env = z.object({
   /** The App's OAuth client: connecting exchanges the code GitHub sends after installing to check who installed it. */
   GITHUB_APP_CLIENT_ID: z.string().optional(),
   GITHUB_APP_CLIENT_SECRET: z.string().optional(),
+  /*
+   * Platform keys of the other live connectors (packages/connectors `platformSecretsFromEnv`; docs/DEPLOY.md §5.6). Set
+   * them on the gateway (every agent tool call), on ingest when the connector's webhook goes live, and on the api for
+   * what it calls directly (registry lookups, OAuth consent links and code exchanges).
+   */
+  /** Stripe Connect platform client id (`ca_…`), for Connect onboarding links. */
+  STRIPE_CONNECT_CLIENT_ID: z.string().optional(),
+  /** apps/ingest: the token SendGrid Inbound Parse carries as `?token=` (Inbound Parse has no signature). */
+  SENDGRID_INBOUND_TOKEN: z.string().optional(),
+  /** Shopify public app (OAuth): its API key and secret key. */
+  SHOPIFY_CLIENT_ID: z.string().optional(),
+  SHOPIFY_CLIENT_SECRET: z.string().optional(),
+  /** Tink open banking: the app's client credentials from the Tink console. */
+  TINK_CLIENT_ID: z.string().optional(),
+  TINK_CLIENT_SECRET: z.string().optional(),
+  /** Plaid: client id and secret from the Plaid dashboard, and which Plaid environment they belong to. */
+  PLAID_CLIENT_ID: z.string().optional(),
+  PLAID_SECRET: z.string().optional(),
+  PLAID_ENV: z.enum(["sandbox", "production"]).optional(),
+  /** UK Companies House public data API key (platform key; every business's lookups use it). */
+  COMPANIES_HOUSE_API_KEY: z.string().optional(),
+  /** Bolagsverket (Swedish companies registry) client credentials from portal.api.bolagsverket.se. */
+  BOLAGSVERKET_CLIENT_ID: z.string().optional(),
+  BOLAGSVERKET_CLIENT_SECRET: z.string().optional(),
+  /** OpenCorporates API token (platform key). */
+  OPENCORPORATES_API_TOKEN: z.string().optional(),
+  /** Cloudflare API token (Zone:Read, DNS:Edit); a business's own token takes precedence. */
+  CLOUDFLARE_API_TOKEN: z.string().optional(),
+  /** Google OAuth client (Gmail, Calendar, Drive): consent links, code exchange and token refresh. */
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  /** Notion public integration (OAuth) client. */
+  NOTION_CLIENT_ID: z.string().optional(),
+  NOTION_CLIENT_SECRET: z.string().optional(),
+  /** Dropbox Sign API key; a business's own key takes precedence. */
+  DROPBOX_SIGN_API_KEY: z.string().optional(),
+  /**
+   * Every Node service: OTLP/HTTP base URL traces (and the orchestrator's Temporal metrics) are sent to, e.g. Grafana
+   * Cloud's `https://otlp-gateway-<zone>.grafana.net/otlp` (packages/shared telemetry.ts). Unset: no traces.
+   */
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
+  /** Headers for that endpoint, `key=value,…` (percent-encoded values), e.g. `Authorization=Basic%20<base64>`. */
+  OTEL_EXPORTER_OTLP_HEADERS: z.string().optional(),
+  /** Every Node service: Sentry project DSN that error-level log lines and uncaught exceptions are reported to. Unset: none. */
   SENTRY_DSN: z.string().optional(),
   SEED_OWNER_EMAILS: z.string().optional(),
+  /**
+   * apps/api: who may use the app, comma-separated emails and `@domain`s (`founder@example.com, @example.org`). When set,
+   * every signed-in request from any other account is refused (FORBIDDEN, `not_invited`); unset admits every account
+   * that can sign in. Staging sets it while sign-up is open (docs/DEPLOY.md §4).
+   */
+  SIGNUP_ALLOWLIST: z.string().optional(),
+  /**
+   * apps/api: whether a credit top-up may be paid by simulation (the Billing tab's mock checkout, no money moves) when
+   * Stripe is not live. "1"/"true" or "0"/"false"; unset allows it only when APP_ENV is development or test
+   * (`allowMockPayments`). Simulated credits never pay for live model calls whatever this says (docs/DEPLOY.md §4).
+   */
+  ALLOW_MOCK_PAYMENTS: z
+    .string()
+    .optional()
+    .transform((v) => {
+      const s = v?.trim().toLowerCase();
+      return s === undefined || s === "" ? undefined : s === "1" || s === "true";
+    }),
   /** apps/api: build the demo businesses once at boot and give SEED_OWNER_EMAILS owner memberships (docs/DEPLOY.md §3). */
   SEED_ON_BOOT: z.string().optional(),
+  /** Opens the LIVE surfaces (network, communities, leaderboards, Go live) on this deployment; closed unless 1/true/yes/on (`liveModeOpen`). */
+  LIVE_MODE: z.string().optional(),
   /** Seed data volume multiplier (1 = the full two years of history). */
   SEED_VOLUME_SCALE: z.coerce.number().positive().optional(),
   DEV_AUTH_USER_ID: z.string().optional(),
 });
 export type Env = z.infer<typeof Env>;
+/** Every variable the shared schema reads (scripts/env-example.test.mjs keeps .env.example equal to it). */
+export const ENV_KEYS = Object.keys(Env.shape) as (keyof Env)[];
 
 let cached: Env | undefined;
 export function loadEnv(overrides: Partial<NodeJS.ProcessEnv> = {}): Env {
@@ -91,5 +165,15 @@ export const isMockIntegrations = (env = loadEnv()) => env.INTEGRATIONS_MODE ===
 export const liveConnectorKeys = (env: Pick<Env, "LIVE_CONNECTORS">): string[] => env.LIVE_CONNECTORS.split(",").map((k) => k.trim()).filter(Boolean);
 /** The mode one connector runs in: live everywhere in live mode, or when LIVE_CONNECTORS names it. */
 export const connectorMode = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS">, connectorKey: string): "mock" | "live" => (env.INTEGRATIONS_MODE === "live" || liveConnectorKeys(env).includes(connectorKey) ? "live" : "mock");
+/**
+ * The LIVE_CONNECTORS entry for the platform's own billing (credit top-ups through Stripe Checkout on the platform
+ * account, docs/DEPLOY.md §5). Separate from `stripe`, the businesses' own Stripe connector, so taking real payments
+ * never switches every business's Stripe tools to live (and the reverse). The api and the gateway read it alike.
+ */
+export const PLATFORM_BILLING_LIVE_KEY = "stripe_billing";
+/** How credit top-ups are paid here: through Stripe (live) or simulated (mock). */
+export const platformBillingMode = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS">): "mock" | "live" => connectorMode(env, PLATFORM_BILLING_LIVE_KEY);
 export const isMockModels = (env = loadEnv()) => env.MODEL_MODE === "mock";
+/** ALLOW_MOCK_PAYMENTS, or by default only in development and test: may a top-up be paid by simulation here? */
+export const allowMockPayments = (env: Pick<Env, "APP_ENV" | "ALLOW_MOCK_PAYMENTS">): boolean => env.ALLOW_MOCK_PAYMENTS ?? (env.APP_ENV === "development" || env.APP_ENV === "test");
 export const servicePort = (env: Env, named: "API_PORT" | "GATEWAY_PORT" | "COMPOSER_PORT" | "STREAM_PORT" | "COLLAB_PORT" | "INGEST_PORT" | "SOCIAL_PORT"): number => env.PORT ?? env[named];

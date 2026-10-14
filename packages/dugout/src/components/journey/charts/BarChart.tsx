@@ -90,7 +90,8 @@ function BarChartSvg({ data, label, width, height, horizontal, tone, format: raw
   const valuesFit = horizontal || data.every((d) => tickWidth(format(d.value)) + 4 <= step);
   return (
     <>
-      <svg width={width} height={height} role="img" aria-label={`${label}. ${summary}`} className="block overflow-visible">
+      {/* Selectable bars are buttons, so the chart is a named group then; a plain chart is one image. */}
+      <svg width={width} height={height} role={onSelect ? "group" : "img"} aria-label={`${label}. ${summary}`} className="block overflow-visible">
         <defs>
           <linearGradient id={sheenId} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0" stopColor="var(--white)" stopOpacity={0.18} />

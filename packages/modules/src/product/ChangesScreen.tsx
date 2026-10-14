@@ -9,9 +9,11 @@ import { CheckCheck, FileDiff, FolderOpen, X } from "lucide-react";
 import { Chip, DataTable, EntityLink, Panel, StatusPill, useEntityLinkContext, type DataTableColumn, type SavedView } from "@foundmill/dugout";
 import { PROPOSAL_STATUSES, SEVERITIES } from "@foundmill/shared";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
 import { ProposalDetail } from "./changes/ProposalDetail";
 import { PROPOSAL_STATUS_PILL, SEVERITY_CHIP, decisionProgress, impactLines } from "./changes/hunks";
+import { isWebUri } from "./sources/kinds";
 import { InlineError, Screen, useAction, useAgentNames } from "./shared";
 import type { ProposalRow, ProposalWithHunks, ProposalsListResponse, RoadmapResponse, SourceRow, SourcesListResponse, SpecGetResponse, SpecVersionRow } from "./types";
 import { DateText } from "../dates";
@@ -88,7 +90,8 @@ export function ChangesScreen({ businessId }: ModuleScreenProps) {
   const departments = useDepartments();
   const action = useAction();
   const [selectedId, setSelectedId] = useState<string | null>(() => proposalFromLocation());
-  const [views, setViews] = useState<SavedView[]>(PROPOSAL_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("product.changes", PROPOSAL_VIEWS, { defaultViewId: "open" });
   const detail = useWidgetQuery<ProposalWithHunks>("product.proposals.get", selectedId ? { proposalId: selectedId } : undefined, { enabled: selectedId !== null });
 
   const refetchAll = useCallback(() => {
@@ -106,12 +109,12 @@ export function ChangesScreen({ businessId }: ModuleScreenProps) {
     setSelectedId(rows.find((r) => r.status === "open")?.id ?? rows[0]?.id ?? null);
   }, [list.data, rows, selectedId]);
 
-  const columns = useMemo(() => proposalColumns(currency ?? "EUR"), [currency]);
+  const columns = useMemo(() => proposalColumns(currency), [currency]);
   const href = (moduleKey: "product", tab: string, query?: string) => `${moduleHref(businessId, departments.data, moduleKey, tab) ?? routes.department(businessId, moduleKey, tab)}${query ?? ""}`;
   const openBlock = (blockId: string) => navigate(href("product", "specification", `?block=${blockId}`));
   const openRoadmapItem = (itemId: string) => navigate(href("product", "roadmap", `?item=${itemId}`));
   const openSource = (s: SourceRow) => {
-    if (s.uri && typeof window !== "undefined") window.open(s.uri, "_blank", "noopener,noreferrer");
+    if (isWebUri(s.uri) && typeof window !== "undefined") window.open(s.uri.trim(), "_blank", "noopener,noreferrer");
     else navigate(href("product", "sources", `?source=${s.id}`));
   };
   const openCount = rows.filter((r) => r.status === "open").length;
@@ -138,8 +141,7 @@ export function ChangesScreen({ businessId }: ModuleScreenProps) {
           aria-label="Change proposals"
           data={rows}
           columns={columns}
-          views={views}
-          onViewsChange={setViews}
+          {...savedViews}
           defaultViewId="open"
           height={520}
           defaultDensity="comfortable"
@@ -171,7 +173,7 @@ export function ChangesScreen({ businessId }: ModuleScreenProps) {
             roadmapItems={roadmap.data?.items ?? []}
             sources={sources.data?.items ?? []}
             latestVersion={versions.data?.[0] ?? spec.data?.latestVersion ?? null}
-            currency={currency ?? "EUR"}
+            currency={currency}
             onChanged={refetchAll}
             onOpenBlock={openBlock}
             onOpenRoadmapItem={openRoadmapItem}

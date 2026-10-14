@@ -31,6 +31,19 @@ describe("membership enforcement (businessProcedure)", () => {
     expect(page.items.every((i) => i.businessId === hz.A.businessId)).toBe(true);
   });
 
+  it("a non-member's refusal carries appCode not_a_member (a tab open on the business drops it); a role refusal does not (audit RUI-13)", async () => {
+    const appCode = async (p: Promise<unknown>) => {
+      try {
+        await p;
+        return "OK";
+      } catch (err) {
+        return err instanceof TRPCError ? ((err.cause as { code?: string } | undefined)?.code ?? null) : `other:${String(err)}`;
+      }
+    };
+    expect(await appCode(hz.caller({ userId: hz.B.ownerId }).inbox.list({ businessId: hz.A.businessId }))).toBe("not_a_member");
+    expect(await appCode(hz.caller({ userId: hz.A.viewerId }).business.stopAllAgents({ businessId: hz.A.businessId }))).not.toBe("not_a_member");
+  });
+
   it("B's owner cannot reach A's items by id, agents, departments or audit log", async () => {
     const b = hz.caller({ userId: hz.B.ownerId });
     expect(await code(b.inbox.get({ businessId: hz.A.businessId, itemId: hz.A.inboxItemId }))).toBe("FORBIDDEN");

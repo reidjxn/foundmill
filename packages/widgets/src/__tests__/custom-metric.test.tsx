@@ -5,8 +5,8 @@ import { WidgetDataProvider } from "../data";
 import { getWidget, parseWidgetSettings } from "../registry";
 import { createFakeSource } from "../testing";
 import "../widgets";
-import { CustomMetricSettingsEditor, formatMetric, metricQueryInput, type CustomMetricSettings } from "../widgets/custom-metric";
-import { BID, customMetric } from "./fixtures";
+import { CustomMetricSettingsEditor, catalogOptions, formatMetric, metricQueryInput, type CustomMetricSettings } from "../widgets/custom-metric";
+import { BID, customMetric, metricCatalog } from "./fixtures";
 
 /** A figure (dugout `Figure`) splits its currency, digits and decimals into spans; match the whole figure's text. */
 function byFigure(text: string) {
@@ -67,32 +67,51 @@ describe("custom metric settings editor", () => {
   });
 
   it("previews a named query through the read procedure", () => {
-    const fake = createFakeSource({ businessId: BID, responses: { "dashboard.customMetric.get": customMetric } });
+    const fake = createFakeSource({ businessId: BID, responses: { "dashboard.customMetric.get": customMetric, "dashboard.customMetric.list": metricCatalog } });
     const onChange = vi.fn();
     render(
       <WidgetDataProvider source={fake.source}>
-        <CustomMetricSettingsEditor businessId={BID} value={{ ...base, mode: "query", queryId: "mrr" }} onChange={onChange} />
+        <CustomMetricSettingsEditor businessId={BID} value={{ ...base, mode: "query", queryId: "revenue_30d" }} onChange={onChange} />
       </WidgetDataProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: "Preview" }));
-    expect(fake.queried.get("dashboard.customMetric.get")).toEqual({ queryId: "mrr" });
+    expect(fake.queried.get("dashboard.customMetric.get")).toEqual({ queryId: "revenue_30d" });
     expect(byFigure("€1,250.00")).toBeTruthy();
+  });
+
+  it("offers the server's catalog instead of a free-text id, and suggests no id the server rejects", () => {
+    const fake = createFakeSource({ businessId: BID, responses: { "dashboard.customMetric.list": metricCatalog } });
+    const { container } = render(
+      <WidgetDataProvider source={fake.source}>
+        <CustomMetricSettingsEditor businessId={BID} value={{ ...base, mode: "query", queryId: "customers_30d" }} onChange={vi.fn()} />
+      </WidgetDataProvider>,
+    );
+    expect(fake.queried.has("dashboard.customMetric.list")).toBe(true);
+    // A Select with the catalog entry's name, not a text box for an id.
+    expect(screen.getByRole("combobox").textContent).toContain("Customers won, last 30 days");
+    expect(container.querySelector("input[placeholder='mrr']")).toBeNull();
+    expect(container.textContent).not.toMatch(/\bmrr\b|active_customers|trial_conversion/);
+  });
+
+  it("keeps a saved id the catalog no longer lists visible, marked, and never offers it", () => {
+    expect(catalogOptions(metricCatalog, "mrr").at(-1)).toEqual({ value: "mrr", label: "MRR (not in the catalog)", disabled: true });
+    expect(catalogOptions(metricCatalog, "cash").map((o) => o.value)).toEqual(metricCatalog.map((m) => m.id));
   });
 });
 
 describe("custom metric widget", () => {
   it("sends the named query id or the compiled SQL, never the sentence", () => {
-    expect(metricQueryInput({ ...base, mode: "query", queryId: "mrr" })).toEqual({ queryId: "mrr" });
+    expect(metricQueryInput({ ...base, mode: "query", queryId: "revenue_30d" })).toEqual({ queryId: "revenue_30d" });
     expect(metricQueryInput({ ...base, mode: "query" })).toBeNull();
     expect(metricQueryInput({ ...base, mode: "sentence", sentence: "x" })).toBeNull();
     expect(metricQueryInput({ ...base, mode: "sentence", sentence: "x", compiled: { queryId: null, sql: "select 1", label: "One", format: "integer" } })).toEqual({ sql: "select 1", queryId: undefined });
   });
   it("formats by the declared format", () => {
-    expect(formatMetric(1234567, "compact")).toBe("1.2M");
-    expect(formatMetric(0.1234, "percent")).toBe("12.3%");
-    expect(formatMetric(12.5, "integer")).toBe("13");
+    expect(formatMetric(1234567, "compact", "USD")).toBe("1.2M");
+    expect(formatMetric(0.1234, "percent", "USD")).toBe("12.3%");
+    expect(formatMetric(12.5, "integer", "USD")).toBe("13");
     expect(formatMetric(4900, "money", "EUR")).toEqual({ amountMinor: 4900, currency: "EUR" });
-    expect(formatMetric(null, "money")).toBe("—");
+    expect(formatMetric(null, "money", "USD")).toBe("—");
   });
   it("renders the compiled metric read-only with its estimate chip", () => {
     const fake = createFakeSource({ businessId: BID, responses: { "dashboard.customMetric.get": { ...customMetric, estimate: "estimate" } } });

@@ -22,14 +22,15 @@ import {
   type JourneyRibbonHandle,
   type RibbonEvent,
   type RoadmapFlag,
+  type RoundupRow,
   type ZoomLevel,
 } from "@foundmill/dugout";
-import { useBusinessEvents, useWidgetData, useWidgetQuery, type WidgetEvent } from "../data";
+import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery, type WidgetEvent } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { toRibbonDepartments, useDepartments } from "../shared/departments";
 import { WidgetFrame } from "../shared/frame";
 import { routes } from "../shared/routes";
-import { addDays, dayKey } from "../shared/time";
+import { addDays } from "../shared/time";
 import type { FinanceOverview, ForecastRecord, ForecastSeriesPoint, RibbonResponse, RoadmapListResponse, RoundupResponse } from "../shared/types";
 
 export const JourneyRibbonSettings = z.object({
@@ -114,12 +115,16 @@ export function forecastCone(forecasts: FinanceOverview["forecasts"] | undefined
 /**
  * Where a payment marker navigates. The Ribbon only knows conversion ids; when the API's conversion row carries its
  * `journeyId` the Customer Update opens in one request, otherwise the route takes the conversion id and apps/web
- * resolves it (components/journey/JourneyScreen.tsx).
+ * resolves it (components/journey/JourneyScreen.tsx). `from` (the page the Ribbon sits on) is where the replay's back
+ * button returns.
  */
-export function journeyHref(businessId: string, conversions: readonly RibbonResponse["conversions"][number][] | undefined, conversionId: string): string {
+export function journeyHref(businessId: string, conversions: readonly RibbonResponse["conversions"][number][] | undefined, conversionId: string, from?: string): string {
   const row = conversions?.find((c) => c.id === conversionId && c.journeyId) ?? conversions?.find((c) => c.id === conversionId);
-  return routes.journey(businessId, row?.journeyId ?? conversionId);
+  return routes.journey(businessId, row?.journeyId ?? conversionId, from);
 }
+
+/** The app path of the page a widget is on (the replay's way back), or nothing outside a business page. */
+const herePath = (): string | undefined => (typeof window !== "undefined" && window.location.pathname.startsWith("/b/") ? window.location.pathname : undefined);
 
 export function roadmapFlags(items: RoadmapListResponse["items"] | undefined, today: string): RoadmapFlag[] {
   return (items ?? [])
@@ -130,8 +135,8 @@ export function roadmapFlags(items: RoadmapListResponse["items"] | undefined, to
 }
 
 function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRibbonSettings>) {
-  const { businessId, navigate, currency = "EUR" } = useWidgetData();
-  const today = dayKey();
+  const { businessId, navigate, currency } = useWidgetData();
+  const today = useToday();
   const ribbon = useWidgetQuery<RibbonResponse>("journey.ribbon", { from: addDays(today, -RIBBON_HISTORY_DAYS), to: today });
   const departments = useDepartments();
   const roadmap = useWidgetQuery<RoadmapListResponse>("product.roadmap.list", {}, { enabled: settings.showRoadmap });
@@ -178,6 +183,16 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
     [updateSettings],
   );
 
+  // The day's wins that were rolled into the results table, as its rows.
+  const digestRoundupRows = useMemo<RoundupRow[]>(() => {
+    const r = digestRoundup.data;
+    if (!digestDay || !r || r.day !== digestDay || !r.rolledUp?.length) return [];
+    const rolled = new Set(r.rolledUp);
+    return r.conversions
+      .filter((c) => rolled.has(c.id))
+      .map((c) => ({ conversionId: c.id, kind: c.kind, level: "friendly" as const, customerName: c.entityName ?? null, entityId: c.entityId, channelKey: null, amountMinor: c.amountMinor, currency: c.currency, occurredAt: c.occurredAt, replayAvailable: !!c.journeyId }));
+  }, [digestDay, digestRoundup.data]);
+
   const digest = useMemo(() => {
     if (!digestDay || !data) return null;
     const index = indexDailyRows(data.rows, depts, { kickoff: data.kickoff, last: data.today });
@@ -217,7 +232,7 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
           horizonMonths={settings.horizonMonths}
           zoom={zoom}
           onZoomChange={onZoomChange}
-          onOpenJourney={(conversionId) => navigate(journeyHref(businessId, knownConversions, conversionId))}
+          onOpenJourney={(conversionId) => navigate(journeyHref(businessId, knownConversions, conversionId, herePath()))}
           onOpenDay={(day) => setDigestDay(day)}
           onHoverDay={setHoverDay}
           dayConversions={dayConversions}
@@ -232,8 +247,9 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
           {digest ? (
             <DayDigest
               summary={digest}
+              roundup={digestRoundupRows}
               currency={currency}
-              onOpenJourney={(conversionId) => navigate(journeyHref(businessId, knownConversions, conversionId))}
+              onOpenJourney={(conversionId) => navigate(journeyHref(businessId, knownConversions, conversionId, herePath()))}
               onOpenEntity={(id) => navigate(routes.crm(businessId, id))}
               onPrevDay={() => setDigestDay(addDays(digest.day, -1))}
               onNextDay={digest.isToday ? undefined : () => setDigestDay(addDays(digest.day, 1))}

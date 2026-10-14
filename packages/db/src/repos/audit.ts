@@ -10,7 +10,7 @@
  * rolls the append back. `verify` runs the database's full-chain check and returns the first broken seq.
  */
 import { ACTOR_KINDS, ValidationError } from "@foundmill/shared";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { auditLog, type AuditEntry } from "../schema";
 import { DateRange, Id, JsonObject, one, PageInput, parseInput, rowsOf, seqKeyset, timeRange, toPage, type Executor, type Page } from "./_shared";
@@ -108,6 +108,20 @@ export const auditRepo = {
       .orderBy(...ks.orderBy)
       .limit(f.limit + 1);
     return toPage(rows, f, ks);
+  },
+
+  /**
+   * The newest entry for `action` whose details hold every key of `match` (jsonb containment) written at or after
+   * `since`, or null. Used to recognise a repeated request (one planner run per goal: dev.tasks.plan).
+   */
+  async latestMatching(db: Executor, businessId: string, action: string, match: Record<string, string>, since: Date): Promise<AuditEntry | null> {
+    const rows = await db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.businessId, businessId), eq(auditLog.action, action), sql`${auditLog.details} @> ${JSON.stringify(match)}::jsonb`, gte(auditLog.createdAt, since)))
+      .orderBy(desc(auditLog.seq))
+      .limit(1);
+    return rows[0] ?? null;
   },
 
   /** The latest entry (chain head), or null. */

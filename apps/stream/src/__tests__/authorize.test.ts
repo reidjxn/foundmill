@@ -3,10 +3,10 @@
  */
 import { createBusinessFixture, type BusinessFixture } from "@foundmill/db/__tests__/rls/fixtures";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
-import type { Db } from "@foundmill/db";
+import { businesses, memberships as membershipsTable, repos, type Db } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createCachedAuthorizer, createMemoryAuthorizer, createRepoAuthorizer, type Authorizer } from "../authorize";
-import { businessChannel, sessionChannel } from "../protocol";
+import { businessChannel, sessionChannel, userChannel } from "../protocol";
 import { BUSINESS_A, memberships, SESSION_A, SESSION_B, USER_A, USER_B } from "./helpers";
 
 let h: TestHarness;
@@ -27,9 +27,39 @@ afterAll(async () => {
 });
 
 describe("repo authorizer (PGlite)", () => {
-  it("allows every member role of a business to read ev:<businessId>", async () => {
-    for (const userId of [A.ownerId, A.adminId, A.memberId, A.viewerId]) {
-      expect(await authorizer.canSubscribe(userId, businessChannel(A.businessId))).toEqual({ ok: true });
+  it("allows every member role of a business to read ev:<businessId>, with the membership the server filters through", async () => {
+    for (const [userId, role] of [[A.ownerId, "owner"], [A.adminId, "admin"], [A.memberId, "member"], [A.viewerId, "viewer"]] as const) {
+      expect(await authorizer.canSubscribe(userId, businessChannel(A.businessId))).toEqual({ ok: true, businessId: A.businessId, membership: { role, sectionPermissions: {} } });
+    }
+  });
+
+  it("carries section walls, and refuses an archived business (as apps/api does)", async () => {
+    await repos.memberships.setSectionPermissions(db, A.businessId, A.memberId, { finance: "none" });
+    try {
+      expect(await authorizer.canSubscribe(A.memberId, businessChannel(A.businessId))).toMatchObject({ ok: true, membership: { role: "member", sectionPermissions: { finance: "none" } } });
+    } finally {
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.memberId, {});
+    }
+    const founder = await h.createUser("stream-archived@stream.test");
+    const [biz] = await h.db.insert(businesses).values({ name: "Shelved", slug: "stream-shelved", createdBy: founder }).returning({ id: businesses.id });
+    await h.db.insert(membershipsTable).values({ businessId: biz!.id, userId: founder, role: "owner" });
+    expect(await authorizer.canSubscribe(founder, businessChannel(biz!.id))).toMatchObject({ ok: true });
+    await repos.businesses.archive(db, biz!.id);
+    expect(await authorizer.canSubscribe(founder, businessChannel(biz!.id))).toMatchObject({ ok: false, code: "forbidden" });
+  });
+
+  it("refuses as:<sessionId> to a member walled from Development or from the module the session's work is filed under", async () => {
+    // The fixture session works a task of the Product department (module "product").
+    try {
+      const walled: Record<string, "none">[] = [{ product: "none" }, { development: "none" }];
+      for (const walls of walled) {
+        await repos.memberships.setSectionPermissions(db, A.businessId, A.memberId, walls);
+        expect(await authorizer.canSubscribe(A.memberId, sessionChannel(A.sessionId))).toMatchObject({ ok: false, code: "forbidden", message: expect.stringMatching(/product|development/) });
+      }
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.memberId, { finance: "none", crm: "none" });
+      expect(await authorizer.canSubscribe(A.memberId, sessionChannel(A.sessionId))).toMatchObject({ ok: true, businessId: A.businessId });
+    } finally {
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.memberId, {});
     }
   });
 
@@ -42,11 +72,23 @@ describe("repo authorizer (PGlite)", () => {
   });
 
   it("allows as:<sessionId> only to members of the session's business", async () => {
-    expect(await authorizer.canSubscribe(A.ownerId, sessionChannel(A.sessionId))).toEqual({ ok: true });
-    expect(await authorizer.canSubscribe(A.viewerId, sessionChannel(A.sessionId))).toEqual({ ok: true });
+    expect(await authorizer.canSubscribe(A.ownerId, sessionChannel(A.sessionId))).toMatchObject({ ok: true, businessId: A.businessId });
+    expect(await authorizer.canSubscribe(A.viewerId, sessionChannel(A.sessionId))).toMatchObject({ ok: true, businessId: A.businessId });
     expect(await authorizer.canSubscribe(B.ownerId, sessionChannel(A.sessionId))).toMatchObject({ ok: false, code: "forbidden" });
     expect(await authorizer.canSubscribe(A.ownerId, sessionChannel(B.sessionId))).toMatchObject({ ok: false, code: "forbidden" });
     expect(await authorizer.canSubscribe(A.ownerId, sessionChannel("00000000-0000-4000-8000-000000000000"))).toMatchObject({ ok: false, code: "forbidden" });
+  });
+
+  it("opens u:<userId> to that person only, whatever businesses they or the others belong to (audit #65)", async () => {
+    const stranger = await h.createUser("no-business@stream.test");
+    expect(await authorizer.canSubscribe(A.ownerId, userChannel(A.ownerId))).toEqual({ ok: true });
+    // A person with no business at all still gets their own LIVE signals.
+    expect(await authorizer.canSubscribe(stranger, userChannel(stranger))).toEqual({ ok: true });
+    expect(await authorizer.canSubscribe(stranger, userChannel(stranger.toUpperCase()))).toEqual({ ok: true });
+    // Nobody reads another person's, not even a co-member of the same business.
+    expect(await authorizer.canSubscribe(A.adminId, userChannel(A.ownerId))).toMatchObject({ ok: false, code: "forbidden" });
+    expect(await authorizer.canSubscribe(B.ownerId, userChannel(A.ownerId))).toMatchObject({ ok: false, code: "forbidden" });
+    expect(await authorizer.canSubscribe(A.ownerId, "u:*")).toMatchObject({ ok: false, code: "invalid_channel" });
   });
 
   it("rejects channels that are not ev:/as: with a uuid", async () => {
@@ -100,6 +142,35 @@ describe("cached authorizer", () => {
     expect(cached.size).toBe(0);
   });
 
+  it("invalidate(user) drops that person's decisions at once, even one still being checked", async () => {
+    let answer: "ok" | "deny" = "ok";
+    let release = null as (() => void) | null;
+    const inner: Authorizer = {
+      async canSubscribe() {
+        // The answer is read when the check starts (the database row as it was), returned when it ends.
+        const read = answer;
+        if (release === null) await new Promise<void>((r) => (release = r));
+        return read === "ok" ? { ok: true } : { ok: false, code: "forbidden", message: "removed" };
+      },
+    };
+    const cached = createCachedAuthorizer(inner, { allowTtlMs: 60_000, denyTtlMs: 60_000 });
+    const ch = businessChannel(BUSINESS_A);
+    // A check starts before the change and finishes after it: its (stale) allowance is not cached.
+    const stale = cached.canSubscribe(USER_A, ch);
+    await new Promise((r) => setTimeout(r, 5));
+    cached.invalidate(USER_A);
+    answer = "deny";
+    release!();
+    expect(await stale).toEqual({ ok: true });
+    expect(await cached.canSubscribe(USER_A, ch)).toMatchObject({ ok: false, code: "forbidden" });
+    // Another person's decisions stay cached.
+    answer = "ok";
+    expect(await cached.canSubscribe(USER_B, ch)).toEqual({ ok: true });
+    answer = "deny";
+    cached.invalidate(USER_A);
+    expect(await cached.canSubscribe(USER_B, ch)).toEqual({ ok: true });
+  });
+
   it("de-duplicates concurrent checks for the same (user, channel)", async () => {
     let calls = 0;
     const inner: Authorizer = {
@@ -118,10 +189,12 @@ describe("cached authorizer", () => {
 describe("memory authorizer", () => {
   it("mirrors the repo rules for tests", async () => {
     const m = createMemoryAuthorizer(memberships);
-    expect(await m.canSubscribe(USER_A, businessChannel(BUSINESS_A))).toEqual({ ok: true });
+    expect(await m.canSubscribe(USER_A, businessChannel(BUSINESS_A))).toEqual({ ok: true, businessId: BUSINESS_A, membership: { role: "owner", sectionPermissions: {} } });
     expect(await m.canSubscribe(USER_B, businessChannel(BUSINESS_A))).toMatchObject({ ok: false, code: "forbidden" });
-    expect(await m.canSubscribe(USER_A, sessionChannel(SESSION_A))).toEqual({ ok: true });
+    expect(await m.canSubscribe(USER_A, sessionChannel(SESSION_A))).toMatchObject({ ok: true, businessId: BUSINESS_A });
     expect(await m.canSubscribe(USER_A, sessionChannel(SESSION_B))).toMatchObject({ ok: false, code: "forbidden" });
+    expect(await m.canSubscribe(USER_A, userChannel(USER_A))).toEqual({ ok: true });
+    expect(await m.canSubscribe(USER_B, userChannel(USER_A))).toMatchObject({ ok: false, code: "forbidden" });
     expect(await m.canSubscribe(USER_A, "nope")).toMatchObject({ ok: false, code: "invalid_channel" });
   });
 });

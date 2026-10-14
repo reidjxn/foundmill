@@ -56,6 +56,8 @@ export function deskMessagesOf(view: Pick<ConversationView, "messages">, alias: 
     chosenQuickReplyId: m.chosenQuickReplyId,
     handOff: m.handOff,
     planId: m.planId,
+    // A staged plan stays reviewable until it is confirmed (audit OL-01); the server says where it stands.
+    planConfirmed: Boolean(m.planId && m.planStatus && m.planStatus !== "pending_confirmation"),
     state: m.state,
   }));
 }
@@ -67,9 +69,9 @@ export function withSent<V extends Pick<ConversationView, "thread" | "messages" 
   return { ...view, thread: sent.thread ?? view.thread, messages: [...view.messages, ...added], quickReplies: sent.quickReplies };
 }
 
-/** A message's plan once its hand-off is staged (the strip then reads "Plan staged"). */
-export function withPlanId<V extends Pick<ConversationView, "messages">>(view: V, messageId: string, planId: string): V {
-  return { ...view, messages: view.messages.map((m) => (m.id === messageId ? { ...m, planId } : m)) };
+/** A message's plan once its hand-off is staged (the strip then reads "Plan staged"), or its status once it is confirmed. */
+export function withPlanId<V extends Pick<ConversationView, "messages">>(view: V, messageId: string, planId: string, planStatus: ConversationView["messages"][number]["planStatus"] = "pending_confirmation"): V {
+  return { ...view, messages: view.messages.map((m) => (m.id === messageId ? { ...m, planId, planStatus } : m)) };
 }
 
 function hash(s: string): number {
@@ -104,11 +106,12 @@ export const RETRY_REPLY_ID = "local-retry";
 /** Local failure replies carry this id prefix (never stored; dropped when the founder sends something else). */
 export const FAILURE_PREFIX = "failure:";
 
-export type DeskFailureKind = "offline" | "limited" | "failed" | "stale" | "refused";
+export type DeskFailureKind = "offline" | "limited" | "failed" | "stale" | "refused" | "credits";
 
 /**
  * Why a send failed, from the tRPC error: no response at all (the api is down or the connection dropped), a limit, the
- * model or the server failing (worth a retry), a chip or decision that is no longer open, or no permission.
+ * model or the server failing (worth a retry), a chip or decision that is no longer open, no permission, or the
+ * business's credits for the month used up (PAYMENT_REQUIRED, `credits_exhausted`: a retry is refused the same way).
  */
 export function deskFailureOf(err: unknown): { kind: DeskFailureKind; message: string } {
   const e = err as { data?: { code?: string; httpStatus?: number } | null; message?: string; name?: string } | null | undefined;
@@ -116,6 +119,7 @@ export function deskFailureOf(err: unknown): { kind: DeskFailureKind; message: s
   const code = e?.data?.code;
   if (!code) return { kind: /fetch|network|load failed|connect|socket|ECONN|offline/i.test(message) || e?.name === "TypeError" || !message ? "offline" : "failed", message };
   if (code === "TOO_MANY_REQUESTS") return { kind: "limited", message };
+  if (code === "PAYMENT_REQUIRED") return { kind: "credits", message };
   if (code === "BAD_REQUEST" || code === "CONFLICT" || code === "PRECONDITION_FAILED" || code === "PARSE_ERROR") return { kind: "stale", message };
   if (code === "FORBIDDEN" || code === "UNAUTHORIZED" || code === "NOT_FOUND") return { kind: "refused", message };
   return { kind: "failed", message };
@@ -134,7 +138,7 @@ const sentence = (s: string) => {
 export function failureReply(kind: DeskFailureKind, serverMessage = ""): { bubbles: string[]; retry: boolean } {
   switch (kind) {
     case "offline":
-      return { bubbles: ["Your message didn't reach me: the connection dropped.", "It's kept here. Try again once you're back online."], retry: true };
+      return { bubbles: ["I couldn't confirm your message: the connection dropped.", "It's kept here. Try again once you're back online."], retry: true };
     case "limited": {
       const when = /try again in ([^.]+)/i.exec(serverMessage)?.[1]?.trim() ?? "a minute";
       return { bubbles: ["That's a lot of messages in a short time, so I've paused for a moment.", `Try again in ${when}; your message is kept here.`], retry: true };
@@ -143,6 +147,9 @@ export function failureReply(kind: DeskFailureKind, serverMessage = ""): { bubbl
       return { bubbles: [sentence(serverMessage) || "That one isn't open any more.", "Here's what's open now."], retry: false };
     case "refused":
       return { bubbles: [`I can't take that from here: ${sentence(serverMessage.replace(/^./, (c) => c.toLowerCase())) || "you don't have access."}`], retry: false };
+    case "credits":
+      // The API's own sentence says what lifts it (a top-up, or next month's credits on a date); trying again cannot.
+      return { bubbles: [sentence(serverMessage) || "This month's credits are used up, so I can't reply until there are more.", "Your message is kept here."], retry: false };
     case "failed":
     default:
       return { bubbles: ["I couldn't put a reply together just then.", "Your message is kept here. Shall I try again?"], retry: true };

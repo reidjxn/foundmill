@@ -198,4 +198,34 @@ describe("MemoryRedis", () => {
     await expect(dup.xlen("ev:b")).rejects.toThrow(/closed/);
     expect(await redis.xlen("ev:b")).toBe(1);
   });
+
+  it("MINID on XADD and XTRIM, EXPIRE/TTL with keys expiring on the next command, DEL clearing the TTL", async () => {
+    const { redis, clock } = createMemoryRedisWithClock(10_000);
+    for (const id of ["1000-0", "2000-0", "3000-0"]) await redis.xadd("s", id, "k", "v");
+    expect(await redis.xadd("s", "MINID", "~", "2000", "4000-0", "k", "v")).toBe("4000-0");
+    expect((await redis.xrange("s", "-", "+")).map(([id]) => id)).toEqual(["2000-0", "3000-0", "4000-0"]);
+    expect(await redis.xtrim("s", "MINID", "~", "3500-0")).toBe(2);
+    expect(await redis.xtrim("s", "MAXLEN", "=", 5)).toBe(0);
+    expect(await redis.xtrim("missing", "MINID", "~", "1")).toBe(0);
+    await expect(redis.xtrim("s", "LEN", "1")).rejects.toThrow(/syntax/);
+
+    expect(await redis.ttl("s")).toBe(-1);
+    expect(await redis.ttl("missing")).toBe(-2);
+    expect(await redis.expire("missing", 10)).toBe(0);
+    expect(await redis.expire("s", 10)).toBe(1);
+    expect(await redis.ttl("s")).toBe(10);
+    clock.advance(9_999);
+    expect(await redis.xlen("s")).toBe(1);
+    clock.advance(1);
+    expect(await redis.xlen("s")).toBe(0);
+    expect(await redis.exists("s")).toBe(0);
+
+    await redis.xadd("t", "*", "k", "v");
+    await redis.expire("t", 5);
+    await redis.del("t");
+    await redis.xadd("t", "*", "k", "v");
+    expect(await redis.ttl("t")).toBe(-1);
+    expect(await redis.expire("t", 0)).toBe(1);
+    expect(await redis.exists("t")).toBe(0);
+  });
 });

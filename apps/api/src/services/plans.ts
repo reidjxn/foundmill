@@ -3,19 +3,25 @@
  *
  * compilePlan:   option click or free text → the `planCompiler` route (Opus, locked; deterministic rule engine in mock)
  *                → `PlanOutput` of typed actions. Hard gates always compile to `request_human_action`.
- * evaluatePlan:  every action is checked against the Cedar policies (packages/policy) with the Chief of Staff as the
- *                principal and the business mode in force; `allow` executes, `ask` needs the founder's confirmation,
- *                `deny` is recorded and skipped.
- * executePlan:   actions the API can carry out itself run in-process (tasks, channels, budgets, models, founder
- *                actions); the rest are dispatched to the orchestrator's `planExecution` workflow and stay pending
- *                when Temporal is unreachable, which the caller reports as `{ queued: false, reason }`.
+ * evaluatePlan:  every action is checked against the Cedar policies (packages/policy) as the gateway would check the
+ *                acting agent's own call (the Chief of Staff when no agent acts): its autonomy override, spend cap and
+ *                approval threshold, the business's spend cap per action and the vacation budget ceiling; `allow`
+ *                executes, `ask` needs the founder's confirmation, `deny` is recorded and skipped.
+ * sections:      a plan runs as the person who decided (or confirmed) it, so `assertPlanSectionAccess` refuses one that
+ *                changes a section they cannot write to (BUILD §11.9), before anything is written.
+ * executePlan:   actions the API can carry out itself run in-process (tasks, channels, budgets, approved spends,
+ *                models, founder actions); the rest are dispatched to the orchestrator's `planExecution` workflow. A
+ *                plan whose dispatch did not reach Temporal stays `executing` with no workflow id and its actions
+ *                pending, which is the durable record that it still has to start: `redispatchPlans` starts it on the
+ *                next decision or Continue (audit api-services-15).
  */
-import { buildSystemPrompt, chiefOfStaff } from "@foundmill/agents";
+import { buildSystemPrompt, chiefOfStaff, getTemplateByAgentType } from "@foundmill/agents";
 import { APP_NAME, LIMITS } from "@foundmill/config";
-import { repos, type Agent, type Business, type Executor, type PlanAction as PlanActionRow, type PlanWithActions } from "@foundmill/db";
-import { compilePlanRuleBased, PlanOutput, type ModelClient, type PlanAction } from "@foundmill/models";
-import { evaluate, type EvaluateResult, type ToolCtxInput } from "@foundmill/policy";
-import { CHANNEL_META, CHANNEL_KEYS, MODEL_KEYS, TASK_KINDS, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
+import { repos, type Agent, type Business, type Department, type Executor, type PlanAction as PlanActionRow, type PlanWithActions } from "@foundmill/db";
+import { compileOptionPlan as compileOptionPlanRules, compilePlanRuleBased, PLAN_ACTION_PARAMS, PlanOutput, SetAgentModelParams, type DecisionOption, type ModelClient, type OptionAgent, type PlanAction, type RoadmapItemRef } from "@foundmill/models";
+import { agentPrincipal, evaluate, type EvaluateResult, type ToolCtxInput } from "@foundmill/policy";
+import { CHANNEL_KEYS, CHANNEL_META, CreatePlaybookParams, ForbiddenError, hasSectionAccess, MODEL_KEYS, planActionSection, planSectionWalls, TASK_KINDS, type ChannelKey, type ModelKey, type ModuleKey, type PlanActionType, type PolicyOutcome, type Section, type SectionMembership, type TaskKind } from "@foundmill/shared";
+import { changeAgentModels } from "./agent-model";
 import type { TemporalService } from "./temporal";
 import { WORKFLOWS, workflowIds } from "./temporal";
 
@@ -23,7 +29,43 @@ export interface PlanContext {
   business: Business;
   agents: readonly Agent[];
   holidayActive: boolean;
+  /** The active vacation's budget ceiling: while it lasts it caps every plan spend, as it caps every tool call. */
+  holidayBudgetMinor?: number | null;
   currency: string;
+  /** The roadmap the compiler names items from (an `update_roadmap` action carries the id of the item it changes). */
+  roadmap?: readonly RoadmapItemRef[];
+  /**
+   * What the chosen decision option is: an option marked not reversible is evaluated as an irreversible step and a
+   * costed one as spending its cost, so Assisted and Augmented ask before a one-click choice does what cannot be
+   * undone or spends past the threshold (audit AC-02). Absent for free text, whose actions carry their own amounts.
+   */
+  choice?: { reversible?: boolean; costMinor?: number };
+}
+
+/**
+ * The agents as the compilers see them: who runs which channel (the template it was hired from) and which template it
+ * is, so a channel's work goes to the agent running the channel and never to whoever has "Lead" in the title (audit
+ * FR-20), and an option's `assignee` names its template.
+ */
+export function planAgents(agents: readonly Agent[]): OptionAgent[] {
+  return agents.map((a) => {
+    const template = getTemplateByAgentType(a.agentType);
+    return { id: a.id, name: a.name, role: a.role, department_id: a.departmentIds[0] ?? undefined, ...(template?.channelKey ? { channel: template.channelKey } : {}), ...(template ? { template_key: template.key } : {}) };
+  });
+}
+
+/**
+ * Only the business's own agents act in its plans (audit api-services-28): an agent id the model wrote that is not one
+ * of them (made up, pasted, another business's) is dropped from the action and from its params, so the action falls
+ * back to the Chief of Staff instead of failing the decision or writing a foreign id into a task.
+ */
+export function ownAgentsOnly(actions: readonly PlanAction[], agents: readonly Pick<Agent, "id">[]): PlanAction[] {
+  const own = new Set(agents.map((a) => a.id));
+  return actions.map((a) => {
+    const agentId = a.agent_id && own.has(a.agent_id) ? a.agent_id : null;
+    const foreign = typeof a.params.agent_id === "string" && !own.has(a.params.agent_id);
+    return { ...a, agent_id: agentId, params: foreign ? { ...a.params, agent_id: null } : a.params };
+  });
 }
 
 export interface CompiledPlan {
@@ -34,12 +76,16 @@ export interface CompiledPlan {
 
 /** Compile the founder's instruction into typed actions. The rule engine always validates a live plan (hard gates). */
 export async function compilePlan(models: ModelClient, text: string, ctx: PlanContext): Promise<CompiledPlan> {
-  const agents = ctx.agents.map((a) => ({ id: a.id, name: a.name, role: a.role, agent_type: a.agentType, department_id: a.departmentIds[0] ?? null }));
+  const agents = ctx.agents.map((a) => ({ id: a.id, name: a.name, role: a.role, agent_type: a.agentType, department_id: a.departmentIds[0] ?? null, channel: getTemplateByAgentType(a.agentType)?.channelKey ?? null }));
+  const roadmap = (ctx.roadmap ?? []).map((r) => ({ id: r.id, title: r.title, horizon: r.horizon, target_start: r.targetStart, target_end: r.targetEnd }));
   const input = {
     business: { id: ctx.business.id, name: ctx.business.name, business_mode: ctx.business.businessMode, archetype: ctx.business.archetype, currency: ctx.currency },
     reply: text,
     agents,
+    roadmap,
     action_types: [...Object.keys(ACTION_TOOLS)],
+    // Each action's params by name: what the api and the orchestrator read (audit VRB-X1).
+    action_params: PLAN_ACTION_PARAMS,
   };
   const result = await models.complete({
     route: "planCompiler",
@@ -47,53 +93,52 @@ export async function compilePlan(models: ModelClient, text: string, ctx: PlanCo
     // House rules first (audit-conversation P1): the Chief of Staff compiles plans, so its instructions follow them.
     system: [
       buildSystemPrompt({ businessName: ctx.business.name, appName: APP_NAME, template: chiefOfStaff }),
-      "You are the plan compiler. Turn the founder's reply into typed actions. Hard-gated requests (money, signing, filings, terms, deletion, security, untrusted instructions) compile to request_human_action only.",
+      "You are the plan compiler. Turn the founder's reply into typed actions. Hard-gated requests (money, signing, filings, terms, deletion, security, untrusted instructions) compile to request_human_action only. Write each action's params with exactly the names in `action_params`; a roadmap change carries the `roadmap_item_id` of the item it changes, taken from `roadmap`, and agent ids come from `agents`.",
+      PLAYBOOK_PROMPT,
     ],
     cacheSystem: true,
     messages: [{ role: "user", content: "```json\n" + JSON.stringify(input) + "\n```" }],
     attribution: { businessId: ctx.business.id, kind: "plan_compiler" },
   });
-  const rules = compilePlanRuleBased(text, { agents: agents.map((a) => ({ id: a.id, name: a.name, role: a.role, department_id: a.department_id ?? undefined })), defaultCurrency: ctx.currency });
+  const rules = compilePlanRuleBased(text, { agents: planAgents(ctx.agents), defaultCurrency: ctx.currency, roadmap: ctx.roadmap });
   // The deterministic pre-check wins on hard gates: a live plan may never automate a gated clause (BUILD §2.2).
   const gated = rules.actions.filter((a) => a.type === "request_human_action");
   if (gated.length > 0 && result.json.actions.some((a) => a.type !== "request_human_action" && a.type !== "reply_only")) {
     return { summary: rules.summary, actions: rules.actions, source: "rules" };
   }
-  return { summary: result.json.summary, actions: result.json.actions, source: models.mode === "mock" ? "rules" : "model" };
+  // A playbook the model wrote must match the contract the engine runs; otherwise the rule engine's reading stands.
+  if (result.json.actions.some((a) => a.type === "create_playbook" && !CreatePlaybookParams.safeParse(a.params).success)) {
+    return { summary: rules.summary, actions: rules.actions, source: "rules" };
+  }
+  return { summary: result.json.summary, actions: ownAgentsOnly(result.json.actions, ctx.agents), source: models.mode === "mock" ? "rules" : "model" };
 }
 
-/** A pre-written option that means "do nothing for now" (only consulted when the rules found no action in it). */
-const NO_ACTION_OPTION_RE = /^(?:not now|not yet|no thanks|skip(?: (?:it|this))?|dismiss|ignore(?: it| this)?|decline|hold off|wait(?: and see)?|do nothing|no change|stay the course|park (?:it|this)|leave (?:it|things) as (?:it is|they are)|keep (?:it|things) as (?:it is|they are))(?=$|[\s.,;:!?–—-])(?!\s+(?:on|with|to|for)\s)/i;
+/** What the plan compiler is told about `create_playbook` (the contract of packages/shared `CreatePlaybookParams`). */
+const PLAYBOOK_PROMPT = [
+  "A standing rule (\"when a lead replies positively, draft a reply and book a call; I approve the first message\") compiles to ONE create_playbook action, never to one-off actions.",
+  "Its params: {source_text, name, trigger: {event, where?, condition?}, steps: [{action: {type, params}, label}], approvals: [{step, scope}], stop: {max_runs?}}.",
+  "event is a platform event type such as lead.replied, signup.created, payment.received, customer.converted, runway.threshold_crossed or task.completed; where narrows it by payload field (sentiment: positive).",
+  "Each step is one plan action (not create_playbook, not reply_only). approvals name a step by its 0-based index and a scope, first_run or every_run, for what the founder says they approve.",
+  "If the founder names no event, answer with one reply_only question asking which event starts the rule.",
+].join(" ");
 
-export interface DecisionOption {
-  id: string;
-  label: string;
-  consequence?: string;
+export type { DecisionOption } from "@foundmill/models";
+
+/** The part of an option the policy needs (`PlanContext.choice`). */
+export function choiceOf(option: Pick<DecisionOption, "reversible" | "cost_minor">): NonNullable<PlanContext["choice"]> {
+  const cost = Number(option.cost_minor);
+  return { ...(typeof option.reversible === "boolean" ? { reversible: option.reversible } : {}), ...(Number.isFinite(cost) && cost > 0 ? { costMinor: Math.round(cost) } : {}) };
 }
 
 /**
- * An option click (BUILD §11.3: "option click or free text → (free text) Opus compiles a Plan"). The option was written
- * with the item, so it is compiled by the deterministic rule engine in-process, with no model call on the click path;
- * hard gates still compile to `request_human_action` only. When the rules find no action in the option's words, the
- * agent who asked gets one task to carry the choice out (a clarifying question back to the founder would undo the click),
- * and an option that means "not now" records the choice and runs nothing. Free text keeps `compilePlan` (Opus).
+ * An option click (BUILD §11.3: "option click or free text → (free text) Opus compiles a Plan"): compiled in-process
+ * with no model call on the click path (`compileOptionPlan` in @foundmill/models, which the Chief of Staff's vacation
+ * decisions use too). An option written with its own typed actions runs those; any other compiles its label only; its
+ * cost becomes a budget or an approved spend that policy checks. Free text keeps `compilePlan` (Opus).
  */
 export function compileOptionPlan(option: DecisionOption, item: { fromAgentId: string | null; subject: string }, ctx: PlanContext): CompiledPlan {
-  const label = option.label.trim();
-  const text = `${label}. ${option.consequence?.trim() ?? ""}`.trim();
-  const agents = ctx.agents.map((a) => ({ id: a.id, name: a.name, role: a.role, department_id: a.departmentIds[0] ?? undefined }));
-  const rules = compilePlanRuleBased(text, { agents, defaultCurrency: ctx.currency });
-  const actions = rules.actions.filter((a) => a.type !== "reply_only");
-  if (actions.length > 0) return { summary: rules.summary, actions, source: "rules" };
-  if (NO_ACTION_OPTION_RE.test(label)) {
-    return { summary: `You chose "${label}". Nothing runs now.`, actions: [{ type: "reply_only", params: { acknowledgement: `You chose "${label}"; nothing runs now.`, option: option.id }, agent_id: null }], source: "rules" };
-  }
-  const agent = (item.fromAgentId && ctx.agents.find((a) => a.id === item.fromAgentId)) || null;
-  return {
-    summary: `${agent?.name ?? "The team"} carries out your choice: ${label}.`,
-    actions: [{ type: "create_task", params: { kind: "ops", title: label.slice(0, 80), goal: text, decided_option: option.id, decision: item.subject.slice(0, 200) }, agent_id: agent?.id ?? null }],
-    source: "rules",
-  };
+  const plan = compileOptionPlanRules(option, item, { agents: planAgents(ctx.agents), defaultCurrency: ctx.currency });
+  return { summary: plan.summary, actions: ownAgentsOnly(plan.actions, ctx.agents), source: "rules" };
 }
 
 /** Policy attributes of each plan action, expressed as a platform tool for the Cedar evaluator. */
@@ -114,6 +159,62 @@ export const ACTION_TOOLS: Record<PlanActionType, ToolCtxInput & { internal?: bo
   request_human_action: { connector: "platform", name: "request_human_action", internal: true },
   reply_only: { connector: "platform", name: "reply_only", internal: true },
 };
+
+/** The section each plan action changes (BUILD §11.9; audit RUI-01): one definition in @foundmill/shared for every service. */
+export const sectionForAction = planActionSection;
+
+const ACTION_WORDS: Record<PlanActionType, string> = {
+  create_task: "start a task",
+  enable_channel: "turn on a channel",
+  disable_channel: "turn off a channel",
+  set_budget: "set a budget",
+  approve_spend: "approve spending",
+  update_spec: "change the specification",
+  update_roadmap: "change the roadmap",
+  send_message: "message a contact",
+  schedule_meeting: "schedule a meeting",
+  hire_agent: "hire an agent",
+  train_agent: "train an agent",
+  set_agent_model: "change an agent's model",
+  create_playbook: "create a playbook",
+  request_human_action: "ask you to act",
+  reply_only: "reply",
+};
+
+/** The sections a plan's actions change that this person cannot write to, with the actions that need each. */
+export const sectionWalls = planSectionWalls;
+
+/**
+ * Refuses (403, before anything is written) a plan that changes a section the person cannot write to: the item stays
+ * open for someone who can. Policy-denied actions never run, so they are not counted.
+ */
+export function assertPlanSectionAccess(membership: SectionMembership, actions: readonly { type: PlanActionType; params?: unknown; denied?: boolean }[]): void {
+  const refusal = planSectionRefusal(membership, actions);
+  if (refusal) throw new ForbiddenError(refusal);
+}
+
+/** Why this person may not run the plan (the walls `assertPlanSectionAccess` refuses on), or null when they may. */
+export function planSectionRefusal(membership: SectionMembership, actions: readonly { type: PlanActionType; params?: unknown; denied?: boolean }[]): string | null {
+  const walls = sectionWalls(membership, actions.filter((a) => !a.denied));
+  if (walls.length === 0) return null;
+  const sections = walls.map((w) => w.section);
+  const doing = [...new Set(walls.flatMap((w) => w.actionTypes))].map((t) => ACTION_WORDS[t]);
+  const list = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+  return `You do not have write access to ${list(sections)}, and this plan would ${list(doing)}. Someone with that access can decide it.`;
+}
+
+/**
+ * The section walls of a free-text instruction, checked before the plan compiler (Opus) is asked (SEC2 S3): the rule
+ * engine reads the instruction in-process (no model call), and when what it finds already changes a section this person
+ * cannot write to, the request is refused (403) before anything is spent. The compiled plan is checked again afterwards,
+ * since the model may find more than the rules do.
+ */
+export function assertInstructionSectionAccess(membership: SectionMembership, text: string, ctx: PlanContext): void {
+  const agents = ctx.agents.map((a) => ({ id: a.id, name: a.name, role: a.role, department_id: a.departmentIds[0] ?? undefined }));
+  const rules = compilePlanRuleBased(text, { agents, defaultCurrency: ctx.currency });
+  const evaluations = evaluatePlan(rules.actions, ctx);
+  assertPlanSectionAccess(membership, evaluations.map((e) => ({ type: e.action.type, params: e.action.params, denied: e.outcome === "deny" })));
+}
 
 export interface ActionEvaluation {
   action: PlanAction;
@@ -136,20 +237,20 @@ export function evaluatePlan(actions: readonly PlanAction[], ctx: PlanContext): 
   return actions.map((action) => {
     const tool = ACTION_TOOLS[action.type];
     const hardGate = action.type === "request_human_action";
-    if (tool.internal) return { action, outcome: "allow", reasons: [], policyIds: [], hardGate };
+    const irreversible = ctx.choice?.reversible === false && !hardGate && action.type !== "reply_only";
+    const choiceCost = ctx.choice?.costMinor ?? 0;
+    // An internal step is allowed without a Cedar round trip, unless the choice behind it cannot be undone or costs money.
+    if (tool.internal && !irreversible && choiceCost === 0) return { action, outcome: "allow", reasons: [], policyIds: [], hardGate };
     const agent = (action.agent_id && ctx.agents.find((a) => a.id === action.agent_id)) || chief;
+    // The acting agent's own settings, as the gateway applies them to its tool calls (audit api-services-03).
+    const scope = { businessMode: ctx.business.businessMode, businessSpendCapMinor: ctx.business.spendCapMinor ?? null, holidayActive: ctx.holidayActive, holidayBudgetMinor: ctx.holidayBudgetMinor ?? null };
     const result: EvaluateResult = evaluate({
-      principal: {
-        id: agent?.id ?? "chief_of_staff",
-        department: agent?.departmentIds[0] ?? "team",
-        type: agent?.agentType ?? "chief_of_staff",
-        modelKey: agent?.modelKey ?? "opus",
-        autonomy: "inherit",
-        approvalThresholdMinor: LIMITS.approvalThresholdMinorDefault,
-      },
-      tool: { connector: tool.connector, name: tool.name, spendsMoney: tool.spendsMoney, contactsThirdParty: tool.contactsThirdParty },
+      principal: agent
+        ? agentPrincipal(agent, scope, { department: "team" })
+        : { id: "chief_of_staff", department: "team", type: "chief_of_staff", modelKey: "opus", autonomy: "inherit", approvalThresholdMinor: Math.min(LIMITS.approvalThresholdMinorDefault, ctx.business.spendCapMinor ?? Number.MAX_SAFE_INTEGER) },
+      tool: { connector: tool.connector, name: tool.name, spendsMoney: tool.spendsMoney || choiceCost > 0 || undefined, contactsThirdParty: tool.contactsThirdParty, ...(irreversible ? { irreversible: true } : {}) },
       business: { id: ctx.business.id, businessMode: ctx.business.businessMode, holidayActive: ctx.holidayActive },
-      context: { amountMinor: amountOf(action), holidayActive: ctx.holidayActive },
+      context: { amountMinor: Math.max(amountOf(action), choiceCost), holidayActive: ctx.holidayActive },
     });
     return { action, outcome: result.outcome, reasons: result.reasons, policyIds: result.policyIds, hardGate };
   });
@@ -167,23 +268,38 @@ export interface ExecuteResult {
 export interface ExecuteOptions {
   actorUserId: string;
   temporal: TemporalService;
-  /** Defaults from the business glossary / EUR. */
+  /** The business's own currency (`businesses.currency`, 0025) for an amount the plan did not price in one. */
   currency: string;
 }
 
 const isChannelKey = (v: unknown): v is ChannelKey => typeof v === "string" && (CHANNEL_KEYS as readonly string[]).includes(v);
 const isTaskKind = (v: unknown): v is TaskKind => typeof v === "string" && (TASK_KINDS as readonly string[]).includes(v);
-const isModelKey = (v: unknown): v is ModelKey => typeof v === "string" && (MODEL_KEYS as readonly string[]).includes(v);
 const str = (v: unknown, fallback = ""): string => (typeof v === "string" && v.trim() ? v : fallback);
+
+/** A channel a plan action switched on or off in-process; its engine follows after commit (`syncChannelEngines`). */
+export interface ChannelToggle {
+  channelId: string;
+  channelKey: ChannelKey;
+  enabled: boolean;
+}
+
+/** Model retests a plan's model change queued; their workflows start after commit (`startModelRetests`). */
+export interface ModelRetests {
+  retests: string[];
+  superseded: string[];
+}
 
 /**
  * Execute a plan's pending actions. Runs inside the caller's transaction for the in-process actions; the orchestrator
- * dispatch happens after commit (the caller passes the result through).
+ * dispatch, the channel engines (`channels`) and model retests (`models`) happen after commit (the caller passes the
+ * result through).
  */
-export async function executePlanActions(tx: Executor, businessId: string, plan: PlanWithActions, opts: ExecuteOptions): Promise<Omit<ExecuteResult, "dispatch"> & { needsOrchestrator: boolean }> {
+export async function executePlanActions(tx: Executor, businessId: string, plan: PlanWithActions, opts: ExecuteOptions): Promise<Omit<ExecuteResult, "dispatch"> & { needsOrchestrator: boolean; channels: ChannelToggle[]; models: ModelRetests }> {
   const executed: string[] = [];
   const deferred: string[] = [];
   const denied: string[] = [];
+  const channels: ChannelToggle[] = [];
+  const models: ModelRetests = { retests: [], superseded: [] };
   for (const action of plan.actions) {
     if (action.status !== "pending") continue;
     if (action.policyOutcome === "deny") {
@@ -196,9 +312,36 @@ export async function executePlanActions(tx: Executor, businessId: string, plan:
       await repos.plans.startAction(tx, businessId, action.id);
       await repos.plans.finishAction(tx, businessId, action.id, { status: "done", result: handled });
       executed.push(action.id);
+      if ((action.type === "enable_channel" || action.type === "disable_channel") && typeof handled.channelId === "string" && isChannelKey(handled.channelKey)) {
+        channels.push({ channelId: handled.channelId, channelKey: handled.channelKey, enabled: handled.enabled === true });
+      }
+      if (action.type === "set_agent_model") {
+        models.retests.push(...strings(handled.retests));
+        models.superseded.push(...strings(handled.superseded));
+      }
     } else deferred.push(action.id);
   }
-  return { executed, deferred, denied, needsOrchestrator: deferred.length > 0 };
+  return { executed, deferred, denied, needsOrchestrator: deferred.length > 0, channels, models };
+}
+
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+
+/**
+ * The engine workflow follows a channel a plan switched (AC-11.7.2), as the Board toggle does
+ * (`distribution.channels.enable`): enabling starts `channelEngine`, disabling signals it to stop. Called after the
+ * plan's transaction commits; without Temporal the channel stays enabled and the result says why (audit VGJC-X1).
+ */
+export async function syncChannelEngines(ctx: { db: Executor; temporal: TemporalService; businessId: string; userId: string }, toggles: readonly ChannelToggle[]) {
+  const results: { channelId: string; workflow: Awaited<ReturnType<TemporalService["start"]>> }[] = [];
+  for (const t of toggles) {
+    const workflowId = workflowIds.engine(t.channelId);
+    const workflow = t.enabled
+      ? await ctx.temporal.start(WORKFLOWS.channelEngine, { workflowId, args: [{ businessId: ctx.businessId, channelId: t.channelId, channelKey: t.channelKey }] })
+      : await ctx.temporal.signal(workflowId, "stop", { reason: "channel_disabled", by: ctx.userId });
+    if (workflow.queued) await repos.channels.setEngineWorkflow(ctx.db, ctx.businessId, t.channelId, t.enabled ? workflowId : null);
+    results.push({ channelId: t.channelId, workflow });
+  }
+  return results;
 }
 
 /** Dispatch the plan to the orchestrator; degrades to `{ queued: false, reason }` when Temporal is unreachable. */
@@ -206,10 +349,48 @@ export async function dispatchPlan(temporal: TemporalService, businessId: string
   return temporal.start(WORKFLOWS.planExecution, { workflowId: workflowIds.plan(planId), args: [{ businessId, planId }] });
 }
 
-/** The department whose modules include distribution (channel tasks land there); never by name (BUILD §2.1 rule 5). */
-async function departmentForChannel(tx: Executor, businessId: string, _channel: ChannelKey): Promise<string | null> {
-  const departments = await repos.departments.list(tx, businessId);
-  return departments.find((d) => d.moduleKeys.includes("distribution"))?.id ?? null;
+export type DispatchResult = Awaited<ReturnType<typeof dispatchPlan>>;
+
+/**
+ * Start the plans an earlier dispatch left behind (audit api-services-15): a plan whose `planExecution` start did not
+ * reach Temporal stays executing with no workflow id and its actions pending, and is started here, oldest first, on the
+ * next decision or Continue. The workflow id is recorded only once Temporal took the start (a deterministic id, so a
+ * plan started twice at once runs once). Nothing starts while the team is stopped; resuming and pressing Continue does.
+ */
+export async function redispatchPlans(ctx: { db: Executor; temporal: TemporalService; businessId: string }, options: { limit?: number } = {}): Promise<{ planId: string; dispatch: DispatchResult }[]> {
+  const stranded = await repos.plans.awaitingDispatch(ctx.db, ctx.businessId, { limit: options.limit ?? 20 });
+  if (stranded.length === 0 || (await repos.businesses.agentsStopped(ctx.db, ctx.businessId))) return [];
+  const out: { planId: string; dispatch: DispatchResult }[] = [];
+  for (const plan of stranded) {
+    const dispatch = await dispatchPlan(ctx.temporal, ctx.businessId, plan.id);
+    if (dispatch.queued) await repos.plans.setWorkflowId(ctx.db, ctx.businessId, plan.id, dispatch.workflowId);
+    out.push({ planId: plan.id, dispatch });
+    // Temporal is not answering: the rest wait for the next try instead of each paying the timeout.
+    if (!dispatch.queued) break;
+  }
+  return out;
+}
+
+/** Where each kind of work lives when the task names no channel and its agent belongs to no department. */
+const KIND_MODULE: Record<TaskKind, ModuleKey> = { code: "development", specialist: "development", research: "product", channel: "distribution", finance: "finance", legal: "legal", ops: "team" };
+
+/**
+ * The department a decision's task belongs to, so it shows on that department's Home card and lists (audit VAC-X1):
+ * a channel's work is Distribution's; otherwise the department of the agent doing it; otherwise the department whose
+ * modules hold that kind of work (specialist work is Operations' when the business has one). Never by name (BUILD §2.1
+ * rule 5): by module, and Operations by its slug.
+ */
+async function departmentForTask(tx: Executor, businessId: string, task: { channel: ChannelKey | null; kind: TaskKind; assigneeAgentId: string | null }): Promise<string | null> {
+  const departments: Department[] = await repos.departments.list(tx, businessId);
+  const byModule = (m: ModuleKey) => departments.find((d) => d.moduleKeys.includes(m))?.id ?? null;
+  if (task.channel) return byModule("distribution");
+  if (task.assigneeAgentId) {
+    const agent = await repos.agents.get(tx, businessId, task.assigneeAgentId).catch(() => null);
+    const own = agent?.departmentIds.find((id) => departments.some((d) => d.id === id));
+    if (own) return own;
+  }
+  if (task.kind === "specialist") return departments.find((d) => d.slug === "operations")?.id ?? byModule("development");
+  return byModule(KIND_MODULE[task.kind]);
 }
 
 async function executeLocally(tx: Executor, businessId: string, action: PlanActionRow, opts: ExecuteOptions): Promise<Record<string, unknown> | null> {
@@ -218,6 +399,7 @@ async function executeLocally(tx: Executor, businessId: string, action: PlanActi
     case "create_task": {
       const kind = isTaskKind(p.kind) ? p.kind : "ops";
       const channel = isChannelKey(p.channel) ? p.channel : null;
+      const departmentId = await departmentForTask(tx, businessId, { channel, kind, assigneeAgentId: action.agentId });
       const task = await repos.tasks.create(tx, businessId, {
         kind,
         title: str(p.title, "Task from your decision").slice(0, 200),
@@ -228,9 +410,9 @@ async function executeLocally(tx: Executor, businessId: string, action: PlanActi
         status: "ready",
         budgetMinor: typeof p.budget_minor === "number" ? p.budget_minor : null,
         currency: str(p.currency, opts.currency).toUpperCase(),
-        departmentId: channel ? await departmentForChannel(tx, businessId, channel) : null,
+        departmentId,
       });
-      return { taskId: task.id, channel };
+      return { taskId: task.id, channel, departmentId };
     }
     case "enable_channel":
     case "disable_channel": {
@@ -238,7 +420,7 @@ async function executeLocally(tx: Executor, businessId: string, action: PlanActi
       const enabled = action.type === "enable_channel";
       const existing = await repos.channels.getByKey(tx, businessId, p.channel);
       const channel = existing ? await repos.channels.setEnabled(tx, businessId, existing.id, enabled) : await repos.channels.upsert(tx, businessId, { channelKey: p.channel, line: CHANNEL_META[p.channel].line, enabled, kitMode: CHANNEL_META[p.channel].kitModeByDefault, ownerAgentId: action.agentId });
-      return { channelId: channel.id, enabled };
+      return { channelId: channel.id, channelKey: p.channel, enabled };
     }
     case "set_budget": {
       const amount = typeof p.amount_minor === "number" ? Math.round(p.amount_minor) : null;
@@ -257,11 +439,20 @@ async function executeLocally(tx: Executor, businessId: string, action: PlanActi
       return null;
     }
     case "set_agent_model": {
-      if (!isModelKey(p.model_key)) return null;
-      const targetId = str(p.agent_id, action.agentId ?? "");
-      if (!targetId) return null;
-      const agent = await repos.agents.setModel(tx, businessId, targetId, p.model_key);
-      return { agentId: agent.id, modelKey: p.model_key };
+      // Exactly what Agent profile › Model does (audit api-services-28): locked work is skipped, a downgrade warns and
+      // each changed agent's retest is queued. "all" and "type" widen it past the one agent the compiler named; the shared
+      // param names (`apply_scope`, or the older `scope`) are read the same way here and in the orchestrator.
+      const parsed = SetAgentModelParams.safeParse(p);
+      if (!parsed.success) return null;
+      const scope = parsed.data.apply_scope;
+      const targetId = parsed.data.agent_id ?? action.agentId ?? "";
+      if (scope === "agent" && !targetId) return null;
+      const all = scope === "agent" ? [] : (await repos.agents.list(tx, businessId, { limit: 500 })).items;
+      const target = targetId ? await repos.agents.get(tx, businessId, targetId).catch(() => null) : null;
+      const targets = scope === "all" ? all : scope === "type" ? (target ? all.filter((a) => a.agentType === target.agentType) : []) : target ? [target] : [];
+      if (targets.length === 0) return null;
+      const change = await changeAgentModels(tx, businessId, targets, parsed.data.model_key, opts.actorUserId);
+      return { modelKey: parsed.data.model_key, applyScope: scope, ...change };
     }
     case "request_human_action": {
       const task = await repos.tasks.create(tx, businessId, {
@@ -278,6 +469,13 @@ async function executeLocally(tx: Executor, businessId: string, action: PlanActi
     }
     case "reply_only":
       return { question: str(p.question) };
+    case "approve_spend": {
+      // A spend the founder approves with the decision (an option's cost; "approve the €500"): recorded here, with the
+      // amount policy checked. Resolving an agent's pending approval (`approval_id`) is the orchestrator's.
+      const amount = typeof p.amount_minor === "number" && p.amount_minor > 0 ? Math.round(p.amount_minor) : null;
+      if (amount === null || typeof p.approval_id === "string") return null;
+      return { approvedMinor: amount, currency: str(p.currency, opts.currency).toUpperCase(), what: str(p.what, "the decision"), approvedBy: opts.actorUserId, decidedOption: str(p.decided_option) || null };
+    }
     case "update_spec":
     case "update_roadmap":
     case "send_message":
@@ -285,7 +483,6 @@ async function executeLocally(tx: Executor, businessId: string, action: PlanActi
     case "hire_agent":
     case "train_agent":
     case "create_playbook":
-    case "approve_spend":
       return null; // orchestrator work (agents, approvals, playbook compilation)
     default:
       return null;

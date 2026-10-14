@@ -10,16 +10,25 @@
  */
 import { communities, communityMembers, leaderboardEntries, repos } from "@foundmill/db";
 import { and, eq, sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as events from "../services/events";
+import { liveLimiter } from "../services/live";
 import { internalErrorMessage, pgErrorCode } from "../trpc";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
 beforeAll(async () => {
-  hz = await createApiHarness({ prefix: "live" });
+  hz = await createApiHarness({ prefix: "live", env: { LIVE_MODE: "1" } });
+  // Everyone here has confirmed that they are 18 or older (the gate itself is pinned in live-social.test.ts).
+  for (const f of [hz.A, hz.B]) for (const userId of [f.ownerId, f.adminId, f.memberId, f.viewerId]) await repos.social.confirmAdult(hz.db, userId);
 }, 120_000);
 afterAll(() => hz.close());
+// Each test starts with fresh per-person limits (posts, messages, requests): these cases write far faster than the
+// allowances (services/live.ts, services/live-limits.ts) allow; live-limits.test.ts covers those.
+beforeEach(() => {
+  liveLimiter.reset();
+  hz.limits.reset();
+});
 
 const as = (userId: string) => hz.caller({ userId });
 const NOBODY = "00000000-0000-4000-8000-0000000000ff";
@@ -152,14 +161,16 @@ describe("communities", () => {
     await goLive(hz.A.businessId);
   });
 
-  it("L1: a muted member stays muted when they join again; only someone who left comes back", async () => {
+  it("L1: a muted member stays muted when they join again (they read, never post); only someone who left comes back", async () => {
     const community = await repos.social.createCommunity(hz.db, { name: "Mod room", slug: "live-mod", createdBy: hz.A.ownerId });
     const member = as(hz.B.adminId);
     await member.live.communities.join({ communityId: community.id });
-    await hz.db.update(communityMembers).set({ status: "muted" }).where(and(eq(communityMembers.communityId, community.id), eq(communityMembers.userId, hz.B.adminId)));
-    expect((await failure(member.live.communities.join({ communityId: community.id }))).code).toBe("BAD_REQUEST");
+    await hz.db.update(communityMembers).set({ status: "muted", mutedAt: new Date() }).where(and(eq(communityMembers.communityId, community.id), eq(communityMembers.userId, hz.B.adminId)));
+    expect(await member.live.communities.join({ communityId: community.id })).toMatchObject({ status: "muted" });
     expect((await failure(member.live.communities.post({ communityId: community.id, bodyMd: "unmuted?" }))).code).toBe("BAD_REQUEST");
-    expect((await member.live.communities.get({ communityId: community.id })).isMember).toBe(false);
+    expect(await member.live.communities.get({ communityId: community.id })).toMatchObject({ isMember: true, canPost: false, status: "muted" });
+    await member.live.communities.leave({ communityId: community.id });
+    expect(await member.live.communities.join({ communityId: community.id })).toMatchObject({ status: "muted" });
     // Someone who left may return.
     const other = as(hz.B.memberId);
     await other.live.communities.join({ communityId: community.id });
@@ -239,10 +250,11 @@ describe("messages and connections", () => {
     const c = await as(victim).live.connections.request({ businessId: hz.A.businessId, toUserId: attacker });
     const blocked = await as(victim).live.connections.respond({ connectionId: c.id, status: "blocked" });
     expect(blocked).toMatchObject({ status: "blocked", blockedBy: victim });
-    // The recipient is not the blocker: accepting, re-blocking and removing all fail and change nothing.
-    expect((await failure(as(attacker).live.connections.respond({ connectionId: c.id, status: "accepted" }))).code).toBe("BAD_REQUEST");
-    expect((await failure(as(attacker).live.connections.respond({ connectionId: c.id, status: "blocked" }))).code).toBe("BAD_REQUEST");
-    expect((await failure(as(attacker).live.connections.remove({ connectionId: c.id }))).code).toBe("BAD_REQUEST");
+    // The recipient is not the blocker: accepting and re-blocking read as a connection that does not exist, and removing is
+    // the same quiet no-op as removing one that does not; none of them changes the row or confirms the block (GLS2F-04).
+    expect((await failure(as(attacker).live.connections.respond({ connectionId: c.id, status: "accepted" }))).code).toBe("NOT_FOUND");
+    expect((await failure(as(attacker).live.connections.respond({ connectionId: c.id, status: "blocked" }))).code).toBe("NOT_FOUND");
+    await expect(as(attacker).live.connections.remove({ connectionId: c.id })).resolves.toBeDefined();
     expect((await as(victim).live.connections.list({ status: "blocked" })).map((r) => [r.id, r.blockedBy])).toEqual([[c.id, victim]]);
     // The blocked person does not see the row at all: a block is never announced.
     expect((await as(attacker).live.connections.list()).map((r) => r.id)).not.toContain(c.id);
@@ -257,8 +269,9 @@ describe("messages and connections", () => {
     // A requester who blocks their own request: the recipient cannot accept it either.
     const d = await as(hz.A.adminId).live.connections.request({ businessId: hz.A.businessId, toUserId: hz.B.ownerId });
     await as(hz.A.adminId).live.connections.respond({ connectionId: d.id, status: "blocked" });
-    expect((await failure(as(hz.B.ownerId).live.connections.respond({ connectionId: d.id, status: "accepted" }))).code).toBe("BAD_REQUEST");
-    expect((await failure(as(hz.B.ownerId).live.connections.remove({ connectionId: d.id }))).code).toBe("BAD_REQUEST");
+    expect((await failure(as(hz.B.ownerId).live.connections.respond({ connectionId: d.id, status: "accepted" }))).code).toBe("NOT_FOUND");
+    await as(hz.B.ownerId).live.connections.remove({ connectionId: d.id });
+    expect((await as(hz.A.adminId).live.connections.list({ status: "blocked" })).map((r) => r.id), "the recipient's remove changed nothing").toContain(d.id);
     // Only the blocker lifts it; then a fresh request goes through.
     await as(hz.A.adminId).live.connections.remove({ connectionId: d.id });
     expect((await as(hz.B.ownerId).live.connections.list()).map((r) => r.id)).not.toContain(d.id);
@@ -318,6 +331,8 @@ describe("messages and connections", () => {
 
   it("L4 and L6: a request to a person who does not exist is a clean not-found, and a request and its event commit together", async () => {
     await goLive(hz.A.businessId);
+    // The recipient speaks for a listed business, so the request writes its event (and Inbox note) there.
+    await goLive(hz.B.businessId);
     const owner = as(hz.A.ownerId);
     const unknown = await failure(owner.live.connections.request({ businessId: hz.A.businessId, toUserId: NOBODY }));
     expect(unknown.code).toBe("NOT_FOUND");
@@ -346,6 +361,72 @@ describe("messages and connections", () => {
     // A's own members see the business whether or not it is LIVE; the card has what a logo needs.
     expect(result.businesses).toMatchObject([{ businessId: hz.A.businessId, kitPrimary: expect.any(String), kitSecondary: expect.any(String), slug: expect.any(String) }]);
     await expect(hz.caller(null).live.people.lookup({ userIds: [] })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+});
+
+describe("public profiles: search and profile pages, \"On Foundmill\" (audit GLS2F-09, LS2-06)", () => {
+  it("finds LIVE businesses and public founders by name and serves their profile; Personal businesses, private founders, oneself and blocked people do not turn up", async () => {
+    await goLive(hz.A.businessId);
+    const bizName = (await repos.businesses.get(hz.db, hz.A.businessId)).name;
+    await repos.founders.upsert(hz.db, hz.A.adminId, { displayName: "Ada Adminson", visibility: "public" });
+    const seeker = as(hz.B.memberId);
+
+    const byBusiness = await seeker.live.people.search({ q: bizName });
+    expect(byBusiness.hits).toContainEqual(expect.objectContaining({ kind: "business", businessId: hz.A.businessId, name: bizName, userId: null }));
+    const byFounder = await seeker.live.people.search({ q: "Ada Admin" });
+    expect(byFounder.hits).toContainEqual(expect.objectContaining({ kind: "founder", userId: hz.A.adminId, businessId: hz.A.businessId, name: "Ada Adminson" }));
+    // Only the public card leaves: no email, no id of anything private.
+    expect(Object.keys(byFounder.hits[0]!).sort()).toEqual(["archetype", "businessId", "kind", "kitPrimary", "kitSecondary", "name", "region", "since", "slug", "userId"]);
+
+    // The profile page: a founder with the businesses they run, a business with its public founders.
+    const founder = await seeker.live.people.profile({ kind: "founder", id: hz.A.adminId });
+    expect(founder).toMatchObject({ profile: { name: "Ada Adminson", userId: hz.A.adminId }, isSelf: false, connection: null });
+    expect(founder.businesses.map((b) => b.businessId)).toContain(hz.A.businessId);
+    const business = await seeker.live.people.profile({ kind: "business", id: hz.A.businessId });
+    expect(business.profile).toMatchObject({ kind: "business", name: bizName });
+    expect(business.founders.map((f) => f.userId)).toContain(hz.A.adminId);
+    // The founder sees how they are listed, and that it is themselves.
+    expect((await as(hz.A.adminId).live.people.profile({ kind: "founder", id: hz.A.adminId })).isSelf).toBe(true);
+    expect((await as(hz.A.adminId).live.profile.visibility.get()).publicProfile).toMatchObject({ name: "Ada Adminson", businesses: [expect.objectContaining({ businessId: hz.A.businessId })] });
+    // ...and is not shown to themselves in search.
+    expect((await as(hz.A.adminId).live.people.search({ q: "Ada Admin" })).hits.filter((h) => h.kind === "founder")).toEqual([]);
+
+    // A request in flight is shown on the profile; a block either way hides the person.
+    const request = await repos.social.requestConnection(hz.db, hz.B.memberId, hz.A.adminId);
+    expect((await seeker.live.people.profile({ kind: "founder", id: hz.A.adminId })).connection).toEqual({ id: request.id, status: "requested", direction: "outgoing" });
+    await repos.social.respondConnection(hz.db, hz.A.adminId, request.id, "blocked");
+    expect((await seeker.live.people.search({ q: "Ada Admin" })).hits.filter((h) => h.kind === "founder")).toEqual([]);
+    await repos.social.removeConnection(hz.db, hz.A.adminId, request.id);
+    expect((await seeker.live.people.search({ q: "Ada Admin" })).hits.filter((h) => h.kind === "founder")).toHaveLength(1);
+
+    // A founder who keeps their name private is not listed; a Personal business is not either.
+    await repos.founders.upsert(hz.db, hz.A.adminId, { displayName: "Ada Adminson", visibility: "private" });
+    expect((await seeker.live.people.search({ q: "Ada Admin" })).hits).toEqual([]);
+    await expect(seeker.live.people.profile({ kind: "founder", id: hz.A.adminId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect((await as(hz.A.adminId).live.profile.visibility.get()).publicProfile).toBeNull();
+    await repos.businesses.setGameMode(hz.db, hz.A.businessId, "personal");
+    expect((await seeker.live.people.search({ q: bizName })).hits.filter((h) => h.businessId === hz.A.businessId)).toEqual([]);
+    await expect(seeker.live.people.profile({ kind: "business", id: hz.A.businessId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    await expect(seeker.live.people.search({ q: "a" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(hz.caller(null).live.people.search({ q: "Ada" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await goLive(hz.A.businessId);
+  });
+
+  it("going live needs the 18+ attestation, and the audit log records it; going Personal asks for nothing", async () => {
+    const { businessId } = hz.A;
+    await repos.businesses.setGameMode(hz.db, businessId, "personal");
+    const owner = as(hz.A.ownerId);
+    // The confirmation is kept per person once given; this one starts from none on record.
+    await hz.db.execute(sql`delete from network_attestations where user_id = ${hz.A.ownerId}::uuid`);
+    await expect(owner.business.setGameMode({ businessId, gameMode: "live" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(owner.business.setGameMode({ businessId, gameMode: "live", confirmAdult: false })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect((await repos.businesses.get(hz.db, businessId)).gameMode).toBe("personal");
+
+    expect((await owner.business.setGameMode({ businessId, gameMode: "live", confirmAdult: true })).gameMode).toBe("live");
+    expect((await repos.audit.list(hz.db, businessId, { action: "business.set_game_mode", limit: 1 })).items[0]?.details).toMatchObject({ from: "personal", to: "live", confirmedAdult: true });
+    expect((await owner.business.setGameMode({ businessId, gameMode: "personal" })).gameMode).toBe("personal");
+    await goLive(businessId);
   });
 });
 

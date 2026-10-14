@@ -25,8 +25,13 @@ export { createCompaniesHouseConnector, companiesHouseMock, COMPANIES_HOUSE_KEY 
 export { createE2bConnector, e2bMock, E2B_KEY } from "./connectors/e2b";
 export { createDropboxSignConnector, dropboxSignMock, DROPBOX_SIGN_KEY, DROPBOX_SIGN_CALLBACK_RESPONSE } from "./connectors/dropbox_sign";
 export { createEcbRatesConnector, ecbRatesMock, ECB_KEY } from "./connectors/ecb_rates";
-export { createStripeConnector, stripeMock, STRIPE_KEY, normaliseStripeEvent, verifyStripeSignature, stripeSignatureHeader, signedStripeRequest } from "./connectors/stripe";
+export { createDomainsConnector, domainsMock, DOMAINS_KEY, mockDomainAnswer, type DnsLike, type DomainAnswer } from "./connectors/domains";
+export { createWebConnector, webMock, WEB_KEY, WEB_USER_AGENT, WEB_ROBOTS_TOKEN, isPrivateAddress, publicOnlyLookup, type WebConnectorOptions } from "./connectors/web";
+export { createStripeConnector, isPlatformBillingIntegration, PLATFORM_BILLING_INTEGRATION_ID, stripeMock, STRIPE_KEY, normaliseStripeEvent, verifyStripeSignature, stripeSignatureHeader, signedStripeRequest } from "./connectors/stripe";
 export { createSendgridConnector, sendgridMock, SENDGRID_KEY, normaliseSendgridEvents, normaliseInboundMail, verifySendgridSignature, signedEventRequest as signedSendgridEventRequest, inboundParseRequest as sendgridInboundParseRequest } from "./connectors/sendgrid";
 export { createShopifyConnector, shopifyMock, SHOPIFY_KEY, normaliseShopifyEvent, shopifyHmac, signedShopifyRequest } from "./connectors/shopify";
 export { createTinkConnector, tinkMock, TINK_KEY } from "./connectors/tink";
 export { createPlaidConnector, plaidMock, PLAID_KEY } from "./connectors/plaid";
+export * from "./grants";
+export { createPlatformConnector, platformMock, createPlatformMock, createMemoryPlatformHost, PLATFORM_KEY, PlatformToolError, MESSAGE_TYPES, type PlatformHost, type PlatformCaller, type PlatformArgs, type PlatformResult, type TaskSummaryT, type TaskDetailT, type AgentMessageT } from "./connectors/platform";
+export { createQuarantineConnector, quarantineMock, QUARANTINE_KEY, quarantinedReaderRequest } from "./connectors/quarantine";

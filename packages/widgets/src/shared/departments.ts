@@ -44,10 +44,22 @@ export function departmentForModule(rows: readonly DepartmentRow[] | undefined, 
 
 /** Href of a module tab: the department that owns the module and the tab slug (falls back to the first tab). */
 export function moduleHref(bid: string, rows: readonly DepartmentRow[] | undefined, moduleKey: ModuleKey, tabSlug?: string): string | null {
-  const d = departmentForModule(rows, moduleKey);
+  // A department may show only some of its module's tabs (Operations: Specialists and Plan), so a link to a tab goes to
+  // the first department over the module that has it.
+  const d = (tabSlug ? orderedDepartments(rows).find((x) => x.moduleKeys.includes(moduleKey) && x.tabs.some((t) => t.slug === tabSlug)) : undefined) ?? departmentForModule(rows, moduleKey);
   if (!d) return null;
   const tab = (tabSlug && d.tabs.find((t) => t.slug === tabSlug)) || d.tabs.slice().sort((a, b) => a.position - b.position)[0];
   return tab ? routes.department(bid, d.slug, tab.slug) : null;
+}
+
+/**
+ * Href of a module tab for links between screens: the department that holds the module now (`moduleHref`), never a
+ * fixed archetype slug, which is gone after a merge, a split or an archive. Before the departments have loaded (or
+ * when none holds the module) it is the module's own key as the slug, which the department screen forwards to the
+ * holder once there is one.
+ */
+export function moduleTabHref(bid: string, rows: readonly DepartmentRow[] | undefined, moduleKey: ModuleKey, tabSlug: string): string {
+  return moduleHref(bid, rows, moduleKey, tabSlug) ?? routes.department(bid, moduleKey, tabSlug);
 }
 
 /** Hook form of `moduleHref` plus a navigate callback. */

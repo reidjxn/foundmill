@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { contrastRatio, kitOnPrimary, kitRamp } from "./lib/colour";
+import { contrastRatio, kitOnPrimary, kitOnPrimaryDetail, kitRamp } from "./lib/colour";
 import { DURATION_MS, MOTION_EASE, STAGGER_MS, STREAM_CADENCE, TYPING_DOTS } from "./lib/motion";
 
 const tokensCss = readFileSync(join(__dirname, "tokens.css"), "utf8");
@@ -85,7 +85,7 @@ describe("aliases: the original names point at the 2027 values", () => {
 
 describe("brand defaults: Foundmill steel for frames without a business (DIRECTION #11)", () => {
   it("is steel blue with the accent as its lift", () => {
-    expect(hex("--kit-primary").toLowerCase()).toBe("#3f7fe0");
+    expect(hex("--kit-primary").toLowerCase()).toBe("#3570cc");
     expect(hex("--kit-lift")).toBe(hex("--accent"));
   });
   it("matches kitRamp and kitOnPrimary for the default primary, so a business with steel looks the same", () => {
@@ -95,6 +95,11 @@ describe("brand defaults: Foundmill steel for frames without a business (DIRECTI
     expect(hex("--kit-deep").toUpperCase()).toBe(ramp.deep);
     expect(hex("--kit-aura").toUpperCase()).toBe(ramp.aura);
     expect(hex("--kit-on-primary").toUpperCase()).toBe(kitOnPrimary(hex("--kit-primary")));
+  });
+  it("puts text on the steel primary at WCAG AA and APCA Lc 75 (A11Y-05: white on #3F7FE0 was 3.94 : 1)", () => {
+    const on = kitOnPrimaryDetail(hex("--kit-primary"));
+    expect(on.passes).toBe(true);
+    expect(contrastRatio(hex("--kit-on-primary"), hex("--kit-primary"))).toBeGreaterThanOrEqual(4.5);
   });
   it("never derives a root token from a brand token (custom properties resolve at :root, so it would ignore the business)", () => {
     for (const [name, value] of tokens) {
@@ -175,5 +180,24 @@ describe("dugout.css", () => {
     for (const name of ["surface-panel", "surface-raised", "surface-well", "surface-overlay", "surface-dialog", "glass", "canvas-lit", "edge", "edge-tint", "glow-dept", "glow-brand", "rim", "sheen", "orbit", "shimmer", "presence-breathe", "typing-dots", "stream-caret", "landed", "slide-indicator", "slide-plate", "pressable", "focus-ring", "focus-within-ring", "rule-fade", "t-data", "t-title", "t-action", "t-micro", "t-unit", "t-currency"]) {
       expect(() => utility(name), name).not.toThrow();
     }
+  });
+});
+
+describe("controls.css", () => {
+  const controlsCss = readFileSync(join(__dirname, "controls.css"), "utf8");
+  it("keeps an option's consequence line at the full on-colour on filled buttons (A11Y-06: dimmed, it fell under 4.5 : 1)", () => {
+    const desc = /@utility btn-desc \{([\s\S]*?)\n\}/.exec(controlsCss)?.[1] ?? "";
+    expect(desc).toMatch(/:is\(\[data-variant="primary"\], \[data-variant="danger"\], \[data-variant="gold"\]\) & \{\s*color: currentColor;/);
+    // The dimmed line stays on the dark grounds, where text-1 at 76 % is still far above AA.
+    expect(contrastRatio("#B8BBC0", "#151920")).toBeGreaterThan(4.5);
+  });
+  it("gives the steel's text and every live brand's text at least 4.5 : 1 at full strength", () => {
+    for (const brand of ["#3570CC", "#2F6F5E", "#0F766E", "#AE5729", "#6B7C1D", "#1B4FD8"]) {
+      expect(kitOnPrimaryDetail(brand).ratio, brand).toBeGreaterThanOrEqual(4.5);
+    }
+    // White on the old steel was 3.94 : 1: the candidate that keeps the floor is chosen instead, and flagged.
+    const old = kitOnPrimaryDetail("#3F7FE0");
+    expect(old.passes).toBe(false);
+    expect(old.ratio).toBeGreaterThanOrEqual(4.5);
   });
 });

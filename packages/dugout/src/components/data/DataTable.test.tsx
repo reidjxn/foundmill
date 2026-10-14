@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { Mail, Trash2 } from "lucide-react";
 import { Chip } from "../foundation/Chip";
+import { Dialog, DialogContent, DialogTitle } from "../foundation/Dialog";
 import { DataTable, cellTitle, type DataTableColumn } from "./DataTable";
 import { generateLeads, LEAD_STAGE_LABELS, LEAD_VIEWS, type LeadRow } from "./fixtures";
 import type { SavedView } from "./types";
@@ -170,6 +171,17 @@ describe("DataTable", () => {
     expect(screen.getByRole("columnheader", { name: /Owner/ })).toBeTruthy();
   });
 
+  it("applies the open view again when its definition arrives changed (a stored copy loading after the default)", () => {
+    const all = LEAD_VIEWS.find((v) => v.id === "all")!;
+    const { rerender } = render(<DataTable data={leads} columns={columns} views={LEAD_VIEWS} activeViewId="all" onViewsChange={() => {}} />);
+    expect(screen.getByRole("columnheader", { name: /Owner/ })).toBeTruthy();
+    // The person's saved copy of "All leads" (same id) hides Owner and Country.
+    const stored = LEAD_VIEWS.map((v) => (v.id === "all" ? { ...all, columns: all.columns.filter((c) => c !== "owner" && c !== "country") } : v));
+    rerender(<DataTable data={leads} columns={columns} views={stored} activeViewId="all" onViewsChange={() => {}} />);
+    expect(screen.queryByRole("columnheader", { name: /Owner/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "View: All leads" })).toBeTruthy();
+  });
+
   it("exports the visible columns of the filtered, sorted rows as CSV", async () => {
     const user = userEvent.setup();
     const onExportCsv = vi.fn();
@@ -226,6 +238,59 @@ describe("DataTable", () => {
     const item = await screen.findByRole("menuitem", { name: `Message ${leads[1]?.name}` });
     await user.click(item);
     expect(onMessage).toHaveBeenCalledWith(leads[1]);
+  });
+
+  it("opens the focused row's menu from the keyboard: Shift+F10, the Menu key, or a contextmenu at the grid", async () => {
+    const user = userEvent.setup();
+    const onMessage = vi.fn();
+    render(<DataTable data={leads.slice(0, 3)} columns={columns} aria-label="Leads" rowActions={(row) => [{ id: "msg", label: `Message ${row.name}`, icon: Mail, onSelect: onMessage }]} />);
+    expect(grid().getAttribute("aria-keyshortcuts")).toBe("Shift+F10");
+    grid().focus();
+    await user.keyboard("{ArrowDown}");
+    await user.keyboard("{Shift>}{F10}{/Shift}");
+    // The second row's verbs, not "No actions" (the grid has focus; the row is its active descendant).
+    const item = await screen.findByRole("menuitem", { name: `Message ${leads[1]?.name}` });
+    expect(screen.queryByRole("menuitem", { name: "No actions" })).toBeNull();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menuitem", { name: `Message ${leads[1]?.name}` })).toBeNull());
+    expect(item).toBeTruthy();
+    grid().focus();
+    await user.keyboard("{ArrowDown}");
+    await user.keyboard("{ContextMenu}");
+    await user.click(await screen.findByRole("menuitem", { name: `Message ${leads[2]?.name}` }));
+    expect(onMessage).toHaveBeenCalledWith(leads[2]);
+    // A browser's own keyboard contextmenu lands on the grid itself: it is re-aimed at the focused row.
+    grid().focus();
+    await user.keyboard("{ArrowUp}");
+    fireEvent.contextMenu(grid());
+    expect(await screen.findByRole("menuitem", { name: `Message ${leads[1]?.name}` })).toBeTruthy();
+  });
+
+  it("a dialog opened from the keyboard row menu gives focus back to the grid when it closes", async () => {
+    function WithMerge() {
+      const [merging, setMerging] = useState<LeadRow | null>(null);
+      return (
+        <>
+          <DataTable data={leads.slice(0, 3)} columns={columns} aria-label="Leads" rowActions={(row) => [{ id: "merge", label: `Merge ${row.name}`, onSelect: () => setMerging(row) }]} />
+          <Dialog open={merging !== null} onOpenChange={(o) => !o && setMerging(null)}>
+            <DialogContent aria-describedby={undefined}>
+              <DialogTitle>Merge {merging?.name}</DialogTitle>
+            </DialogContent>
+          </Dialog>
+        </>
+      );
+    }
+    const user = userEvent.setup();
+    render(<WithMerge />);
+    grid().focus();
+    await user.keyboard("{ArrowDown}");
+    await user.keyboard("{Shift>}{F10}{/Shift}");
+    await user.keyboard("{Enter}");
+    await screen.findByRole("dialog", { name: `Merge ${leads[1]?.name}` });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // Back on the grid, on the same row: the founder carries on from where they were.
+    await waitFor(() => expect(document.activeElement).toBe(grid()));
   });
 
   it("shows loading, error and empty states inside the body", async () => {

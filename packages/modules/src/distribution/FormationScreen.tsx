@@ -9,12 +9,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw, Sparkles } from "lucide-react";
 import { Button, Chip, FormationBoard, GridCell, Panel, ProvenanceChip, formatMoney } from "@foundmill/dugout";
 import type { ChannelKey } from "@foundmill/shared";
-import { addDays, dayKey } from "@foundmill/widgets/shared/time";
+import { CHANNEL_WINDOW_DAYS } from "@foundmill/shared/constants";
+import { addDays } from "@foundmill/widgets/shared/time";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
-import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { ChannelProfileDrawer } from "./ChannelProfileDrawer";
-import { buildChannelViews, toChannelToken, totalBudget, type ChannelView } from "./channel-data";
+import { buildChannelViews, channelStatus, resumeStatus, toChannelToken, totalBudget, type ChannelView } from "./channel-data";
 import { InlineError, Screen, searchParam, useAction } from "./shared";
 import { localScores, RESCORE_DEBOUNCE_MS, useDebouncedRun } from "./rescore";
 import type { AgentRow, CampaignRow, ChannelMetricRow, ChannelsListResponse, Page, RecommendResponse, RecommendationRow } from "./types";
@@ -26,14 +27,15 @@ export interface FormationScreenProps extends ModuleScreenProps {
   rescoreDelayMs?: number;
 }
 
-export const METRICS_WINDOW_DAYS = 35;
+/** The channel window ("last 35 days"): today and the 34 days before it, as the API's channel summary counts it. */
+export const METRICS_WINDOW_DAYS = CHANNEL_WINDOW_DAYS;
 
 export function FormationScreen({ businessId, departmentId, animateEntrance = true, rescoreDelayMs = RESCORE_DEBOUNCE_MS }: FormationScreenProps) {
   const { navigate, currency } = useWidgetData();
-  const today = dayKey();
+  const today = useToday();
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
   const campaigns = useWidgetQuery<Page<CampaignRow>>("distribution.campaigns.list", { limit: 200 });
-  const metrics = useWidgetQuery<ChannelMetricRow[]>("distribution.channels.metrics", { from: addDays(today, -METRICS_WINDOW_DAYS) });
+  const metrics = useWidgetQuery<ChannelMetricRow[]>("distribution.channels.metrics", { from: addDays(today, -(METRICS_WINDOW_DAYS - 1)) });
   const agents = useWidgetQuery<AgentRow[]>("team.agents.list", {});
   const departments = useDepartments();
   const action = useAction();
@@ -41,6 +43,11 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   const [overrides, setOverrides] = useState<Partial<Record<ChannelKey, boolean>>>({});
   const [selected, setSelected] = useState<ChannelKey | null>(() => searchParam("channel") as ChannelKey | null);
   const [rescoring, setRescoring] = useState(false);
+  // Opened from another screen (a Channels row): the location is only the new one once this screen has mounted.
+  useEffect(() => {
+    const key = searchParam("channel");
+    if (key) setSelected(key as ChannelKey);
+  }, []);
 
   useBusinessEvents(() => {
     channels.refetch();
@@ -55,7 +62,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   // Toggled since the Strategist last scored: the Board shows local scores until its re-score lands.
   const [provisional, setProvisional] = useState(false);
   const views = useMemo<ChannelView[]>(() => {
-    const built = buildChannelViews({ channels: channels.data?.channels, campaigns: campaigns.data?.items, metrics: metrics.data, recommendation, currency: currency ?? "EUR", today });
+    const built = buildChannelViews({ channels: channels.data?.channels, campaigns: campaigns.data?.items, metrics: metrics.data, recommendation, currency, today });
     const toggled = built.map((v) => (overrides[v.channelKey] === undefined ? v : { ...v, enabled: overrides[v.channelKey]! }));
     return provisional ? localScores(toggled) : toggled;
   }, [channels.data, campaigns.data, metrics.data, recommendation, currency, today, overrides, provisional]);
@@ -64,8 +71,10 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   const tokens = useMemo(() => views.map((v) => toChannelToken(v, { agents: agents.data, totalBudgetMinor: budget, departmentId })), [views, agents.data, budget, departmentId]);
   const selectedView = selected ? (views.find((v) => v.channelKey === selected) ?? null) : null;
   const selectedToken = selected ? (tokens.find((t) => t.key === selected) ?? null) : null;
-  const scored = views.filter((v) => v.persisted).length;
+  const scored = views.filter((v) => v.scored).length;
   const starters = views.filter((v) => v.enabled).length;
+  // On the board but no engine recorded yet: said so, never counted as running (audit GTM-01).
+  const starting = views.filter((v) => channelStatus(v).word === "Starting").length;
 
   const rescore = useCallback(async () => {
     setRescoring(true);
@@ -105,7 +114,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
       const view = views.find((v) => v.channelKey === key);
       if (!view) return;
       const targets = view.campaigns.filter((c) => (paused ? c.status === "live" || c.status === "scheduled" : c.status === "paused"));
-      for (const c of targets) await action.run("distribution.campaigns.setStatus", { campaignId: c.id, status: paused ? "paused" : "live" }, { key: `pause:${key}` });
+      for (const c of targets) await action.run("distribution.campaigns.setStatus", { campaignId: c.id, status: paused ? "paused" : resumeStatus(c) }, { key: `pause:${key}` });
       campaigns.refetch();
     },
     [views, action, campaigns],
@@ -122,7 +131,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
       <GridCell span={12} className="flex gap-gutter">
         <Panel
           title="Board"
-          meta={hasData ? `${starters} of 15 running` : undefined}
+          meta={hasData ? (starting ? `${starters - starting} of 15 running · ${starting} starting` : `${starters} of 15 running`) : undefined}
           loading={channels.isLoading}
           error={channels.error ? channels.error.message : undefined}
           onRetry={channels.refetch}
@@ -141,7 +150,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
           footer={
             hasData ? (
               <span className="inline-flex flex-wrap items-center gap-1.5 tabular-nums">
-                Budget across running channels {formatMoney({ amountMinor: budget, currency: currency ?? "EUR" })} per month · cost per customer is an <ProvenanceChip kind="estimate" /> · drag a channel on or off the board, or open it for its profile
+                Budget across running channels {formatMoney({ amountMinor: budget, currency })} per month · cost per customer is an <ProvenanceChip kind="estimate" /> · drag a channel on or off the board, or open it for its profile
               </span>
             ) : undefined
           }
@@ -149,7 +158,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
         >
           {hasData && scored === 0 ? (
             <p className="mb-2 text-small text-secondary" role="status">
-              All 15 channels are off the board. The Distribution Strategist scores each one 1–20 for fit and puts 3 to 6 starters on the Board.
+              {starters > 0 ? "No channel has been scored yet." : "All 15 channels are off the board."} The Distribution Strategist scores each one 1–20 for fit and puts 3 to 6 starters on the Board.
             </p>
           ) : null}
           <InlineError error={action.error} className="mb-2" />

@@ -56,7 +56,7 @@ export interface HolidayDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Currency for the budget ceiling (the business's currency). */
-  currency?: string;
+  currency: string;
   /** Today, for the earliest allowed date. */
   today?: Date;
   initial?: Partial<HolidaySettings>;
@@ -73,15 +73,27 @@ export interface HolidayValidation {
   budget?: string;
 }
 
+/**
+ * The date input's "YYYY-MM-DD" as the end of that calendar day (23:59:59.999) in the person's own time zone, or null when
+ * it is not a date. `new Date("2026-10-14")` is midnight UTC, which in the Americas is the evening of Oct 13: the
+ * vacation then ended a day early and the top bar read the day before (audit OL-06).
+ */
+export function endOfLocalDay(value: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const date = new Date(y, mo - 1, d, 23, 59, 59, 999);
+  return date.getFullYear() === y && date.getMonth() === mo - 1 && date.getDate() === d ? date : null;
+}
+
 /** Pure validation; empty object means valid. Exported for tests. */
 export function validateHolidaySettings(settings: HolidaySettings, today: Date = new Date()): HolidayValidation {
   const errors: HolidayValidation = {};
   if (settings.until.kind === "date") {
-    const d = new Date(settings.until.date);
-    const start = new Date(today);
-    start.setHours(0, 0, 0, 0);
-    if (!settings.until.date || Number.isNaN(d.getTime())) errors.until = "Choose a return date.";
-    else if (d.getTime() < start.getTime()) errors.until = "The return date is in the past.";
+    // The chosen day counts until it is over, in the person's own zone: today is a valid return date.
+    const end = endOfLocalDay(settings.until.date);
+    if (!end) errors.until = "Choose a return date.";
+    else if (end.getTime() < today.getTime()) errors.until = "The return date is in the past.";
   } else if (settings.until.kind === "condition" && settings.until.condition.trim().length < 3) {
     errors.until = "Describe the condition that ends the vacation.";
   }
@@ -108,7 +120,7 @@ function toDateInput(d: Date): string {
  * HolidayDialog (BUILD §5.4, §9.6): until (date / condition / until I return), the Chief of Staff's authority as a
  * checklist of decision types (hard gates locked), a budget ceiling, and the events that wake the founder.
  */
-export function HolidayDialog({ open, onOpenChange, currency = "EUR", today = new Date(), initial, onSubmit }: HolidayDialogProps) {
+export function HolidayDialog({ open, onOpenChange, currency, today = new Date(), initial, onSubmit }: HolidayDialogProps) {
   const id = useId();
   const [untilKind, setUntilKind] = useState<HolidayUntil["kind"]>(initial?.until?.kind ?? "date");
   const [date, setDate] = useState(initial?.until?.kind === "date" ? initial.until.date : "");

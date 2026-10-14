@@ -15,7 +15,7 @@ import type { BuildJourneyInput, JourneyAgentInput } from "./builder";
 import { buildChapters } from "./chapters";
 import { createSeededRng, clamp, type SeededRng } from "./rng";
 import { addDaysKey, dayKeyToDate, dayKeyUtc, isoWeekdayUtc, toDate, compareByTimeThenId, DAY_MS, HOUR_MS } from "./time";
-import { detectTrophies, isEnterpriseContract, type TrophyCounters } from "./trophies";
+import { detectTrophies, enterpriseContractMinMinor, isEnterpriseContract, type TrophyCounters } from "./trophies";
 import {
   type Chapter, type ConsentState, type Conversion, type DayKey, type JourneyDailyRow, type Milestone, type Touch, type TouchKind, type TouchSource,
   type TrophyKey,
@@ -51,6 +51,12 @@ export interface GenerateSyntheticJourneyDataOptions {
   nonConvertingVisitorRatio?: number;
   /** Today's day for chapter status; default: the last generated day. */
   today?: DayKey;
+  /**
+   * The instant the data stops at: no signup, touch, conversion or renewal is dated later, and an activation or payment
+   * that would fall after it has not happened yet (the customer stays signed up or activated). Default: the end of the
+   * last generated day. The seed passes the instant it runs at.
+   */
+  now?: Date | string | number;
 }
 
 export interface SyntheticCustomer {
@@ -704,7 +710,9 @@ export function generateSyntheticJourneyData(options: GenerateSyntheticJourneyDa
   const mrrDelta = new Array<number>(days + 1).fill(0);
   const paymentsByDay: Array<Array<{ at: number; entityId: string; conversionId: string; amountMinor: number; enterprise: boolean }>> = Array.from({ length: days }, () => []);
   const paidSignupsByDay = new Array<number>(days).fill(0);
-  const endMs = dayKeyToDate(endDay).getTime() + DAY_MS;
+  const dayEndMs = dayKeyToDate(endDay).getTime() + DAY_MS;
+  // Nothing is dated after `now`: it is also the end of the window, so a future activation or payment never happens.
+  const endMs = options.now === undefined ? dayEndMs : Math.min(dayEndMs, toDate(options.now).getTime());
   const rng = ctx.rng;
 
   for (let d = 0; d < days; d++) {
@@ -715,6 +723,7 @@ export function generateSyntheticJourneyData(options: GenerateSyntheticJourneyDa
       const visitorId = rng.uuid();
       const consent = pickConsent(rng);
       const signupAt = signupInstant(rng, dayStart, profile.signupHour);
+      if (signupAt >= endMs) continue; // later today than the data runs: this signup has not happened yet
       const touchCount = clamp(1 + rng.poisson(Math.max(0, profile.touchesMean - 1)), 1, 8);
       const path = anonymousPath(ctx, mix, visitorId, signupAt, touchCount);
       // Organisations reached by outbound are identified before signup (CRM lead).
@@ -734,19 +743,20 @@ export function generateSyntheticJourneyData(options: GenerateSyntheticJourneyDa
       if (rng.bool(profile.activationRate)) {
         const lagDays = rng.geometric(1 / (profile.activationLagMeanDays + 1));
         activatedAt = signupAt + lagDays * DAY_MS + rng.range(0.5, 20) * HOUR_MS;
-        touches.push(...identifiedTouches(ctx, entityId, visitorId, signupAt, activatedAt, rng.int(1, 3), "email_automation"));
+        touches.push(...identifiedTouches(ctx, entityId, visitorId, signupAt, Math.min(activatedAt, endMs), rng.int(1, 3), "email_automation"));
         if (activatedAt < endMs) {
           conversions.push({ id: rng.uuid(), entityId, kind: "activation", amountMinor: 0, currency, occurredAt: new Date(activatedAt).toISOString(), sourceEventId: null, firstPayment: true });
-        }
-        if (rng.bool(profile.paymentRate)) {
+        } else activatedAt = null; // not yet
+        if (activatedAt !== null && rng.bool(profile.paymentRate)) {
           const payLag = rng.geometric(1 / (profile.paymentLagMeanDays + 1));
           paidAt = activatedAt + payLag * DAY_MS + rng.range(0.2, 12) * HOUR_MS;
           enterprise = profile.enterpriseShare > 0 && rng.bool(profile.enterpriseShare);
           amountMinor = enterprise ? rng.int(profile.enterprisePriceMinor[0], profile.enterprisePriceMinor[1]) : rng.int(profile.priceMinor[0], profile.priceMinor[1]);
           amountMinor = Math.round(amountMinor / 100) * 100 - 1; // €x9.99 style prices
           const emails = rng.int(0, 2) + (enterprise ? 1 : 0);
-          touches.push(...identifiedTouches(ctx, entityId, visitorId, activatedAt, paidAt, emails, profile.customerKind === "organisation" && rng.bool(0.4) ? "lead_generation" : "email_automation"));
-          if (paidAt < endMs) {
+          touches.push(...identifiedTouches(ctx, entityId, visitorId, activatedAt, Math.min(paidAt, endMs), emails, profile.customerKind === "organisation" && rng.bool(0.4) ? "lead_generation" : "email_automation"));
+          if (paidAt >= endMs) paidAt = null; // not yet
+          else {
             const payDay = Math.floor((paidAt - dayKeyToDate(startDay).getTime()) / DAY_MS);
             const conversionId = rng.uuid();
             conversions.push({ id: conversionId, entityId, kind: "payment", amountMinor, currency, occurredAt: new Date(paidAt).toISOString(), sourceEventId: null, firstPayment: true });
@@ -761,9 +771,17 @@ export function generateSyntheticJourneyData(options: GenerateSyntheticJourneyDa
                 mrrDelta[churnDay] = mrrDelta[churnDay]! - mrr;
                 churnedAt = dayKeyToDate(startDay).getTime() + churnDay * DAY_MS;
               }
-              // Renewals: one-off annual contracts renew yearly, subscriptions monthly.
+              // Renewals: one-off annual contracts renew yearly, subscriptions monthly. Each is a payment conversion that is
+              // not a new customer (`firstPayment: false`), so the revenue the daily rows carry is the revenue the records show.
               const period = enterprise ? 365 : 30;
-              for (let k = payDay + period; k < Math.min(days, churnDay); k += period) revenueByDay[k] = revenueByDay[k]! + (enterprise ? amountMinor : mrr);
+              const timeOfDayMs = paidAt - (dayKeyToDate(startDay).getTime() + payDay * DAY_MS);
+              for (let k = payDay + period; k < Math.min(days, churnDay); k += period) {
+                const renewedAt = dayKeyToDate(startDay).getTime() + k * DAY_MS + timeOfDayMs;
+                if (renewedAt >= endMs) break;
+                const renewal = enterprise ? amountMinor : mrr;
+                revenueByDay[k] = revenueByDay[k]! + renewal;
+                conversions.push({ id: rng.uuid(), entityId, kind: "payment", amountMinor: renewal, currency, occurredAt: new Date(renewedAt).toISOString(), sourceEventId: null, firstPayment: false });
+              }
             }
           }
         }
@@ -783,6 +801,7 @@ export function generateSyntheticJourneyData(options: GenerateSyntheticJourneyDa
     for (let i = 0; i < lost; i++) {
       const visitorId = rng.uuid();
       const endAt = dayStart + rng.range(0, 24) * HOUR_MS;
+      if (endAt >= endMs) continue;
       const path = anonymousPath(ctx, mix, visitorId, endAt, clamp(1 + rng.poisson(0.8), 1, 4));
       touches.push(...path.touches);
       visitors.push({
@@ -804,7 +823,7 @@ export function generateSyntheticJourneyData(options: GenerateSyntheticJourneyDa
     if (d < 0 || d >= days) continue;
     if (c.kind === "signup") signupsByDay[d] = signupsByDay[d]! + 1;
     else if (c.kind === "activation") activationsByDay[d] = activationsByDay[d]! + 1;
-    else paymentCountByDay[d] = paymentCountByDay[d]! + 1;
+    else if (c.firstPayment) paymentCountByDay[d] = paymentCountByDay[d]! + 1;
   }
   const distributionDept = departments.find((x) => x.moduleKeys?.includes("distribution")) ?? null;
   for (let d = 0; d < days; d++) {
@@ -838,6 +857,9 @@ export function generateSyntheticJourneyData(options: GenerateSyntheticJourneyDa
   let customersSoFar = 0;
   let enterpriseSoFar = 0;
   const milestones: Milestone[] = [];
+  // "MRR" of a business without subscriptions is its trailing 30-day revenue: the milestone says so (`ref.estimate`), and
+  // the screens label it Estimate.
+  const estimateIfNotRecurring = (m: Milestone): Milestone => (!profile.recurring && m.trophyKey?.startsWith("mrr_") ? { ...m, ref: { ...(m.ref ?? {}), estimate: true } } : m);
   const awarded = new Set<TrophyKey>();
   const milestoneRng = root.fork("milestones");
   for (let d = 0; d < days; d++) {
@@ -849,12 +871,12 @@ export function generateSyntheticJourneyData(options: GenerateSyntheticJourneyDa
     // Customer / enterprise trophies fire on the exact payment that crosses the threshold.
     for (const p of todays) {
       customersSoFar += 1;
-      if (p.enterprise && isEnterpriseContract(p.amountMinor)) enterpriseSoFar += 1;
+      if (p.enterprise && isEnterpriseContract(p.amountMinor, enterpriseContractMinMinor(currency))) enterpriseSoFar += 1;
       const stepBefore: TrophyCounters = { customers: customersSoFar - 1, mrrMinor: before.mrrMinor, enterpriseContracts: p.enterprise ? enterpriseSoFar - 1 : enterpriseSoFar };
       const stepAfter: TrophyCounters = { customers: customersSoFar, mrrMinor: before.mrrMinor, enterpriseContracts: enterpriseSoFar };
       for (const m of detectTrophies({ before: stepBefore, after: stepAfter, at: new Date(p.at), currency, awarded, ref: { conversionId: p.conversionId, entityId: p.entityId }, businessId: options.businessId })) {
         awarded.add(m.trophyKey!);
-        milestones.push({ ...m, id: milestoneRng.uuid() });
+        milestones.push({ ...estimateIfNotRecurring(m), id: milestoneRng.uuid() });
       }
     }
     customersByDay[d] = customersSoFar;
@@ -862,7 +884,7 @@ export function generateSyntheticJourneyData(options: GenerateSyntheticJourneyDa
     const endOfDay = new Date(dayKeyToDate(dayKeys[d]!).getTime() + 23 * HOUR_MS);
     for (const m of detectTrophies({ before: { ...before, customers: customersSoFar, enterpriseContracts: enterpriseSoFar }, after, at: endOfDay, currency, awarded, businessId: options.businessId })) {
       awarded.add(m.trophyKey!);
-      milestones.push({ ...m, id: milestoneRng.uuid() });
+      milestones.push({ ...estimateIfNotRecurring(m), id: milestoneRng.uuid() });
     }
   }
   // Scripted banners, flags and diamonds.

@@ -112,6 +112,45 @@ export function minorFromDecimal(value: string | number): number {
 export const decimalFromMinor = (amountMinor: number): string => (amountMinor / 100).toFixed(2);
 
 // ---------------------------------------------------------------------------------------------------
+// Per-business worlds for stateful mocks
+// ---------------------------------------------------------------------------------------------------
+
+/** How many businesses a stateful mock keeps at once; the least recently used one is forgotten first. */
+export const MOCK_BUSINESS_LIMIT = 200;
+
+export interface PerBusiness<W> {
+  /** The business's world, created from the fixtures on first use (and again after it was forgotten). */
+  (businessId: string): W;
+  /** The world if this business has one, without creating or refreshing it. */
+  peek(businessId: string): W | undefined;
+  size(): number;
+  clear(): void;
+}
+
+/**
+ * One world per business for a stateful mock connector. Staging runs `INTEGRATIONS_MODE=mock` for real founders, so
+ * what one business's agents write (drafts, customers, events, suppressions...) must never be visible to another:
+ * `create` copies the fixtures for each business, and handlers read and write `world(ctx.businessId)` only. Bounded
+ * like the GitHub mock: beyond `limit` businesses the least recently used world is dropped and starts again from the
+ * fixtures the next time that business calls.
+ */
+export function perBusiness<W>(create: (businessId: string) => W, limit = MOCK_BUSINESS_LIMIT): PerBusiness<W> {
+  const worlds = new Map<string, W>();
+  const world = ((businessId: string): W => {
+    let w = worlds.get(businessId);
+    if (w !== undefined) worlds.delete(businessId);
+    else w = create(businessId);
+    worlds.set(businessId, w);
+    while (worlds.size > limit) worlds.delete(worlds.keys().next().value!);
+    return w;
+  }) as PerBusiness<W>;
+  world.peek = (businessId) => worlds.get(businessId);
+  world.size = () => worlds.size;
+  world.clear = () => worlds.clear();
+  return world;
+}
+
+// ---------------------------------------------------------------------------------------------------
 // Mock integration records and health
 // ---------------------------------------------------------------------------------------------------
 
@@ -217,6 +256,7 @@ export function simulate(eventName: string, params: SimulateParams): PlatformEve
             source: { utmSource: channelKey === "paid_ads" ? "google" : null, utmMedium: channelKey === "paid_ads" ? "cpc" : null, utmCampaign: null, referrer: channelKey === "seo" ? "https://www.google.com/" : null, code: null },
             provider: str(params.provider, "supabase_auth"),
             consentState: (params.consentState as "granted" | "denied" | "unknown" | undefined) ?? "granted",
+            customer: { externalId: null, email, name: typeof params.name === "string" ? params.name : null },
           },
         }),
       ];
@@ -239,6 +279,7 @@ export function simulate(eventName: string, params: SimulateParams): PlatformEve
             recurring: bool(params.recurring, true),
             productRef: str(params.productRef, "Pro monthly"),
             fee: params.feeMinor === undefined ? { amountMinor: Math.round(amountMinor * 0.029) + 25, currency } : { amountMinor: num(params.feeMinor, 0), currency },
+            customer: { externalId: null, email, name: typeof params.name === "string" ? params.name : null },
           },
         }),
       ];

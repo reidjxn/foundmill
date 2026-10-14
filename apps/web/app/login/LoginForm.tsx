@@ -6,24 +6,28 @@
  * shown above the form with what to do next.
  */
 import { Mail, Send, Unlink, Wrench } from "lucide-react";
-import { useSearchParams } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { APP_NAME } from "@foundmill/config";
 import { Button, Field, Input, StatusPill } from "@foundmill/dugout";
 import { magicLinkCallbackUrl } from "@/lib/auth/canonical-origin";
 import { NEXT_PARAM } from "@/lib/auth/constants";
 import { safeNextPath } from "@/lib/auth/redirects";
-import { parseSignInError, SIGN_IN_ERROR_PARAM, signInErrorCopy } from "@/lib/auth/sign-in-errors";
+import { classifySendLinkError, parseSignInError, sendLinkErrorMessage, signInErrorCopy } from "@/lib/auth/sign-in-errors";
 import { hasSupabase, isDevLike, publicEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
 import { BrandFrame } from "@/components/shell/BrandFrame";
 
 type Phase = { kind: "idle" } | { kind: "sending" } | { kind: "sent"; email: string } | { kind: "error"; message: string };
 
-export function LoginForm() {
-  const params = useSearchParams();
-  const next = safeNextPath(params.get(NEXT_PARAM));
-  const linkError = parseSignInError(params.get(SIGN_IN_ERROR_PARAM));
+export interface LoginFormProps {
+  /** `?next=` as given (checked here by `safeNextPath`) and `?error=` as given (a reason code; anything else reads as a failure). */
+  nextParam?: string | null;
+  errorParam?: string | null;
+}
+
+export function LoginForm({ nextParam = null, errorParam = null }: LoginFormProps) {
+  const next = safeNextPath(nextParam);
+  const linkError = parseSignInError(errorParam);
   const linkProblem = linkError ? signInErrorCopy(linkError) : null;
   const [email, setEmail] = useState("");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
@@ -36,7 +40,12 @@ export function LoginForm() {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const supabase = await createClient();
+    // The auth client is its own chunk: one that fails to load (offline, a new deploy) reads like a send that failed.
+    const supabase = await createClient().catch((err: unknown) => (err instanceof Error ? err : new Error(String(err))));
+    if (supabase instanceof Error) {
+      setPhase({ kind: "error", message: sendLinkErrorMessage(classifySendLinkError(supabase)) });
+      return;
+    }
     if (!supabase) {
       setPhase({ kind: "error", message: "Email sign-in is not set up on this server yet." });
       return;
@@ -44,8 +53,10 @@ export function LoginForm() {
     setPhase({ kind: "sending" });
     const env = publicEnv();
     const emailRedirectTo = magicLinkCallbackUrl({ appUrl: env.appUrl, appEnv: env.appEnv, currentOrigin: window.location.origin, next });
-    const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo } });
-    if (error) setPhase({ kind: "error", message: error.message });
+    // A send that throws (the network dropped before Supabase answered) reads like a refused one.
+    const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo } }).catch((err: unknown) => ({ error: err as { name?: string; message?: string } }));
+    // Supabase's own wording never reaches the screen: the error is mapped to what happened and what to do next.
+    if (error) setPhase({ kind: "error", message: sendLinkErrorMessage(classifySendLinkError(error)) });
     else setPhase({ kind: "sent", email: email.trim() });
   }
 

@@ -37,6 +37,7 @@ const channel = (id: string, channelKey: ChannelKey, line: ChannelRow["line"], e
   potential: 60,
   recommended: false,
   whyMd: "",
+  scoredAt: "2026-10-01T09:00:00.000Z",
   budgetMinor: 0,
   currency: "EUR",
   kitMode: false,
@@ -92,7 +93,7 @@ export const campaigns: CampaignRow[] = [
 ];
 
 export const assets: AssetRow[] = [
-  { id: ASSET.ad, campaignId: CAMPAIGN.launch, kind: "ad", title: "Glow serum carousel", contentRef: "https://assets.example.com/ad-1", approvalState: "pending", authoredByAgentId: AGENT.mara, createdAt: `${addDays(TODAY, -2)}T08:00:00.000Z` },
+  { id: ASSET.ad, campaignId: CAMPAIGN.launch, kind: "ad", title: "Glow serum carousel", contentRef: "https://assets.example.com/ad-1", body: "Headline: Calm skin by Friday\nDescription: Three steps, no fragrance.", approvalState: "pending", authoredByAgentId: AGENT.mara, createdAt: `${addDays(TODAY, -2)}T08:00:00.000Z` },
   { id: ASSET.post, campaignId: CAMPAIGN.spring, kind: "post", title: "Morning routine, day one", contentRef: null, approvalState: "approved", authoredByAgentId: AGENT.otis, createdAt: `${addDays(TODAY, -5)}T08:00:00.000Z` },
   { id: ASSET.email, campaignId: CAMPAIGN.welcome, kind: "email", title: "Welcome to Northwind", contentRef: "drive://welcome-1", approvalState: "draft", authoredByAgentId: null, createdAt: `${addDays(TODAY, -1)}T08:00:00.000Z` },
   { id: ASSET.video, campaignId: CAMPAIGN.launch, kind: "video", title: "Founder story 30s", contentRef: null, approvalState: "rejected", authoredByAgentId: AGENT.mara, createdAt: `${addDays(TODAY, -3)}T08:00:00.000Z` },
@@ -112,9 +113,9 @@ export const leads: LeadRow[] = [
 ];
 
 export const journeys: JourneyRow[] = [
-  { id: JOURNEY.first, conversionId: uuid(1, "6"), touchIds: [uuid(1, "5"), uuid(2, "5"), uuid(3, "5")], weights: { [uuid(1, "5")]: 0.4, [uuid(2, "5")]: 0.2, [uuid(3, "5")]: 0.4 }, matchdayLevel: "cup", createdAt: `${addDays(TODAY, -1)}T12:00:00.000Z`, conversion: { id: uuid(1, "6"), entityId: LEAD.anna, kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: `${addDays(TODAY, -1)}T12:00:00.000Z` } },
-  { id: JOURNEY.second, conversionId: uuid(2, "6"), touchIds: [uuid(4, "5"), uuid(5, "5")], weights: { [uuid(4, "5")]: 1 }, matchdayLevel: "cup", createdAt: `${addDays(TODAY, -6)}T12:00:00.000Z`, conversion: { id: uuid(2, "6"), entityId: LEAD.bo, kind: "payment", amountMinor: 8900, currency: "EUR", occurredAt: `${addDays(TODAY, -6)}T12:00:00.000Z` } },
-  { id: JOURNEY.third, conversionId: uuid(3, "6"), touchIds: [uuid(6, "5")], weights: { [uuid(6, "5")]: 1 }, matchdayLevel: "friendly", createdAt: `${addDays(TODAY, -2)}T12:00:00.000Z`, conversion: { id: uuid(3, "6"), entityId: null, kind: "signup", amountMinor: 0, currency: "EUR", occurredAt: `${addDays(TODAY, -2)}T12:00:00.000Z` } },
+  { id: JOURNEY.first, conversionId: uuid(1, "6"), touchIds: [uuid(1, "5"), uuid(2, "5"), uuid(3, "5")], weights: { [uuid(1, "5")]: 0.4, [uuid(2, "5")]: 0.2, [uuid(3, "5")]: 0.4 }, matchdayLevel: "cup", partialJourney: false, consent: "granted", createdAt: `${addDays(TODAY, -1)}T12:00:00.000Z`, conversion: { id: uuid(1, "6"), entityId: LEAD.anna, kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: `${addDays(TODAY, -1)}T12:00:00.000Z` } },
+  { id: JOURNEY.second, conversionId: uuid(2, "6"), touchIds: [uuid(4, "5"), uuid(5, "5")], weights: { [uuid(4, "5")]: 1 }, matchdayLevel: "cup", partialJourney: true, consent: "denied", createdAt: `${addDays(TODAY, -6)}T12:00:00.000Z`, conversion: { id: uuid(2, "6"), entityId: LEAD.bo, kind: "payment", amountMinor: 8900, currency: "EUR", occurredAt: `${addDays(TODAY, -6)}T12:00:00.000Z` } },
+  { id: JOURNEY.third, conversionId: uuid(3, "6"), touchIds: [uuid(6, "5")], weights: { [uuid(6, "5")]: 1 }, matchdayLevel: "friendly", partialJourney: false, consent: "granted", createdAt: `${addDays(TODAY, -2)}T12:00:00.000Z`, conversion: { id: uuid(3, "6"), entityId: null, kind: "signup", amountMinor: 0, currency: "EUR", occurredAt: `${addDays(TODAY, -2)}T12:00:00.000Z` } },
 ];
 
 export const departments = [{ id: "d1", name: "Distribution", slug: "distribution", colourToken: "dept-3", position: 0, moduleKeys: ["distribution"], lead: null, squad: [], tabs: [{ id: "t1", slug: "formation", title: "Formation", position: 0 }, { id: "t2", slug: "channels", title: "Channels", position: 1 }, { id: "t3", slug: "creative", title: "Creative", position: 4 }] }];
@@ -128,6 +129,7 @@ export const dataResponses: Record<string, unknown> = {
   "department.list": departments,
   "crm.roles.byRole": { items: leads, nextCursor: null },
   "journey.list": { items: journeys, nextCursor: null },
+  "journey.attribution": { conversionCount: 3, byKind: { payment: 2, signup: 1 }, attributionModel: "position_based_40_20_40", threshold: 200, remaining: 197, journeys: 3, partialJourneys: 1 },
 };
 
 export const emptyResponses: Record<string, unknown> = {
@@ -139,4 +141,5 @@ export const emptyResponses: Record<string, unknown> = {
   "department.list": departments,
   "crm.roles.byRole": { items: [], nextCursor: null },
   "journey.list": { items: [], nextCursor: null },
+  "journey.attribution": { conversionCount: 0, byKind: {}, attributionModel: "position_based_40_20_40", threshold: 200, remaining: 200, journeys: 0, partialJourneys: 0 },
 };

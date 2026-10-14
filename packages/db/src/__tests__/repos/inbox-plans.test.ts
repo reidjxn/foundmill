@@ -1,6 +1,8 @@
 /** inbox (Composer shape validation, tabs, decide, buffer), plans (create → confirm → actions → roll-up) and cursor pagination. */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import { repos, type ComposerItem } from "../../repos";
+import { businesses } from "../../schema";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
 
 let r: RepoHarness;
@@ -65,6 +67,34 @@ describe("inbox.createItem validates the Composer schema", () => {
   });
 });
 
+describe("inbox.createItem stores notes in the business's own words (Settings › Glossary, AC-11.13.6)", () => {
+  const setGlossary = (glossary: Record<string, string>) => r.db.update(businesses).set({ glossary }).where(eq(businesses.id, r.B.businessId));
+  afterAll(() => setGlossary({}));
+
+  it("renames nouns in the subject, body and decision options of composed and templated notes", async () => {
+    await setGlossary({ customer: "client", team: "crew" });
+    const item = await repos.inbox.createItem(r.db, r.B.businessId, {
+      ...note({ from_agent_id: r.B.agentId, type: "decision", subject: "Customers this week", body_md: "The team keeps working; the customers week stands at 0. [[ent:" + r.B.entityId + "|Customer Co]] is the first customer." }),
+      decision: { options: [{ id: "a", label: "Call the customer", recommended: true, consequence: "The team calls today", cost_minor: 0, reversible: true }, { id: "b", label: "Wait", recommended: false, consequence: "Nothing", cost_minor: 0, reversible: true }], free_text: false, expires_at: null },
+      entity_ids: [r.B.entityId],
+    });
+    expect(item.subject).toBe("Clients this week");
+    expect(item.bodyMd).toBe(`The crew keeps working; the clients week stands at 0. [[ent:${r.B.entityId}|Customer Co]] is the first client.`);
+    expect((item.decision as { options: { label: string; consequence: string }[] }).options[0]).toMatchObject({ label: "Call the client", consequence: "The crew calls today" });
+    // Another business's notes keep the default words.
+    expect((await repos.inbox.createItem(r.db, r.A.businessId, note({ subject: "Customers this week" }))).subject).toBe("Customers this week");
+  });
+
+  it("never rewrites a person's own message, and keeps the subject within its limit", async () => {
+    await setGlossary({ customer: "client relationship" });
+    const human = await repos.inbox.createHumanMessage(r.db, r.B.businessId, { fromUserId: r.B.ownerId, subject: "About the customer", bodyMd: "The customer called." });
+    expect([human.subject, human.bodyMd]).toEqual(["About the customer", "The customer called."]);
+    const long = await repos.inbox.createItem(r.db, r.B.businessId, note({ from_agent_id: r.B.agentId, subject: `${"x".repeat(70)} customer` }));
+    expect(long.subject.length).toBeLessThanOrEqual(80);
+    expect(long.subject.endsWith("…")).toBe(true);
+  });
+});
+
 describe("inbox tabs, blocking count and decide", () => {
   let decisionId: string;
   beforeAll(async () => {
@@ -118,6 +148,34 @@ describe("inbox tabs, blocking count and decide", () => {
     expect(await repos.inbox.decisionsFor(r.db, r.A.businessId, decisionId)).toHaveLength(1);
   });
 
+  it("an answered item whose plan waits for the go-ahead stays in Respond (not blocking) until the plan is confirmed", async () => {
+    const inRespond = async (db: Parameters<typeof repos.inbox.list>[0], businessId: string) => (await repos.inbox.list(db, businessId, { tab: "respond", limit: 100 })).items.map((i) => i.id);
+    expect(await inRespond(r.db, r.A.businessId)).not.toContain(decisionId);
+    const respondBefore = (await repos.inbox.countByTab(r.db, r.A.businessId)).respond;
+    const plan = await repos.plans.create(r.db, r.A.businessId, { origin: "option", inboxItemId: decisionId, status: "pending_confirmation", actions: [{ type: "set_budget", params: { channel: "paid_ads", amount_minor: 50000 }, policyOutcome: "ask" }] });
+
+    expect(await inRespond(r.db, r.A.businessId)).toContain(decisionId);
+    expect((await repos.inbox.countByTab(r.db, r.A.businessId)).respond).toBe(respondBefore + 1);
+    // Continue stays free: the item was answered.
+    expect(await repos.inbox.countBlocking(r.db, r.A.businessId)).toBe(1);
+    const update = (await repos.inbox.list(r.db, r.A.businessId, { tab: "updates", limit: 1 })).items[0]!;
+    expect(await repos.plans.awaitingConfirmation(r.db, r.A.businessId, [decisionId, update.id])).toEqual(new Set([decisionId]));
+    expect((await repos.plans.awaitingConfirmation(r.db, r.A.businessId)).has(decisionId)).toBe(true);
+    expect((await repos.plans.awaitingConfirmation(r.db, r.B.businessId)).has(decisionId)).toBe(false);
+    // Through RLS: A's owner sees it in Respond; B's owner neither sees it nor learns that its plan waits.
+    expect(await r.as(r.A.ownerId, (tx) => inRespond(tx, r.A.businessId))).toContain(decisionId);
+    expect(await r.as(r.B.ownerId, (tx) => inRespond(tx, r.A.businessId))).toEqual([]);
+    expect((await r.as(r.B.ownerId, (tx) => repos.plans.awaitingConfirmation(tx, r.A.businessId, [decisionId]))).size).toBe(0);
+    expect((await repos.plans.awaitingConfirmation(r.db, r.B.businessId, [decisionId])).size).toBe(0);
+
+    expect(await repos.plans.statusesById(r.db, r.A.businessId, [plan.id, plan.id])).toEqual(new Map([[plan.id, "pending_confirmation"]]));
+    expect((await repos.plans.statusesById(r.db, r.B.businessId, [plan.id])).size).toBe(0);
+    await repos.plans.confirm(r.db, r.A.businessId, plan.id);
+    expect((await repos.plans.statusesById(r.db, r.A.businessId, [plan.id])).get(plan.id)).toBe("executing");
+    expect(await inRespond(r.db, r.A.businessId)).not.toContain(decisionId);
+    expect((await repos.plans.awaitingConfirmation(r.db, r.A.businessId, [decisionId])).size).toBe(0);
+  });
+
   it("markRead is idempotent and a member of A cannot read B's item", async () => {
     const [first] = (await repos.inbox.list(r.db, r.A.businessId, { tab: "updates", limit: 1 })).items;
     const read = await repos.inbox.markRead(r.db, r.A.businessId, first!.id);
@@ -139,6 +197,29 @@ describe("inbox tabs, blocking count and decide", () => {
     expect(await repos.inbox.bufferInvalidate(r.db, r.A.businessId)).toBe(1);
     expect(await repos.inbox.bufferConsume(r.db, r.A.businessId)).toBeNull();
     await expect(repos.inbox.bufferPush(r.db, r.A.businessId, { candidate: { ...note(), subject: "" } as ComposerItem, sourceHash: "bad" })).rejects.toThrow(/Invalid buffer candidate/);
+  });
+
+  it("composer buffer: a served candidate stays served when the same key is pushed again (audit CML-01)", async () => {
+    const A = r.A.businessId;
+    await repos.inbox.bufferPush(r.db, A, { candidate: note({ subject: "insight" }), sourceHash: "insight:cpa:x", priority: 199 });
+    const served = await repos.inbox.bufferConsume(r.db, A);
+    expect(served?.sourceHash).toBe("insight:cpa:x");
+    // The background refill pushes the unchanged insight again: the row is not revived as a candidate.
+    const again = await repos.inbox.bufferPush(r.db, A, { candidate: note({ subject: "insight again" }), sourceHash: "insight:cpa:x", priority: 199 });
+    expect(again.consumedAt).not.toBeNull();
+    expect((await repos.inbox.bufferList(r.db, A)).map((b) => b.sourceHash)).not.toContain("insight:cpa:x");
+    expect(await repos.inbox.bufferConsume(r.db, A)).toBeNull();
+    expect([...(await repos.inbox.bufferServed(r.db, A, ["insight:cpa:x", "insight:cpa:y"]))]).toEqual(["insight:cpa:x"]);
+    expect((await repos.inbox.bufferServed(r.db, r.B.businessId, ["insight:cpa:x"])).size).toBe(0);
+    expect((await repos.inbox.bufferServed(r.db, A, [])).size).toBe(0);
+    // A note written on demand is recorded as served under its key, and a pending candidate under that key is closed.
+    await repos.inbox.bufferPush(r.db, A, { candidate: note({ subject: "decision" }), sourceHash: "decision:x:1", priority: 100 });
+    const marked = await repos.inbox.bufferMarkServed(r.db, A, { candidate: note({ subject: "decision" }), sourceHash: "decision:x:1", priority: 100 });
+    expect(marked.consumedAt).not.toBeNull();
+    const fresh = await repos.inbox.bufferMarkServed(r.db, A, { candidate: note({ subject: "cold" }), sourceHash: "event:cold", priority: 300 });
+    expect(fresh.consumedAt).not.toBeNull();
+    expect(await repos.inbox.bufferList(r.db, A)).toEqual([]);
+    expect((await repos.inbox.bufferServed(r.db, A, ["decision:x:1", "event:cold"])).size).toBe(2);
   });
 });
 
@@ -184,6 +265,11 @@ describe("plans", () => {
     expect(confirmed.status).toBe("executing");
     expect(confirmed.confirmedAt).toBeInstanceOf(Date);
     await expect(repos.plans.confirm(r.db, r.A.businessId, plan.id)).rejects.toThrow(/not pending confirmation/);
+    // A second confirmation (another tab, a double press) claims nothing and changes nothing.
+    expect(await repos.plans.claimConfirmation(r.db, r.A.businessId, plan.id)).toBeNull();
+    expect((await repos.plans.get(r.db, r.A.businessId, plan.id)).confirmedAt?.getTime()).toBe(confirmed.confirmedAt!.getTime());
+    // Scoped: another business can neither claim it nor learn it exists.
+    expect(await repos.plans.claimConfirmation(r.db, r.B.businessId, plan.id)).toBeNull();
 
     const next = await repos.plans.nextPendingAction(r.db, r.A.businessId, plan.id);
     expect(next?.type).toBe("enable_channel");

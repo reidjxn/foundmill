@@ -137,6 +137,17 @@ describe("buildRibbonGeometry", () => {
   const index = indexDailyRows(big.rows, RIBBON_DEPARTMENTS, { last: big.today });
   const base = { index, departments: RIBBON_DEPARTMENTS, conversions: big.conversions, milestones: big.milestones, chapters: big.chapters, forecast: big.forecast, roadmap: big.roadmap, runwayMonths: 7.5, today: big.today, width: 1200, height: 300 } as const;
 
+  it("has no revenue scale without revenue, and whole-unit gridlines for a first cent (audit OL-31)", () => {
+    const quiet = indexDailyRows(small.rows.map((r) => ({ ...r, revenueMinor: 0, spendMinor: 0 })), RIBBON_DEPARTMENTS);
+    const g = buildRibbonGeometry({ ...base, index: quiet, forecast: undefined, zoom: "month" });
+    expect(g.revenue.ticks).toEqual([0]);
+    expect(g.revenue.max).toBe(1);
+    const cent = indexDailyRows(small.rows.map((r, i) => ({ ...r, revenueMinor: i === small.rows.length - 1 ? 1 : 0 })), RIBBON_DEPARTMENTS);
+    const c = buildRibbonGeometry({ ...base, index: cent, forecast: undefined, zoom: "month" });
+    expect(c.revenue.ticks.every((t) => Number.isInteger(t))).toBe(true);
+    expect(new Set(c.revenue.ticks).size).toBe(c.revenue.ticks.length);
+  });
+
   it("builds the revenue line and area on a round scale, the three bar rows, and places Today inside the ribbon", () => {
     const g = buildRibbonGeometry({ ...base, zoom: "quarter" });
     expect(g.revenue.linePath.startsWith("M")).toBe(true);

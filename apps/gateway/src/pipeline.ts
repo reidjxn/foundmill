@@ -6,18 +6,22 @@
  *   revoked BYOK key: deny before Cedar, SEC-1) → build the Cedar request (agent attrs from repos.agents,
  *   tool hints from the connector, business mode + holiday, suppression + untrusted-recipient context) → evaluate →
  *     deny  → audit, 403 (a hard gate also queues an approval so the founder sees the task)
- *     ask   → approvals row + `approval.requested` through the outbox, audit, return approvalId
+ *     ask   → the founder's approval of this very call runs it once (allow below); else the open approval of the same
+ *             call, or a new approvals row + `approval.requested` + its Inbox decision item through the outbox; audit,
+ *             return approvalId
  *     allow → decrypt credential in memory → connector.callTool → wrap untrusted content and remember
  *             its recipients for the session → meter into usage_ledger → audit → return
  *
  * `/v1/call` and `/mcp/:connector` both run this function; nothing reaches a vendor any other way.
  */
 import { createHash } from "node:crypto";
-import { AppError, BUSINESS_MODES, NotFoundError, type BusinessMode } from "@foundmill/shared";
+import { LIMITS } from "@foundmill/config";
+import { AppError, NotFoundError } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
-import { bookUsage, codeRepositoryOf, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
-import { evaluate, getPolicyEngine, type AgentAutonomy, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
+import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
+import { agentAutonomy, businessApprovalThreshold, evaluate, getPolicyEngine, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
 import {
+  ALWAYS_LIVE_CONNECTORS,
   canonicalJson,
   isConfigError,
   isUntrusted,
@@ -27,6 +31,7 @@ import {
   type Connector,
   type ConnectorMode,
   type ConnectorRegistry,
+  type DecryptedCredential,
   type HumanActionDescriptor,
   type IntegrationRecord,
   type McpToolDefinition,
@@ -34,12 +39,14 @@ import {
   type ToolLogger,
   type ToolResult,
 } from "@foundmill/connectors";
-import { loadCredential, toIntegrationRecord, type LoadedCredential } from "./credentials";
+import { loadCredential, persistRefreshedCredential, toIntegrationRecord, type LoadedCredential } from "./credentials";
 import { writeGatewayEvent } from "./events";
+import { securitySettingsChange } from "./security-settings";
+import { grantsOutboundTools, READER_UNAVAILABLE, type UntrustedReader } from "./untrusted-reader";
 import { checkRateLimit, type RateLimitStore } from "./rate-limit";
-import { candidatesFromArgs, candidatesFromContent, hashRecipient, type RecipientCandidate, type UntrustedRecipientRegistry } from "./recipients";
+import { candidatesFromArgs, candidatesFromContent, hashRecipient, type RecipientCandidate, type UntrustedRegister } from "./recipients";
 import { checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
-import { toolAllowed, toolRef, type SessionToken } from "./tokens";
+import { sessionKey, toolAllowed, toolRef, type SessionToken } from "./tokens";
 import type { AllowResponse, AskResponse, CallRequestParsed, CallResponse, DenyResponse, RateLimitedResponse } from "./types";
 
 export interface GatewayLogger extends ToolLogger {
@@ -55,7 +62,13 @@ export interface GatewayDeps {
   /** Connectors that run live while `mode` is mock (LIVE_CONNECTORS, e.g. GitHub before every other vendor). */
   liveConnectors?: readonly string[];
   rateLimits: RateLimitStore;
-  recipients: UntrustedRecipientRegistry;
+  /** Recipients first seen in untrusted content, shared by every session of a business (Redis in staging and production). */
+  recipients: UntrustedRegister;
+  /**
+   * Reads untrusted content for sessions that hold outbound tools (BUILD §9.8 step 2). Always set in a running gateway;
+   * tests that do not exercise the reader leave it out and get the content as before.
+   */
+  reader?: UntrustedReader;
   log: GatewayLogger;
   now?: () => Date;
   policyEngine?: PolicyEngine;
@@ -79,9 +92,12 @@ export interface ToolCallResult {
   body: CallResponse;
 }
 
-/** The mode one connector runs in for this gateway. */
+/**
+ * The mode one connector runs in for this gateway. The built-in `platform` and `quarantine` connectors always run live:
+ * their live side is the platform's own database and model client (ALWAYS_LIVE_CONNECTORS), never a vendor.
+ */
 export function modeFor(deps: Pick<GatewayDeps, "mode" | "liveConnectors">, connectorKey: string): ConnectorMode {
-  return deps.mode === "live" || deps.liveConnectors?.includes(connectorKey) ? "live" : deps.mode;
+  return deps.mode === "live" || deps.liveConnectors?.includes(connectorKey) || ALWAYS_LIVE_CONNECTORS.has(connectorKey) ? "live" : deps.mode;
 }
 
 /** Thrown for request errors that are not policy outcomes (unknown connector/tool, missing integration...). */
@@ -96,6 +112,14 @@ export function appInstallationVerified(row: Pick<Integration, "status" | "archi
   if (!verified || row.archivedAt !== null || (row.status !== "connected" && row.status !== "degraded")) return false;
   const externalAccountId = ((row.settings ?? {}) as { externalAccountId?: unknown }).externalAccountId;
   return typeof externalAccountId === "string" && externalAccountId === verified.installationId;
+}
+
+/**
+ * An integration a platform-key connector may run for (`auth.platformKey`): connected (or degraded) and not archived.
+ * A disconnected, expired, mock or archived row does not count, so disconnecting stops the platform key too.
+ */
+export function platformKeyConnected(row: Pick<Integration, "status" | "archivedAt">): boolean {
+  return row.archivedAt === null && (row.status === "connected" || row.status === "degraded");
 }
 
 /** Policy id on a call refused by the founder's GitHub push settings (audited like any deny). */
@@ -128,6 +152,24 @@ export class GatewayError extends AppError {
   }
 }
 
+/**
+ * What a log line may carry about an error. A failed query's message ends with its parameters (tool arguments, email
+ * bodies, amounts), and the error object itself carries them, so neither is ever logged: only the statement part of the
+ * message and the database's code, constraint and table.
+ */
+export function safeError(err: unknown): Record<string, unknown> {
+  if (!(err instanceof Error)) return { message: typeof err === "string" ? err.slice(0, 200) : "non-error thrown" };
+  const message = (err.message.split(/\n\s*params:/i)[0] ?? "").slice(0, 500);
+  const cause = (err as { cause?: unknown }).cause;
+  const db = cause && typeof cause === "object" ? (cause as { code?: unknown; constraint?: unknown; constraint_name?: unknown; table?: unknown; table_name?: unknown; message?: unknown }) : null;
+  return {
+    name: err.name,
+    message,
+    ...(err instanceof AppError ? { code: err.code } : {}),
+    ...(db ? { cause: { code: db.code, constraint: db.constraint ?? db.constraint_name, table: db.table ?? db.table_name, message: typeof db.message === "string" ? db.message.slice(0, 300) : undefined } } : {}),
+  };
+}
+
 /** Thrown by `loadContext` when the club or the agent may not work (SEC-1); `executeToolCall` turns it into an audited 403. */
 export class SessionStateDenied extends Error {
   constructor(readonly denial: StateDenial) {
@@ -138,8 +180,10 @@ export class SessionStateDenied extends Error {
 
 export const SESSION_SCOPE_POLICY_ID = "session-scope";
 export const HARD_GATE_POLICY_ID = "hard-gate";
+/** The Cedar policy that forbids a call the gateway recognised as a security-settings change (security-settings.ts). */
+export const SECURITY_SETTINGS_POLICY_ID = "hard-gate-security-settings";
 export const AUDIT_ACTION_TOOL_CALL = "tool.call";
-export { AGENT_ARCHIVED_POLICY_ID, AGENT_PAUSED_POLICY_ID, BUSINESS_ARCHIVED_POLICY_ID, KEY_REVOKED_POLICY_ID } from "./state";
+export { AGENT_ARCHIVED_POLICY_ID, AGENT_PAUSED_POLICY_ID, AGENTS_STOPPED_POLICY_ID, BUSINESS_ARCHIVED_POLICY_ID, KEY_REVOKED_POLICY_ID } from "./state";
 
 /** Finance-module connectors: read-only in v1 (BUILD §11.8, AC-11.8.5). The policy forbids any of their tools that would spend. */
 export const FINANCE_CONNECTORS: ReadonlySet<string> = new Set(["tink", "plaid", "ecb_rates"]);
@@ -151,24 +195,8 @@ export function toolAttributes(connector: string, tool: string): { finance: bool
   return { finance: FINANCE_CONNECTORS.has(connector), contract: CONTRACT_TOOLS.has(toolRef(connector, tool)) };
 }
 
-const MODE_ORDER: readonly BusinessMode[] = ["augmented", "assisted", "automated"];
-
-/** `agents.autonomy` (BUILD §9.2): `mode` is `inherit`, a business mode, or `lower` / `higher` relative to the business mode. */
-export function agentAutonomy(agent: Pick<Agent, "autonomy">, businessMode: BusinessMode): { autonomy: AgentAutonomy; spendCapMinor?: number; approvalThresholdMinor?: number } {
-  const raw = agent.autonomy ?? {};
-  const mode = raw["mode"];
-  let autonomy: AgentAutonomy = "inherit";
-  if (typeof mode === "string") {
-    if ((BUSINESS_MODES as readonly string[]).includes(mode)) autonomy = mode as BusinessMode;
-    else if (mode === "lower" || mode === "higher") {
-      const idx = MODE_ORDER.indexOf(businessMode);
-      const next = MODE_ORDER[Math.min(MODE_ORDER.length - 1, Math.max(0, idx + (mode === "lower" ? -1 : 1)))];
-      autonomy = next && next !== businessMode ? next : "inherit";
-    }
-  }
-  const minor = (v: unknown): number | undefined => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : undefined);
-  return { autonomy, spendCapMinor: minor(raw["spendCapMinor"]), approvalThresholdMinor: minor(raw["approvalThresholdMinor"]) };
-}
+// The principal's autonomy and thresholds live in @foundmill/policy, shared with plan evaluation (audit api-services-03).
+export { agentAutonomy, businessApprovalThreshold };
 
 const argsHash = (args: unknown): string => createHash("sha256").update(canonical(args), "utf8").digest("hex").slice(0, 32);
 
@@ -262,17 +290,28 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
   const decision = evaluate(policyInput, deps.policyEngine ?? getPolicyEngine());
 
   if (decision.outcome === "deny") return deny(deps, session, req, loaded, decision, args, log);
-  if (decision.outcome === "ask") return ask(deps, session, req, loaded, decision, args, log);
+  if (decision.outcome === "ask") {
+    // The founder already approved this very call (0030): it runs once under that approval instead of asking again,
+    // whether the session still waiting retries it or the next session on the task makes it. The approval covers the
+    // amount it was asked for, in the same currency, and no more; a deny (spend cap, hard gate, suppression) never
+    // reaches this point.
+    const granted = await repos.approvals.useGranted(deps.db, businessId, { sessionId: session.sessionId, agentId: session.agentId, connectorKey: connector.key, tool: tool.name, args: argsObject(args), amountMinor: req.context.amountMinor ?? 0, currency: req.context.currency ?? loaded.agent.currency });
+    if (granted) {
+      log.info({ approvalId: granted.id }, "tool call runs under the founder's approval");
+      return allow(deps, session, req, loaded, { ...decision, reasons: [...decision.reasons, `Approved by the founder (approval ${granted.id})`] }, args, log, now, granted.id);
+    }
+    return ask(deps, session, req, loaded, decision, args, log, now);
+  }
   return allow(deps, session, req, loaded, decision, args, log, now);
 }
 
 async function loadContext(deps: GatewayDeps, session: SessionToken, connector: Connector, tool: McpToolDefinition, now: () => Date): Promise<Loaded> {
   const { db } = deps;
-  const { businessId, agentId, sessionId } = session;
+  const { businessId, agentId } = session;
   // Archived clubs are loaded on purpose: the answer is a 403 with a stable policy id, not a 404.
   const business = await repos.businesses.get(db, businessId, { includeArchived: true }).catch(rethrowNotFound("business", businessId));
   const agent = await repos.agents.get(db, businessId, agentId).catch(rethrowNotFound("agent", agentId));
-  const denial = stateDenial(business, agent) ?? (await checkByokKey(db, stateCacheFor(deps), { businessId, sessionId, business, connectorKey: connector.key }, now().getTime()));
+  const denial = stateDenial(business, agent) ?? (await checkByokKey(db, stateCacheFor(deps), { businessId, sessionId: sessionKey(session), business, connectorKey: connector.key }, now().getTime()));
   if (denial) throw new SessionStateDenied(denial);
   const integrationRow = await repos.integrations.getByKey(db, businessId, connector.key);
   const holiday = await repos.holidays.current(db, businessId);
@@ -285,6 +324,17 @@ const rethrowNotFound =
     if (e instanceof NotFoundError) throw new GatewayError(`${what}_not_found`, `${what} ${id} is not available to this gateway`, 404, { [what]: id });
     throw e;
   };
+
+/**
+ * The amount the spend policy sees: never less than what the connector says the call costs (a number it derives from the
+ * arguments, which the agent cannot lower) and never less than what the caller reported. A spending tool the connector
+ * cannot price is treated as above the approval threshold, so it asks (audit GPC-09, SECX-9).
+ */
+export function policyAmountMinor(input: { spendsMoney: boolean; declaredMinor: number | null; reportedMinor: number; thresholdMinor: number | undefined }): number {
+  const known = Math.max(input.declaredMinor ?? 0, input.reportedMinor);
+  if (!input.spendsMoney || input.declaredMinor !== null) return known;
+  return Math.max(known, (input.thresholdMinor ?? LIMITS.approvalThresholdMinorDefault) + 1);
+}
 
 async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, args: unknown): Promise<EvaluateInputInput> {
   const { connector, tool, business, agent } = loaded;
@@ -302,10 +352,15 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     hardGate: hints.hardGate ?? false,
     finance: attrs.finance,
     contract: attrs.contract,
+    // Decided here from the call's arguments (never reported by the agent): a DNS change that routes or authenticates email.
+    securitySettings: securitySettingsChange(connector.key, tool.name, args) !== null,
   };
 
   // Spend cap: the agent's own cap, tightened by a holiday budget ceiling while one is active (BUILD §9.6).
   const caps = [autonomy.spendCapMinor, loaded.holidayActive ? (loaded.holidayBudgetMinor ?? undefined) : undefined].filter((v): v is number => typeof v === "number");
+  // Approval threshold: the agent's own, lowered to the founder's "Spend cap per action" (Commit, Settings › Mode), so
+  // above the business cap every spend asks first, whatever the mode.
+  const approvalThresholdMinor = businessApprovalThreshold(autonomy.approvalThresholdMinor, business.spendCapMinor);
   const principal: AgentCtxInput = {
     id: agent.id,
     department: agent.departmentIds[0] ?? "unassigned",
@@ -313,7 +368,7 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     modelKey: agent.modelKey,
     autonomy: autonomy.autonomy,
     ...(caps.length ? { spendCapMinor: Math.min(...caps) } : {}),
-    ...(autonomy.approvalThresholdMinor !== undefined ? { approvalThresholdMinor: autonomy.approvalThresholdMinor } : {}),
+    ...(approvalThresholdMinor !== undefined ? { approvalThresholdMinor } : {}),
   };
 
   // Recipients: suppression and untrusted-content checks only matter for tools that contact a third party.
@@ -325,8 +380,8 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     recipient ??= candidates[0]?.value;
     suppressed = await anySuppressed(deps, session.businessId, candidates);
     // A seeded session whose seed this replica does not hold (restart, another replica) fails closed.
-    const seedMissing = session.untrustedSeeded && !deps.recipients.isSeeded(session.sessionId);
-    recipientFirstSeenInUntrusted = candidates.length > 0 && (seedMissing || deps.recipients.firstSeenInUntrusted(session.sessionId, candidates).length > 0);
+    const seedMissing = session.untrustedSeeded && !(await deps.recipients.isSeeded(sessionKey(session)));
+    recipientFirstSeenInUntrusted = candidates.length > 0 && (seedMissing || (await deps.recipients.firstSeenInUntrusted(session.businessId, sessionKey(session), candidates)).length > 0);
   }
 
   return {
@@ -334,14 +389,15 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     tool: toolCtx,
     business: { id: business.id, businessMode: business.businessMode, holidayActive: loaded.holidayActive },
     context: {
-      amountMinor: req.context.amountMinor ?? 0,
+      amountMinor: policyAmountMinor({ spendsMoney: toolCtx.spendsMoney ?? false, declaredMinor: connector.estimateCostMinor?.(tool.name, args) ?? null, reportedMinor: req.context.amountMinor ?? 0, thresholdMinor: principal.approvalThresholdMinor }),
       ...(recipient ? { recipient } : {}),
       recipientFirstSeenInUntrusted,
       ...(req.context.recipientCountry ? { recipientCountry: req.context.recipientCountry } : {}),
       ...(req.context.localTimeAtRecipient ? { localTimeAtRecipient: req.context.localTimeAtRecipient } : {}),
       suppressed,
       holidayActive: loaded.holidayActive,
-      kitMode: session.kitMode || (req.context.kitMode ?? false),
+      // The session's flag, minted by the orchestrator: a kit-mode channel is never unlocked by an argument of the call.
+      kitMode: session.kitMode,
     },
   };
 }
@@ -393,13 +449,18 @@ async function appendAudit(deps: GatewayDeps, session: SessionToken, req: CallRe
 }
 
 async function deny(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger): Promise<ToolCallResult> {
-  const hardGate = decision.policyIds.includes(HARD_GATE_POLICY_ID);
+  const securityChange = decision.policyIds.includes(SECURITY_SETTINGS_POLICY_ID) ? securitySettingsChange(loaded.connector.key, loaded.tool.name, args) : null;
+  const hardGate = decision.policyIds.includes(HARD_GATE_POLICY_ID) || securityChange !== null;
   let approvalId: string | undefined;
   let humanAction: HumanActionDescriptor | undefined;
-  if (hardGate) {
+  if (securityChange) {
+    // The tool itself is not hard-gated, so it is never called here: the founder's task is described from the change.
+    humanAction = { connector: loaded.connector.key, tool: loaded.tool.name, title: securityChange.title, instructions: securityChange.instructions, args, reason: "hard_gate" };
+    approvalId = (await queueApproval(deps, session, req, loaded, decision, args, true, humanAction)).id;
+  } else if (hardGate) {
     // The connector refuses hard-gated tools before any handler runs and answers with the founder's instructions.
     humanAction = await hardGateDescriptor(deps, session, loaded, args, log);
-    approvalId = await queueApproval(deps, session, req, loaded, decision, args, true, humanAction);
+    approvalId = (await queueApproval(deps, session, req, loaded, decision, args, true, humanAction)).id;
   }
   const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons: decision.reasons, policyIds: decision.policyIds, approvalId });
   log.warn({ reasons: decision.reasons, policyIds: decision.policyIds, hardGate }, "tool call denied");
@@ -441,7 +502,7 @@ function placeholderIntegration(loaded: Loaded, mode: ConnectorMode): Integratio
   return mockIntegrationRecord(loaded.connector.key, loaded.business.id, mode === "mock" ? {} : { status: "disconnected" });
 }
 
-async function queueApproval(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, hardGate: boolean, humanAction?: HumanActionDescriptor): Promise<string> {
+async function queueApproval(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, hardGate: boolean, humanAction?: HumanActionDescriptor): Promise<{ id: string; approvedByAgent: boolean }> {
   const amount = req.context.amountMinor !== undefined && req.context.amountMinor > 0 ? { amountMinor: req.context.amountMinor, currency: req.context.currency ?? loaded.agent.currency } : null;
   const summary = humanAction ? `${humanAction.title}: ${humanAction.instructions}`.slice(0, 1000) : `${loaded.agent.name} wants to run ${loaded.connector.displayName} › ${loaded.tool.name}${req.context.recipient ? ` for ${req.context.recipient}` : ""}`.slice(0, 1000);
   return deps.db.transaction(async (tx) => {
@@ -449,12 +510,28 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
       planActionId: req.context.planActionId ?? null,
       agentId: session.agentId,
       sessionId: session.sessionId,
+      // A hard gate is a founder task, not a question: it never holds the task back for an answer (0030).
+      ...(hardGate ? { taskId: null } : {}),
       connectorKey: loaded.connector.key,
       tool: loaded.tool.name,
       args: argsObject(args),
       reasons: decision.reasons,
+      ...(amount ? { amountMinor: amount.amountMinor, currency: amount.currency } : {}),
+      // Routed by Team › Responsibilities (AC-11.9.2); a hard gate is always the founder's, never routed.
+      decisionType: hardGate ? null : decisionTypeFor(loaded, req, decision),
     });
-    await writeGatewayEvent(tx, {
+    // An agent the Responsibilities matrix names approved it as it opened: nothing to ask the founder, and the decision
+    // is on record like any other (`approval.resolved`, by that agent).
+    if (approval.outcome === "approved" && approval.byKind === "agent" && approval.byId) {
+      await writeGatewayEvent(tx, {
+        businessId: session.businessId,
+        type: "approval.resolved",
+        actor: { kind: "agent", id: approval.byId },
+        payload: { approvalId: approval.id, planActionId: approval.planActionId, agentId: session.agentId, outcome: "approved", resolvedBy: { kind: "agent", id: approval.byId }, note: "Delegated in Team › Responsibilities", latencyMs: 0 },
+      });
+      return { id: approval.id, approvedByAgent: true };
+    }
+    const requested = await writeGatewayEvent(tx, {
       businessId: session.businessId,
       type: "approval.requested",
       actor: { kind: "agent", id: session.agentId },
@@ -474,7 +551,18 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
         expiresAt: null,
       },
     });
-    return approval.id;
+    // The founder answers an "ask" in the Inbox (audit FR-01): one decision item names the agent, the task, the call
+    // and its amount, and its Approve or Reject reaches the session waiting on it. A hard gate stays a note.
+    if (!hardGate) {
+      const { item } = await openApprovalItem(tx, session.businessId, approval, { agentId: session.agentId, agentName: loaded.agent.name, connectorName: loaded.connector.displayName, sourceEventIds: [requested.id] });
+      await writeGatewayEvent(tx, {
+        businessId: session.businessId,
+        type: "inbox.item_created",
+        actor: { kind: "agent", id: session.agentId },
+        payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [requested.id], cost: null },
+      });
+    }
+    return { id: approval.id, approvedByAgent: false };
   });
 }
 
@@ -487,15 +575,23 @@ function decisionTypeFor(loaded: Loaded, req: CallRequestParsed, decision: Evalu
   return null;
 }
 
-async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger): Promise<ToolCallResult> {
-  const approvalId = await queueApproval(deps, session, req, loaded, decision, args, false);
+async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date): Promise<ToolCallResult> {
+  // One gated call has one approval (audit O-26): asked again while its approval is open (a retry, or the next session
+  // on the task), the call waits on that one instead of queueing a second request and a second Inbox item.
+  const open = await repos.approvals.claimOpen(deps.db, session.businessId, { sessionId: session.sessionId, agentId: session.agentId, connectorKey: loaded.connector.key, tool: loaded.tool.name, args: argsObject(args), amountMinor: req.context.amountMinor ?? 0, currency: req.context.currency ?? loaded.agent.currency });
+  const queued = open ? { id: open.id, approvedByAgent: false } : await queueApproval(deps, session, req, loaded, decision, args, false);
+  const approvalId = queued.id;
+  if (queued.approvedByAgent) {
+    log.info({ approvalId }, "approval decided by the agent Team › Responsibilities names; the call goes ahead");
+    return allow(deps, session, req, loaded, decision, args, log, now);
+  }
   const audit = await appendAudit(deps, session, req, { outcome: "ask", reasons: decision.reasons, policyIds: decision.policyIds, approvalId });
   log.info({ approvalId, reasons: decision.reasons }, "tool call needs approval");
   const body: AskResponse = { outcome: "ask", approvalId, reasons: decision.reasons, policyIds: decision.policyIds, costMinor: 0, auditId: audit.id };
   return { status: 200, body };
 }
 
-async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date): Promise<ToolCallResult> {
+async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date, approvalId?: string): Promise<ToolCallResult> {
   const { connector, tool } = loaded;
   const mode = modeFor(deps, connector.key);
   // Credential: decrypted in memory for this call only; never logged, never part of any response.
@@ -503,21 +599,28 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   // An App connector (GitHub) authenticates with the platform's App keys for the business's installation: it needs an
   // integration row the live connector verified (who installed it, checked with GitHub), not a stored secret.
   const appInstalled = connector.auth.kind === "app" && loaded.integrationRow !== null && appInstallationVerified(loaded.integrationRow, await repos.integrations.verifiedInstallation(deps.db, session.businessId, connector.key));
+  // A platform-key connector (registries, Voyage, E2B, Anthropic on credits, Stripe Connect) runs on the platform's own
+  // secret once the business connected it: its connect() stores no credential, so a stored one is not required.
+  const onPlatformKey = connector.auth.platformKey === true && loaded.integrationRow !== null && platformKeyConnected(loaded.integrationRow);
   if (loaded.integrationRow) {
     if (deps.vault) credential = await loadCredential(deps.db, deps.vault, session.businessId, loaded.integrationRow.id);
-    else if (mode === "live" && connector.auth.kind !== "none" && !appInstalled) throw new GatewayError("vault_unavailable", "No vault is configured; credentials cannot be decrypted", 503);
+    else if (mode === "live" && connector.auth.kind !== "none" && !appInstalled && !onPlatformKey) throw new GatewayError("vault_unavailable", "No vault is configured; credentials cannot be decrypted", 503);
   }
-  if (mode === "live" && connector.auth.kind !== "none" && !credential && !appInstalled) {
+  if (mode === "live" && connector.auth.kind !== "none" && !credential && !appInstalled && !onPlatformKey) {
     throw new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business`, 409, { connector: connector.key });
   }
   const integration: IntegrationRecord = loaded.integrationRow ? toIntegrationRecord(loaded.integrationRow, credential) : mockIntegrationRecord(connector.key, session.businessId, mode === "mock" ? {} : { status: "connected" });
 
+  const vault = deps.vault;
+  const loadedCredential = credential;
   const ctx: ToolContext = {
     businessId: session.businessId,
     agentId: session.agentId,
     sessionId: session.sessionId,
     integration,
-    ...(credential ? { credential: credential.credential } : {}),
+    ...(loadedCredential ? { credential: loadedCredential.credential } : {}),
+    // A token the connector refreshed (Google, Tink) is sealed back into the same row, so the next call reuses it.
+    ...(loadedCredential && vault ? { onCredentialRefreshed: (refreshed: DecryptedCredential) => persistRefreshedCredential(deps.db, vault, session.businessId, loadedCredential, refreshed) } : {}),
     log,
     mode,
   };
@@ -544,37 +647,55 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   if (isUntrusted(result.data)) {
     const { content } = readForQuarantine(result.data);
     const found = candidatesFromContent(content);
-    const added = deps.recipients.record(session.sessionId, found);
-    if (added > 0) log.debug({ added }, "recipients first seen in untrusted content recorded for this session");
+    const added = await deps.recipients.record(session.businessId, found);
+    if (added > 0) log.debug({ added }, "recipients first seen in untrusted content recorded for this business");
     data = toAgentEnvelope(result.data);
+    // An agent that can contact people, spend or do something irreversible never reads third-party text raw: a model with no
+    // tools reads it and the agent gets typed fields only (BUILD §9.8 step 2). If the reader fails, the agent gets nothing.
+    if (deps.reader && grantsOutboundTools(deps.registry, session.allowedTools)) {
+      try {
+        const digest = await deps.reader.digest({ content, businessId: session.businessId, agentId: session.agentId, sessionId: session.sessionId });
+        data = { ...toAgentEnvelope(result.data), content: digest, quarantined: true };
+      } catch (err) {
+        log.warn({ err: (err as Error).message }, "quarantined reader failed; the content is withheld");
+        data = { ...toAgentEnvelope(result.data), content: null, quarantined: true, unavailable: READER_UNAVAILABLE };
+      }
+    }
     untrusted = true;
   }
 
   const costMinor = Math.max(0, Math.round(result.costMinor ?? connector.costModel?.(tool.name, args) ?? 0));
-  if (result.ok) {
-    // Billed to the business's own key or the platform's credits; a credits row is charged to the period's balance.
-    await bookUsage(deps.db, session.businessId, {
-      agentId: session.agentId,
-      sessionId: session.sessionId,
-      kind: "tool",
-      quantity: 1,
-      unit: "calls",
-      costMinor,
-      currency: loaded.agent.currency,
-      billedTo: loaded.business.modelBilling,
-      occurredAt: now(),
-      details: { connector: connector.key, tool: tool.name, mode: modeFor(deps, connector.key), untrusted, label: "Estimate" },
-    });
-  }
+  // The vendor action has run: from here on nothing may turn it into a failure the agent (or a Temporal retry) repeats.
+  // The audit row comes first and on its own; booking the usage cannot fail the call, it is logged instead.
   const audit = await appendAudit(deps, session, req, {
     outcome: "allow",
     reasons: decision.reasons,
     policyIds: decision.policyIds,
+    ...(approvalId ? { approvalId } : {}),
     costMinor,
     resultOk: result.ok,
     errorCode: result.error?.code,
     untrusted,
   });
+  if (result.ok) {
+    try {
+      // Billed to the business's own key or the platform's credits; a credits row is charged to the period's balance.
+      await bookUsage(deps.db, session.businessId, {
+        agentId: session.agentId,
+        sessionId: session.sessionId,
+        kind: "tool",
+        quantity: 1,
+        unit: "calls",
+        costMinor,
+        currency: loaded.agent.currency,
+        billedTo: loaded.business.modelBilling,
+        occurredAt: now(),
+        details: { connector: connector.key, tool: tool.name, mode: modeFor(deps, connector.key), untrusted, label: "Estimate", auditId: audit.id },
+      });
+    } catch (e) {
+      log.error({ err: safeError(e), auditId: audit.id, costMinor }, "tool call executed but its usage could not be booked");
+    }
+  }
   log.info({ ok: result.ok, costMinor, untrusted, errorCode: result.error?.code }, "tool call executed");
   const body: AllowResponse = {
     outcome: "allow",

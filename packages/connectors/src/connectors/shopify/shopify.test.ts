@@ -53,6 +53,24 @@ describe("shopify normalisation, hard gate and state", () => {
     const [signup] = await webhook.normalise(signedShopifyRequest(TEST_BUSINESS_ID, "customers/create", SH_CUSTOMERS[1]));
     expect(signup!.payload).toMatchObject({ provider: "shopify", consentState: "unknown" });
   });
+  it("carries the shopper and where the order came from (landing page UTM tags, referrer, discount code)", async () => {
+    const webhook = shopifyMock.webhooks![0]!;
+    const [order] = await webhook.normalise(signedShopifyRequest(TEST_BUSINESS_ID, "orders/paid", SH_ORDERS[0], { webhookId: wid() }));
+    expect(order!.payload).toMatchObject({
+      customer: { externalId: "6100000002", email: "lotta@brightdental.se", name: null },
+      source: { utmSource: "instagram", utmMedium: "social", utmCampaign: "autumn", referrer: "https://www.instagram.com/", code: "MAJA10" },
+    });
+    const [signup] = await webhook.normalise(signedShopifyRequest(TEST_BUSINESS_ID, "customers/create", SH_CUSTOMERS[2], { webhookId: wid() }));
+    expect(signup!.payload).toMatchObject({ customer: { externalId: "6100000003", email: "maja@sensitiveskinclub.se", name: "Maja Berg" } });
+    const [plain] = await webhook.normalise(signedShopifyRequest(TEST_BUSINESS_ID, "orders/paid", { ...SH_ORDERS[1]!, landing_site: "/", referring_site: null, discount_codes: [] }, { webhookId: wid() }));
+    expect(plain!.payload).toMatchObject({ source: null });
+  });
+  it("simulates another shopper for another email", async () => {
+    const [a] = await shopifyMock.simulate("payment.received", { businessId: TEST_BUSINESS_ID, seed: "s1", email: "one@example.com" });
+    const [b] = await shopifyMock.simulate("payment.received", { businessId: TEST_BUSINESS_ID, seed: "s2", email: "two@example.com" });
+    expect((a!.payload as { entityId: string }).entityId).not.toBe((b!.payload as { entityId: string }).entityId);
+    expect(a!.payload).toMatchObject({ customer: { email: "one@example.com" } });
+  });
   it("refund_order is a hard gate; cancel_order is irreversible and works once", async () => {
     const mock = createShopifyMock();
     const ctx = makeToolContext(mock);
@@ -113,7 +131,8 @@ describe("shopify live (canned responses)", () => {
   it("throws ConfigError without a token or shop", async () => {
     const c = createShopifyConnector({ secrets: {} });
     await expect(c.callTool("get_shop", {}, makeToolContext(c, { mode: "live" }))).rejects.toMatchObject({ code: "connector_unconfigured" });
-    await expect(c.connect(TEST_BUSINESS_ID, { shop: "not a shop" })).rejects.toMatchObject({ code: "connector_unconfigured" });
+    // A bad shop domain is the founder's input to fix (400), not a platform setting.
+    await expect(c.connect(TEST_BUSINESS_ID, { shop: "not a shop" })).rejects.toMatchObject({ code: "validation", status: 400 });
     expect(await c.webhooks![0]!.verify(signedShopifyRequest(TEST_BUSINESS_ID, "orders/create", SH_ORDERS[0]))).toBe(false);
   });
 });

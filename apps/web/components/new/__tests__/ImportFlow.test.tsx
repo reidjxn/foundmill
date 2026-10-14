@@ -2,55 +2,62 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@foundmill/dugout";
-import { DEFAULT_POLL_MS, ImportFlow, type ImportRunner } from "../import/ImportScreen";
+import { DEFAULT_POLL_MS, ImportFlow, commitFromImportHref, importJobHref, type ImportFlowProps, type ImportRunner } from "../import/ImportScreen";
 import type { ImportJob, ImportStatus, ScoutingReport, SourceConfig } from "../import/import-job";
 
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
-const GITHUB_STEPS = ["Clone acme/ledgerly into the sandbox (read only)", "Summarise the file tree", "Read the top 200 files by importance", "Run the test suite if one exists", "Turn open issues into roadmap seeds", "Confirm nothing was pushed"];
-const STRIPE_STEPS = ["Read customers and subscriptions", "Read invoices and payments", "Build revenue history"];
+/** The API's sign-up job: one check per source, then the read planned for after commit (nothing is read here). */
+const SOURCES = [
+  { key: "github" as const, value: "acme/ledgerly", check: "Check the repository name acme/ledgerly", read: "Read the file tree of acme/ledgerly through the GitHub App (read only; nothing is pushed)", summary: "Not read yet: read after you take charge (read only)." },
+  { key: "stripe" as const, value: "", check: "Note the Stripe connection it needs", read: "Read the Stripe account (read only)", summary: "Not read yet: read after you take charge, if Stripe is connected in Settings › Integrations." },
+];
 
-/** The API's deterministic local job, replayed from a fake clock: `t` steps done out of nine. */
+/** The API's deterministic local job, replayed from a fake clock: `t` checks done out of two. */
 function jobAt(t: number): ImportJob {
-  let i = 0;
-  const source = (key: "github" | "stripe", value: string, labels: string[]): ImportJob["sources"][number] => {
-    const steps = labels.map((label, n) => {
-      const idx = i++;
-      return { id: `${key}:${n}`, label, status: idx < t ? ("done" as const) : idx === t ? ("running" as const) : ("queued" as const) };
-    });
-    const done = steps.every((s) => s.status === "done");
-    return { key, value, sourceId: null, status: done ? "done" : steps.some((s) => s.status !== "queued") ? "running" : "queued", steps, summary: done ? (key === "github" ? "212 files read, 40 tests passing, 9 open issues, nothing pushed" : "120 customers, 14 months of revenue") : null };
-  };
-  const sources = [source("github", "acme/ledgerly", GITHUB_STEPS), source("stripe", "", STRIPE_STEPS)];
-  const all = sources.every((s) => s.status === "done");
-  return { id: "job-1", mode: "local", businessId: null, workflowId: null, status: all ? "done" : "running", sources, startedAt: "2026-10-07T10:00:00.000Z", finishedAt: all ? "2026-10-07T10:00:04.000Z" : null, stepMs: 400 };
+  const sources: ImportJob["sources"] = SOURCES.map((src, i) => {
+    const check = i < t ? ("done" as const) : i === t ? ("running" as const) : ("queued" as const);
+    return {
+      key: src.key,
+      value: src.value,
+      sourceId: null,
+      status: check === "done" ? "planned" : check,
+      steps: [
+        { id: `${src.key}:0`, label: src.check, status: check },
+        { id: `${src.key}:1`, label: src.read, status: "planned" as const },
+      ],
+      summary: check === "done" ? src.summary : null,
+    };
+  });
+  const all = sources.every((s) => s.status === "planned");
+  return { id: "job-1", mode: "local", businessId: null, workflowId: null, status: all ? "done" : "running", sources, startedAt: "2026-10-07T10:00:00.000Z", finishedAt: all ? "2026-10-07T10:00:00.240Z" : null, stepMs: 120 };
 }
 
 const report: ScoutingReport = {
   title: "Import report: Ledgerly",
   suggestedName: "Ledgerly",
   archetypeHint: "b2b_saas",
-  summary: "Ledgerly: 2 sources imported.",
-  whatExists: ["GitHub (acme/ledgerly): 212 files read", "Stripe: 120 customers"],
+  summary: "Ledgerly: 2 sources to read after you take charge; nothing has been read yet.",
+  whatExists: ["GitHub (acme/ledgerly): Not read yet: read after you take charge (read only).", "Stripe: Not read yet: read after you take charge, if Stripe is connected in Settings › Integrations."],
   whatIsMissing: ["No bank connection: runway stays an estimate until one is added."],
-  strengths: ["A working codebase with a test suite."],
-  weaknesses: ["No deployment pipeline was found; releases look manual."],
+  strengths: ["Once GitHub is read after you take charge, agents start from your real code, not a blank repository."],
+  weaknesses: ["Nothing has been read yet, so no weakness is measured: the team reports what it finds once the import has read your sources."],
   firstDecisions: [
     { id: "spec", label: "Rebuild the Specification from the imported sources", recommended: true, consequence: "The Product lead drafts the spec.", reversible: true },
-    { id: "roadmap", label: "Seed the roadmap from open issues", recommended: false, consequence: "Open issues become roadmap items.", reversible: true },
-    { id: "finance", label: "Build the management P&L from revenue history", recommended: false, consequence: "Finance reconciles revenue.", reversible: true },
+    { id: "roadmap", label: "Seed the roadmap from open issues", recommended: false, consequence: "Open issues the import reads become roadmap items.", reversible: true },
+    { id: "finance", label: "Build the management P&L from revenue history", recommended: false, consequence: "Finance reconciles revenue once it is read.", reversible: true },
   ],
-  roadmapSeeds: [
-    { title: "Onboarding drop-off after sign-up", source: "acme/ledgerly issue #12" },
-    { title: "Export to CSV", source: "acme/ledgerly issue #40" },
-    { title: "Webhook retries on timeout", source: "acme/ledgerly issue #77" },
+  roadmapSeeds: [],
+  sources: [
+    { key: "github", label: "GitHub", value: "acme/ledgerly", state: "planned", note: SOURCES[0]!.summary },
+    { key: "stripe", label: "Stripe", value: "", state: "planned", note: SOURCES[1]!.summary },
   ],
   neverPushed: true,
   provenance: "Estimate",
 };
 
-/** A runner that advances the job three steps per status poll, like the API's clock-driven local job. */
+/** A runner that advances the job one check per status poll, like the API's clock-driven local job. */
 function fakeRunner(): ImportRunner & { starts: unknown[]; polls: number } {
   let t = 0;
   const status = (): ImportStatus => {
@@ -67,31 +74,32 @@ function fakeRunner(): ImportRunner & { starts: unknown[]; polls: number } {
     }),
     status: vi.fn(async () => {
       r.polls++;
-      t = Math.min(9, t + 3);
+      t = Math.min(2, t + 1);
       return status();
     }),
   };
   return r;
 }
 
-function renderFlow(runner: ImportRunner, onContinue = vi.fn(), onReport = vi.fn()) {
+function renderFlow(runner: ImportRunner, onContinue = vi.fn(), onReport = vi.fn(), extra: Partial<ImportFlowProps> = {}) {
   render(
     <TooltipProvider>
-      <ImportFlow viewer={{ email: null }} runner={runner} onContinue={onContinue} onReport={onReport} pollMs={0} />
+      <ImportFlow viewer={{ email: null }} runner={runner} onContinue={onContinue} onReport={onReport} pollMs={0} {...extra} />
     </TooltipProvider>,
   );
   return onContinue;
 }
 
 describe("ImportFlow (BUILD §11.1 Door B, AC-11.1.5)", () => {
-  it("lists the ten read-only sources and needs one chosen before it starts", () => {
+  it("lists the ten read-only sources, says which the import cannot read yet, and needs one chosen before it starts", () => {
     renderFlow(fakeRunner());
     expect(document.querySelectorAll("[data-source]")).toHaveLength(10);
     expect(screen.getAllByText("Read only")).toHaveLength(10);
+    expect([...document.querySelectorAll("[data-source]")].filter((el) => el.querySelector("[data-testid='no-import-reader']")).map((el) => el.getAttribute("data-source")).sort()).toEqual(["jira", "linear"]);
     expect((screen.getByTestId("start-import") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("validates the repository locally, starts the job on the API, polls it to the report and never pushed", async () => {
+  it("validates the repository locally, starts the job on the API, polls it to a report that claims nothing as read", async () => {
     const runner = fakeRunner();
     const onContinue = renderFlow(runner);
     fireEvent.click(screen.getByLabelText("Import from GitHub"));
@@ -106,13 +114,18 @@ describe("ImportFlow (BUILD §11.1 Door B, AC-11.1.5)", () => {
     // Normalised values go to the API; the reduced-motion/zero-poll path asks for the fastest local job.
     expect(runner.starts[0]).toEqual({ sources: [{ key: "github", value: "acme/ledgerly" }, { key: "stripe", value: "" }], stepMs: 1 });
     await waitFor(() => expect(screen.getByTestId("scouting-report")).toBeTruthy());
-    expect(runner.polls).toBe(3);
+    expect(runner.polls).toBe(2);
     expect(screen.getByTestId("never-pushed").textContent).toMatch(/Nothing was pushed/);
+    expect(screen.getByTestId("report-read-state").textContent).toMatch(/Nothing read yet/);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Import report: Ledgerly");
-    expect(screen.getByTestId("roadmap-seeds").querySelectorAll("li").length).toBeGreaterThanOrEqual(3);
+    expect(screen.getByTestId("roadmap-seeds").querySelectorAll("li")).toHaveLength(0);
+    expect(screen.getByTestId("roadmap-seeds").textContent).toMatch(/No open issues have been read/);
     expect(screen.getByTestId("first-decisions").querySelectorAll("[data-recommended]")).toHaveLength(1);
-    expect(document.querySelectorAll('[data-source-progress][data-status="done"]')).toHaveLength(2);
-    expect(document.querySelectorAll('[data-source-progress="github"] [data-step-status="done"]')).toHaveLength(6);
+    // Checked now, read after commit: no source and no read step shows as done.
+    expect(document.querySelectorAll('[data-source-progress][data-status="planned"]')).toHaveLength(2);
+    expect(document.querySelectorAll('[data-source-progress="github"] [data-step-status="done"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-source-progress="github"] [data-step-status="planned"]')).toHaveLength(1);
+    expect(screen.getAllByText("After you take charge").length).toBe(2);
     expect(screen.getAllByText("Estimate").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByTestId("continue-to-commit"));
     expect(onContinue).toHaveBeenCalledTimes(1);
@@ -155,7 +168,7 @@ describe("ImportFlow (BUILD §11.1 Door B, AC-11.1.5)", () => {
       fireEvent.click(screen.getByTestId("start-import"));
     });
     await waitFor(() => expect(screen.getByTestId("import-progress")).toBeTruthy());
-    expect(screen.getByTestId("import-progress").textContent).toMatch(/0 of 9 steps/);
+    expect(screen.getByTestId("import-progress").textContent).toMatch(/0 of 2 steps/); // the two checks; the reads come after commit
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByTestId("import-sources")).toBeTruthy();
   });
@@ -172,5 +185,90 @@ describe("ImportFlow (BUILD §11.1 Door B, AC-11.1.5)", () => {
     });
     await waitFor(() => expect(screen.getByTestId("import-start-error").textContent).toMatch(/Check the sources/));
     expect(screen.getByTestId("import-sources")).toBeTruthy();
+  });
+
+  it("keeps the job in the address and finds it again after a reload, Back or the Commit Back link (audit IAE-12)", async () => {
+    const runner = fakeRunner();
+    const onJob = vi.fn();
+    renderFlow(runner, vi.fn(), vi.fn(), { onJob });
+    fireEvent.click(screen.getByLabelText("Import from Stripe"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("start-import"));
+    });
+    await waitFor(() => expect(screen.getByTestId("scouting-report")).toBeTruthy());
+    expect(onJob).toHaveBeenCalledWith("job-1");
+    fireEvent.click(screen.getByRole("button", { name: "Change sources" }));
+    expect(onJob).toHaveBeenLastCalledWith(null);
+    expect(importJobHref("job-1")).toBe("/new/import?job=job-1");
+    expect(importJobHref(null)).toBe("/new/import");
+  });
+
+  it("resumes a finished import from ?job= without starting another, and the picker behind it remembers the sources", async () => {
+    const runner = fakeRunner();
+    runner.status = vi.fn(async () => ({ job: jobAt(9), report, workflow: null }));
+    const onReport = vi.fn();
+    renderFlow(runner, vi.fn(), onReport, { resumeJobId: "job-1" });
+    await waitFor(() => expect(screen.getByTestId("scouting-report")).toBeTruthy());
+    expect(runner.start).not.toHaveBeenCalled();
+    expect(runner.status).toHaveBeenCalledWith("job-1");
+    expect(onReport).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Import report: Ledgerly");
+    fireEvent.click(screen.getByRole("button", { name: "Change sources" }));
+    expect((screen.getByLabelText("Import from GitHub") as HTMLInputElement).getAttribute("aria-checked")).toBe("true");
+    expect((screen.getByLabelText("Repository") as HTMLInputElement).value).toBe("acme/ledgerly");
+  });
+
+  it("a job that cannot be found shows the picker with a plain message and clears the address", async () => {
+    const runner = fakeRunner();
+    runner.status = vi.fn(async () => {
+      throw new Error("import job not found");
+    });
+    const onJob = vi.fn();
+    renderFlow(runner, vi.fn(), vi.fn(), { resumeJobId: "gone", onJob });
+    await waitFor(() => expect(screen.getByTestId("import-start-error").textContent).toMatch(/no longer available/));
+    expect(screen.getByTestId("import-start-error").textContent).not.toMatch(/not found/);
+    expect(onJob).toHaveBeenCalledWith(null);
+  });
+
+  it("a double click on Continue to Commit continues once (audit IAE-07)", async () => {
+    const runner = fakeRunner();
+    runner.status = vi.fn(async () => ({ job: jobAt(9), report, workflow: null }));
+    const onContinue = renderFlow(runner, vi.fn(), vi.fn(), { resumeJobId: "job-1" });
+    await waitFor(() => expect(screen.getByTestId("scouting-report")).toBeTruthy());
+    const button = screen.getByTestId("continue-to-commit");
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(onContinue).toHaveBeenCalledTimes(1);
+  });
+
+  it("Commit opens with the name, the report's archetype and the job to come back to", () => {
+    expect(commitFromImportHref("idea-1", report, "job 1/x")).toBe("/new/commit/idea-1?name=Ledgerly&from=import&archetype=b2b_saas&job=job%201%2Fx");
+  });
+
+  it("shows the roadmap seeds' sources as written and lets a long one shrink instead of crushing the title (audit IAE-13)", async () => {
+    const runner = fakeRunner();
+    const seeded = { ...report, roadmapSeeds: [{ title: "Export to CSV", source: "AcmeOrg/web-app issue #89" }, { title: "Rate limit public API", source: "Linear LIN-880" }, { title: "Audit log", source: "Jira ISS-301" }] };
+    runner.status = vi.fn(async () => ({ job: jobAt(9), report: seeded, workflow: null }));
+    renderFlow(runner, vi.fn(), vi.fn(), { resumeJobId: "job-1" });
+    await waitFor(() => expect(screen.getByTestId("scouting-report")).toBeTruthy());
+    const seeds = screen.getByTestId("roadmap-seeds");
+    for (const text of ["AcmeOrg/web-app issue #89", "Linear LIN-880", "Jira ISS-301"]) {
+      const label = Array.from(seeds.querySelectorAll("li span")).find((n) => n.textContent === text);
+      expect(label, text).toBeTruthy();
+      expect(label!.getAttribute("title")).toBe(text);
+      expect(label!.className).toMatch(/\btruncate\b/);
+      expect(label!.className).not.toMatch(/shrink-0/);
+    }
+    expect(seeds.textContent).not.toMatch(/Linear lin|Acmeorg/);
+  });
+
+  it("step icons keep their size when a label wraps (audit IAE-23)", async () => {
+    const runner = fakeRunner();
+    runner.status = vi.fn(async () => ({ job: jobAt(9), report, workflow: null }));
+    renderFlow(runner, vi.fn(), vi.fn(), { resumeJobId: "job-1" });
+    await waitFor(() => expect(screen.getByTestId("scouting-report")).toBeTruthy());
+    const icons = document.querySelectorAll('[data-testid="step-icon"]');
+    expect(icons.length).toBe(jobAt(9).sources.flatMap((src) => src.steps).length);
+    for (const icon of Array.from(icons)) expect(icon.className).toMatch(/shrink-0/);
   });
 });

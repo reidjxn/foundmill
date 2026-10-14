@@ -110,6 +110,8 @@ export async function runSimulation(deps: IngestDeps, eventName: string, body: z
   const source = `simulate:${mock?.key ?? "generic"}`;
   try {
     const result = await ingestPlatformEvents(deps.db, stamped, { source, actor: SIMULATE_ACTOR, log: deps.log });
+    // A simulated payment is narrated and refined exactly like a delivered one.
+    deps.followups.dispatch(result);
     deps.log.info({ eventName, connector: mock?.key ?? null, businessId: body.businessId, requestedBy: token.userId, svc: token.svc, written: result.written, duplicates: result.duplicates }, "simulation ingested");
     return { eventName, connector: mock?.key ?? null, events: stamped, result };
   } catch (e) {

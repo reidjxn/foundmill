@@ -3,6 +3,8 @@
  * blocks, roadmap items, tasks in mixed states with sessions, Inbox items with validated entity links, integrations
  * in mock status, legal records and the founder's Home dashboard. The business modules supply the words.
  */
+import { CREDITS_CURRENCY } from "@foundmill/config";
+import { presetWidgets } from "@foundmill/config";
 import { CHANNEL_KEYS, CHANNEL_META, ENTITY_MARKUP_RE, MODULE_KEYS, type ChannelKey, type InboxItemType, type TaskKind, type TaskStatus } from "@foundmill/shared";
 import { eq } from "drizzle-orm";
 import { repos, type ComposerItem } from "../repos";
@@ -38,11 +40,13 @@ export async function seedChannels(ctx: SeedCtx, businessId: string, squad: Squa
         recommended,
         fit,
         potential: Math.min(100, fit * 4 + rng.int(0, 15)),
-        whyMd: plan.why?.[channelKey] ?? `${CHANNEL_META[channelKey].label}: fit ${fit}/20 for this club (Estimate). ${recommended ? "Recommended starter." : enabled ? "Running." : "Available on request."}`,
+        whyMd: plan.why?.[channelKey] ?? `${CHANNEL_META[channelKey].label}: fit ${fit}/20 for this business (Estimate). ${recommended ? "Recommended starter." : enabled ? "Running." : "Available on request."}`,
         budgetMinor: plan.budgetMinor?.[channelKey] ?? (enabled ? rng.int(4, 24) * 2_500 : 0),
         currency,
         kitMode: plan.kitMode?.[channelKey] ?? CHANNEL_META[channelKey].kitModeByDefault,
         ownerAgentId: squad.byTemplate.get(`channel_${channelKey}`)?.agent.id ?? null,
+        // The demo's channels were scored by its Distribution Strategist (0046 scored_at).
+        scoredAt: ctx.today,
       };
     }),
   );
@@ -105,6 +109,21 @@ export async function seedSpec(ctx: SeedCtx, businessId: string, outline: readon
   }
   await repos.product.publishVersion(ctx.db, businessId, { changelogMd: "Specification v1 drafted from the concept card (synthetic demo).", publishedBy: ctx.owner.userId });
   return ids;
+}
+
+/**
+ * A seeded source's `relevance` in the shape the Source Watcher writes (packages/agents source-watcher.ts) and the
+ * Sources and Research tabs read: a summary, the spec blocks it touches with scores, topics, and when it was checked.
+ */
+export function seededRelevance(
+  specIds: ReadonlyMap<string, string>,
+  input: { summary: string; sections: readonly (readonly [string, number])[]; topics: readonly string[]; checkedAt: Date; severity?: "low" | "normal" | "critical"; extra?: Record<string, unknown> },
+): Record<string, unknown> {
+  const blocks = input.sections.flatMap(([section, score]) => {
+    const blockId = specIds.get(section);
+    return blockId ? [{ blockId, score, reason: "" }] : [];
+  });
+  return { summary: input.summary, blocks, topics: [...input.topics], severity: input.severity ?? "normal", ...input.extra, watch: { status: "scored", checkedAt: input.checkedAt.toISOString(), costLabel: "Estimate" } };
 }
 
 // --- roadmap ----------------------------------------------------------------------------------------------------------------
@@ -214,7 +233,7 @@ export async function seedTasks(ctx: SeedCtx, businessId: string, specs: TaskSpe
         tokensIn,
         tokensOut: Math.round(tokensIn * 0.12),
         costMinor: Math.round(hours * 180),
-        currency,
+        currency: CREDITS_CURRENCY,
         outcome: open ? null : s.status === "done" ? "completed" : s.status === "failed" ? "failed" : s.status === "stopped" ? "stopped" : "handed_over",
         recordingRef: s.recordingRef ?? null,
       });
@@ -259,7 +278,7 @@ export async function seedHistoricalTasks(ctx: SeedCtx, businessId: string, squa
     const tokensIn = Math.round(hours * 180_000);
     sessions.push({
       id, businessId, agentId: assignee.agent.id, versionId: assignee.versionId, taskId: task.id, workflowId: `session:${id}`, modelKey: assignee.agent.modelKey,
-      startedAt, endedAt, tokensIn, tokensOut: Math.round(tokensIn * 0.11), costMinor: Math.round(hours * 180), currency, outcome: failed ? "failed" : "completed", recordingRef: null,
+      startedAt, endedAt, tokensIn, tokensOut: Math.round(tokensIn * 0.11), costMinor: Math.round(hours * 180), currency: CREDITS_CURRENCY, outcome: failed ? "failed" : "completed", recordingRef: null,
     });
     made += 1;
   }
@@ -277,6 +296,7 @@ export interface InboxSpec {
   statusStrip?: Array<{ metric: string; source: string }>;
   exhibit?: { kind: "chart" | "table" | "entity_card" | "diagram" | "diff" | "agent_tile"; spec_ref: string };
   decision?: { options: Array<{ id: string; label: string; recommended: boolean; consequence: string; cost_minor: number; reversible: boolean }>; free_text: boolean; expires_at: string | null };
+  /** Overrides the type rule below (a decision and a win block Continue until they are answered). */
   blocksContinue?: boolean;
   sourceEventIds?: string[];
   /** Extra entity ids beyond those found in the body markup. */
@@ -290,6 +310,15 @@ export interface InboxSpec {
 
 export const entityIdsIn = (body: string): string[] => [...new Set([...body.matchAll(ENTITY_MARKUP_RE)].map((m) => m[1]!))];
 
+/**
+ * The composer's rule (DECISIONS: `blocks_continue` is set by the type rules): a decision and a win block Continue while
+ * they are open, so the demo businesses show the Continue states a real one does (audit OL-32).
+ */
+function blocksContinueFor(s: Pick<InboxSpec, "type" | "state" | "decided">): boolean {
+  if (s.decided || s.state === "answered" || s.state === "archived") return false;
+  return s.type === "decision" || s.type === "customer_won";
+}
+
 export async function seedInbox(ctx: SeedCtx, businessId: string, specs: InboxSpec[], currency: string): Promise<InboxItem[]> {
   const out: InboxItem[] = [];
   for (const s of specs) {
@@ -301,7 +330,7 @@ export async function seedInbox(ctx: SeedCtx, businessId: string, specs: InboxSp
       status_strip: s.statusStrip ?? [],
       exhibit: s.exhibit ?? { kind: "none", spec_ref: null },
       decision: s.decision ?? null,
-      blocks_continue: s.blocksContinue ?? false,
+      blocks_continue: s.blocksContinue ?? blocksContinueFor(s),
       source_event_ids: s.sourceEventIds ?? [],
       entity_ids: [...new Set([...entityIdsIn(s.bodyMd), ...(s.entityIds ?? [])])],
     };
@@ -357,25 +386,14 @@ export async function seedIntegrations(ctx: SeedCtx, businessId: string, specs: 
 
 // --- dashboard ---------------------------------------------------------------------------------------------------------------
 
-/** The "Founder's view" preset exactly as apps/api/src/presets.ts stores it (12-column grid, 8 px rows). */
-export const FOUNDER_PRESET_LAYOUT = {
-  widgets: [
-    { key: "journey_ribbon", x: 0, y: 0, w: 12, h: 38, settings: {} },
-    { key: "status_strip", x: 0, y: 38, w: 12, h: 12, settings: {} },
-    { key: "department_card", x: 0, y: 50, w: 4, h: 30, settings: { slot: 0 } },
-    { key: "department_card", x: 4, y: 50, w: 4, h: 30, settings: { slot: 1 } },
-    { key: "department_card", x: 8, y: 50, w: 4, h: 30, settings: { slot: 2 } },
-    { key: "department_card", x: 0, y: 80, w: 4, h: 30, settings: { slot: 3 } },
-    { key: "department_card", x: 4, y: 80, w: 4, h: 30, settings: { slot: 4 } },
-    { key: "department_card", x: 8, y: 80, w: 4, h: 30, settings: { slot: 5 } },
-    { key: "squad_pulse", x: 0, y: 110, w: 8, h: 32, settings: {} },
-    { key: "inbox_preview", x: 8, y: 110, w: 4, h: 32, settings: {} },
-  ],
-};
+/** The "Founder's view" preset as apps/api stores it (the one preset table in @foundmill/config), six department cards. */
+export const FOUNDER_PRESET_LAYOUT = { widgets: presetWidgets("founder") };
 
+/** Every owner's Home: the Founder's view with a department card for each visible department of the business. */
 export async function seedDashboards(ctx: SeedCtx, businessId: string): Promise<void> {
+  const layout = { widgets: presetWidgets("founder", { departments: (await repos.departments.list(ctx.db, businessId)).length }) };
   for (const owner of ctx.owners) {
-    await repos.dashboards.create(ctx.db, businessId, { userId: owner.userId, name: "Home", preset: "founder", layout: FOUNDER_PRESET_LAYOUT, isActive: true });
+    await repos.dashboards.create(ctx.db, businessId, { userId: owner.userId, name: "Home", preset: "founder", layout, isActive: true });
   }
 }
 

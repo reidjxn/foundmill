@@ -1,5 +1,5 @@
 "use client";
-import { forwardRef, useState, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from "react";
+import { forwardRef, useState, type ButtonHTMLAttributes, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { Slot, Slottable } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { Fan, LoaderCircle, Square } from "lucide-react";
@@ -17,7 +17,7 @@ export const buttonVariants = cva(
   [
     "relative inline-flex items-center justify-center whitespace-nowrap select-none",
     "rounded-sm border border-transparent font-body font-medium no-underline pressable",
-    "disabled:pointer-events-none disabled:opacity-50 aria-busy:cursor-progress",
+    "disabled:pointer-events-none disabled:opacity-50 aria-busy:cursor-progress data-loading:opacity-50",
   ],
   {
     variants: {
@@ -101,7 +101,11 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Va
   icon?: IconComponent;
   /** Trailing Lucide icon. */
   iconRight?: IconComponent;
-  /** Shows a spinner in place of the leading icon, sets aria-busy and disables the button (generate: the running look). */
+  /**
+   * Shows a spinner in place of the leading icon, sets aria-busy and refuses clicks (generate: the running look). The
+   * button stays focusable (aria-disabled, not `disabled`): a control that turns disabled under the keyboard drops focus
+   * to `<body>` (WCAG 2.4.3), so a founder who pressed Save or Continue would lose their place.
+   */
   loading?: boolean;
   /** Render the child element as the button (Radix Slot), e.g. a Next.js Link. `fit`, `lines` and `description` do not apply. */
   asChild?: boolean;
@@ -155,6 +159,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     kbd,
     onClick,
     style,
+    "aria-disabled": ariaDisabled,
     ...rest
   },
   ref,
@@ -213,6 +218,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     </>
   );
 
+  // Busy (not the generate control, which has its own running look): focusable, announced as unavailable, inert.
+  const busy = Boolean(loading) && !isGen;
+  const refuse = (e: MouseEvent<HTMLButtonElement>) => e.preventDefault();
+
   const pct = progress === undefined || !Number.isFinite(progress) ? undefined : Math.min(1, Math.max(0, progress));
   const genStyle = genRunning && pct !== undefined ? ({ "--gen-progress": pct } as CSSProperties) : undefined;
 
@@ -230,7 +239,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
         className,
       )}
       style={genStyle ? { ...genStyle, ...style } : style}
-      disabled={disabled || (loading && !isGen)}
+      disabled={disabled}
+      aria-disabled={ariaDisabled ?? (busy && !disabled ? true : undefined)}
       aria-busy={loading || genRunning || undefined}
       data-loading={loading || undefined}
       data-variant={variant ?? "default"}
@@ -239,7 +249,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       data-running={genRunning || undefined}
       data-indeterminate={genRunning && pct === undefined ? "" : undefined}
       data-fit={fitting ? fitState : undefined}
-      onClick={genRunning ? undefined : onClick}
+      onClick={genRunning ? undefined : busy ? refuse : onClick}
       {...rest}
     >
       {genRunning ? <span aria-hidden className="gen-fill" /> : null}

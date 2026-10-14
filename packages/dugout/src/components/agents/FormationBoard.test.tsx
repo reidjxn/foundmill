@@ -160,6 +160,8 @@ describe("FormationBoard", () => {
     expect(screen.getByText(/Social media moved off the board/)).toBeTruthy();
     fireEvent.keyDown(seo, { key: "o" });
     expect(onOpenChannel).toHaveBeenCalledWith("seo");
+    // Opening is announced in the board's live region, not only moves (A11Y-11).
+    expect(screen.getByText("SEO profile opened. Esc closes it.")).toBeTruthy();
   });
 
   it("drags a token from the tray onto the board, lights its ghost as the target, and treats a still pointer as a click", () => {
@@ -226,5 +228,40 @@ describe("ChannelProfileCard", () => {
     expect(onToggle).toHaveBeenCalledWith("paid_ads", false);
     fireEvent.click(screen.getByRole("button", { name: "Open channel" }));
     expect(onOpenChannel).toHaveBeenCalledWith("paid_ads");
+  });
+
+  it("shows Offline tracking from the channel's own setting, falling back to its default", () => {
+    const paid = channels.find((c) => c.key === "paid_ads")!;
+    // Outdoor is connected by default; set to offline tracking, its card says so (as the Channels table does).
+    const { unmount } = render(<ChannelProfileCard channel={{ ...paid, key: "outdoor", kitMode: true }} />);
+    expect(screen.getByText("Offline tracking")).toBeTruthy();
+    unmount();
+    // Print is offline by default; turned off, the card no longer claims it.
+    const off = render(<ChannelProfileCard channel={{ ...paid, key: "print", kitMode: false }} />);
+    expect(screen.queryByText("Offline tracking")).toBeNull();
+    off.unmount();
+    render(<ChannelProfileCard channel={{ ...paid, key: "print" }} />);
+    expect(screen.getByText("Offline tracking")).toBeTruthy();
+  });
+
+  it("a channel the Strategist has not scored shows no fit, potential or cost range, and an empty range is never shown", () => {
+    const paid = channels.find((c) => c.key === "paid_ads")!;
+    const { unmount } = render(<ChannelProfileCard channel={{ ...paid, scored: false, cpaRange: undefined }} />);
+    expect(screen.getByText("Not scored")).toBeTruthy();
+    expect(screen.queryByText("Potential")).toBeNull();
+    unmount();
+    render(<ChannelProfileCard channel={{ ...paid, cpaRange: { low: { amountMinor: 0, currency: "EUR" }, high: { amountMinor: 0, currency: "EUR" } } }} />);
+    expect(screen.queryByText("Cost per customer")).toBeNull();
+  });
+});
+
+describe("ChannelToken fit badge", () => {
+  it("reads 'not scored yet' and shows a dash instead of a fit for an unscored channel", () => {
+    const seo = channels.find((c) => c.key === "seo")!;
+    render(<FormationBoard channels={channels.map((c) => (c.key === "seo" ? { ...seo, scored: false } : c))} onToggle={() => undefined} animateEntrance={false} />);
+    const token = screen.getByRole("button", { name: /^SEO,/ });
+    expect(token.getAttribute("aria-label")).toMatch(/not scored yet/);
+    expect(token.getAttribute("aria-label")).not.toMatch(/fit \d+ of 20/);
+    expect(token.parentElement!.querySelector("[data-unscored]")!.textContent).toBe("–");
   });
 });

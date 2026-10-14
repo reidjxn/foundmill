@@ -4,35 +4,47 @@
  *
  * Boot: load env → service database (repositories only) → vault (per-business webhook secrets; optional) →
  * connector registry (`createDefaultRegistry` with platform secrets, business resolver and secret lookup) →
- * nonce store (Redis in staging/production when `REDIS_URL` is set, memory otherwise) → Hono app → listen on
- * `PORT` (fallback `INGEST_PORT`) on host `::` with a 0.0.0.0 fallback where IPv6 is unavailable. SIGTERM/SIGINT:
- * stop accepting connections, let in-flight deliveries finish (a vendor whose request is cut retries it), close the
- * nonce store and the database pool, exit 0, within SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3).
+ * nonce store (Redis in staging/production when `REDIS_URL` is set, memory otherwise) → follow-ups (composer at
+ * COMPOSER_URL, Temporal at TEMPORAL_ADDRESS for journeyBuild and playbooks) → Hono app → listen on `PORT` (fallback
+ * `INGEST_PORT`) on host `::` with a 0.0.0.0 fallback where IPv6 is unavailable. SIGTERM/SIGINT: stop accepting
+ * connections, let in-flight deliveries and their follow-ups finish (a vendor whose request is cut retries it), close
+ * Temporal, the nonce store and the database pool, exit 0, within SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3).
  */
 import { serve, type ServerType } from "@hono/node-server";
+import { Redis } from "ioredis";
 import { APP_NAME, FLAGS } from "@foundmill/config";
-import { createDefaultRegistry, platformSecretsFromEnv, type BusinessResolver, type ConnectorRegistry } from "@foundmill/connectors";
+import { createDefaultRegistry, mockWebhooksAllowed, platformSecretsFromEnv, type BusinessResolver, type ConnectorRegistry } from "@foundmill/connectors";
 import { closeDb, createServiceDb, type Db } from "@foundmill/db";
-import { loadEnv, servicePort, type Env } from "@foundmill/shared";
+import { liveConnectorKeys, loadEnv, servicePort, type Env } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
+import { installTelemetry } from "@foundmill/shared/telemetry";
 import { createIngestApp, type CreatedIngestApp, type IngestApp } from "./app";
+import { createComposerNarrator, type ComposerNarrator } from "./composer-client";
 import { prepareDb } from "./db-boot";
+import { createFollowups, type IngestFollowups } from "./followups";
 import { MemoryNonceStore, RedisNonceStore, type NonceStore, type RedisNonceClient } from "./nonce-store";
 import { createBusinessSecretResolver } from "./secrets";
 import { simulateEnabledFor, simulateRoutesMounted } from "./simulate";
 import { silentLogger, type IngestDeps, type IngestLogger } from "./types";
+import { createTemporalStarter, type WorkflowStarter } from "./workflows";
 
 export * from "./types";
 export * from "./nonce-store";
 export * from "./replay";
 export * from "./secrets";
 export * from "./conversions";
+export * from "./customers";
+export * from "./composer-client";
+export * from "./workflows";
+export * from "./playbooks";
+export * from "./followups";
 export * from "./ingest";
 export * from "./webhooks";
 export * from "./simulate";
 export * from "./simulate-token";
+export * from "./billing";
 export * from "./app";
 export * from "./db-boot";
 
@@ -57,11 +69,21 @@ export interface BuildIngestOptions {
   simulateEnabled?: boolean;
   /** Secret the Simulate service token is verified with (defaults to `SESSION_TOKEN_SECRET`; null refuses every request). */
   simulateTokenSecret?: string | null;
+  /** Secret the platform billing webhook verifies with (defaults to `STRIPE_BILLING_WEBHOOK_SECRET`; null refuses every delivery). */
+  billingWebhookSecret?: string | null;
+  /** Narrates a customer won (defaults to the composer at COMPOSER_URL; null leaves narration to journeyBuild). */
+  composer?: ComposerNarrator | null;
+  /** Starts journeyBuild and playbooks (defaults to Temporal at TEMPORAL_ADDRESS, main task queue). */
+  workflows?: WorkflowStarter;
+  /** Replaces the whole after-commit pipeline (tests). */
+  followups?: IngestFollowups;
 }
 
 export interface BuiltIngest extends CreatedIngestApp {
   deps: IngestDeps;
   env: Env;
+  /** The Temporal starter the follow-ups use (closed at shutdown). */
+  workflows: WorkflowStarter | null;
 }
 
 /** Assembles the production dependency graph; every piece can be replaced (tests pass PGlite, a pinned clock and a memory store). */
@@ -71,8 +93,10 @@ export function buildIngest(options: BuildIngestOptions = {}): BuiltIngest {
   const db = options.db ?? createServiceDb();
   const now = options.now ?? (() => new Date());
 
+  const liveConnectors = liveConnectorKeys({ LIVE_CONNECTORS: env.LIVE_CONNECTORS ?? "" });
   let vault: Vault | null = options.vault === undefined ? null : options.vault;
-  if (options.vault === undefined && env.INTEGRATIONS_MODE === "live") {
+  // Any live webhook may verify with a business's own secret (Stripe endpoint secret, Shopify custom app...).
+  if (options.vault === undefined && (env.INTEGRATIONS_MODE === "live" || liveConnectors.length > 0)) {
     try {
       vault = createVault(env);
     } catch (e) {
@@ -90,10 +114,19 @@ export function buildIngest(options: BuildIngestOptions = {}): BuiltIngest {
       getBusinessSecret: createBusinessSecretResolver(db, vault, log),
     });
 
+  let workflows: WorkflowStarter | null = null;
+  let followups = options.followups;
+  if (!followups) {
+    workflows = options.workflows ?? createTemporalStarter({ address: env.TEMPORAL_ADDRESS, namespace: env.TEMPORAL_NAMESPACE, taskQueue: env.TEMPORAL_TASK_QUEUE, log });
+    const composer = options.composer === undefined ? createComposerNarrator({ baseUrl: env.COMPOSER_URL }) : options.composer;
+    followups = createFollowups({ db, composer, workflows, log });
+  }
+
   const deps: IngestDeps = {
     db,
     registry,
     mode: env.INTEGRATIONS_MODE,
+    liveConnectors,
     nonces: options.nonces ?? new MemoryNonceStore(),
     log,
     now,
@@ -102,12 +135,15 @@ export function buildIngest(options: BuildIngestOptions = {}): BuiltIngest {
     env: { APP_ENV: env.APP_ENV },
     simulateEnabled: options.simulateEnabled ?? simulateEnabledFor(env.APP_ENV, FLAGS.devSimulatePanel),
     simulateTokenSecret: options.simulateTokenSecret === undefined ? (env.SESSION_TOKEN_SECRET ?? null) : options.simulateTokenSecret,
+    billingWebhookSecret: options.billingWebhookSecret === undefined ? (env.STRIPE_BILLING_WEBHOOK_SECRET?.trim() || null) : options.billingWebhookSecret,
+    followups,
   };
   if (simulateRoutesMounted(deps) && !deps.simulateTokenSecret) {
     log.warn({ env: env.APP_ENV }, "Simulate routes are enabled but SESSION_TOKEN_SECRET is not set: every simulate request will be refused (401)");
   }
+  if (env.INTEGRATIONS_MODE === "mock" && !mockWebhooksAllowed(env.APP_ENV)) log.info({ env: env.APP_ENV, liveConnectors }, "mock webhooks are not mounted outside development and test; staging fabricates events through Simulate");
   const created = createIngestApp(deps);
-  return { ...created, deps, env };
+  return { ...created, deps, env, workflows };
 }
 
 /**
@@ -121,29 +157,39 @@ function unresolvedBusiness(log: IngestLogger): BusinessResolver {
   };
 }
 
-/** Redis-backed nonce store when `REDIS_URL` is set in staging/production and `ioredis` is resolvable; memory otherwise. */
-export async function createNonceStore(env: Env, log: IngestLogger): Promise<NonceStore> {
+/** Redis-backed nonce store when `REDIS_URL` is set in staging/production; memory otherwise. */
+export async function createNonceStore(env: Env, log: IngestLogger, connect: (url: string, log: IngestLogger) => Promise<RedisNonceClient | null> = connectRedis): Promise<NonceStore> {
   const wantsRedis = Boolean(env.REDIS_URL) && (env.APP_ENV === "staging" || env.APP_ENV === "production");
   if (!wantsRedis) return new MemoryNonceStore();
-  const client = await loadRedis(env.REDIS_URL, log);
+  const client = await connect(env.REDIS_URL, log);
   if (!client) return new MemoryNonceStore();
-  return new RedisNonceStore(client, { onFallback: (e) => log.warn({ err: (e as Error)?.message }, "nonce store fell back to memory") });
+  return new RedisNonceStore(client, {
+    onFallback: (e) => log.warn({ err: (e as Error)?.message }, "nonce store fell back to memory; retrying Redis in 30 s"),
+    onRecover: () => log.info({}, "nonce store is back on Redis"),
+  });
 }
 
-async function loadRedis(url: string, log: IngestLogger): Promise<RedisNonceClient | null> {
-  // `ioredis` is not a declared dependency of this app (docs/NEEDED_DEPS.md); resolve it dynamically so the
-  // service still boots (memory store) where the module is absent.
-  const specifier = "ioredis";
+/**
+ * The nonce store's Redis connection, opened before the first delivery: with the offline queue off, ioredis refuses a
+ * command sent while a lazy client is still connecting, and the first webhook after every boot used to be that command.
+ * A Redis that does not answer at boot is logged; the store counts in memory and tries Redis again every 30 s while
+ * ioredis keeps reconnecting.
+ */
+export async function connectRedis(url: string, log: IngestLogger, timeoutMs = 3_000): Promise<RedisNonceClient | null> {
+  let redis: Redis;
   try {
-    const mod = (await import(/* @vite-ignore */ specifier)) as { Redis?: new (url: string, opts: Record<string, unknown>) => RedisNonceClient & { on(event: "error", fn: (e: Error) => void): unknown } };
-    if (!mod.Redis) return null;
-    const redis = new mod.Redis(url, { lazyConnect: true, maxRetriesPerRequest: 1, enableOfflineQueue: false });
-    redis.on("error", (e) => log.warn({ err: e.message }, "redis error (nonce store falls back to memory)"));
-    return redis;
+    redis = new Redis(url, { lazyConnect: true, maxRetriesPerRequest: 1, enableOfflineQueue: false, connectTimeout: 2_000 });
   } catch (e) {
-    log.warn({ reason: (e as Error).message }, "ioredis unavailable; nonce store uses memory");
+    log.warn({ reason: (e as Error).message }, "could not create the Redis client; nonce store uses memory");
     return null;
   }
+  redis.on("error", (e) => log.debug({ err: e.message }, "redis error"));
+  try {
+    await Promise.race([redis.connect(), new Promise((_, reject) => setTimeout(() => reject(new Error(`no answer within ${timeoutMs} ms`)), timeoutMs).unref?.())]);
+  } catch (e) {
+    log.warn({ err: (e as Error).message }, "redis did not answer at boot; nonces are kept in memory until it does");
+  }
+  return redis as unknown as RedisNonceClient;
 }
 
 export interface RunningIngest {
@@ -181,6 +227,8 @@ export function listenIngest(app: IngestApp, port: number, log: IngestLogger = s
 
 export async function main(): Promise<void> {
   const env = loadEnv();
+  // Traces to OTEL_EXPORTER_OTLP_ENDPOINT and error reports to SENTRY_DSN, when set (packages/shared telemetry.ts).
+  const telemetry = installTelemetry("ingest", env);
   const log = createLogger("ingest", env.LOG_LEVEL) as unknown as IngestLogger;
   if (!env.DATABASE_URL) {
     log.error({}, "DATABASE_URL is not set; ingest cannot start");
@@ -189,6 +237,7 @@ export async function main(): Promise<void> {
   const db = createServiceDb();
   let running: RunningIngest | null = null;
   let nonces: NonceStore | null = null;
+  let built: BuiltIngest | null = null;
   const lifecycle = onShutdown({
     service: "ingest",
     log,
@@ -202,14 +251,24 @@ export async function main(): Promise<void> {
           if (forced > 0) log.warn({ forced }, "ingest: connections still open at the drain deadline were cut");
         },
       },
+      {
+        name: "finish follow-ups",
+        run: async ({ remainingMs }) => {
+          if (!built) return;
+          // Narration and workflow starts of deliveries already acknowledged; past the budget they are left to Refresh.
+          await Promise.race([built.deps.followups.idle(), new Promise((r) => setTimeout(r, Math.max(0, remainingMs - 5_000)).unref())]);
+        },
+      },
+      { name: "close temporal", run: () => built?.workflows?.close() },
       { name: "close nonce store", run: () => nonces?.close?.() },
       { name: "close database", run: () => closeDb(db) },
+      { name: "flush telemetry", run: () => telemetry.shutdown() },
     ],
   });
   // PGlite boots + migrates here; a locked directory or an unreachable Postgres is one clear line and /health says db:false.
   const readiness = await prepareDb(db, log, { service: "ingest" });
   nonces = await createNonceStore(env, log);
-  const built = buildIngest({ env, db, nonces, log });
+  built = buildIngest({ env, db, nonces, log });
   const port = servicePort(env, "INGEST_PORT");
   if (lifecycle.stopping) return;
   running = await listenIngest(built.app, port, log);

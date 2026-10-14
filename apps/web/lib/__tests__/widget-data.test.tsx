@@ -60,4 +60,24 @@ describe("WidgetDataSource over tRPC", () => {
     act(() => off());
     expect(unsub).toHaveBeenCalled();
   });
+
+  it("hands the widgets the business time zone, so their today is the business's day (audit #196)", () => {
+    const { client } = fakeClient();
+    const queryClient = new QueryClient();
+    const base = { businessId: "b1", glossary: {}, gameMode: "personal", currency: "USD", client, queryClient, navigate: vi.fn(), subscribe: () => () => {} } as const;
+    expect(createWidgetSource({ ...base, timeZone: "Asia/Tokyo" }).timeZone).toBe("Asia/Tokyo");
+    expect(createWidgetSource(base).timeZone).toBeNull();
+  });
+
+  it("passes a tile's focus through to the stream (RES-12)", () => {
+    const subscribe = vi.fn((_ch: string, _h: (e: unknown) => void, _o?: { focused?: boolean }) => () => {});
+    const setFocus = vi.fn();
+    const { client } = fakeClient();
+    const source = createWidgetSource({ businessId: "b1", glossary: {}, gameMode: "personal", currency: "USD", client, queryClient: new QueryClient(), navigate: vi.fn(), subscribe, setFocus });
+    const handler = () => {};
+    source.subscribe("as:s1", handler, { focused: false });
+    expect(subscribe).toHaveBeenCalledWith("as:s1", handler, { focused: false });
+    source.setFocus?.("as:s1", true);
+    expect(setFocus).toHaveBeenCalledWith("as:s1", true);
+  });
 });

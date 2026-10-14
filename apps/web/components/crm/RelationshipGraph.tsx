@@ -44,7 +44,8 @@ export function RelationshipGraph({ centre, nodes, onOpen, width = 640, height =
   const CentreIcon = ENTITY_KIND_ICONS[centre.kind];
   return (
     <figure className={className} data-relationship-graph data-nodes={nodes.length}>
-      <svg width={width} height={height} role="img" aria-label={`${centre.name}: ${nodes.length} relationships`} className="block max-w-full">
+      {/* With clickable nodes the drawing is a group of buttons, not an image (an image is one leaf for assistive tech). */}
+      <svg width={width} height={height} role={onOpen ? "group" : "img"} aria-label={`${centre.name}: ${nodes.length} ${nodes.length === 1 ? "relationship" : "relationships"}`} className="block max-w-full">
         {nodes.map((n, i) => {
           const p = positions[i]!;
           const tone = ratingClass(n.strength).includes("rating-4") ? "rating-4" : ratingClass(n.strength).includes("rating-3") ? "rating-3" : ratingClass(n.strength).includes("rating-2") ? "rating-2" : "rating-1";

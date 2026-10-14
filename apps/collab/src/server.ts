@@ -2,20 +2,25 @@
  * The collab server (docs/ARCHITECTURE.md §1 apps/collab; BUILD §3.1, §11.5): Hocuspocus 4 over Yjs for spec blocks.
  *
  * - `onAuthenticate`: verifies the token (Supabase JWT, collab service token or dev token), parses the document
- *   name `spec:<businessId>:<specBlockId>`, loads the block through repos (404 → denied) and checks membership:
- *   owners/admins/members read-write, viewers/advisors read-only; an agent's service token must be bound to the
+ *   name `spec:<businessId>:<specBlockId>`, loads the block through repos (404 → denied) and checks membership and
+ *   the member's Product section permission (`effectivePermission`, as product.spec.* in apps/api): no access →
+ *   denied, read → read-only, write (owners/admins/members only) → read-write; an agent's service token must be bound to the
  *   business and the agent must exist there; agents are read-only on pinned (human-edited) blocks (AC-11.5.3).
+ *   The same check runs again for every open connection every `reauthorizeMs` (security review S1): a member who was
+ *   removed, walled from Product or made read-only meanwhile is closed or turned read-only without reconnecting.
  * - `onLoadDocument`: fills the fresh Y.Doc from `spec_blocks.content` (ProseMirror JSON → y-prosemirror layout).
  * - `onStoreDocument`: debounced (`debounce` / `maxDebounce`) write back through `repos.product.editBlock`, which
- *   bumps `version` and records the last writer as `authored_by_kind` / `authored_by`.
+ *   bumps `version` and records the last writer as `authored_by_kind` / `authored_by`. A store that carries any human
+ *   update since the last one (tracked in `onChange`, so an agent's update landing last in the same debounce window
+ *   does not hide it) pins the block, so agents are read-only on it from their next connection or HTTP edit.
  * - HTTP on the same port: `GET /health`; `GET|POST /v1/spec-blocks/:businessId/:specBlockId` for agents (Bearer
  *   service token) that have no WebSocket editor: POST reconciles a full ProseMirror document into the live CRDT
  *   through a direct connection, so concurrent human edits in untouched blocks survive.
  */
 import { APP_NAME } from "@foundmill/config";
 import { repos, type Db, type SpecBlock } from "@foundmill/db";
-import { AppError, NotFoundError } from "@foundmill/shared";
-import { Server, type Hocuspocus, type onAuthenticatePayload, type onLoadDocumentPayload, type onRequestPayload, type onStoreDocumentPayload, type ServerConfiguration } from "@hocuspocus/server";
+import { AppError, NotFoundError, hasSectionAccess, type Section } from "@foundmill/shared";
+import { Server, type Hocuspocus, type onAuthenticatePayload, type onChangePayload, type onLoadDocumentPayload, type onRequestPayload, type onStoreDocumentPayload, type ServerConfiguration } from "@hocuspocus/server";
 import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { CollabAuthError, type CollabAuthenticator, type Principal } from "./auth";
@@ -25,6 +30,8 @@ import { createSpecBlockStore, type Author, type SpecBlockStore } from "./store"
 
 export const COLLAB_SERVICE = "collab" as const;
 export const WRITE_ROLES = ["owner", "admin", "member"] as const;
+/** The section whose permissions govern spec blocks (staff walled from Product neither read nor edit them). */
+export const SPEC_SECTION: Section = "product";
 
 export interface CollabLogger {
   debug(obj: unknown, msg?: string): void;
@@ -50,6 +57,11 @@ export interface CollabServerDeps {
   store?: SpecBlockStore;
   /** For `/health`: whether the database answered at boot (see db-boot.ts). Defaults to true. */
   dbReady?: () => boolean;
+  /**
+   * Whether a signed-in person may use the app at all (`SIGNUP_ALLOWLIST`, the same list apps/api checks on every
+   * request); one it refuses is denied like a non-member. Absent: everyone who signs in.
+   */
+  admit?: (user: { userId: string; email: string | null }) => boolean;
 }
 
 export interface CollabServerOptions {
@@ -65,6 +77,8 @@ export interface CollabServerOptions {
   field?: string;
   /** Max JSON body for the HTTP edit endpoint (bytes). */
   maxBodyBytes?: number;
+  /** How often every open connection is authorized again (default 15 000 ms; security review S1). */
+  reauthorizeMs?: number;
   now?: () => Date;
 }
 
@@ -131,6 +145,11 @@ export interface CollabServer {
   edit(principal: Principal, name: SpecDocumentName, content: unknown, options?: EditOptions): Promise<EditResult>;
   /** Current content: the live document when loaded, otherwise the stored row. */
   read(principal: Principal, name: SpecDocumentName): Promise<ReadResult>;
+  /**
+   * Authorizes every open connection again (what the server runs every `reauthorizeMs`): a connection whose principal
+   * lost access is closed, one that lost write access turns read-only (and back). Resolves to the number closed.
+   */
+  reauthorize(): Promise<number>;
   /** Flushes pending stores, closes every connection and the HTTP server. */
   close(): Promise<void>;
 }
@@ -165,6 +184,8 @@ export function createCollabServer(deps: CollabServerDeps, options: CollabServer
   let bound: { port: number; host: string } | null = null;
   /** Revision = fingerprint of the content a reader saw; an edit with `expectedRevision` only applies to that content. */
   const revisionOf = (content: PmNode) => createHash("sha256").update(JSON.stringify(content)).digest("hex").slice(0, 16);
+  /** Documents a human changed since their last store: that store pins the block (AC-11.5.3). */
+  const humanEdits = new Set<string>();
   const liveContent = (documentName: string): PmNode | null => {
     const live = hocuspocus.documents.get(documentName);
     return live && !live.isLoading ? fragmentToPmDoc(live.getXmlFragment(field)) : null;
@@ -174,9 +195,14 @@ export function createCollabServer(deps: CollabServerDeps, options: CollabServer
     const block = await store.getBlock(name.businessId, name.specBlockId);
     if (block.archivedAt) throw new NotFoundError("spec block", name.specBlockId);
     if (principal.kind === "user") {
-      const membership = await repos.memberships.get(deps.db, name.businessId, principal.userId);
+      if (deps.admit && !deps.admit(principal)) throw new CollabDenied("not-invited", `user ${principal.userId} is not on the invite list`);
+      const { membership, business } = await repos.memberships.access(deps.db, name.businessId, principal.userId);
       if (!membership) throw new CollabDenied("not-a-member", `user ${principal.userId} is not a member of business ${name.businessId}`);
-      const canWrite = (WRITE_ROLES as readonly string[]).includes(membership.role);
+      // An archived business is closed to its members everywhere else too (apps/api answers NOT_FOUND).
+      if (!business) throw new CollabDenied("not-found", `business ${name.businessId} is archived`);
+      // Spec blocks belong to the Product section: the same walls as product.spec.* in apps/api (BUILD §11.9).
+      if (!hasSectionAccess(membership, SPEC_SECTION, "read")) throw new CollabDenied("section-denied", `user ${principal.userId} has no access to ${SPEC_SECTION} in business ${name.businessId}`);
+      const canWrite = hasSectionAccess(membership, SPEC_SECTION, "write");
       return { block, readOnly: !canWrite, reason: canWrite ? null : "viewer" };
     }
     if (principal.businessId !== name.businessId) throw new CollabDenied("wrong-business", `service token is bound to business ${principal.businessId}`);
@@ -216,13 +242,20 @@ export function createCollabServer(deps: CollabServerDeps, options: CollabServer
     await store.load(name.businessId, name.specBlockId, data.document);
   };
 
+  const onChange = async (data: onChangePayload<CollabContext>): Promise<void> => {
+    // The load's own fill carries no principal; read-only connections never get an update this far.
+    if ((data.context as Partial<CollabContext> | undefined)?.principal?.kind === "user") humanEdits.add(data.documentName);
+  };
+
   const onStoreDocument = async (data: onStoreDocumentPayload<CollabContext>): Promise<void> => {
     const name = parseDocumentName(data.documentName);
     const author = authorOf(data.lastContext);
+    const humanEdited = humanEdits.delete(data.documentName);
     try {
-      const result = await store.save(name.businessId, name.specBlockId, data.document, author);
-      if (result.stored) log.info({ documentName: data.documentName, version: result.block?.version, author }, "collab: stored spec block");
+      const result = await store.save(name.businessId, name.specBlockId, data.document, author, { humanEdited });
+      if (result.stored) log.info({ documentName: data.documentName, version: result.block?.version, author, pinned: result.block?.pinned }, "collab: stored spec block");
     } catch (err) {
+      if (humanEdited) humanEdits.add(data.documentName);
       // Hocuspocus keeps the document in memory when the store hook rejects, so nothing is lost; retry on next change.
       log.error({ documentName: data.documentName, err }, "collab: store failed; document kept in memory");
       throw err;
@@ -247,10 +280,12 @@ export function createCollabServer(deps: CollabServerDeps, options: CollabServer
     ...(options.timeoutMs ? { timeout: options.timeoutMs } : {}),
     onAuthenticate,
     onLoadDocument,
+    onChange,
     onStoreDocument,
     onRequest,
     async afterUnloadDocument({ documentName }) {
       const name = parseDocumentName(documentName);
+      humanEdits.delete(documentName);
       store.forget(name.businessId, name.specBlockId);
     },
   };
@@ -295,6 +330,59 @@ export function createCollabServer(deps: CollabServerDeps, options: CollabServer
     const live = liveContent(specDocumentName(name.businessId, name.specBlockId));
     const content = live ?? parsePmDocLenient(auth.block.content);
     return { content, version: auth.block.version, revision: revisionOf(content), pinned: auth.block.pinned, live: live !== null };
+  }
+
+  // --- re-authorization ---------------------------------------------------------------------------------------------
+
+  /**
+   * Access is checked when a connection authenticates and again here, for every open connection (security review S1):
+   * a member removed from the business, walled from Product or turned into a viewer would otherwise keep a live editor
+   * until they closed the tab. Denied: the connection turns read-only at once and is closed (the provider asks to
+   * authenticate again and is refused). A failed check (the database did not answer) keeps the connection as it was.
+   */
+  async function reauthorize(): Promise<number> {
+    let closed = 0;
+    for (const document of [...hocuspocus.documents.values()]) {
+      let name: SpecDocumentName;
+      try {
+        name = parseDocumentName(document.name);
+      } catch {
+        continue;
+      }
+      for (const connection of document.getConnections()) {
+        const context = connection.context as Partial<CollabContext> | undefined;
+        if (!context?.principal) continue;
+        try {
+          const auth = await authorize(context.principal, name);
+          connection.readOnly = auth.readOnly;
+          context.readOnly = auth.readOnly;
+        } catch (err) {
+          if (!(err instanceof CollabDenied) && !(err instanceof NotFoundError)) {
+            log.warn({ documentName: document.name, err }, "collab: re-authorization failed; the connection keeps its access until the next check");
+            continue;
+          }
+          connection.readOnly = true;
+          connection.close({ code: 4403, reason: err instanceof CollabDenied ? err.reason : "not-found" });
+          closed += 1;
+          log.info({ documentName: document.name, principal: context.principal }, "collab: access withdrawn; connection closed");
+        }
+      }
+    }
+    return closed;
+  }
+
+  let reauthorizer: ReturnType<typeof setInterval> | null = null;
+  let reauthorizing = false;
+  function startReauthorizing(): void {
+    if (reauthorizer) return;
+    reauthorizer = setInterval(() => {
+      if (reauthorizing) return;
+      reauthorizing = true;
+      reauthorize()
+        .catch((err: unknown) => log.error({ err }, "collab: re-authorization sweep failed"))
+        .finally(() => (reauthorizing = false));
+    }, Math.max(10, options.reauthorizeMs ?? 15_000));
+    reauthorizer.unref?.();
   }
 
   // --- HTTP ---------------------------------------------------------------------------------------------------------
@@ -361,6 +449,7 @@ export function createCollabServer(deps: CollabServerDeps, options: CollabServer
       try {
         bound = await listenOn(host, port);
         log.info({ port: bound.port, host }, "collab listening");
+        startReauthorizing();
         return bound;
       } catch (err) {
         const code = (err as NodeJS.ErrnoException).code;
@@ -378,6 +467,8 @@ export function createCollabServer(deps: CollabServerDeps, options: CollabServer
   async function close(): Promise<void> {
     if (closing) return;
     closing = true;
+    if (reauthorizer) clearInterval(reauthorizer);
+    reauthorizer = null;
     hocuspocus.flushPendingStores();
     await server.destroy();
     bound = null;
@@ -397,6 +488,7 @@ export function createCollabServer(deps: CollabServerDeps, options: CollabServer
     authorize,
     edit,
     read,
+    reauthorize,
     close,
   };
 }

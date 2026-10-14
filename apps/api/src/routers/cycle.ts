@@ -1,17 +1,35 @@
 /** cycle.status / cycle.history / cycle.continueState — the shell's processing strip and Continue state (BUILD §5.4, §9.4). */
 import { repos } from "@foundmill/db";
 import { z } from "zod";
-import { continueStateFor, cycleStatus } from "../services/cycle";
+import { continueStateFor, cycleStatus, reconcileCycle } from "../services/cycle";
 import { businessProcedure, router } from "../trpc";
 
 const asRecord = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? (v as Record<string, unknown>) : {});
 
+/**
+ * A cycle whose workflow is gone is closed before the state is read, so Continue is never stuck on "processing". A
+ * reader who cannot write (a viewer) or a Temporal outage just sees the state as it is.
+ */
+async function reconcileQuietly(ctx: Parameters<typeof reconcileCycle>[0]): Promise<void> {
+  try {
+    await reconcileCycle(ctx);
+  } catch {
+    /* reads never fail on the reconciler */
+  }
+}
+
 export const cycleRouter = router({
   /** The running cycle (if any), active departments/agents, the last outcome and the next cycle number. */
-  status: businessProcedure.query(({ ctx }) => ctx.rls((tx) => cycleStatus({ db: tx, businessId: ctx.businessId }))),
+  status: businessProcedure.query(async ({ ctx }) => {
+    await reconcileQuietly(ctx);
+    return ctx.rls((tx) => cycleStatus({ db: tx, businessId: ctx.businessId }));
+  }),
 
   /** Continue button state computed server-side: holiday › blocked › win awaiting its Customer Update › processing › idle. */
-  continueState: businessProcedure.query(({ ctx }) => ctx.rls((tx) => continueStateFor({ db: tx, businessId: ctx.businessId }))),
+  continueState: businessProcedure.query(async ({ ctx }) => {
+    await reconcileQuietly(ctx);
+    return ctx.rls((tx) => continueStateFor({ db: tx, businessId: ctx.businessId, userId: ctx.userId }));
+  }),
 
   /** Past cycles, newest first (from `cycle.started` / `cycle.completed`). */
   history: businessProcedure.input(z.object({ limit: z.number().int().min(1).max(100).default(20) })).query(({ ctx, input }) =>
