@@ -1,5 +1,5 @@
 /**
- * 0056 (audit FU-S-1): the client roles read `message_threads` and `posts` without the columns the app keeps from the
+ * 0058 (audit FU-S-1): the client roles read `message_threads` and `posts` without the columns the app keeps from the
  * people who can read the row: who muted a thread, and a post's screening verdict, moderator and moderation note. A
  * participant, an author, a moderator and another member all go through Supabase's Data API with a user's own token, so
  * each is exercised here as `authenticated` through the RLS harness (what PostgREST does); the api's own access

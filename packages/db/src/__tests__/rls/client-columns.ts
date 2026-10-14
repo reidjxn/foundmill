@@ -1,5 +1,5 @@
 /**
- * What the client roles (`authenticated`, `anon`) may SELECT on the two LIVE tables with hidden columns (0056): the
+ * What the client roles (`authenticated`, `anon`) may SELECT on the two LIVE tables with hidden columns (0058): the
  * Drizzle columns minus `CLIENT_HIDDEN_COLUMNS`. A direct query as a client role must name these, because `select()`
  * (every column) is refused; the api reads on the service connection and is not limited.
  */

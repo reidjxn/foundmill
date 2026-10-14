@@ -1,4 +1,4 @@
--- 0056 — LIVE social: column grants (audit follow-up FU-S-1, 2026-10-14). 0012 granted the client roles SELECT on
+-- 0058 — LIVE social: column grants (audit follow-up FU-S-1, 2026-10-14). 0012 granted the client roles SELECT on
 -- whole rows of `message_threads` and `posts`, and 0027 then added columns the app deliberately keeps from the people
 -- who can read the row. Through Supabase's Data API (PostgREST with a user's own token) a participant could read every
 -- participant's `muted_ids`, and any community member, an author included, could read a post's `screening` verdict,

@@ -9,8 +9,8 @@ import { createTestDb, type TestHarness } from "../testing/pglite";
 import { createBusinessFixture, type BusinessFixture } from "./rls/fixtures";
 
 const TAG = "0027_live_social_delivery";
-/** Later migrations that build on 0027's columns (0056 grants them): applied right after it, as on a real upgrade. */
-const AFTER_TAGS = ["0056_live_social_column_grants"];
+/** Later migrations that build on 0027's columns (0058 grants them): applied right after it, as on a real upgrade. */
+const AFTER_TAGS = ["0058_live_social_column_grants"];
 let h: TestHarness;
 let A: BusinessFixture;
 let ids: { direct: string; group: string; community: string; requested: string; other: string; wrongNote: string; rightNote: string };

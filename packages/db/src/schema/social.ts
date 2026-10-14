@@ -22,7 +22,7 @@ export const NEGOTIATION_STATUSES = ["open", "agreed", "declined", "expired", "s
 export const PUBLIC_PROFILE_KINDS = ["business", "founder"] as const;
 
 /**
- * 0056: columns the client roles (`authenticated`, `anon`) cannot read, by SQL name. A row policy cannot hide a column,
+ * 0058: columns the client roles (`authenticated`, `anon`) cannot read, by SQL name. A row policy cannot hide a column,
  * so SELECT is granted on every other column only; the api (service connection) still reads them and decides, per
  * viewer, what to show (routers/live.ts `threadView`, `postView`). A direct query that names one of these, or reads
  * `*`, is refused. Any column added to these tables is hidden from the client roles until a migration grants it.
@@ -83,7 +83,7 @@ export const messageThreads = pgTable(
     kind: text("kind", { enum: THREAD_KINDS }).notNull().default("direct"),
     /** 0027: people who left; they are no longer in `participant_ids`. */
     leftIds: uuid("left_ids").array().notNull().default(emptyArray),
-    /** 0027: participants who muted the thread (no badge, no Inbox note). Never shown to the others; 0056: not readable by the client roles. */
+    /** 0027: participants who muted the thread (no badge, no Inbox note). Never shown to the others; 0058: not readable by the client roles. */
     mutedIds: uuid("muted_ids").array().notNull().default(emptyArray),
     subject: text("subject"),
     lastMessageAt: tstz("last_message_at"),
@@ -167,12 +167,12 @@ export const posts = pgTable(
     status: text("status", { enum: POST_STATUSES }).notNull().default("visible"),
     /** 0027: when the author last edited the text. */
     editedAt: tstz("edited_at"),
-    /** 0027: the moderation screen's verdict on the current text. 0056: not readable by the client roles. */
+    /** 0027: the moderation screen's verdict on the current text. 0058: not readable by the client roles. */
     screening: jsonb("screening").$type<PostScreening | Record<string, never>>().notNull().default(emptyObject),
-    /** 0027: who last hid, restored or removed it (the author, when they deleted their own post). 0056: not readable by the client roles. */
+    /** 0027: who last hid, restored or removed it (the author, when they deleted their own post). 0058: not readable by the client roles. */
     moderatedBy: uuid("moderated_by").references(() => authUsers.id, { onDelete: "set null" }),
     moderatedAt: tstz("moderated_at"),
-    /** 0027: the moderator's note. 0056: not readable by the client roles (the api gives it to the author and the moderators). */
+    /** 0027: the moderator's note. 0058: not readable by the client roles (the api gives it to the author and the moderators). */
     moderationNote: text("moderation_note"),
     ...timestampsWithArchive(),
   },
