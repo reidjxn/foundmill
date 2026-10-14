@@ -82,7 +82,7 @@ test.describe("settings › mode: the spend cap per action", () => {
     await form.getByLabel("Spend cap per action").fill("300");
     const save = form.getByRole("button", { name: "Save cap" });
     await save.click();
-    await expect(page.getByText("Spend cap saved")).toBeVisible({ timeout: LONG });
+    await expect(page.getByText("Spend cap saved", { exact: true })).toBeVisible({ timeout: LONG });
     // Saved, so there is nothing left to save: the button says so without dropping keyboard focus (A11Y-07).
     await expect(save).toHaveAttribute("aria-disabled", "true");
     await expect(save).toBeFocused();
@@ -94,7 +94,7 @@ test.describe("settings › mode: the spend cap per action", () => {
     await expect(page.getByTestId("spend-cap-form")).toContainText("Use a number, like 250.");
     await field.fill("");
     await page.getByTestId("spend-cap-form").getByRole("button", { name: "Save cap" }).click();
-    await expect(page.getByText("Spend cap removed")).toBeVisible({ timeout: LONG });
+    await expect(page.getByText("Spend cap removed", { exact: true })).toBeVisible({ timeout: LONG });
   });
 
   test("a cap below an agent's own ask line is the line the agent's profile shows", async ({ page }) => {
@@ -103,7 +103,7 @@ test.describe("settings › mode: the spend cap per action", () => {
     await expect(form).toBeVisible({ timeout: LONG });
     await form.getByLabel("Spend cap per action").fill("50");
     await form.getByRole("button", { name: "Save cap" }).click();
-    await expect(page.getByText("Spend cap saved")).toBeVisible({ timeout: LONG });
+    await expect(page.getByText("Spend cap saved", { exact: true })).toBeVisible({ timeout: LONG });
     try {
       // The Chief of Staff's template asks above 250, so the founder's 50 is the line the gateway applies.
       await openBusiness(page, "d/team/squad");
@@ -119,7 +119,7 @@ test.describe("settings › mode: the spend cap per action", () => {
       await expect(again).toBeVisible({ timeout: LONG });
       await again.getByLabel("Spend cap per action").fill("");
       await again.getByRole("button", { name: "Save cap" }).click();
-      await expect(page.getByText("Spend cap removed")).toBeVisible({ timeout: LONG });
+      await expect(page.getByText("Spend cap removed", { exact: true })).toBeVisible({ timeout: LONG });
     }
   });
 });
@@ -140,7 +140,7 @@ test.describe("settings › business: the currency", () => {
     await field.click();
     await page.getByRole("option", { name: /US Dollar/ }).click();
     await page.getByRole("button", { name: "Save changes" }).click();
-    await expect(page.getByText("Business saved")).toBeVisible({ timeout: LONG });
+    await expect(page.getByText("Business saved", { exact: true })).toBeVisible({ timeout: LONG });
     await page.goto(`/b/${businessId}/milestones`);
     await expect(page.getByTestId("milestones-screen")).toBeVisible({ timeout: LONG });
     await expect(page.locator("[data-trophy]").filter({ hasText: "MRR" }).first()).toContainText("$", { timeout: LONG });
@@ -151,7 +151,7 @@ test.describe("settings › business: the currency", () => {
     await page.locator("#biz-currency").click();
     await page.getByRole("option", { name: /British Pound/ }).click();
     await page.getByRole("button", { name: "Save changes" }).click();
-    await expect(page.getByText("Business saved")).toBeVisible({ timeout: LONG });
+    await expect(page.getByText("Business saved", { exact: true })).toBeVisible({ timeout: LONG });
     await expect(page.locator("#biz-currency")).toContainText("GBP");
   });
 });
@@ -174,7 +174,7 @@ test.describe("settings › business: the time zone", () => {
     const before = ((await field.textContent()) ?? "").trim();
     await field.click();
     await page.getByRole("option", { name: "Pacific/Kiritimati", exact: true }).click();
-    await expect(page.getByText("Time zone saved")).toBeVisible({ timeout: LONG });
+    await expect(page.getByText("Time zone saved", { exact: true })).toBeVisible({ timeout: LONG });
     await expect(field).toHaveText("Pacific/Kiritimati");
     const day = shortDayIn("Pacific/Kiritimati");
     await expect(page.getByTestId("kitbar-date")).toContainText(day, { timeout: LONG });
@@ -244,7 +244,7 @@ test.describe("settings > mode: Autopilot", () => {
     await expect(section.getByTestId("autopilot-switch")).toHaveAttribute("aria-checked", "false");
 
     await section.getByTestId("autopilot-switch").click();
-    await expect(page.getByText("Autopilot is on")).toBeVisible({ timeout: LONG });
+    await expect(page.getByText("Autopilot is on", { exact: true })).toBeVisible({ timeout: LONG });
     await expect(section.getByTestId("autopilot-switch")).toHaveAttribute("aria-checked", "true");
     // On, or waiting for the founder when an Inbox item blocks Continue; never "Off". The next cycle, when shown, is an Estimate.
     await expect(section.getByTestId("autopilot-chip")).not.toHaveAttribute("data-autopilot-state", "off");

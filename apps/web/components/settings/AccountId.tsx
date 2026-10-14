@@ -29,7 +29,7 @@ export function AccountId({ accountId, className }: AccountIdProps) {
   return (
     <div className={className} data-testid="account-id">
       <div className="flex items-center gap-2">
-        <code className="min-w-0 flex-1 select-all truncate rounded-sm bg-surface-2 px-2 py-1 font-mono text-mono text-primary" title={accountId}>
+        <code className="min-w-0 flex-1 select-all break-all rounded-sm bg-surface-2 px-2 py-1 font-mono text-mono text-primary" title={accountId}>
           {accountId}
         </code>
         <Button size="sm" variant="ghost" icon={Copy} onClick={() => void copy()} data-testid="account-id-copy">

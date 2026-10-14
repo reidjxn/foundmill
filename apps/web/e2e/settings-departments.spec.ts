@@ -7,7 +7,7 @@ import { LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
  * spec adds its own department and archives that one, so the seeded departments are never touched. Stack: e2e/README.md.
  */
 const B = `/b/${NORTHWIND_BUSINESS_ID}`;
-const NAME = "Support desk (e2e)";
+const NAME = "Support Desk (e2e)";
 
 test.describe("settings, departments", () => {
   test.beforeEach(async ({ page }) => {

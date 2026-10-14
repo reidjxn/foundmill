@@ -36,7 +36,7 @@ test.describe("crm", () => {
     await chooseTableView(page, "By kind");
     await page.getByRole("button", { name: /^View: / }).click();
     await page.getByRole("menuitem", { name: "Save as new view…" }).click();
-    await page.getByLabel("Name").fill(name);
+    await page.getByLabel("Name", { exact: true }).fill(name);
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("button", { name: `View: ${name}` })).toBeVisible();
     await page.reload();
@@ -104,10 +104,12 @@ test.describe("crm", () => {
     await expect(page.getByTestId("crm-search")).toContainText("role:customer");
     await expect(roles.filter({ hasText: "Customer" }).first()).toBeVisible({ timeout: LONG });
     await expect(roles.filter({ hasNotText: "Customer" })).toHaveCount(0);
-    // Northwind has thousands of customers: the footer says how many and loads the next ones.
-    await expect(page.getByTestId("crm-list-count")).toContainText(/The 500 newest of [\d,]+ records that match the filters/);
-    await page.getByTestId("crm-load-more").click();
-    await expect(page.getByTestId("crm-list-count")).toContainText(/The 1,000 newest of [\d,]+ records/, { timeout: LONG });
+    // Northwind has thousands of customers: the footer says how many are loaded of how many match, and keeps loading.
+    const loaded = page.getByTestId("crm-loaded");
+    await expect(loaded).toHaveText(/^[\d,]+( of [\d,]+)? records$/, { timeout: LONG });
+    await expect
+      .poll(async () => Number(((await loaded.textContent()) ?? "").match(/^[\d,]+/)?.[0]?.replace(/,/g, "")), { timeout: LONG })
+      .toBeGreaterThan(500);
   });
 
   test("the typeahead is a combobox: arrow keys move through the hits and Enter opens one", async ({ page }) => {

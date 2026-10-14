@@ -62,8 +62,13 @@ test.describe("settings, plain words", () => {
     await expect(dialog).not.toContainText(/come later|for now this records/);
     // Going live is for adults: the review asks for "I am 18 or older" and Confirm waits for it.
     await expect(dialog).toContainText("18 or older");
-    await expect(dialog.getByRole("button", { name: "Confirm" })).toBeDisabled();
-    await dialog.getByTestId("confirm-adult").click();
+    // The seeded founder has already confirmed it (the network asks once), so there is nothing to tick; a founder who
+    // has not is asked, and Confirm waits for the tick.
+    const adult = dialog.getByTestId("confirm-adult");
+    if (await adult.count()) {
+      await expect(dialog.getByRole("button", { name: "Confirm" })).toBeDisabled();
+      await adult.click();
+    }
     await expect(dialog.getByRole("button", { name: "Confirm" })).toBeEnabled();
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toBeHidden();
@@ -123,6 +128,8 @@ test.describe("settings, plain words", () => {
     await page.goto(`${B}/settings/integrations`);
     const row = page.locator('[data-connector="sendgrid"]');
     await expect(row).toBeVisible({ timeout: LONG });
+    // The page first shows the list it was rendered with; Connect asks for the key once the replayed list marks it Live.
+    await expect(row).toContainText("Live", { timeout: LONG });
     await row.getByRole("button", { name: "Connect" }).click();
     const dialog = page.getByTestId("connect-fields-dialog");
     await expect(dialog).toBeVisible();

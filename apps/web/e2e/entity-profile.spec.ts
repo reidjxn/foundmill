@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, openBusiness } from "./helpers";
+import { LONG, chooseTableView, openBusiness } from "./helpers";
 
 /**
  * Entity profile (BUILD §11.12 profile tabs; AC-11.12.3 merge then unmerge) on the seeded Northwind Skincare records.
@@ -19,6 +19,8 @@ const KIND_CHIP = /^(Person|Organization|Agent|Staff|Member|Community|Venue)$/i;
 
 /** The first visible CRM rows: name, kind chip label and profile link. */
 async function crmRows(page: Page, limit = 12): Promise<CrmRowRef[]> {
+  // The open view is saved per person: an earlier spec may have left a sorted one open (By kind lists the agents first).
+  await chooseTableView(page, "All");
   const rows = page.getByRole("grid", { name: "CRM records" }).getByRole("row");
   await expect(rows.nth(1), "the seed gives Northwind CRM records").toBeVisible({ timeout: LONG });
   const out: CrmRowRef[] = [];

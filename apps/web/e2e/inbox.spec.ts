@@ -146,7 +146,6 @@ test.describe("inbox", () => {
     await decision.click();
     const item = page.getByTestId("inbox-item");
     await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
-    const stateBefore = await item.getAttribute("data-state");
     // The persona line never repeats itself ("Chief of Staff Chief of Staff").
     const header = page.getByTestId("inbox-item-header");
     const persona = (await header.getByTestId("persona-link").innerText()).trim();
@@ -171,7 +170,8 @@ test.describe("inbox", () => {
     await page.keyboard.press("Alt+2");
     await expect.poll(() => agentBubbles.count(), { timeout: LONG }).toBeGreaterThan(before);
     // The question did not decide anything: the item and its DecisionBar are still open.
-    await expect(item).toHaveAttribute("data-state", stateBefore!);
+    // (Opening a note marks it read, so unread may turn read meanwhile; answered it is not.)
+    await expect(item).toHaveAttribute("data-state", /^(unread|read)$/);
     await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
     await expect(page.getByTestId("answered-panel")).toHaveCount(0);
 
@@ -193,7 +193,6 @@ test.describe("inbox", () => {
     await decision.click();
     const item = page.getByTestId("inbox-item");
     await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
-    const stateBefore = await item.getAttribute("data-state");
     const desk = page.getByTestId("agent-desk");
     const replies = desk.getByTestId("quick-replies").locator("[data-quick-reply]:not([data-quick-reply=write]):not([data-quick-reply=go_with])");
     await expect(replies.first()).toBeVisible({ timeout: LONG });
@@ -212,7 +211,8 @@ test.describe("inbox", () => {
     await expect(retry).toBeVisible();
     await expect(retry).toHaveAttribute("data-likeliest", "true");
     // Nothing was decided and nothing was resent on its own.
-    await expect(item).toHaveAttribute("data-state", stateBefore!);
+    // (Opening a note marks it read, so unread may turn read meanwhile; answered it is not.)
+    await expect(item).toHaveAttribute("data-state", /^(unread|read)$/);
     await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
 
     await page.unroute(offline);
@@ -224,7 +224,7 @@ test.describe("inbox", () => {
     await expect(founderBubbles.last()).toContainText(words);
     await expect(founderBubbles).toHaveCount(foundersBefore + 1);
     await expect(desk.locator('[data-quick-reply="local-retry"]')).toHaveCount(0);
-    await expect(item).toHaveAttribute("data-state", stateBefore!);
+    await expect(item).toHaveAttribute("data-state", /^(unread|read)$/);
   });
 
   test("a reply lost on its way back is not reported as unsent, and nothing is posted twice (audit RES-09)", async ({ page }) => {
@@ -242,8 +242,12 @@ test.describe("inbox", () => {
     // The api takes the message and answers it; the answer never reaches the browser.
     const lost = /\/trpc\/[^?]*agent\.conversation\.send/;
     await page.route(lost, async (route) => {
-      await route.fetch();
-      await route.abort("connectionreset");
+      try {
+        await route.fetch();
+        await route.abort("connectionreset");
+      } catch {
+        // The page moved on (or the route was released) while the api was still answering.
+      }
     });
     await replies.first().click();
     // The desk asks the server and finds the message there: the exchange shows, with nothing to send again.
@@ -262,7 +266,6 @@ test.describe("inbox", () => {
     const item = page.getByTestId("inbox-item");
     await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
     await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
-    const stateBefore = await item.getAttribute("data-state");
     // The command palette's Ask row opens the Chief of Staff's desk as a sheet over the note.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.keyboard.press("Control+k");
@@ -282,7 +285,8 @@ test.describe("inbox", () => {
     await expect(page.getByTestId("confirm-plan")).toHaveCount(0);
     await sheet.getByRole("button", { name: "Close" }).click();
     await expect(sheet).toBeHidden();
-    await expect(item).toHaveAttribute("data-state", stateBefore!);
+    // (Opening a note marks it read, so unread may turn read meanwhile; answered it is not.)
+    await expect(item).toHaveAttribute("data-state", /^(unread|read)$/);
     await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
     await expect(page.getByTestId("answered-panel")).toHaveCount(0);
   });
@@ -402,11 +406,20 @@ test.describe("inbox", () => {
     await expect(page.locator(`[data-inbox-row="${itemId}"]`)).toHaveCount(0, { timeout: LONG });
   });
 
-  // The seeded Northwind decision with a spend option, a deadline five days after the seed and "Blocks Continue".
-  const NORTHWIND_DECISION = "fec0c6b1-b5ba-4b4a-b9e8-22919aae40e3";
+  // The seeded Northwind decision with a spend option, a deadline five days after the seed and "Blocks Continue" (its id
+  // is new with every seed, so it is read from the list).
+  async function northwindDecisionId(page: Page): Promise<string> {
+    await openInbox(page, "respond");
+    const row = rowsOf(page).filter({ hasText: "Approve batch 002" }).first();
+    await expect(row, "the seed gives Northwind the batch 002 decision").toBeVisible({ timeout: LONG });
+    const id = await row.getAttribute("data-inbox-row");
+    expect(id).toBeTruthy();
+    return id!;
+  }
 
   test("the list and the reading pane scroll on their own; the page behind them never moves (audit OL-03)", async ({ page }) => {
-    await openBusiness(page, `inbox/${NORTHWIND_DECISION}`);
+    const decisionId = await northwindDecisionId(page);
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/inbox/${decisionId}`);
     await expect(page.getByTestId("inbox-item")).toBeVisible({ timeout: LONG });
     const main = page.getByTestId("shell-content");
     const size = await main.evaluate((el) => ({ scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }));
@@ -419,9 +432,9 @@ test.describe("inbox", () => {
   });
 
   test("a decision past its deadline stays open and keeps blocking Continue; the page does not claim the team moved on (audit VCML-X2)", async ({ page }) => {
-    await signIn(page);
+    const decisionId = await northwindDecisionId(page);
     await page.clock.setFixedTime(new Date("2027-01-15T12:00:00Z"));
-    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/inbox/${NORTHWIND_DECISION}`);
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/inbox/${decisionId}`);
     await expect(page.getByTestId("inbox-item")).toBeVisible({ timeout: LONG });
     const bar = page.getByTestId("decision-bar");
     await expect(bar.getByTestId("past-deadline")).toContainText("past its deadline");

@@ -23,7 +23,10 @@ export const LONG = 60_000;
 /** Signs in through the dev bypass; makes sure the founder profile exists; lands on /new or a business Home. */
 export async function signIn(page: Page): Promise<void> {
   await page.goto("/login");
-  await page.getByRole("button", { name: "Continue as developer" }).click();
+  // Already signed in (a spec that opens a second screen): the login page sends the founder on, so there is no button.
+  const dev = page.getByRole("button", { name: "Continue as developer" });
+  await Promise.race([dev.waitFor({ state: "visible", timeout: LONG }), page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: LONG })]).catch(() => undefined);
+  if (await dev.isVisible().catch(() => false)) await dev.click();
   await page.waitForURL(/\/b\/[0-9a-f-]+\/|\/onboarding|\/new/, { timeout: LONG });
   if (/\/onboarding/.test(page.url())) await completeProfile(page);
 }
@@ -53,7 +56,8 @@ export async function chooseTableView(page: Page, name: string, scope: Page | Lo
   await expect(trigger).toBeVisible({ timeout: LONG });
   if (((await trigger.getAttribute("aria-label")) ?? "") === `View: ${name}`) return;
   await trigger.click();
-  await page.getByRole("menuitemradio", { name, exact: true }).click();
+  // A built-in view's menu item reads "All Built in": its own name, then the badge.
+  await page.getByRole("menuitemradio", { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( Built in)?$`) }).click();
   await expect(scope.getByRole("button", { name: `View: ${name}` }).first()).toBeVisible();
 }
 

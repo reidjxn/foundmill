@@ -43,6 +43,11 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   const [overrides, setOverrides] = useState<Partial<Record<ChannelKey, boolean>>>({});
   const [selected, setSelected] = useState<ChannelKey | null>(() => searchParam("channel") as ChannelKey | null);
   const [rescoring, setRescoring] = useState(false);
+  // Opened from another screen (a Channels row): the location is only the new one once this screen has mounted.
+  useEffect(() => {
+    const key = searchParam("channel");
+    if (key) setSelected(key as ChannelKey);
+  }, []);
 
   useBusinessEvents(() => {
     channels.refetch();

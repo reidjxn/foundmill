@@ -298,7 +298,6 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
           collapsed={sidebar.collapsed}
           onCollapsedChange={sidebar.onCollapsedChange}
           brand={sidebar.brand}
-          showLive={mode === "live"}
           onSelect={(item) => {
             cancelChord();
             onNavigate?.(item);

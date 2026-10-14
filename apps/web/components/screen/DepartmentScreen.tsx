@@ -17,6 +17,8 @@ import { useModulePacks } from "@foundmill/modules/lazy";
 import { getModuleScreen, type ModuleScreen } from "@foundmill/modules/registry";
 import type { ModuleKey } from "@foundmill/shared";
 import { MODULE_KEYS } from "@foundmill/shared/constants";
+// The built-in widgets register on import; a module screen's "Pin to Home" looks its widget up by key.
+import "@foundmill/widgets";
 import { moduleHref } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { usePageShortcuts } from "@/lib/keys";

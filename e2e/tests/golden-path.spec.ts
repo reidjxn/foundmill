@@ -353,7 +353,7 @@ test.describe("seeded business (Northwind Skincare)", () => {
     const t0 = Date.now();
     await input.fill("Hana Brandt");
     const typeahead = page.getByTestId("crm-typeahead");
-    await expect(typeahead.getByRole("region", { name: "People" }).or(typeahead.locator("section[aria-label=People]"))).toContainText("Hana Brandt", { timeout: LONG });
+    await expect(typeahead.getByRole("group", { name: "People" })).toContainText("Hana Brandt", { timeout: LONG });
     test.info().annotations.push({ type: "person-typeahead-ms", description: String(Date.now() - t0) });
     await input.press("Enter");
     await expect(page.getByTestId("crm-screen")).toHaveAttribute("data-mode", "search");
@@ -362,7 +362,7 @@ test.describe("seeded business (Northwind Skincare)", () => {
     await page.getByRole("button", { name: "Clear all" }).click();
     const t1 = Date.now();
     await input.fill("Pennine");
-    await expect(typeahead.locator("section[aria-label=Organizations]")).toContainText("Pennine Contract Cosmetics", { timeout: LONG });
+    await expect(typeahead.getByRole("group", { name: "Organizations" })).toContainText("Pennine Contract Cosmetics", { timeout: LONG });
     test.info().annotations.push({ type: "organisation-typeahead-ms", description: String(Date.now() - t1) });
     await input.press("Enter");
     await expect(page.getByTestId("crm-table-panel")).toContainText("Pennine Contract Cosmetics", { timeout: LONG });

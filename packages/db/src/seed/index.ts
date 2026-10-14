@@ -173,5 +173,10 @@ export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<Seed
     log("journey_daily refreshed");
   }
 
+  // A freshly seeded database has no planner statistics, and Postgres plans the first queries as if every table held a
+  // row: a role filter on the CRM list ran for minutes. Gathering them once costs a second.
+  await db.execute(sql`analyze`);
+  log("planner statistics gathered");
+
   return { owner, owners, businesses: { northwind, ledgerly }, platformSkillDefinitionsAdded, durationMs: Date.now() - startedAt };
 }

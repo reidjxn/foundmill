@@ -137,7 +137,8 @@ test.describe("foundations", () => {
     // Read now asks the import to read it again (still no worker here, so it stays not read, with the reason).
     await page.getByTestId("read-imports-now").click();
     await expect(row.locator("[data-import-state]")).toHaveAttribute("data-import-state", "not_read", { timeout: LONG });
-    await expect(page.getByRole("alert")).toHaveCount(0);
+    // Next's route announcer is an empty alert; only one with words in it is an error.
+    await expect(page.getByRole("alert").filter({ hasText: /\S/ })).toHaveCount(0);
 
     await page.goto(`/b/${bid}/d/product/vision`);
     await expect(page.getByTestId("vision-record")).toContainText("existing source", { timeout: LONG });

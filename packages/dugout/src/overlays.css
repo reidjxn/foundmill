@@ -270,9 +270,11 @@
       0 0 10px -1px color-mix(in oklab, var(--tone, var(--status-good)) 70%, transparent);
   }
   /* At rest (idle, paused): dashed, so the state does not rest on the ring's grey alone (DESIGN §2). */
+  /* An outline, not a border, so the ring adds nothing to the avatar's scrollable box (a control wrapping it would
+     otherwise read as spilling by the ring's width). */
   &[data-dashed] {
-    inset: calc((var(--avatar-gap, 3px) + 1.5px) * -1);
-    border: 1.5px dashed var(--tone, var(--text-4));
+    outline: 1.5px dashed var(--tone, var(--text-4));
+    outline-offset: 0;
     box-shadow: none;
   }
 }
@@ -301,7 +303,7 @@
       0 0 0 3px var(--avatar-cut, var(--surface-1));
   }
   & > .avatar-ring[data-dashed] {
-    box-shadow: 0 0 0 1.5px var(--avatar-cut, var(--surface-1));
+    box-shadow: 0 0 0 3px var(--avatar-cut, var(--surface-1));
   }
 }
 /* Live presence: a copy of the ring breathes outwards and fades (scale 1 → 1.35, 2400 ms). Reduced motion: nothing

@@ -187,7 +187,8 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
   const post = useMutation(
     trpc.live.communities.post.mutationOptions({
       onSuccess: (created) => {
-        void refresh("live.communities.posts");
+        // A held post waits in the moderators' queue (the founder's own, in a community they moderate) as well as in the feed.
+        void refresh("live.communities.posts", ...(created.held ? ["live.communities.moderation", "live.summary"] : []));
         if (created.held) toast({ title: "Held for review", description: "Moderation held your post. The community's moderators look at it before members see it; you can still edit or delete it.", tone: "warn" });
       },
       onError: failed("Not posted"),
@@ -201,7 +202,7 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
   const [reporting, setReporting] = useState<PostRow | null>(null);
   const [editing, setEditing] = useState<PostRow | null>(null);
   const [inviting, setInviting] = useState(false);
-  const deletePost = useMutation(trpc.live.posts.delete.mutationOptions({ onSuccess: () => void refresh("live.communities.posts"), onError: failed("Not deleted") }));
+  const deletePost = useMutation(trpc.live.posts.delete.mutationOptions({ onSuccess: () => void refresh("live.communities.posts", "live.communities.moderation", "live.summary"), onError: failed("Not deleted") }));
   const moderatePost = useMutation(trpc.live.posts.moderate.mutationOptions({ onSuccess: () => void refresh("live.communities.posts", "live.communities.moderation", "live.summary"), onError: failed("Not changed") }));
   const moderateMember = useMutation(trpc.live.communities.moderateMember.mutationOptions({ onSuccess: () => void refresh("live.communities.get", "live.communities.moderation"), onError: failed("Not changed") }));
   const setRole = useMutation(trpc.live.communities.setRole.mutationOptions({ onSuccess: () => void refresh("live.communities.get"), onError: failed("Role not changed") }));

@@ -122,7 +122,7 @@ export function CrmScreen() {
         id: "name",
         accessorKey: "name",
         header: "Name",
-        size: 240,
+        size: 200,
         meta: { locked: true },
         // One portrait per row (the link carries no icon of its own; the Kind column says what the record is).
         cell: ({ row }) => (
@@ -132,16 +132,16 @@ export function CrmScreen() {
           </span>
         ),
       },
-      { id: "kind", accessorKey: "kind", header: "Kind", size: 136, cell: ({ row }) => <Chip tone="neutral" icon={ENTITY_KIND_ICONS[row.original.kind]}>{KIND_WORD[row.original.kind]}</Chip>, meta: { filter: "select", filterOptions: (Object.keys(KIND_LABELS) as EntityKind[]).map((k) => ({ value: k, label: KIND_LABELS[k] })) } },
-      { id: "roles", accessorFn: (r) => r.roles.join(", "), header: "Roles", size: 200, cell: ({ row }) => (row.original.roles.length ? <span className="flex flex-wrap gap-1">{row.original.roles.map((r) => <Chip key={r}>{roleWord(r)}</Chip>)}</span> : <span className="text-tertiary">None</span>) },
-      { id: "stage", accessorFn: (r) => r.stage ?? "", header: "Stage", size: 140, cell: ({ row }) => (row.original.stage ? <StatusPill tone={STAGE_TONE[row.original.stage] ?? "neutral"}>{stageWord(row.original.stage)}</StatusPill> : <span className="text-tertiary">None</span>) },
-      { id: "owner", accessorFn: (r) => (r.owner ? (resolvers.ownerName(r.owner) ?? r.owner.id) : ""), header: "Owner", size: 160, cell: ({ row }) => (row.original.owner ? <span className="truncate">{resolvers.ownerName(row.original.owner) ?? "An agent"}</span> : <span className="text-tertiary">Unassigned</span>) },
-      // Email takes the spare width (emails show in full at 1440); the other columns keep theirs.
-      { id: "email", accessorFn: (r) => r.email ?? r.domain ?? "", header: "Email or domain", size: 272, meta: { grow: 1 }, cell: ({ getValue }) => ((getValue() as string) ? <span className="truncate font-mono text-mono text-secondary">{getValue() as string}</span> : <span className="text-tertiary">None</span>) },
+      { id: "kind", accessorKey: "kind", header: "Kind", size: 124, cell: ({ row }) => <Chip tone="neutral" icon={ENTITY_KIND_ICONS[row.original.kind]}>{KIND_WORD[row.original.kind]}</Chip>, meta: { filter: "select", filterOptions: (Object.keys(KIND_LABELS) as EntityKind[]).map((k) => ({ value: k, label: KIND_LABELS[k] })) } },
+      { id: "roles", accessorFn: (r) => r.roles.join(", "), header: "Roles", size: 144, cell: ({ row }) => (row.original.roles.length ? <span className="flex flex-wrap gap-1">{row.original.roles.map((r) => <Chip key={r}>{roleWord(r)}</Chip>)}</span> : <span className="text-tertiary">None</span>) },
+      { id: "stage", accessorFn: (r) => r.stage ?? "", header: "Stage", size: 162, cell: ({ row }) => (row.original.stage ? <StatusPill tone={STAGE_TONE[row.original.stage] ?? "neutral"}>{stageWord(row.original.stage)}</StatusPill> : <span className="text-tertiary">None</span>) },
+      { id: "owner", accessorFn: (r) => (r.owner ? (resolvers.ownerName(r.owner) ?? r.owner.id) : ""), header: "Owner", size: 112, cell: ({ row }) => (row.original.owner ? <span className="truncate">{resolvers.ownerName(row.original.owner) ?? "An agent"}</span> : <span className="text-tertiary">Unassigned</span>) },
+      // The table has the full width; sized so the default view fits at 1280 with nothing behind a sideways scroll. Email takes the spare width (emails show in full at 1440); the other columns keep theirs.
+      { id: "email", accessorFn: (r) => r.email ?? r.domain ?? "", header: "Email or domain", size: 160, meta: { grow: 1 }, cell: ({ getValue }) => ((getValue() as string) ? <span className="truncate font-mono text-mono text-secondary">{getValue() as string}</span> : <span className="text-tertiary">None</span>) },
       { id: "lawfulBasis", accessorFn: (r) => r.lawfulBasis ?? "", header: "Lawful basis", size: 160, cell: ({ getValue }) => ((getValue() as string) ? LAWFUL_BASIS_LABEL[getValue() as string] ?? plainWords(getValue() as string) : <Chip tone="warn">Not recorded</Chip>), meta: { filter: "select", filterOptions: Object.entries(LAWFUL_BASIS_LABEL).map(([value, label]) => ({ value, label })) } },
       { id: "source", accessorFn: (r) => sourceWord(r.source), header: "Source", size: 140, cell: ({ getValue }) => ((getValue() as string) ? <span className="text-secondary">{getValue() as string}</span> : <span className="text-tertiary">Unknown</span>) },
       { id: "createdAt", accessorKey: "createdAt", header: "Added", size: 120, cell: ({ getValue }) => <span className="font-mono text-mono text-secondary">{formatRelative(getValue() as string)}</span>, meta: { filter: "date" } },
-      { id: "updatedAt", accessorKey: "updatedAt", header: "Updated", size: 104, cell: ({ getValue }) => <span className="font-mono text-mono text-secondary">{formatRelative(getValue() as string)}</span>, meta: { filter: "date" } },
+      { id: "updatedAt", accessorKey: "updatedAt", header: "Updated", size: 96, cell: ({ getValue }) => <span className="font-mono text-mono text-secondary">{formatRelative(getValue() as string)}</span>, meta: { filter: "date" } },
     ],
     [businessId, open_, resolvers],
   );
@@ -275,7 +275,7 @@ export function CrmScreen() {
       </div>
 
       {/* table ------------------------------------------------------------------------------------------------------- */}
-      <div className="col-span-9 min-w-0">
+      <div className="col-span-12 min-w-0">
       <Panel
         title={index.mode === "search" ? `Results for “${text}”` : "Records"}
         flush
@@ -319,7 +319,7 @@ export function CrmScreen() {
       </div>
 
       {/* side panels ------------------------------------------------------------------------------------------------- */}
-      <div className="col-span-3 flex flex-col gap-gutter">
+      <div className="col-span-12 grid grid-cols-2 items-start gap-gutter">
         <Panel title="Importers" data-testid="crm-importers" footer="Imports match people by email, domain, LinkedIn, company number and Stripe customer before they compare names.">
           <ul className="flex flex-col gap-1">
             {IMPORTERS.map((i) => (

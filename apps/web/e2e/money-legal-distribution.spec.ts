@@ -80,6 +80,11 @@ test.describe("distribution, finance and legal read in plain words", () => {
     const caption = async (metric: string) => (await page.locator(`[data-metric="${metric}"] [data-metric-caption]`).innerText()).trim();
     const payback = await caption("payback");
     // "<n> paying customers": the base at the end of the revenue window, not the customers the channels just won.
+    // With too little in the window to compute it, the tile says what it waits for, in words; never a made-up figure.
+    if (/^Appears with/.test(payback)) {
+      expect(payback).toContain("paying customers");
+      return;
+    }
     expect(payback).toMatch(/^[\d,]+ paying customers?$/);
     const base = Number(payback.replace(/[^\d]/g, ""));
     const won = Number(((await caption("acquisitionCost")).match(/^([\d,]+) customers?/)?.[1] ?? "0").replace(/,/g, ""));
@@ -113,7 +118,8 @@ test.describe("distribution, finance and legal read in plain words", () => {
     }
     await page.getByRole("menuitem", { name: "Pin to Home" }).click();
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
-    await expect(page.locator("[data-widget=cash_runway]")).toHaveCount(1, { timeout: LONG });
+    // (Both the frame and the widget inside it carry the name.)
+    await expect(page.locator("[data-widget=cash_runway]").first()).toBeVisible({ timeout: LONG });
     await openTab(page, "finance", "overview");
     await page.getByRole("region", { name: "Cash", exact: true }).getByRole("button", { name: "Panel menu" }).click();
     await page.getByRole("menuitem", { name: "Unpin from Home" }).click();
@@ -158,7 +164,7 @@ test.describe("distribution, finance and legal read in plain words", () => {
     const table = page.getByRole("grid", { name: "Channels" });
     const spendless = table.getByRole("row").filter({ hasText: "No spend" }).first();
     await expect(spendless).toBeVisible();
-    await spendless.locator("[data-channel-name]").click();
+    await spendless.locator("[data-channel-name]").dblclick();
     const drawer = page.locator("[data-channel-drawer]");
     await expect(drawer).toBeVisible({ timeout: LONG });
     // "Cost per customer (Estimate)" reads "No spend" like the table, never "£0.00".

@@ -3,7 +3,7 @@
  * stopAllAgents/resumeAgents/export/archive/restore/listArchived/requestDeletion/cancelDeletion (BUILD §9.4, §9.6, §11.15, §14).
  */
 import { LIMITS, liveModeOpen } from "@foundmill/config";
-import { HolidayRunningError, repos, UpdateBusinessInput } from "@foundmill/db";
+import { HolidayRunningError, repos, SLUG_TAKEN, UpdateBusinessInput } from "@foundmill/db";
 import { demoBusinessIdForSlug } from "@foundmill/db/seed/constants";
 import { BUSINESS_SETTINGS_FIELDS, businessStreamKey } from "@foundmill/events";
 import { PRICING_CURRENCY } from "@foundmill/models";
@@ -128,7 +128,7 @@ export const businessRouter = router({
       const { expected, ...changes } = input;
       // The demo businesses' slugs are reserved for them (boot-time seeding finds them by id, and nobody else holds those addresses).
       const reservedFor = changes.slug ? demoBusinessIdForSlug(changes.slug) : null;
-      if (reservedFor && reservedFor !== ctx.businessId) throw new ConflictError("That address is taken; choose another", { slug: changes.slug });
+      if (reservedFor && reservedFor !== ctx.businessId) throw new ConflictError(SLUG_TAKEN, { field: "slug" });
       if (expected) {
         const current = await repos.businesses.get(tx, ctx.businessId);
         const stale = staleBusinessFields(current, expected);

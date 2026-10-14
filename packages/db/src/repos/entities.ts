@@ -448,12 +448,15 @@ const roleKeyOf = (column: SQL) => sql`regexp_replace(lower(btrim(${column})), '
 /** An active role matching every given filter (role and stage by `roleKey`, as the founder types them). */
 function roleFilter(businessId: string, f: { role?: string; stage?: string; ownerId?: string; departmentId?: string }): SQL | undefined {
   if (!f.role && !f.stage && !f.ownerId && !f.departmentId) return undefined;
-  const conds: SQL[] = [sql`r.business_id = ${businessId}::uuid`, sql`r.entity_id = ${entities.id}`, sql`r.ended_at is null`];
+  const conds: SQL[] = [sql`r.business_id = ${businessId}::uuid`, sql`r.ended_at is null`];
   if (f.role) conds.push(sql`${roleKeyOf(sql`r.role`)} = ${roleKey(f.role)}`);
   if (f.stage) conds.push(sql`${roleKeyOf(sql`r.stage`)} = ${roleKey(f.stage)}`);
   if (f.ownerId) conds.push(sql`r.owner_ref ->> 'id' = ${f.ownerId}`);
   if (f.departmentId) conds.push(sql`r.owner_ref ->> 'kind' = 'department' and r.owner_ref ->> 'id' = ${f.departmentId}`);
-  return sql`exists (select 1 from entity_roles r where ${sql.join(conds, sql` and `)})`;
+  // One uncorrelated array, not a correlated `exists` and not a plain `in (select …)`: on a database without planner
+  // statistics (a fresh seed) those were planned as a nested loop that re-ran the role scan, with its row-level
+  // security checks, once per entity, and took minutes. The array is built once.
+  return sql`${entities.id} = any(array(select r.entity_id from entity_roles r where ${sql.join(conds, sql` and `)}))`;
 }
 
 /** The filters `list`, `listWithRoles` and `count` share. */

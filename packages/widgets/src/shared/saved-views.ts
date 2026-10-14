@@ -5,7 +5,7 @@
  * stored per person, business and table (`founder.tableViews`, saved_table_views 0041), and the built-in views stay in
  * code. A table outside a business (the LIVE pages) stores the same shape through the host's own hook.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { SavedView } from "@foundmill/dugout";
 import { useWidgetData, useWidgetQuery } from "../data";
 
@@ -53,8 +53,13 @@ export function useSavedViewsState(defaults: readonly SavedView[], stored: Store
   const current = local ?? stored ?? null;
   const views = useMemo(() => mergeSavedViews(defaults, current), [defaults, current]);
   const activeViewId = resolveActiveViewId(views, current?.activeViewId, defaultViewId);
+  // The views as of the latest write, even before the screen re-renders: saving a view as new adds it and then makes it
+  // the active one in the same tick, and the second write must carry the first one's views.
+  const latestViews = useRef<SavedView[]>(views);
+  latestViews.current = views;
   const write = useCallback(
     (next: StoredTableViews) => {
+      latestViews.current = next.views;
       setLocal(next);
       save(next);
     },
@@ -64,7 +69,7 @@ export function useSavedViewsState(defaults: readonly SavedView[], stored: Store
     views,
     activeViewId,
     onViewsChange: useCallback((next: SavedView[]) => write({ views: next, activeViewId: resolveActiveViewId(next, activeViewId, defaultViewId) }), [write, activeViewId, defaultViewId]),
-    onActiveViewChange: useCallback((id: string | null) => write({ views, activeViewId: id }), [write, views]),
+    onActiveViewChange: useCallback((id: string | null) => write({ views: latestViews.current, activeViewId: id }), [write]),
   };
 }
 

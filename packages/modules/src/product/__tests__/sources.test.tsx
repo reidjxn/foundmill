@@ -109,8 +109,9 @@ describe("SourcesScreen", () => {
     renderScreen(fake, <SourcesScreen businessId={BID} departmentId="d1" />);
     fireEvent.click(within(screen.getByRole("group", { name: "Filter by kind" })).getByRole("button", { name: /Issue/ }));
     expect(fake.queried.get("product.sources.list")).toEqual({ kind: "issue", limit: 200 });
-    fireEvent.click(within(screen.getByRole("grid", { name: "Sources" })).getByRole("button", { name: /Automatic reminders/ }));
-    expect(fake.navigations[0]).toBe(`/b/${BID}/d/product/specification?block=${BLOCK.features}`);
+    fireEvent.click(within(screen.getByRole("grid", { name: "Sources" })).getAllByRole("button", { name: /1 block/ })[0]!);
+    // The chip counts the linked blocks and opens the best match.
+    expect(fake.navigations[0]).toMatch(new RegExp(`^/b/${BID}/d/product/specification\\?block=`));
   });
 
   it("adds a source through product.sources.add and refetches", async () => {

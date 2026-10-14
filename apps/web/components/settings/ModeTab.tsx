@@ -7,7 +7,7 @@
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Globe, Lock, Palmtree } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BUSINESS_MODE_INFO, Button, Checkbox, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, HolidayDialog, KeyValueList, Label, MoneyInput, RadioCard, RadioGroup, StatusPill, useFormatters, type HolidaySettings } from "@foundmill/dugout";
 import { BUSINESS_MODES, type BusinessMode, type GameMode } from "@foundmill/shared/constants";
 import { vacationUntilLabel } from "@foundmill/shared";
@@ -35,6 +35,9 @@ function SpendCapForm({ businessId, capMinor, currency }: { businessId: string; 
   const invalidate = useInvalidateRouters();
   const t = useSettingsToast();
   const [value, setValue] = useState(capMinor === null ? "" : String(capMinor / 100));
+  // The saved cap changing (this save, or another tab's) updates the field in place: a remount would drop the keyboard
+  // focus the Save button keeps while it saves.
+  useEffect(() => setValue(capMinor === null ? "" : String(capMinor / 100)), [capMinor]);
   const parsed = parseSpendCapMinor(value);
   const invalid = Number.isNaN(parsed) || (parsed !== null && parsed < 0);
   const setSpendCap = useMutation(trpc.business.setSpendCap.mutationOptions({ onSuccess: (r) => (void invalidate(["business"]), t.saved(r.spendCapMinor === null ? "Spend cap removed" : "Spend cap saved")), onError: (e) => t.failed(e) }));
@@ -155,7 +158,7 @@ export function ModeTab() {
       <AutopilotSection />
 
       <SettingsSection title="Spend cap per action">
-        <SpendCapForm key={b.spendCapMinor ?? "none"} businessId={businessId} capMinor={b.spendCapMinor} currency={currency} />
+        <SpendCapForm businessId={businessId} capMinor={b.spendCapMinor} currency={currency} />
       </SettingsSection>
 
       <SettingsSection title="Vacation">

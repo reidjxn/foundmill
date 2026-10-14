@@ -113,8 +113,12 @@ test.describe("keyboard and screen readers", () => {
 
   test("Channel Board: O opens the profile with focus on its title, Esc closes it and returns to the token", async ({ page }) => {
     await openBusiness(page, "d/distribution/formation");
-    const token = page.getByRole("button", { name: /on the board/ }).first();
-    await expect(token).toBeVisible({ timeout: LONG });
+    const first = page.getByRole("button", { name: /on the board/ }).first();
+    await expect(first).toBeVisible({ timeout: LONG });
+    // The Board re-ranks as scores arrive, so hold on to this token by its own name, not by its place in the list.
+    const label = (await first.getAttribute("aria-label")) ?? "";
+    expect(label).not.toBe("");
+    const token = page.getByRole("button", { name: label, exact: true });
     await token.focus();
     await page.keyboard.press("o");
     const drawer = page.locator("[data-channel-drawer]");

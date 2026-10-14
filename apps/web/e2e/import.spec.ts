@@ -16,7 +16,7 @@ test.describe("import", () => {
   test("lists ten read-only sources and validates the repository", async ({ page }) => {
     await expect(page.locator("[data-source]")).toHaveCount(10);
     // Sources the import cannot read yet say so before the founder picks them.
-    await expect(page.getByTestId("no-import-reader")).toHaveCount(3);
+    await expect(page.getByTestId("no-import-reader")).toHaveCount(2); // Linear and Jira (the website reader exists since the import fixes)
     // One "Read only" chip per source (the bank source's description also says "Read only.", hence the exact match).
     await expect(page.locator("[data-source]").getByText("Read only", { exact: true })).toHaveCount(10);
     await expect(page.getByTestId("start-import")).toBeDisabled();

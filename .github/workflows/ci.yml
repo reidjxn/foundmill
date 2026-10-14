@@ -137,6 +137,8 @@ jobs:
       # Dev auth bypass (docs/DECISIONS.md): the seed owner from packages/db/src/seed/constants.ts DEMO_OWNER_USER_ID.
       DEV_AUTH_USER_ID: 0f0a0d00-0000-4000-8000-00000000f0a1
       API_PORT: 4000
+      # The LIVE pages (Network, Communities, Leaderboards) and Go live are closed without it (apps/web/e2e/README.md).
+      LIVE_MODE: 1
       NEXT_PUBLIC_API_URL: http://localhost:4000
       NEXT_PUBLIC_APP_ENV: test
       NODE_OPTIONS: --max-old-space-size=4096

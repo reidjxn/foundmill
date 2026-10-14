@@ -112,14 +112,16 @@ export function sourceColumns(blocks: readonly SpecBlockRow[], onOpenBlock: (id:
           .filter((l) => l.block);
         if (!linked.length) return <span className="text-secondary">—</span>;
         return (
-          <span className="flex min-w-0 gap-1 overflow-hidden">
-            {linked.slice(0, 2).map((l) => (
-              <Chip key={l.blockId} tone="neutral" icon={FileText} onClick={() => onOpenBlock(l.blockId)} title={`${blockTitle(l.block!)} · relevance ${Math.round(l.score * 100)}%`}>
-                {blockTitle(l.block!)}
-              </Chip>
-            ))}
-            {linked.length > 2 ? <span className="text-small text-secondary tabular-nums">+{linked.length - 2}</span> : null}
-          </span>
+          // A count, not the titles: a long block title would widen the table past its panel. The titles are the tooltip,
+          // and the chip opens the best match.
+          <Chip
+            tone="neutral"
+            icon={FileText}
+            onClick={() => onOpenBlock(linked[0]!.blockId)}
+            title={linked.map((l) => `${blockTitle(l.block!)} · relevance ${Math.round(l.score * 100)}%`).join("\n")}
+          >
+            {linked.length === 1 ? "1 block" : `${linked.length} blocks`}
+          </Chip>
         );
       },
       meta: { numeric: true, label: "Spec blocks", csv: (r) => linkedBlocks(r).length },

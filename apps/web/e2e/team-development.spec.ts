@@ -229,7 +229,7 @@ test.describe("saved table views on module screens", () => {
     const name = `E2E agents ${Date.now().toString(36)}`;
     await page.getByRole("button", { name: /^View: / }).click();
     await page.getByRole("menuitem", { name: "Save as new view…" }).click();
-    await page.getByLabel("Name").fill(name);
+    await page.getByLabel("Name", { exact: true }).fill(name);
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("button", { name: `View: ${name}` })).toBeVisible();
     await page.reload();

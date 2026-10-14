@@ -10,6 +10,9 @@ import { LONG, NORTHWIND_BUSINESS_ID, signIn } from "./helpers";
  */
 const LEDGERLY_BUSINESS_ID = "b1e5e5e5-0000-4000-8000-000000000002";
 
+/** A unique, letter-led tag for test text: a long run of digits reads as a phone number to moderation and holds the post. */
+const tag = () => `x${Date.now().toString(36)}`;
+
 const nav = (page: Page) => page.getByRole("navigation", { name: "Primary" });
 
 /** Signs in, opens a business Home (its layout remembers the business) and waits for the shell. */
@@ -51,19 +54,14 @@ test.describe("live pages from the sidebar", () => {
     await expect(page.getByTestId("error-panel")).toHaveCount(0);
   });
 
-  test("Network: Find on Foundmill searches public profiles by name and opens a profile page", async ({ page }) => {
+  test("Network: Find on Foundmill searches public profiles by name; the demo business is never listed", async ({ page }) => {
     await page.goto("/network");
     const panel = page.getByTestId("people-search");
     await expect(panel).toBeVisible({ timeout: LONG });
     await panel.getByTestId("people-search-input").fill("Ledgerly");
-    // Ledgerly is LIVE and committed, so it is among the public profiles; each hit carries the product label.
-    const hit = panel.getByTestId("people-search-results").getByRole("button", { name: /Ledgerly/ }).first();
-    await expect(hit).toBeVisible({ timeout: LONG });
-    await expect(hit).toContainText("On Foundmill");
-    await hit.click();
-    await expect(page).toHaveURL(/\/profiles\/business\/[0-9a-f-]{36}$/, { timeout: LONG });
-    await expect(page.getByTestId("profile-screen")).toContainText("Ledgerly", { timeout: LONG });
-    await expect(nav(page).getByRole("link", { name: "Network" })).toHaveAttribute("aria-current", "page");
+    // Ledgerly is the seeded demo (synthetic numbers): LIVE for its owners, but never listed for anyone else (0044).
+    await expect(panel.getByTestId("people-search-empty")).toContainText("No public profile matches", { timeout: LONG });
+    await expect(panel.getByTestId("people-search-results")).toHaveCount(0);
   });
 
   test("Network: the profile visibility control offers the four levels and saves a change (then restores it)", async ({ page }) => {
@@ -135,7 +133,7 @@ test.describe("live pages from the sidebar", () => {
     await newest.getByRole("button", { name: "Reply", exact: true }).click();
     const thread = newest.getByTestId("reply-thread");
     await expect(thread).toBeVisible({ timeout: LONG });
-    const replyText = `Playwright reply ${Date.now()}`;
+    const replyText = `Playwright reply ${tag()}`;
     const replyBox = thread.getByLabel("Write a reply");
     await replyBox.fill(replyText);
     await replyBox.press("Control+Enter");
@@ -143,7 +141,7 @@ test.describe("live pages from the sidebar", () => {
     await expect(newest.getByRole("button", { name: /\d+ repl(y|ies)$/ })).toBeVisible({ timeout: LONG });
 
     // The post box: Ctrl+Enter sends, the field clears and the post heads the feed.
-    const text = `Playwright post ${Date.now()}`;
+    const text = `Playwright post ${tag()}`;
     const box = page.getByLabel("Write a post");
     await box.fill(text);
     await box.press("Control+Enter");
@@ -159,7 +157,7 @@ test.describe("live pages from the sidebar", () => {
     await expect(feed.getByTestId("feed-post").filter({ hasText: text })).toHaveCount(0, { timeout: LONG });
 
     // A post moderation holds (a phone number in a post every member reads) shows to its author as held.
-    const held = `Playwright held ${Date.now()}: call me on +1 415 555 0100`;
+    const held = `Playwright held ${tag()}: call me on +1 415 555 0100`;
     await box.fill(held);
     await box.press("Control+Enter");
     const heldPost = feed.getByTestId("feed-post").filter({ hasText: held });

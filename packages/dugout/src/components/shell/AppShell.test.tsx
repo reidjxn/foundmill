@@ -129,9 +129,8 @@ describe("AppShell", () => {
     expect(screen.getByRole("status", { name: "Live updates paused" })).toBeTruthy();
   });
 
-  it("hides the LIVE block and chip in Personal mode", () => {
+  it("hides the LIVE chip in Personal mode; the sidebar shows the items the app gives it (Network stays: it is the founder's own)", () => {
     render(<AppShell {...shellProps({ mode: "personal" })} />);
-    expect(screen.queryByRole("link", { name: "Network" })).toBeNull();
     expect(screen.queryByText("LIVE")).toBeNull();
   });
 
