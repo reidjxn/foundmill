@@ -2,13 +2,15 @@
  * tRPC for Server Components and Route Handlers: a vanilla client carrying the signed-in user's bearer. Layouts use
  * it to load the business, departments and the founder profile before rendering the shell (ARCHITECTURE §14).
  *
- * `serverApi`, `serverBusiness` and `serverDepartments` are wrapped in React `cache()`: within one server request (the
- * layout, the `generateMetadata`s and the page) the session is read once and `business.get` and `department.list` are
- * asked once each. The cache is per request,
- * so nothing is shared between requests or users.
+ * `serverApi`, `serverBusiness`, `serverDepartments` and `serverEntity` are wrapped in React `cache()`: within one server
+ * request the session is read once and each of those reads is asked once, whichever components ask for it. The cache is
+ * per request, so nothing is shared between requests or users (each client navigation is a request of its own).
+ *
+ * Every read here is bounded by `SERVER_LIMITS` (8 s): a page waits on its reads before sending anything, so a stalled
+ * API renders the unreachable page (or hands the read to the browser) instead of a blank tab (audit F3).
  */
 import { cache } from "react";
-import { createApiClient, type ApiClient, type RouterOutputs } from "./trpc";
+import { createApiClient, SERVER_LIMITS, type ApiClient, type RouterOutputs } from "./trpc";
 import { getServerAuth, type ServerAuth } from "./auth/server";
 import { shellQueryInputs } from "./shell-queries";
 
@@ -18,12 +20,12 @@ export interface ServerApi {
 }
 
 /**
- * A new API client with the signed-in user's bearer. Calls made in the same tick on one client travel in one batch and
- * answer together, so queries handed over unawaited (lib/hydrate.server.tsx) use their own client and never hold up
- * what a layout awaits.
+ * A new API client with the signed-in user's bearer and the server's limits. Calls made in the same tick on one client
+ * travel in one batch and answer together, so queries handed over unawaited (lib/hydrate.server.tsx) use their own
+ * client and never hold up what a layout awaits.
  */
 export function createServerClient(auth: ServerAuth): ApiClient {
-  return createApiClient({ getToken: () => auth.token, fetch: (input, init) => fetch(input, { ...init, cache: "no-store" }) });
+  return createApiClient({ getToken: () => auth.token, fetch: (input, init) => fetch(input, { ...init, cache: "no-store" }), limits: SERVER_LIMITS });
 }
 
 /** The API client for the current request, or null when nobody is signed in. */
@@ -33,7 +35,7 @@ export const serverApi = cache(async (): Promise<ServerApi | null> => {
   return { api: createServerClient(auth), auth };
 });
 
-/** `business.get` for this request (layout and metadata share one call); null when nobody is signed in. Rejects as the API does. */
+/** `business.get` for this request (asked once, however many components need it); null when nobody is signed in. Rejects as the API does. */
 export const serverBusiness = cache(async (businessId: string): Promise<RouterOutputs["business"]["get"] | null> => {
   const server = await serverApi();
   if (!server) return null;
@@ -41,8 +43,8 @@ export const serverBusiness = cache(async (businessId: string): Promise<RouterOu
 });
 
 /**
- * The sidebar's `department.list` for this request: the layout and the department and agent pages' `generateMetadata`
- * (their browser titles) share one call. Null when nobody is signed in; rejects as the API does.
+ * The sidebar's `department.list` for this request (asked once, however many components need it). Null when nobody is
+ * signed in; rejects as the API does.
  */
 export const serverDepartments = cache(async (businessId: string): Promise<RouterOutputs["department"]["list"] | null> => {
   const server = await serverApi();
@@ -51,8 +53,8 @@ export const serverDepartments = cache(async (businessId: string): Promise<Route
 });
 
 /**
- * `crm.entity.get` for this request: the entity page's browser title and the profile the page hands to the browser
- * share one call. Null when nobody is signed in; rejects as the API does.
+ * `crm.entity.get` for this request (asked once, however many components need it). Null when nobody is signed in;
+ * rejects as the API does.
  */
 export const serverEntity = cache(async (businessId: string, entityId: string): Promise<RouterOutputs["crm"]["entity"]["get"] | null> => {
   const server = await serverApi();

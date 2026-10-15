@@ -1,5 +1,5 @@
 import { expect, test, type Request } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, signIn } from "./helpers";
+import { API_URL, LONG, NORTHWIND_BUSINESS_ID, openBusiness, signIn } from "./helpers";
 
 /**
  * Page speed without behaviour change (the network and navigation fixes): the shell's first queries and Home's
@@ -7,11 +7,15 @@ import { LONG, NORTHWIND_BUSINESS_ID, signIn } from "./helpers";
  * one department list, and a sidebar click is one navigation. Stack and commands: e2e/README.md.
  */
 
-/** tRPC procedures in a browser request to the API (`/trpc/a.b,c.d?batch=1…`) whose input names `businessId`. */
+/**
+ * tRPC procedures in a browser request to the API whose input names `businessId`: reads go to the page's own origin
+ * (`/api/trpc/a.b,c.d?batch=1…`, rewritten to the API), changes to the API itself (`/trpc/…`).
+ */
 function procedures(req: Request, businessId: string): string[] {
   const url = new URL(req.url());
-  if (!url.pathname.startsWith("/trpc/")) return [];
-  const paths = decodeURIComponent(url.pathname.slice("/trpc/".length)).split(",");
+  const at = url.pathname.indexOf("/trpc/");
+  if (at < 0) return [];
+  const paths = decodeURIComponent(url.pathname.slice(at + "/trpc/".length)).split(",");
   const raw = req.method() === "GET" ? url.searchParams.get("input") : req.postData();
   let inputs: Record<string, { json?: { businessId?: unknown } } | undefined> = {};
   try {
@@ -77,5 +81,32 @@ test.describe("navigation", () => {
     await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/inbox`), { timeout: LONG });
     await page.waitForLoadState("networkidle", { timeout: LONG });
     expect(navigations.filter((p) => p.endsWith("/inbox")).length).toBeLessThanOrEqual(2);
+  });
+});
+
+test.describe("transport", () => {
+  test("reads come from the page's own origin (no CORS preflight); changes go to the API itself", async ({ page }) => {
+    const reads: URL[] = [];
+    page.on("request", (req) => {
+      const url = new URL(req.url());
+      if (req.method() === "GET" && url.pathname.includes("/trpc/")) reads.push(url);
+    });
+    await openBusiness(page, "inbox");
+    await expect(page.getByTestId("inbox-list")).toBeVisible({ timeout: LONG });
+    const site = new URL(page.url()).origin;
+    expect(reads.length).toBeGreaterThan(0);
+    for (const url of reads) {
+      expect(url.origin, url.href).toBe(site);
+      expect(url.pathname.startsWith("/api/trpc/"), url.href).toBe(true);
+    }
+    // A change (Refresh) goes straight to the API: it can run long. Answered here, so nothing changes on the server.
+    const changes: string[] = [];
+    await page.route(/\/trpc\/[^?]*inbox\.refresh/, (route) => {
+      changes.push(route.request().url());
+      return route.fulfill({ status: 503, contentType: "application/json", body: "[]" });
+    });
+    await page.keyboard.press("r");
+    await expect.poll(() => changes.length, { timeout: LONG }).toBe(1);
+    expect(new URL(changes[0]!).origin).toBe(new URL(API_URL).origin);
   });
 });
