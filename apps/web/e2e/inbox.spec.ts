@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, UUID, ensureDeck, openBusiness, signIn } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, UUID, devApi, ensureDeck, openBusiness, signIn } from "./helpers";
 
 /**
  * Inbox (BUILD §11.3; AC-11.3.2 refresh, AC-11.3.3 Continue follows blocking items) on the seeded Northwind Skincare,
@@ -29,6 +29,30 @@ async function commitFreshBusiness(page: Page, name: string): Promise<{ bid: str
   const m = page.url().match(new RegExp(`/b/(${UUID})/inbox/(${UUID})`))!;
   await expect(page.getByTestId("inbox-item")).toBeVisible({ timeout: LONG });
   return { bid: m[1]!, itemId: m[2]! };
+}
+
+/**
+ * The agent who runs a channel that is not switched on yet is the Distribution lead, whose own spend allowance is nil
+ * (its template spends nothing itself). Which channels a new business starts with depends on the concept it commits
+ * (paid ads for a consumer app, not for a content business), so a typed "spend $500 on LinkedIn ads" would be refused as
+ * outside the lead's allowance in one business and asked about in the next. Giving the lead an allowance is what a
+ * founder does in Agent profile › Autonomy; the amount then sits above the approval threshold in every business.
+ */
+async function giveDistributionAnAllowance(playwright: Parameters<typeof devApi>[0], businessId: string): Promise<void> {
+  const api = await devApi(playwright);
+  try {
+    const listed = await api.get(`/trpc/team.agents.list?input=${encodeURIComponent(JSON.stringify({ json: { businessId } }))}`);
+    expect(listed.ok(), `team.agents.list answered ${listed.status()}`).toBe(true);
+    const body = (await listed.json()) as { result: { data: { json: { agents: { id: string; name: string; role: string }[] } } } };
+    const leads = body.result.data.json.agents.filter((a) => /distribution|growth|marketing|strategist/i.test(`${a.role} ${a.name}`));
+    expect(leads.length, "a new business has a Distribution lead").toBeGreaterThan(0);
+    for (const lead of leads) {
+      const set = await api.post("/trpc/agent.autonomy.set", { data: { json: { businessId, agentId: lead.id, autonomy: { mode: "inherit", spendCapMinor: 150_000 } } } });
+      expect(set.ok(), `agent.autonomy.set answered ${set.status()}: ${await set.text()}`).toBe(true);
+    }
+  } finally {
+    await api.dispose();
+  }
 }
 
 test.describe("inbox", () => {
@@ -365,11 +389,12 @@ test.describe("inbox", () => {
     await expect(page.getByTestId("answered-panel")).toBeVisible();
   });
 
-  test("a plan waiting for the go-ahead survives a reload: it stays in Respond, its spend reads as waiting, and Review confirms it once", async ({ page }) => {
+  test("a plan waiting for the go-ahead survives a reload: it stays in Respond, its spend reads as waiting, and Review confirms it once", async ({ page, playwright }) => {
     await signIn(page);
     const { bid, itemId } = await commitFreshBusiness(page, `Playwright Go-ahead ${Date.now().toString(36)}`);
     const item = page.getByTestId("inbox-item");
     await expect(item).toHaveAttribute("data-type", "decision");
+    await giveDistributionAnAllowance(playwright, bid);
     // An instruction typed to the agent decides the note; the spend is above the approval threshold, so it waits.
     await page.locator("[data-decision-ask]").click();
     const write = page.getByTestId("agent-desk").getByRole("textbox", { name: /^Reply to / });
