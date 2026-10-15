@@ -55,6 +55,7 @@ import {
   ValidationError,
   formatMoney,
   usDate,
+  uuid,
   type AgentPresence,
   type AgentReaction,
   type AgentStatus,
@@ -66,7 +67,8 @@ import {
 } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { audit, effectivePermission, emit, hasSectionAccess, Id, type BusinessContext, type Section } from "../trpc";
+import { audit, effectivePermission, hasSectionAccess, Id, type BusinessContext, type Section } from "../trpc";
+import { writeEventRows } from "./events";
 import { decideInboxItem, decidesByText, planContextFor, type DecideItemResult } from "./decide";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactText, redactValue } from "./inbox-redaction";
 import { assertInstructionSectionAccess, assertPlanSectionAccess, compilePlan, evaluatePlan, requiresConfirmation, stagedAction, type ActionEvaluation } from "./plans";
@@ -284,10 +286,16 @@ async function resolve(tx: DbTx, ctx: BusinessContext, subject: ConversationSubj
     if (!chief) throw new ValidationError("This business has no Chief of Staff to talk to");
     return chief;
   };
+  const tasksOf = (agentId: string) =>
+    Promise.all([
+      repos.tasks.list(tx, businessId, { assigneeAgentId: agentId, status: [...ACTIVE_STATUSES], limit: 10 }),
+      repos.tasks.list(tx, businessId, { assigneeAgentId: agentId, status: ["ready", "planned"], limit: 5 }),
+    ]);
   let item: InboxItem | null = null;
   let task: Task | null = null;
   let agent: Agent;
   let view: ConversationSubjectView;
+  let lists: Awaited<ReturnType<typeof tasksOf>> | null = null;
   if (subject.kind === "inbox_item") {
     item = await repos.inbox.get(tx, businessId, subject.id);
     agent = item.fromAgentId ? await repos.agents.get(tx, businessId, item.fromAgentId) : await fallbackAgent();
@@ -297,13 +305,13 @@ async function resolve(tx: DbTx, ctx: BusinessContext, subject: ConversationSubj
     agent = task.assigneeAgentId ? await repos.agents.get(tx, businessId, task.assigneeAgentId) : await fallbackAgent();
     view = { kind: "task", id: task.id, title: task.title, itemType: null, answered: false, options: [] };
   } else {
-    agent = await repos.agents.get(tx, businessId, subject.id);
+    // The agent is the subject: its work is read in the same round trip as the agent itself.
+    const [found, work] = await Promise.all([repos.agents.get(tx, businessId, subject.id), tasksOf(subject.id)]);
+    agent = found;
+    lists = work;
     view = { kind: "agent", id: agent.id, title: agent.name, itemType: null, answered: false, options: [] };
   }
-  const [active, queued] = await Promise.all([
-    repos.tasks.list(tx, businessId, { assigneeAgentId: agent.id, status: [...ACTIVE_STATUSES], limit: 10 }),
-    repos.tasks.list(tx, businessId, { assigneeAgentId: agent.id, status: ["ready", "planned"], limit: 5 }),
-  ]);
+  const [active, queued] = lists ?? (await tasksOf(agent.id));
   const running = active.items.find((t) => t.status === "running") ?? active.items[0] ?? null;
   const currentTask = subject.kind === "task" && task ? task : running;
   const nextTask = queued.items.find((t) => t.id !== currentTask?.id) ?? null;
@@ -558,12 +566,18 @@ interface Prepared {
 }
 
 async function prepare(tx: DbTx, ctx: BusinessContext, input: SendInput): Promise<Prepared> {
-  const r = await resolve(tx, ctx, input.subject);
-  const thread = await repos.conversations.findThread(tx, ctx.businessId, { agentId: r.agent.id, subjectKind: input.subject.kind, subjectId: r.subject.id });
-  const history = thread ? await repos.conversations.listMessages(tx, ctx.businessId, thread.id, { limit: 12 }) : [];
-  const latestAgent = thread ? await repos.conversations.latestAgentMessage(tx, ctx.businessId, thread.id) : null;
-  // A repeat of a message that was stored (its answer was lost on the way back): nothing is checked or sent again.
-  const replay = input.clientMessageId && thread ? await repos.conversations.findExchange(tx, ctx.businessId, thread.id, input.clientMessageId) : null;
+  const findThread = (agentId: string, subjectId: string) => repos.conversations.findThread(tx, ctx.businessId, { agentId, subjectKind: input.subject.kind, subjectId });
+  // At an agent's own desk the thread is known from the input, so it is read with the agent; otherwise once the agent is.
+  const [r, early] = await Promise.all([resolve(tx, ctx, input.subject), input.subject.kind === "agent" ? findThread(input.subject.id, input.subject.id) : Promise.resolve(undefined)]);
+  const thread = early !== undefined ? early : await findThread(r.agent.id, r.subject.id);
+  const [history, latestAgent, replay] = thread
+    ? await Promise.all([
+        repos.conversations.listMessages(tx, ctx.businessId, thread.id, { limit: 12 }),
+        repos.conversations.latestAgentMessage(tx, ctx.businessId, thread.id),
+        // A repeat of a message that was stored (its answer was lost on the way back): nothing is checked or sent again.
+        input.clientMessageId ? repos.conversations.findExchange(tx, ctx.businessId, thread.id, input.clientMessageId) : Promise.resolve(null),
+      ])
+    : [[], null, null];
   if (replay) return { r, thread, history, latestAgent, chip: null, founderText: replay.founder.bubbles.join("\n"), replay };
   let chip: QuickReply | null = null;
   if (input.quickReplyId) {
@@ -583,6 +597,8 @@ const preview = (text: string) => stripMarkup(text).replace(/\s+/g, " ").trim().
 interface WriteReplyInput {
   /** The client's id for the founder's message (`SendInput.clientMessageId`). */
   clientMessageId?: string | null;
+  /** The thread `prepare` read (null when this is the first message: the write opens it). */
+  thread: AgentThread | null;
   r: Resolved;
   subject: ConversationSubject;
   founderText: string;
@@ -611,43 +627,58 @@ async function writeExchange(ctx: BusinessContext, w: WriteReplyInput): Promise<
   }
 }
 
+/**
+ * The exchange in as few round trips as the audit chain allows: the thread `prepare` read is written to (only a first
+ * message opens one), both messages go in one insert with the thread's bump beside it, and both events (narrated as
+ * they are written) go with them, since every id is known before anything is written; then the audit entry.
+ */
 async function writeExchangeOnce(ctx: BusinessContext, w: WriteReplyInput): Promise<{ thread: AgentThread; messages: ConversationMessageView[] }> {
   return ctx.rls(async (tx) => {
-    const thread = await repos.conversations.ensureThread(tx, ctx.businessId, { agentId: w.r.agent.id, subjectKind: w.subject.kind, subjectId: w.r.subject.id });
-    const at = new Date();
-    const founder = await repos.conversations.appendMessage(tx, ctx.businessId, { threadId: thread.id, authorKind: "founder", authorUserId: ctx.userId, bubbles: [w.founderText], chosenQuickReplyId: w.chip?.id ?? null, clientMessageId: w.clientMessageId ?? null }, { at });
-    const agent = await repos.conversations.appendMessage(
-      tx,
-      ctx.businessId,
-      {
-        threadId: thread.id,
-        authorKind: "agent",
-        agentId: w.r.agent.id,
-        bubbles: w.reply.bubbles,
-        reaction: w.reply.reaction,
-        quickReplies: w.reply.quick_replies,
-        handOff: w.reply.hand_off ? { instruction: w.reply.hand_off.instruction, gated: w.handOffGated } : null,
-        refersTo: w.reply.refers_to,
-        entityIds: w.entityIds.slice(0, 50),
-        planId: w.planId ?? null,
-        meta: w.meta,
-      },
-      { at: new Date(at.getTime() + 1) },
-    );
+    const thread = w.thread ?? (await repos.conversations.ensureThread(tx, ctx.businessId, { agentId: w.r.agent.id, subjectKind: w.subject.kind, subjectId: w.r.subject.id }));
+    const founderId = uuid();
+    const agentMessageId = uuid();
     const base = { threadId: thread.id, agentId: w.r.agent.id, subjectKind: w.subject.kind, subjectId: w.r.subject.id };
-    const eventIds = [
-      await emit(tx, ctx, { type: "conversation.message_posted", payload: { ...base, messageId: founder.id, author: "founder", preview: preview(w.founderText), quickReplyIds: [], chosenQuickReplyId: w.chip?.id ?? null, handOff: false } }),
-      await emit(tx, ctx, {
-        type: "conversation.message_posted",
-        actor: { kind: "agent", id: w.r.agent.id },
-        entityIds: w.entityIds,
-        payload: { ...base, messageId: agent.id, author: "agent", preview: preview(w.reply.bubbles.join(" ")), quickReplyIds: w.reply.quick_replies.map((q) => q.id), chosenQuickReplyId: null, handOff: w.reply.hand_off !== null },
-      }),
-    ];
-    await repos.events.markNarrated(tx, ctx.businessId, eventIds);
+    // Sent together. A repeated client message id fails the insert and everything after it: that error is the one
+    // thrown, so `writeExchange` can answer with the exchange the other copy stored.
+    const [appended, events] = await Promise.allSettled([
+      repos.conversations.appendExchange(tx, ctx.businessId, thread, [
+        { id: founderId, threadId: thread.id, authorKind: "founder", authorUserId: ctx.userId, bubbles: [w.founderText], chosenQuickReplyId: w.chip?.id ?? null, clientMessageId: w.clientMessageId ?? null },
+        {
+          id: agentMessageId,
+          threadId: thread.id,
+          authorKind: "agent",
+          agentId: w.r.agent.id,
+          bubbles: w.reply.bubbles,
+          reaction: w.reply.reaction,
+          quickReplies: w.reply.quick_replies,
+          handOff: w.reply.hand_off ? { instruction: w.reply.hand_off.instruction, gated: w.handOffGated } : null,
+          refersTo: w.reply.refers_to,
+          entityIds: w.entityIds.slice(0, 50),
+          planId: w.planId ?? null,
+          meta: w.meta,
+        },
+      ]),
+      // A chat is never an Inbox note: both events are written narrated.
+      writeEventRows(
+        tx,
+        [
+          { businessId: ctx.businessId, type: "conversation.message_posted", actor: { kind: "user", id: ctx.userId }, payload: { ...base, messageId: founderId, author: "founder", preview: preview(w.founderText), quickReplyIds: [], chosenQuickReplyId: w.chip?.id ?? null, handOff: false } },
+          {
+            businessId: ctx.businessId,
+            type: "conversation.message_posted",
+            actor: { kind: "agent", id: w.r.agent.id },
+            entityIds: w.entityIds,
+            payload: { ...base, messageId: agentMessageId, author: "agent", preview: preview(w.reply.bubbles.join(" ")), quickReplyIds: w.reply.quick_replies.map((q) => q.id), chosenQuickReplyId: null, handOff: w.reply.hand_off !== null },
+          },
+        ],
+        { narrated: true },
+      ),
+    ]);
+    if (appended.status === "rejected") throw appended.reason;
+    if (events.status === "rejected") throw events.reason;
+    const written = appended.value;
     await audit(tx, ctx, { action: "agent.conversation.send", target: { kind: "agent_thread", id: thread.id }, details: { subjectKind: w.subject.kind, subjectId: w.r.subject.id, agentId: w.r.agent.id, quickReplyId: w.chip?.id ?? null, handOff: w.reply.hand_off !== null, planId: w.planId ?? null } });
-    const fresh = await repos.conversations.getThread(tx, ctx.businessId, thread.id);
-    return { thread: fresh, messages: toMessageViews([founder, agent]) };
+    return { thread: written.thread, messages: toMessageViews(written.messages) };
   });
 }
 
@@ -662,18 +693,41 @@ function replayedSend(p: Prepared & { replay: NonNullable<Prepared["replay"]> })
   return { thread: p.thread!, messages: toMessageViews(rows), quickReplies: asQuickReplies(p.replay.reply?.quickReplies), decision: null, handOff: null };
 }
 
+/** How a send is answered: the decide path, staging a hand-off, or the agent's reply (the model). */
+function routeOf(p: Prepared, input: SendInput): "decide" | "hand_off" | "reply" {
+  const chip = p.chip;
+  if (chip?.kind === "choose_option" && input.subject.kind === "inbox_item" && chip.option_id) return "decide";
+  if (chip?.kind === "hand_off" && p.latestAgent?.handOff && asQuickReplies(p.latestAgent.quickReplies).some((q) => q.id === chip.id) && chip.id !== TAKE_A_BREAK_ID) return "hand_off";
+  return "reply";
+}
+
+const seedOf = (p: Prepared) => `${p.thread?.id ?? p.r.subject.id}:${p.history.length}`;
+
+/** What the model's reply is built from, read in the same transaction as `prepare`. */
+async function replyContext(tx: DbTx, ctx: BusinessContext, p: Prepared) {
+  // The prompt carries only what this person may read: the masked note and thread, and no CRM names without CRM read.
+  const seen = await seenAtDesk(tx, ctx, p.r, toMessageViews(p.history));
+  const [ins, manifest, persona] = await Promise.all([instructionsOf(tx, ctx, p.r.agent), manifestFor(tx, ctx), personaOf(tx, ctx, seen.r, seedOf(p))]);
+  return { ins, manifest, persona, seen };
+}
+
 export async function sendConversationMessage(ctx: BusinessContext, input: SendInput): Promise<SendResult> {
-  const p = await ctx.rls((tx) => prepare(tx, ctx, input));
+  // One transaction reads the desk and, when the model will answer, everything its reply is built from.
+  const { p, ctxData } = await ctx.rls(async (tx) => {
+    const prepared = await prepare(tx, ctx, input);
+    return { p: prepared, ctxData: !prepared.replay && routeOf(prepared, input) === "reply" ? await replyContext(tx, ctx, prepared) : null };
+  });
   if (p.replay) return replayedSend({ ...p, replay: p.replay });
 
   // Checked after the chip (a stale or write chip costs nothing), before any model call or decision.
   await takeConversationAllowance(ctx.limits, { userId: ctx.userId, businessId: ctx.businessId });
   const { r, chip } = p;
   const voice = voiceOf(r.agent);
-  const seed = `${p.thread?.id ?? r.subject.id}:${p.history.length}`;
+  const seed = seedOf(p);
+  const route = routeOf(p, input);
 
   // 1. "Go with: …" on an open Inbox decision → the existing decide path.
-  if (chip?.kind === "choose_option" && input.subject.kind === "inbox_item" && chip.option_id) {
+  if (route === "decide" && chip?.option_id) {
     const decision = await decideInboxItem(ctx, { itemId: r.subject.id, chosenOption: chip.option_id });
     const option = r.options.find((o) => o.id === chip.option_id);
     // An approval's item says what the answer did ("Legal Lead carries on."), not that a plan is under way.
@@ -682,28 +736,23 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
     const fullAck = ackLine(voice, seed);
     const ack = fullAck.match(/^.*?[.!](?=\s|$)/)?.[0] ?? fullAck;
     const reply = scriptedReply([`${ack} Going with ${option?.label ?? "that option"}.`, next], [quickReply("thanks", "Thanks", "Thanks.", "acknowledge"), quickReply("what_happens_next", "What happens next?", "What happens next?", "ask")], "pleased");
-    const written = await writeExchange(ctx, { clientMessageId: input.clientMessageId, r, subject: input.subject, founderText: p.founderText, chip, reply, entityIds: [], handOffGated: false, planId: decision.plan.id, meta: { source: "decide", requiresConfirmation: decision.requiresConfirmation } });
+    const written = await writeExchange(ctx, { clientMessageId: input.clientMessageId, thread: p.thread, r, subject: input.subject, founderText: p.founderText, chip, reply, entityIds: [], handOffGated: false, planId: decision.plan.id, meta: { source: "decide", requiresConfirmation: decision.requiresConfirmation } });
     return sentAsSeen(ctx, r, { ...written, quickReplies: reply.quick_replies, decision, handOff: null });
   }
 
   // 2. "Review the plan" on a message that carries a hand-off → stage it (nothing runs until plan.confirm).
-  if (chip?.kind === "hand_off" && p.latestAgent?.handOff && asQuickReplies(p.latestAgent.quickReplies).some((q) => q.id === chip.id) && chip.id !== TAKE_A_BREAK_ID) {
+  if (route === "hand_off" && p.latestAgent) {
     const staged = await stageHandOff(ctx, p.latestAgent.id, { allowanceTaken: true });
     const reply = scriptedReply(
       ["Here's what would happen.", staged.hardGates > 0 ? "Part of it is yours to do; I've listed exactly what. Nothing runs until you confirm." : "Nothing runs until you confirm it."],
       [quickReply("thanks", "Thanks", "Thanks.", "acknowledge"), quickReply("change_it", "Change it", "I want to change the plan.", "write"), quickReply("not_now", "Not now", "Not now.", "decline")],
     );
-    const written = await writeExchange(ctx, { clientMessageId: input.clientMessageId, r, subject: input.subject, founderText: p.founderText, chip, reply, entityIds: [], handOffGated: false, meta: { source: "hand_off", planId: staged.planId } });
+    const written = await writeExchange(ctx, { clientMessageId: input.clientMessageId, thread: p.thread, r, subject: input.subject, founderText: p.founderText, chip, reply, entityIds: [], handOffGated: false, meta: { source: "hand_off", planId: staged.planId } });
     return sentAsSeen(ctx, r, { ...written, quickReplies: reply.quick_replies, decision: null, handOff: staged });
   }
 
   // 3. Everything else → the conversation route, then the server-side checks.
-  const ctxData = await ctx.rls(async (tx) => {
-    // The prompt carries only what this person may read: the masked note and thread, and no CRM names without CRM read.
-    const seen = await seenAtDesk(tx, ctx, r, toMessageViews(p.history));
-    const [ins, manifest, persona] = await Promise.all([instructionsOf(tx, ctx, r.agent), manifestFor(tx, ctx), personaOf(tx, ctx, seen.r, seed)]);
-    return { ins, manifest, persona, seen };
-  });
+  if (!ctxData) throw new Error("the reply context is read with the desk");
   const requestInput: ConversationRequestInput = {
     businessName: ctx.business.name,
     appName: APP_NAME,
@@ -721,6 +770,7 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
   const fin = finaliseAgentReply(result.json, { ...finaliseOptionsFor(requestInput), guard: ctxData.manifest.guard, fallbackQuickReplies: r.starters });
   const written = await writeExchange(ctx, {
     clientMessageId: input.clientMessageId,
+    thread: p.thread,
     r,
     subject: input.subject,
     founderText: p.founderText,

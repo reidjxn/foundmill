@@ -14,6 +14,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../app";
 import type { ApiDeps } from "../context";
 import { createCaller } from "../router";
+import { silentLog } from "../services/log";
+import { createApiModelClient } from "../services/models";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -108,6 +110,27 @@ describe("round trips per procedure, on the wire", () => {
     expect(stored.business.name).toBe(`Trips' "Co" ✓`);
     expect(stored.business.glossary).toEqual(glossary);
     expect(stored.departments.find((d) => d.id === created.id)?.moduleKeys).toEqual(["development", "product"]);
+  });
+
+  it("agent.conversation.send: the desk and the reply's context in one transaction, the exchange in one more (34 round trips before 2026-10-15)", async () => {
+    // The api's model client without a database: its credits gate and usage booking (services/models.ts) have budgets of
+    // their own; this counts what the conversation itself sends.
+    const models = createApiModelClient({ MODEL_MODE: "mock", ANTHROPIC_API_KEY: undefined }, silentLog());
+    const owner = createCaller({ ...deps, models }, { userId: hz.A.ownerId, email: "owner@a.test" });
+    const subject = { kind: "agent" as const, id: hz.A.agentId };
+    await owner.agent.conversation.send({ businessId: hz.A.businessId, subject, text: "How is it going?" });
+    wire.reset();
+    const sent = await owner.agent.conversation.send({ businessId: hz.A.businessId, subject, text: "What is next on your list?" });
+    expect(sent.messages.map((m) => m.author)).toEqual(["founder", "agent"]);
+    expect(wire.roundTrips(), wire.statements().join("\n")).toBeLessThanOrEqual(15);
+    const statements = wire.statements();
+    expect(statements.filter((s) => /^begin/.test(s))).toHaveLength(2);
+    // Both messages in one insert, both events in one, already narrated (no update afterwards).
+    expect(statements.filter((s) => /^insert into "agent_messages"/.test(s))).toHaveLength(1);
+    expect(statements.filter((s) => /^insert into "events"/.test(s))).toHaveLength(1);
+    expect(statements.filter((s) => /^update "events"/.test(s))).toHaveLength(0);
+    // The audit chain is kept: one entry, linked to the one before it.
+    expect(statements.filter((s) => /^insert into "audit_log"/.test(s))).toHaveLength(1);
   });
 
   it("a non-member is refused after the one access lookup, before any transaction", async () => {

@@ -57,6 +57,22 @@ describe("agent conversations (0020) tenancy", () => {
     await expectRefused(h.asUser(A.viewerId).run((tx) => repos.conversations.appendMessage(tx, A.businessId, { threadId: A.agentThreadId, authorKind: "founder", authorUserId: A.viewerId, bubbles: ["Can I post?"] })));
   });
 
+  it("appendExchange: a member of A writes an exchange on A's thread; a viewer of A cannot, and nobody writes one on B's thread from A", async () => {
+    const thread = await h.asUser(A.memberId).run((tx) => repos.conversations.getThread(tx, A.businessId, A.agentThreadId));
+    const exchange = (threadId: string, userId: string) => [
+      { threadId, authorKind: "founder" as const, authorUserId: userId, bubbles: ["Any news?"] },
+      { threadId, authorKind: "agent" as const, bubbles: ["Nothing new yet."] },
+    ];
+    const written = await h.asUser(A.memberId).run((tx) => repos.conversations.appendExchange(tx, A.businessId, thread, exchange(thread.id, A.memberId)));
+    expect(written.messages.map((m) => m.businessId)).toEqual([A.businessId, A.businessId]);
+    await expectRefused(h.asUser(A.viewerId).run((tx) => repos.conversations.appendExchange(tx, A.businessId, thread, exchange(thread.id, A.viewerId))));
+    // B's thread, handed to A's business: the composite key refuses it, for a member of A and for the service role.
+    const bThread = await h.service().run((tx) => repos.conversations.getThread(tx, B.businessId, B.agentThreadId));
+    await expect(h.asUser(A.ownerId).run((tx) => repos.conversations.appendExchange(tx, A.businessId, bThread, exchange(bThread.id, A.ownerId)))).rejects.toThrow(/foreign key|violates|row-level security|not found/i);
+    await expect(h.service().run((tx) => repos.conversations.appendExchange(tx, A.businessId, bThread, exchange(bThread.id, A.ownerId)))).rejects.toThrow(/foreign key|violates|not found/i);
+    expect((await h.service().run(messagesOf(B.businessId))).map((m) => m.bubbles)).not.toContainEqual(["Any news?"]);
+  });
+
   it("a message in A can never point at B's thread (composite key), not even written by the service role", async () => {
     // As a member of A: B's thread is invisible, and the (thread, business) pair does not exist for A.
     await expect(
