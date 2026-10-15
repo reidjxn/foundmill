@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, devApi, ensureDeck, logoPng, signIn } from "./helpers";
+import { LONG, devApi, ensureDeck, logoPng, openSettings, signIn } from "./helpers";
 
 /**
  * /new/commit/[ideaId] — the Commit screen (BUILD §11.1; AC-11.1.6, AC-11.1.7). The test drafts a card in the
@@ -146,11 +146,11 @@ test.describe("commit", () => {
     expect(await page.locator("[data-testid=app-shell] nav a[href*='/d/']").count()).toBeGreaterThanOrEqual(1);
     // The spend cap per action chosen on Commit (the Assisted default, 250) is kept on the business, editable in Settings › Mode.
     const bid = /\/b\/([0-9a-f-]+)\//.exec(page.url())![1]!;
-    await page.goto(`/b/${bid}/settings/mode`);
-    await expect(page.getByTestId("spend-cap-form").getByLabel("Spend cap per action")).toHaveValue("250", { timeout: LONG });
+    const mode = await openSettings(page, "mode", bid);
+    await expect(mode.getByTestId("spend-cap-form").getByLabel("Spend cap per action")).toHaveValue("250", { timeout: LONG });
     // A new business starts on the free plan with this month's included credits, in US dollars.
-    await page.goto(`/b/${bid}/settings/billing`);
-    await expect(page.getByTestId("credits-balance")).toContainText("$5.00", { timeout: LONG });
+    const billing = await openSettings(page, "billing", bid);
+    await expect(billing.getByTestId("credits-balance")).toContainText("$5.00", { timeout: LONG });
   });
 
   test("double-clicking Take charge sends one commit and creates one business", async ({ page, playwright }) => {

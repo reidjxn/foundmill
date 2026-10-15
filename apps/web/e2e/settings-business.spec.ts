@@ -1,18 +1,22 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, logoPng, openBusiness, settingsScreen } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, logoPng, openBusiness, openSettings, settingsScreen, settled, toast } from "./helpers";
 
 /**
  * Settings › Business (BUILD §11.15): the owner uploads a real logo, generates marks and picks one, or goes back to the
  * initials mark; each choice is saved at once and the top bar follows. Northwind is left on the initials mark, as the
  * seed has it. Stack and commands: e2e/README.md.
+ *
+ * Locators for a tab's content start at `settingsScreen(page)` (while a page streams, React parks a second copy of the
+ * screen outside the shell, see helpers.ts); the top bar is in the shell and is looked up on the page; toasts go through
+ * `toast(page, title)` (the viewport, whole title: Radix also announces each toast in a hidden live region).
  */
 test.describe("settings › business: the logo", () => {
   test.beforeEach(async ({ page }) => {
     await openBusiness(page, "settings/business");
     await expect(settingsScreen(page)).toHaveAttribute("data-tab", "business", { timeout: LONG });
-    await expect(page.getByTestId("settings-logo")).toBeVisible();
+    await expect(settingsScreen(page).getByTestId("settings-logo")).toBeVisible();
     // Start from the initials mark whatever an earlier run left.
-    const clear = page.getByTestId("logo-clear");
+    const clear = settingsScreen(page).getByTestId("logo-clear");
     if (await clear.isVisible()) {
       await clear.click();
       await expect(page.getByTestId("kitbar-logo")).toHaveAttribute("data-logo", "initials", { timeout: LONG });
@@ -20,53 +24,57 @@ test.describe("settings › business: the logo", () => {
   });
 
   test("generate four marks, pick one: saved at once, on the top bar, still there after a reload", async ({ page }) => {
+    const screen = settingsScreen(page);
     const bar = page.getByTestId("kitbar-logo");
     await expect(bar).toHaveAttribute("data-logo", "initials");
     await expect(bar.locator("path")).toHaveCount(0);
-    await page.getByTestId("logo-generate").click();
-    const options = page.getByTestId("logo-option");
+    await screen.getByTestId("logo-generate").click();
+    const options = screen.getByTestId("logo-option");
     await expect(options).toHaveCount(4, { timeout: LONG });
-    await expect(page.getByTestId("logo-options")).toContainText("Estimate");
+    await expect(screen.getByTestId("logo-options")).toContainText("Estimate");
     const picked = await options.nth(2).locator("img").getAttribute("src");
     await options.nth(2).click();
     await expect(bar).toHaveAttribute("data-logo", "image", { timeout: LONG });
     await expect(bar.locator("img")).toHaveAttribute("src", picked!);
     await page.reload();
+    await settled(page);
     await expect(page.getByTestId("kitbar-logo")).toHaveAttribute("data-logo", "image", { timeout: LONG });
-    await expect(page.getByTestId("logo-picker")).toHaveAttribute("data-logo-source", "generated", { timeout: LONG });
+    await expect(settingsScreen(page).getByTestId("logo-picker")).toHaveAttribute("data-logo-source", "generated", { timeout: LONG });
   });
 
   test("upload a PNG, take its colours, then go back to the initials mark", async ({ page }) => {
-    await page.getByTestId("logo-file").setInputFiles({ name: "northwind.png", mimeType: "image/png", buffer: logoPng() });
+    const screen = settingsScreen(page);
+    await screen.getByTestId("logo-file").setInputFiles({ name: "northwind.png", mimeType: "image/png", buffer: logoPng() });
     const bar = page.getByTestId("kitbar-logo");
     await expect(bar).toHaveAttribute("data-logo", "image", { timeout: LONG });
     await expect(bar.locator("img")).toHaveAttribute("src", /^data:image\/(webp|png);base64,/);
-    await expect(page.getByTestId("logo-picker")).toHaveAttribute("data-logo-source", "upload");
+    await expect(screen.getByTestId("logo-picker")).toHaveAttribute("data-logo-source", "upload");
     // The colours read from the logo fill the form; saving them is the founder's call.
-    await expect(page.getByTestId("logo-colour-suggestion")).toBeVisible({ timeout: LONG });
-    const suggested = await page.getByTestId("logo-colour-suggestion").locator("[data-colour]").first().getAttribute("data-colour");
-    await page.getByTestId("logo-use-colours").click();
-    await expect(page.getByTestId("kit-primary-hex")).toHaveValue(suggested!);
-    await page.getByTestId("logo-clear").click();
+    await expect(screen.getByTestId("logo-colour-suggestion")).toBeVisible({ timeout: LONG });
+    const suggested = await screen.getByTestId("logo-colour-suggestion").locator("[data-colour]").first().getAttribute("data-colour");
+    await screen.getByTestId("logo-use-colours").click();
+    await expect(screen.getByTestId("kit-primary-hex")).toHaveValue(suggested!);
+    await screen.getByTestId("logo-clear").click();
     await expect(bar).toHaveAttribute("data-logo", "initials", { timeout: LONG });
-    await expect(page.getByTestId("logo-picker")).toHaveAttribute("data-logo-source", "initials");
+    await expect(screen.getByTestId("logo-picker")).toHaveAttribute("data-logo-source", "initials");
   });
 });
 
 test.describe("settings › business: the slug", () => {
   test("a slug another business holds is refused inline as 'That slug is taken', and nothing is saved", async ({ page }) => {
     await openBusiness(page, "settings/business");
-    await expect(settingsScreen(page)).toHaveAttribute("data-tab", "business", { timeout: LONG });
-    const slug = page.getByTestId("business-slug");
+    const screen = settingsScreen(page);
+    await expect(screen).toHaveAttribute("data-tab", "business", { timeout: LONG });
+    const slug = screen.getByTestId("business-slug");
     const original = await slug.inputValue();
     await slug.fill("ledgerly");
-    await page.getByRole("button", { name: "Save changes" }).click();
-    await expect(page.getByText("That slug is taken")).toBeVisible({ timeout: LONG });
+    await screen.getByRole("button", { name: "Save changes" }).click();
+    await expect(screen.getByText("That slug is taken")).toBeVisible({ timeout: LONG });
     // No raw SQL anywhere, and the Save button waits for a different slug.
-    await expect(page.getByText(/Failed query/)).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Save changes" })).toBeDisabled();
+    await expect(screen.getByText(/Failed query/)).toHaveCount(0);
+    await expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
     await slug.fill(original);
-    await expect(page.getByText("That slug is taken")).toHaveCount(0);
+    await expect(screen.getByText("That slug is taken")).toHaveCount(0);
   });
 });
 
@@ -77,49 +85,52 @@ test.describe("settings › business: the slug", () => {
 test.describe("settings › mode: the spend cap per action", () => {
   test("set, kept after a reload, and removed again", async ({ page }) => {
     await openBusiness(page, "settings/mode");
-    const form = page.getByTestId("spend-cap-form");
+    const screen = settingsScreen(page);
+    const form = screen.getByTestId("spend-cap-form");
     await expect(form).toBeVisible({ timeout: LONG });
     await form.getByLabel("Spend cap per action").fill("300");
     const save = form.getByRole("button", { name: "Save cap" });
     await save.click();
-    await expect(page.getByText("Spend cap saved", { exact: true })).toBeVisible({ timeout: LONG });
+    await expect(toast(page, "Spend cap saved")).toBeVisible({ timeout: LONG });
     // Saved, so there is nothing left to save: the button says so without dropping keyboard focus (A11Y-07).
     await expect(save).toHaveAttribute("aria-disabled", "true");
     await expect(save).toBeFocused();
     await page.reload();
-    const field = page.getByTestId("spend-cap-form").getByLabel("Spend cap per action");
+    await settled(page);
+    const field = screen.getByTestId("spend-cap-form").getByLabel("Spend cap per action");
     await expect(field).toHaveValue("300", { timeout: LONG });
     // A value that is not a number is refused before anything is sent.
     await field.fill("lots");
-    await expect(page.getByTestId("spend-cap-form")).toContainText("Use a number, like 250.");
+    await expect(screen.getByTestId("spend-cap-form")).toContainText("Use a number, like 250.");
     await field.fill("");
-    await page.getByTestId("spend-cap-form").getByRole("button", { name: "Save cap" }).click();
-    await expect(page.getByText("Spend cap removed", { exact: true })).toBeVisible({ timeout: LONG });
+    await screen.getByTestId("spend-cap-form").getByRole("button", { name: "Save cap" }).click();
+    await expect(toast(page, "Spend cap removed")).toBeVisible({ timeout: LONG });
   });
 
   test("a cap below an agent's own ask line is the line the agent's profile shows", async ({ page }) => {
     await openBusiness(page, "settings/mode");
-    const form = page.getByTestId("spend-cap-form");
+    const form = settingsScreen(page).getByTestId("spend-cap-form");
     await expect(form).toBeVisible({ timeout: LONG });
     await form.getByLabel("Spend cap per action").fill("50");
     await form.getByRole("button", { name: "Save cap" }).click();
-    await expect(page.getByText("Spend cap saved", { exact: true })).toBeVisible({ timeout: LONG });
+    await expect(toast(page, "Spend cap saved")).toBeVisible({ timeout: LONG });
     try {
       // The Chief of Staff's template asks above 250, so the founder's 50 is the line the gateway applies.
       await openBusiness(page, "d/team/squad");
       const chief = page.locator("[data-testid=module-screen] a[href*='/agents/']").filter({ hasText: "Chief of Staff" }).first();
       await expect(chief).toBeVisible({ timeout: LONG });
       await page.goto((await chief.getAttribute("href"))!);
+      await settled(page);
       const line = page.getByTestId("contract-panel").getByTestId("asks-above-business-cap");
       await expect(line).toContainText("50.00", { timeout: LONG });
       await expect(line).toContainText("business cap");
     } finally {
       await openBusiness(page, "settings/mode");
-      const again = page.getByTestId("spend-cap-form");
+      const again = settingsScreen(page).getByTestId("spend-cap-form");
       await expect(again).toBeVisible({ timeout: LONG });
       await again.getByLabel("Spend cap per action").fill("");
       await again.getByRole("button", { name: "Save cap" }).click();
-      await expect(page.getByText("Spend cap removed", { exact: true })).toBeVisible({ timeout: LONG });
+      await expect(toast(page, "Spend cap removed")).toBeVisible({ timeout: LONG });
     }
   });
 });
@@ -132,27 +143,30 @@ test.describe("settings › mode: the spend cap per action", () => {
 test.describe("settings › business: the currency", () => {
   test("shows the business's currency, and a change reaches the money on other screens", async ({ page }) => {
     const businessId = await openBusiness(page, "settings/business");
-    await expect(page.getByTestId("settings-screen")).toHaveAttribute("data-tab", "business", { timeout: LONG });
-    const field = page.locator("#biz-currency");
+    const screen = settingsScreen(page);
+    await expect(screen).toHaveAttribute("data-tab", "business", { timeout: LONG });
+    const field = screen.locator("#biz-currency");
     await expect(field).toContainText("GBP");
     await expect(field).toContainText("British Pound");
 
     await field.click();
+    // The options list is a popover outside the shell.
     await page.getByRole("option", { name: /US Dollar/ }).click();
-    await page.getByRole("button", { name: "Save changes" }).click();
-    await expect(page.getByText("Business saved", { exact: true })).toBeVisible({ timeout: LONG });
+    await screen.getByRole("button", { name: "Save changes" }).click();
+    await expect(toast(page, "Business saved")).toBeVisible({ timeout: LONG });
     await page.goto(`/b/${businessId}/milestones`);
+    await settled(page);
     await expect(page.getByTestId("milestones-screen")).toBeVisible({ timeout: LONG });
     await expect(page.locator("[data-trophy]").filter({ hasText: "MRR" }).first()).toContainText("$", { timeout: LONG });
     await expect(page.locator("[data-trophy]").filter({ hasText: "£" })).toHaveCount(0);
 
-    await page.goto(`/b/${businessId}/settings/business`);
-    await expect(page.locator("#biz-currency")).toContainText("USD", { timeout: LONG });
-    await page.locator("#biz-currency").click();
+    const again = await openSettings(page, "business", businessId);
+    await expect(again.locator("#biz-currency")).toContainText("USD", { timeout: LONG });
+    await again.locator("#biz-currency").click();
     await page.getByRole("option", { name: /British Pound/ }).click();
-    await page.getByRole("button", { name: "Save changes" }).click();
-    await expect(page.getByText("Business saved", { exact: true })).toBeVisible({ timeout: LONG });
-    await expect(page.locator("#biz-currency")).toContainText("GBP");
+    await again.getByRole("button", { name: "Save changes" }).click();
+    await expect(toast(page, "Business saved")).toBeVisible({ timeout: LONG });
+    await expect(again.locator("#biz-currency")).toContainText("GBP");
   });
 });
 
@@ -169,25 +183,26 @@ function shortDayIn(zone: string): string {
 test.describe("settings › business: the time zone", () => {
   test("picked once, the top bar and the Journey's Today both name the business's day", async ({ page }) => {
     await openBusiness(page, "settings/business");
-    const field = page.getByLabel("Time zone");
+    const field = settingsScreen(page).getByLabel("Time zone");
     await expect(field).toBeVisible({ timeout: LONG });
     const before = ((await field.textContent()) ?? "").trim();
     await field.click();
     await page.getByRole("option", { name: "Pacific/Kiritimati", exact: true }).click();
-    await expect(page.getByText("Time zone saved", { exact: true })).toBeVisible({ timeout: LONG });
+    await expect(toast(page, "Time zone saved")).toBeVisible({ timeout: LONG });
     await expect(field).toHaveText("Pacific/Kiritimati");
     const day = shortDayIn("Pacific/Kiritimati");
     await expect(page.getByTestId("kitbar-date")).toContainText(day, { timeout: LONG });
     await page.getByRole("link", { name: "Home", exact: true }).first().click();
+    await settled(page);
     await expect(page.locator("[data-today-tag]").first()).toHaveText(new RegExp(`^Today · ${day}\\b`), { timeout: LONG });
     await expect(page.getByTestId("kitbar-date")).toContainText(day);
 
     // Back to the zone Northwind had (UTC when it had none yet).
-    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/settings/business`);
-    await page.getByLabel("Time zone").click();
+    const screen = await openSettings(page, "business");
+    await screen.getByLabel("Time zone").click();
     const restore = /^[A-Z][A-Za-z]+(\/[A-Za-z_ -]+)+$|^UTC$/.test(before) ? before : "UTC";
     await page.getByRole("option", { name: restore, exact: true }).click();
-    await expect(page.getByLabel("Time zone")).toHaveText(restore, { timeout: LONG });
+    await expect(screen.getByLabel("Time zone")).toHaveText(restore, { timeout: LONG });
   });
 });
 
@@ -197,10 +212,8 @@ test.describe("settings › business: the time zone", () => {
  */
 test.describe("settings › glossary: the business's own words", () => {
   async function saveGlossary(page: Page, rows: [string, string][]): Promise<void> {
-    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/settings/glossary`);
     // Scoped to the shell: while the page streams, React parks a second copy of the screen outside it (helpers.ts).
-    const screen = settingsScreen(page);
-    await expect(screen).toHaveAttribute("data-tab", "glossary", { timeout: LONG });
+    const screen = await openSettings(page, "glossary");
     const list = screen.getByTestId("glossary-rows");
     await expect(list).toBeVisible({ timeout: LONG });
     // Clear every row, then add the wanted ones.
@@ -214,7 +227,7 @@ test.describe("settings › glossary: the business's own words", () => {
     const save = screen.getByRole("button", { name: "Save changes" });
     if (await save.isEnabled()) {
       await save.click();
-      await expect(page.getByText("Glossary saved", { exact: true })).toBeVisible({ timeout: LONG });
+      await expect(toast(page, "Glossary saved")).toBeVisible({ timeout: LONG });
     }
   }
 
@@ -223,10 +236,12 @@ test.describe("settings › glossary: the business's own words", () => {
     try {
       await saveGlossary(page, [["customer", "client"]]);
       await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
+      await settled(page);
       const strip = page.getByRole("region", { name: "Status" });
       await expect(strip.getByText("Clients this week")).toBeVisible({ timeout: LONG });
       await expect(strip.getByText("Customers this week")).toHaveCount(0);
       await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/inbox`);
+      await settled(page);
       await expect(page.getByRole("link", { name: /^Clients\b/ }).or(page.getByRole("tab", { name: /^Clients\b/ })).first()).toBeVisible({ timeout: LONG });
     } finally {
       await saveGlossary(page, []);
@@ -238,17 +253,41 @@ test.describe("settings › glossary: the business's own words", () => {
  * Settings > Mode > Autopilot: off by default, turned on with the switch (the chip says so and Home shows the same
  * state), the limits are validated and kept after a reload, and it is turned off again so the seed stays as it was.
  * Autopilot starts cycles the way Continue does; the spec never waits for one.
+ *
+ * Its toasts are looked up with `toast` (the viewport, whole title): the text "Autopilot is off" is also in Radix's
+ * hidden announcer for a second ("Notification Autopilot is off"), which made a substring match resolve to two elements.
  */
 test.describe("settings > mode: Autopilot", () => {
+  // A failed run can stop with Autopilot on or the limits changed; a retry would then meet "waiting" instead of "off".
+  test.afterEach(async ({ page }, testInfo) => {
+    if (testInfo.status === testInfo.expectedStatus) return;
+    await openBusiness(page, "settings/mode");
+    const section = settingsScreen(page).getByTestId("autopilot-section");
+    await expect(section).toBeVisible({ timeout: LONG });
+    await section.getByLabel(/Most cycles per day/).fill("6");
+    await section.getByLabel(/Pause after failed or empty cycles/).fill("3");
+    const save = section.getByTestId("autopilot-save");
+    if (await save.isEnabled()) {
+      await save.click();
+      await expect(toast(page, "Autopilot settings saved")).toBeVisible({ timeout: LONG });
+    }
+    const toggle = section.getByTestId("autopilot-switch");
+    if ((await toggle.getAttribute("aria-checked")) === "true") {
+      await toggle.click();
+      await expect(toast(page, "Autopilot is off")).toBeVisible({ timeout: LONG });
+    }
+    await expect(section.getByTestId("autopilot-chip")).toHaveAttribute("data-autopilot-state", "off", { timeout: LONG });
+  });
+
   test("off by default; on and off with the switch; limits validated and kept; Home shows the chip", async ({ page }) => {
     await openBusiness(page, "settings/mode");
-    const section = page.getByTestId("autopilot-section");
+    const section = settingsScreen(page).getByTestId("autopilot-section");
     await expect(section).toBeVisible({ timeout: LONG });
     await expect(section.getByTestId("autopilot-chip")).toHaveAttribute("data-autopilot-state", "off");
     await expect(section.getByTestId("autopilot-switch")).toHaveAttribute("aria-checked", "false");
 
     await section.getByTestId("autopilot-switch").click();
-    await expect(page.getByText("Autopilot is on", { exact: true })).toBeVisible({ timeout: LONG });
+    await expect(toast(page, "Autopilot is on")).toBeVisible({ timeout: LONG });
     await expect(section.getByTestId("autopilot-switch")).toHaveAttribute("aria-checked", "true");
     // On, or waiting for the founder when an Inbox item blocks Continue; never "Off". The next cycle, when shown, is an Estimate.
     await expect(section.getByTestId("autopilot-chip")).not.toHaveAttribute("data-autopilot-state", "off");
@@ -261,10 +300,12 @@ test.describe("settings > mode: Autopilot", () => {
     await cycles.fill("8");
     await section.getByLabel(/Pause after failed or empty cycles/).fill("2");
     await section.getByTestId("autopilot-save").click();
-    await expect(page.getByText("Autopilot settings saved")).toBeVisible({ timeout: LONG });
+    await expect(toast(page, "Autopilot settings saved")).toBeVisible({ timeout: LONG });
     await page.reload();
-    await expect(page.getByTestId("autopilot-section").getByLabel(/Most cycles per day/)).toHaveValue("8", { timeout: LONG });
-    await expect(page.getByTestId("autopilot-section").getByLabel(/Pause after failed or empty cycles/)).toHaveValue("2");
+    await settled(page);
+    const reloaded = settingsScreen(page).getByTestId("autopilot-section");
+    await expect(reloaded.getByLabel(/Most cycles per day/)).toHaveValue("8", { timeout: LONG });
+    await expect(reloaded.getByLabel(/Pause after failed or empty cycles/)).toHaveValue("2");
 
     // Home shows the same state in words.
     await openBusiness(page, "home");
@@ -272,13 +313,13 @@ test.describe("settings > mode: Autopilot", () => {
 
     // Back to the seed: restore the limits and turn it off.
     await openBusiness(page, "settings/mode");
-    const again = page.getByTestId("autopilot-section");
+    const again = settingsScreen(page).getByTestId("autopilot-section");
     await again.getByLabel(/Most cycles per day/).fill("6");
     await again.getByLabel(/Pause after failed or empty cycles/).fill("3");
     await again.getByTestId("autopilot-save").click();
-    await expect(page.getByText("Autopilot settings saved")).toBeVisible({ timeout: LONG });
+    await expect(toast(page, "Autopilot settings saved")).toBeVisible({ timeout: LONG });
     await again.getByTestId("autopilot-switch").click();
-    await expect(page.getByText("Autopilot is off")).toBeVisible({ timeout: LONG });
+    await expect(toast(page, "Autopilot is off")).toBeVisible({ timeout: LONG });
     await expect(again.getByTestId("autopilot-chip")).toHaveAttribute("data-autopilot-state", "off");
   });
 });

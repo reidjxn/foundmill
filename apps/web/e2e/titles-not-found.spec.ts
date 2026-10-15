@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, openBusiness, settled } from "./helpers";
 
 /**
  * Browser titles and misses inside a business (audits A11Y-15, IAE-15; WCAG 2.4.2): every screen names itself in the tab
@@ -30,7 +30,9 @@ test.describe("titles and misses inside a business", () => {
 
   test("an unknown settings tab says so, inside the business", async ({ page }) => {
     await page.goto(`${B}/settings/nope`);
-    const miss = page.getByTestId("settings-not-found");
+    await settled(page);
+    // Inside the shell's main region: a streamed page parks a second copy outside it for a moment (helpers.ts).
+    const miss = page.getByTestId("shell-content").getByTestId("settings-not-found");
     await expect(miss).toBeVisible({ timeout: LONG });
     await expect(miss).toContainText("No such settings tab");
     await expect(page.getByText("No business at this address")).toHaveCount(0);
@@ -40,9 +42,11 @@ test.describe("titles and misses inside a business", () => {
 
   test("an address that is not an agent, or not an agent tab, says so", async ({ page }) => {
     await page.goto(`${B}/agents/not-a-uuid/overview`);
-    await expect(page.getByTestId("agent-not-found")).toContainText("No such agent", { timeout: LONG });
+    await settled(page);
+    await expect(page.getByTestId("shell-content").getByTestId("agent-not-found")).toContainText("No such agent", { timeout: LONG });
     await page.goto(`${B}/agents/37d03d31-2afd-4bdd-adbf-2a82479eadf3/profile`);
-    await expect(page.getByTestId("agent-not-found")).toContainText("No such tab", { timeout: LONG });
+    await settled(page);
+    await expect(page.getByTestId("shell-content").getByTestId("agent-not-found")).toContainText("No such tab", { timeout: LONG });
     await expect(page.getByText("No business at this address")).toHaveCount(0);
   });
 });

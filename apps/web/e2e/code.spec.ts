@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, openBusiness, settingsScreen } from "./helpers";
+import { LONG, openBusiness, settingsScreen, settled } from "./helpers";
 
 /**
  * Development › Code (0013 workspaces): the code agents wrote on code tasks, saved by the orchestrator when each
@@ -33,6 +33,7 @@ test.describe("development code tab", () => {
     await expect(development).toBeVisible({ timeout: LONG });
     const href = (await development.getAttribute("href"))!;
     await page.goto(href.replace(/\/d\/([^/]+)\/.*$/, "/d/$1/code"));
+    await settled(page);
     await page.getByRole("button", { name: "Set up GitHub" }).click();
     const dialog = page.getByRole("dialog", { name: "Push saved code to GitHub" });
     await expect(dialog.getByText(/private repository/)).toBeVisible();
@@ -49,12 +50,15 @@ test.describe("finishing a GitHub App installation", () => {
   test("asks the founder to confirm, and offers nothing without GitHub's code", async ({ page }) => {
     const base = `/b/${await openBusiness(page)}`;
     await page.goto(`${base}/settings/integrations?github_installation=48213377&github_state=e30.c2ln&github_code=c0de`);
-    const pending = page.getByTestId("github-installation");
+    await settled(page);
+    // Inside the screen in the shell: a streamed page parks a second copy outside it for a moment (helpers.ts).
+    const pending = settingsScreen(page).getByTestId("github-installation");
     await expect(pending).toContainText("GitHub installation 48213377 is ready", { timeout: LONG });
     await expect(pending.getByRole("button", { name: "Connect installation" })).toBeVisible();
 
     await page.goto(`${base}/settings/integrations?github_installation=48213377&github_state=e30.c2ln`);
-    await expect(page.getByTestId("github-installation")).toContainText("GitHub did not confirm who installed installation 48213377", { timeout: LONG });
-    await expect(page.getByRole("button", { name: "Connect installation" })).toHaveCount(0);
+    await settled(page);
+    await expect(settingsScreen(page).getByTestId("github-installation")).toContainText("GitHub did not confirm who installed installation 48213377", { timeout: LONG });
+    await expect(settingsScreen(page).getByRole("button", { name: "Connect installation" })).toHaveCount(0);
   });
 });
