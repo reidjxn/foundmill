@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { decideRedirect, isFounderPath, isPublicPath, safeNextPath } from "../auth/redirects";
+import { lastBusinessHome, parseLastBusinessId, staleBusinessPath } from "../auth/last-business";
+import { decideRedirect, isFounderPath, isPublicPath, safeNextPath, signedInDestination } from "../auth/redirects";
+
+const LAST = "b1e5e5e5-0000-4000-8000-000000000001";
 
 describe("proxy redirect rules", () => {
   it("sends signed-out visitors to /login with the original path as next", () => {
@@ -18,6 +21,51 @@ describe("proxy redirect rules", () => {
     expect(decideRedirect({ pathname: "/login", search: "?next=%2Fb%2Fabc%2Finbox", authenticated: true })).toEqual({ kind: "redirect", to: "/b/abc/inbox" });
     expect(decideRedirect({ pathname: "/login", search: "?next=https%3A%2F%2Fevil.example", authenticated: true })).toEqual({ kind: "redirect", to: "/" });
     expect(decideRedirect({ pathname: "/login", authenticated: true })).toEqual({ kind: "redirect", to: "/" });
+  });
+
+  it("sends a signed-in `/` straight to the last business's Home when the cookie names one (audit topology F4, WEB-4)", () => {
+    expect(decideRedirect({ pathname: "/", authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "redirect", to: `/b/${LAST}/home` });
+    // The landing page's deep link means nothing to a signed-in founder (the index redirected them before too).
+    expect(decideRedirect({ pathname: "/", search: "?example=northwind", authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "redirect", to: `/b/${LAST}/home` });
+    // Without a usable cookie the index page picks (profile gate, newest business, New business).
+    for (const cookie of [undefined, null, "", "not-a-uuid", `${LAST}x`, "../../evil"]) {
+      expect(decideRedirect({ pathname: "/", authenticated: true, lastBusinessId: cookie }), String(cookie)).toEqual({ kind: "next" });
+    }
+    // Signed out, the cookie changes nothing: the landing page.
+    expect(decideRedirect({ pathname: "/", authenticated: false, lastBusinessId: LAST })).toEqual({ kind: "next" });
+    // Only `/`: every other signed-in path renders as asked.
+    expect(decideRedirect({ pathname: "/new", authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "next" });
+  });
+
+  it("bounces a signed-in visitor off /login to the last business when next names nothing else", () => {
+    expect(decideRedirect({ pathname: "/login", authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "redirect", to: `/b/${LAST}/home` });
+    expect(decideRedirect({ pathname: "/login", search: "?next=https%3A%2F%2Fevil.example", authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "redirect", to: `/b/${LAST}/home` });
+    expect(decideRedirect({ pathname: "/login", search: "?next=%2Fb%2Fabc%2Finbox", authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "redirect", to: "/b/abc/inbox" });
+    expect(signedInDestination("/", LAST)).toBe(`/b/${LAST}/home`);
+    expect(signedInDestination("/", "nope")).toBe("/");
+    expect(signedInDestination("/new", LAST)).toBe("/new");
+  });
+
+  it("a stale cookie (the layout found its business gone) is forgotten and `/` picks again, so it cannot loop", () => {
+    const stale = staleBusinessPath(LAST);
+    expect(stale).toBe(`/?stale=${LAST}`);
+    const [pathname, search] = [stale.slice(0, 1), stale.slice(1)];
+    // The cookie still names that business: clear it, render the index (no redirect back to the same business).
+    expect(decideRedirect({ pathname, search, authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "next", forgetLastBusiness: true });
+    // Another tab already moved the cookie on: keep the newer one, still no fast path on this request.
+    const other = "b1e5e5e5-0000-4000-8000-000000000002";
+    expect(decideRedirect({ pathname, search, authenticated: true, lastBusinessId: other })).toEqual({ kind: "next", forgetLastBusiness: false });
+    expect(decideRedirect({ pathname, search, authenticated: true, lastBusinessId: null })).toEqual({ kind: "next", forgetLastBusiness: false });
+    // Signed out it is just the landing page.
+    expect(decideRedirect({ pathname, search, authenticated: false, lastBusinessId: LAST })).toEqual({ kind: "next" });
+  });
+
+  it("reads the cookie strictly as a business id", () => {
+    expect(parseLastBusinessId(LAST)).toBe(LAST);
+    expect(parseLastBusinessId(LAST.toUpperCase())).toBe(LAST.toUpperCase());
+    for (const bad of [null, undefined, "", "------------------------------------", `${LAST}/../x`]) expect(parseLastBusinessId(bad), String(bad)).toBeNull();
+    expect(lastBusinessHome(LAST)).toBe(`/b/${LAST}/home`);
+    expect(lastBusinessHome("x")).toBeNull();
   });
 
   it("passes authenticated app routes", () => {

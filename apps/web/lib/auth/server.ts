@@ -6,6 +6,7 @@
 import { cookies } from "next/headers";
 import { cache } from "react";
 import { DEV_AUTH_COOKIE, DEV_BEARER_TOKEN, LAST_BUSINESS_COOKIE } from "./constants";
+import { parseLastBusinessId } from "./last-business";
 import { isDevLike } from "@/lib/env";
 import { getServerSession } from "@/lib/supabase/server";
 
@@ -18,8 +19,8 @@ export interface ServerAuth {
 }
 
 /**
- * Who is signed in for this request. Wrapped in React `cache()` so a layout, its `generateMetadata` and the page verify
- * the session with Supabase once per request (the cache never outlives the request).
+ * Who is signed in for this request. Wrapped in React `cache()` so a layout and the page read and verify the session
+ * once per request (the cache never outlives the request); the check itself is local (lib/supabase/server.ts).
  */
 export const getServerAuth = cache(async (): Promise<ServerAuth | null> => {
   const session = await getServerSession();
@@ -34,6 +35,5 @@ export const getServerAuth = cache(async (): Promise<ServerAuth | null> => {
 /** The business the founder last opened (set by the /b/[bid] layout). */
 export async function getLastBusinessId(): Promise<string | null> {
   const store = await cookies();
-  const v = store.get(LAST_BUSINESS_COOKIE)?.value;
-  return v && /^[0-9a-f-]{36}$/i.test(v) ? v : null;
+  return parseLastBusinessId(store.get(LAST_BUSINESS_COOKIE)?.value);
 }
