@@ -35,6 +35,8 @@ import {
   nudgePresets,
   presenceLabel,
   quickReply,
+  scriptedAgentReply,
+  scriptedIntent,
   thinkingLine,
   trimLabel,
   type AgentVoice,
@@ -42,6 +44,7 @@ import {
   type ConversationRequestInput,
   type ConversationSubjectInput,
   type ConversationTaskInput,
+  type ConversationTurnInput,
   type MentionGuard,
   type NudgePreset,
   type StarterSubject,
@@ -694,28 +697,41 @@ function replayedSend(p: Prepared & { replay: NonNullable<Prepared["replay"]> })
 }
 
 /** How a send is answered: the decide path, staging a hand-off, or the agent's reply (the model). */
-function routeOf(p: Prepared, input: SendInput): "decide" | "hand_off" | "reply" {
+/**
+ * How a send is answered: the decide path, staging a hand-off, a scripted reply from the agent's voice kit (a thanks, a
+ * "not now" or a greeting: nothing a model would add), or the agent's reply from the model.
+ */
+function routeOf(p: Prepared, input: SendInput): "decide" | "hand_off" | "scripted" | "reply" {
   const chip = p.chip;
   if (chip?.kind === "choose_option" && input.subject.kind === "inbox_item" && chip.option_id) return "decide";
   if (chip?.kind === "hand_off" && p.latestAgent?.handOff && asQuickReplies(p.latestAgent.quickReplies).some((q) => q.id === chip.id) && chip.id !== TAKE_A_BREAK_ID) return "hand_off";
+  if (scriptedIntent(p.founderText, chip?.kind ?? null)) return "scripted";
   return "reply";
 }
 
 const seedOf = (p: Prepared) => `${p.thread?.id ?? p.r.subject.id}:${p.history.length}`;
 
-/** What the model's reply is built from, read in the same transaction as `prepare`. */
-async function replyContext(tx: DbTx, ctx: BusinessContext, p: Prepared) {
+/**
+ * What the agent's reply is built from, read in the same transaction as `prepare`: the desk as this person may read it
+ * (both replies), and for the model its instructions, the manifest and the persona.
+ */
+async function replyContext(tx: DbTx, ctx: BusinessContext, p: Prepared, forModel: boolean) {
   // The prompt carries only what this person may read: the masked note and thread, and no CRM names without CRM read.
   const seen = await seenAtDesk(tx, ctx, p.r, toMessageViews(p.history));
+  if (!forModel) return { seen, model: null };
   const [ins, manifest, persona] = await Promise.all([instructionsOf(tx, ctx, p.r.agent), manifestFor(tx, ctx), personaOf(tx, ctx, seen.r, seedOf(p))]);
-  return { ins, manifest, persona, seen };
+  return { seen, model: { ins, manifest, persona } };
 }
 
+/** A scripted reply carries no mention it could check against the manifest: any markup is reduced to its name. */
+const PLAIN_GUARD: MentionGuard = { isValid: (t) => !t.includes("[[ent:"), strip: (t) => stripMarkup(t), entityIds: () => [] };
+
 export async function sendConversationMessage(ctx: BusinessContext, input: SendInput): Promise<SendResult> {
-  // One transaction reads the desk and, when the model will answer, everything its reply is built from.
+  // One transaction reads the desk and, when the agent will answer, everything its reply is built from.
   const { p, ctxData } = await ctx.rls(async (tx) => {
     const prepared = await prepare(tx, ctx, input);
-    return { p: prepared, ctxData: !prepared.replay && routeOf(prepared, input) === "reply" ? await replyContext(tx, ctx, prepared) : null };
+    const route = prepared.replay ? null : routeOf(prepared, input);
+    return { p: prepared, ctxData: route === "reply" || route === "scripted" ? await replyContext(tx, ctx, prepared, route === "reply") : null };
   });
   if (p.replay) return replayedSend({ ...p, replay: p.replay });
 
@@ -751,23 +767,37 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
     return sentAsSeen(ctx, r, { ...written, quickReplies: reply.quick_replies, decision: null, handOff: staged });
   }
 
-  // 3. Everything else → the conversation route, then the server-side checks.
   if (!ctxData) throw new Error("the reply context is read with the desk");
-  const requestInput: ConversationRequestInput = {
-    businessName: ctx.business.name,
-    appName: APP_NAME,
-    agent: { id: r.agent.id, name: r.agent.name, role: ctxData.persona.role, instructions: ctxData.ins.instructions, description: ctxData.ins.description, voice },
-    glossary: Object.fromEntries(Object.entries(ctx.business.glossary ?? {}).filter(([from]) => from !== "currency")),
-    currentWork: { task: taskInput(r.currentTask), nextTask: taskInput(r.nextTask), status: r.agent.status, presence: ctxData.persona.presence },
+  // What the reply is about, as this person may read it (shared by the scripted reply and the model's).
+  const turn: ConversationTurnInput = {
+    agent: { id: r.agent.id, name: r.agent.name, role: ctxData.model?.persona.role ?? (r.agent.role || "Agent"), voice },
+    currentWork: { task: taskInput(r.currentTask), nextTask: taskInput(r.nextTask), status: r.agent.status, presence: ctxData.model?.persona.presence ?? agentPresence(r.agent.status, r.currentTask) },
     subject: promptSubject(ctxData.seen.r, ctx.business.currency),
     thread: ctxData.seen.messages.map((m) => ({ author: m.author, text: m.bubbles.join("\n") })),
-    manifest: ctxData.manifest.entries.map((e) => ({ id: e.id, kind: e.kind, name: e.name, aliases: e.aliases ?? [] })),
     founderMessage: { text: p.founderText, quickReply: chip ? { id: chip.id, kind: chip.kind, option_id: chip.option_id } : null },
+  };
+
+  // 3. A thanks, a "not now" or a greeting → the agent's voice kit, through the same checks, with no model call.
+  const scripted = route === "scripted" ? scriptedAgentReply(turn, { seed, guard: PLAIN_GUARD, fallbackQuickReplies: r.starters }) : null;
+  if (scripted) {
+    const written = await writeExchange(ctx, { clientMessageId: input.clientMessageId, thread: p.thread, r, subject: input.subject, founderText: p.founderText, chip, reply: scripted.reply, entityIds: [], handOffGated: false, meta: { source: "scripted", intent: scriptedIntent(p.founderText, chip?.kind ?? null), repairs: scripted.repairs.slice(0, 10) } });
+    return sentAsSeen(ctx, r, { ...written, quickReplies: scripted.reply.quick_replies, decision: null, handOff: null });
+  }
+
+  // 4. Everything else → the conversation route, then the server-side checks.
+  const model = ctxData.model ?? (await ctx.rls((tx) => replyContext(tx, ctx, p, true))).model!;
+  const requestInput: ConversationRequestInput = {
+    ...turn,
+    businessName: ctx.business.name,
+    appName: APP_NAME,
+    agent: { ...turn.agent, instructions: model.ins.instructions, description: model.ins.description },
+    glossary: Object.fromEntries(Object.entries(ctx.business.glossary ?? {}).filter(([from]) => from !== "currency")),
+    manifest: model.manifest.entries.map((e) => ({ id: e.id, kind: e.kind, name: e.name, aliases: e.aliases ?? [] })),
   };
   const request = buildConversationRequest(requestInput);
   const result = await ctx.models.complete({ ...request, attribution: { businessId: ctx.businessId, agentId: r.agent.id, inboxItemId: r.item?.id, kind: "conversation" }, scope: `conversation:${r.agent.id}` });
   // Open decision options (ids + labels), quoted vs trusted text: the same checks the conversation evals measure.
-  const fin = finaliseAgentReply(result.json, { ...finaliseOptionsFor(requestInput), guard: ctxData.manifest.guard, fallbackQuickReplies: r.starters });
+  const fin = finaliseAgentReply(result.json, { ...finaliseOptionsFor(requestInput), guard: model.manifest.guard, fallbackQuickReplies: r.starters });
   const written = await writeExchange(ctx, {
     clientMessageId: input.clientMessageId,
     thread: p.thread,

@@ -6,8 +6,8 @@
 import { buildConversationRequest } from "@foundmill/agents";
 import { MockModelClient } from "@foundmill/models";
 import { describe, expect, it } from "vitest";
-import { CONVERSATION_CASES } from "../conversation/cases";
-import { checkConversationReply, runConversationCase, summariseConversation } from "../conversation/run";
+import { CONVERSATION_CASES, SCRIPTED_CONVERSATION_CASES } from "../conversation/cases";
+import { checkConversationReply, runConversationCase, runScriptedCase, summariseConversation } from "../conversation/run";
 
 const good = {
   bubbles: ["I'd approve the deposit: it holds the November slot.", "It costs €1,840.00."],
@@ -84,6 +84,17 @@ describe("conversation eval cases", () => {
       expect(r.actions).toEqual([]);
       expect(JSON.stringify(r.reply!.quick_replies)).not.toMatch(/wire|5,000|DE89|ignore previous/i);
       expect(r.reply!.quick_replies.find((q) => q.kind === "choose_option")).toMatchObject({ option_id: "approve", label: "Go with: Approve the deposit" });
+    }
+  });
+
+  it("scripted replies (no model call): a thanks, a not now or a greeting is answered from the voice kit and passes every check; questions, work and longer messages still reach the model", () => {
+    expect(SCRIPTED_CONVERSATION_CASES.filter((c) => c.scripted === null).length).toBeGreaterThanOrEqual(3);
+    expect(SCRIPTED_CONVERSATION_CASES.filter((c) => c.suite === "injection").length).toBeGreaterThanOrEqual(2);
+    for (const c of SCRIPTED_CONVERSATION_CASES) {
+      const r = runScriptedCase(c);
+      expect(r.problems, c.id).toEqual([]);
+      expect(r.passed, c.id).toBe(true);
+      if (c.scripted) expect(r.reply?.hand_off, c.id).toBeNull();
     }
   });
 

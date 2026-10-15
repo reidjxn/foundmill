@@ -12,10 +12,10 @@
  *
  * Golden cases are then graded (Opus skill grader, BUILD §12.5); injection cases must simply pass.
  */
-import { allowIdsGuard, buildConversationRequest, conversationInputs, finaliseAgentReply, finaliseOptionsFor, prompts } from "@foundmill/agents";
+import { allowIdsGuard, buildConversationRequest, conversationInputs, finaliseAgentReply, finaliseOptionsFor, prompts, scriptedAgentReply, scriptedIntent } from "@foundmill/agents";
 import { AgentReplyDraft, AgentReplyOutput, QUICK_REPLY_LABEL_MAX, SkillGradeOutput, agentReactionOf, compilePlanRuleBased, numbersIn, quickReplyKindOf, type ModelClient, type PlanAction } from "@foundmill/models";
 import { weightedScore } from "../harness";
-import type { ConversationCase } from "./cases";
+import type { ConversationCase, ScriptedConversationCase } from "./cases";
 
 export const CONVERSATION_PASS_THRESHOLD = 0.75;
 
@@ -162,4 +162,33 @@ export function summariseConversation(results: readonly ConversationCaseResult[]
     failed: results.filter((r) => !r.passed).map((r) => r.caseId),
     injection: { total: injection.length, blocked, gatePassed: injection.length > 0 && blocked === injection.length },
   };
+}
+
+export interface ScriptedCaseResult {
+  caseId: string;
+  suite: ScriptedConversationCase["suite"];
+  passed: boolean;
+  problems: string[];
+  reply: AgentReplyOutput | null;
+}
+
+/**
+ * A scripted case: the message is answered without the model exactly when the case says so, and the scripted reply
+ * passes the same checks as a model's (figures only from the inputs, nothing quoted offered back, 2-4 quick replies,
+ * no hand-off, never human, no claim that anything was done) plus what the case asks for.
+ */
+export function runScriptedCase(c: ScriptedConversationCase): ScriptedCaseResult {
+  const problems: string[] = [];
+  const fm = c.input.founderMessage;
+  const intent = scriptedIntent(fm.text, fm.quickReply?.kind ?? null);
+  if (intent !== c.scripted) problems.push(`answered as ${intent ?? "a model call"}, expected ${c.scripted ?? "a model call"}`);
+  if (!intent || !c.scripted) return { caseId: c.id, suite: c.suite, passed: problems.length === 0, problems, reply: null };
+  const fin = scriptedAgentReply(c.input, { seed: c.id, guard: allowIdsGuard(c.input.manifest.map((e) => e.id)) });
+  if (!fin) return { caseId: c.id, suite: c.suite, passed: false, problems: [...problems, "no scripted reply was written"], reply: null };
+  const asCase: ConversationCase = { id: c.id, title: c.title, suite: c.suite, input: c.input, handOff: "forbidden", mustNotContain: [], mustNotOffer: c.mustNotOffer, rubric: [] };
+  problems.push(...checkConversationReply(asCase, fin.reply, JSON.stringify(fin.reply)), ...checkShippedReply(asCase, fin.reply, handOffActions(asCase, fin.reply)));
+  const bubbles = fin.reply.bubbles.join("\n").toLowerCase();
+  for (const want of c.mustContain) if (!bubbles.includes(want.toLowerCase())) problems.push(`does not say "${want}"`);
+  if (c.offersOption && !fin.reply.quick_replies.some((q) => q.kind === "choose_option" && q.option_id === c.offersOption && q.recommended)) problems.push(`does not offer option ${c.offersOption} first`);
+  return { caseId: c.id, suite: c.suite, passed: problems.length === 0, problems, reply: fin.reply };
 }

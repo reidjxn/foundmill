@@ -19,6 +19,8 @@ import {
   isConversationalText,
   presenceLabel,
   quotedContentCheck,
+  scriptedAgentReply,
+  scriptedIntent,
   trimLabel,
   untrustedContent,
   type ConversationRequestInput,
@@ -269,6 +271,37 @@ describe("intent and presence", () => {
     expect(classifyFounderText("Tell me more about the risk")).toBe("question");
     expect(classifyFounderText("Can you explain the cost")).toBe("question");
     expect(isConversationalText("I'm not sure about this one")).toBe(true);
+  });
+
+  it("a Thanks or Not now chip, and a short typed thanks, not now or greeting with no work, are scripted; nothing else is", () => {
+    expect(scriptedIntent("Thanks.", "acknowledge")).toBe("acknowledge");
+    expect(scriptedIntent("Not now.", "decline")).toBe("decline");
+    expect(scriptedIntent("Why that one?", "ask")).toBeNull();
+    expect(scriptedIntent("Show me the plan.", "hand_off")).toBeNull();
+    expect(scriptedIntent("Thanks!", null)).toBe("acknowledge");
+    expect(scriptedIntent("ok", null)).toBe("acknowledge");
+    expect(scriptedIntent("Not now", null)).toBe("decline");
+    expect(scriptedIntent("Hello", null)).toBe("greeting");
+    // A question, work, or more than a few words: the model answers.
+    expect(scriptedIntent("Thanks, but why?", null)).toBeNull();
+    expect(scriptedIntent("No, go with content first", null)).toBeNull();
+    expect(scriptedIntent("OK, spend €200 on Meta", null)).toBeNull();
+    expect(scriptedIntent("No thanks, I would rather wait until the numbers for October are in", null)).toBeNull();
+    expect(scriptedIntent("What's next", null)).toBeNull();
+  });
+
+  it("scriptedAgentReply answers from the voice kit through the same checks, and returns null for anything else", () => {
+    const thanks = scriptedAgentReply({ ...INPUT, founderMessage: { text: "Not now.", quickReply: { id: "not_now", kind: "decline", option_id: null } } }, { seed: "s-1", guard });
+    expect(thanks).not.toBeNull();
+    expect(AgentReplyOutput.safeParse(thanks!.reply).success).toBe(true);
+    expect(thanks!.reply.hand_off).toBeNull();
+    // The other option first; nothing from the quoted note.
+    expect(thanks!.reply.quick_replies[0]).toMatchObject({ kind: "choose_option", option_id: "hold", label: "Go with: Hold a week" });
+    expect(JSON.stringify(thanks!.reply)).not.toMatch(/wire|5,000|4421|ignore previous/i);
+    expectValid(thanks!.reply.quick_replies);
+    expect(scriptedAgentReply({ ...INPUT, founderMessage: { text: "Why that one?", quickReply: null } }, { seed: "s-1", guard })).toBeNull();
+    // Deterministic per seed.
+    expect(scriptedAgentReply({ ...INPUT, founderMessage: { text: "Thanks", quickReply: null } }, { seed: "s-2", guard })).toEqual(scriptedAgentReply({ ...INPUT, founderMessage: { text: "Thanks", quickReply: null } }, { seed: "s-2", guard }));
   });
 
   it("presence follows status and the running task", () => {

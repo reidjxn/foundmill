@@ -155,6 +155,30 @@ describe("agent.conversation.send", () => {
     expect(res.thread.messageCount).toBe(2);
   });
 
+  it("a thanks, an OK and a Not now are answered from the agent's voice kit with no model call; a question still reaches the model", async () => {
+    const client = recordingModels();
+    const item = await decisionItem("Which channel this month?");
+    const subject = { kind: "inbox_item" as const, id: item.id };
+    const ok = await owner().agent.conversation.send({ businessId: hz.A.businessId, subject, text: "OK" });
+    // "OK" decides nothing: the recommended option is one press away.
+    expect(ok.messages[1]!.bubbles.join(" ")).toMatch(/Shall I go with “Outbound to a narrow ICP”\?/);
+    expect(ok.quickReplies[0]).toMatchObject({ kind: "choose_option", option_id: "outbound", recommended: true });
+    const notNow = await owner().agent.conversation.send({ businessId: hz.A.businessId, subject, text: "Not now" });
+    expect(notNow.quickReplies[0]).toMatchObject({ kind: "choose_option", option_id: "content", label: "Go with: Content first" });
+    const thanks = await owner().agent.conversation.send({ businessId: hz.A.businessId, subject: { kind: "agent", id: hz.A.agentId }, text: "Thanks!" });
+    expect(thanks.messages[1]!.bubbles).toHaveLength(1);
+    expect(thanks.quickReplies.length).toBeGreaterThanOrEqual(2);
+    expect(thanks.quickReplies.some((q) => q.label === "Thanks")).toBe(false);
+    expect(conversationRequests(client)).toHaveLength(0);
+    // Stored like any reply, marked scripted; nothing decided.
+    const stored = await repos.conversations.getMessage(hz.db, hz.A.businessId, notNow.messages[1]!.id);
+    expect(stored.meta).toMatchObject({ source: "scripted", intent: "decline" });
+    expect((await repos.inbox.get(hz.db, hz.A.businessId, item.id)).state).not.toBe("answered");
+    // A thanks that asks something, or says more than a few words, is still the model's.
+    await owner().agent.conversation.send({ businessId: hz.A.businessId, subject, text: "Thanks, but why outbound?" });
+    expect(conversationRequests(client)).toHaveLength(1);
+  });
+
   it("books the reply once to its business's usage ledger, with its agent and Inbox item (review item 7)", async () => {
     const item = await decisionItem("Which market first?");
     const ledger = async (businessId: string) => (await repos.usage.list(hz.db, businessId, { kind: "tokens", limit: 200 })).items.filter((u) => (u.details as { kind?: string }).kind === "conversation");
