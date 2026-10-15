@@ -6,7 +6,7 @@
  * Messages are human to human: only the signed-in founder's own Send writes one (`live.messages.send`);
  * agents may draft, never send. Opening a thread marks it read on the server, then the counts are refreshed.
  *
- * The thread pane says who is in it (and who left) and has a More menu: mute (no badge, no Inbox note), leave, ask a
+ * The thread pane says who is in it (and who left) and has a More menu: mute (no badge, no signal), leave, ask a
  * person in it they are not connected with to connect (after a removed connection, the way back), and block any person
  * in it, connected or not (`live.connections.block`). A thread the founder can no longer write to (a removed connection,
  * a group member they are not connected with, a block) shows why in place of the reply box.

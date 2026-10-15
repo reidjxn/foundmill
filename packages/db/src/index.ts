@@ -6,6 +6,7 @@ export { BYOK_CONNECTOR_KEY, BYOK_CREDENTIAL_KIND, LEGACY_BYOK_CREDENTIAL_KIND, 
 export { assertPlatformCredits, bookUsage, chargesCredits, checkPlatformCredits, creditsState, creditsUsedUp, CREDITS_EXHAUSTED_SUBJECT, includedCreditsFor, modelBudgetState, PLATFORM_CREDITS_EXHAUSTED_SUBJECT, platformCredits, type BookUsageResult, type CreditsOutcome, type ModelBudgetState, type PlatformCredits, type PlatformCreditsCheck } from "./billing";
 export { autopilotChangedPayload, loadAutopilotFacts, summarizeCycleEvents, STALE_CYCLE_MS, type AutopilotChange, type CycleEventLike, type CycleSummary } from "./autopilot";
 export { resumeBusinessAgents, stopBusinessAgents, type ResumeBusinessResult, type StopBusinessResult } from "./controls";
+export { changeAgentModels, routeOf, type ModelChange } from "./agent-model";
 export { APPROVAL_OPTIONS, approvalAction, approvalAmount, approvalArgsText, approvalItem, approvalOutcomeOf, approvalSection, approvalTaskTitle, closeApprovalItem, connectorLabel, isApprovalOption, openApprovalItem, toolWords, type ApprovalItemDetails, type ApprovalOptionId } from "./approvals";
 export { MOCK_TOP_UP_LABEL, settleCreditCheckout, type SettleCheckoutInput, type SettleCheckoutResult } from "./payments";
 export { assertBusinessAllowance, assertConcurrencyRoom, assertSeatAvailable, businessAllowance, concurrencyAllowance, OPEN_SESSION_WINDOW_HOURS, seatAllowance, type BusinessAllowance, type ConcurrencyAllowance } from "./tiers";

@@ -4,7 +4,7 @@
  */
 import { EVENTS, type StreamEntry } from "@foundmill/events";
 import { EVENT_FIXTURES, fixtureId } from "@foundmill/events/testing/fixtures";
-import { EVENT_TYPES, type EventType, type SectionMembership } from "@foundmill/shared";
+import { EVENT_TYPES, isPersonAddressedEvent, PERSON_ADDRESSED_EVENT_TYPES, type EventType, type SectionMembership } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { EVENT_WALLS, eventView, membershipChangeOf, viewEvent } from "../walls";
 import { BUSINESS_A } from "./helpers";
@@ -52,13 +52,29 @@ describe("event walls", () => {
   });
 
   it("a reader without walls gets each event's own JSON, untouched and unparsed", () => {
-    for (const type of EVENT_TYPES) {
+    for (const type of EVENT_TYPES.filter((t) => !isPersonAddressedEvent(t))) {
       const e = entry(type);
       expect(viewEvent(e, OPEN)).toBe(e.fields.json);
     }
     // Members, admins and read-only roles without an explicit "none" are not walled from anything.
     expect(eventView(member()).walled.size).toBe(0);
     expect(eventView({ role: "viewer", sectionPermissions: { finance: "read" } }).walled.size).toBe(0);
+  });
+
+  it("a person-addressed event (a founder's network request or message) reaches no reader of a business stream, walls or none (FU-S-2)", () => {
+    expect([...PERSON_ADDRESSED_EVENT_TYPES]).toEqual(["connection.requested", "message.received"]);
+    const views = [OPEN, NO_FINANCE, NO_CRM, NO_INBOX, eventView(member({ live: "none" })), eventView(null)];
+    for (const type of PERSON_ADDRESSED_EVENT_TYPES) {
+      const e = entry(type);
+      for (const view of views) expect(viewEvent(e, view), `${type} for ${[...view.walled].join(",") || "no walls"}`).toBeNull();
+    }
+    // Whichever of the entry's fields names the type, and an entry the relay wrote without `type` beside the JSON.
+    const message = entry("message.received", { ...EVENT_FIXTURES["message.received"], preview: "Here is the term sheet" });
+    const { type: _type, ...untyped } = message.fields;
+    expect(viewEvent({ ...message, fields: untyped }, OPEN)).toBeNull();
+    expect(viewEvent({ ...message, fields: { ...untyped, json: JSON.stringify({ ...JSON.parse(message.fields.json!), type: "payment.received" }) } }, OPEN)).not.toBeNull();
+    // The event next to it is delivered as before.
+    expect(seen(entry("cycle.completed"))).not.toBeNull();
   });
 
   it("a member walled from Finance gets no payment, bank or runway event, and no amount or cost on the others", () => {

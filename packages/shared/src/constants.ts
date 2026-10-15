@@ -284,6 +284,18 @@ export const EVENT_TYPES = [
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
+/**
+ * Events addressed to one person, never to a business (audit FU-S-2). A connection request or a message from another
+ * founder is about its RECIPIENT, and a business's event log, its Inbox and its `ev:` stream are read by every member and
+ * advisor with access to the sections they feed, so writing the sender's words there made a founder's private network
+ * messages readable by their staff. These types stay in the vocabulary (the playbook words, the stream's walls table),
+ * but they are never written to `events` (`repos.events.write` refuses them and a check constraint, 0060, holds the table
+ * to it) and never delivered on a business stream (apps/stream drops them). The recipient gets a content-free signal on
+ * their own `u:{userId}` channel and reads the rest through `live.*`, which only the people in the thread can call.
+ */
+export const PERSON_ADDRESSED_EVENT_TYPES = ["connection.requested", "message.received"] as const satisfies readonly EventType[];
+export const isPersonAddressedEvent = (type: string | null | undefined): boolean => (PERSON_ADDRESSED_EVENT_TYPES as readonly string[]).includes(type ?? "");
+
 /** Entity mention markup written by agents: [[ent:<uuid>|Display]] */
 export const ENTITY_MARKUP_RE = /\[\[ent:([0-9a-f-]{36})\|([^\]]+)\]\]/g;
 

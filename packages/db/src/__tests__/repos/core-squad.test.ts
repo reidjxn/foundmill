@@ -327,6 +327,43 @@ describe("agents, versions, skills, training", () => {
     expect(await repos.training.createModelRetest(r.db, A, unversioned.id, { modelKey: "haiku" })).toEqual({ retest: null, superseded: [] });
   });
 
+  it("promoting a draft saved before a model change keeps the agent's current model; only a retest copy changes it (FU-T2-1)", async () => {
+    const A = r.A.businessId;
+    const hired = await repos.agents.create(r.db, A, {
+      name: "Stale Draft Engineer",
+      agentType: "engineer",
+      modelKey: "sonnet",
+      initialVersion: { instructions: { role: "Ship small PRs" }, tools: [], modelKey: "sonnet" },
+    });
+    // The founder saves a draft (it keeps the agent's model at the time: Sonnet) and a second one that previews Haiku.
+    const stale = await repos.agents.createVersion(r.db, A, hired.id, { instructions: { role: "Ship small PRs, with tests" }, modelKey: "sonnet", state: "draft", createdByKind: "user" });
+    const preview = await repos.agents.createVersion(r.db, A, hired.id, { instructions: { role: "Ship small PRs, with tests" }, modelKey: "haiku", state: "draft", createdByKind: "user" });
+    // Then the model changes (agent.model.set applies at once) before either is promoted.
+    await repos.agents.setModel(r.db, A, hired.id, "opus");
+    const promoteDraft = async (versionId: string) => {
+      const run = await repos.training.create(r.db, A, { agentId: hired.id, toVersionId: versionId });
+      await repos.training.transition(r.db, A, run.id, ["queued"], { status: "awaiting_decision" });
+      return repos.training.decide(r.db, A, run.id, "promoted");
+    };
+
+    await promoteDraft(stale.id);
+    // The draft's instructions are live; the agent did not move back to Sonnet. The version still records what it was tested on.
+    expect(await repos.agents.get(r.db, A, hired.id)).toMatchObject({ currentVersionId: stale.id, modelKey: "opus" });
+    expect((await repos.agents.getVersion(r.db, A, stale.id)).modelKey).toBe("sonnet");
+    // A preview of another model is a draft like any other: promoting it does not switch the agent to Haiku either.
+    await promoteDraft(preview.id);
+    expect(await repos.agents.get(r.db, A, hired.id)).toMatchObject({ currentVersionId: preview.id, modelKey: "opus" });
+
+    // A model change's retest copy exists to put the agent on its model: promoting it does.
+    const { retest } = await repos.training.createModelRetest(r.db, A, hired.id, { modelKey: "sonnet" });
+    expect(retest!.draft).toMatchObject({ createdByKind: "system", modelKey: "sonnet" });
+    await repos.training.transition(r.db, A, retest!.run.id, ["queued"], { status: "awaiting_decision" });
+    await repos.training.decide(r.db, A, retest!.run.id, "promoted");
+    expect(await repos.agents.get(r.db, A, hired.id)).toMatchObject({ currentVersionId: retest!.draft.id, modelKey: "sonnet" });
+    // Rollback is the founder going back to an earlier version, model included (AC-11.10.6): unchanged.
+    expect((await repos.agents.rollback(r.db, A, hired.id, preview.id)).modelKey).toBe("haiku");
+  });
+
   it("transition only moves a run from the given statuses; cancel stops a queued or running run once", async () => {
     const A = r.A.businessId;
     const run = await repos.training.create(r.db, A, { agentId: r.A.agentId });

@@ -1339,6 +1339,9 @@ importers:
       '@foundmill/journey':
         specifier: workspace:*
         version: link:../journey
+      '@foundmill/models':
+        specifier: workspace:*
+        version: link:../models
       '@foundmill/shared':
         specifier: workspace:*
         version: link:../shared

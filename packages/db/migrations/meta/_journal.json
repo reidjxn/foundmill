@@ -337,6 +337,13 @@
       "when": 1795176720000,
       "tag": "0059_model_budget",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1795263120000,
+      "tag": "0060_private_network_events",
+      "breakpoints": true
     }
   ]
 }

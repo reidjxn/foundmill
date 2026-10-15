@@ -92,6 +92,22 @@ describe("section walls on ev:<businessId>", () => {
   });
 });
 
+describe("a founder's network messages never ride a business stream (FU-S-2)", () => {
+  it("a request or a message that reaches ev:<businessId> is delivered to nobody: not the owner, not staff; the next event is", async () => {
+    const t = await boot(createMemoryAuthorizer(world()));
+    const owner = await connect(t, USER_A, businessChannel(BUSINESS_A));
+    const staff = await connect(t, USER_W, businessChannel(BUSINESS_A));
+    await publish(t.redis, "connection.requested");
+    await publish(t.redis, "message.received", { ...EVENT_FIXTURES["message.received"], preview: "Here is the term sheet" });
+    await publish(t.redis, "cycle.completed");
+    await waitFor(() => owner.events.length === 1 && staff.events.length === 1, 2_000, "the cycle event delivered");
+    await sleep(100);
+    expect(types(owner)).toEqual(["cycle.completed"]);
+    expect(types(staff)).toEqual(["cycle.completed"]);
+    expect(JSON.stringify([owner.events, staff.events])).not.toContain("term sheet");
+  });
+});
+
 describe("section walls on as:<sessionId>", () => {
   it("refuses a session whose work belongs to a section the member cannot read, and allows the others", async () => {
     const t = await boot(createMemoryAuthorizer(world()));

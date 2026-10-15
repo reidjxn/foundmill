@@ -1,17 +1,20 @@
 /**
  * LIVE writes are throttled per person and announce a connection request once (audit GLS2F-05, LS2-05): a burst of
- * requests, messages or posts is answered 429 past the allowance, a repeated request writes no second event, and the
- * message history is read a page at a time.
+ * requests, messages or posts is answered 429 past the allowance, a repeated request signals its recipient no second
+ * time, and the message history is read a page at a time.
  */
 import { LIMITS } from "@foundmill/config";
 import { repos } from "@foundmill/db";
+import { MemoryRedis, userStreamKey } from "@foundmill/events";
 import { TRPCError } from "@trpc/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
+let redis: MemoryRedis;
 beforeAll(async () => {
-  hz = await createApiHarness({ prefix: "livelimits", env: { LIVE_MODE: "1" } });
+  redis = new MemoryRedis();
+  hz = await createApiHarness({ prefix: "livelimits", redis, env: { LIVE_MODE: "1" } });
   for (const businessId of [hz.A.businessId, hz.B.businessId]) {
     await repos.businesses.setGameMode(hz.db, businessId, "live");
     await repos.businesses.commit(hz.db, businessId, { archetype: "b2b_saas" });
@@ -34,11 +37,12 @@ async function outcomes(calls: Promise<unknown>[]): Promise<Record<string, numbe
   return out;
 }
 
-const requestedEvents = async (businessId: string, connectionId: string) =>
-  (await repos.events.list(hz.db, businessId, { type: "connection.requested", limit: 200 })).items.filter((e) => (e.payload as { connectionId: string }).connectionId === connectionId).length;
+/** How many times the person's own stream was told a request reached them (the only place a new request is announced). */
+const requestSignals = async (userId: string) =>
+  (await redis.xrange(userStreamKey(userId), "-", "+")).filter(([, fields]) => (JSON.parse(String(fields[fields.indexOf("json") + 1])) as { kind: string }).kind === "connection_requested").length;
 
 describe("connection requests", () => {
-  it("announces a request once and writes nothing for a repeat; a burst past the allowance is 429", async () => {
+  it("announces a request once and signals nobody for a repeat; a burst past the allowance is 429", async () => {
     const from = as(hz.A.ownerId);
     const to = hz.B.ownerId;
     const burst = await outcomes(Array.from({ length: 10 }, () => from.live.connections.request({ businessId: hz.A.businessId, toUserId: to })));
@@ -46,11 +50,11 @@ describe("connection requests", () => {
     expect(burst).toEqual({ OK: LIMITS.liveRequestsPerPairPerDay, TOO_MANY_REQUESTS: 10 - LIMITS.liveRequestsPerPairPerDay });
     const [c] = await repos.social.listConnections(hz.db, hz.A.ownerId, { direction: "outgoing" });
     expect(c).toBeDefined();
-    expect(await requestedEvents(hz.B.businessId, c!.id)).toBe(1);
+    expect(await requestSignals(to)).toBe(1);
     // A repeat after the row exists (a fresh allowance) still announces nothing.
     hz.limits.reset();
     await from.live.connections.request({ businessId: hz.A.businessId, toUserId: to });
-    expect(await requestedEvents(hz.B.businessId, c!.id)).toBe(1);
+    expect(await requestSignals(to)).toBe(1);
   });
 
   it("request, withdraw, request again stops at the pair allowance", async () => {
