@@ -9,7 +9,7 @@
  * badge and lists refresh in whichever business they have open, Personal or LIVE, and the request, the thread and its
  * messages are read through `live.*`, which only the people in them can call (`live.summary` counts them for the badge).
  * The catalogue declares both event types person-addressed (`PERSON_ADDRESSED_EVENT_TYPES`): the events repo refuses
- * them, a table constraint (0059) holds the log to it and apps/stream never delivers one.
+ * them, a table constraint (0060) holds the log to it and apps/stream never delivers one.
  *
  * Screening. Every new or edited community post passes the moderation route (Haiku; deterministic in mock mode) plus a
  * few deterministic checks before it is shown: a held post waits for the community's owner and moderators. A screen that

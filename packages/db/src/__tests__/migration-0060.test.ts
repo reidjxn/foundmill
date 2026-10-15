@@ -1,5 +1,5 @@
 /**
- * 0059 over data that already exists (audit FU-S-2): the connection requests and messages other founders sent were
+ * 0060 over data that already exists (audit FU-S-2): the connection requests and messages other founders sent were
  * written into the recipient's businesses as events and Inbox notes, readable by all of the business's staff. They leave
  * (notes, the Inbox events that announced them, the events themselves); every other event and note stays; and the events
  * table refuses these types from then on, whoever writes.
@@ -11,7 +11,7 @@ import { readMigrations } from "../migrations";
 import { createTestDb, type TestHarness } from "../testing/pglite";
 import { createBusinessFixture, type BusinessFixture } from "./rls/fixtures";
 
-const TAG = "0059_private_network_events";
+const TAG = "0060_private_network_events";
 let h: TestHarness;
 let A: BusinessFixture;
 let ids: Record<"request" | "message" | "payment" | "requestNote" | "messageNote" | "ownNote" | "paymentNote" | "requestAnnounced" | "paymentAnnounced", string>;
@@ -47,7 +47,7 @@ beforeAll(async () => {
 });
 afterAll(() => h?.close());
 
-describe("0059 applied over existing network deliveries", () => {
+describe("0060 applied over existing network deliveries", () => {
   it("the notes made from requests and messages are gone, with their read receipts and the events that announced them", async () => {
     expect(await count("inbox_items", ids.requestNote)).toBe(0);
     expect(await count("inbox_items", ids.messageNote)).toBe(0);

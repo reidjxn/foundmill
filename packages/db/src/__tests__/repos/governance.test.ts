@@ -205,7 +205,7 @@ describe("events and outbox", () => {
     const actor = { kind: "user", id: r.A.memberId } as const;
     for (const type of ["connection.requested", "message.received"] as const) {
       await expect(repos.events.write(r.db, A, { type, actor, payload: { preview: "Here is the term sheet" } })).rejects.toThrow(/addressed to a person/);
-      // Whoever writes the row, the constraint (0059) holds the table to it.
+      // Whoever writes the row, the constraint (0060) holds the table to it.
       const refused = await r.db.execute(sql`insert into events (business_id, type, payload) values (${A}::uuid, ${type}, '{}'::jsonb)`).then(() => "", (err: { cause?: { message?: string } }) => err.cause?.message ?? String(err));
       expect(refused).toMatch(/events_not_person_addressed/);
     }

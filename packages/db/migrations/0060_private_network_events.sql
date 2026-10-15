@@ -1,4 +1,4 @@
--- 0059 — A founder's network messages are theirs alone (audit FU-S-2).
+-- 0060 — A founder's network messages are theirs alone (audit FU-S-2).
 -- Since 0027 a connection request and every message from another founder were written into each LIVE business the
 -- recipient runs: as a `connection.requested` / `message.received` event (the sender's id, a 280-character preview
 -- of the message, the request note) and as a human message in that business's Inbox › Messages tab. Every member and

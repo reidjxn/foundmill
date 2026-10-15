@@ -9,8 +9,8 @@ import { createTestDb, type TestHarness } from "../testing/pglite";
 import { createBusinessFixture, type BusinessFixture } from "./rls/fixtures";
 
 const TAG = "0027_live_social_delivery";
-// 0059 removes the very events and notes this test writes (and refuses them from then on): 0027 is checked as it was.
-const LATER_REMOVES_THEM = "0059_private_network_events";
+// 0060 removes the very events and notes this test writes (and refuses them from then on): 0027 is checked as it was.
+const LATER_REMOVES_THEM = "0060_private_network_events";
 let h: TestHarness;
 let A: BusinessFixture;
 let ids: { direct: string; group: string; community: string; requested: string; other: string; wrongNote: string; rightNote: string };
