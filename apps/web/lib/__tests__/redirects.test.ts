@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { lastBusinessHome, parseLastBusinessId, staleBusinessPath } from "../auth/last-business";
-import { decideRedirect, isFounderPath, isPublicPath, safeNextPath, signedInDestination } from "../auth/redirects";
+import { SIGNED_IN_INDEX, decideRedirect, isFounderPath, isPublicPath, safeNextPath, signedInDestination } from "../auth/redirects";
 
 const LAST = "b1e5e5e5-0000-4000-8000-000000000001";
 
@@ -8,6 +8,14 @@ describe("proxy redirect rules", () => {
   it("sends signed-out visitors to /login with the original path as next", () => {
     expect(decideRedirect({ pathname: "/b/abc/home", search: "?tab=x", authenticated: false })).toEqual({ kind: "redirect", to: "/login?next=%2Fb%2Fabc%2Fhome%3Ftab%3Dx" });
     expect(decideRedirect({ pathname: "/", authenticated: false })).toEqual({ kind: "next" }); // the landing page
+  });
+
+  it("serves a signed-out deep link to another example business from its prerendered page", () => {
+    expect(decideRedirect({ pathname: "/", search: "?example=northwind", authenticated: false })).toEqual({ kind: "rewrite", to: "/examples/northwind" });
+    expect(decideRedirect({ pathname: "/", search: "?example=tutorlane", authenticated: false })).toEqual({ kind: "next" });
+    expect(decideRedirect({ pathname: "/", search: "?example=acme", authenticated: false })).toEqual({ kind: "next" });
+    // Those pages are public under their own address too.
+    expect(decideRedirect({ pathname: "/examples/glitchwick", authenticated: false })).toEqual({ kind: "next" });
   });
 
   it("lets public paths through either way", () => {
@@ -27,10 +35,13 @@ describe("proxy redirect rules", () => {
     expect(decideRedirect({ pathname: "/", authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "redirect", to: `/b/${LAST}/home` });
     // The landing page's deep link means nothing to a signed-in founder (the index redirected them before too).
     expect(decideRedirect({ pathname: "/", search: "?example=northwind", authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "redirect", to: `/b/${LAST}/home` });
-    // Without a usable cookie the index page picks (profile gate, newest business, New business).
+    // Without a usable cookie the signed-in index (/start) picks (profile gate, newest business, New business).
     for (const cookie of [undefined, null, "", "not-a-uuid", `${LAST}x`, "../../evil"]) {
-      expect(decideRedirect({ pathname: "/", authenticated: true, lastBusinessId: cookie }), String(cookie)).toEqual({ kind: "next" });
+      expect(decideRedirect({ pathname: "/", authenticated: true, lastBusinessId: cookie }), String(cookie)).toEqual({ kind: "rewrite", to: SIGNED_IN_INDEX });
     }
+    expect(SIGNED_IN_INDEX).toBe("/start");
+    // /start under its own address is a signed-in page like any other.
+    expect(decideRedirect({ pathname: "/start", authenticated: false })).toEqual({ kind: "redirect", to: "/login?next=%2Fstart" });
     // Signed out, the cookie changes nothing: the landing page.
     expect(decideRedirect({ pathname: "/", authenticated: false, lastBusinessId: LAST })).toEqual({ kind: "next" });
     // Only `/`: every other signed-in path renders as asked.
@@ -50,12 +61,12 @@ describe("proxy redirect rules", () => {
     const stale = staleBusinessPath(LAST);
     expect(stale).toBe(`/?stale=${LAST}`);
     const [pathname, search] = [stale.slice(0, 1), stale.slice(1)];
-    // The cookie still names that business: clear it, render the index (no redirect back to the same business).
-    expect(decideRedirect({ pathname, search, authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "next", forgetLastBusiness: true });
+    // The cookie still names that business: clear it, let the index pick (no redirect back to the same business).
+    expect(decideRedirect({ pathname, search, authenticated: true, lastBusinessId: LAST })).toEqual({ kind: "rewrite", to: SIGNED_IN_INDEX, forgetLastBusiness: true });
     // Another tab already moved the cookie on: keep the newer one, still no fast path on this request.
     const other = "b1e5e5e5-0000-4000-8000-000000000002";
-    expect(decideRedirect({ pathname, search, authenticated: true, lastBusinessId: other })).toEqual({ kind: "next", forgetLastBusiness: false });
-    expect(decideRedirect({ pathname, search, authenticated: true, lastBusinessId: null })).toEqual({ kind: "next", forgetLastBusiness: false });
+    expect(decideRedirect({ pathname, search, authenticated: true, lastBusinessId: other })).toEqual({ kind: "rewrite", to: SIGNED_IN_INDEX, forgetLastBusiness: false });
+    expect(decideRedirect({ pathname, search, authenticated: true, lastBusinessId: null })).toEqual({ kind: "rewrite", to: SIGNED_IN_INDEX, forgetLastBusiness: false });
     // Signed out it is just the landing page.
     expect(decideRedirect({ pathname, search, authenticated: false, lastBusinessId: LAST })).toEqual({ kind: "next" });
   });

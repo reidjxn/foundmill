@@ -32,15 +32,23 @@ describe("proxy redirects", () => {
     const res = await proxy(signedIn("http://localhost:3000/", `${LAST_BUSINESS_COOKIE}=${LAST}`));
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toBe(`http://localhost:3000/b/${LAST}/home`);
-    // Without the cookie the index page renders and picks.
+    // Without the cookie the signed-in index renders under `/` and picks.
     const index = await proxy(signedIn("http://localhost:3000/"));
     expect(index.headers.get("location")).toBeNull();
-    expect(index.headers.get("x-middleware-next")).toBe("1");
+    expect(index.headers.get("x-middleware-rewrite")).toBe("http://localhost:3000/start");
+  });
+
+  it("serves a signed-out `/` as the prerendered landing page, and a deep link from its business's page", async () => {
+    const landing = await proxy(new NextRequest("http://localhost:3000/"));
+    expect(landing.headers.get("x-middleware-next")).toBe("1");
+    const deep = await proxy(new NextRequest("http://localhost:3000/?example=glitchwick"));
+    expect(deep.headers.get("x-middleware-rewrite")).toBe("http://localhost:3000/examples/glitchwick");
   });
 
   it("clears a stale last-business cookie and lets the index pick, instead of sending the founder back to it", async () => {
     const res = await proxy(signedIn(`http://localhost:3000/?stale=${LAST}`, `${LAST_BUSINESS_COOKIE}=${LAST}`));
     expect(res.headers.get("location")).toBeNull();
+    expect(res.headers.get("x-middleware-rewrite")).toBe("http://localhost:3000/start");
     const cleared = res.cookies.get(LAST_BUSINESS_COOKIE);
     expect(cleared?.value).toBe("");
     expect(cleared?.maxAge).toBe(0);
