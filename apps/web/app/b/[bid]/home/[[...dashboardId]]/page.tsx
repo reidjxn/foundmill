@@ -1,14 +1,10 @@
-import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { HomeScreen } from "@/components/home/HomeScreen";
 import { pickDashboardId } from "@/components/home/pick-dashboard";
 import { Prefetched, createServerPrefetch } from "@/lib/hydrate.server";
-import { SCREEN_TITLES } from "@/lib/page-titles";
 import { createServerClient, serverApi } from "@/lib/trpc-server";
 
 export const dynamic = "force-dynamic";
-
-export const metadata: Metadata = { title: SCREEN_TITLES.home };
 
 /** /b/[bid]/home[/[dashboardId]] — Home dashboards (BUILD §11.2). */
 export default async function HomePage({ params }: { params: Promise<{ bid: string; dashboardId?: string[] }> }) {
