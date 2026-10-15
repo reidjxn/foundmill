@@ -119,6 +119,25 @@ describe("ConfirmPlanDialog ('Here is what will happen')", () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
+  it("says why an action asks, under the action, and only for an ask", () => {
+    const r = render(
+      <ConfirmPlanDialog
+        open
+        onOpenChange={vi.fn()}
+        summary=""
+        onConfirm={vi.fn()}
+        lines={[
+          { label: "Set budget for paid ads", outcome: "ask", hardGate: false, cost: { amountMinor: 50_000, currency: "USD" }, reasons: ["Please set up my spend allowance"] },
+          { label: "Set budget for seo", outcome: "ask", hardGate: false, cost: null, reasons: [] },
+          { label: "Enable channel paid ads", outcome: "allow", hardGate: false, cost: null, reasons: ["not shown"] },
+        ]}
+      />,
+    );
+    const reasons = r.getAllByTestId("confirm-plan-reason");
+    expect(reasons.map((x) => x.textContent)).toEqual(["Please set up my spend allowance"]);
+    expect(r.getByTestId("confirm-plan-lines").querySelectorAll("li")[0]!.textContent).toContain("Set budget for paid ads");
+  });
+
   it("shows a total per currency when the lines are in more than one (never '£300' lines under a '€300' total)", () => {
     const r = render(
       <ConfirmPlanDialog

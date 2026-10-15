@@ -69,7 +69,7 @@ import { z } from "zod";
 import { audit, effectivePermission, emit, hasSectionAccess, Id, type BusinessContext, type Section } from "../trpc";
 import { decideInboxItem, decidesByText, planContextFor, type DecideItemResult } from "./decide";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactText, redactValue } from "./inbox-redaction";
-import { assertInstructionSectionAccess, assertPlanSectionAccess, compilePlan, evaluatePlan, requiresConfirmation, type ActionEvaluation } from "./plans";
+import { assertInstructionSectionAccess, assertPlanSectionAccess, compilePlan, evaluatePlan, requiresConfirmation, stagedAction, type ActionEvaluation } from "./plans";
 import { takeOrThrow, type RateLimitStore, type WindowLimit } from "./rate-limit";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -808,7 +808,7 @@ async function stageHandOffPlan(ctx: BusinessContext, messageId: string, opts: {
         summaryMd: compiled.summary,
         inboxItemId: null,
         status: "pending_confirmation",
-        actions: evaluations.map((e) => ({ type: e.action.type, params: e.action.params, agentId: e.action.agent_id, policyOutcome: e.outcome })),
+        actions: evaluations.map(stagedAction),
       });
       // A double press: the first request's plan stands, this one rolls back (never two plans awaiting confirmation).
       if (!(await repos.conversations.claimMessagePlan(tx, ctx.businessId, messageId, created.id))) throw new HandOffRaced();

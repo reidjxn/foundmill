@@ -289,6 +289,20 @@ describe("plans", () => {
     expect(res.plan.completedAt).toBeInstanceOf(Date);
   });
 
+  it("an action that asks keeps the reasons it was staged with until it runs, then its result replaces them", async () => {
+    const plan = await repos.plans.create(r.db, r.A.businessId, {
+      origin: "free_text",
+      actions: [
+        { type: "set_budget", params: { channel: "paid_ads", amount_minor: 50000 }, policyOutcome: "ask", result: { policyReasons: ["Please set up my spend allowance"] } },
+        { type: "create_task", params: { title: "Write ad copy" } },
+      ],
+    });
+    expect(plan.actions.map((a) => a.result)).toEqual([{ policyReasons: ["Please set up my spend allowance"] }, null]);
+    expect((await repos.plans.get(r.db, r.A.businessId, plan.id)).actions[0]!.result).toEqual({ policyReasons: ["Please set up my spend allowance"] });
+    const { action: finished } = await repos.plans.finishAction(r.db, r.A.businessId, plan.actions[0]!.id, { status: "done", result: { channelId: "c", budgetMinor: 50000 } });
+    expect(finished.result).toEqual({ channelId: "c", budgetMinor: 50000 });
+  });
+
   it("a failed action fails the plan; lists filter by status and are scoped", async () => {
     const plan = await repos.plans.create(r.db, r.A.businessId, { origin: "option", status: "executing", actions: [{ type: "reply_only" }] });
     const { plan: after } = await repos.plans.finishAction(r.db, r.A.businessId, plan.actions[0]!.id, { status: "failed", result: { error: "boom" } });
