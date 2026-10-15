@@ -1,23 +1,25 @@
 import { expect, test } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
+import { LONG, openBusiness, openSettings, settingsScreen, toast } from "./helpers";
 
 /**
  * Settings › Departments (BUILD §11.13; audits MLSL-08, WEB-19, AC-06): add a department (blank, template or from a
  * sentence), archive behind a confirmation, restore from the Archived list, give a department a lead and a budget. The
  * spec adds its own department and archives that one, so the seeded departments are never touched. Stack: e2e/README.md.
+ * The tab's own content is looked up through `settingsScreen` (React parks a second copy of a streamed screen outside the
+ * shell for a moment, helpers.ts); the dialogs and the options list are portals and are looked up on the page.
  */
-const B = `/b/${NORTHWIND_BUSINESS_ID}`;
 const NAME = "Support Desk (e2e)";
 
 test.describe("settings, departments", () => {
   test.beforeEach(async ({ page }) => {
     await openBusiness(page);
-    await page.goto(`${B}/settings/departments`);
-    await expect(page.getByTestId("department-list")).toBeVisible({ timeout: LONG });
+    const screen = await openSettings(page, "departments");
+    await expect(screen.getByTestId("department-list")).toBeVisible({ timeout: LONG });
   });
 
   test("Add department from a sentence, edit its settings, archive it with a confirmation, then restore it", async ({ page }) => {
-    await page.getByTestId("add-department-open").click();
+    const screen = settingsScreen(page);
+    await screen.getByTestId("add-department-open").click();
     const add = page.getByTestId("add-department");
     await expect(add).toBeVisible();
     await add.getByRole("button", { name: "From a sentence" }).click();
@@ -27,7 +29,7 @@ test.describe("settings, departments", () => {
     await expect(add.getByLabel("Name")).toHaveValue(NAME);
     await add.getByTestId("add-department-submit").click();
     await expect(add).toBeHidden({ timeout: LONG });
-    const row = page.getByTestId("department-list").locator("li", { hasText: NAME });
+    const row = screen.getByTestId("department-list").locator("li", { hasText: NAME });
     await expect(row).toBeVisible({ timeout: LONG });
 
     // Settings: a lead-less department can be given a lead, an icon and a monthly budget.
@@ -49,23 +51,23 @@ test.describe("settings, departments", () => {
     await expect(row).toBeVisible();
     await row.getByRole("button", { name: `Archive ${NAME}` }).click();
     await page.getByTestId("archive-department").getByRole("button", { name: "Archive" }).click();
-    await expect(page.getByTestId("department-list").locator("li", { hasText: NAME })).toHaveCount(0, { timeout: LONG });
+    await expect(screen.getByTestId("department-list").locator("li", { hasText: NAME })).toHaveCount(0, { timeout: LONG });
 
     // The Archived list brings it back.
-    const archived = page.getByTestId("archived-departments");
+    const archived = screen.getByTestId("archived-departments");
     await expect(archived).toContainText(NAME, { timeout: LONG });
     await archived.getByRole("button", { name: `Restore ${NAME}` }).click();
-    await expect(page.getByTestId("department-list").locator("li", { hasText: NAME })).toBeVisible({ timeout: LONG });
+    await expect(screen.getByTestId("department-list").locator("li", { hasText: NAME })).toBeVisible({ timeout: LONG });
 
     // Leave the business as it was found.
-    await page.getByTestId("department-list").locator("li", { hasText: NAME }).getByRole("button", { name: `Archive ${NAME}` }).click();
+    await screen.getByTestId("department-list").locator("li", { hasText: NAME }).getByRole("button", { name: `Archive ${NAME}` }).click();
     await page.getByTestId("archive-department").getByRole("button", { name: "Archive" }).click();
-    await expect(page.getByTestId("archived-departments")).toContainText(NAME, { timeout: LONG });
+    await expect(screen.getByTestId("archived-departments")).toContainText(NAME, { timeout: LONG });
   });
 
   test("Reset to defaults brings an archived default department back instead of failing", async ({ page }) => {
-    await page.getByRole("button", { name: "Reset to defaults" }).click();
+    await settingsScreen(page).getByRole("button", { name: "Reset to defaults" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Reset" }).click();
-    await expect(page.getByText("Defaults restored")).toBeVisible({ timeout: LONG });
+    await expect(toast(page, "Defaults restored")).toBeVisible({ timeout: LONG });
   });
 });

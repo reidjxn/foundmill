@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, openBusiness, settingsScreen, signIn } from "./helpers";
+import { LONG, openBusiness, settingsScreen, settled, signIn } from "./helpers";
 
 /** Ledgerly is seeded on vacation (packages/db/src/seed/ledgerly.ts). */
 const LEDGERLY_BUSINESS_ID = "b1e5e5e5-0000-4000-8000-000000000002";
@@ -25,7 +25,7 @@ async function intercept(page: Page, procedure: string): Promise<{ calls: () => 
 test.describe("keyboard and screen readers", () => {
   test("closing a dialog gives focus back to the button that opened it; Stop all agents opens on Cancel", async ({ page }) => {
     await openBusiness(page, "settings/mode");
-    const opener = page.getByTestId("start-holiday");
+    const opener = settingsScreen(page).getByTestId("start-holiday");
     await opener.focus();
     await page.keyboard.press("Enter");
     await expect(page.getByRole("dialog")).toBeVisible({ timeout: LONG });
@@ -49,7 +49,7 @@ test.describe("keyboard and screen readers", () => {
     await openBusiness(page, "settings/departments");
     const cycle = await intercept(page, "business.continue");
     await intercept(page, "department.update");
-    const visible = page.getByTestId("department-list").getByRole("switch").first();
+    const visible = settingsScreen(page).getByTestId("department-list").getByRole("switch").first();
     await visible.focus();
     await page.keyboard.press("Space");
     expect(cycle.calls()).toBe(0);
@@ -58,7 +58,7 @@ test.describe("keyboard and screen readers", () => {
 
   test("each department's shortcut is its own: the picker names the letter and what a choice swaps with", async ({ page }) => {
     await openBusiness(page, "settings/departments");
-    const list = page.getByTestId("department-list");
+    const list = settingsScreen(page).getByTestId("department-list");
     await expect(list).toBeVisible({ timeout: LONG });
     const pickers = list.getByRole("combobox", { name: /^Shortcut for / });
     expect(await pickers.count()).toBeGreaterThan(1);
@@ -133,9 +133,10 @@ test.describe("keyboard and screen readers", () => {
     await openBusiness(page, "settings/business");
     await expect(settingsScreen(page)).toHaveAttribute("data-tab", "business", { timeout: LONG });
     // Field wires its control: required, and in error tied to the message (A11Y-16).
-    const name = page.locator("#biz-name");
+    const screen = settingsScreen(page);
+    const name = screen.locator("#biz-name");
     await expect(name).toHaveAttribute("aria-required", "true");
-    const primary = page.locator("#kit-primary");
+    const primary = screen.locator("#kit-primary");
     const colour = await primary.inputValue();
     await primary.fill("not a color");
     await expect(primary).toHaveAttribute("aria-invalid", "true");
@@ -152,7 +153,7 @@ test.describe("keyboard and screen readers", () => {
     });
     const original = await name.inputValue();
     await name.fill(`${original} draft`);
-    const save = page.locator("[data-save-bar]");
+    const save = screen.locator("[data-save-bar]");
     await save.focus();
     await page.keyboard.press("Enter");
     await expect(save).toHaveAttribute("aria-busy", "true");
@@ -176,7 +177,8 @@ test.describe("keyboard and screen readers", () => {
     await signIn(page);
     await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/settings/mode`);
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+    await settled(page);
     await expect(page.getByRole("button", { name: /^Business mode: Automated, on vacation/ })).toBeVisible({ timeout: LONG });
-    await expect(page.getByTestId("mode-in-force")).toContainText("Automated while on vacation");
+    await expect(settingsScreen(page).getByTestId("mode-in-force")).toContainText("Automated while on vacation");
   });
 });

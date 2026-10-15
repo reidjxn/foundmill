@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, openBusiness, settingsScreen } from "./helpers";
 
 /** Home dashboards (BUILD §11.2, AC-11.2.4) on the seeded Northwind Skincare. Stack and commands: e2e/README.md. */
 test.describe("home", () => {
@@ -112,6 +112,6 @@ test.describe("home > Autopilot chip", () => {
     await expect(chip).toHaveAttribute("data-autopilot-state", /^(off|on|waiting|paused)$/);
     await chip.click();
     await expect(page).toHaveURL(/\/settings\/mode$/);
-    await expect(page.getByTestId("autopilot-section")).toBeVisible({ timeout: LONG });
+    await expect(settingsScreen(page).getByTestId("autopilot-section")).toBeVisible({ timeout: LONG });
   });
 });

@@ -1,11 +1,13 @@
 import { expect, test, type ConsoleMessage, type Page } from "@playwright/test";
-import { devApi, LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
+import { devApi, LONG, NORTHWIND_BUSINESS_ID, openBusiness, settingsScreen, settled, toast } from "./helpers";
 
 /**
  * Settings › Preferences (founder, 2026-10-11): the signed-in person chooses how dates and times read, for themselves,
  * in every business. Day first and a 24-hour clock change the top bar, Home's Journey ribbon and the Inbox at once,
  * without a reload; the choice survives a reload (rendered by the server, no hydration warning) and holds in another
  * business. The dev founder is shared by every spec, so the choice found before is put back after. Stack: e2e/README.md.
+ * The tab's own content is looked up through `settingsScreen` (React parks a second copy of a streamed screen outside the
+ * shell for a moment, helpers.ts) and its toasts through `toast`.
  */
 const LEDGERLY_BUSINESS_ID = "b1e5e5e5-0000-4000-8000-000000000002";
 
@@ -24,7 +26,7 @@ function watchHydration(page: Page): string[] {
 }
 
 async function choose(page: Page, name: string) {
-  const radio = page.getByRole("radio", { name, exact: true });
+  const radio = settingsScreen(page).getByRole("radio", { name, exact: true });
   await radio.click();
   await expect(radio).toHaveAttribute("aria-checked", "true");
 }
@@ -53,27 +55,28 @@ test.describe("settings › preferences: date and time format", () => {
   test("day first and 24-hour: the top bar, Home and the Inbox change at once; a reload and another business keep it", async ({ page }) => {
     const hydration = watchHydration(page);
     await openBusiness(page, "settings/preferences");
-    const panel = page.getByTestId("preferences-panel");
+    const screen = settingsScreen(page);
+    const panel = screen.getByTestId("preferences-panel");
     await expect(panel).toBeVisible({ timeout: LONG });
     await expect(panel).toContainText("in every business");
     await expect(panel).toContainText("3 min ago");
-    await expect(page.getByTestId("preferences-scope")).toHaveText("Just for you");
-    await expect(page.getByRole("radio", { name: "US", exact: true })).toHaveAttribute("aria-checked", "true");
-    await expect(page.getByRole("radio", { name: "12-hour", exact: true })).toHaveAttribute("aria-checked", "true");
+    await expect(screen.getByTestId("preferences-scope")).toHaveText("Just for you");
+    await expect(screen.getByRole("radio", { name: "US", exact: true })).toHaveAttribute("aria-checked", "true");
+    await expect(screen.getByRole("radio", { name: "12-hour", exact: true })).toHaveAttribute("aria-checked", "true");
     const topDate = page.getByTestId("kitbar-date");
     await expect(topDate).toHaveText(US_DATE, { timeout: LONG });
 
     // The cards show today in each format.
-    await expect(page.getByTestId("date-format-day_first")).toContainText(/\d{1,2} [A-Z][a-z]{2} \d{4}/);
-    await expect(page.getByTestId("date-format-iso")).toContainText(/\d{4}-\d{2}-\d{2}/);
-    await expect(page.getByTestId("time-format-24h")).toContainText(/\d{2}:\d{2}/);
+    await expect(screen.getByTestId("date-format-day_first")).toContainText(/\d{1,2} [A-Z][a-z]{2} \d{4}/);
+    await expect(screen.getByTestId("date-format-iso")).toContainText(/\d{4}-\d{2}-\d{2}/);
+    await expect(screen.getByTestId("time-format-24h")).toContainText(/\d{2}:\d{2}/);
 
     // Choose: each choice saves at once with a toast, and the top bar follows without a reload.
     await choose(page, "Day first");
-    await expect(page.getByText("Day first dates, 12-hour times", { exact: true })).toBeVisible({ timeout: LONG });
+    await expect(toast(page, "Day first dates, 12-hour times")).toBeVisible({ timeout: LONG });
     await expect(topDate).toHaveText(DAY_FIRST_DATE);
     await choose(page, "24-hour");
-    await expect(page.getByText("Day first dates, 24-hour times", { exact: true })).toBeVisible({ timeout: LONG });
+    await expect(toast(page, "Day first dates, 24-hour times")).toBeVisible({ timeout: LONG });
 
     // Home: the top bar and the Journey ribbon's Today tag read day first (a client-side move, no reload).
     await page.getByRole("link", { name: "Home", exact: true }).first().click();
@@ -84,6 +87,7 @@ test.describe("settings › preferences: date and time format", () => {
 
     // The Inbox: a note's date in the reading pane and a row's time on hover use the 24-hour, day-first format.
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/inbox`);
+    await settled(page);
     const firstRow = page.getByTestId("inbox-list").locator("[data-inbox-row]").first();
     await expect(firstRow).toBeVisible({ timeout: LONG });
     await expect(firstRow.getByTestId("row-time")).toHaveAttribute("title", /^\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}$/, { timeout: LONG });
@@ -95,6 +99,7 @@ test.describe("settings › preferences: date and time format", () => {
     // A reload renders it from the server's side too (the cookie), with no hydration warning.
     await page.reload();
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+    await settled(page);
     await expect(page.getByTestId("kitbar-date")).toHaveText(DAY_FIRST_DATE, { timeout: LONG });
     await expect(page.getByTestId("inbox-list").locator("[data-inbox-row]").first().getByTestId("row-time")).toHaveAttribute("title", /^\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}$/, { timeout: LONG });
 
@@ -103,8 +108,9 @@ test.describe("settings › preferences: date and time format", () => {
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("kitbar-date")).toHaveText(DAY_FIRST_DATE, { timeout: LONG });
     await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/settings/preferences`);
-    await expect(page.getByRole("radio", { name: "Day first", exact: true })).toHaveAttribute("aria-checked", "true", { timeout: LONG });
-    await expect(page.getByRole("radio", { name: "24-hour", exact: true })).toHaveAttribute("aria-checked", "true");
+    await settled(page);
+    await expect(screen.getByRole("radio", { name: "Day first", exact: true })).toHaveAttribute("aria-checked", "true", { timeout: LONG });
+    await expect(screen.getByRole("radio", { name: "24-hour", exact: true })).toHaveAttribute("aria-checked", "true");
 
     // ISO from here, then back to US: the top bar follows each time.
     await choose(page, "ISO 8601");
@@ -127,6 +133,6 @@ test.describe("settings › preferences: date and time format", () => {
     await expect(option).toContainText("Your date and time format, in every business");
     await option.click();
     await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/settings/preferences`), { timeout: LONG });
-    await expect(page.getByTestId("preferences-panel")).toBeVisible({ timeout: LONG });
+    await expect(settingsScreen(page).getByTestId("preferences-panel")).toBeVisible({ timeout: LONG });
   });
 });
