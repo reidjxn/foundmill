@@ -34,6 +34,7 @@ export const ROUTE_KEYS = [
   "planCompiler",
   "chiefOfStaff",
   "departmentLead",
+  "leadRecommendation",
   "planner",
   "codeReview",
   "ideation",
@@ -67,6 +68,7 @@ export const ROUTE_DEFAULT_MODEL: Record<RouteKey, ModelKey> = {
   planCompiler: "opus",
   chiefOfStaff: "opus",
   departmentLead: "opus",
+  leadRecommendation: "opus",
   planner: "opus",
   codeReview: "opus",
   ideation: "opus",
@@ -84,7 +86,7 @@ export const ROUTE_DEFAULT_MODEL: Record<RouteKey, ModelKey> = {
   categoriser: "haiku",
   quarantinedReader: "haiku",
   moderation: "haiku",
-  conversation: "opus",
+  conversation: "sonnet",
 };
 
 // ---------------------------------------------------------------------------------------------------------------------

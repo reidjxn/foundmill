@@ -162,8 +162,9 @@ describe("LiveModelClient.complete", () => {
 
     expect(result.json.actions.map((a) => a.params)).toEqual([{ channel: "meta_ads" }, { channel: "google_ads", amount_minor: 30_000, currency: "EUR" }]);
     const body = calls[0]!.body;
-    // No output_config.format: the SDK's rewrite would close `params` to an object with no properties.
-    expect(body.output_config).toBeUndefined();
+    // No output_config.format: the SDK's rewrite would close `params` to an object with no properties. Only the route's
+    // low effort (founder, 2026-10-15) rides in output_config.
+    expect(body.output_config).toEqual({ effort: "low" });
     const system = body.system as { type: string; text: string; cache_control?: unknown }[];
     expect(system.map((b) => b.text.split("\n")[0])).toEqual(["House rules block", "You are the plan compiler.", "## Response format"]);
     // The breakpoint moves to the last block, so the whole system (format block included) stays one cached prefix.
@@ -532,7 +533,7 @@ describe("LiveModelClient: a stopped call is still metered (review item 8)", () 
     expect(sent).toHaveLength(1);
     expect(events).toHaveLength(1);
     const e = events[0]!;
-    expect(e).toMatchObject({ route: "conversation", model: MODELS.opus, mode: "live", aborted: true, attempt: 0, scope: "s1", attribution: { businessId: "b-1", agentId: "a-1", kind: "conversation" } });
+    expect(e).toMatchObject({ route: "conversation", model: MODELS.sonnet, mode: "live", aborted: true, attempt: 0, scope: "s1", attribution: { businessId: "b-1", agentId: "a-1", kind: "conversation" } });
     // About four characters per token over the messages and the system prompt; nothing was written back.
     expect(e.usage.inputTokens).toBeGreaterThanOrEqual(Math.floor(PROMPT.length / 4));
     expect(e.usage).toMatchObject({ outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 });

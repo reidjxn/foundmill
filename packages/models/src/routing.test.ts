@@ -5,11 +5,12 @@ describe("routing (BUILD §10.1)", () => {
   it("MODELS and ROUTES are exactly the spec table", () => {
     expect(MODELS).toEqual({ opus: "claude-opus-5-5", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-4-5-20251001" });
     expect(ROUTES).toEqual({
-      inboxComposer: { model: "opus", locked: true, maxTokens: 16_000 },
-      planCompiler: { model: "opus", locked: true, maxTokens: 16_000 },
+      inboxComposer: { model: "opus", locked: true, effort: "low", maxTokens: 16_000 },
+      planCompiler: { model: "opus", locked: true, effort: "low", maxTokens: 16_000 },
       chiefOfStaff: { model: "opus", warnOnDowngrade: true, maxTokens: 16_000 },
       departmentLead: { model: "opus", maxTokens: 16_000 },
-      planner: { model: "opus", maxTokens: 16_000 },
+      leadRecommendation: { model: "opus", effort: "low", maxTokens: 16_000 },
+      planner: { model: "opus", effort: "low", maxTokens: 16_000 },
       codeReview: { model: "opus", maxTokens: 16_000 },
       ideation: { model: "opus", effort: "low", speed: "fast", maxTokens: 8_000 },
       ideationSlate: { model: "opus", effort: "low", speed: "fast", maxTokens: 8_000 },
@@ -26,7 +27,7 @@ describe("routing (BUILD §10.1)", () => {
       categoriser: { model: "haiku", maxTokens: 4_096 },
       quarantinedReader: { model: "haiku", maxTokens: 4_096 },
       moderation: { model: "haiku", maxTokens: 4_096 },
-      conversation: { model: "opus", effort: "low", maxTokens: 8_000 },
+      conversation: { model: "sonnet", effort: "low", maxTokens: 8_000 },
     });
   });
 
@@ -56,11 +57,11 @@ describe("routing (BUILD §10.1)", () => {
     expect(up.warning).toBeUndefined();
   });
 
-  it("first-draft routes stay on Opus at low effort and ask for fast mode; the locked and planning routes keep the API default", () => {
+  it("first-draft routes stay on Opus at low effort and ask for fast mode; the agents' own planning routes keep the API default", () => {
     for (const route of ["ideation", "ideationSlate", "logoDesigner", "foundations", "foundationsSkeleton"] as const) {
       expect(resolveModel(route)).toMatchObject({ modelKey: "opus", effort: "low", speed: "fast" });
     }
-    for (const route of ["inboxComposer", "planCompiler", "planner", "coach", "chiefOfStaff"] as const) {
+    for (const route of ["coach", "chiefOfStaff", "departmentLead"] as const) {
       const r = resolveModel(route);
       expect(r.modelKey).toBe("opus");
       expect(r.effort).toBeUndefined();
@@ -68,8 +69,16 @@ describe("routing (BUILD §10.1)", () => {
     }
   });
 
-  it("conversation replies run on Opus at low effort without fast mode (audit-conversation §4)", () => {
-    expect(resolveModel("conversation")).toMatchObject({ route: "conversation", modelKey: "opus", modelId: MODELS.opus, effort: "low", locked: false, batch: false });
+  it("what the founder waits on runs at low effort on Opus, with the budget left at the thinking ceiling (founder, 2026-10-15)", () => {
+    for (const route of ["inboxComposer", "planCompiler", "planner", "leadRecommendation"] as const) {
+      const r = resolveModel(route);
+      expect([r.modelKey, r.effort, r.speed, r.maxTokens]).toEqual(["opus", "low", undefined, 16_000]);
+    }
+    expect(resolveModel("inboxComposer", "sonnet").modelKey).toBe("opus");
+  });
+
+  it("conversation replies run on Sonnet at low effort without fast mode (founder, 2026-10-15)", () => {
+    expect(resolveModel("conversation")).toMatchObject({ route: "conversation", modelKey: "sonnet", modelId: MODELS.sonnet, effort: "low", locked: false, batch: false, maxTokens: 8_000 });
     expect(resolveModel("conversation").speed).toBeUndefined();
     expect(resolveModel("conversation", "haiku").effort).toBeUndefined();
   });
@@ -88,7 +97,8 @@ describe("routing (BUILD §10.1)", () => {
     for (const route of Object.keys(ROUTES) as (keyof typeof ROUTES)[]) {
       const r = resolveModel(route);
       if (!ALWAYS_THINKS[r.modelKey]) expect(r.maxTokens).toBe(PLAIN_MAX_TOKENS);
-      else expect(r.maxTokens).toBe(r.effort === "low" ? LOW_EFFORT_MAX_TOKENS : THINKING_MAX_TOKENS);
+      // A low-effort route may keep the thinking ceiling: max_tokens is only a cap (the founder-facing planning routes).
+      else expect(r.maxTokens).toBe(Math.max(ROUTES[route].maxTokens, r.effort === "low" ? LOW_EFFORT_MAX_TOKENS : THINKING_MAX_TOKENS));
     }
     expect(THINKING_MAX_TOKENS).toBeGreaterThanOrEqual(12_000);
     // An override onto a thinking model never keeps a Haiku-sized budget; one onto Haiku keeps the route's.

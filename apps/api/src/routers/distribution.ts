@@ -55,7 +55,7 @@ export const distributionRouter = router({
   recommend: write.use(modelLimited("recommend")).mutation(async ({ ctx }) => {
     const [profile, enabled] = await Promise.all([repos.founders.get(ctx.db, ctx.userId), repos.channels.list(ctx.db, ctx.businessId)]);
     const result = await ctx.models.complete({
-      route: "departmentLead",
+      route: "leadRecommendation",
       schema: Recommendation,
       system: `You are the Distribution Strategist. Score all 15 channels 1-20 on fit and pick 3-6 starters with potential, a cost-per-customer range (minor units of the business currency, low at most high, Estimate), a three-sentence why, and kit_mode_required for channels that cannot be automated within their terms. ${HOUSE_STYLE}`,
       messages: [{ role: "user", content: "```json\n" + JSON.stringify({ business: { name: ctx.business.name, archetype: ctx.business.archetype, business_mode: ctx.business.businessMode }, founder: profile ? { skills: profile.skills, budget_minor: profile.budgetMinor, target_markets: profile.targetMarkets } : null, channels: CHANNEL_KEYS, currently_enabled: enabled.filter((c) => c.enabled).map((c) => c.channelKey) }) + "\n```" }],
