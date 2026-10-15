@@ -65,6 +65,12 @@ export const businesses = pgTable(
      * Null: no business cap (each agent's own threshold applies).
      */
     spendCapMinor: minor("spend_cap_minor"),
+    /**
+     * 0059 — the monthly model budget (BUILD §10.4), in US cents like wages and credits: what the team's metered work may
+     * cost in a calendar month whoever pays the model (credits or the business's own key). Dispatch refuses new sessions
+     * once the month's cost reaches it and a running session is handed only what is left. Null: no budget.
+     */
+    modelBudgetMinor: minor("model_budget_minor"),
     glossary: jsonb("glossary").$type<Record<string, string>>().notNull().default(emptyObject),
     /**
      * 0025 — the currency of the business's money (ISO 4217): set at commit from the founder's choice, changed in

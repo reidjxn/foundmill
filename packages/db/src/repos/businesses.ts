@@ -146,6 +146,7 @@ export const businessesRepo = {
       planTier: v.planTier,
       modelBilling: v.modelBilling,
       spendCapMinor: v.spendCapMinor,
+      modelBudgetMinor: null,
       glossary: v.glossary,
       currency: v.currency,
       createdBy: v.createdBy ?? null,
@@ -253,6 +254,12 @@ export const businessesRepo = {
   async setSpendCap(db: Executor, businessId: string, spendCapMinor: number | null): Promise<Business> {
     const cap = parseInput(MinorAmount.nonnegative().nullable(), spendCapMinor, "spend cap");
     return one(await db.update(businesses).set({ spendCapMinor: cap }).where(and(eq(businesses.id, businessId), notArchived)).returning(), "business", businessId);
+  },
+
+  /** The monthly model budget in US cents (Settings; 0059): what the team's metered work may cost in a month. Null removes it. */
+  async setModelBudget(db: Executor, businessId: string, modelBudgetMinor: number | null): Promise<Business> {
+    const budget = parseInput(MinorAmount.nonnegative().nullable(), modelBudgetMinor, "model budget");
+    return one(await db.update(businesses).set({ modelBudgetMinor: budget }).where(and(eq(businesses.id, businessId), notArchived)).returning(), "business", businessId);
   },
 
   /** Marks the idea committed (BUILD §11.1): sets archetype and committed_at. */

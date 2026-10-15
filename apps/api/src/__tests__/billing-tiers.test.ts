@@ -131,3 +131,20 @@ describe("business.setSpendCap (Settings › Mode)", () => {
     await expect(admin.business.setSpendCap({ businessId: hz.B.businessId, spendCapMinor: -1 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });
+
+describe("business.setModelBudget (the monthly model budget, 0059)", () => {
+  it("an admin sets and clears the budget in US cents, audited; a member cannot; a negative amount is refused", async () => {
+    const admin = hz.caller({ userId: hz.B.adminId });
+    const set = await admin.business.setModelBudget({ businessId: hz.B.businessId, modelBudgetMinor: 25_000 });
+    expect(set.modelBudgetMinor).toBe(25_000);
+    expect((await repos.businesses.get(hz.db, hz.B.businessId)).modelBudgetMinor).toBe(25_000);
+    const audit = await repos.audit.list(hz.db, hz.B.businessId, { action: "business.set_model_budget" });
+    expect(audit.items[0]?.details).toMatchObject({ from: null, to: 25_000 });
+    await expect(hz.caller({ userId: hz.B.memberId }).business.setModelBudget({ businessId: hz.B.businessId, modelBudgetMinor: 0 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(admin.business.setModelBudget({ businessId: hz.B.businessId, modelBudgetMinor: -1 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect((await repos.businesses.get(hz.db, hz.B.businessId)).modelBudgetMinor).toBe(25_000);
+    expect((await admin.business.setModelBudget({ businessId: hz.B.businessId, modelBudgetMinor: null })).modelBudgetMinor).toBeNull();
+    // The other business is untouched.
+    expect((await repos.businesses.get(hz.db, hz.A.businessId)).modelBudgetMinor).toBeNull();
+  });
+});

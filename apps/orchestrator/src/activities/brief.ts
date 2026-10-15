@@ -3,7 +3,7 @@
  * Facts come from the repositories; nothing is invented and every non-real number carries its label.
  */
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { concurrencyAllowance, creditsState, periodOf, repos } from "@foundmill/db";
+import { concurrencyAllowance, creditsState, modelBudgetState, periodOf, repos } from "@foundmill/db";
 import type { TaskStatus } from "@foundmill/shared";
 import { detectSectors, openSectorGates } from "@foundmill/shared/sectors";
 import type { OrchestratorDeps } from "../deps";
@@ -121,6 +121,10 @@ export function createBriefActivities(deps: OrchestratorDeps) {
         deps.log.debug({ err: (err as Error).message }, "credit balance unavailable");
       }
 
+      // The monthly model budget (0059), whoever pays the model: dispatch refuses new sessions once it is used up, and the
+      // plan is not drafted either (a planning call costs money too).
+      const monthlyBudget = await modelBudgetState(db, business, now);
+
       // The plan tier's concurrent-agent limit (BUILD §10.5), less the sessions still open from earlier cycles or starts.
       const concurrency = await concurrencyAllowance(db, business, now);
       const maxAgents = concurrency.room;
@@ -163,6 +167,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
         blockingInboxItems,
         agentsStopped,
         budgetRemainingMinor,
+        modelBudgetRemainingMinor: monthlyBudget.remainingMinor,
         creditsCurrency: CREDITS_CURRENCY,
         maxAgents,
         capacity,
