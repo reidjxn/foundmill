@@ -103,17 +103,22 @@ test.describe("legal fixes", () => {
 
   test("regulatory: a sector choice and a tick survive a reload", async ({ page }) => {
     await openTab(page, "legal", "regulatory");
+    // The listener comes before the click: the switch flips at once and the api can answer before a listener added after
+    // the click exists, which then waits for a response that has already gone by.
+    const saved = () => page.waitForResponse((r) => r.url().includes("legal.regulatory.set") && r.ok());
     const health = page.getByRole("switch", { name: "Health" });
     const before = await health.getAttribute("aria-checked");
+    const firstSave = saved();
     await health.click();
     await expect(health).toHaveAttribute("aria-checked", before === "true" ? "false" : "true");
-    await page.waitForResponse((r) => r.url().includes("legal.regulatory.set") && r.ok());
+    await firstSave;
     await page.reload();
     await expect(page.getByTestId("module-screen").locator('[aria-busy="true"]')).toHaveCount(0, { timeout: LONG });
     await expect(page.getByRole("switch", { name: "Health" })).toHaveAttribute("aria-checked", before === "true" ? "false" : "true");
     // put it back
+    const secondSave = saved();
     await page.getByRole("switch", { name: "Health" }).click();
-    await page.waitForResponse((r) => r.url().includes("legal.regulatory.set") && r.ok());
+    await secondSave;
     await expect(page.getByText(/goes into the team's brief each cycle/)).toBeVisible();
     await expect(page.getByText(/never performs these/)).toHaveCount(0);
   });
