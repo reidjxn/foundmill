@@ -7,6 +7,8 @@ const Env = z.object({
   /** Connectors that run live while INTEGRATIONS_MODE is mock, comma-separated (e.g. "github"). */
   LIVE_CONNECTORS: z.string().default(""),
   MODEL_MODE: z.enum(["mock", "live"]).default("mock"),
+  /** apps/api: multiplies every model-backed allowance (services/model-limits.ts). Honored only when APP_ENV is development or test: the Playwright stack presses Take charge and the other model-backed buttons far more often than a person does. */
+  MODEL_LIMIT_SCALE: z.coerce.number().min(1).max(1_000).catch(1).default(1),
   /** packages/models: honour `speed: "fast"` on the routes that ask for it (Opus fast mode, beta, 2× price). Off unless "1" or "true". */
   MODEL_FAST_MODE: z.string().optional().transform((v) => v === "1" || v?.trim().toLowerCase() === "true"),
   /** Mock model client only: simulated wait before the first token / first streamed element, in ms (0 = instant, the default). */

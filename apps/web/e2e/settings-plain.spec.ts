@@ -66,14 +66,17 @@ test.describe("settings, plain words", () => {
     await expect(dialog).not.toContainText(/come later|for now this records/);
     // Going live is for adults: the review asks for "I am 18 or older" and Confirm waits for it.
     await expect(dialog).toContainText("18 or older");
-    // The seeded founder has already confirmed it (the network asks once), so there is nothing to tick; a founder who
-    // has not is asked, and Confirm waits for the tick.
-    const adult = dialog.getByTestId("confirm-adult");
+    // A founder who has confirmed it before (the network asks once; the seeded owner of shards 2 and 3 has) has nothing
+    // to tick; one who has not (the profile onboarding saves in shard 1) is asked, and Confirm waits for the tick. The
+    // dialog opens before the summary that says which it is has answered, so wait until it shows one or the other.
+    const adult = dialog.getByTestId("go-live-adult");
+    const confirm = dialog.getByRole("button", { name: "Confirm" });
+    await expect.poll(async () => (await adult.count()) > 0 || (await confirm.isEnabled()), { timeout: LONG }).toBe(true);
     if (await adult.count()) {
-      await expect(dialog.getByRole("button", { name: "Confirm" })).toBeDisabled();
-      await adult.click();
+      await expect(confirm).toBeDisabled();
+      await adult.getByRole("checkbox").click();
     }
-    await expect(dialog.getByRole("button", { name: "Confirm" })).toBeEnabled();
+    await expect(confirm).toBeEnabled();
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toBeHidden();
   });

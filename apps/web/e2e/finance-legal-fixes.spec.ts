@@ -93,11 +93,12 @@ test.describe("legal fixes", () => {
     const form = page.getByRole("form", { name: "Incorporation route" });
     test.skip((await form.getByRole("radio").first().isDisabled()), "an incorporation is already in flight on this seed");
     await form.getByRole("radio", { name: /Companies House/ }).click();
-    await expect(form.getByLabel("Jurisdiction")).toHaveValue("United Kingdom");
-    await expect(form.getByLabel("Entity type")).toHaveValue("Ltd");
+    // Exact: the "Another jurisdiction" route's radio is labelled by text that also contains the word.
+    await expect(form.getByLabel("Jurisdiction", { exact: true })).toHaveValue("United Kingdom");
+    await expect(form.getByLabel("Entity type", { exact: true })).toHaveValue("Ltd");
     await form.getByRole("radio", { name: /Stripe Atlas/ }).click();
-    await expect(form.getByLabel("Jurisdiction")).toHaveValue("Delaware");
-    await expect(form.getByLabel("Entity type")).toHaveValue("C-corp");
+    await expect(form.getByLabel("Jurisdiction", { exact: true })).toHaveValue("Delaware");
+    await expect(form.getByLabel("Entity type", { exact: true })).toHaveValue("C-corp");
   });
 
   test("regulatory: a sector choice and a tick survive a reload", async ({ page }) => {

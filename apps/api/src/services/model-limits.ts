@@ -71,12 +71,23 @@ export const MODEL_LIMITS = {
 
 export type ModelLimitName = keyof typeof MODEL_LIMITS;
 
+const scaled = (w: WindowLimit, scale: number): WindowLimit => (scale === 1 ? w : { ...w, limit: Math.round(w.limit * scale) });
+
+/**
+ * The factor applied to every allowance: `MODEL_LIMIT_SCALE` on the development and test stacks (the Playwright suites commit
+ * a dozen businesses an hour), always 1 on staging and production, whatever the variable says.
+ */
+export function modelLimitScale(env: { APP_ENV: string; MODEL_LIMIT_SCALE: number }): number {
+  return env.APP_ENV === "development" || env.APP_ENV === "test" ? env.MODEL_LIMIT_SCALE : 1;
+}
+
 /** The windows one request under `name` spends: its own rule's, then the shared ceiling's, for the person and the business. */
-export function modelLimitEntries(name: ModelLimitName, scope: { userId: string; businessId?: string | null }): LimitEntry[] {
+/** `scale` multiplies every window's allowance (1 outside the development and test stacks, see `modelLimitScale`). */
+export function modelLimitEntries(name: ModelLimitName, scope: { userId: string; businessId?: string | null }, scale = 1): LimitEntry[] {
   const entries: LimitEntry[] = [];
   const add = (rule: string, limits: Partial<ModelLimitRule>) => {
-    for (const w of limits.user ?? []) entries.push({ key: `model:${rule}:user:${w.windowMs}:${scope.userId}`, rule: w });
-    if (scope.businessId) for (const w of limits.business ?? []) entries.push({ key: `model:${rule}:business:${w.windowMs}:${scope.businessId}`, rule: w });
+    for (const w of limits.user ?? []) entries.push({ key: `model:${rule}:user:${w.windowMs}:${scope.userId}`, rule: scaled(w, scale) });
+    if (scope.businessId) for (const w of limits.business ?? []) entries.push({ key: `model:${rule}:business:${w.windowMs}:${scope.businessId}`, rule: scaled(w, scale) });
   };
   add(name, MODEL_LIMITS[name]);
   add("shared", SHARED_MODEL_LIMITS);
@@ -105,7 +116,7 @@ export function modelLimited(name: ModelLimitName, options: ModelLimitOptions = 
     const c = ctx as Context & { businessId?: string };
     if (!c.userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to continue" });
     if (options.when && !options.when(await getRawInput())) return next();
-    const taken = await c.limits.take(modelLimitEntries(name, { userId: c.userId, businessId: c.businessId ?? null }));
+    const taken = await c.limits.take(modelLimitEntries(name, { userId: c.userId, businessId: c.businessId ?? null }, modelLimitScale(c.env)));
     if (!taken.ok) throw new RateLimitedError(MODEL_LIMITS[name].what, taken.retryAfterMs);
     // The procedure gets a model client that notes every call as it starts (the api's own already does, at its credits gate,
     // once the gate let the call through; any other client is wrapped), so a request that reached the model keeps its hit

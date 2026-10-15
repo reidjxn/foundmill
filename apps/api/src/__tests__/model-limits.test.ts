@@ -12,7 +12,7 @@ import { TRPCError } from "@trpc/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createCaller } from "../router";
 import { IDEATION_LIMITS, takeIdeationAllowance } from "../services/ideation";
-import { MODEL_LIMITS, modelLimitEntries, SHARED_MODEL_LIMITS, type ModelLimitName } from "../services/model-limits";
+import { MODEL_LIMITS, modelLimitEntries, modelLimitScale, SHARED_MODEL_LIMITS, type ModelLimitName } from "../services/model-limits";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -53,6 +53,17 @@ describe("modelLimitEntries", () => {
     const keys = modelLimitEntries("plan", { userId: "u1", businessId: "b1" }).map((e) => e.key);
     expect(keys).toEqual(expect.arrayContaining(["model:plan:user:60000:u1", "model:plan:business:3600000:b1", "model:shared:user:60000:u1", "model:shared:business:3600000:b1"]));
     expect(modelLimitEntries("ideation", { userId: "u1" }).every((e) => e.key.startsWith("model:shared:user:"))).toBe(true);
+  });
+
+  it("scales every window on the development and test stacks and never on staging or production (MODEL_LIMIT_SCALE)", () => {
+    const base = modelLimitEntries("commit", { userId: "u1" });
+    const scaled = modelLimitEntries("commit", { userId: "u1" }, 50);
+    expect(scaled.map((e) => e.rule.limit)).toEqual(base.map((e) => e.rule.limit * 50));
+    expect(scaled.map((e) => e.key)).toEqual(base.map((e) => e.key));
+    expect(modelLimitScale({ APP_ENV: "test", MODEL_LIMIT_SCALE: 50 })).toBe(50);
+    expect(modelLimitScale({ APP_ENV: "development", MODEL_LIMIT_SCALE: 5 })).toBe(5);
+    expect(modelLimitScale({ APP_ENV: "staging", MODEL_LIMIT_SCALE: 50 })).toBe(1);
+    expect(modelLimitScale({ APP_ENV: "production", MODEL_LIMIT_SCALE: 50 })).toBe(1);
   });
 });
 

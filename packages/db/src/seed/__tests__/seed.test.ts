@@ -13,6 +13,7 @@ import type { Db } from "../../client";
 import { repos } from "../../repos";
 import * as s from "../../schema";
 import { createTestDb, type TestHarness } from "../../testing/pglite";
+import { startedBefore } from "../context";
 import { BOOTSTRAPPED_COMMUNITY_SLUG, deleteDemoBusinesses, demoSeedState, LEDGERLY_BUSINESS_ID, LEDGERLY_COMMUNITY_SLUG, NORTHWIND_BUSINESS_ID, SEED_COMMUNITY_SLUGS, seedDemo, type SeedDemoResult } from "../index";
 
 const TODAY = new Date("2026-10-07T12:00:00.000Z");
@@ -512,4 +513,16 @@ describe("seedDemo on PGlite", () => {
     expect(await deleteDemoBusinesses(db)).toBe(0);
     expect((await db.select({ id: s.businesses.id }).from(s.businesses).where(eq(s.businesses.slug, "ledgerly")))[0]?.id).toBe(taken!.id);
   }, 120_000);
+});
+
+describe("startedBefore: nothing running starts after the seed ran (the 9 AM start of a session that is running now)", () => {
+  it("keeps a start that has happened and moves a later one back before now, whatever the hour of the seed", () => {
+    const nine = new Date("2026-10-15T09:20:00Z");
+    expect(startedBefore(nine, new Date("2026-10-15T12:00:00Z"))).toEqual(nine);
+    for (const hour of [0, 6, 8, 9]) {
+      const now = new Date(Date.UTC(2026, 9, 15, hour, 10));
+      const started = startedBefore(nine, now);
+      expect(started.getTime(), `seeded at ${hour}:10`).toBeLessThanOrEqual(now.getTime() - 30 * 60_000);
+    }
+  });
 });

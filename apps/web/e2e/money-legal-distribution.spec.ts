@@ -139,7 +139,7 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await openTab(page, "finance", "runway");
     const form = page.getByRole("form", { name: "Base drivers" });
     const cash = form.getByLabel("Starting cash");
-    await expect(cash).toHaveValue(/^\d{1,3}(,\d{3})*$/); // grouped at rest
+    await expect(cash).toHaveValue(/^\d{1,3}(,\d{3})*(\.\d{2})?$/); // grouped at rest, with cents when it has them (#172)
     await expect(form.getByText("GBP").first()).toBeVisible();
     await page.getByRole("group", { name: "Scenario" }).getByRole("button", { name: /Upside/ }).click();
     await expect(page.getByRole("form", { name: "Upside drivers" })).toBeVisible();
