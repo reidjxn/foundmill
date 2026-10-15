@@ -148,14 +148,6 @@ export interface ApiClientOptions {
   limits?: RequestLimits;
 }
 
-/**
- * `fetch` for reads sent to the web app's own origin: no cookies. The API reads only the bearer; the session cookies are
- * several KB, would travel to the API with every read, and count against the CDN's header limit.
- */
-export function withoutCookies(base?: typeof fetch): typeof fetch {
-  return (input, init) => (base ?? globalThis.fetch)(input, { ...init, credentials: "omit" });
-}
-
 export function createApiLinks(opts: ApiClientOptions): TRPCLink<AppRouter>[] {
   const url = opts.url ?? apiTrpcUrl();
   const queryUrl = opts.queryUrl ?? url;
@@ -166,7 +158,9 @@ export function createApiLinks(opts: ApiClientOptions): TRPCLink<AppRouter>[] {
   // A batch carries at most `LIMITS.trpcMaxBatchSize` calls: the api refuses a longer one (400).
   const batch = (to: string, fetch: typeof globalThis.fetch | undefined) =>
     httpBatchLink<AppRouter>({ url: to, transformer: superjson, headers, fetch: fetchWithTimeout(fetch, opts.limits), maxItems: LIMITS.trpcMaxBatchSize, maxURLLength: MAX_URL_LENGTH });
-  const plain = queryUrl === url ? batch(url, opts.fetch) : splitLink<AppRouter>({ condition: (op) => op.type === "query", true: batch(queryUrl, withoutCookies(opts.fetch)), false: batch(url, opts.fetch) });
+  // Reads to the page's own origin carry its cookies, as any same-origin request does: they ride the connection the page
+  // already has open, and a preview deployment behind Vercel's protection lets them through. The API reads only the bearer.
+  const plain = queryUrl === url ? batch(url, opts.fetch) : splitLink<AppRouter>({ condition: (op) => op.type === "query", true: batch(queryUrl, opts.fetch), false: batch(url, opts.fetch) });
   // One stream per request (`maxItems: 1`): a batched request is only aborted once every operation in it is, so Stop on
   // a draft that shared a request with another stream would leave the API drafting.
   return [splitLink({ condition: isStreamingOperation, true: httpBatchStreamLink({ url, transformer: superjson, headers, fetch: opts.fetch, maxItems: 1 }), false: plain })];

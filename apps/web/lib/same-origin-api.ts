@@ -5,10 +5,11 @@
  * this path instead, it is same-origin and needs none.
  *
  * next.config.ts rewrites the path to `${NEXT_PUBLIC_API_URL}/trpc/*`. On Vercel that is an external rewrite: the CDN
- * proxies it with no function in between, forwards every request header (Authorization included) and adds the
- * visitor's address as x-forwarded-for (the API keys nothing on addresses), within its proxied-request limits (120 s,
- * a 14 KB URL, 32 KB of headers). Locally `next start` and `next dev` proxy it themselves. Only reads use it: changes,
- * answer streams and the event stream run long (a change can wait minutes for a note) and go to the API directly.
+ * proxies it with no function in between, forwards every request header (Authorization included, and the page's
+ * cookies, which the API ignores) and adds the visitor's address as x-forwarded-for (the API keys nothing on
+ * addresses), within its proxied-request limits (120 s, a 14 KB URL, 32 KB of headers). Locally `next start` and
+ * `next dev` proxy it themselves. Only reads use it: changes, answer streams and the event stream run long (a change can
+ * wait minutes for a note) and go to the API directly.
  *
  * Imported by next.config.ts: no imports, nothing browser- or React-specific.
  */

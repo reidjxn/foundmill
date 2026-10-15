@@ -1,6 +1,6 @@
 /**
- * The browser's transport to the API (audit F7, WEB-2, C5): reads go to the web app's own origin without cookies,
- * changes and streams go to the API itself, the typed and path-addressed clients share one batch, a batch never grows a
+ * The browser's transport to the API (audit F7, WEB-2, C5): reads go to the web app's own origin, changes and streams
+ * go to the API itself, the typed and path-addressed clients share one batch, a batch never grows a
  * URL the CDN refuses, and no request waits more than `TOKEN_TIMEOUT_MS` for its bearer.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -15,7 +15,6 @@ const SAME_ORIGIN = "http://web.test/api/trpc";
 interface Sent {
   url: URL;
   method: string;
-  credentials: RequestCredentials | undefined;
   authorization: string | null;
 }
 
@@ -24,7 +23,7 @@ function recorder() {
   const sent: Sent[] = [];
   const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
-    sent.push({ url, method: (init?.method ?? "GET").toUpperCase(), credentials: init?.credentials, authorization: new Headers(init?.headers).get("authorization") });
+    sent.push({ url, method: (init?.method ?? "GET").toUpperCase(), authorization: new Headers(init?.headers).get("authorization") });
     const calls = decodeURIComponent(url.pathname.replace(/^.*\/trpc\//, "")).split(",").length;
     return new Response(JSON.stringify(Array.from({ length: calls }, () => ({ result: { data: { json: null } } }))), { headers: { "content-type": "application/json" } });
   }) as typeof globalThis.fetch;
@@ -38,7 +37,7 @@ afterEach(() => {
 });
 
 describe("browser reads on the web app's own origin", () => {
-  it("sends reads to the same-origin path without cookies, and changes and streams to the API", async () => {
+  it("sends reads to the same-origin path, and changes and streams to the API", async () => {
     const { sent, fetch } = recorder();
     const client = createUntypedApiClient({ getToken: () => "jwt", url: API, queryUrl: SAME_ORIGIN, fetch });
     await client.query("inbox.list", { businessId: "b" });
@@ -47,12 +46,10 @@ describe("browser reads on the web app's own origin", () => {
     const read = sent.find((s) => paths(s).includes("inbox.list"))!;
     expect(read.url.origin + read.url.pathname).toBe(`${SAME_ORIGIN}/inbox.list`);
     expect(read.method).toBe("GET");
-    expect(read.credentials).toBe("omit");
     expect(read.authorization).toBe("Bearer jwt");
     const change = sent.find((s) => paths(s).includes("inbox.markRead"))!;
     expect(change.url.origin + change.url.pathname).toBe(`${API}/inbox.markRead`);
     expect(change.method).toBe("POST");
-    expect(change.credentials).toBeUndefined();
     const stream = sent.find((s) => paths(s).includes("idea.draft"))!;
     expect(stream.url.origin).toBe("http://api.test");
   });
