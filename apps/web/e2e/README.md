@@ -57,6 +57,7 @@ Keep `COMPOSER_URL` unset (or pointing at nothing) so the api uses its in-proces
 | File | Covers |
 | --- | --- |
 | `shell.spec.ts` | login form and dev bypass, redirect to `/login?next=`, AppShell at 1440 px, NeedsLargerWindow below 1280 px, G-chords, every Settings tab |
+| `server-path.spec.ts` | a signed-in `/` redirects to the last business's Home from the proxy; a last business that no longer opens is forgotten (no dead end, no loop); the app frame and the document head go out before the business layout's data; the browser title follows navigations with one `<title>`; the profile the layout read is not asked again |
 | `home.spec.ts` | dashboards as tabs, Edit mode on E, presets (AC-11.2.4) |
 | `inbox.spec.ts` | 380 px list, tabs, J/K, reading pane anatomy, R refresh debounce (AC-11.3.2), decide → Continue drops (AC-11.3.3) |
 | `journey.spec.ts` | Customer Update replay: stepper, CRM link, speed remembered, deterministic schedule hash (AC-11.4.3), reduced motion (AC-11.4.5) |

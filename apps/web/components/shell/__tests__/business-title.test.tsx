@@ -58,6 +58,21 @@ describe("BusinessTitle", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("removes the server's streamed copy that React did not take over, so the document holds one title", () => {
+    // What the server leaves: an icon's SVG title first, then the streamed page title at the end of the body.
+    document.body.insertAdjacentHTML("afterbegin", '<svg><title>Chart</title></svg>');
+    document.body.insertAdjacentHTML("beforeend", "<title>Inbox · Northwind Skincare · Foundmill</title>");
+    const { view } = setup();
+    pathname = `/b/${BID}/inbox`;
+    render(view("Northwind Skincare"));
+    const htmlTitles = [...document.querySelectorAll("title")].filter((t) => !t.closest("svg"));
+    expect(htmlTitles).toHaveLength(1);
+    expect(htmlTitles[0]!.parentElement).toBe(document.head);
+    expect(document.title).toBe("Inbox · Northwind Skincare · Foundmill");
+    expect(document.querySelector("svg title")?.textContent).toBe("Chart");
+    document.querySelector("svg")?.remove();
+  });
+
   it("names a CRM record once its screen has loaded it, and never asks for it itself", async () => {
     const { queryClient, client, view } = setup();
     pathname = `/b/${BID}/crm/${ENTITY}/activity`;
