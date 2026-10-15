@@ -145,6 +145,17 @@ describe("plan compiler rules (BUILD §12.3)", () => {
     expect(compilePlanRuleBased("start lead generation", { agents: team.slice(0, 2) }).actions.find((a) => a.type === "create_task")!.agent_id).toBeNull();
   });
 
+  it("hands a channel nobody runs to the Distribution lead, whatever order the team was hired in", () => {
+    const marketing = { id: "content", name: "Content Marketing Engine", role: "Content marketing specialist", channel: "content" as const };
+    const lead = { id: "strategist", name: "Distribution Strategist", role: "Head of Distribution" };
+    for (const team of [[marketing, lead], [lead, marketing]]) {
+      const plan = compilePlanRuleBased("spend up to $500 on LinkedIn ads targeting fintech CFOs next week", { agents: team });
+      expect(plan.actions.map((a) => [a.type, a.agent_id])).toEqual([["enable_channel", "strategist"], ["set_budget", "strategist"], ["create_task", "strategist"]]);
+    }
+    // Without a Distribution lead, a growth or marketing agent still takes it.
+    expect(compilePlanRuleBased("spend up to $500 on LinkedIn ads", { agents: [marketing] }).actions.find((a) => a.type === "set_budget")!.agent_id).toBe("content");
+  });
+
   it("disables channels, hires, trains, changes models, messages and schedules", () => {
     expect(types(compilePlanRuleBased("pause paid ads for now"))).toEqual(["disable_channel"]);
     expect(compilePlanRuleBased("stop the newsletter").actions[0]!.params.channel).toBe("email_automation");

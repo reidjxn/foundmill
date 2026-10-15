@@ -20,6 +20,8 @@ export const PlanActionInput = z.object({
   policyOutcome: z.enum(POLICY_OUTCOMES).nullable().optional(),
   /** Hard-gated actions arrive already `awaiting_approval`; everything else starts `pending`. */
   status: z.enum(PLAN_ACTION_STATUSES).default("pending"),
+  /** What an action that asks keeps until it runs: `policyReasons`, the reasons it needs the founder's go-ahead. */
+  result: JsonObject.nullable().optional(),
 });
 export type PlanActionInput = z.input<typeof PlanActionInput>;
 
@@ -153,6 +155,7 @@ export const plansRepo = {
             agentId: a.agentId ?? null,
             policyOutcome: a.policyOutcome ?? null,
             status: a.status,
+            result: a.result ?? null,
           })),
         )
         .returning();

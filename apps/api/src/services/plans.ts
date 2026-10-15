@@ -19,7 +19,7 @@ import { buildSystemPrompt, chiefOfStaff, getTemplateByAgentType } from "@foundm
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import { repos, type Agent, type Business, type Department, type Executor, type PlanAction as PlanActionRow, type PlanWithActions } from "@foundmill/db";
 import { compileOptionPlan as compileOptionPlanRules, compilePlanRuleBased, PLAN_ACTION_PARAMS, PlanOutput, SetAgentModelParams, type DecisionOption, type ModelClient, type OptionAgent, type PlanAction, type RoadmapItemRef } from "@foundmill/models";
-import { agentPrincipal, evaluate, type EvaluateResult, type ToolCtxInput } from "@foundmill/policy";
+import { agentAutonomy, agentPrincipal, evaluate, type EvaluateResult, type ToolCtxInput } from "@foundmill/policy";
 import { CHANNEL_KEYS, CHANNEL_META, CreatePlaybookParams, ForbiddenError, hasSectionAccess, MODEL_KEYS, planActionSection, planSectionWalls, TASK_KINDS, type ChannelKey, type ModelKey, type ModuleKey, type PlanActionType, type PolicyOutcome, type Section, type SectionMembership, type TaskKind } from "@foundmill/shared";
 import { changeAgentModels } from "./agent-model";
 import type { TemporalService } from "./temporal";
@@ -231,6 +231,33 @@ function amountOf(action: PlanAction): number {
   return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
 }
 
+/** What an agent with no spend allowance of its own says when a plan asks it to spend: the reason on "Needs your go-ahead". */
+export const SPEND_ALLOWANCE_ASK = "Please set up my spend allowance";
+/** The policy id of that ask (the refusal it replaces is Cedar's `spend-cap-exceeded`). */
+export const SPEND_ALLOWANCE_POLICY_ID = "spend-allowance-needed";
+const SPEND_CAP_POLICY_ID = "spend-cap-exceeded";
+
+/**
+ * A spend in a plan, assigned to an agent whose own allowance is nil (a lead, the Chief of Staff, or the Distribution
+ * strategist standing in for a channel nobody runs yet: their templates spend nothing themselves), is not refused: the
+ * founder is asked, and the agent says what is missing. Nothing runs until the founder confirms, as for any ask. Only
+ * that case: an agent that has an allowance the amount exceeds, and an amount above an active vacation's budget
+ * ceiling, are still refused, and so is anything a second policy also forbids.
+ */
+function needsSpendAllowance(result: EvaluateResult, agent: Agent | undefined, scope: { businessMode: Business["businessMode"]; holidayActive: boolean; holidayBudgetMinor: number | null }, amountMinor: number): boolean {
+  if (result.outcome !== "deny" || result.policyIds.length !== 1 || result.policyIds[0] !== SPEND_CAP_POLICY_ID) return false;
+  if (!agent || agentAutonomy(agent, scope.businessMode).spendCapMinor !== 0) return false;
+  return !(scope.holidayActive && scope.holidayBudgetMinor !== null && amountMinor > scope.holidayBudgetMinor);
+}
+
+/**
+ * A plan action as `repos.plans.create` stages it. An action that asks keeps the reasons it asks for, where a reload
+ * or another device reads them ("Here is what will happen" shows them under the action).
+ */
+export function stagedAction(e: ActionEvaluation) {
+  return { type: e.action.type, params: e.action.params, agentId: e.action.agent_id, policyOutcome: e.outcome, ...(e.outcome === "ask" && e.reasons.length > 0 ? { result: { policyReasons: e.reasons } } : {}) };
+}
+
 /** Evaluate every action against the policies; internal actions are allowed without a Cedar round-trip. */
 export function evaluatePlan(actions: readonly PlanAction[], ctx: PlanContext): ActionEvaluation[] {
   const chief = ctx.agents.find((a) => a.agentType === "chief_of_staff") ?? ctx.agents[0];
@@ -252,6 +279,8 @@ export function evaluatePlan(actions: readonly PlanAction[], ctx: PlanContext): 
       business: { id: ctx.business.id, businessMode: ctx.business.businessMode, holidayActive: ctx.holidayActive },
       context: { amountMinor: Math.max(amountOf(action), choiceCost), holidayActive: ctx.holidayActive },
     });
+    const amountMinor = Math.max(amountOf(action), choiceCost);
+    if (needsSpendAllowance(result, agent, scope, amountMinor)) return { action, outcome: "ask", reasons: [SPEND_ALLOWANCE_ASK], policyIds: [SPEND_ALLOWANCE_POLICY_ID], hardGate };
     return { action, outcome: result.outcome, reasons: result.reasons, policyIds: result.policyIds, hardGate };
   });
 }

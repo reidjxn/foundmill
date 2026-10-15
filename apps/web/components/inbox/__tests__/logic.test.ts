@@ -388,6 +388,19 @@ describe("plans", () => {
     ]);
     expect(totalCost(lines)).toEqual([{ amountMinor: 50_000, currency: "GBP" }]);
   });
+  it("an action that asks keeps its reasons with it, so a reload shows what the first screen did", () => {
+    const lines = planConfirmationLines(
+      [
+        { type: "set_budget", params: { channel: "paid_ads", amount_minor: 50_000, currency: "USD" }, policyOutcome: "ask", result: { policyReasons: ["Please set up my spend allowance"] } },
+        { type: "set_budget", params: { channel: "seo", amount_minor: 10_000, currency: "USD" }, policyOutcome: "ask", result: null },
+        // Reasons belong to an ask: a finished action's result is its own, and a denied one says "policy denied".
+        { type: "create_task", params: { title: "Campaign" }, policyOutcome: "allow", result: { policyReasons: ["stale"], taskId: "task-1" } },
+        { type: "set_budget", params: { channel: "events", amount_minor: 10_000, currency: "USD" }, policyOutcome: "ask", result: { policyReasons: [7, "", "  ", "Second reason"] } },
+      ],
+      "USD",
+    );
+    expect(lines.map((l) => l.reasons)).toEqual([["Please set up my spend allowance"], [], [], ["Second reason"]]);
+  });
   it("an action policy asked about waits for the go-ahead until the plan is confirmed (audit VOL-X1)", () => {
     expect(askChip({ status: "pending_confirmation", confirmedAt: null }, { policyOutcome: "ask" })).toEqual({ word: "Needs your go-ahead", tone: "warn" });
     expect(askChip({ status: "done", confirmedAt: "2026-10-07T15:45:00Z" }, { policyOutcome: "ask" })).toEqual({ word: "Confirmed", tone: "neutral" });

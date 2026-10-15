@@ -460,7 +460,9 @@ function pickAgent(agents: AgentLike[], want: { channel?: ChannelKey; kind?: Tas
     const words = label.split(/\s+/).filter((w) => w.length > 3 && !GENERIC_ROLE_WORDS.has(w));
     const byWord = agents.find((a) => words.some((w) => new RegExp(`\\b${w}\\b`, "i").test(`${a.role} ${a.name}`)));
     if (byWord) return byWord.id;
-    const strategist = agents.find((a) => /distribution|growth|marketing|strategist/i.test(`${a.role} ${a.name}`));
+    // A channel nobody runs yet belongs to the Distribution lead, not to whichever marketing agent comes first in the list
+    // (a Content marketing engine would otherwise take a paid-ads budget, depending only on the order the team was hired in).
+    const strategist = agents.find((a) => /distribution|strategist/i.test(`${a.role} ${a.name}`)) ?? agents.find((a) => /growth|marketing/i.test(`${a.role} ${a.name}`));
     if (strategist) return strategist.id;
   }
   if (want.kind) {

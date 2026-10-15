@@ -12,7 +12,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { importBoardDecision } from "../services/commit";
 import { buildScoutingReport } from "../services/import";
-import { compilePlan, evaluatePlan, ownAgentsOnly, planAgents, redispatchPlans, type PlanContext } from "../services/plans";
+import { compilePlan, evaluatePlan, ownAgentsOnly, planAgents, redispatchPlans, SPEND_ALLOWANCE_ASK, SPEND_ALLOWANCE_POLICY_ID, type PlanContext } from "../services/plans";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -223,6 +223,56 @@ describe("plans follow the acting agent's own settings (audit api-services-03)",
     const plan = await compilePlan(hz.deps.models, spend, ctx);
     expect(evaluatePlan(plan.actions, ctx).find((e) => e.action.type === "set_budget")?.outcome).not.toBe("allow");
     expect(evaluatePlan(plan.actions, { ...ctx, holidayActive: false }).find((e) => e.action.type === "set_budget")?.outcome).toBe("allow");
+  });
+});
+
+describe("a spend assigned to an agent with no allowance asks for the founder's go-ahead", () => {
+  const typed = "Spend up to $500 on LinkedIn ads targeting fintech CFOs next week";
+  /** Every agent a template that spends nothing itself (what a lead, the Chief of Staff and a channel nobody runs yet are). */
+  const noAllowance = (businessId: string) => hz.db.update(agents).set({ autonomy: { mode: "inherit", spendCapMinor: 0, approvalThresholdMinor: LIMITS.approvalThresholdMinorDefault } }).where(eq(agents.businessId, businessId));
+  const budgetOf = (r: { evaluations: { action: { type: string }; outcome: string; reasons: string[]; policyIds: string[] }[] }) => r.evaluations.find((e) => e.action.type === "set_budget");
+
+  it("asks, in the agent's words, instead of refusing; nothing runs until the founder confirms, and then the budget is set", async () => {
+    const t = await team("allowance-ask");
+    await noAllowance(t.businessId);
+    const item = await boardItem(t, "content_media");
+    const r = await owner(t).inbox.decide({ businessId: t.businessId, itemId: item.id, freeText: typed });
+
+    const budget = r.plan.actions.find((a) => a.type === "set_budget")!;
+    expect(budget.policyOutcome).toBe("ask");
+    expect(budget.status).toBe("pending");
+    expect(r.requiresConfirmation).toBe(true);
+    expect(r.plan.status).toBe("pending_confirmation");
+    expect(r.denied).toEqual([]);
+    // The reason is kept with the action, for a reload and for another device.
+    expect(budget.result).toEqual({ policyReasons: [SPEND_ALLOWANCE_ASK] });
+    const evaluation = r.evaluations.find((e) => e.action.type === "set_budget")!;
+    expect(evaluation.reasons).toEqual([SPEND_ALLOWANCE_ASK]);
+    expect(evaluation.policyIds).toEqual([SPEND_ALLOWANCE_POLICY_ID]);
+    expect((await repos.channels.getByKey(hz.db, t.businessId, "paid_ads"))?.budgetMinor ?? 0).toBe(0);
+
+    const confirmed = await owner(t).plan.confirm({ businessId: t.businessId, planId: r.plan.id });
+    expect(confirmed.exec.denied).toEqual([]);
+    expect((await repos.channels.getByKey(hz.db, t.businessId, "paid_ads"))?.budgetMinor).toBe(50_000);
+  });
+
+  it("an agent that has an allowance the amount exceeds is still refused", async () => {
+    const t = await team("allowance-exceeded");
+    await hz.db.update(agents).set({ autonomy: { mode: "inherit", spendCapMinor: 10_000, approvalThresholdMinor: LIMITS.approvalThresholdMinorDefault } }).where(eq(agents.businessId, t.businessId));
+    const r = await owner(t).plan.preview({ businessId: t.businessId, text: typed });
+    expect(budgetOf(r)).toMatchObject({ outcome: "deny", policyIds: ["spend-cap-exceeded"] });
+  });
+
+  it("an active vacation's budget ceiling still refuses, whatever the agent's allowance", async () => {
+    const t = await team("allowance-vacation");
+    await noAllowance(t.businessId);
+    const list = await repos.agents.list(hz.db, t.businessId, { limit: 50 });
+    const business = (await repos.businesses.get(hz.db, t.businessId)) as Business;
+    const ctx: PlanContext = { business, agents: list.items, holidayActive: true, holidayBudgetMinor: 1_000, currency: "USD" };
+    const plan = await compilePlan(hz.deps.models, typed, ctx);
+    expect(evaluatePlan(plan.actions, ctx).find((e) => e.action.type === "set_budget")).toMatchObject({ outcome: "deny", policyIds: ["spend-cap-exceeded"] });
+    // A ceiling the amount fits under leaves only the missing allowance: the founder is asked.
+    expect(evaluatePlan(plan.actions, { ...ctx, holidayBudgetMinor: 100_000 }).find((e) => e.action.type === "set_budget")).toMatchObject({ outcome: "ask", reasons: [SPEND_ALLOWANCE_ASK] });
   });
 });
 
