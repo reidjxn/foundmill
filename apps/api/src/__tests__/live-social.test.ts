@@ -200,7 +200,8 @@ describe("#65 / FU-S-2: requests and messages reach the recipient alone", () => 
     // Row-level security, as one of them: the thread and its messages are not theirs to read, and the business's events and Inbox hold nothing.
     for (const userId of [staff.admin, staff.member, staff.advisor, staff.viewer]) {
       const rows = await hz.h.asUser(userId).run(async (tx) => ({
-        threads: await tx.select().from(messageThreads),
+        // Named columns: the client roles read message_threads by column grant (0058), so `select *` is refused.
+        threads: await tx.select({ id: messageThreads.id, participantIds: messageThreads.participantIds }).from(messageThreads),
         messages: await tx.select().from(messages),
         events: await tx.select().from(events).where(eq(events.businessId, reader.businessId)),
         items: await tx.select().from(inboxItems).where(eq(inboxItems.businessId, reader.businessId)),
