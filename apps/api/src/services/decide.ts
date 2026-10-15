@@ -18,7 +18,7 @@
  */
 import { classifyFounderText } from "@foundmill/agents";
 import { approvalOutcomeOf, closeApprovalItem, repos, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
-import { ValidationError, hasSectionAccess, type SectionMembership } from "@foundmill/shared";
+import { ValidationError, endSentence, hasSectionAccess, type SectionMembership } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { assertApprovalAccess, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
@@ -359,7 +359,8 @@ async function writeFollowUp(tx: DbTx, ctx: BusinessContext, item: InboxItem | n
         ? `${done} done now, ${pending} handed to the team.`
         : `${done} done now. ${pending} waiting to start: the team's worker could not be reached, so ${pending === 1 ? "it starts" : "they start"} on your next decision or Continue.`;
   const subject = item.subject.replace(/^(?:Decided: )+/, "");
-  const body = [`Decided: ${subject}.`, "", summary, "", ...lines, "", tally].join("\n");
+  // A question subject keeps its own mark: "Decided: Where should the first customer come from?" (never "?.").
+  const body = [`Decided: ${endSentence(subject)}`, "", summary, "", ...lines, "", tally].join("\n");
   return repos.inbox.createItem(
     tx,
     ctx.businessId,

@@ -39,14 +39,40 @@ export async function openBusiness(page: Page, path = "home"): Promise<string> {
   // The shell is server-rendered; its handlers and the inbox/cycle queries arrive with hydration. Network idle means
   // those first queries have answered, so a click or a key press right after this reaches a live handler.
   await page.waitForLoadState("networkidle", { timeout: LONG });
+  await settled(page);
   return NORTHWIND_BUSINESS_ID;
 }
 
 /**
- * The Settings screen inside the shell's main region. While a page streams, React parks its finished HTML in a hidden
- * `DIV#S:*` outside the shell until the reveal script moves it in; if the boundary is client-rendered meanwhile, both
- * copies exist for a moment, so an unscoped `getByTestId("settings-screen")` can match two elements (strict mode).
+ * React's parked copy of a streamed screen: the server sends the shell with a skeleton in the main region, then the
+ * screen itself in a hidden `<div hidden id="S:0">` at the end of the body, and a reveal script moves it in once the
+ * page has painted (React batches reveals, about 300 ms after the first paint). Until the move the document holds the
+ * screen twice if the browser rendered it first (see `settled`).
  */
+export const STREAMED_COPY = 'div[hidden][id^="S:"]';
+
+/**
+ * Waits until the screen in the shell's main region is the live one. Two things must hold:
+ *  1. the streamed copy (`STREAMED_COPY`) is gone: while it is parked outside the shell, an unscoped locator can match
+ *     the screen twice (strict mode) or the wrong copy;
+ *  2. the screen's own root carries React's fiber, i.e. it is hydrated. The server HTML has no handlers, and a boundary
+ *     that was still pending when the shell hydrated is client-rendered (a provider above it changes value in the
+ *     first commit), which swaps the nodes: a click, a typed value or a key press before this point can land on nodes
+ *     that are thrown away, or on a tab that is not listening yet (docs/DECISIONS.md, 2026-10-14).
+ * Call it after any `page.goto` to a /b/* or LIVE screen that is followed by an interaction; `openBusiness` does.
+ */
+export async function settled(page: Page): Promise<void> {
+  await expect(page.locator(STREAMED_COPY)).toHaveCount(0, { timeout: LONG });
+  await page.waitForFunction(
+    () => {
+      const first = document.querySelector('[data-testid="shell-content"]')?.firstElementChild;
+      return !!first && !first.matches('[data-testid="screen-skeleton"]') && Object.keys(first).some((k) => k.startsWith("__reactFiber$"));
+    },
+    undefined,
+    { timeout: LONG },
+  );
+}
+
 /**
  * Open a DataTable's saved view by name when it is not open already. Views and the open view are saved per person
  * (founder.tableViews, audit #204), so a spec that depends on a view picks it rather than assuming the default.
@@ -61,8 +87,36 @@ export async function chooseTableView(page: Page, name: string, scope: Page | Lo
   await expect(scope.getByRole("button", { name: `View: ${name}` }).first()).toBeVisible();
 }
 
+/**
+ * The Settings screen inside the shell's main region. While a page streams, React parks its finished HTML in a hidden
+ * `div#S:*` outside the shell (`STREAMED_COPY`) until the reveal script moves it in; if the boundary is client-rendered
+ * meanwhile, both copies exist for a moment, so an unscoped `getByTestId("settings-screen")`, or any locator for
+ * something inside it, can match two elements (strict mode) or the hidden one. Every locator for a Settings tab's own
+ * content goes through this one; dialogs and toasts are portals outside the shell and use `page` (see `toast`).
+ */
 export function settingsScreen(page: Page): Locator {
   return page.getByTestId("shell-content").getByTestId("settings-screen");
+}
+
+/**
+ * Opens a Settings tab on the seeded business and waits for it to settle (`settled`): the right tab is showing and no
+ * streamed copy is left. Returns the screen, for `screen.getByTestId(...)` and friends.
+ */
+export async function openSettings(page: Page, tab: string, businessId = NORTHWIND_BUSINESS_ID): Promise<Locator> {
+  await page.goto(`/b/${businessId}/settings/${tab}`);
+  const screen = settingsScreen(page);
+  await expect(screen).toHaveAttribute("data-tab", tab, { timeout: LONG });
+  await settled(page);
+  return screen;
+}
+
+/**
+ * A toast by its title. Toasts stack in the Dugout viewport, outside the shell; Radix also announces each one in a
+ * visually hidden live region ("Notification <title>") for about a second, so `page.getByText(title)` matches the toast
+ * and its announcer (strict mode) for that long. This looks only in the viewport and matches the whole title.
+ */
+export function toast(page: Page, title: string | RegExp): Locator {
+  return page.locator("[data-dugout-toasts]").getByText(title, { exact: true });
 }
 
 /** Fills the founder profile on /onboarding (the page the dev user is held at without one) and saves it. */

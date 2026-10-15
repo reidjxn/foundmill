@@ -221,6 +221,36 @@ describe("dev.tasks.start guards (RA-05, api-services-14)", () => {
     await expect(start((await task("ready", leaver.id)).id)).rejects.toMatchObject({ code: "CONFLICT" });
     await expect(hz.caller({ userId: hz.A.memberId }).dev.tasks.reassign({ businessId: A(), taskId: (await task()).id, agentId: leaver.id })).rejects.toMatchObject({ code: "CONFLICT" });
   });
+
+  it("refuses a start once the monthly model budget is used up, on the founder's own key too, and starts again when it is raised or removed (audit #15)", async () => {
+    // Earlier tests leave sessions open, and the Free plan holds four; this one is about the budget, not the plan.
+    for (const open of (await repos.agents.listSessions(hz.db, A(), { openOnly: true, limit: 100 })).items) await repos.agents.endSession(hz.db, A(), open.id, { outcome: "done" });
+    // The business is on its own key: only the budget stands between the team and the Anthropic bill.
+    await repos.businesses.update(hz.db, A(), { modelBilling: "byok" });
+    try {
+      const spent = (await repos.usage.totals(hz.db, A(), { from: new Date(new Date().toISOString().slice(0, 7) + "-01T00:00:00.000Z") })).costMinor;
+      await repos.usage.record(hz.db, A(), { agentId: hz.A.agent2Id, kind: "tokens", quantity: 1, costMinor: 400, billedTo: "byok" });
+      const used = spent + 400;
+      await repos.businesses.setModelBudget(hz.db, A(), used);
+      const t = await task();
+      await expect(start(t.id)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/monthly model budget is used up/) });
+      expect((await repos.tasks.get(hz.db, A(), t.id)).status).toBe("ready");
+      expect((await repos.agents.listSessions(hz.db, A(), { taskId: t.id, limit: 5 })).items).toHaveLength(0);
+      // Raised above what was spent: it starts. Removed: it starts.
+      await repos.businesses.setModelBudget(hz.db, A(), used + 1);
+      const started = await start(t.id);
+      expect(started.session.taskId).toBe(t.id);
+      await repos.agents.endSession(hz.db, A(), started.session.id, { outcome: "done" });
+      await repos.businesses.setModelBudget(hz.db, A(), used);
+      const again = await task();
+      await expect(start(again.id)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/monthly model budget/) });
+      await repos.businesses.setModelBudget(hz.db, A(), null);
+      expect((await start(again.id)).session.taskId).toBe(again.id);
+    } finally {
+      await repos.businesses.setModelBudget(hz.db, A(), null);
+      await repos.businesses.update(hz.db, A(), { modelBilling: "credits" });
+    }
+  });
 });
 
 describe("a new key and a top-up lift the stop they caused, never Stop all agents", () => {

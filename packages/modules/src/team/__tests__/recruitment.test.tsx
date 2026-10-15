@@ -83,7 +83,9 @@ describe("RecruitmentScreen", () => {
     const list = await screen.findByRole("list", { name: "Suggested templates" });
     const first = within(list).getAllByRole("listitem")[0]!;
     expect(first.getAttribute("data-suggestion")).toBe("newsletter_writer");
-    expect(within(first).getByText(/% fit/)).toBeTruthy();
+    // en-US percent: "60% fit", never "60 % fit" (CLAUDE.md 2026-10-10).
+    expect(within(first).getByText(/^\d{1,3}% fit$/)).toBeTruthy();
+    expect(within(first).queryByText(/\d %/)).toBeNull();
     await user.click(within(first).getByRole("button", { name: "Hire from this template" }));
     const dialog = await screen.findByTestId("hire-dialog");
     await user.click(within(dialog).getByTestId("hire-confirm"));

@@ -9,7 +9,7 @@ import { CHANNEL_KEYS, CHANNEL_META, ENTITY_MARKUP_RE, MODULE_KEYS, type Channel
 import { eq } from "drizzle-orm";
 import { repos, type ComposerItem } from "../repos";
 import { agentSessions, inboxItems as inboxItemsTable, tasks as tasksTable, type Agent, type Channel, type Entity, type InboxItem, type NewAgentSession, type Task } from "../schema";
-import { addDays, addHours, atHour, bulkInsert, DAY_MS, mention, proseDoc, type SeedCtx } from "./context";
+import { addDays, addHours, atHour, bulkInsert, DAY_MS, mention, proseDoc, startedBefore, type SeedCtx } from "./context";
 import type { SeededAgent, SquadResult } from "./squad";
 
 // --- channels ---------------------------------------------------------------------------------------------------------
@@ -214,10 +214,10 @@ export async function seedTasks(ctx: SeedCtx, businessId: string, specs: TaskSpe
     await ctx.db.update(tasksTable).set({ progress: progress.toFixed(4) }).where(eq(tasksTable.id, task.id));
     const sessionIds: string[] = [];
     if (assignee && s.startedDaysAgo !== undefined) {
-      const startedAt = addHours(atHour(addDays(ctx.today, -s.startedDaysAgo), 9, rng.int(0, 50)), 0);
+      const startedAt = startedBefore(atHour(addDays(ctx.today, -s.startedDaysAgo), 9, rng.int(0, 50)), ctx.today);
       const hours = s.durationHours ?? rng.range(1, 4);
       const open = s.status === "running";
-      const endedAt = open ? null : new Date(startedAt.getTime() + hours * 3_600_000);
+      const endedAt = open ? null : new Date(Math.min(startedAt.getTime() + hours * 3_600_000, ctx.today.getTime()));
       const tokensIn = Math.round(hours * 200_000 * rng.range(0.7, 1.3));
       const id = rng.uuid();
       sessions.push({

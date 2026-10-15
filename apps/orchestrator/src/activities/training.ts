@@ -15,12 +15,12 @@
  * stopped, and a skill whose next test would start while it is, end the run canceled with the reason; the tests already
  * run are booked. A run that ended stays ended: its remaining skills run no test, even after the agents resume.
  */
-import { AgentInstructions, buildSystemPrompt, detectClubRuleViolation, getPrompt, getSkillDefinition, getSkillTests, isCustomSkillKey, ratingFromTested, runDeterministicChecks, skillTestFromStored, type AgentTemplate, type SkillTest } from "@foundmill/agents";
+import { AgentInstructions, buildSystemPrompt, detectClubRuleViolation, getPrompt, getSkillDefinition, getSkillTests, isCustomSkillKey, ratingFromTested, runDeterministicChecks, skillDisplayName, skillTestFromStored, type AgentTemplate, type SkillTest } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { ACTIVE_TRAINING_STATUSES, MICRO_PER_MINOR, microToMinor, repos } from "@foundmill/db";
 import { SkillGradeOutput, resolveModel } from "@foundmill/models";
 import { MockSandboxProvider, RECORDINGS, type MockSandbox } from "@foundmill/sandbox";
-import { NotFoundError, type AgentStopReason, type ModelKey } from "@foundmill/shared";
+import { NotFoundError, countOf, formatCount, type AgentStopReason, type ModelKey } from "@foundmill/shared";
 import { ApplicationFailure } from "@temporalio/common";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
@@ -228,7 +228,7 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
           // 1. the candidate answers with mock tools only (no real email or spend can happen here)
           const answer = await deps.models.complete({
             route: template.route,
-            system: [system, `## Training\nYou are being tested on "${definition?.name ?? custom?.name ?? input.skillKey}". Available mock tools: ${test.task.mockTools.join(", ") || "none"}. Answer the task directly.`],
+            system: [system, `## Training\nYou are being tested on "${definition?.name ?? custom?.name ?? skillDisplayName(input.skillKey)}". Available mock tools: ${test.task.mockTools.join(", ") || "none"}. Answer the task directly.`],
             messages: [{ role: "user", content: `${test.task.prompt}\n\n\`\`\`json\n${JSON.stringify({ task: { id: test.id, title: test.task.title, kind: template.taskKinds[0] ?? "ops" }, fixtures: test.task.fixtures })}\n\`\`\`` }],
             modelOverride: route.modelKey,
             // The agent's whole system prompt (about 3k tokens) is the same on every test: written once, then read (audit BF-15).
@@ -300,9 +300,19 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       const flagNote = input.clubRuleFlags.length ? ` The draft tried to change ${input.clubRuleFlags.length} house rule${input.clubRuleFlags.length > 1 ? "s" : ""} (${input.clubRuleFlags.map((f) => f.ruleId).join(", ")}); those lines were ignored and the rules still apply.` : "";
       const intro = retest ? `Retest on ${MODEL_NAMES[retest.toModelKey]} after the model change from ${MODEL_NAMES[retest.fromModelKey]}: ` : "";
       const advice = !retest ? recommendation : recommendation === "promote" ? `promote, so the live version runs on ${MODEL_NAMES[retest.toModelKey]} too` : `discard, and change the model back to ${MODEL_NAMES[retest.fromModelKey]} (the agent works on ${MODEL_NAMES[retest.toModelKey]} until you do)`;
+      // Skills by their display names ("Prioritization", "Test automation"), never the stored keys; a custom skill
+      // reads under the name the founder gave it.
+      const skillNames = new Map<string, string>();
+      if (!input.status && drops.some((d) => isCustomSkillKey(d.skillKey))) {
+        const agentType = (await repos.agents.get(db, input.businessId, input.agentId)).agentType;
+        for (const d of drops) {
+          if (isCustomSkillKey(d.skillKey)) skillNames.set(d.skillKey, (await repos.skills.findDefinition(db, input.businessId, agentType, d.skillKey))?.name ?? skillDisplayName(d.skillKey));
+        }
+      }
+      const skillName = (key: string) => skillNames.get(key) ?? skillDisplayName(key);
       const coachSummaryMd = input.status
         ? `Training ${input.status === "cancelled" ? "canceled" : "failed"}${input.error ? `: ${input.error}` : ""}.`
-        : `${intro}${input.outcomes.reduce((a, o) => a + o.testsRun, 0)} tests across ${input.outcomes.length} skills. ${gains.length} skill${gains.length === 1 ? "" : "s"} up, ${drops.length} dropped by more than a point${drops.length ? ` (${drops.map((d) => `${d.skillKey} ${d.before}→${d.after}`).join(", ")})` : ""}.${flagNote} Recommendation: ${advice} (Estimate from tested ratings; proven ratings follow live work).`;
+        : `${intro}${countOf(input.outcomes.reduce((a, o) => a + o.testsRun, 0), "test")} across ${countOf(input.outcomes.length, "skill")}. ${countOf(gains.length, "skill")} up, ${formatCount(drops.length)} dropped by more than a point${drops.length ? ` (${drops.map((d) => `${skillName(d.skillKey)} ${d.before}→${d.after}`).join(", ")})` : ""}.${flagNote} Recommendation: ${advice} (Estimate from tested ratings; proven ratings follow live work).`;
       // Only a run still in flight takes the outcome: a founder's cancel (agent.training.cancel) that landed while the
       // tests ran stands, and keeps what the tests cost.
       const moved = await repos.training.transition(db, input.businessId, run.id, ACTIVE_TRAINING_STATUSES, { status: input.status ?? "awaiting_decision", results, coachSummaryMd, costMinor, endedAt: deps.clock.now() });

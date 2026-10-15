@@ -51,12 +51,12 @@ export function noteRowTag(item: { type: InboxItemType; state: InboxState; block
   return NOTE_TYPE_TAGS[item.type];
 }
 
-/** The name a note in another person's words goes under: where it came from (its subject names the person). */
+/** The name a note in another person's words goes under. (Network traffic is never filed in an Inbox: FU-S-2.) */
 export const NETWORK_SENDER = "Network";
 
 /**
  * Whose words a human message carries, for its avatar and name: the viewer's own note ("self"), or another person's
- * ("other": a connection request or a message from another founder, which Network files in this business's Inbox).
+ * ("other": a note by someone else; a connection request or a message from another founder is never filed in an Inbox).
  * Someone else's words never read as "You". Null for an item with no person behind it (an agent's or the team's).
  */
 export function humanSender(fromUserId: string | null | undefined, viewerId: string | null | undefined): "self" | "other" | null {

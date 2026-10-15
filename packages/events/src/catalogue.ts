@@ -966,10 +966,10 @@ const connectionRequested = declareEvent(
   }),
   {
     doc:
-      "Another LIVE founder asked to connect. Written into each LIVE business the RECIPIENT speaks for (owner or admin), once per new request, " +
-      "never into the requester's; the api files it in that business's Inbox Messages tab as a human message itself, so the composer never narrates it. " +
-      "Accept, ignore and block are human actions on Network.",
-    consumers: ["playbooks", "stream"],
+      "Another LIVE founder asked to connect. Addressed to the RECIPIENT as a person (PERSON_ADDRESSED_EVENT_TYPES), once per new request: it is never written " +
+      "to any business's events, Inbox or ev: stream, whose members and advisors would read the founder's private network traffic, and the composer never narrates it. " +
+      "The recipient gets a content-free signal on their own u: stream (connection_requested) and reads the request on Network, where accept, ignore and block are human actions.",
+    consumers: ["stream"],
     narratable: false,
   },
 );
@@ -989,10 +989,11 @@ const messageReceived = declareEvent(
   }),
   {
     doc:
-      "A human-to-human LIVE message arrived. Written into each LIVE business a recipient speaks for (not the sender's, not for a thread the recipient muted); " +
-      "the api files a human message in that Inbox's Messages tab itself (one unread note per thread), so the composer never narrates it. " +
+      "A human-to-human LIVE message arrived. Addressed to the people in its thread (PERSON_ADDRESSED_EVENT_TYPES), not for a thread a recipient muted: it is never written " +
+      "to any business's events, Inbox or ev: stream, whose members and advisors would read the founder's private network messages, and the composer never narrates it. " +
+      "Each recipient gets a content-free signal on their own u: stream (message_received) and reads the thread on Network. " +
       "Agents may draft a reply but never send it without the founder pressing Send.",
-    consumers: ["playbooks", "stream"],
+    consumers: ["stream"],
     narratable: false,
   },
 );

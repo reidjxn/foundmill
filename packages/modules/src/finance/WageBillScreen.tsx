@@ -8,7 +8,7 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, Bot, GraduationCap, UserRound, Users } from "lucide-react";
 import { AgentStatusPill, Chip, DataTable, DeptChip, EntityLink, MiniTable, Panel, StatusPill, StatusStrip, SimpleSelect, currencySymbol, formatCompact, formatNumber, formatPercent, useFormatters, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
-import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
+import { moduleTabHref, moduleTabLabel, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { failedWithoutData, unavailableWords } from "@foundmill/widgets/shared/errors";
@@ -20,6 +20,16 @@ import { Screen, fmtMoney, toDate, useCurrency, useNow } from "./shared";
 import type { MembershipRow, PnlResponse, TaskRow, TasksListResponse, TeamAgentRow, WageRow, WagesResponse } from "./types";
 
 export const CAP_WARN_PCT = 80;
+
+/**
+ * A staff member by the name the business knows them as. The link goes to their CRM record; without one the name is
+ * plain text (an auth account id is not a CRM record, so it is never linked).
+ */
+export function StaffName({ member, businessId }: { member: MembershipRow; businessId: string }) {
+  const name = member.displayName?.trim() || member.email?.trim() || `${memberRoleWord(member.role)} on the team`;
+  if (!member.entityId) return <span className="truncate text-body-strong text-primary">{name}</span>;
+  return <EntityLink entity={{ id: member.entityId, kind: "team_member", name, href: routes.crm(businessId, member.entityId) }} hoverCard={false} />;
+}
 
 /** "owner" → "Owner"; membership roles read as words. */
 export function memberRoleWord(role: string | null | undefined): string {
@@ -234,6 +244,9 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
 
   const loading = wages.isLoading || agents.isLoading;
   const error = wages.error ?? agents.error;
+  // The Team module's screens by the department that owns it, as the founder named it (never a hard-coded "Team").
+  const recruitment = { label: moduleTabLabel(departments.data, "team", "recruitment") ?? "the Recruitment tab", href: moduleTabHref(businessId, departments.data, "team", "recruitment") };
+  const staffTab = moduleTabLabel(departments.data, "team", "staff") ?? "the Staff tab";
 
   return (
     <Screen name="finance/wage-bill">
@@ -250,7 +263,7 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
           wages.refetch();
           agents.refetch();
         }}
-        empty={wages.data && agents.data && rows.length === 0 ? { icon: Users, title: "No agents hired yet", children: "Hire agents from Team › Recruitment and their monthly cost appears here against each wage cap.", action: { label: "Open recruitment", icon: Users, onClick: () => navigate(moduleTabHref(businessId, departments.data, "team", "recruitment")) } } : undefined}
+        empty={wages.data && agents.data && rows.length === 0 ? { icon: Users, title: "No agents hired yet", children: `Hire agents from ${recruitment.label} and their monthly cost appears here against each wage cap.`, action: { label: "Open recruitment", icon: Users, onClick: () => navigate(recruitment.href) } } : undefined}
         actions={
           <div className="flex items-center gap-2">
             {overCap.length ? (
@@ -267,14 +280,14 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
           <DataTable<WageBillRow> aria-label="Team payroll" data={rows} columns={columns} getRowId={(r) => r.agentId} {...savedViews} defaultViewId="all" height={480} exportFileName={`wage-bill-${period}`} rowActions={rowActions} onRowOpen={(r) => navigate(routes.agent(businessId, r.agentId))} />
         </div>
       </Panel>
-      <Panel title="Staff" span={4} loading={humans.isLoading || pnl.isLoading} error={humans.error ? humans.error.message : undefined} onRetry={humans.refetch} empty={humans.data && staff.length === 0 ? { icon: UserRound, children: "Invite staff from Team › Staff; their payroll shows here from bank transactions." } : undefined} footer={<span>Payroll is the month's bank outflows categorized Payroll or Contractors.</span>}>
+      <Panel title="Staff" span={4} loading={humans.isLoading || pnl.isLoading} error={humans.error ? humans.error.message : undefined} onRetry={humans.refetch} empty={humans.data && staff.length === 0 ? { icon: UserRound, children: `Invite staff from ${staffTab}; their payroll shows here from bank transactions.` } : undefined} footer={<span>Payroll is the month's bank outflows categorized Payroll or Contractors.</span>}>
         <MiniTable<MembershipRow>
           aria-label="Staff"
           rows={staff}
           getRowKey={(m) => m.id}
           maxRows={12}
           columns={[
-            { id: "who", header: "Member", cell: (m) => <EntityLink entity={{ id: m.userId, kind: "team_member", name: m.displayName ?? m.email ?? "Team member" }} hoverCard={false} /> },
+            { id: "who", header: "Member", cell: (m) => <StaffName member={m} businessId={businessId} /> },
             { id: "role", header: "Role", width: 84, cell: (m) => <Chip tone="neutral">{memberRoleWord(m.role)}</Chip> },
             { id: "since", header: "Since", width: 80, cell: (m) => <span className="tabular-nums">{m.createdAt ? formatMonthYear(m.createdAt) : "—"}</span> },
           ]}

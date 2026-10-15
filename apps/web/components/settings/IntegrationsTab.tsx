@@ -7,10 +7,10 @@
  * staging only.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Activity, ExternalLink, FlaskConical, FolderGit2, KeyRound, Plug, Unplug } from "lucide-react";
+import { Activity, ExternalLink, FlaskConical, FolderGit2, KeyRound, Plug, RefreshCw, Unplug } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
-import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, SimpleSelect, StatusPill, useDateFormat, type StatusTone, type DateFormatPrefs } from "@foundmill/dugout";
+import { useEffect, useState } from "react";
+import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, SimpleSelect, StatusPill, cn, useDateFormat, type StatusTone, type DateFormatPrefs } from "@foundmill/dugout";
 import type { IntegrationStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { ShellLinkButton } from "@/components/live/ShellLinkButton";
@@ -18,6 +18,7 @@ import { simulatePanelAvailable } from "@/lib/env";
 import { formatDateTime, plainWords, plural } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { moduleTabLabel } from "@foundmill/widgets/shared/departments";
 import { useBusiness } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
@@ -96,6 +97,29 @@ export function connectorDetail(c: { tools: readonly unknown[] }, integ: { accou
  * ARB-04). Its row here shows the state and links there instead of a generic Connect or Disconnect.
  */
 export const MANAGED_ON_KEYS_TAB: ReadonlySet<string> = new Set(["anthropic"]);
+
+/** Days before a consent lapses that the connector offers to renew it (the Cash tab warns from the same day). */
+export const CONSENT_RENEW_DAYS = 7;
+
+/** When the vendor consent behind a connection lapses (open banking: Tink, Plaid), from what the connector reported at connect. */
+export function consentExpiry(integ: { settings?: unknown } | null): Date | null {
+  const raw = (integ?.settings as { expiresAt?: unknown } | undefined)?.expiresAt;
+  if (typeof raw !== "string" && !(raw instanceof Date)) return null;
+  const at = raw instanceof Date ? raw : new Date(raw);
+  return Number.isNaN(at.getTime()) ? null : at;
+}
+
+/**
+ * Whether a connection needs the founder's consent again: it expired or degraded, or its consent lapses within
+ * `CONSENT_RENEW_DAYS`. Renewing connects again in place (`integrations.connect` upserts and keeps the settings), so
+ * the stored credentials are never revoked first.
+ */
+export function needsRenewal(integ: { status: string; settings?: unknown } | null, now: Date = new Date()): boolean {
+  if (!integ || integ.status === "disconnected") return false;
+  if (integ.status === "expired" || integ.status === "degraded") return true;
+  const expiry = consentExpiry(integ);
+  return expiry !== null && expiry.getTime() - now.getTime() <= CONSENT_RENEW_DAYS * 86_400_000;
+}
 
 /** Leaves for a vendor's consent page in this tab (a seam for tests). */
 export const navigation = { assign: (url: string) => window.location.assign(url) };
@@ -192,7 +216,9 @@ export function ConnectFieldsDialog({ connector, pending, onConnect, onClose }: 
 
 export function IntegrationsTab() {
   const datePrefs = useDateFormat();
-  const { businessId } = useBusiness();
+  const { businessId, departments } = useBusiness();
+  // The Code tab by the department over the Development module, as the founder named it ("Formulation Lab › Code").
+  const codeTab = moduleTabLabel(departments, "development", "code") ?? "the Code tab";
   const trpc = useTRPC();
   const invalidate = useInvalidateRouters();
   const t = useSettingsToast();
@@ -226,6 +252,12 @@ export function IntegrationsTab() {
   const search = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+  // A deep link from another screen (Finance › Cash "Renew consent" → ?connector=tink) brings that connector's row into view.
+  const focusKey = search?.get("connector") ?? null;
+  useEffect(() => {
+    if (!focusKey || !list.data) return;
+    document.querySelector(`[data-connector="${CSS.escape(focusKey)}"]`)?.scrollIntoView?.({ block: "center" });
+  }, [focusKey, list.data]);
   const pendingInstallation = /^\d{1,20}$/.test(search?.get("github_installation") ?? "") ? search!.get("github_installation")! : null;
   const installCode = search?.get("github_code") ?? null;
   const installState = search?.get("github_state") ?? null;
@@ -250,7 +282,7 @@ export function IntegrationsTab() {
             {installCode && installState ? (
               <>
                 <Hint>
-                  GitHub installation {pendingInstallation} is ready. Connect it to this business so agents can push their code to their own branches. GitHub confirms you can manage it first. Then choose the repository on Development › Code.
+                  GitHub installation {pendingInstallation} is ready. Connect it to this business so agents can push their code to their own branches. GitHub confirms you can manage it first. Then choose the repository on {codeTab}.
                 </Hint>
                 <Button variant="primary" icon={FolderGit2} loading={connect.isPending} onClick={confirmInstallation}>
                   Connect installation
@@ -270,8 +302,11 @@ export function IntegrationsTab() {
             const integ = c.integration;
             const status = STATUS_TONE[(integ?.status ?? "disconnected") as IntegrationStatus] ?? STATUS_TONE.disconnected;
             const connected = integ !== null && integ.status !== "disconnected";
+            const renew = connected && needsRenewal(integ);
+            const expiry = consentExpiry(integ);
+            const renewWord = c.auth.kind === "oauth" ? "Renew consent" : "Reconnect";
             return (
-              <li key={c.key} className="flex min-h-row-comfortable items-start gap-3 border-b border-line-faint py-2.5 last:border-b-0" data-connector={c.key}>
+              <li key={c.key} className={cn("flex min-h-row-comfortable items-start gap-3 border-b border-line-faint py-2.5 last:border-b-0", focusKey === c.key && "rounded-panel bg-panel-alt outline outline-2 -outline-offset-2 outline-link")} data-connector={c.key} aria-current={focusKey === c.key ? "true" : undefined}>
                 <span className="flex w-40 shrink-0 flex-col">
                   <span className="text-body-strong text-primary">{c.displayName}</span>
                   <span className="text-small text-tertiary">{AUTH_WORD[c.auth.kind] ?? plainWords(c.auth.kind)}</span>
@@ -284,6 +319,7 @@ export function IntegrationsTab() {
                   <span className="break-words text-small text-secondary" title={integ?.scopes.length ? `Permissions: ${integ.scopes.join(", ")}` : undefined}>
                     {connectorDetail(c, integ, datePrefs)}
                   </span>
+                  {connected && expiry ? <span className={cn("text-small", renew ? "text-status-warn" : "text-tertiary")}>Consent until {formatDateTime(expiry, datePrefs)}</span> : null}
                   {integ?.lastError ? <span className="break-words text-small text-status-bad">{integ.lastError}</span> : null}
                 </span>
                 <span className="flex shrink-0 items-center gap-1 pt-0.5">
@@ -293,6 +329,11 @@ export function IntegrationsTab() {
                     </ShellLinkButton>
                   ) : connected ? (
                     <>
+                      {renew ? (
+                        <Button size="sm" icon={needsConnectFields(c) ? KeyRound : c.auth.kind === "oauth" ? ExternalLink : RefreshCw} loading={connect.isPending && connect.variables?.connectorKey === c.key} onClick={() => (needsConnectFields(c) ? setKeyFor(c) : connect.mutate({ businessId, connectorKey: c.key, input: {} }))}>
+                          {renewWord}
+                        </Button>
+                      ) : null}
                       <IconButton label={`Check ${c.displayName} health`} icon={Activity} size="sm" disabled={health.isPending} onClick={() => integ && health.mutate({ businessId, integrationId: integ.id })} />
                       <IconButton label={`Disconnect ${c.displayName}`} icon={Unplug} size="sm" disabled={disconnect.isPending} onClick={() => integ && disconnect.mutate({ businessId, integrationId: integ.id })} />
                     </>

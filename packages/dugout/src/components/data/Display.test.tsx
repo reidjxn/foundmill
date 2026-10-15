@@ -287,4 +287,15 @@ describe("Lists", () => {
     expect(screen.getByText("Lead time")).toBeTruthy();
     expect(screen.getByText("units")).toBeTruthy();
   });
+  it("KeyValueList rows put a numeric value's hint on its own wrapping line, outside the nowrap value", () => {
+    const hint = "Harbor Angels Syndicate: 697,264 shares at the round price · Beacon Ventures: 1,312,498 shares at the discount";
+    render(<KeyValueList layout="rows" items={[{ label: "SAFE shares", value: "2,009,762", numeric: true, hint }]} />);
+    const hintEl = screen.getByText(hint);
+    expect(hintEl.tagName).toBe("DD");
+    expect(hintEl.className).toContain("break-words");
+    expect(hintEl.className).not.toContain("whitespace-nowrap");
+    expect(hintEl.parentElement?.className).toContain("flex-wrap");
+    // the value's own cell stays nowrap and holds only the value
+    expect(screen.getByText("2,009,762").closest("dd")?.className).toContain("whitespace-nowrap");
+  });
 });

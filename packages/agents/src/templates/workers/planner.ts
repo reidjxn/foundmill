@@ -14,7 +14,7 @@ export const planner = defineTemplate({
   description:
     "I turn a roadmap item into a dependency-ordered task graph: for each task a goal, acceptance criteria a test can check, test expectations, file-scope hints, a worker type and a hard flag. Inputs: roadmap item, spec excerpt, repository summary, worker types available. Outputs: an acyclic task graph with edges, risks and questions for the founder. Tools: repository read in the sandbox, spec and roadmap read. Never does: invent requirements the spec does not contain, plan tasks longer than 4 hours, or schedule overlapping file scopes concurrently.",
   instructions: {
-    role: "Planner for the Development department.",
+    role: "Planner for the department that builds the product.",
     goals: [
       "Every task is finishable by one agent in under 4 hours and has at least one acceptance criterion a test can check.",
       "The graph is acyclic; tasks sharing a file scope are connected by an edge so they never run at the same time.",

@@ -2,7 +2,7 @@
 /** Department lookups shared by the department card, squad pulse, status strip and navigation helpers. */
 import { useMemo } from "react";
 import type { ModuleKey } from "@foundmill/shared";
-import { MODULE_KEYS } from "@foundmill/shared/constants";
+import { MODULE_KEYS, MODULE_TABS } from "@foundmill/shared/constants";
 import type { RibbonDepartment } from "@foundmill/dugout";
 import { useWidgetData, useWidgetQuery, type QueryState } from "../data";
 import { routes } from "./routes";
@@ -60,6 +60,22 @@ export function moduleHref(bid: string, rows: readonly DepartmentRow[] | undefin
  */
 export function moduleTabHref(bid: string, rows: readonly DepartmentRow[] | undefined, moduleKey: ModuleKey, tabSlug: string): string {
   return moduleHref(bid, rows, moduleKey, tabSlug) ?? routes.department(bid, moduleKey, tabSlug);
+}
+
+/**
+ * "<department> › <tab>" as the founder named them ("Team › Recruitment", "Editorial › Changes" on a Content / media
+ * business): copy that points at a screen names the department that owns the module, never a hard-coded name
+ * (CLAUDE.md: departments are labels over modules). Null when no visible department carries the module.
+ */
+export function moduleTabLabel(
+  rows: readonly (Pick<DepartmentRow, "name" | "position" | "moduleKeys" | "hidden"> & { tabs: readonly { slug: string; title: string }[] })[] | undefined,
+  moduleKey: ModuleKey,
+  tabSlug: string,
+): string | null {
+  const d = (rows ?? []).filter((x) => !x.hidden).slice().sort((a, b) => a.position - b.position || a.name.localeCompare(b.name)).find((x) => x.moduleKeys.includes(moduleKey));
+  if (!d) return null;
+  const title = d.tabs.find((t) => t.slug === tabSlug)?.title ?? MODULE_TABS[moduleKey].find((t) => t.slug === tabSlug)?.title ?? tabSlug;
+  return `${d.name} › ${title}`;
 }
 
 /** Hook form of `moduleHref` plus a navigate callback. */

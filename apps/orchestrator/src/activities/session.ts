@@ -50,7 +50,7 @@ import { failureStreak } from "../retry";
 import { openApprovalNote } from "./approvals";
 import { LoopDetector } from "./loop";
 import { CREDITS_USED_UP_SUMMARY, SessionCredits, unbookedTokens } from "./session-credits";
-import { budgetSummary, sessionBudget, type SessionBudget } from "./session-budget";
+import { budgetSummary, LIMIT_WORDS, sessionBudget, type SessionBudget } from "./session-budget";
 import { archiveSessionRecording } from "./recording";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
 import { describePush, pushWorkspace, type PushContext } from "./workspace-push";
@@ -1178,7 +1178,7 @@ export function classifyTurnEnd(result: SdkTurnResult, apiError: { kind: string 
   // task is blocked (it keeps what was done) and says whose budget it was.
   if (result.subtype === "error_max_budget_usd") {
     const limit = budget?.limit ?? "task";
-    return { outcome: "blocked", blockedReason: "budget", reason: `model budget exhausted: the session spent ${limit === "credits" ? "the credits it was given" : "the task's budget"}`, summary: budgetSummary(limit, budget ?? { taskBudgetMinor: 0, taskSpentMinor: 0 }) };
+    return { outcome: "blocked", blockedReason: "budget", reason: `model budget exhausted: the session spent ${LIMIT_WORDS[limit].spent}`, summary: budgetSummary(limit, budget ?? { taskBudgetMinor: 0, taskSpentMinor: 0 }) };
   }
   if (result.subtype !== "success") {
     const errors = (result.errors?.length ? result.errors : [result.subtype]).join("; ");
@@ -1230,10 +1230,11 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
 
   const grants = resolveGrants(parseGrants(live.version, live.template));
   if (grants.unresolved.length > 0) deps.log.info({ sessionId: input.sessionId, unresolved: grants.unresolved.map((u) => `${u.connectorKey}.${u.capability}`).slice(0, 50) }, "granted capabilities no tool serves yet");
-  // What the session may spend (./session-budget): the task's budget less its earlier sessions, and the credits left when
-  // the platform key pays. A task with nothing left does not start.
-  const budget = await sessionBudget(deps, { business: live.business, task, sessionId: input.sessionId });
-  if (budget.remainingMinor <= 0) return { outcome: "blocked", reason: `model budget exhausted: ${budget.limit === "credits" ? "this month's credits are used up" : "the task's budget is spent"}`, blockedReason: "budget", approvalId: null, summary: budgetSummary(budget.limit, budget), providerSessionId: null };
+  // What the session may spend (./session-budget): the task's budget less its earlier sessions, the credits left when the
+  // platform key pays, and what is left of the agent's wage cap and the business's monthly model budget (either key).
+  // A task with nothing left does not start.
+  const budget = await sessionBudget(deps, { business: live.business, task, agentId: agent.id, sessionId: input.sessionId });
+  if (budget.remainingMinor <= 0) return { outcome: "blocked", reason: `model budget exhausted: ${LIMIT_WORDS[budget.limit].used}`, blockedReason: "budget", approvalId: null, summary: budgetSummary(budget.limit, budget), providerSessionId: null };
   // Everything that can fail without a workspace runs before one exists (no restored code left on disk, no token).
   const systemPrompt = buildSystemPrompt({ businessName: live.business.name, appName: APP_NAME, template: { instructions: instructionsFor(live.version, live.template), description: live.template.description }, brief: live.briefText ?? undefined, glossary: live.business.glossary });
   if (!hasClubRulesPrefix(systemPrompt)) throw new Error("house rules missing from the system prompt");
@@ -1489,7 +1490,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         maxTurns: launch.maxTurns,
         cwd,
         // The SDK itself stops past this (its result is `error_max_budget_usd`, see classifyTurnEnd): the task's budget
-        // and, on the platform key, what the credits allowed at launch (SEC2 S2), whichever is less.
+        // and, on the platform key, what the credits allowed at launch (SEC2 S2), whichever is less; `budget` also holds what is
+        // left of the agent's wage cap and the monthly model budget (audit #15).
         maxBudgetUsd: Math.min(budget.maxUsd, credits?.maxBudgetUsd ?? Number.POSITIVE_INFINITY),
         env,
         // No host settings, CLAUDE.md, hooks or permission rules from the orchestrator's file system, and no MCP server
@@ -1655,7 +1657,7 @@ async function keepWorkspace(deps: OrchestratorDeps, recorder: SessionRecorder, 
       await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: `This session's code was not saved: ${saved.reason}.` });
     } else if (saved.status === "saved") {
       const delta = [saved.added ? `${saved.added} added` : "", saved.changed ? `${saved.changed} changed` : "", saved.removed ? `${saved.removed} removed` : ""].filter(Boolean).join(", ");
-      await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Saved this task's code: ${saved.files} file${saved.files === 1 ? "" : "s"} (${Math.ceil(saved.bytes / 1024)} KB)${delta ? `, ${delta}` : ""}. Development › Code shows it.` });
+      await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Saved this task's code: ${saved.files} file${saved.files === 1 ? "" : "s"} (${Math.ceil(saved.bytes / 1024)} KB)${delta ? `, ${delta}` : ""}. the Code tab shows it.` });
     }
     if (leftOut) await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: leftOut });
     if (saved.status !== "refused" && saved.snapshot) {

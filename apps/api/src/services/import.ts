@@ -532,11 +532,11 @@ export function buildScoutingReport(configs: readonly SourceConfig[], job?: Impo
   };
 
   if (any(CODE_SOURCES)) strength("code", first(CODE_SOURCES));
-  else whatIsMissing.push("No code source: the Development department starts from the Specification.");
+  else whatIsMissing.push("No code source: the engineering work starts from the Specification.");
   if (any(["stripe", "shopify"])) strength("revenue", first(["stripe", "shopify"]));
   if (usableKey("bank")) strength("bank", first(["bank"]));
   else if (any(REVENUE_SOURCES)) whatIsMissing.push("No bank connection: runway stays an estimate until one is added.");
-  if (!any(REVENUE_SOURCES)) whatIsMissing.push("No revenue source: Finance starts with a management P&L and labeled estimates.");
+  if (!any(REVENUE_SOURCES)) whatIsMissing.push("No revenue source: the finances start with a management P&L and labeled estimates.");
   if (any(TRACKING_SOURCES)) strength("tracking", first(TRACKING_SOURCES));
   else whatIsMissing.push("No work tracking: the first roadmap comes from the Board's proposals.");
   if (!usableKey("website")) whatIsMissing.push("No website read: positioning will be drafted from the Specification.");

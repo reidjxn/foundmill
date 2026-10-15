@@ -2,15 +2,16 @@
 /**
  * Legal › Policies (BUILD §11.11): privacy policy, terms of service and cookie policy generated from the real
  * integrations and data flows (`integrations.list`), the legal entity and the archetype. The published text lives
- * as spec blocks in the "Policies" section of the product spec; a refresh is a change proposal: the generated text
+ * as spec blocks in the "Policies" section of the product spec: the first version is published from this screen (a
+ * human edit, so the block is pinned); a refresh is a change proposal: the generated text
  * is diffed against the published block hunk by hunk (the same DiffView as Product › Changes) and accepted hunks
  * are written through `product.spec.editBlock` (a human edit, so the block is pinned). Open proposals the Source
  * Watcher raised about policies are listed with a link to Product › Changes.
  */
 import { useMemo, useState } from "react";
-import { Cookie, FileDiff, FileText, RefreshCw, Scale, ShieldCheck } from "lucide-react";
+import { Cookie, FileDiff, FileText, RefreshCw, Scale, Send, ShieldCheck } from "lucide-react";
 import { Button, Chip, DiffView, Markdown, MiniTable, Panel, applyDecisions, buildHunks, diffLines, summariseDiff, useFormatters, type HunkDecisionState, type HunkDecisions, type IconComponent } from "@foundmill/dugout";
-import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
+import { moduleHref, moduleTabLabel, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { pmTitle, pmToText, textToPm } from "../product/prosemirror";
@@ -88,6 +89,17 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
       },
     });
   };
+  /** First publication: the generated text becomes the "Policies" block, written as the founder (so it is pinned). */
+  const publishFirst = async () => {
+    if (!generated || current) return;
+    await action.run("legal.policies.publish", { title: POLICY_TITLES[active], content: textToPm(proposed) }, {
+      key: `publish-${active}`,
+      then: () => {
+        setApplied(active);
+        spec.refetch();
+      },
+    });
+  };
   const acceptAll = () => {
     if (!diff) return;
     setDecisions((d) => ({ ...d, [active]: Object.fromEntries(diff.hunks.map((h) => [h.id, { decision: "accepted" as const }])) }));
@@ -95,6 +107,8 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
 
   const policyProposals = (proposals.data?.items ?? []).filter((p) => POLICY_RE.test(p.title));
   const changesHref = moduleHref(businessId, departments.data, "product", "changes") ?? routes.department(businessId, "product", "changes");
+  // "Editorial › Changes" on a Content / media business: the department over the Product module, as named.
+  const changesTab = moduleTabLabel(departments.data, "product", "changes") ?? "Changes";
   const loading = integrations.isLoading || business.isLoading || status.isLoading || spec.isLoading;
   const error = integrations.error ?? business.error ?? spec.error ?? null;
   const retry = integrations.error ? integrations.refetch : business.error ? business.refetch : spec.refetch;
@@ -116,7 +130,7 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
             ))}
           </div>
         }
-        footer={<span>Generated from {flows.length} connected integration{flows.length === 1 ? "" : "s"}, the legal entity and the archetype on {formatDate(now)}. The published text is the "{POLICIES_SECTION}" section of the product spec; accepting hunks edits that block as you.</span>}
+        footer={<span>Generated from {flows.length} connected integration{flows.length === 1 ? "" : "s"}, the legal entity and the archetype on {formatDate(now)}. The published text is the "{POLICIES_SECTION}" section of the product spec; publishing or accepting hunks writes that block as you.</span>}
       >
         {generated ? (
           current ? (
@@ -151,8 +165,12 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
                 <Chip tone="warn" icon={FileText} className="whitespace-nowrap">
                   Not yet in the spec
                 </Chip>
-                <span className="t-small text-secondary">The Product lead publishes the first version as a change proposal in the "{POLICIES_SECTION}" section; until then this preview is the generated text.</span>
+                <span className="t-small text-secondary">This preview is the generated text. Publishing adds it to the "{POLICIES_SECTION}" section of the product spec as you; later changes come back here as hunks to accept.</span>
+                <Button size="sm" variant="primary" icon={Send} loading={action.pending === `publish-${active}`} onClick={() => void publishFirst()}>
+                  Publish to the spec
+                </Button>
               </div>
+              <InlineError error={action.error} />
               <Markdown variant="body">{proposed}</Markdown>
             </section>
           )
@@ -182,7 +200,7 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
         />
       </Panel>
 
-      <Panel title="Open change proposals" span={12} loading={proposals.isLoading} error={proposals.error ? proposals.error.message : undefined} onRetry={proposals.refetch} empty={!proposals.isLoading && policyProposals.length === 0 ? "When an integration or data flow changes, the Source Watcher raises a change proposal for the policies; it appears here and in Product › Changes." : undefined} actions={<Button size="sm" variant="ghost" icon={FileDiff} onClick={() => navigate(changesHref)}>Product › Changes</Button>}>
+      <Panel title="Open change proposals" span={12} loading={proposals.isLoading} error={proposals.error ? proposals.error.message : undefined} onRetry={proposals.refetch} empty={!proposals.isLoading && policyProposals.length === 0 ? `When an integration or data flow changes, the Source Watcher raises a change proposal for the policies; it appears here and in ${changesTab}.` : undefined} actions={<Button size="sm" variant="ghost" icon={FileDiff} onClick={() => navigate(changesHref)}>{changesTab}</Button>}>
         <ul aria-label="Policy proposals" className="flex flex-col gap-1">
           {policyProposals.map((p) => (
             <li key={p.id} className="flex items-center gap-2">

@@ -21,6 +21,24 @@ describe("plan compiler rules (BUILD §12.3)", () => {
     expect(plan.summary).toMatch(/Paid advertising/);
   });
 
+  it("writes grammatical summaries and titles: articles, one period, the timeframe outside the audience", () => {
+    const plan = compilePlanRuleBased("spend up to €500 on LinkedIn ads targeting fintech CFOs next week", { agents: AGENTS });
+    const task = plan.actions.find((a) => a.type === "create_task")!;
+    expect(task.params.audience).toBe("fintech CFOs");
+    expect(task.params.title).toBe("Paid advertising campaign for fintech CFOs");
+    expect(plan.summary).toContain("Create a Paid advertising task targeting fintech CFOs, next week.");
+    expect(plan.summary).not.toMatch(/next week for next week|\.\.|\ba [aeiouAEIOU]/);
+
+    // A fragment of a longer sentence ("… and email automation start first") still gets a proper title and article.
+    const board = compilePlanRuleBased("Lead generation and email automation start first", { agents: AGENTS });
+    expect(board.summary).toContain("Create an Email automation task.");
+    for (const a of board.actions.filter((x) => x.type === "create_task")) expect(String(a.params.title)).toMatch(/ campaign$/);
+
+    const ops = compilePlanRuleBased("Create a task to tidy the ops checklist.", { agents: AGENTS });
+    expect(ops.summary).not.toMatch(/\.\.|\ba ops\b/);
+    expect(compilePlanRuleBased("Hire a supply chain lead by Friday", { agents: AGENTS }).summary).toContain("Hire a supply chain agent.");
+  });
+
   it("AC-11.3.5: hard-gate requests compile to request_human_action and never to an automated action", () => {
     const plan = compilePlanRuleBased("pay the supplier invoice");
     expect(types(plan)).toEqual(["request_human_action"]);

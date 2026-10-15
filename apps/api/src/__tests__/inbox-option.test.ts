@@ -66,6 +66,8 @@ describe("inbox.decide with a pre-written option (audit P4)", () => {
     expect(result.plan.actions.map((a) => a.type)).toContain("create_task");
     expect(result.item.state).toBe("answered");
     expect(result.followUp?.subject).toMatch(/^Decided:/);
+    // The question keeps its own mark: "Decided: What next for the first channel?", never "?." (FR-21).
+    expect(result.followUp?.bodyMd.split("\n")[0]).toBe("Decided: What next for the first channel?");
 
     const fast = slowModels(0);
     const second = await callerWith(fast.client);

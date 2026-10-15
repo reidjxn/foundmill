@@ -4,7 +4,7 @@
  */
 import { repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { compilePlanRuleBased, quarterBounds } from "@foundmill/models";
-import { PLAN_ACTION_TYPES } from "@foundmill/shared";
+import { MODEL_KEYS, PLAN_ACTION_TYPES } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPlanActivities, evaluateAction, HARD_GATE_ACTIONS } from "../activities/plan";
 import type { GatewayCallRequest, GatewayCallResponse } from "../gateway-client";
@@ -248,6 +248,70 @@ describe("executePlanAction on PGlite", () => {
     const failed = await acts.executePlanAction({ businessId: t.businessId, planId: legacy.id, actionId: nobody!.id, workflowId: "plan:test" });
     expect(failed.status).toBe("failed");
     expect((await repos.plans.getAction(t.db, t.businessId, nobody!.id)).status).toBe("failed");
+  });
+
+  it("set_agent_model retests like Agent profile › Model: the model changes at once, a draft copy is scored on it, the live version is untouched and the retest starts as a child (FU-T2-2)", async () => {
+    const worker = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const liveId = worker.currentVersionId!;
+    const [first, second] = MODEL_KEYS.filter((m) => m !== worker.modelKey);
+    const act = async (modelKey: string) => {
+      const plan = await repos.plans.create(t.db, t.businessId, { origin: "option", actions: [{ type: "set_agent_model", params: { agent_id: t.workerId, model_key: modelKey, apply_scope: "agent" } }] });
+      return acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId: plan.actions[0]!.id, workflowId: "plan:test" });
+    };
+
+    const result = await act(first!);
+    expect(result.status).toBe("done");
+    const { retests, superseded } = result.result as { retests: string[]; superseded: string[] };
+    expect(retests).toHaveLength(1);
+    expect(superseded).toEqual([]);
+    const run = await repos.training.get(t.db, t.businessId, retests[0]!);
+    expect(run).toMatchObject({ agentId: t.workerId, status: "queued", fromVersionId: liveId });
+    expect(run.toVersionId).not.toBe(liveId);
+    // The candidate is a system-made draft copy of the live version on the new model, never the live version itself (AC-11.10.1).
+    const live = await repos.agents.getVersion(t.db, t.businessId, liveId);
+    expect(await repos.agents.getVersion(t.db, t.businessId, run.toVersionId!)).toMatchObject({ state: "draft", modelKey: first, createdByKind: "system", instructions: live.instructions, tools: live.tools });
+    expect(await repos.agents.get(t.db, t.businessId, t.workerId)).toMatchObject({ modelKey: first, currentVersionId: liveId });
+    expect(await repos.agents.getVersion(t.db, t.businessId, liveId)).toMatchObject({ state: "live", modelKey: live.modelKey });
+    // The workflow runs the retest as a child, under the id the api uses.
+    expect(result.spawn).toEqual([{ workflow: "trainingRun", workflowId: `training:${run.id}`, args: { businessId: t.businessId, trainingRunId: run.id } }]);
+    expect(result.stop).toBeUndefined();
+
+    // A newer change withdraws the retest of a model the agent no longer runs, and its workflow is told to stop.
+    const next = await act(second!);
+    expect(next.status).toBe("done");
+    const nextRetests = (next.result as { retests: string[] }).retests;
+    expect(nextRetests).toHaveLength(1);
+    expect(next.stop).toEqual([`training:${run.id}`]);
+    expect((await repos.training.get(t.db, t.businessId, run.id)).status).toBe("cancelled");
+    expect(next.spawn.map((x) => x.workflowId)).toEqual([`training:${nextRetests[0]}`]);
+
+    // Back to the model the live version runs on: nothing new to score, and the pending retest is withdrawn.
+    const back = await act(live.modelKey);
+    expect(back.status).toBe("done");
+    expect((back.result as { retests: string[] }).retests).toEqual([]);
+    expect(back.spawn).toEqual([]);
+    expect(back.stop).toEqual([`training:${nextRetests[0]}`]);
+    expect(await repos.agents.get(t.db, t.businessId, t.workerId)).toMatchObject({ modelKey: live.modelKey, currentVersionId: liveId });
+  });
+
+  it("set_agent_model while the team is stopped changes the model but leaves the retest queued until the agents resume (FU-T2-2)", async () => {
+    const worker = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const target = MODEL_KEYS.find((m) => m !== worker.modelKey)!;
+    await stopBusinessAgents(t.db, t.businessId, { reason: "kill_switch" });
+    try {
+      const plan = await repos.plans.create(t.db, t.businessId, { origin: "option", actions: [{ type: "set_agent_model", params: { agent_id: t.workerId, model_key: target, apply_scope: "agent" } }] });
+      const result = await acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId: plan.actions[0]!.id, workflowId: "plan:test" });
+      expect(result.status).toBe("done");
+      const { retests } = result.result as { retests: string[] };
+      expect(result.result).toMatchObject({ retestsWaitForResume: true, updated: [t.workerId] });
+      expect(retests).toHaveLength(1);
+      // A retest spends credits: no child starts, and the run waits (restartAfterResume starts it on resume).
+      expect(result.spawn).toEqual([]);
+      expect((await repos.training.get(t.db, t.businessId, retests[0]!)).status).toBe("queued");
+      expect((await repos.agents.get(t.db, t.businessId, t.workerId)).modelKey).toBe(target);
+    } finally {
+      await resumeBusinessAgents(t.db, t.businessId);
+    }
   });
 
   it("'push the retail portal milestone to next quarter' moves that item, keeps its other fields and creates nothing (audit VRB-X1)", async () => {

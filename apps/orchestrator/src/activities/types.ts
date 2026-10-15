@@ -90,6 +90,11 @@ export interface BusinessBrief {
   agentsStopped?: boolean;
   /** Credits remaining for the period in `creditsCurrency` (label "Estimate"); null for a business on its own key. */
   budgetRemainingMinor: number | null;
+  /**
+   * What is left of the business's monthly model budget (0059), US cents, an Estimate; null when none is set. It applies
+   * whoever pays the model. Absent in briefs built before the budget existed.
+   */
+  modelBudgetRemainingMinor?: number | null;
   /** The currency of credits and of every model cost (USD, `CREDITS_CURRENCY`), never the business's `currency`. */
   creditsCurrency: string;
   /** Agents this cycle may run at once: the plan tier's limit less the sessions already open (0: none may start). */
@@ -296,6 +301,8 @@ export interface PlanActionResult {
   result: Record<string, unknown> | null;
   /** Child workflows the handler wants started (agentSession for create_task with an assignee, trainingRun...). */
   spawn: { workflow: "agentSession" | "trainingRun" | "channelEngine"; workflowId: string; args: Record<string, unknown> }[];
+  /** Workflows the handler wants stopped (a model change's superseded retests). Absent for every other action. */
+  stop?: string[];
 }
 
 export interface ApprovalDecision {

@@ -1,5 +1,10 @@
 import type { ChCompanyProfile, ChOfficer } from "../tools";
 
+/**
+ * Mock Companies House register. Besides the fixtures the tests name, it holds the example number the Import form
+ * shows (12345678) and the two demo businesses' own registrations (Northwind 15432198, Ledgerly 15106734), so a
+ * founder trying the mock golden path finds a company.
+ */
 export const CH_COMPANIES: ChCompanyProfile[] = [
   {
     company_number: "14523871", company_name: "NORTHWIND SKINCARE LTD", company_status: "active", type: "ltd", date_of_creation: "2022-11-03", jurisdiction: "england-wales", sic_codes: ["20420", "47910"],
@@ -21,9 +26,30 @@ export const CH_COMPANIES: ChCompanyProfile[] = [
     registered_office_address: { address_line_1: "5 Castle Terrace", locality: "Edinburgh", postal_code: "EH1 2DP", country: "Scotland" },
     accounts: { next_due: "2027-03-14", overdue: false }, confirmation_statement: { next_due: "2026-06-28", overdue: false },
   },
+  {
+    company_number: "12345678", company_name: "EXAMPLE TRADING LTD", company_status: "active", type: "ltd", date_of_creation: "2020-01-15", jurisdiction: "england-wales", sic_codes: ["62020"],
+    registered_office_address: { address_line_1: "1 Example Street", locality: "London", postal_code: "EC1A 1BB", country: "England" },
+    accounts: { next_due: "2027-01-31", overdue: false }, confirmation_statement: { next_due: "2027-01-29", overdue: false },
+  },
+  {
+    company_number: "15432198", company_name: "NORTHWIND SKINCARE LTD", company_status: "active", type: "ltd", date_of_creation: "2024-02-05", jurisdiction: "england-wales", sic_codes: ["20420", "47910"],
+    registered_office_address: { address_line_1: "14 Quill Street", locality: "Manchester", postal_code: "M4 5JW", country: "England" },
+    accounts: { next_due: "2027-02-05", overdue: false }, confirmation_statement: { next_due: "2026-11-22", overdue: false },
+  },
+  {
+    company_number: "15106734", company_name: "LEDGERLY LTD", company_status: "active", type: "ltd", date_of_creation: "2024-09-02", jurisdiction: "england-wales", sic_codes: ["62012"],
+    registered_office_address: { address_line_1: "71 Beacon Lane", locality: "London", postal_code: "EC2A 4NE", country: "England" },
+    accounts: { next_due: "2027-03-09", overdue: false }, confirmation_statement: { next_due: "2026-12-24", overdue: false },
+  },
 ];
 
 export const CH_OFFICERS: Record<string, ChOfficer[]> = {
+  "12345678": [{ name: "EXAMPLE, Alex", officer_role: "director", appointed_on: "2020-01-15", nationality: "British", occupation: "Director" }],
+  "15432198": [{ name: "REYES, Jamie", officer_role: "director", appointed_on: "2024-02-05", nationality: "British", occupation: "Founder" }],
+  "15106734": [
+    { name: "REYES, Jamie", officer_role: "director", appointed_on: "2024-09-02", nationality: "British", occupation: "Founder" },
+    { name: "NANDAKUMAR, Priya", officer_role: "director", appointed_on: "2024-09-02", nationality: "British", occupation: "Engineer" },
+  ],
   "14523871": [
     { name: "JACKSON, Reid", officer_role: "director", appointed_on: "2022-11-03", nationality: "British", occupation: "Company Director" },
     { name: "OKAFOR, Amara", officer_role: "director", appointed_on: "2023-05-15", nationality: "Nigerian", occupation: "Chief Scientist" },

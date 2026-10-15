@@ -51,9 +51,9 @@ describe("pushWorkspace", () => {
     const { gateway, offline } = githubGateway();
     const ctx: PushContext = { businessId: t.businessId, taskId: t.codeTaskId, sessionId: await openSessionRow(t, t.workerId, t.codeTaskId), agentId: t.workerId, branch: `agent/${t.codeTaskId}`, agentName: "Worker", holdBack: null };
     const snapshot = await save(t.codeTaskId, { "a.ts": "1" });
-    expect(await pushWorkspace(t.deps.db, gateway, ctx, snapshot)).toEqual({ status: "skipped", reason: "connect GitHub and choose a repository on Development › Code" });
+    expect(await pushWorkspace(t.deps.db, gateway, ctx, snapshot)).toEqual({ status: "skipped", reason: "connect GitHub and choose a repository on the Code tab" });
     expect(offline.calls).toEqual([]);
-    expect(describePush({ status: "skipped", reason: "x" })?.text).toBe("Not pushed to GitHub: x. The code is saved on Development › Code.");
+    expect(describePush({ status: "skipped", reason: "x" })?.text).toBe("Not pushed to GitHub: x. The code is saved on the Code tab.");
   });
 
   it("pushes the first save whole, then only what changed, one commit per session, and records each", async () => {
@@ -121,7 +121,7 @@ describe("pushWorkspace", () => {
     const snapshot = await save(taskId, { "a.ts": "1" });
     const ctx = async (extra: Partial<PushContext> = {}): Promise<PushContext> => ({ businessId: t.businessId, taskId, sessionId: await openSessionRow(t, t.workerId, taskId), agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker", holdBack: null, ...extra });
     expect(await pushWorkspace(t.deps.db, gateway, await ctx({ holdBack: "the session was stopped" }), snapshot)).toEqual({ status: "skipped", reason: "the session was stopped" });
-    expect(describePush({ status: "skipped", reason: "the session was stopped" })?.text).toBe("Not pushed to GitHub: the session was stopped. The code is saved on Development › Code.");
+    expect(describePush({ status: "skipped", reason: "the session was stopped" })?.text).toBe("Not pushed to GitHub: the session was stopped. The code is saved on the Code tab.");
     expect(await pushWorkspace(t.deps.db, gateway, await ctx({ branch: "main" }), snapshot)).toEqual({ status: "skipped", reason: "main is not this task's branch" });
     expect(offline.calls).toEqual([]);
 
@@ -146,7 +146,7 @@ describe("pushWorkspace", () => {
     const taskId = t.fixture.taskIds[2]!;
     const { gateway, offline } = githubGateway();
     const snapshot = await save(taskId, { "a.ts": "1" });
-    expect(await pushWorkspace(t.deps.db, gateway, { businessId: t.businessId, taskId, sessionId: await openSessionRow(t, t.workerId, taskId), agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker", holdBack: null }, snapshot)).toEqual({ status: "skipped", reason: "pushing to acme/shop is turned off (Development › Code)" });
+    expect(await pushWorkspace(t.deps.db, gateway, { businessId: t.businessId, taskId, sessionId: await openSessionRow(t, t.workerId, taskId), agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker", holdBack: null }, snapshot)).toEqual({ status: "skipped", reason: "pushing to acme/shop is turned off (the Code tab)" });
     expect(offline.calls).toEqual([]);
     await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
   });

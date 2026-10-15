@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { z } from "zod";
 import { CircleCheck, CircleX, Coins, GitMerge, Handshake, Hourglass, MessageSquare, Play, Radio, Rocket, Trophy, UserPlus, Users, type LucideIcon } from "lucide-react";
 import { Timeline, formatMoney, type StatusTone, type TimelineEvent } from "@foundmill/dugout";
+import { countOf } from "@foundmill/shared";
 import { useBusinessEvents, useGlossary, useWidgetQuery, type WidgetEvent } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { WidgetFrame } from "../shared/frame";
@@ -38,14 +39,52 @@ function money(v: unknown): string | undefined {
   return m && typeof m.amountMinor === "number" && typeof m.currency === "string" ? formatMoney({ amountMinor: m.amountMinor, currency: m.currency }) : undefined;
 }
 
+/** Agent statuses as people read them (CLAUDE.md: an injured agent is "Down"); the enum keys never reach the screen. */
+const HEALTH_WORD: Readonly<Record<string, string>> = { healthy: "Healthy", degraded: "Degraded", failing: "Failing", injured: "Down", paused: "Paused", idle: "Idle" };
+/** A conversion by its kind: a signup is a signup, only a payment makes a customer. */
+const CONVERSION_TITLE: Readonly<Record<string, string>> = { signup: "New signup", activation: "Activation reached", payment: "New paying customer" };
+const APPROVAL_TITLE: Readonly<Record<string, string>> = { approved: "Approved", rejected: "Rejected", expired: "Approval expired", withdrawn: "Approval withdrawn" };
+/** Every other event type in plain words; anything not listed reads "Business update", never its raw key. */
+const EVENT_TITLE: Readonly<Record<string, string>> = {
+  "holiday.started": "Vacation started",
+  "holiday.ended": "Vacation ended",
+  "mode.changed": "Business mode changed",
+  "deploy.succeeded": "Deployed",
+  "lead.created": "New lead",
+  "campaign.launched": "Campaign launched",
+  "channel.threshold_breached": "A channel went over its limit",
+  "runway.threshold_crossed": "Runway warning",
+  "bank.balance_updated": "Bank balance updated",
+  "credential.expiring": "A connection needs renewing",
+  "training.completed": "Training finished",
+  "agent.promoted": "New agent version live",
+  "filing.due": "Filing due",
+  "contract.signed": "Contract signed",
+  "connection.requested": "Connection request",
+  "message.received": "New message",
+  "negotiation.message": "New negotiation message",
+  "decision.made": "Decision made",
+  "idea.committed": "Business started",
+  "spec.proposal_created": "Specification change proposed",
+  "spec.version_published": "Specification published",
+  "source.added": "Source added",
+  "source.scored": "Source scored",
+  "foundations.progressed": "Foundations updated",
+  "conversation.message_posted": "New message",
+};
+const CYCLE_OUTCOME: Readonly<Record<string, string>> = { completed: "completed", time_box: "reached its time box", waiting: "is waiting on you", stopped: "stopped", failed: "failed" };
+const own = (map: Readonly<Record<string, string>>, key: string | undefined): string | undefined => (key !== undefined && Object.hasOwn(map, key) ? map[key] : undefined);
+
 /** Plain, specific words for each event (DESIGN §10); colour always comes with an icon and a word. */
 export function describeEvent(e: WidgetEvent): Described {
   const p = e.payload;
   switch (e.type) {
     case "task.started":
       return { title: `Started: ${str(p.title) ?? "a task"}`, icon: Play, tone: "info", statusWord: "Started" };
-    case "task.progressed":
-      return { title: `${str(p.phase) ?? "Working"}: ${Math.round(((p.progress as number) ?? 0) * 100)}%`, icon: Hourglass, tone: "neutral" };
+    case "task.progressed": {
+      const phase = str(p.phase)?.replace(/_/g, " ");
+      return { title: `${phase ? phase.charAt(0).toUpperCase() + phase.slice(1) : "Working"}: ${Math.round(((p.progress as number) ?? 0) * 100)}%`, icon: Hourglass, tone: "neutral" };
+    }
     case "task.completed":
       return { title: `Done: ${str(p.title) ?? "a task"}`, description: str(p.summary), icon: CircleCheck, tone: p.outcome === "partial" ? "warn" : "good", statusWord: p.outcome === "partial" ? "Partial" : "Done" };
     case "task.blocked":
@@ -58,20 +97,33 @@ export function describeEvent(e: WidgetEvent): Described {
       return { title: "Activation reached", icon: Rocket, tone: "good" };
     case "payment.received":
       return { title: `Payment received${money(p.amount) ? ` · ${money(p.amount)}` : ""}`, description: str(p.productRef), icon: Coins, tone: "good", statusWord: p.firstPayment ? "First" : undefined };
-    case "customer.converted":
-      return { title: `Customer won (${str(p.kind) ?? "win"})`, description: money(p.amount), icon: Trophy, tone: "good", statusWord: "Won" };
+    case "customer.converted": {
+      const kind = str(p.kind);
+      return { title: own(CONVERSION_TITLE, kind) ?? "New conversion", description: money(p.amount), icon: kind === "payment" ? Trophy : kind === "signup" ? UserPlus : Rocket, tone: "good", statusWord: kind === "payment" ? "Win" : undefined };
+    }
     case "lead.replied":
       return { title: "A lead replied", description: str(p.sentiment), icon: MessageSquare, tone: p.sentiment === "negative" ? "warn" : "info" };
     case "approval.requested":
       return { title: `Approval needed: ${str(p.title) ?? str(p.tool) ?? "an action"}`, icon: Handshake, tone: "warn", statusWord: "Ask" };
-    case "approval.resolved":
-      return { title: `Approval ${str(p.outcome) ?? "resolved"}`, icon: Handshake, tone: p.outcome === "rejected" ? "bad" : "good" };
-    case "agent.health_changed":
-      return { title: `Agent now ${str(p.to) ?? "changed"}`, description: str(p.reason), icon: p.to === "healthy" ? CircleCheck : CircleX, tone: p.to === "healthy" ? "good" : p.to === "failing" || p.to === "injured" ? "bad" : "warn", statusWord: str(p.to) };
+    case "approval.resolved": {
+      const outcome = str(p.outcome);
+      return { title: own(APPROVAL_TITLE, outcome) ?? "Approval resolved", description: str(p.note), icon: Handshake, tone: outcome === "rejected" ? "bad" : outcome === "approved" ? "good" : "neutral", statusWord: outcome === "approved" || outcome === "rejected" ? own(APPROVAL_TITLE, outcome) : undefined };
+    }
+    case "agent.health_changed": {
+      const to = str(p.to);
+      const word = own(HEALTH_WORD, to);
+      return {
+        title: !word ? "Agent status changed" : to === "healthy" ? "Agent healthy again" : `Agent ${word.toLowerCase()}`,
+        description: str(p.reason),
+        icon: to === "healthy" ? CircleCheck : CircleX,
+        tone: to === "healthy" ? "good" : to === "failing" || to === "injured" ? "bad" : "warn",
+        statusWord: word,
+      };
+    }
     case "cycle.started":
       return { title: `Cycle ${String(p.cycleNumber ?? "")} started`.replace("  ", " "), icon: Play, tone: "info" };
     case "cycle.completed":
-      return { title: `Cycle ${String(p.cycleNumber ?? "")} ${str(p.outcome) ?? "completed"}`.replace("  ", " "), description: `${String(p.tasksCompleted ?? 0)} tasks done`, icon: CircleCheck, tone: "good" };
+      return { title: `Cycle ${String(p.cycleNumber ?? "")} ${own(CYCLE_OUTCOME, str(p.outcome)) ?? "completed"}`.replace("  ", " "), description: `${countOf(typeof p.tasksCompleted === "number" ? p.tasksCompleted : 0, "task")} done`, icon: CircleCheck, tone: p.outcome === "failed" ? "bad" : p.outcome === "completed" ? "good" : "neutral" };
     case "inbox.item_created":
       // A reader walled from Finance or the CRM gets the note without its subject (apps/stream walls).
       return { title: str(p.subject) ?? "New inbox note", icon: MessageSquare, tone: p.blocksContinue ? "bad" : "neutral", statusWord: p.blocksContinue ? "Respond" : undefined };
@@ -81,7 +133,7 @@ export function describeEvent(e: WidgetEvent): Described {
     case "membership.changed":
       return { title: p.change === "added" ? "Staff member added" : p.change === "removed" ? "Staff member removed" : "Staff access changed", icon: Users, tone: "neutral" };
     default:
-      return { title: e.type.replace(/[._]/g, " "), icon: Radio, tone: "neutral" };
+      return { title: own(EVENT_TITLE, e.type) ?? "Business update", icon: Radio, tone: "neutral" };
   }
 }
 

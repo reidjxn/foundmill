@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { usSpelling } from "./us-spelling";
+import { usSpelling, usWord } from "./us-spelling";
 
 describe("usSpelling", () => {
   it("spells stored keys the US way and keeps each word's case", () => {
@@ -15,5 +15,16 @@ describe("usSpelling", () => {
     expect(usSpelling("Organisationsnummer")).toBe("Organisationsnummer"); // a Swedish word, not a key
     expect(usSpelling("Private limited company")).toBe("Private limited company");
     expect(usSpelling("")).toBe("");
+  });
+  it("passes words that name Object.prototype members through instead of crashing or printing a function", () => {
+    expect(usSpelling("Constructor fees")).toBe("Constructor fees");
+    expect(usSpelling("the constructor fee")).toBe("the constructor fee");
+    expect(usSpelling("CONSTRUCTOR")).toBe("CONSTRUCTOR");
+    expect(usSpelling("awaiting constructor signoff")).toBe("awaiting constructor signoff");
+    for (const w of ["toString", "valueOf", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "toLocaleString"])
+      expect(usSpelling(`a ${w} b`)).toBe(`a ${w} b`);
+    expect(usSpelling("a __proto__ b")).toBe("a __proto__ b");
+    expect(usWord("constructor")).toBeUndefined();
+    expect(usWord("colour")).toBe("color");
   });
 });

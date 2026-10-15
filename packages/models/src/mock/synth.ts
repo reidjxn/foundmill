@@ -137,8 +137,10 @@ const toNum = (v: unknown): number | undefined => (typeof v === "number" && Numb
 function synthNumber(node: JsonSchema, rng: Rng, integer: boolean): number {
   const exMin = toNum(node.exclusiveMinimum);
   const exMax = toNum(node.exclusiveMaximum);
-  const declaredMin = toNum(node.minimum) ?? (exMin !== undefined ? exMin + (integer ? 1 : 0.01) : undefined);
-  const declaredMax = toNum(node.maximum) ?? (exMax !== undefined ? exMax - (integer ? 1 : 0.01) : undefined);
+  // Zod 4 puts the safe-integer range (±2^53 − 1) on every `.int()`; that is "no bound declared", not a range to draw from.
+  const declared = (v: number | undefined) => (v !== undefined && Math.abs(v) >= Number.MAX_SAFE_INTEGER ? undefined : v);
+  const declaredMin = declared(toNum(node.minimum) ?? (exMin !== undefined ? exMin + (integer ? 1 : 0.01) : undefined));
+  const declaredMax = declared(toNum(node.maximum) ?? (exMax !== undefined ? exMax - (integer ? 1 : 0.01) : undefined));
   let lo: number;
   let hi: number;
   if (declaredMin === undefined && declaredMax === undefined) {

@@ -1,10 +1,14 @@
 import { expect, test } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, openBusiness, settingsScreen } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, openBusiness, openSettings, settingsScreen, settled } from "./helpers";
 
 /**
  * Settings in plain words (the 2027 screen pass): no stored identifiers, developer notes or plural slips reach the
  * founder, and the business's money is shown in its own currency. Read-only: nothing here saves a setting.
  * Stack and commands: e2e/README.md.
+ *
+ * Every tab is opened with `openSettings` and every locator for its content starts at the returned screen: while the
+ * page streams, React parks a second copy of it outside the shell (helpers.ts `settingsScreen`), so a page-level locator
+ * can match twice. Dialogs are portals outside the shell and are looked up on the page.
  */
 const B = `/b/${NORTHWIND_BUSINESS_ID}`;
 
@@ -14,21 +18,21 @@ test.describe("settings, plain words", () => {
   });
 
   test("Members: the account id is one short line, roles are words, no developer notes", async ({ page }) => {
-    await page.goto(`${B}/settings/members`);
-    const list = page.getByTestId("member-list");
+    const screen = await openSettings(page, "members");
+    const list = screen.getByTestId("member-list");
     await expect(list).toBeVisible({ timeout: LONG });
     await expect(list).toContainText(/Account [0-9a-f]{8}…[0-9a-f]{4}/);
-    await expect(settingsScreen(page)).not.toContainText(/auth build|owner:|admin:/);
+    await expect(screen).not.toContainText(/auth build|owner:|admin:/);
     await expect(list.getByRole("combobox").first()).toContainText(/^(Owner|Admin|Member|Viewer|Advisor)$/);
     // The founder's own row reads as a name with a "You" chip, never "You You".
     await expect(list).not.toContainText(/\bYou\s*You\b/);
     // A co-founder is added by account ID or sign-in email; Add member waits for one of them (WEB-12).
-    await expect(page.getByTestId("add-member")).toBeDisabled();
+    await expect(screen.getByTestId("add-member")).toBeDisabled();
   });
 
   test("Members: removing someone asks first (MLSL-40)", async ({ page }) => {
-    await page.goto(`${B}/settings/members`);
-    const list = page.getByTestId("member-list");
+    const screen = await openSettings(page, "members");
+    const list = screen.getByTestId("member-list");
     await expect(list).toBeVisible({ timeout: LONG });
     const remove = list.getByRole("button", { name: /^Remove (?!yourself)/, disabled: false }).first();
     test.skip((await remove.count()) === 0, "no removable member on the seeded business");
@@ -43,50 +47,52 @@ test.describe("settings, plain words", () => {
   });
 
   test("Preferences: your account ID is shown with a copy button (WEB-12)", async ({ page }) => {
-    await page.goto(`${B}/settings/preferences`);
-    const accountId = page.getByTestId("account-id");
+    const screen = await openSettings(page, "preferences");
+    const accountId = screen.getByTestId("account-id");
     await expect(accountId).toBeVisible({ timeout: LONG });
     await expect(accountId).toContainText(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/);
-    await expect(page.getByTestId("account-id-copy")).toBeVisible();
+    await expect(screen.getByTestId("account-id-copy")).toBeVisible();
   });
 
   test("Mode: the choice is named in words, with no notes about what comes later", async ({ page }) => {
-    await page.goto(`${B}/settings/mode`);
-    const screen = settingsScreen(page);
-    await expect(page.getByTestId("switch-game-mode")).toBeVisible({ timeout: LONG });
+    const screen = await openSettings(page, "mode");
+    const modeSwitch = screen.getByTestId("switch-game-mode");
+    await expect(modeSwitch).toBeVisible({ timeout: LONG });
     await expect(screen).toContainText("Personal or live");
     await expect(screen).not.toContainText(/Game mode/);
-    await page.getByTestId("switch-game-mode").click();
+    await modeSwitch.click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await expect(dialog).not.toContainText(/come later|for now this records/);
     // Going live is for adults: the review asks for "I am 18 or older" and Confirm waits for it.
     await expect(dialog).toContainText("18 or older");
-    // The seeded founder has already confirmed it (the network asks once), so there is nothing to tick; a founder who
-    // has not is asked, and Confirm waits for the tick.
-    const adult = dialog.getByTestId("confirm-adult");
+    // A founder who has confirmed it before (the network asks once; the seeded owner of shards 2 and 3 has) has nothing
+    // to tick; one who has not (the profile onboarding saves in shard 1) is asked, and Confirm waits for the tick. The
+    // dialog opens before the summary that says which it is has answered, so wait until it shows one or the other.
+    const adult = dialog.getByTestId("go-live-adult");
+    const confirm = dialog.getByRole("button", { name: "Confirm" });
+    await expect.poll(async () => (await adult.count()) > 0 || (await confirm.isEnabled()), { timeout: LONG }).toBe(true);
     if (await adult.count()) {
-      await expect(dialog.getByRole("button", { name: "Confirm" })).toBeDisabled();
-      await adult.click();
+      await expect(confirm).toBeDisabled();
+      await adult.getByRole("checkbox").click();
     }
-    await expect(dialog.getByRole("button", { name: "Confirm" })).toBeEnabled();
+    await expect(confirm).toBeEnabled();
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toBeHidden();
   });
 
   test("Billing: correct plurals, whole numbers in the usage tables, credits and model costs in US dollars", async ({ page }) => {
-    await page.goto(`${B}/settings/billing`);
-    const screen = settingsScreen(page);
+    const screen = await openSettings(page, "billing");
     await expect(screen.locator("[data-tier]").first()).toBeVisible({ timeout: LONG });
     await expect(screen).not.toContainText(/\b1 (businesses|seats|agents)\b/);
     await expect(screen.locator("[data-tier=free]")).toContainText("1 business");
     await expect(screen.locator("[data-tier=free]")).toContainText("$5.00 of model credits a month");
     // Northwind keeps its books in pounds, but credits and metered model costs are US dollars, never relabeled.
-    await expect(page.getByTestId("credits-balance")).toContainText("$");
-    await expect(page.getByTestId("spent-this-month")).toContainText("$");
-    await expect(page.getByTestId("spent-this-month")).not.toContainText(/^£/);
-    await expect(page.getByRole("combobox", { name: "Top-up amount" })).toContainText("$");
-    const usage = page.getByRole("table", { name: "Usage by agent" });
+    await expect(screen.getByTestId("credits-balance")).toContainText("$");
+    await expect(screen.getByTestId("spent-this-month")).toContainText("$");
+    await expect(screen.getByTestId("spent-this-month")).not.toContainText(/^£/);
+    await expect(screen.getByRole("combobox", { name: "Top-up amount" })).toContainText("$");
+    const usage = screen.getByRole("table", { name: "Usage by agent" });
     if (await usage.count()) {
       // Numbers never truncate: every numeric cell shows its whole text.
       const cut = await usage.locator("td").evaluateAll((tds) => tds.filter((td) => td.scrollWidth > td.clientWidth + 1).length);
@@ -97,8 +103,8 @@ test.describe("settings, plain words", () => {
   });
 
   test("Integrations: how each connector signs in, in words; no phases or stored kinds", async ({ page }) => {
-    await page.goto(`${B}/settings/integrations`);
-    const list = page.getByTestId("connector-list");
+    const screen = await openSettings(page, "integrations");
+    const list = screen.getByTestId("connector-list");
     await expect(list).toBeVisible({ timeout: LONG });
     await expect(list).not.toContainText(/api_key|oauth\b|phase \d/);
     await expect(list).toContainText(/API key|Sign in with the vendor|Install the app|No sign-in needed/);
@@ -125,12 +131,13 @@ test.describe("settings, plain words", () => {
       sent = Object.values(body)[0]?.json ?? null;
       await route.abort();
     });
-    await page.goto(`${B}/settings/integrations`);
-    const row = page.locator('[data-connector="sendgrid"]');
+    const screen = await openSettings(page, "integrations");
+    const row = screen.locator('[data-connector="sendgrid"]');
     await expect(row).toBeVisible({ timeout: LONG });
     // The page first shows the list it was rendered with; Connect asks for the key once the replayed list marks it Live.
     await expect(row).toContainText("Live", { timeout: LONG });
     await row.getByRole("button", { name: "Connect" }).click();
+    // The dialog is a portal outside the shell, so it is looked up on the page; only one can be open.
     const dialog = page.getByTestId("connect-fields-dialog");
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText("Connect SendGrid");
@@ -150,24 +157,27 @@ test.describe("settings, plain words", () => {
     const state = `${Buffer.from(JSON.stringify({ b: NORTHWIND_BUSINESS_ID, c: "gmail", u: "x", exp: 1, n: "n" })).toString("base64url")}.sig`;
     await page.goto(`/integrations/oauth/callback?state=${encodeURIComponent(state)}&error=access_denied`);
     await expect(page).toHaveURL(new RegExp(`${B}/settings/integrations\\?oauth_connector=gmail&oauth_error=access_denied`), { timeout: LONG });
-    const refused = page.getByTestId("oauth-finish");
+    const screen = settingsScreen(page);
+    await settled(page);
+    const refused = screen.getByTestId("oauth-finish");
     await expect(refused).toContainText("You did not allow access on Gmail's page, so nothing was connected.", { timeout: LONG });
     await refused.getByRole("button", { name: "Dismiss" }).click();
-    await expect(page.getByTestId("oauth-finish")).toHaveCount(0);
+    await expect(screen.getByTestId("oauth-finish")).toHaveCount(0);
     await expect(page).not.toHaveURL(/oauth_/);
 
     // With a code and the state, one button finishes it (not pressed here: this spec saves nothing).
     await page.goto(`${B}/settings/integrations?oauth_connector=gmail&oauth_code=4%2F0Adeu5&oauth_state=${encodeURIComponent(state)}`);
-    await expect(page.getByTestId("oauth-finish").getByRole("button", { name: "Connect Gmail" })).toBeVisible({ timeout: LONG });
+    await settled(page);
+    await expect(settingsScreen(page).getByTestId("oauth-finish").getByRole("button", { name: "Connect Gmail" })).toBeVisible({ timeout: LONG });
   });
 
   test("Glossary and Departments: no retired default words, modules named in words", async ({ page }) => {
-    await page.goto(`${B}/settings/glossary`);
-    await expect(page.getByTestId("glossary-rows")).toBeVisible({ timeout: LONG });
-    const terms = await page.getByLabel("Default word").evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
+    const glossary = await openSettings(page, "glossary");
+    await expect(glossary.getByTestId("glossary-rows")).toBeVisible({ timeout: LONG });
+    const terms = await glossary.getByLabel("Default word").evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
     expect(terms.filter((t) => /^(squad|club|crest|shout)$/i.test(t))).toEqual([]);
-    await page.goto(`${B}/settings/departments`);
-    await expect(page.getByTestId("department-list")).toBeVisible({ timeout: LONG });
-    await expect(page.getByTestId("department-list")).not.toContainText(/ · (product|development|distribution|finance|team|legal)\b/);
+    const departments = await openSettings(page, "departments");
+    await expect(departments.getByTestId("department-list")).toBeVisible({ timeout: LONG });
+    await expect(departments.getByTestId("department-list")).not.toContainText(/ · (product|development|distribution|finance|team|legal)\b/);
   });
 });

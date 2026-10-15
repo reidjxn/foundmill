@@ -139,10 +139,21 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await openTab(page, "finance", "runway");
     const form = page.getByRole("form", { name: "Base drivers" });
     const cash = form.getByLabel("Starting cash");
-    await expect(cash).toHaveValue(/^\d{1,3}(,\d{3})*$/); // grouped at rest
+    await expect(cash).toHaveValue(/^\d{1,3}(,\d{3})*(\.\d{2})?$/); // grouped at rest, with cents when it has them (#172)
     await expect(form.getByText("GBP").first()).toBeVisible();
     await page.getByRole("group", { name: "Scenario" }).getByRole("button", { name: /Upside/ }).click();
     await expect(page.getByRole("form", { name: "Upside drivers" })).toBeVisible();
+  });
+
+  test("finance: every projected figure on Runway carries a Forecast label", async ({ page }) => {
+    await openTab(page, "finance", "runway");
+    const warnings = page.getByRole("region", { name: /Runway warnings/ });
+    // The panel itself, and the cash-out and cash-at-horizon figures, are projections from the drivers.
+    await expect(warnings.getByText("Forecast", { exact: true }).first()).toBeVisible();
+    const cash = page.getByRole("list", { name: "Runway by scenario" }).getByText(/^Cash, /).first();
+    await expect(cash.locator("..").getByText("Forecast", { exact: true })).toBeVisible();
+    // The driver summary under the form says so too.
+    await expect(page.locator("[data-driver-runway]").getByText("Forecast", { exact: true })).toBeVisible();
   });
 
   test("distribution: channel names are never squeezed by the recommendation mark and £0 is not an estimate", async ({ page }) => {

@@ -1,48 +1,13 @@
 /**
- * Changing agents' model (BUILD §11.10, AC-11.10.5): one implementation for Agent profile › Model (`agent.model.set`)
- * and for a plan's `set_agent_model` action (an Inbox decision or a confirmed plan), so both skip work locked to one
- * model, warn on a downgrade and queue a retest of each changed agent on a draft copy of its live version (audit
- * api-services-28). The change is written inside the caller's transaction; the retest workflows start after it commits
- * (`startModelRetests`).
+ * Changing agents' model (BUILD §11.10, AC-11.10.5). The change itself (skip work locked to one model, warn on a
+ * downgrade, queue a retest of each changed agent on a draft copy of its live version) is `changeAgentModels` in
+ * @foundmill/db, shared with the orchestrator's `set_agent_model` plan step (FU-T2-2). This file starts and stops the
+ * retests' workflows after the caller's transaction commits (`startModelRetests`).
  */
-import { getTemplateByAgentType } from "@foundmill/agents";
-import { repos, type Agent, type Executor } from "@foundmill/db";
-import { resolveModel, type RouteKey } from "@foundmill/models";
-import type { ModelKey } from "@foundmill/shared";
+import { changeAgentModels, routeOf, type ModelChange } from "@foundmill/db";
 import { SIGNALS, WORKFLOWS, workflowIds, type TemporalService } from "./temporal";
 
-export const routeOf = (agent: Agent): RouteKey => getTemplateByAgentType(agent.agentType)?.route ?? "worker";
-
-export interface ModelChange {
-  updated: string[];
-  skipped: { agentId: string; reason: string }[];
-  warnings: string[];
-  /** Retest training runs queued for the changed agents (their workflows start after commit). */
-  retests: string[];
-  /** Earlier retests of a model these agents no longer run, canceled here; their workflows are stopped after commit. */
-  superseded: string[];
-}
-
-/** Moves `targets` to `modelKey` inside the caller's transaction. */
-export async function changeAgentModels(tx: Executor, businessId: string, targets: readonly Agent[], modelKey: ModelKey, requestedBy: string | null): Promise<ModelChange> {
-  const change: ModelChange = { updated: [], skipped: [], warnings: [], retests: [], superseded: [] };
-  for (const agent of targets) {
-    const r = resolveModel(routeOf(agent), modelKey);
-    if (r.locked && r.modelKey !== modelKey) {
-      change.skipped.push({ agentId: agent.id, reason: r.warning ?? "this work is locked to one model" });
-      continue;
-    }
-    if (r.warning) change.warnings.push(`${agent.name}: ${r.warning}`);
-    await repos.agents.setModel(tx, businessId, agent.id, modelKey);
-    change.updated.push(agent.id);
-    // An agent already on this model has nothing new to retest.
-    if (agent.modelKey === modelKey) continue;
-    const { retest, superseded } = await repos.training.createModelRetest(tx, businessId, agent.id, { modelKey, requestedBy });
-    change.superseded.push(...superseded.map((run) => run.id));
-    if (retest) change.retests.push(retest.run.id);
-  }
-  return change;
-}
+export { changeAgentModels, routeOf, type ModelChange };
 
 /**
  * After commit: stop the superseded retests and start the new ones (each degrades to `{ queued: false }` without

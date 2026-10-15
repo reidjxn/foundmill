@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, openBusiness, settingsScreen } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, openBusiness, openSettings, settled } from "./helpers";
 
 /**
  * Web core screens: login, the AppShell at 1440 px, NeedsLargerWindow below 1280 px, G chords, Settings tabs and the
@@ -72,6 +72,9 @@ test.describe("login", () => {
     const other = await context.newPage();
     await other.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
     await expect(other.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+    // The other tab hears the sign-out on a BroadcastChannel, which does not queue messages for a listener that is not
+    // there yet: it must be hydrated (its watcher mounts with the first commit) before this tab signs out.
+    await settled(other);
     await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Sign out" }).click();
     await expect(page).toHaveURL(/\/login$/, { timeout: LONG });
     await expect(other).toHaveURL(/\/login\?next=/, { timeout: LONG });
@@ -190,8 +193,7 @@ test.describe("shell", () => {
     await expect(page).toHaveURL(new RegExp(`${target.replace(/\/[^/]+$/, "")}(/|$)`));
     await expect(page).toHaveURL(/\/d\//);
     for (const tab of ["business", "mode", "departments", "glossary", "members", "integrations", "keys", "billing", "preferences", "danger"]) {
-      await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/settings/${tab}`);
-      await expect(settingsScreen(page)).toHaveAttribute("data-tab", tab, { timeout: LONG });
+      await openSettings(page, tab);
     }
   });
 
@@ -203,11 +205,10 @@ test.describe("shell", () => {
     page.on("request", (req) => {
       if (/\/simulate\//.test(req.url()) && !/\/trpc\//.test(req.url())) ingestRequests.push(req.url());
     });
-    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/settings/integrations`);
-    await expect(settingsScreen(page)).toHaveAttribute("data-tab", "integrations", { timeout: LONG });
-    await expect(page.getByText("Connectors", { exact: true }).first()).toBeVisible();
-    await expect(page.getByTestId("simulate-panel")).toHaveCount(0);
-    await expect(page.locator("[data-simulate]")).toHaveCount(0);
+    const screen = await openSettings(page, "integrations");
+    await expect(screen.getByText("Connectors", { exact: true }).first()).toBeVisible();
+    await expect(screen.getByTestId("simulate-panel")).toHaveCount(0);
+    await expect(screen.locator("[data-simulate]")).toHaveCount(0);
     expect(ingestRequests).toEqual([]);
   });
 });

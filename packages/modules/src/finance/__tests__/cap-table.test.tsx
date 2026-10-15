@@ -25,7 +25,7 @@ describe("CapTableScreen", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <CapTableScreen {...props} />);
     const strip = screen.getByRole("region", { name: "Cap table summary" });
-    expect(within(strip).getByText("Fully diluted shares").parentElement!.parentElement!.textContent).toContain("9,200,001");
+    expect(within(strip).getByText("Fully diluted shares").parentElement!.parentElement!.textContent).toContain("9,200,000");
     expect(within(strip).getByText("Option pool").parentElement!.parentElement!.textContent).toContain("80%");
     expect(within(strip).getByText(/800,000 of 1,000,000 unallocated/)).toBeTruthy();
     expect(within(strip).getByText("Convertibles").parentElement!.parentElement!.textContent).toContain("€100K");
@@ -42,6 +42,28 @@ describe("CapTableScreen", () => {
     expect(screen.getByRole("region", { name: "Issuances" }).textContent).toContain("4 issuances");
     expect(screen.getByText(/^Versioned and audited · last change/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Pay|Transfer|Wire/ })).toBeNull(); // no money movement
+  });
+
+  it("leaves SAFEs out of the fully diluted percentages and shows them at principal, until they convert (#168)", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <CapTableScreen {...props} />);
+    const holders = screen.getByRole("grid", { name: "Holders" });
+    const northcap = within(holders).getByText("Northcap Ventures").closest("tr")!;
+    expect(within(northcap).getByText("Not converted")).toBeTruthy();
+    expect(within(northcap).queryByText(/%/)).toBeNull();
+    const classes = screen.getByRole("list", { name: "Share classes" });
+    const safe = within(classes).getByText("Post-money SAFE 2026").closest("li")!;
+    expect(safe.textContent).toContain("€100,000.00 principal · converts at the next priced round");
+    expect(safe.textContent).not.toContain("%");
+  });
+
+  it("prices principals and caps in the share class's currency even when the entry row says another (#170)", () => {
+    const gbp = { ...capTable, securities: capTable.securities.map((s) => ({ ...s, currency: "GBP" })) }; // the entries still say EUR
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "finance.capTable.get": gbp } });
+    renderScreen(fake, <CapTableScreen {...props} />);
+    const safes = screen.getByRole("grid", { name: "Issuances" });
+    expect(within(safes).getAllByText(/£/).length).toBeGreaterThan(0);
+    expect(within(safes).queryByText(/€/)).toBeNull();
   });
 
   it("filters issuances to a holder from the right-click verb and opens the CRM on Enter", async () => {
@@ -75,7 +97,9 @@ describe("CapTableScreen", () => {
     expect(within(proForma).getByText("Series Seed Preferred")).toBeTruthy();
     expect(within(proForma).getByText("2.44%")).toBeTruthy(); // 1M on 41M post-money
     expect(screen.getByText("€41M")).toBeTruthy();
-    expect(screen.getByText(/Northcap Ventures: 101,010.101 via cap/)).toBeTruthy();
+    // one wrapping line per conversion under the figures, in whole shares (#357)
+    const conversions = screen.getByRole("list", { name: "SAFE conversions" });
+    expect(within(conversions).getByText(/Northcap Ventures/).closest("li")!.textContent).toBe("Northcap Ventures: 101,010 shares at the valuation cap");
     expect(screen.getAllByText("Estimate").length).toBeGreaterThan(1);
   });
 
@@ -88,7 +112,7 @@ describe("CapTableScreen", () => {
     let dialog = await screen.findByRole("dialog", { name: "Delaware stock ledger" });
     let csv = (within(dialog).getByRole("textbox") as HTMLTextAreaElement).value;
     expect(csv.split("\n")[0]).toContain("Certificate No.");
-    expect(csv).toContain("C-0001,2025-10-01,Mara Lindqvist,person,Common,common,4500000");
+    expect(csv).toContain("C-0001,2025-10-01,Mara Lindqvist,Person,Common,common,4500000");
     expect(csv).not.toContain("Northcap");
     fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
     fireEvent.click(screen.getByRole("button", { name: "Aktiebok" }));

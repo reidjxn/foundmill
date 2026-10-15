@@ -180,6 +180,9 @@ test.describe("inbox", () => {
     await page.locator("[data-decision-ask]").click();
     await expect(desk.getByRole("textbox", { name: /^Reply to / })).toBeFocused();
     await page.keyboard.press("Escape");
+    // Escape closes the field and hands focus back to the Write button in the next animation frame. Wait for that hand-back:
+    // under load it can otherwise land after T has put focus on the thread, and take it off again.
+    await expect(desk.locator('[data-quick-reply="write"]')).toBeFocused();
     // T brings the conversation into focus.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.keyboard.press("t");

@@ -145,6 +145,30 @@ export async function creditsState(db: Executor, business: CreditsBusiness & Pic
   return platformCredits(db, business, period);
 }
 
+export interface ModelBudgetState {
+  period: string;
+  /** The business's monthly model budget in USD cents (0059); null when none is set. */
+  budgetMinor: number | null;
+  /** The month's metered cost so far, USD cents (an Estimate): every agent, whoever pays the model. */
+  spentMinor: number;
+  /** What is left, never below zero; null when no budget is set. */
+  remainingMinor: number | null;
+}
+
+/**
+ * Where a business's monthly model budget stands (0059), without writing anything. It applies whoever pays the model:
+ * the month's cost is the usage ledger's USD total, credits and own-key rows alike (the sum of the agents' wages). The
+ * ledger is read only when a budget is set.
+ */
+export async function modelBudgetState(db: Executor, business: Pick<Business, "id" | "modelBudgetMinor">, now: Date = new Date()): Promise<ModelBudgetState> {
+  const period = periodOf(now);
+  if (business.modelBudgetMinor === null || business.modelBudgetMinor === undefined) return { period, budgetMinor: null, spentMinor: 0, remainingMinor: null };
+  const budgetMinor = Number(business.modelBudgetMinor);
+  const { from, to } = periodRange(period);
+  const { costMinor } = await repos.usage.totals(db, business.id, { from, to });
+  return { period, budgetMinor, spentMinor: costMinor, remainingMinor: Math.max(0, budgetMinor - costMinor) };
+}
+
 export interface PlatformCreditsCheck {
   ok: boolean;
   /** Null when the call may run. */

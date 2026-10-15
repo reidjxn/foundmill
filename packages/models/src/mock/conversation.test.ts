@@ -90,6 +90,14 @@ describe("mock conversation route (audit-conversation §4)", () => {
     expect(out.quick_replies.some((q) => /blocking/i.test(q.label))).toBe(true);
   });
 
+  it("gives the expected date as a US date, as the api sends it, and reads an ISO date the US way too", async () => {
+    const words = await reply(input({ kind: "agent", id: AGENT.id, title: AGENT.name }, "How's it going?", null, { task: { ...TASK, eta: "Oct 11" }, status: "healthy", presence: "working" }));
+    expect(words.bubbles.join(" ")).toContain("Expected by Oct 11.");
+    const iso = await reply(input({ kind: "agent", id: AGENT.id, title: AGENT.name }, "How's it going?", null, { task: { ...TASK, eta: "2026-10-11" }, status: "healthy", presence: "working" }));
+    expect(iso.bubbles.join(" ")).toContain("Expected by Oct 11.");
+    expect(iso.bubbles.join(" ")).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+  });
+
   it("says the figure is missing instead of inventing one, and offers to find out", async () => {
     const data = input({ kind: "agent", id: AGENT.id, title: AGENT.name }, "What was our churn rate last quarter?", null, { task: null, status: "healthy", presence: "available" });
     const out = await reply(data);

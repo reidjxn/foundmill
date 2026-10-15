@@ -22,6 +22,7 @@
     "@foundmill/agents": "workspace:*",
     "@foundmill/config": "workspace:*",
     "@foundmill/journey": "workspace:*",
+    "@foundmill/models": "workspace:*",
     "@foundmill/shared": "workspace:*",
     "@supabase/supabase-js": "catalog:",
     "date-fns": "catalog:",

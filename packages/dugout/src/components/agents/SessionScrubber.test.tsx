@@ -104,4 +104,12 @@ describe("SessionScrubber", () => {
     expect(screen.getByRole("slider", { name: "Replay position" })).toBeTruthy();
     expect(screen.getByText(/00:00 \/ 10:00/)).toBeTruthy();
   });
+
+  it("the event list says each marker's word once ('Phase: Planning', never 'Phase: Phase: planning')", () => {
+    render(<SessionScrubber events={events} startedAt={START} endedAt="2026-10-07T09:10:00Z" position={0} onPositionChange={vi.fn()} />);
+    const items = [...screen.getByRole("list", { name: "Event markers" }).querySelectorAll("li")].map((li) => li.textContent ?? "");
+    expect(items.some((t) => /^\d\d:\d\d Phase: [A-Z][a-z]/.test(t))).toBe(true);
+    expect(items.some((t) => /Nudge: /.test(t))).toBe(true);
+    for (const t of items) expect(t, t).not.toMatch(/(Phase|Nudge|Approval|File|Tests(?: passed| failed)?): (?:Phase|Nudge|Awaiting approval|Tests)\b/);
+  });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SkillDefinition, SkillTest } from "../types";
 import { ALL_TEMPLATES } from "../templates";
-import { CRAFT_SKILLS, EXECUTION_SKILLS, JUDGEMENT_SKILLS, SKILL_DEFINITIONS, SKILL_DEFINITIONS_BY_KEY, SPEC_CRAFT_SETS, getSkillDefinition, skillKeysForAgentType } from "../skills/definitions";
+import { CRAFT_SKILLS, EXECUTION_SKILLS, JUDGEMENT_SKILLS, SKILL_DEFINITIONS, SKILL_DEFINITIONS_BY_KEY, SPEC_CRAFT_SETS, getSkillDefinition, skillDisplayName, skillKeysForAgentType } from "../skills/definitions";
 import {
   ALL_BLUEPRINTS,
   BLUEPRINT_SKILL_KEYS,
@@ -47,6 +47,17 @@ describe("skill definitions (BUILD §11.10)", () => {
       expect(SKILL_DEFINITIONS_BY_KEY[key]!.agentTypes.length, `${key} is unused`).toBeGreaterThan(0);
     }
     for (const t of ALL_TEMPLATES) for (const k of t.skills) expect(getSkillDefinition(k), `${t.key}:${k}`).toBeDefined();
+  });
+
+  it("names skills by their catalogue name in US English, never by the key", () => {
+    expect(skillDisplayName("prioritisation")).toBe("Prioritization");
+    expect(skillDisplayName("test_automation")).toBe(getSkillDefinition("test_automation")?.name ?? "Test automation");
+    expect(skillDisplayName("cost_efficiency")).toBe(getSkillDefinition("cost_efficiency")!.name);
+    // A custom skill without a catalogue entry reads as words; British keys read US English.
+    expect(skillDisplayName("brand_colour_matching")).toBe("Brand color matching");
+    expect(skillDisplayName("constructor")).toBe("Constructor");
+    expect(getSkillDefinition("constructor")).toBeUndefined();
+    expect(getSkillDefinition("toString")).toBeUndefined();
   });
 
   it("skillKeysForAgentType returns craft + the ten core skills", () => {

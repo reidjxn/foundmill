@@ -107,7 +107,7 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
         if (seen.has(item.id)) continue;
         seen.add(item.id);
         const agent = item.fromAgentId ? agents.get(item.fromAgentId) : undefined;
-        // The founder's own note, or another founder's words that Network filed here (never "You" for someone else).
+        // The founder's own note, or someone else's (never "You" for another person).
         const sender = humanSender(item.fromUserId, viewerId);
         out.push({ ...rowModel(item), agent: agent ? { ...agent, dept: agent.dept as DeptColourToken } : undefined, fromUser: sender === "self", fromPerson: sender === "other" });
       }

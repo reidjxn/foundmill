@@ -14,6 +14,7 @@ import { repos, type Db, type Event } from "@foundmill/db";
 import type { Executor } from "@foundmill/db/repos/_shared";
 import { buildEvent, type PlatformEvent, type WriteEventInput } from "@foundmill/events";
 import { NotFoundError, ValidationError, type Actor, type EventType } from "@foundmill/shared";
+import { linkContractSignature } from "./contracts";
 import { conversionFactsFor, recordConversionForEvent, type ConversionOutcome } from "./conversions";
 import { linkCustomer } from "./customers";
 import type { IngestLogger } from "./types";
@@ -101,7 +102,8 @@ export async function ingestPlatformEvents(db: Db, events: readonly PlatformEven
       // The customer is linked (or added to the CRM) before the event is written, so the event names the CRM record.
       const facts = conversionFactsFor(event);
       const linked = facts ? await linkCustomer(tx, event.businessId, { connectorEntityId: facts.entityId, provider: facts.provider, customer: facts.customer, kind: facts.kind, occurredAt: event.occurredAt, sourceEventId: event.id }) : null;
-      const toWrite = facts && linked ? withLinkedEntity(event, facts.entityId, linked.entityId) : event;
+      // A signature request that names one of the business's contracts records that contract as signed and names it.
+      const toWrite = facts && linked ? withLinkedEntity(event, facts.entityId, linked.entityId) : await linkContractSignature(tx, event);
       const row = await writeEventRow(tx, { businessId: toWrite.businessId, type: toWrite.type, actor: toWrite.actor, entityIds: toWrite.entityIds, occurredAt: toWrite.occurredAt, payload: toWrite.payload, id: toWrite.id, idempotencyKey });
       if (row.id !== event.id) return { row, written: false, conversion: null as ConversionOutcome | null }; // same idempotency key, earlier row
       const conversion = facts ? await recordConversionForEvent(tx, toWrite, facts, actor, (t, input) => writeEventRow(t, input), linked?.entityId ?? null) : null;

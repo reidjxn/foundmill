@@ -4,7 +4,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WageBillScreen, readAgents, wageBillRows } from "../WageBillScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
-import { AGENT, BID, agents, agentsResponse, dataResponses, emptyResponses, tasksDone, wages } from "./fixtures";
+import { AGENT, BID, ENTITY, agents, agentsResponse, dataResponses, emptyResponses, tasksDone, wages } from "./fixtures";
 
 const props = { businessId: BID, departmentId: "d-fin" };
 
@@ -48,7 +48,10 @@ describe("WageBillScreen", () => {
     expect(within(table).queryByText("opus")).toBeNull(); // the model lives in the "Usage detail" view
     expect(screen.getByText("1 near or over cap")).toBeTruthy();
     const staff = screen.getByRole("region", { name: "Staff" });
-    expect(within(staff).getByRole("link", { name: /Mara Lindqvist/ })).toBeTruthy();
+    // a member with a CRM record links to it; one without is plain text (an auth id is never dressed up as a CRM link, #356)
+    expect(within(staff).getByRole("link", { name: /Mara Lindqvist/ }).getAttribute("href")).toBe(`/b/${BID}/crm/${ENTITY.mara}/overview`);
+    expect(within(staff).getByText("Lena Okafor")).toBeTruthy();
+    expect(within(staff).queryByRole("link", { name: /Lena Okafor/ })).toBeNull();
     expect(within(staff).getByText("Owner")).toBeTruthy();
     expect(within(staff).getByText(/Payroll €16,000.00/)).toBeTruthy();
   });
@@ -68,8 +71,12 @@ describe("WageBillScreen", () => {
     const empty = createFakeSource({ businessId: BID, responses: emptyResponses });
     const { unmount } = renderScreen(empty, <WageBillScreen {...props} />);
     expect(screen.getByText("No agents hired yet")).toBeTruthy();
+    // The department over the Team module is named and linked as the founder named it, never a hard-coded "Team".
+    expect(screen.getByText(/Hire agents from People › Recruitment/)).toBeTruthy();
+    expect(screen.getByText(/Invite staff from People › Staff/)).toBeTruthy();
+    expect(screen.queryByText(/Team › /)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open recruitment" }));
-    expect(empty.navigations[0]).toBe(`/b/${BID}/d/team/recruitment`);
+    expect(empty.navigations[0]).toBe(`/b/${BID}/d/people/recruitment`);
     unmount();
 
     const loading = createFakeSource({ businessId: BID });

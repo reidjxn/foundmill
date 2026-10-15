@@ -14,14 +14,16 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { openApprovalItem, periodOf, repos, resumeBusinessAgents, workspaceSnapshots } from "@foundmill/db";
+import { BYOK_CREDENTIAL_KIND, modelBudgetState, openApprovalItem, periodOf, repos, resumeBusinessAgents, workspaceSnapshots } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
 import { meter, type ModelId } from "@foundmill/models";
 import { LONG_LIVED_NAME_PATTERNS, parseSandboxSpec, type Sandbox, type SandboxProvider, type SandboxSpecInput } from "@foundmill/sandbox";
+import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { MockActivityEnvironment } from "@temporalio/testing";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
+import { openAgentSession } from "../activities/dispatch";
 import { ACCEPTANCE_EGRESS, classifyTurnEnd, createSessionActivities, SANDBOX_TTL_MINUTES } from "../activities/session";
 import type { SessionResult } from "../activities/types";
 import type { SessionControlBus } from "../control-bus";
@@ -139,6 +141,8 @@ let t: OrchestratorTestHarness;
 let workspaceRoot: string;
 let provider: ReturnType<typeof fakeSandboxProvider>;
 let acts: ReturnType<typeof createSessionActivities>;
+/** The dependencies `acts` was built on (the own-key tests add a vault to them). */
+let liveDeps: typeof t.deps;
 let researchTaskId: string;
 const previousEnv = { ...process.env };
 
@@ -148,6 +152,7 @@ beforeAll(async () => {
   provider = fakeSandboxProvider();
   Object.assign(process.env, SECRET_HOST_ENV);
   const deps = { ...t.deps, env: { ...t.deps.env, ANTHROPIC_API_KEY: MODEL_KEY, ORCHESTRATOR_WORKSPACE_DIR: workspaceRoot }, sandbox: async () => ({ provider, mode: "docker" as const, fellBackFrom: null }) };
+  liveDeps = deps;
   acts = createSessionActivities(deps);
   const research = await repos.tasks.create(t.db, t.businessId, { kind: "research", title: "Shortlist three suppliers", goalMd: "Find suppliers.", assigneeAgentId: t.workerId, status: "ready" });
   researchTaskId = research.id;
@@ -283,7 +288,7 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
     const saved = await repos.workspaces.latest(t.db, t.businessId, t.codeTaskId);
     expect(saved?.files.map((f) => f.path)).toEqual(["package.json", "src/index.ts"]);
     expect(saved).toMatchObject({ sessionId, agentId: t.workerId, added: 2 });
-    expect(allNotes.some((r) => r.event.kind === "note" && /Saved this task's code: 2 files \(\d+ KB\), 2 added\. Development › Code shows it\./.test(r.event.text))).toBe(true);
+    expect(allNotes.some((r) => r.event.kind === "note" && /Saved this task's code: 2 files \(\d+ KB\), 2 added\. the Code tab shows it\./.test(r.event.text))).toBe(true);
   });
 
   it("code task: the next session on the task starts from the saved code, is told it is data, and its recipients are untrusted from the first call", async () => {
@@ -474,7 +479,7 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
       expect(offline.calls.slice(calls).filter((c) => c.tool === "commit_files")).toEqual([]);
       expect((await repos.workspaces.latest(t.db, t.businessId, t.codeTaskId))).toMatchObject({ sessionId: failedId, pushedCommitSha: null });
       const failedNotes = await readSessionEvents(t.redis, failedId, { kinds: ["note"] });
-      expect(failedNotes.map((r) => (r.event.kind === "note" ? r.event.text : ""))).toContain("Not pushed to GitHub: the session did not finish. The code is saved on Development › Code.");
+      expect(failedNotes.map((r) => (r.event.kind === "note" ? r.event.text : ""))).toContain("Not pushed to GitHub: the session did not finish. The code is saved on the Code tab.");
     } finally {
       await repos.integrations.disconnect(t.deps.db, t.businessId, (await repos.integrations.getByKey(t.deps.db, t.businessId, "github"))!.id);
     }
@@ -1158,5 +1163,128 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     script = success(next.sessionId);
     await acts.runAgentSession(next.input, next.launch);
     expect(calls[0]!.options.maxBudgetUsd).toBe(1.8);
+  });
+});
+
+describe("runAgentSession (live runner): the agent's wage cap and the monthly model budget bound a session (audit #15)", () => {
+  const start = async (activities = acts, taskId = researchTaskId) => {
+    const sessionId = await openSessionRow(t, t.workerId, taskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId, sessionId };
+    return { sessionId, input, launch: await activities.prepareSession(input) };
+  };
+  /** The SDK ends the turn at its `maxBudgetUsd` after spending `costUSD`. */
+  const stopsAtBudget = (costUSD: number) =>
+    async function* (call: QueryCall) {
+      await promptsOf(call).next();
+      yield { type: "system", subtype: "init", session_id: "sdk-limit" };
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "text", text: "Reading everything." }], usage: { input_tokens: 900, output_tokens: 300 } } };
+      yield { type: "result", subtype: "error_max_budget_usd", is_error: true, errors: [], modelUsage: modelUsage(900, 300, costUSD) };
+    };
+  const monthSpend = async () => (await modelBudgetState(t.db, { id: t.businessId, modelBudgetMinor: 1_000_000_000 }, t.clock.now())).spentMinor;
+  const nextTask = (title: string) => repos.tasks.create(t.db, t.businessId, { kind: "research", title, goalMd: "Find suppliers.", assigneeAgentId: t.workerId, status: "ready" });
+  const reset = async () => {
+    await resumeBusinessAgents(t.db, t.businessId);
+    await repos.agents.update(t.db, t.businessId, t.workerId, { wageCapMinor: null });
+    await repos.agents.setStatus(t.db, t.businessId, t.workerId, "idle");
+    await repos.businesses.setModelBudget(t.db, t.businessId, null);
+    await repos.businesses.update(t.db, t.businessId, { modelBilling: "credits" });
+    await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+  };
+  afterEach(reset);
+  // The tests above leave sessions open, and the Free plan holds four at once; these are about the limits, not the plan.
+  beforeEach(async () => {
+    for (const open of (await repos.agents.listSessions(t.db, t.businessId, { openOnly: true, limit: 200 })).items) await repos.agents.endSession(t.db, t.businessId, open.id, { outcome: "done", endedAt: t.clock.now() });
+  });
+
+  it("on the platform key a session is handed what is left of its agent's wage cap, ends blocked on it, and that agent's next start is refused and paused", async () => {
+    const period = periodOf(t.clock.now());
+    await repos.usage.grantCredits(t.db, t.businessId, period, 100_000);
+    const spent = (await repos.usage.agentSpend(t.db, t.businessId, t.workerId, period)).costMinor;
+    await repos.agents.update(t.db, t.businessId, t.workerId, { wageCapMinor: spent + 200 });
+    const { sessionId, input, launch } = await start();
+    calls.length = 0;
+    script = stopsAtBudget(2.1);
+    const result = await acts.runAgentSession(input, launch);
+    // Two dollars were left of the cap (the task's default reserve is twenty, the credits far more).
+    expect(calls[0]!.options.maxBudgetUsd).toBe(2);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", costMinor: 210, reason: expect.stringMatching(/wage cap/), summary: expect.stringMatching(/reached its wage cap for the month/) });
+    expect((await acts.finishSession(input, launch, result)).taskStatus).toBe("blocked");
+    expect(await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).toEqual({ quantity: 1_200, costMinor: 210 });
+    // The overrun is the one turn the SDK needed to notice; the next dispatch of the agent is refused.
+    expect(await repos.usage.agentSpend(t.db, t.businessId, t.workerId, period)).toMatchObject({ costMinor: spent + 210, remainingMinor: 0 });
+    const refused = await openAgentSession(liveDeps, { businessId: t.businessId, agentId: t.workerId, taskId: (await nextTask("After the wage cap")).id });
+    expect(refused).toMatchObject({ sessionId: null, refused: "wage_cap" });
+    expect(await repos.agents.get(t.db, t.businessId, t.workerId)).toMatchObject({ status: "paused", pausedReason: "wage_cap" });
+  });
+
+  it("a session whose agent has nothing left of its cap does not start the SDK at all", async () => {
+    const period = periodOf(t.clock.now());
+    await repos.usage.grantCredits(t.db, t.businessId, period, 100_000);
+    const spent = (await repos.usage.agentSpend(t.db, t.businessId, t.workerId, period)).costMinor;
+    await repos.agents.update(t.db, t.businessId, t.workerId, { wageCapMinor: Math.max(1, spent) });
+    const { input, launch } = await start();
+    script = async function* () {
+      yield { type: "system", subtype: "init", session_id: "never-started" };
+      throw new Error("the SDK must not start");
+    };
+    calls.length = 0;
+    const result = await acts.runAgentSession(input, launch);
+    expect(calls).toHaveLength(0);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", reason: expect.stringMatching(/wage cap/), tokensIn: 0, costMinor: 0 });
+    await acts.finishSession(input, launch, result);
+  });
+
+  it("on the founder's own key the monthly model budget bounds a session the same way; nothing is booked while it runs, and the next start is refused with one Inbox warning", async () => {
+    const vault = createVault({ DEV_MASTER_KEY: generateMasterKey(), APP_ENV: "test" });
+    const ownKey = createSessionActivities({ ...liveDeps, vault });
+    await repos.businesses.update(t.db, t.businessId, { modelBilling: "byok" });
+    const integration = await repos.integrations.upsert(t.db, t.businessId, { connectorKey: "anthropic", status: "connected", authKind: "api_key", accountLabel: "sk-a***" });
+    const payload = { kind: "api_key", secret: "sk-ant-own-key-1234" };
+    const meta = await repos.credentials.store(t.db, t.businessId, { integrationId: integration.id, kind: BYOK_CREDENTIAL_KIND, record: await encryptJson(vault, payload, buildAad(t.businessId, "credentials", "pending")) });
+    await repos.credentials.rotate(t.db, t.businessId, meta.id, await encryptJson(vault, payload, buildAad(t.businessId, "credentials", meta.id)));
+    try {
+      const spent = await monthSpend();
+      await repos.businesses.setModelBudget(t.db, t.businessId, spent + 150);
+      const { sessionId, input, launch } = await start(ownKey);
+      expect(launch.modelBilling).toBe("byok");
+      calls.length = 0;
+      script = stopsAtBudget(1.6);
+      const result = await ownKey.runAgentSession(input, launch);
+      expect(calls[0]!.options.maxBudgetUsd).toBe(1.5);
+      expect(calls[0]!.options.env).toMatchObject({ [SDK_MODEL_KEY_NAME]: "sk-ant-own-key-1234" });
+      expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", costMinor: 160, reason: expect.stringMatching(/monthly model budget/), summary: expect.stringMatching(/reached its monthly model budget/) });
+      // The own-key run books only when it ends, to byok.
+      expect(await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).toEqual({ quantity: 0, costMinor: 0 });
+      await ownKey.finishSession(input, launch, result);
+      expect(await repos.usage.sessionTokens(t.db, t.businessId, sessionId)).toEqual({ quantity: 1_200, costMinor: 160 });
+      expect((await repos.usage.list(t.db, t.businessId, { sessionId, limit: 10 })).items.find((u) => u.kind === "tokens")?.billedTo).toBe("byok");
+
+      // The month's cost is over the budget: no agent starts, and the founder is told once.
+      const first = await openAgentSession(liveDeps, { businessId: t.businessId, agentId: t.workerId, taskId: (await nextTask("After the budget")).id });
+      const second = await openAgentSession(liveDeps, { businessId: t.businessId, agentId: t.workerId, taskId: (await nextTask("Still after the budget")).id });
+      expect(first).toMatchObject({ sessionId: null, refused: "model_budget", detail: expect.stringMatching(/monthly model budget is used up/) });
+      expect(second).toMatchObject({ refused: "model_budget" });
+      const warnings = (await repos.inbox.list(t.db, t.businessId, { limit: 100 })).items.filter((i) => i.subject === "Monthly model budget used: no new work starts");
+      expect(warnings).toHaveLength(1);
+    } finally {
+      await repos.credentials.revoke(t.db, t.businessId, meta.id);
+      await repos.integrations.disconnect(t.db, t.businessId, integration.id);
+    }
+  });
+
+  it("a session whose business has used its monthly model budget does not start the SDK, on the platform key too", async () => {
+    const period = periodOf(t.clock.now());
+    await repos.usage.grantCredits(t.db, t.businessId, period, 100_000);
+    await repos.businesses.setModelBudget(t.db, t.businessId, Math.max(1, await monthSpend()));
+    const { input, launch } = await start();
+    script = async function* () {
+      yield { type: "system", subtype: "init", session_id: "never-started" };
+      throw new Error("the SDK must not start");
+    };
+    calls.length = 0;
+    const result = await acts.runAgentSession(input, launch);
+    expect(calls).toHaveLength(0);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "budget", reason: expect.stringMatching(/monthly model budget is used up/), tokensIn: 0, costMinor: 0 });
+    await acts.finishSession(input, launch, result);
   });
 });

@@ -14,9 +14,11 @@ describe("signOut", () => {
     expect(form?.hidden).toBe(true);
     expect(submit).toHaveBeenCalledTimes(1);
     submit.mockRestore();
+    // Leave the page, as the browser would: the one-time listener goes, so the next test starts clean.
+    window.dispatchEvent(new Event("pagehide"));
   });
 
-  it("tells the other tabs before it leaves (audit RES-08)", () => {
+  it("tells the other tabs as it leaves, not before the POST has cleared the session (audit RES-08)", () => {
     const posted: unknown[] = [];
     class FakeChannel {
       onmessage = null;
@@ -29,7 +31,13 @@ describe("signOut", () => {
     vi.stubGlobal("BroadcastChannel", FakeChannel);
     const submit = vi.spyOn(HTMLFormElement.prototype, "submit").mockImplementation(() => undefined);
     signOut();
+    // The form is on its way: a tab told now would reach /login while the proxy still accepts the session.
+    expect(posted).toEqual([]);
+    window.dispatchEvent(new Event("pagehide"));
     expect(posted).toEqual([["foundmill:session", { type: "signed-out", from: expect.any(String) }]]);
+    // Once: a page restored from the back/forward cache and left again does not announce twice.
+    window.dispatchEvent(new Event("pagehide"));
+    expect(posted).toHaveLength(1);
     submit.mockRestore();
     vi.unstubAllGlobals();
   });

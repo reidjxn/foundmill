@@ -115,9 +115,12 @@ describe("Settings › Danger zone (BUILD §11.15): export, deletion request, ar
     expect(result.copy.body).toContain("cancel");
     expect(result.copy.title).toMatch(/^Deletion scheduled for [A-Z][a-z]{2} \d{1,2}, \d{4}$/); // US date
     expect(result.inboxItem?.type).toBe("warning");
-    // US dates in what the founder reads: "Oct 18, 2026", never "2026-10-18".
-    expect(result.copy.title).toMatch(/^Deletion scheduled for [A-Z][a-z]{2} \d{1,2}, \d{4}$/);
-    expect(result.copy.body).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    // US dates in the title, the Inbox subject and the body: "Oct 18, 2026", never "2026-10-18".
+    const usDay = new Date(scheduled).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+    expect(result.copy.title).toBe(`Deletion scheduled for ${usDay}`);
+    expect(result.inboxItem?.subject).toBe(`Deletion scheduled for ${usDay}`);
+    expect(result.copy.body).toContain(`deleted on ${usDay},`);
+    for (const text of [result.copy.title, result.copy.body, result.inboxItem?.bodyMd ?? ""]) expect(text).not.toMatch(/\d{4}-\d{2}-\d{2}/);
 
     // Visible on business.get; a second request is idempotent; cancel clears it.
     const got = await owner.business.get({ businessId });

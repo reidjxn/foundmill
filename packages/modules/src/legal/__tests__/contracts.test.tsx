@@ -63,7 +63,7 @@ describe("ContractsScreen", () => {
     renderScreen(fake, <ContractsScreen {...props} />);
     fireEvent.contextMenu(within(screen.getByRole("grid", { name: "Contracts" })).getByText("Lease agreement"));
     const menu = await screen.findByRole("menu");
-    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Open", "Open counterparty in CRM", "Send for review", "Send for signature", "Terminate"]);
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Open", "Open counterparty in CRM", "Send for review", "Mark awaiting signature", "Terminate"]);
     await user.click(within(menu).getByRole("menuitem", { name: "Send for review" }));
     expect(fake.mutations[0]).toEqual({ path: "legal.contracts.setStatus", input: { contractId: CONTRACT.lease, status: "review", provider: "manual" } });
   });

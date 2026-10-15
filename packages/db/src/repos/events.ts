@@ -7,7 +7,7 @@
  * payment event) plus `write` for callers inside packages/db (seeds, tests) that already hold a validated
  * payload: it checks the type against the shared vocabulary and the ids, but not the payload shape.
  */
-import { Actor, EVENT_TYPES, uuid, type EventType } from "@foundmill/shared";
+import { Actor, EVENT_TYPES, isPersonAddressedEvent, uuid, ValidationError, type EventType } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { events, outbox, type Event, type OutboxRow } from "../schema";
@@ -63,6 +63,9 @@ export const eventsRepo = {
   /** Inserts into events + outbox in one transaction (or returns the existing row for a known idempotency key). */
   async write(db: Executor, businessId: string, input: WriteEventInput): Promise<Event> {
     const v = parseInput(WriteEventInput, input, "event");
+    // A request or message from another founder belongs to its recipient, not to a business everyone on the staff can read
+    // (FU-S-2): it travels as a signal on the person's own stream and is read through the Network procedures.
+    if (isPersonAddressedEvent(v.type)) throw new ValidationError(`${v.type} is addressed to a person and is never written to a business's events`, { type: v.type });
     return db.transaction(async (tx) => {
       if (v.idempotencyKey) {
         const existing = await tx.select().from(events).where(and(eq(events.businessId, businessId), eq(events.idempotencyKey, v.idempotencyKey))).limit(1);

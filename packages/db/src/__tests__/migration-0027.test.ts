@@ -9,6 +9,10 @@ import { createTestDb, type TestHarness } from "../testing/pglite";
 import { createBusinessFixture, type BusinessFixture } from "./rls/fixtures";
 
 const TAG = "0027_live_social_delivery";
+/** Later migrations that build on 0027's columns (0058 grants them): applied right after it, as on a real upgrade. */
+const AFTER_TAGS = ["0058_live_social_column_grants"];
+// 0060 removes the very events and notes this test writes (and refuses them from then on): 0027 is checked as it was.
+const LATER_REMOVES_THEM = "0060_private_network_events";
 let h: TestHarness;
 let A: BusinessFixture;
 let ids: { direct: string; group: string; community: string; requested: string; other: string; wrongNote: string; rightNote: string };
@@ -17,7 +21,7 @@ const one = async <T>(q: ReturnType<typeof sql>) => ((await h.db.execute(q)) as 
 
 beforeAll(async () => {
   const all = readMigrations();
-  h = await createTestDb({ migrations: all.filter((m) => m.tag !== TAG) });
+  h = await createTestDb({ migrations: all.filter((m) => m.tag !== TAG && !AFTER_TAGS.includes(m.tag) && m.tag !== LATER_REMOVES_THEM) });
   A = await createBusinessFixture(h, "m27");
   const [x, y] = [A.memberId, A.viewerId];
   const q = async (text: string, params: unknown[] = []) => (await h.pg.query<{ id: string }>(text, params)).rows[0]!.id;
@@ -33,7 +37,7 @@ beforeAll(async () => {
   const wrongNote = await note("Message from a contact", requested);
   const rightNote = await note("A real message", other);
   ids = { direct, group, community, requested, other, wrongNote, rightNote };
-  await h.pg.exec(all.find((m) => m.tag === TAG)!.sql);
+  for (const tag of [TAG, ...AFTER_TAGS]) await h.pg.exec(all.find((m) => m.tag === tag)!.sql);
 });
 afterAll(() => h?.close());
 

@@ -10,8 +10,7 @@
  */
 import { communities, communityMembers, leaderboardEntries, repos } from "@foundmill/db";
 import { and, eq, sql } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import * as events from "../services/events";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { liveLimiter } from "../services/live";
 import { internalErrorMessage, pgErrorCode } from "../trpc";
 import { createApiHarness, type ApiHarness } from "./harness";
@@ -329,27 +328,21 @@ describe("messages and connections", () => {
     await goLive(hz.A.businessId);
   });
 
-  it("L4 and L6: a request to a person who does not exist is a clean not-found, and a request and its event commit together", async () => {
+  it("L4 and L6: a request to a person who does not exist is a clean not-found, and a request stores the request and nothing in the recipient's business", async () => {
     await goLive(hz.A.businessId);
-    // The recipient speaks for a listed business, so the request writes its event (and Inbox note) there.
+    // The recipient speaks for a listed business; the request still writes nothing there (FU-S-2: it is theirs alone).
     await goLive(hz.B.businessId);
     const owner = as(hz.A.ownerId);
     const unknown = await failure(owner.live.connections.request({ businessId: hz.A.businessId, toUserId: NOBODY }));
     expect(unknown.code).toBe("NOT_FOUND");
     noSql(unknown.message);
+    expect(await repos.social.listConnections(hz.db, hz.A.ownerId, { direction: "outgoing" })).not.toContainEqual(expect.objectContaining({ toUser: NOBODY }));
 
     const target = hz.B.adminId;
-    const before = await repos.social.listConnections(hz.db, hz.A.ownerId);
-    const spy = vi.spyOn(events, "writeEventRow").mockRejectedValueOnce(new Error("event store down"));
-    try {
-      expect((await failure(owner.live.connections.request({ businessId: hz.A.businessId, toUserId: target }))).code).toBe("INTERNAL_SERVER_ERROR");
-    } finally {
-      spy.mockRestore();
-    }
-    // Nothing was stored: the insert rolled back with the failed event.
-    expect(await repos.social.listConnections(hz.db, hz.A.ownerId)).toHaveLength(before.length);
     const made = await owner.live.connections.request({ businessId: hz.A.businessId, toUserId: target });
     expect(made).toMatchObject({ fromUser: hz.A.ownerId, toUser: target, status: "requested" });
+    expect((await as(target).live.connections.list({ status: "requested", direction: "incoming" })).map((c) => c.id)).toContain(made.id);
+    expect((await repos.events.list(hz.db, hz.B.businessId, { type: "connection.requested" })).items).toEqual([]);
   });
 
   it("names people under their profile visibility and businesses from public profiles", async () => {

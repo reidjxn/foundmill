@@ -1,16 +1,18 @@
 /**
- * live.* after the LIVE social audit (#28, #34, #65, #66):
- * - a request or a message reaches its RECIPIENT (an Inbox note and the event in each LIVE business they speak for, and
- *   a signal on their own stream channel), never the sender's business, and a repeated request notifies nobody;
+ * live.* after the LIVE social audit (#28, #34, #65, #66, FU-S-2):
+ * - a request or a message reaches its RECIPIENT alone: their badge, their Network lists and a signal on their own stream
+ *   channel. Nothing is written to any business (no event, no Inbox note), so no member or advisor of the recipient's
+ *   business can read a founder's private network messages through the api, the stream or the database;
  * - groups need everyone connected; removing a connection closes the direct thread; block anyone from a thread; leave
  *   and mute;
  * - posts pass a moderation screen (held ones wait for a moderator), members report, authors edit and delete,
  *   moderators hide, restore and remove; communities are created here and private ones are joined by invitation;
  * - "Ask to connect" reaches a leaderboard business's owner.
  */
-import { events, inboxItems, repos } from "@foundmill/db";
-import { MemoryRedis, userStreamKey } from "@foundmill/events";
-import { and, eq } from "drizzle-orm";
+import { events, inboxItems, messageThreads, messages, outbox, repos } from "@foundmill/db";
+import { businessStreamKey, MemoryRedis, userStreamKey } from "@foundmill/events";
+import { MEMBERSHIP_ROLES, PERSON_ADDRESSED_EVENT_TYPES, type MembershipRole } from "@foundmill/shared";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ADULTS_ONLY } from "../routers/live";
 import { liveLimiter, plainQuote } from "../services/live";
@@ -49,6 +51,12 @@ async function failure(p: Promise<unknown>): Promise<{ code: string; message: st
 
 const eventsOf = (businessId: string, type: string) => hz.db.select().from(events).where(and(eq(events.businessId, businessId), eq(events.type, type)));
 const notesOf = (businessId: string) => hz.db.select().from(inboxItems).where(and(eq(inboxItems.businessId, businessId), eq(inboxItems.type, "human_message")));
+/** Every person-addressed event, human message and outbox row for one, in any business: there must be none (FU-S-2). */
+const everywhere = async () => ({
+  events: await hz.db.select().from(events).where(inArray(events.type, [...PERSON_ADDRESSED_EVENT_TYPES])),
+  notes: await hz.db.select().from(inboxItems).where(eq(inboxItems.type, "human_message")),
+  outbox: ((await hz.db.execute(sql`select o.id from outbox o join events e on e.id = o.event_id where e.type in ('connection.requested', 'message.received')`)) as unknown as { rows: unknown[] }).rows,
+});
 const signals = async (userId: string) => (await redis.xrange(userStreamKey(userId), "-", "+")).map(([, fields]) => JSON.parse(String(fields[fields.indexOf("json") + 1])) as { kind: string; threadId?: string });
 
 /** A fresh person (who has confirmed that they are 18 or older) who owns a fresh LIVE business, so delivery has somewhere to file. */
@@ -61,117 +69,158 @@ async function founder(tag: string, live = true, adult = true): Promise<{ userId
   return { userId, businessId: business.id };
 }
 
-describe("#65: requests and messages reach the recipient", () => {
-  it("a request is filed in the recipient's LIVE business (event, Inbox note, signal), never the requester's, once", async () => {
+/** The people of a business other than its owner, one per role: everyone who can open its Inbox, events or stream. */
+async function staffOf(businessId: string, tag: string): Promise<Record<Exclude<MembershipRole, "owner">, string>> {
+  const out = {} as Record<Exclude<MembershipRole, "owner">, string>;
+  for (const role of MEMBERSHIP_ROLES.filter((r): r is Exclude<MembershipRole, "owner"> => r !== "owner")) {
+    out[role] = await hz.h.createUser(`${role}-${tag}@live-social.test`);
+    await repos.memberships.add(hz.db, businessId, { userId: out[role], role });
+  }
+  return out;
+}
+
+const INBOX_TABS = ["all", "respond", "customers", "updates", "messages", "archive"] as const;
+
+describe("#65 / FU-S-2: requests and messages reach the recipient alone", () => {
+  it("a request reaches the recipient (badge, Requests, signal on their own stream) and is written to no business, once", async () => {
     const asker = await founder("asker");
     const target = await founder("target");
-    await repos.founders.upsert(hz.db, asker.userId, { displayName: "Ana [[ent:00000000-0000-4000-8000-000000000001|Spoof]] Ruiz", visibility: "private" });
-    const c = await as(asker.userId).live.connections.request({ businessId: asker.businessId, toUserId: target.userId, message: "Loved your post on ![img](http://x) <b>pricing</b>" });
+    const staff = await staffOf(target.businessId, "target");
+    await repos.founders.upsert(hz.db, asker.userId, { displayName: "Ana Ruiz", visibility: "private" });
+    const c = await as(asker.userId).live.connections.request({ businessId: asker.businessId, toUserId: target.userId, message: "Loved your post on pricing" });
     expect(c).toMatchObject({ fromUser: asker.userId, toUser: target.userId, status: "requested" });
 
-    const theirs = await eventsOf(target.businessId, "connection.requested");
-    expect(theirs).toHaveLength(1);
-    expect(theirs[0]).toMatchObject({ narrated: true, payload: expect.objectContaining({ connectionId: c.id, fromUserId: asker.userId, toUserId: target.userId, fromBusinessId: asker.businessId }) });
-    expect(await eventsOf(asker.businessId, "connection.requested")).toEqual([]);
-    const notes = await notesOf(target.businessId);
-    expect(notes).toHaveLength(1);
-    expect(notes[0]).toMatchObject({ fromUserId: asker.userId, state: "unread", sourceEventIds: [theirs[0]!.id] });
-    expect(notes[0]!.subject).toBe("Connection request from Ana Spoof Ruiz");
-    // The sender's words are quoted as plain text: no entity markup, link, image or HTML survives.
-    expect(notes[0]!.bodyMd).toContain("Biz asker");
-    expect(notes[0]!.bodyMd).not.toMatch(/\[\[ent:|!\[|<b>|\]\(/);
-    expect(await notesOf(asker.businessId)).toEqual([]);
-    // The recipient's Inbox › Messages tab has it; the requester's does not.
-    expect((await as(target.userId).inbox.list({ businessId: target.businessId, tab: "messages" })).items.map((i) => i.id)).toEqual([notes[0]!.id]);
-    expect((await as(asker.userId).inbox.list({ businessId: asker.businessId, tab: "messages" })).items).toEqual([]);
+    // The recipient has it: the badge, the Requests list and a content-free signal on their own channel.
+    expect((await as(target.userId).live.summary()).requestsWaiting).toBe(1);
+    expect((await as(target.userId).live.connections.list({ status: "requested", direction: "incoming" })).map((r) => r.id)).toEqual([c.id]);
     expect(await signals(target.userId)).toEqual([expect.objectContaining({ kind: "connection_requested" })]);
+    expect(JSON.stringify(await signals(target.userId))).not.toContain("pricing");
+
+    // Nothing is written to any business: not the recipient's, not the requester's, not as an event, a note or an outbox row.
+    expect(await everywhere()).toEqual({ events: [], notes: [], outbox: [] });
+    for (const businessId of [target.businessId, asker.businessId]) {
+      expect(await eventsOf(businessId, "connection.requested")).toEqual([]);
+      expect(await notesOf(businessId)).toEqual([]);
+    }
+    // The recipient's staff and advisors, in every role, learn nothing: not through the Inbox, not on Network, not in their signals.
+    for (const [role, userId] of Object.entries(staff)) {
+      const member = as(userId);
+      for (const tab of INBOX_TABS) {
+        const list = await member.inbox.list({ businessId: target.businessId, tab });
+        expect(JSON.stringify(list), `${role} Inbox ${tab}`).not.toMatch(/Ana|pricing|connect/i);
+      }
+      expect((await member.inbox.list({ businessId: target.businessId, tab: "messages" })).items, role).toEqual([]);
+      expect(await member.live.summary(), role).toMatchObject({ requestsWaiting: 0, unreadMessages: 0, total: 0 });
+      expect(await member.live.connections.list(), role).toEqual([]);
+      expect(await signals(userId), role).toEqual([]);
+    }
+    // Straight from the database as one of them (row-level security applies): the business's events and Inbox hold nothing of it.
+    const staffRows = await hz.h.asUser(staff.member).run(async (tx) => ({
+      events: await tx.select().from(events).where(eq(events.businessId, target.businessId)),
+      items: await tx.select().from(inboxItems).where(eq(inboxItems.businessId, target.businessId)),
+      outbox: await tx.select().from(outbox).where(eq(outbox.businessId, target.businessId)),
+    }));
+    expect(JSON.stringify(staffRows)).not.toMatch(/connection\.requested|Ana|pricing/);
 
     // Asking again returns the same row and notifies nobody.
     await as(asker.userId).live.connections.request({ businessId: asker.businessId, toUserId: target.userId });
-    expect(await eventsOf(target.businessId, "connection.requested")).toHaveLength(1);
     expect(await signals(target.userId)).toHaveLength(1);
     expect((await as(target.userId).live.summary()).requestsWaiting).toBe(1);
   });
 
-  it("asking, withdrawing and asking again files one unread note; a read note lets the next request through", async () => {
+  it("asking, withdrawing and asking again counts as one waiting request, and still writes nothing to a business", async () => {
     const asker = await founder("again");
     const target = await founder("again-target");
     const ask = () => as(asker.userId).live.connections.request({ businessId: asker.businessId, toUserId: target.userId });
     const withdraw = (connectionId: string) => as(asker.userId).live.connections.remove({ connectionId });
     await withdraw((await ask()).id);
-    const again = await ask();
-    // Each new request is still an event in the recipient's business, but the Inbox gets one note while it is unread.
-    expect(await eventsOf(target.businessId, "connection.requested")).toHaveLength(2);
-    const notes = await notesOf(target.businessId);
-    expect(notes).toHaveLength(1);
-    await repos.inbox.markRead(hz.db, target.businessId, notes[0]!.id);
-    await withdraw(again.id);
+    expect((await as(target.userId).live.summary()).requestsWaiting).toBe(0);
     await ask();
-    expect(await notesOf(target.businessId)).toHaveLength(2);
+    // The new request signals the recipient's badge again (the signal carries no content); the badge counts the one request.
+    expect((await signals(target.userId)).map((x) => x.kind)).toEqual(["connection_requested", "connection_changed", "connection_requested"]);
+    expect((await as(target.userId).live.summary()).requestsWaiting).toBe(1);
+    expect(await everywhere()).toEqual({ events: [], notes: [], outbox: [] });
   });
 
-  it("never files anything in a business the sender belongs to, even one the recipient speaks for (co-founders)", async () => {
+  it("co-founders writing to each other are signalled, and neither of their businesses is written to", async () => {
     const lead = await founder("cofounder-lead");
     const partner = await founder("cofounder-partner");
     await repos.memberships.add(hz.db, lead.businessId, { userId: partner.userId, role: "admin" });
     const c = await as(lead.userId).live.connections.request({ businessId: lead.businessId, toUserId: partner.userId });
-    // The partner speaks for both businesses; only the one the requester is not in hears about it.
-    expect(await eventsOf(lead.businessId, "connection.requested")).toEqual([]);
-    expect(await eventsOf(partner.businessId, "connection.requested")).toHaveLength(1);
+    expect(await signals(partner.userId)).toEqual([expect.objectContaining({ kind: "connection_requested" })]);
     await as(partner.userId).live.connections.respond({ connectionId: c.id, status: "accepted" });
     await as(lead.userId).live.messages.send({ toUserIds: [partner.userId], body: "Board deck by Friday?" });
-    expect(await eventsOf(lead.businessId, "message.received")).toEqual([]);
-    expect(await notesOf(lead.businessId)).toEqual([]);
-    expect(await eventsOf(partner.businessId, "message.received")).toHaveLength(1);
+    expect((await as(partner.userId).live.summary()).unreadMessages).toBe(1);
+    // The partner reads it on Network; the lead's own businesses (theirs too) hold nothing of it.
+    expect((await as(partner.userId).live.messages.threads()).items).toHaveLength(1);
+    expect(await everywhere()).toEqual({ events: [], notes: [], outbox: [] });
   });
 
-  it("a recipient with no LIVE business still sees it on their badge (summary), and nothing is filed anywhere", async () => {
+  it("a recipient with no LIVE business sees it on their badge (summary) too", async () => {
     const asker = await founder("asker2");
     const personal = await founder("personal", false);
     await as(asker.userId).live.connections.request({ businessId: asker.businessId, toUserId: personal.userId });
-    expect(await eventsOf(personal.businessId, "connection.requested")).toEqual([]);
-    expect(await eventsOf(asker.businessId, "connection.requested")).toEqual([]);
     expect(await as(personal.userId).live.summary()).toMatchObject({ requestsWaiting: 1, total: 1 });
     expect(await signals(personal.userId)).toEqual([expect.objectContaining({ kind: "connection_requested" })]);
+    expect(await everywhere()).toEqual({ events: [], notes: [], outbox: [] });
   });
 
-  it("a message emits message.received in the recipient's business, one unread note per thread, nothing for the sender or a muted thread", async () => {
+  it("a message is readable by the people in its thread only: not by the recipient's staff, advisors or viewers, through the api, the stream or the database", async () => {
     const sender = await founder("sender");
     const reader = await founder("reader");
+    const staff = await staffOf(reader.businessId, "reader");
     await connect(sender.userId, reader.userId);
-    const first = await as(sender.userId).live.messages.send({ toUserIds: [reader.userId], body: "Hello <script>x</script> there" });
+    const first = await as(sender.userId).live.messages.send({ toUserIds: [reader.userId], body: "Here is the term sheet: valuation 12,000,000 <script>x</script>" });
     await as(sender.userId).live.messages.send({ threadId: first.threadId, body: "Second" });
-    const received = await eventsOf(reader.businessId, "message.received");
-    expect(received).toHaveLength(2);
-    expect(received.map((e) => e.payload)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ messageId: first.id, threadId: first.threadId, fromUserId: sender.userId, preview: "Hello script x /script there", negotiation: false }),
-        expect.objectContaining({ threadId: first.threadId, preview: "Second" }),
-      ]),
-    );
-    expect(received.every((e) => e.narrated)).toBe(true);
-    // A burst makes one unread note.
-    const notes = await notesOf(reader.businessId);
-    expect(notes).toHaveLength(1);
-    expect(notes[0]!.subject).toMatch(/^Message from /);
-    expect(await eventsOf(sender.businessId, "message.received")).toEqual([]);
-    expect(await notesOf(sender.businessId)).toEqual([]);
-    expect((await signals(reader.userId)).filter((s) => s.kind === "message_received")).toHaveLength(2);
+
+    // The recipient: the badge, the thread and one signal per message, each without content.
     expect(await as(reader.userId).live.summary()).toMatchObject({ unreadMessages: 2 });
-    // Once the note is read, the next message makes a new one.
-    await repos.inbox.markRead(hz.db, reader.businessId, notes[0]!.id);
-    await as(sender.userId).live.messages.send({ threadId: first.threadId, body: "Third" });
-    expect(await notesOf(reader.businessId)).toHaveLength(2);
-    // Muted: no event, no note, no signal, no badge.
+    const mine = (await as(reader.userId).live.messages.threads()).items.find((t) => t.id === first.threadId);
+    expect(mine).toMatchObject({ unread: 2, muted: false });
+    expect((await as(reader.userId).live.messages.list({ threadId: first.threadId })).items.map((m) => m.body)).toContain("Here is the term sheet: valuation 12,000,000 <script>x</script>");
+    const sent = (await signals(reader.userId)).filter((x) => x.kind === "message_received");
+    expect(sent).toEqual([expect.objectContaining({ threadId: first.threadId }), expect.objectContaining({ threadId: first.threadId })]);
+    expect(JSON.stringify(sent)).not.toMatch(/term sheet|valuation/);
+
+    // Nothing in any business: no event, no human message, no outbox row for the relay to publish on `ev:`.
+    expect(await everywhere()).toEqual({ events: [], notes: [], outbox: [] });
+    expect(await redis.xrange(businessStreamKey(reader.businessId), "-", "+")).toEqual([]);
+    expect(await redis.xrange(businessStreamKey(sender.businessId), "-", "+")).toEqual([]);
+
+    // The reader's staff, advisors and viewers cannot reach it: not in the Inbox, not on Network, not by opening the thread.
+    for (const [role, userId] of Object.entries(staff)) {
+      const member = as(userId);
+      for (const tab of INBOX_TABS) expect(JSON.stringify(await member.inbox.list({ businessId: reader.businessId, tab })), `${role} Inbox ${tab}`).not.toMatch(/term sheet|valuation|Second|Message from/);
+      expect(await member.live.summary(), role).toMatchObject({ unreadMessages: 0, total: 0 });
+      expect((await member.live.messages.threads()).items, role).toEqual([]);
+      expect((await failure(member.live.messages.list({ threadId: first.threadId }))).code, role).toBe("BAD_REQUEST");
+      expect((await failure(member.live.messages.thread({ threadId: first.threadId }))).code, role).toBe("BAD_REQUEST");
+      expect(await signals(userId), role).toEqual([]);
+    }
+    // Row-level security, as one of them: the thread and its messages are not theirs to read, and the business's events and Inbox hold nothing.
+    for (const userId of [staff.admin, staff.member, staff.advisor, staff.viewer]) {
+      const rows = await hz.h.asUser(userId).run(async (tx) => ({
+        // Named columns: the client roles read message_threads by column grant (0058), so `select *` is refused.
+        threads: await tx.select({ id: messageThreads.id, participantIds: messageThreads.participantIds }).from(messageThreads),
+        messages: await tx.select().from(messages),
+        events: await tx.select().from(events).where(eq(events.businessId, reader.businessId)),
+        items: await tx.select().from(inboxItems).where(eq(inboxItems.businessId, reader.businessId)),
+      }));
+      expect(rows.threads.filter((t) => t.id === first.threadId)).toEqual([]);
+      expect(rows.messages.filter((m) => m.threadId === first.threadId)).toEqual([]);
+      expect(JSON.stringify([rows.events, rows.items])).not.toMatch(/term sheet|valuation|message\.received/);
+    }
+
+    // Muted: no signal and no badge for the recipient; the sender never learns who muted the thread.
     await as(reader.userId).live.messages.mute({ threadId: first.threadId, muted: true });
     const before = (await signals(reader.userId)).length;
     await as(sender.userId).live.messages.send({ threadId: first.threadId, body: "Fourth" });
-    expect(await eventsOf(reader.businessId, "message.received")).toHaveLength(3);
     expect(await signals(reader.userId)).toHaveLength(before);
     expect((await as(reader.userId).live.summary()).unreadMessages).toBe(0);
-    expect((await as(reader.userId).live.messages.threads()).items.find((t) => t.id === first.threadId)).toMatchObject({ muted: true, unread: 4 });
-    // The sender never learns who muted the thread.
+    // The thread still holds the unread message (they read the earlier ones above); the badge leaves it out.
+    expect((await as(reader.userId).live.messages.threads()).items.find((t) => t.id === first.threadId)).toMatchObject({ muted: true, unread: 1 });
     expect((await as(sender.userId).live.messages.threads()).items.find((t) => t.id === first.threadId)).toMatchObject({ muted: false });
+    expect(await everywhere()).toEqual({ events: [], notes: [], outbox: [] });
   });
 
   it("quotes other people's text as plain text", () => {
@@ -216,10 +265,12 @@ describe("#34: groups, removed connections, blocks by person, leave and mute", (
     expect(pane.thread.kind).toBe("group");
     expect(pane.canSend).toBe(true);
     expect(pane.participants.map((p) => p.userId).sort()).toEqual([a.userId, c.userId].sort());
-    // Both other members got the message in their own business.
-    expect(await eventsOf(b.businessId, "message.received")).toHaveLength(1);
-    expect(await eventsOf(c.businessId, "message.received")).toHaveLength(1);
-    expect((await notesOf(b.businessId))[0]!.bodyMd).toContain("group conversation");
+    // Both other members were signalled on their own channel and read it on Network; no business was written to.
+    for (const other of [b, c]) {
+      expect(await signals(other.userId)).toEqual([expect.objectContaining({ kind: "message_received", threadId: sent.threadId })]);
+      expect((await as(other.userId).live.summary()).unreadMessages).toBe(1);
+    }
+    expect(await everywhere()).toEqual({ events: [], notes: [], outbox: [] });
   });
 });
 
@@ -454,7 +505,8 @@ describe("#66: asking to connect from a leaderboard row reaches the business's o
     const hidden = await founder("lb-hidden", false);
     const c = await as(me.userId).live.connections.request({ businessId: me.businessId, toBusinessId: them.businessId, message: "Congrats on the board" });
     expect(c).toMatchObject({ fromUser: me.userId, toUser: them.userId, status: "requested" });
-    expect(await eventsOf(them.businessId, "connection.requested")).toHaveLength(1);
+    expect(await signals(them.userId)).toEqual([expect.objectContaining({ kind: "connection_requested" })]);
+    expect(await eventsOf(them.businessId, "connection.requested")).toEqual([]);
     expect((await failure(as(me.userId).live.connections.request({ businessId: me.businessId, toBusinessId: me.businessId }))).code).toBe("BAD_REQUEST");
     expect((await failure(as(me.userId).live.connections.request({ businessId: me.businessId, toBusinessId: hidden.businessId }))).code).toBe("NOT_FOUND");
     expect((await failure(as(me.userId).live.connections.request({ businessId: me.businessId }))).code).toBe("BAD_REQUEST");

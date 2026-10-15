@@ -41,6 +41,15 @@ export const addDays = (d: Date, n: number): Date => new Date(d.getTime() + n * 
 export const addHours = (d: Date, n: number): Date => new Date(d.getTime() + n * HOUR_MS);
 export const atHour = (day: Date, hour: number, minute = 0): Date => new Date(utcMidnight(day).getTime() + hour * HOUR_MS + minute * 60_000);
 
+/**
+ * A start planned at a fixed hour of "today" (9 AM) is moved back when the seed runs earlier in the day, so nothing that
+ * is "running now" starts in the future (its elapsed clock would read 0s and never move until the planned hour).
+ */
+export function startedBefore(planned: Date, now: Date, marginMinutes = 30): Date {
+  const latest = now.getTime() - marginMinutes * 60_000;
+  return planned.getTime() <= latest ? planned : new Date(latest - (planned.getUTCMinutes() % 20) * 60_000);
+}
+
 /** Every YYYY-MM between two instants, inclusive, oldest first. */
 export function monthsBetween(from: Date, to: Date): string[] {
   const out: string[] = [];

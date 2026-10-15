@@ -82,7 +82,7 @@ export const ledgerlyUsageIndex: RecordingInput = {
       }),
       { kind: "approval", approvalId: "apr-3c88", autoResolveAfterMs: null },
     ),
-    ev(12400, note("Schema changes need the founder's approval in this club. Waiting on approval apr-3c88; the endpoint and tests are complete in the meantime.", "system")),
+    ev(12400, note("Schema changes need the founder's approval in this business. Waiting on approval apr-3c88; the endpoint and tests are complete in the meantime.", "system")),
     ev(13200, call("c2", "github", "run_migration", "succeeded", { argsSummary: "0019_usage_events_customer_period_idx.sql", resultSummary: "Migration applied (1 index, built concurrently)", durationMs: 2600, policyOutcome: "allow", approvalId: "apr-3c88" })),
     ev(13700, { kind: "stdout", command: "pnpm db:migrate", text: "Applying 0019_usage_events_customer_period_idx.sql ... done (1 migration)\n" }),
     ev(14600, { kind: "stdout", command: "psql -c 'explain analyze ...'", text: EXPLAIN_FAST }),

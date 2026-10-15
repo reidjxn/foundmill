@@ -309,6 +309,41 @@
       "when": 1794831120000,
       "tag": "0055_autopilot",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794917520000,
+      "tag": "0056_copy_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1795003920000,
+      "tag": "0057_finance_legal",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1795090320000,
+      "tag": "0058_live_social_column_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1795176720000,
+      "tag": "0059_model_budget",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1795263120000,
+      "tag": "0060_private_network_events",
+      "breakpoints": true
     }
   ]
 }

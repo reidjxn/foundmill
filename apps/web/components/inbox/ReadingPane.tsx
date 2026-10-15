@@ -145,7 +145,7 @@ interface BodyProps {
 function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps) {
   const { item, decisions, plan: storedPlan, confirmation, fromAgent, entities, approval } = data;
   const { businessId, data: biz, access } = useBusiness();
-  // A person's note: the founder's own ("You"), or another founder's words that Network filed here, never "You".
+  // A person's note: the founder's own ("You"), or someone else's, never "You".
   const sender = humanSender(item.fromUserId, biz.membership.userId);
   const senderName = sender === "self" ? "You" : sender === "other" ? NETWORK_SENDER : "Team";
   const glossary = biz.business.glossary;

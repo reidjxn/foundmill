@@ -13,7 +13,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql, type AnyColumn
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
 import {
-  businesses, communities, COMMUNITY_KINDS, communityMembers, CONNECTION_STATUSES, connections, events, founderProfiles, inboxItems, leaderboardEntries, leaderboards, memberships, messages, messageThreads,
+  businesses, communities, COMMUNITY_KINDS, communityMembers, CONNECTION_STATUSES, connections, founderProfiles, leaderboardEntries, leaderboards, memberships, messages, messageThreads,
   NEGOTIATION_STATUSES, negotiationThreads, networkAttestations, POST_REPORT_REASONS, postReports, posts, publicProfiles,
   type COMMUNITY_ROLES, type Community, type CommunityMember, type Connection, type Leaderboard, type LeaderboardEntry, type Message, type MessageThread, type NegotiationThread, type Post,
   type POST_REPORT_RESOLUTIONS, type PostReport, type PostScreening, type PublicProfile,
@@ -119,8 +119,6 @@ const OWNER_STAYS = "You own this community and it is joined by invitation only,
 /** Reports from this many different members hold a visible post for the moderators. */
 export const REPORTS_TO_HOLD = 3;
 
-/** Businesses a person speaks for on the network, at most this many (delivery fans out to each). */
-export const MAX_NETWORK_BUSINESSES = 5;
 /** A thread subject is the sender's own words: it may not pose as the platform or its staff (audit GLS2F-06). */
 const ThreadSubject = z.string().trim().max(200).refine((s) => !isReservedName(s, "subject"), RESERVED_NAME_MESSAGE);
 
@@ -261,7 +259,7 @@ export const socialRepo = {
       return null;
     };
     // `onCreated` runs inside the transaction only when this call inserted the row (not for an answer that already
-    // existed), so whatever it writes (the recipient's notification) commits with the request or not at all.
+    // existed), so whatever it writes commits with the request or not at all.
     const create = async (tx: Executor): Promise<Connection> => {
       const created = one(await tx.insert(connections).values({ fromUser: v.fromUser, toUser: v.toUser, message: v.message ?? null }).returning(), "connection");
       await options.onCreated?.(tx, created);
@@ -546,7 +544,7 @@ export const socialRepo = {
    * One message into a thread the sender is in. The sender must still be connected with everyone else in it and nobody
    * may have blocked anybody (0027: the rule is checked on every Send, not only when the thread starts, so removing a
    * connection closes your direct thread to new messages and a group member you are not connected with cannot write to
-   * you). `onSent` runs in the same transaction (delivery to the recipients).
+   * you). `onSent` runs in the same transaction, with the stored message and its thread.
    */
   async sendMessage(db: Executor, userId: string, threadId: string, body: string, options: { onSent?: (tx: Executor, message: Message, thread: MessageThread) => Promise<void> } = {}): Promise<Message> {
     const b = parseInput(z.string().trim().min(1).max(20_000), body, "message body");
@@ -692,31 +690,6 @@ export const socialRepo = {
     return { users, businesses: [...cards.values()] };
   },
 
-  // delivery (who a request or a message reaches) --------------------------------------------------------------------
-  /**
-   * The listed businesses (LIVE, committed, not archived) each of these people speaks for on the network: the ones
-   * where they are owner or admin, as the `public_profiles` founder rows are. A request or a message to the person is
-   * delivered to the Inbox of each (at most MAX_NETWORK_BUSINESSES, oldest first). People with none get no Inbox note;
-   * their Network badge still counts it.
-   */
-  async listedBusinessesFor(db: Executor, userIds: readonly string[]): Promise<Map<string, string[]>> {
-    const ids = [...new Set(userIds)];
-    const out = new Map<string, string[]>();
-    if (!ids.length) return out;
-    const rows = await db
-      .select({ userId: memberships.userId, businessId: businesses.id })
-      .from(memberships)
-      .innerJoin(businesses, eq(businesses.id, memberships.businessId))
-      .where(and(inArray(memberships.userId, ids), inArray(memberships.role, ["owner", "admin"]), publicBusiness))
-      .orderBy(asc(businesses.createdAt), asc(businesses.id));
-    for (const r of rows) {
-      const list = out.get(r.userId) ?? [];
-      if (list.length < MAX_NETWORK_BUSINESSES) list.push(r.businessId);
-      out.set(r.userId, list);
-    }
-    return out;
-  },
-
   /** The owner of a listed business: the person "Ask to connect" on a leaderboard row reaches. Null when it is not listed. */
   async listedBusinessOwner(db: Executor, businessId: string): Promise<string | null> {
     const rows = await db
@@ -727,34 +700,6 @@ export const socialRepo = {
       .orderBy(asc(memberships.createdAt))
       .limit(1);
     return rows[0]?.userId ?? null;
-  },
-
-  /**
-   * True when this business's Inbox already has an unread note for a message in this thread: a burst of messages makes
-   * one note, not one each (the Network page has every message).
-   */
-  async hasUnreadThreadNote(db: Executor, businessId: string, threadId: string): Promise<boolean> {
-    const rows = await db
-      .select({ id: inboxItems.id })
-      .from(inboxItems)
-      .innerJoin(events, and(eq(events.businessId, inboxItems.businessId), sql`${events.id} = any(${inboxItems.sourceEventIds})`))
-      .where(and(eq(inboxItems.businessId, businessId), eq(inboxItems.type, "human_message"), eq(inboxItems.state, "unread"), eq(events.type, "message.received"), sql`${events.payload}->>'threadId' = ${threadId}`))
-      .limit(1);
-    return rows.length > 0;
-  },
-
-  /**
-   * True when this business's Inbox already has an unread note for a connection request from this person: asking,
-   * withdrawing and asking again makes one note, not one each (Network lists the request itself).
-   */
-  async hasUnreadRequestNote(db: Executor, businessId: string, fromUserId: string): Promise<boolean> {
-    const rows = await db
-      .select({ id: inboxItems.id })
-      .from(inboxItems)
-      .innerJoin(events, and(eq(events.businessId, inboxItems.businessId), sql`${events.id} = any(${inboxItems.sourceEventIds})`))
-      .where(and(eq(inboxItems.businessId, businessId), eq(inboxItems.type, "human_message"), eq(inboxItems.state, "unread"), eq(events.type, "connection.requested"), sql`${events.payload}->>'fromUserId' = ${fromUserId}`))
-      .limit(1);
-    return rows.length > 0;
   },
 
   // communities -------------------------------------------------------------------------------------------------------

@@ -14,10 +14,14 @@
  * - Untrusted subject fields are never read for instructions and never echoed into a quick reply.
  * - Quick replies by subject kind (decision, update, agent or task, concept), 2–4 of them, at most one recommended.
  */
+import { usDate } from "@foundmill/shared";
 import type { AgentReplyOutput, QuickReply } from "../schemas";
 import { QUICK_REPLY_LABEL_MAX, founderIntent } from "../conversation-schema";
 import { type MockContext, isRecord, truncate } from "./inputs";
 import { detectHardGates } from "./planCompiler";
+
+/** The api sends the expected date as words ("Oct 11"); an ISO date from any other caller is read the US way too. */
+const usEta = (eta: string): string => (/^\d{4}-\d{2}-\d{2}(?:T|$)/.test(eta) ? usDate(eta, { year: false }) : eta);
 
 interface VoiceIn {
   greeting: string;
@@ -269,7 +273,7 @@ function answer(question: string, s: SubjectIn, task: TaskIn | null, next: TaskI
     if (task) {
       const pct = task.progressPct ? `about ${task.progressPct}% through` : "under way";
       const phase = task.phase ? ` in the ${task.phase.replace(/_/g, " ")} step` : "";
-      const eta = task.eta ? ` Expected by ${task.eta}.` : "";
+      const eta = task.eta ? ` Expected by ${usEta(task.eta)}.` : "";
       return { bubbles: [`${task.title}: ${pct}${phase}.${eta}`], reaction: "noted", missing: !task.progressPct };
     }
     return { bubbles: ["I'm not on a task right now.", "I'm free for the next one."], reaction: "noted", missing: false };

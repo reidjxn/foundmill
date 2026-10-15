@@ -117,17 +117,17 @@ export const capTable: CapTableResponse = {
     { id: "e4", holderEntityId: ENTITY.northcap, securityId: SECURITY.safe, quantity: "1", priceMinor: 10_000_000, currency: "EUR", vesting: null, issuedAt: "2026-08-14", createdAt: "2026-08-14T10:00:00.000Z", updatedAt: "2026-08-14T10:00:00.000Z", holder: { id: ENTITY.northcap, displayName: "Northcap Ventures", kind: "organisation" }, security: { id: SECURITY.safe, class: "Post-money SAFE 2026", kind: "safe" } },
   ],
   summary: {
-    totalQuantity: 9_200_001,
+    totalQuantity: 9_200_000,
     byClass: [
-      { securityId: SECURITY.common, class: "Common", kind: "common", quantity: 9_000_000, holders: 2, authorisedQuantity: 10_000_000, fullyDilutedPct: 97.83 },
-      { securityId: SECURITY.options, class: "2026 Option Plan", kind: "option", quantity: 200_000, holders: 1, authorisedQuantity: 1_000_000, fullyDilutedPct: 2.17 },
-      { securityId: SECURITY.safe, class: "Post-money SAFE 2026", kind: "safe", quantity: 1, holders: 1, authorisedQuantity: null, fullyDilutedPct: 0 },
+      { securityId: SECURITY.common, class: "Common", kind: "common", convertible: false, quantity: 9_000_000, holders: 2, authorisedQuantity: 10_000_000, fullyDilutedPct: 97.83 },
+      { securityId: SECURITY.options, class: "2026 Option Plan", kind: "option", convertible: false, quantity: 200_000, holders: 1, authorisedQuantity: 1_000_000, fullyDilutedPct: 2.17 },
+      { securityId: SECURITY.safe, class: "Post-money SAFE 2026", kind: "safe", convertible: true, quantity: 1, holders: 1, authorisedQuantity: null, fullyDilutedPct: null },
     ],
     byHolder: [
-      { holderEntityId: ENTITY.mara, displayName: "Mara Lindqvist", quantity: 4_500_000, fullyDilutedPct: 48.91, positions: [{ securityId: SECURITY.common, class: "Common", quantity: 4_500_000 }] },
-      { holderEntityId: ENTITY.tomas, displayName: "Tomas Berg", quantity: 4_500_000, fullyDilutedPct: 48.91, positions: [{ securityId: SECURITY.common, class: "Common", quantity: 4_500_000 }] },
-      { holderEntityId: ENTITY.lena, displayName: "Lena Okafor", quantity: 200_000, fullyDilutedPct: 2.17, positions: [{ securityId: SECURITY.options, class: "2026 Option Plan", quantity: 200_000 }] },
-      { holderEntityId: ENTITY.northcap, displayName: "Northcap Ventures", quantity: 1, fullyDilutedPct: 0, positions: [{ securityId: SECURITY.safe, class: "Post-money SAFE 2026", quantity: 1 }] },
+      { holderEntityId: ENTITY.mara, displayName: "Mara Lindqvist", quantity: 4_500_000, fullyDilutedPct: 48.91, positions: [{ securityId: SECURITY.common, class: "Common", convertible: false, quantity: 4_500_000 }] },
+      { holderEntityId: ENTITY.tomas, displayName: "Tomas Berg", quantity: 4_500_000, fullyDilutedPct: 48.91, positions: [{ securityId: SECURITY.common, class: "Common", convertible: false, quantity: 4_500_000 }] },
+      { holderEntityId: ENTITY.lena, displayName: "Lena Okafor", quantity: 200_000, fullyDilutedPct: 2.17, positions: [{ securityId: SECURITY.options, class: "2026 Option Plan", convertible: false, quantity: 200_000 }] },
+      { holderEntityId: ENTITY.northcap, displayName: "Northcap Ventures", quantity: 0, fullyDilutedPct: null, positions: [{ securityId: SECURITY.safe, class: "Post-money SAFE 2026", convertible: true, quantity: 1 }] },
     ],
   },
 };
@@ -164,12 +164,17 @@ export const tasksDone: TasksListResponse = {
 };
 
 export const humans: MembershipRow[] = [
-  { id: "m1", userId: "99999999-9999-4999-8999-999999999991", role: "owner", createdAt: "2025-10-01T10:00:00.000Z", displayName: "Mara Lindqvist" },
-  { id: "m2", userId: "99999999-9999-4999-8999-999999999992", role: "member", createdAt: "2026-04-01T10:00:00.000Z", displayName: "Lena Okafor" },
+  { id: "m1", userId: "99999999-9999-4999-8999-999999999991", role: "owner", createdAt: "2025-10-01T10:00:00.000Z", displayName: "Mara Lindqvist", entityId: ENTITY.mara },
+  { id: "m2", userId: "99999999-9999-4999-8999-999999999992", role: "member", createdAt: "2026-04-01T10:00:00.000Z", displayName: "Lena Okafor", entityId: null },
 ];
 
 /** P&L for a single month (wage bill period): payroll + contractors = €16,000. */
 export const pnlOctober: PnlResponse = { monthly: [], categories: [{ category: "Payroll", inflowMinor: 0, outflowMinor: 1_500_000, count: 1 }, { category: "Contractors", inflowMinor: 0, outflowMinor: 100_000, count: 2 }, { category: "Revenue", inflowMinor: 740_000, outflowMinor: 0, count: 1 }], snapshots: [], source: "bank_categorised", label: "Management P&L, unaudited, cash basis" };
+
+/** The founder renamed the department over the Team module ("People", slug "people"): copy and links follow it. */
+export const departments = [
+  { id: "d-people", name: "People", slug: "people", colourToken: "dept-5", position: 4, hidden: false, moduleKeys: ["team"], tabs: [{ id: "t-squad", slug: "squad", title: "Agents", position: 0 }, { id: "t-staff", slug: "staff", title: "Staff", position: 1 }, { id: "t-recruitment", slug: "recruitment", title: "Recruitment", position: 5 }] },
+];
 
 /** Everything every screen reads, keyed by procedure path. */
 export const dataResponses: Record<string, unknown> = {
@@ -184,6 +189,7 @@ export const dataResponses: Record<string, unknown> = {
   "team.agents.list": agentsResponse,
   "dev.tasks.list": tasksDone,
   "team.humans.list": humans,
+  "department.list": departments,
 };
 
 export const emptyResponses: Record<string, unknown> = {
@@ -198,4 +204,5 @@ export const emptyResponses: Record<string, unknown> = {
   "team.agents.list": { agents: [], templates: [] },
   "dev.tasks.list": { items: [], nextCursor: null },
   "team.humans.list": [],
+  "department.list": departments,
 };

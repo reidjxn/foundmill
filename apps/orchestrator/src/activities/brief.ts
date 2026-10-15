@@ -3,8 +3,9 @@
  * Facts come from the repositories; nothing is invented and every non-real number carries its label.
  */
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { concurrencyAllowance, creditsState, periodOf, repos } from "@foundmill/db";
+import { concurrencyAllowance, creditsState, modelBudgetState, periodOf, repos } from "@foundmill/db";
 import type { TaskStatus } from "@foundmill/shared";
+import { detectSectors, openSectorGates } from "@foundmill/shared/sectors";
 import type { OrchestratorDeps } from "../deps";
 import { failureStreak, taskRetry } from "../retry";
 import { enforceWageCaps, recoverAgents } from "./dispatch";
@@ -105,6 +106,10 @@ export function createBriefActivities(deps: OrchestratorDeps) {
       }));
       const untaskedRoadmap = roadmap.map((r) => ({ id: r.id, title: r.title, horizon: r.horizon }));
       const agentsStopped = business.agentsStoppedAt !== null;
+      // Regulated-sector gates the founder confirmed (or that were suggested and never turned off) and has not cleared.
+      const sectorChoices = await repos.legal.listSectorChoices(db, businessId);
+      const suggested = detectSectors({ name: business.name, archetype: business.archetype, glossary: business.glossary }).map((h) => h.key);
+      const openGates = openSectorGates(sectorChoices, suggested);
 
       // Credits (USD) for a business on credits: the period's balance, or what its tier includes before the first charge
       // of the month. A business on its own key has no Foundmill budget here (null).
@@ -115,6 +120,10 @@ export function createBriefActivities(deps: OrchestratorDeps) {
       } catch (err) {
         deps.log.debug({ err: (err as Error).message }, "credit balance unavailable");
       }
+
+      // The monthly model budget (0059), whoever pays the model: dispatch refuses new sessions once it is used up, and the
+      // plan is not drafted either (a planning call costs money too).
+      const monthlyBudget = await modelBudgetState(db, business, now);
 
       // The plan tier's concurrent-agent limit (BUILD §10.5), less the sessions still open from earlier cycles or starts.
       const concurrency = await concurrencyAllowance(db, business, now);
@@ -133,6 +142,9 @@ export function createBriefActivities(deps: OrchestratorDeps) {
       if (inFlight.items.length) sections.push(`## In flight (${inFlight.items.length}${inFlight.nextCursor ? "+" : ""})\n${fit(inFlight.items.map((t) => `- [${t.status}] ${t.title} (${t.kind}, id ${t.id})`), 300).join("\n")}`);
       if (untaskedRoadmap.length) sections.push(`## Roadmap without tasks (${untaskedRoadmap.length})\n${fit(untaskedRoadmap.map((r) => `- [${r.horizon}] ${r.title} (roadmap item ${r.id}): needs a task graph (Development › Plan) before anyone can start it`), 300).join("\n")}`);
       sections.push(`## Governance\n${agentsStopped ? "The team is stopped (Stop all agents, a revoked key or used-up credits): no work starts until an owner or admin resumes it. " : ""}Approvals waiting: ${pendingApprovals}. Inbox items blocking Continue: ${blockingInboxItems}. Concurrency limit: ${maxAgents} agents (plan ${business.planTier}: ${concurrency.limit} at once, ${concurrency.running} already running). Model budget remaining this period: ${budgetRemainingMinor === null ? "the founder's own Anthropic key (no credits)" : formatMinor(budgetRemainingMinor, CREDITS_CURRENCY) + " of credits (Estimate)"}. Rate-limit capacity: ${capacity}.`);
+      if (openGates.length) {
+        sections.push(`## Regulated areas (gates open)\nThe founder has not cleared these sector gates. Do not do any of the following; propose it to the founder as a decision instead, with what you would do and why:\n${openGates.map((g) => `- ${g.label}: ${g.blocked.join("; ")}`).join("\n")}`);
+      }
       sections.push(`## Rules of engagement\nFacts live in the database; query them through tools rather than guessing. Every external action or spend goes through the gateway and its policy. Hard gates (money movement, signing, filings in the founder's name, deletions, security settings) always become founder tasks. Label estimates and forecasts.`);
       let text = sections.join("\n\n");
       if (approxTokens(text) > BRIEF_TOKEN_BUDGET) text = text.slice(0, BRIEF_TOKEN_BUDGET * CHARS_PER_TOKEN - 1) + "…";
@@ -155,6 +167,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
         blockingInboxItems,
         agentsStopped,
         budgetRemainingMinor,
+        modelBudgetRemainingMinor: monthlyBudget.remainingMinor,
         creditsCurrency: CREDITS_CURRENCY,
         maxAgents,
         capacity,

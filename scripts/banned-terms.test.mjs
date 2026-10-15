@@ -10,8 +10,10 @@ import {
   findTermHits,
   looksLikeClassList,
   looksLikeIdentifier,
+  scanCedarFile,
   scanCodeFile,
   scanProseFile,
+  scanSvgFile,
 } from "./banned-terms.mjs";
 
 let dir;
@@ -230,5 +232,69 @@ describe("prose files", () => {
     );
     assert.deepEqual(terms(hits), ["Match Day", "trophy"]);
     assert.equal(hits[0].line, 2);
+  });
+});
+
+describe("formation (the Channel Board and the Task graph, not the football word)", () => {
+  const formation = "formation (use Channel Board / Task graph)";
+  it("catches the bare word in a first-cycle task goal, a Board decision and a button label", () => {
+    assert.deepEqual(terms(findTermHits("propose the starting formation with cost-per-customer ranges")), [formation]);
+    assert.deepEqual(terms(findTermHits("Distribution has a formation ready; Development is planning.")), [formation]);
+    assert.deepEqual(terms(findTermHits("Open Formation")), [formation]);
+    assert.deepEqual(terms(findTermHits("the Formation Board")), [formation]);
+  });
+
+  it("leaves company formation alone", () => {
+    for (const ok of [
+      "Company formation costs",
+      "formation and annual costs for a Ltd",
+      "limited-company formation",
+      "the formation cost is paid once",
+      "LLC formation in Delaware",
+      "FORMATIONS LTD",
+    ]) {
+      assert.deepEqual(findTermHits(ok), [], ok);
+    }
+  });
+
+  it("is found in an archetype-style task literal", () => {
+    const hits = scanCode("archetype.ts", 'export const goal = "Score every channel and propose the starting formation.";');
+    assert.deepEqual(terms(hits), [formation]);
+  });
+});
+
+describe("product name", () => {
+  it("flags a literal product name in user-facing copy; APP_NAME interpolation passes", () => {
+    const bad = scanCode("copy.tsx", 'export const A = () => <p>Public profiles appear here labeled "On Foundmill".</p>;');
+    assert.deepEqual(terms(bad), ["product name (use APP_NAME from @foundmill/config)"]);
+    const ok = scanCode("copy-ok.tsx", 'import { APP_NAME } from "@foundmill/config";\nexport const A = () => <p>Labeled "On {APP_NAME}".</p>;');
+    assert.deepEqual(ok, []);
+  });
+});
+
+describe("svg and cedar files", () => {
+  it("reads the text of an SVG (the Open Graph card), not its markup", () => {
+    const p = join(dir, "card.svg");
+    writeFileSync(p, '<svg aria-label="Foundmill"><title>Foundmill</title><text x="1">Build a real business with a squad of AI agents.</text><path d="M0 0 squad"/></svg>');
+    const hits = [];
+    scanSvgFile(p, hits);
+    assert.deepEqual(terms(hits), ["squad (use team)"]);
+    writeFileSync(p, "<svg><text>Build a real business with a team of AI agents.</text></svg>");
+    const clean = [];
+    scanSvgFile(p, clean);
+    assert.deepEqual(clean, []);
+  });
+
+  it("reads a Cedar @reason (it is the deny reason an agent and the founder see)", () => {
+    const p = join(dir, "30-offline.cedar");
+    writeFileSync(p, '@id("offline")\n@reason("This channel runs in kit mode: the founder books and signs.")\nforbid (principal, action, resource);\n');
+    const hits = [];
+    scanCedarFile(p, hits);
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0].line, 2);
+    writeFileSync(p, '@id("offline")\n@reason("This channel runs in offline tracking: the founder books and signs.")\nforbid (principal, action, resource);\n');
+    const clean = [];
+    scanCedarFile(p, clean);
+    assert.deepEqual(clean, []);
   });
 });

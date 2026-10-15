@@ -3,7 +3,8 @@
  * two years of journey_daily rows, inbox items of every type with valid entity links, LIVE extras for Ledgerly,
  * RLS (the demo owner sees both businesses, a stranger none) and idempotent, deterministic re-runs.
  */
-import { CHANNEL_KEYS, INBOX_ITEM_TYPES } from "@foundmill/shared";
+import { CHANNEL_KEYS, INBOX_ITEM_TYPES, VestingSchedule, readVesting } from "@foundmill/shared";
+import { projectForecast, type ForecastDrivers } from "@foundmill/shared/forecast";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // Not a declared dependency of @foundmill/db (docs/NEEDED_DEPS.md); the validator is pure so the source import is safe.
@@ -12,6 +13,7 @@ import type { Db } from "../../client";
 import { repos } from "../../repos";
 import * as s from "../../schema";
 import { createTestDb, type TestHarness } from "../../testing/pglite";
+import { startedBefore } from "../context";
 import { BOOTSTRAPPED_COMMUNITY_SLUG, deleteDemoBusinesses, demoSeedState, LEDGERLY_BUSINESS_ID, LEDGERLY_COMMUNITY_SLUG, NORTHWIND_BUSINESS_ID, SEED_COMMUNITY_SLUGS, seedDemo, type SeedDemoResult } from "../index";
 
 const TODAY = new Date("2026-10-07T12:00:00.000Z");
@@ -337,6 +339,70 @@ describe("seedDemo on PGlite", () => {
     for (const m of mrr.filter((x) => String((x.ref as Record<string, unknown>)?.trophyKey ?? "").startsWith("mrr_"))) expect(m.ref).toMatchObject({ estimate: true });
   }, 120_000);
 
+  it("keeps the demo cap table honest: SAFEs are not shares, the pool reserve is unissued, grants vest on a real schedule (#168, #169, #346, #170)", async () => {
+    const securities = await repos.capTable.listSecurities(db, LEDGERLY_BUSINESS_ID);
+    const entries = await repos.capTable.listEntries(db, LEDGERLY_BUSINESS_ID);
+    const summary = await repos.capTable.summary(db, LEDGERLY_BUSINESS_ID);
+    const options = securities.find((x) => x.kind === "option")!;
+    // the 950,000 reserve is authorized but unissued; only the grant to a person is an issuance
+    expect(Number(options.authorisedQuantity)).toBe(1_000_000);
+    const optionEntries = entries.filter((e) => e.securityId === options.id);
+    expect(optionEntries.map((e) => Number(e.quantity))).toEqual([50_000]);
+    expect(entries.some((e) => e.holder.displayName.toLowerCase().includes("option pool"))).toBe(false);
+    expect(summary.byClass.find((c) => c.securityId === options.id)).toMatchObject({ quantity: 50_000, authorisedQuantity: 1_000_000 });
+    // SAFEs carry a principal, not shares: out of the fully diluted total and the percentages
+    expect(summary.totalQuantity).toBe(8_050_000);
+    expect(summary.byClass.filter((c) => c.convertible).every((c) => c.fullyDilutedPct === null)).toBe(true);
+    expect(summary.byHolder.filter((h) => h.fullyDilutedPct !== null).reduce((n, h) => n + (h.fullyDilutedPct ?? 0), 0)).toBeGreaterThan(99.9);
+    // prices are in the class's currency
+    expect(entries.every((e) => e.currency === securities.find((x) => x.id === e.securityId)!.currency)).toBe(true);
+    expect(entries.every((e) => e.currency === "GBP")).toBe(true);
+    // vesting is the shared shape
+    for (const e of entries.filter((x) => x.vesting)) expect(VestingSchedule.safeParse(e.vesting).success).toBe(true);
+    const grant = optionEntries[0]!;
+    expect(readVesting(grant.vesting as Record<string, unknown>, grant.issuedAt)).toMatchObject({ months: 48, cliffMonths: 12 });
+    // nominal £0.0001 × 8,000,000 ordinary shares
+    const legal = await repos.legal.primaryEntity(db, LEDGERLY_BUSINESS_ID);
+    expect(legal!.shareCapitalMinor).toBe(80_000);
+  });
+
+  it("stores forecasts in the drivers contract, projected from this month by the function every screen uses (#173)", async () => {
+    for (const businessId of [LEDGERLY_BUSINESS_ID, NORTHWIND_BUSINESS_ID]) {
+      const forecasts = await repos.finance.listForecasts(db, businessId);
+      expect(forecasts.map((f) => f.scenario).sort()).toEqual(["base", "downside", "upside"]);
+      for (const f of forecasts) {
+        const d = f.drivers as Record<string, number | null>;
+        expect(d).not.toHaveProperty("monthlyOutflowMinor");
+        expect(d).not.toHaveProperty("mrrMinorNow");
+        expect(d.horizonMonths).toBe(24);
+        expect(d.monthlyCostsMinor).toBeGreaterThan(0);
+        const series = f.series as { month: string; cashMinor: number }[];
+        expect(series).toHaveLength(24);
+        expect(series[0]!.month).toBe("2026-10"); // this month, not next
+        const projection = projectForecast(d as unknown as ForecastDrivers, "2026-10");
+        expect(series.map((p) => p.cashMinor)).toEqual(projection.series.map((p) => p.cashMinor));
+        expect(d.runway_months ?? null).toBe(projection.runwayMonths);
+      }
+    }
+  });
+
+  it("books the bank's revenue from the series the milestones and the Inbox's MRR come from, so Finance's MRR and the Inbox describe one business (#355)", async () => {
+    const bankRows = await db.execute(sql`
+      select to_char(date_trunc('month', t.booked_at), 'YYYY-MM') as month, sum(t.amount_minor)::bigint as bank
+      from transactions t where t.business_id = ${LEDGERLY_BUSINESS_ID}::uuid and t.category = 'revenue' and t.amount_minor > 0 group by 1`);
+    const bank = new Map((bankRows as unknown as { rows: { month: string; bank: string }[] }).rows.map((r) => [r.month, Number(r.bank)]));
+    // Finance's MRR: the last three full months of revenue ÷ 3, gross of the processor's 2.9%
+    const financeMrr = (["2026-07", "2026-08", "2026-09"].reduce((n, m) => n + (bank.get(m) ?? 0), 0) / 3) / 0.971;
+    const notes = await db.execute(sql`select body_md from inbox_items where business_id = ${LEDGERLY_BUSINESS_ID}::uuid and body_md like '%MRR £%'`);
+    const figures = (notes as unknown as { rows: { body_md: string }[] }).rows.map((r) => /MRR £([\d,]+(?:\.\d+)?)/.exec(r.body_md)?.[1]).filter((x): x is string => !!x).map((x) => Number(x.replace(/,/g, "")) * 100);
+    expect(figures.length).toBeGreaterThan(0);
+    for (const inbox of figures) {
+      // the trailing three-month average of a growing MRR sits a little under today's MRR, never a fifth of it
+      expect(financeMrr / inbox).toBeGreaterThan(0.6);
+      expect(financeMrr / inbox).toBeLessThan(1.05);
+    }
+  });
+
   it("RLS: the demo owner sees both businesses and their journey_daily rows; a stranger sees none", async () => {
     const stranger = await h.createUser("stranger@test.local");
     const mine = await h.asUser(result.owner.userId).run((tx) => repos.businesses.listForUser(tx, result.owner.userId));
@@ -447,4 +513,16 @@ describe("seedDemo on PGlite", () => {
     expect(await deleteDemoBusinesses(db)).toBe(0);
     expect((await db.select({ id: s.businesses.id }).from(s.businesses).where(eq(s.businesses.slug, "ledgerly")))[0]?.id).toBe(taken!.id);
   }, 120_000);
+});
+
+describe("startedBefore: nothing running starts after the seed ran (the 9 AM start of a session that is running now)", () => {
+  it("keeps a start that has happened and moves a later one back before now, whatever the hour of the seed", () => {
+    const nine = new Date("2026-10-15T09:20:00Z");
+    expect(startedBefore(nine, new Date("2026-10-15T12:00:00Z"))).toEqual(nine);
+    for (const hour of [0, 6, 8, 9]) {
+      const now = new Date(Date.UTC(2026, 9, 15, hour, 10));
+      const started = startedBefore(nine, now);
+      expect(started.getTime(), `seeded at ${hour}:10`).toBeLessThanOrEqual(now.getTime() - 30 * 60_000);
+    }
+  });
 });

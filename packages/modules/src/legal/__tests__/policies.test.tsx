@@ -37,6 +37,34 @@ describe("PoliciesScreen", () => {
     expect(fake.queried.get("product.spec.get")).toEqual({ section: "Policies" });
   });
 
+  it("publishes the first version of a policy that is not in the spec yet, as the founder (#174)", async () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: () => ({ id: "new-block" }) });
+    renderScreen(fake, <PoliciesScreen {...props} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Cookie policy" }));
+    const preview = screen.getByRole("region", { name: "Cookie policy preview" });
+    expect(within(preview).getByText(/Publishing adds it to the "Policies" section of the product spec as you/)).toBeTruthy();
+    expect(within(preview).queryByText(/Product lead publishes/)).toBeNull();
+    fireEvent.click(within(preview).getByRole("button", { name: "Publish to the spec" }));
+    await waitFor(() => expect(fake.mutations).toHaveLength(1));
+    const m = fake.mutations[0]!;
+    expect(m.path).toBe("legal.policies.publish");
+    expect(m.input.title).toBe("Cookie policy");
+    const doc = m.input.content as { type: string; content: { type: string; attrs?: { level: number }; content?: { text?: string }[] }[] };
+    expect(doc.type).toBe("doc");
+    expect(doc.content[0]).toMatchObject({ type: "heading", content: [{ text: "Cookie policy" }] });
+    expect(JSON.stringify(doc)).toContain("__stripe_mid");
+    await waitFor(() => expect(fake.refetches["product.spec.get"]).toBe(1));
+  });
+
+  it("offers no publish for a policy that is already in the spec, and shows a publish failure", async () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: () => { throw new Error("The cookie policy is already in the spec; refresh it instead"); } });
+    renderScreen(fake, <PoliciesScreen {...props} />);
+    expect(screen.queryByRole("button", { name: "Publish to the spec" })).toBeNull(); // the privacy policy is published
+    fireEvent.click(screen.getByRole("tab", { name: "Cookie policy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish to the spec" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("The cookie policy is already in the spec; refresh it instead");
+  });
+
   it("previews a policy that is not in the spec yet, lists the data map and the policy proposals", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <PoliciesScreen {...props} />);
@@ -68,5 +96,15 @@ describe("PoliciesScreen", () => {
     expect(screen.getByText(/We do not share personal data with third-party processors/)).toBeTruthy();
     act(() => fake.setResponse("business.get", new Error("business unavailable")));
     expect(screen.getByText("business unavailable")).toBeTruthy();
+  });
+
+  it("names the Changes tab by the department over the Product module ('Editorial › Changes' on Content / media)", () => {
+    const editorial = [{ id: "d-ed", name: "Editorial", slug: "product", colourToken: "dept-1", position: 0, hidden: false, moduleKeys: ["product"], tabs: [{ id: "t-ch", slug: "changes", title: "Changes", position: 3 }] }];
+    const fake = createFakeSource({ businessId: BID, responses: { ...emptyResponses, "department.list": editorial } });
+    renderScreen(fake, <PoliciesScreen {...props} />);
+    expect(screen.getByText(/it appears here and in Editorial › Changes\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Editorial › Changes" }));
+    expect(fake.navigations[0]).toBe(`/b/${BID}/d/product/changes`);
+    expect(screen.queryByText(/Product › Changes/)).toBeNull();
   });
 });

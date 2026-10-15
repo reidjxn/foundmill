@@ -23,6 +23,25 @@ function trailingMonthsWindow(now: Date, months: number): { from: Date; to: Date
 const Period = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "period is YYYY-MM");
 const currentPeriod = () => new Date().toISOString().slice(0, 7);
 
+/** A forecast's `drivers.runway_months`: months, null for "cash lasts past the horizon", undefined when it never said. */
+function runwayOf(drivers: unknown): number | null | undefined {
+  const v = (drivers as Record<string, unknown> | null | undefined)?.runway_months;
+  return typeof v === "number" && Number.isFinite(v) ? v : v === null ? null : undefined;
+}
+
+/**
+ * The runway threshold a new Base forecast crossed on the way down, or null. A crossing is relative to the Base
+ * forecast it replaces: the previous runway was at or above the threshold (or past the horizon, or there was no
+ * previous forecast) and the new one is below it. A save that stays under a threshold, or improves, crosses nothing.
+ * When several thresholds are crossed at once the lowest (most urgent) is reported.
+ */
+export function runwayThresholdCrossed(previous: number | null | undefined, next: number | null | undefined): number | null {
+  if (next === null || next === undefined) return null;
+  const before = previous === null || previous === undefined ? Number.POSITIVE_INFINITY : previous;
+  const crossed = [...LIMITS.runwayWarnMonths, LIMITS.runwayBlockMonths].filter((m) => next < m && before >= m).sort((a, b) => a - b);
+  return crossed[0] ?? null;
+}
+
 export const financeRouter = router({
   /** Cash, burn, runway (Estimate), revenue (cash basis) and the latest forecast. */
   overview: read.query(({ ctx }) =>
@@ -88,22 +107,26 @@ export const financeRouter = router({
 
   forecast: router({
     list: read.query(({ ctx }) => ctx.rls((tx) => repos.finance.listForecasts(tx, ctx.businessId))),
-    /** A new forecast version (drivers + series) for a scenario; always labelled Forecast. */
+    /**
+     * A new forecast version (drivers + series) for a scenario; always labelled Forecast. Only the Base scenario is the
+     * business's runway: when a save takes it below a threshold the previous Base forecast was not below, one
+     * `runway.threshold_crossed` is raised (the Upside and Downside scenarios are what-ifs and never raise it).
+     */
     update: write.input(CreateForecastInput).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
+        const previous = input.scenario === "base" ? ((await repos.finance.listForecasts(tx, ctx.businessId, "base"))[0] ?? null) : null;
         const forecast = await repos.finance.createForecast(tx, ctx.businessId, input);
-        const drivers = (input.drivers ?? {}) as Record<string, unknown>;
-        const runway = typeof drivers.runway_months === "number" ? drivers.runway_months : null;
-        if (runway !== null) {
-          const crossed = [...LIMITS.runwayWarnMonths, LIMITS.runwayBlockMonths].filter((m) => runway < m).sort((a, b) => a - b)[0];
-          if (crossed) {
-            const [cash, burn] = await Promise.all([repos.finance.cashPosition(tx, ctx.businessId), repos.finance.netBurn(tx, ctx.businessId, { months: 3 })]);
-            const currency = cash.byCurrency[0]?.currency ?? input.currency ?? ctx.business.currency;
-            await emit(tx, ctx, {
-              type: "runway.threshold_crossed",
-              payload: { runwayMonths: runway, thresholdMonths: crossed, direction: "below", cash: { amountMinor: cash.byCurrency[0]?.balanceMinor ?? 0, currency }, netBurnMonthly: { amountMinor: burn.netBurnMinor, currency }, scenario: input.scenario, blocksContinue: runway < LIMITS.runwayBlockMonths },
-            });
-          }
+        const runway = runwayOf(input.drivers);
+        const crossed = input.scenario === "base" ? runwayThresholdCrossed(previous ? runwayOf(previous.drivers) : undefined, runway) : null;
+        if (crossed !== null && typeof runway === "number") {
+          const [cash, burn] = await Promise.all([repos.finance.cashPosition(tx, ctx.businessId), repos.finance.netBurn(tx, ctx.businessId, { months: 3 })]);
+          const currency = cash.byCurrency[0]?.currency ?? input.currency ?? ctx.business.currency;
+          await emit(tx, ctx, {
+            type: "runway.threshold_crossed",
+            payload: { runwayMonths: Math.max(0, runway), thresholdMonths: crossed, direction: "below", cash: { amountMinor: cash.byCurrency[0]?.balanceMinor ?? 0, currency }, netBurnMonthly: { amountMinor: burn.netBurnMinor, currency }, scenario: "base", blocksContinue: runway < LIMITS.runwayBlockMonths },
+            // One event per crossing: a retried or doubled save that replaces the same Base forecast raises nothing new.
+            idempotencyKey: `runway.threshold_crossed:${previous?.id ?? "first"}:${crossed}`,
+          });
         }
         await audit(tx, ctx, { action: "finance.forecast.update", target: { kind: "forecast", id: forecast.id }, details: { scenario: input.scenario } });
         return { ...forecast, label: "Forecast" as const };
@@ -159,7 +182,8 @@ export const financeRouter = router({
           postMoneyMinor: postMoney,
           investorPct: Math.round(investorPct * 100) / 100,
           poolPct,
-          holders: summary.byHolder.map((h) => ({ holderEntityId: h.holderEntityId, displayName: h.displayName, beforePct: h.fullyDilutedPct, afterPct: Math.round(h.fullyDilutedPct * dilution * 100) / 100 })),
+          // Holders of SAFEs or notes alone have no shares (and no percentage) until the round converts them.
+          holders: summary.byHolder.filter((h) => h.fullyDilutedPct !== null).map((h) => ({ holderEntityId: h.holderEntityId, displayName: h.displayName, beforePct: h.fullyDilutedPct ?? 0, afterPct: Math.round((h.fullyDilutedPct ?? 0) * dilution * 100) / 100 })),
         };
       }),
     ),

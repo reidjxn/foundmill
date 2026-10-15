@@ -104,6 +104,21 @@ describe("agent.model.set retests (AC-11.10.5)", () => {
     await expect(hz.caller({ userId: ownerId }).agent.training.promote({ businessId, runId: pending[0]!.id })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(await repos.agents.get(hz.db, businessId, agentId)).toMatchObject({ modelKey: "sonnet", currentVersionId: agentVersionId });
   });
+
+  it("promoting a draft saved before a model change keeps the model the agent runs now (FU-T2-1)", async () => {
+    const { businessId, ownerId, agentId } = hz.A;
+    const owner = hz.caller({ userId: ownerId });
+    expect((await repos.agents.get(hz.db, businessId, agentId)).modelKey).toBe("sonnet");
+    // The founder saves a draft on Sonnet, then moves the agent to Opus before the draft is trained and promoted.
+    const { version } = await owner.agent.training.saveDraft({ businessId, agentId, instructions: { role: "Chief of Staff", goals: ["Plan every cycle"], rules: ["Ask before spending"], playbook: ["Read the inbox first"], tone: "Plain", examples: [] } });
+    expect(version.modelKey).toBe("sonnet");
+    await owner.agent.model.set({ businessId, agentId, modelKey: "opus" });
+    const run = await repos.training.create(hz.db, businessId, { agentId, toVersionId: version.id, status: "awaiting_decision" });
+    await owner.agent.training.promote({ businessId, runId: run.id });
+    // The draft's instructions are live; the agent did not move back to Sonnet.
+    expect(await repos.agents.get(hz.db, businessId, agentId)).toMatchObject({ currentVersionId: version.id, modelKey: "opus" });
+    expect((await repos.agents.getVersion(hz.db, businessId, version.id)).modelKey).toBe("sonnet");
+  });
 });
 
 describe("agent.training.cancel without Temporal", () => {

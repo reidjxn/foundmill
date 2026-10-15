@@ -9,7 +9,7 @@
  *
  * Exported as a pure function so apps can also use it as a deterministic fallback or pre-check in live mode.
  */
-import { CHANNEL_META, DEFAULT_BUSINESS_CURRENCY, PLAN_ACTION_TYPES, type ChannelKey, type PlanActionType, type TaskKind } from "@foundmill/shared";
+import { CHANNEL_META, DEFAULT_BUSINESS_CURRENCY, PLAN_ACTION_TYPES, endSentence, type ChannelKey, type PlanActionType, type TaskKind } from "@foundmill/shared";
 import { matchRoadmapItem, type UpdateRoadmapParams } from "../planParams";
 import type { PlanAction, PlanOutput } from "../schemas";
 import { type AgentLike, type ManifestEntry, type MockContext, agentsFrom, sentenceCase, truncate } from "./inputs";
@@ -215,9 +215,13 @@ function detectPeriod(s: string): DetectedAmount["period"] | undefined {
 }
 
 export function detectAudience(text: string): string | undefined {
-  const m = /\b(?:targeting|aimed\s+at|target|to\s+reach|for)\s+((?:[A-Za-z][\w&/-]*\s?){1,6}?)(?=\s+(?:next|this|in|by|over|during|starting|with|using|on|at|from|per|and|,|\.|;|$)|$)/.exec(text);
+  // The words between "targeting" and the next boundary word ("next week", "in Stockholm", ",") are the audience. Each
+  // word swallows its trailing space, so the boundary lookahead takes optional space; a timeframe never stays inside.
+  const m = /\b(?:targeting|aimed\s+at|target|to\s+reach|for)\s+((?:[A-Za-z][\w&/-]*\s?){1,6}?)(?=\s*(?:\b(?:next|this|in|by|over|during|starting|with|using|on|at|from|per|and)\b|[,.;]|$))/.exec(text);
   if (!m) return undefined;
-  const audience = (m[1] as string).trim().replace(/\s+(?:next|this|in|by|over)$/i, "");
+  let audience = (m[1] as string).trim().replace(/\s+(?:next|this|in|by|over)$/i, "");
+  const timeframe = detectTimeframe(text);
+  if (timeframe && audience.toLowerCase().endsWith(timeframe.toLowerCase())) audience = audience.slice(0, audience.length - timeframe.length).trim();
   if (!audience || /^(?:the|a|an|me|us|it)$/i.test(audience) || audience.split(/\s+/).length > 6) return undefined;
   return audience;
 }
@@ -339,7 +343,9 @@ export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}
           "create_task",
           {
             kind: "channel" satisfies TaskKind,
-            title: truncate(sentenceCase(clause), 80),
+            // The title names the work ("Email automation campaign for fintech CFOs"); the goal keeps the founder's words,
+            // which can be a fragment of a longer sentence ("email automation start first").
+            title: truncate(`${label} campaign${audience ? ` for ${audience}` : ""}`, 80),
             goal: sentenceCase(clause),
             channel: c.channel,
             audience: audience ?? null,
@@ -348,7 +354,7 @@ export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}
             currency: amount?.currency ?? null,
           },
           agentId,
-          `Create ${withArticle(label)} task${audience ? ` targeting ${audience}` : ""}${timeframe ? ` for ${timeframe}` : ""}.`,
+          `Create ${withArticle(label)} task${audience ? ` targeting ${audience}` : ""}${timeframe ? `, ${timeframe}` : ""}.`,
         );
       }
       continue;
@@ -356,7 +362,8 @@ export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}
 
     let handled = false;
     if (INTENT.hire.test(clause)) {
-      const role = /\b(?:hire|recruit|add|bring\s+in)\s+(?:an?\s+|another\s+|a\s+new\s+)?([\w-]+(?:\s+[\w-]+)?)/i.exec(clause)?.[1] ?? "specialist";
+      // The role is one or two words; a preposition ends it ("hire a supply chain lead", never "a supply by agent").
+      const role = /\b(?:hire|recruit|add|bring\s+in)\s+(?:an?\s+|another\s+|a\s+new\s+)?((?!(?:by|for|to|in|on|at|from|with|and|or)\b)[\w-]+(?:\s+(?!(?:by|for|to|in|on|at|from|with|and|or|who|that)\b)[\w-]+)?)/i.exec(clause)?.[1] ?? "specialist";
       add("hire_agent", { role: role.trim(), brief: sentenceCase(clause) }, null, `Hire ${withArticle(role.trim())}${/\bagents?$/i.test(role.trim()) ? "" : " agent"}.`);
       handled = true;
     }
@@ -374,12 +381,12 @@ export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}
       handled = true;
     }
     if (INTENT.updateSpec.test(clause)) {
-      add("update_spec", { change: sentenceCase(clause) }, pickAgent(agents, { kind: "research" }), `Draft a spec change proposal: ${truncate(clause, 60)}.`);
+      add("update_spec", { change: sentenceCase(clause) }, pickAgent(agents, { kind: "research" }), `Draft a spec change proposal: ${endSentence(truncate(clause, 60))}`);
       handled = true;
     }
     if (INTENT.updateRoadmap.test(clause)) {
       const item = matchRoadmapItem(clause, ctx.roadmap ?? []);
-      add("update_roadmap", { roadmap_item_id: item?.id ?? null, change: sentenceCase(clause) } satisfies UpdateRoadmapParams, null, `Update the roadmap${item ? ` item "${truncate(item.title, 40)}"` : ""}: ${truncate(clause, 60)}.`);
+      add("update_roadmap", { roadmap_item_id: item?.id ?? null, change: sentenceCase(clause) } satisfies UpdateRoadmapParams, null, `Update the roadmap${item ? ` item "${truncate(item.title, 40)}"` : ""}: ${endSentence(truncate(clause, 60))}`);
       handled = true;
     }
     if (isSendMessage) {
@@ -404,12 +411,12 @@ export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}
       handled = true;
       if (INTENT.createTask.test(clause.replace(/\bspend\b/gi, ""))) {
         const kind = inferTaskKind(clause);
-        add("create_task", { kind, title: truncate(sentenceCase(clause), 80), goal: sentenceCase(clause), audience: audience ?? null, timeframe: timeframe ?? null, budget_minor: amount.amountMinor, currency: amount.currency }, pickAgent(agents, { kind }), `Create ${withArticle(kind)} task: ${truncate(clause, 50)}.`);
+        add("create_task", { kind, title: truncate(sentenceCase(clause), 80), goal: sentenceCase(clause), audience: audience ?? null, timeframe: timeframe ?? null, budget_minor: amount.amountMinor, currency: amount.currency }, pickAgent(agents, { kind }), `Create ${withArticle(kind)} task: ${endSentence(truncate(clause, 50))}`);
       }
     }
     if (!handled && INTENT.createTask.test(clause) && !INTENT.question.test(clause)) {
       const kind = inferTaskKind(clause);
-      add("create_task", { kind, title: truncate(sentenceCase(clause), 80), goal: sentenceCase(clause), audience: audience ?? null, timeframe: timeframe ?? null }, pickAgent(agents, { kind }), `Create ${withArticle(kind)} task: ${truncate(clause, 50)}.`);
+      add("create_task", { kind, title: truncate(sentenceCase(clause), 80), goal: sentenceCase(clause), audience: audience ?? null, timeframe: timeframe ?? null }, pickAgent(agents, { kind }), `Create ${withArticle(kind)} task: ${endSentence(truncate(clause, 50))}`);
     }
   }
 

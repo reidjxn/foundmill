@@ -4,6 +4,7 @@
  * founder completes Plaid Link (hard gate). `connect({ redirectUri })` first returns a `link_token` in
  * `config.linkToken` for the Settings page to open Link with.
  */
+import { APP_NAME } from "@foundmill/config";
 import { uuid } from "@foundmill/shared";
 import { ConfigError, type Connector, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
@@ -78,7 +79,7 @@ export function createPlaidConnector(options: LiveConnectorOptions = {}): Connec
         const h = http();
         const createdAt = now().toISOString();
         if (typeof i.publicToken !== "string") {
-          const link = await post<{ link_token: string; expiration: string }>(h, "/link/token/create", { user: { client_user_id: businessId }, client_name: "Founder Manager", products: PLAID_PRODUCTS, country_codes: Array.isArray(i.countryCodes) ? i.countryCodes : ["US"], language: "en", redirect_uri: typeof i.redirectUri === "string" ? i.redirectUri : undefined });
+          const link = await post<{ link_token: string; expiration: string }>(h, "/link/token/create", { user: { client_user_id: businessId }, client_name: APP_NAME, products: PLAID_PRODUCTS, country_codes: Array.isArray(i.countryCodes) ? i.countryCodes : ["US"], language: "en", redirect_uri: typeof i.redirectUri === "string" ? i.redirectUri : undefined });
           return { id: uuid(), businessId, connectorKey: PLAID_KEY, status: "disconnected", scopes: [], accountLabel: "Plaid (awaiting Link)", externalAccountId: null, config: { env: secrets.plaidEnv ?? "sandbox", linkToken: link.link_token, linkTokenExpiresAt: link.expiration }, credentialRef: null, expiresAt: null, lastHealthAt: createdAt, createdAt };
         }
         const ex = await post<{ access_token: string; item_id: string }>(h, "/item/public_token/exchange", { public_token: i.publicToken });

@@ -1,14 +1,15 @@
 /**
- * The LIVE social layer's delivery, screening and limits (BUILD §11.14; audit #28, #34, #65, #66).
+ * The LIVE social layer's delivery, screening and limits (BUILD §11.14; audit #28, #34, #65, #66, FU-S-2).
  *
- * Delivery. A connection request or a message is about its RECIPIENT, never its sender. Inside the transaction that
- * stores it, each LIVE business the recipient speaks for on the network (owner or admin of a listed business), other than
- * the sender's own businesses, gets the event (`connection.requested`, `message.received`) and a human message in its
- * Inbox › Messages tab, written here rather than narrated by the composer (the catalogue marks both events not
- * narratable): the note quotes the sender's words as plain text and says where to answer. A burst of messages in one
- * thread, or a request asked again, makes one unread note. After the
- * commit the recipient's own stream channel `u:{userId}` gets a content-free signal, so their Network badge refreshes
- * in whichever business they have open, Personal or LIVE. People with no LIVE business still get the badge.
+ * Delivery. A connection request or a message is about its RECIPIENT, and it stays theirs: nothing about it is written
+ * to any business, neither an event (`connection.requested`, `message.received`) nor an Inbox note. A business's event
+ * log, its Inbox and its `ev:` stream are read by every member and advisor with access to the sections they feed, so
+ * filing a founder's private network messages there showed them to the founder's staff (FU-S-2). The recipient is reached
+ * on their own instead: after the commit their stream channel `u:{userId}` gets a content-free signal, so their Network
+ * badge and lists refresh in whichever business they have open, Personal or LIVE, and the request, the thread and its
+ * messages are read through `live.*`, which only the people in them can call (`live.summary` counts them for the badge).
+ * The catalogue declares both event types person-addressed (`PERSON_ADDRESSED_EVENT_TYPES`): the events repo refuses
+ * them, a table constraint (0060) holds the log to it and apps/stream never delivers one.
  *
  * Screening. Every new or edited community post passes the moderation route (Haiku; deterministic in mock mode) plus a
  * few deterministic checks before it is shown: a held post waits for the community's owner and moderators. A screen that
@@ -19,11 +20,10 @@
  */
 import { APP_NAME } from "@foundmill/config";
 import { buildCommunityScreenRequest, communityScreenLocalFlags, communityScreenVerdict, type CommunityScreenKind } from "@foundmill/agents";
-import { repos, type Connection, type Executor, type Message, type MessageThread, type PostScreening } from "@foundmill/db";
+import { repos, type Executor, type Message, type MessageThread, type PostScreening } from "@foundmill/db";
 import { publishUserSignal, type StreamRedis, type UserSignalKind } from "@foundmill/events";
 import { ModerationOutput, type ModelClient } from "@foundmill/models";
 import { ForbiddenError } from "@foundmill/shared";
-import { writeEventRow } from "./events";
 import type { ApiLogger } from "./log";
 import { RateLimitedError, SlidingWindowLimiter, type WindowLimit } from "./rate-limit";
 
@@ -81,12 +81,12 @@ export async function requireAdultToGoLive(db: Executor, userId: string, confirm
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Text from other people, made safe to quote in an Inbox note
+// Text from other people, made safe to quote
 // ---------------------------------------------------------------------------------------------------------------------
 
 /**
- * Other people's words as plain text for a note: entity markup reduced to its name, Markdown and HTML punctuation
- * dropped (no links, images or mentions can come through), whitespace collapsed, cut to `max` characters.
+ * Other people's words as plain text: entity markup reduced to its name, Markdown and HTML punctuation dropped (no links,
+ * images or mentions can come through), whitespace collapsed, cut to `max` characters.
  */
 export function plainQuote(text: string, max: number): string {
   const plain = text
@@ -99,117 +99,18 @@ export function plainQuote(text: string, max: number): string {
 
 const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
 
-/** How the recipient sees the sender's name: their profile visibility applies, and having written to them names them. */
-async function nameFor(tx: Executor, viewerId: string, userId: string): Promise<string> {
-  const { users } = await repos.social.lookupPeople(tx, viewerId, { userIds: [userId] });
-  return plainQuote(users[0]?.displayName ?? "", 60) || "A founder";
-}
-
-/** A human message in a business's Inbox › Messages tab, sourced from (and narrating) the given events. */
-async function fileHumanMessage(tx: Executor, businessId: string, input: { fromUserId: string; subject: string; bodyMd: string; eventIds: string[] }): Promise<string> {
-  const item = await repos.inbox.createItem(tx, businessId, { type: "human_message", from_agent_id: null, subject: cut(input.subject, 80), body_md: input.bodyMd, source_event_ids: input.eventIds }, { fromUserId: input.fromUserId });
-  await repos.events.markNarrated(tx, businessId, input.eventIds);
-  const created = await writeEventRow(tx, {
-    businessId,
-    type: "inbox.item_created",
-    actor: { kind: "user", id: input.fromUserId },
-    payload: { inboxItemId: item.id, type: "human_message", fromAgentId: null, subject: item.subject, blocksContinue: false, sourceEventIds: input.eventIds, cost: null },
-  });
-  // `inbox.item_created` is never narrated (as the composer's persist does).
-  await repos.events.markNarrated(tx, businessId, [created]);
-  return item.id;
-}
-
 // ---------------------------------------------------------------------------------------------------------------------
 // Delivery
 // ---------------------------------------------------------------------------------------------------------------------
 
 /**
- * The businesses the sender belongs to. Nothing is filed there, even when the recipient speaks for one of them (two
- * co-founders writing to each other): its Inbox is the sender's too, and would tell them about their own words.
+ * The people a message reaches: everyone else in its thread who has not muted it. Nothing is written for them (see the
+ * header: a message belongs to the people in its thread); they are signalled after the commit (`signalPeople`) and read
+ * the thread on Network. A muted thread signals nobody.
  */
-async function senderBusinesses(tx: Executor, userId: string): Promise<Set<string>> {
-  return new Set((await repos.memberships.listForUser(tx, userId)).map((m) => m.businessId));
-}
-
-/**
- * A new connection request reaches the recipient: `connection.requested` and an Inbox note in each LIVE business they
- * speak for (none the requester belongs to). Runs inside the request's transaction (repos.social.requestConnection
- * `onCreated`), so a repeated request, which returns the existing row, never notifies again; asking, withdrawing and
- * asking again adds no second note while the first is unread. Returns the businesses notified.
- */
-export async function deliverConnectionRequest(tx: Executor, input: { connection: Connection; fromBusinessId: string | null }): Promise<string[]> {
-  const { connection } = input;
-  const to = connection.toUser;
-  const theirs = await senderBusinesses(tx, connection.fromUser);
-  const businesses = ((await repos.social.listedBusinessesFor(tx, [to])).get(to) ?? []).filter((b) => !theirs.has(b));
-  if (!businesses.length) return [];
-  const name = await nameFor(tx, to, connection.fromUser);
-  const fromBusiness = input.fromBusinessId ? (await repos.social.lookupPeople(tx, to, { businessIds: [input.fromBusinessId] })).businesses[0] : undefined;
-  const who = fromBusiness?.live ? `${name} of ${plainQuote(fromBusiness.name, 80)}` : name;
-  const note = connection.message ? plainQuote(connection.message, 500) : "";
-  const bodyMd = [
-    `${who} asked to connect with you on ${APP_NAME}.`,
-    note ? `Their note: “${note}”` : "",
-    "Accept, ignore or block the request on Network. Nothing is answered until you choose, and an agent never answers it for you.",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-  for (const businessId of businesses) {
-    const eventId = await writeEventRow(tx, {
-      businessId,
-      type: "connection.requested",
-      actor: { kind: "user", id: connection.fromUser },
-      payload: { connectionId: connection.id, fromUserId: connection.fromUser, toUserId: to, fromBusinessId: fromBusiness?.live ? fromBusiness.businessId : null, fromEntityId: null, message: connection.message ?? null },
-    });
-    if (await repos.social.hasUnreadRequestNote(tx, businessId, connection.fromUser)) {
-      await repos.events.markNarrated(tx, businessId, [eventId]);
-      continue;
-    }
-    await fileHumanMessage(tx, businessId, { fromUserId: connection.fromUser, subject: `Connection request from ${name}`, bodyMd, eventIds: [eventId] });
-  }
-  return businesses;
-}
-
-/**
- * A message reaches everyone else in its thread who has not muted it: `message.received` in each LIVE business they
- * speak for (once per business, however many of its people are in the thread; none the sender belongs to) and an Inbox
- * note, unless that business already has an unread note for this thread. Runs inside the Send's transaction. Returns
- * the people to signal.
- */
-export async function deliverMessage(tx: Executor, input: { message: Message; thread: MessageThread }): Promise<string[]> {
+export function messageRecipients(input: { message: Pick<Message, "fromUser">; thread: Pick<MessageThread, "participantIds" | "mutedIds"> }): string[] {
   const { message, thread } = input;
-  const recipients = thread.participantIds.filter((id) => id !== message.fromUser && !thread.mutedIds.includes(id));
-  if (!recipients.length) return [];
-  const [byPerson, theirs] = await Promise.all([repos.social.listedBusinessesFor(tx, recipients), senderBusinesses(tx, message.fromUser)]);
-  const preview = plainQuote(message.body, 280);
-  const seen = new Set<string>(theirs);
-  for (const recipient of recipients) {
-    const businesses = (byPerson.get(recipient) ?? []).filter((b) => !seen.has(b));
-    if (!businesses.length) continue;
-    const name = await nameFor(tx, recipient, message.fromUser);
-    const where = thread.kind === "group" ? `in a group conversation${thread.subject ? `, “${plainQuote(thread.subject, 80)}”` : ""}` : "";
-    for (const businessId of businesses) {
-      seen.add(businessId);
-      const eventId = await writeEventRow(tx, {
-        businessId,
-        type: "message.received",
-        actor: { kind: "user", id: message.fromUser },
-        payload: { messageId: message.id, threadId: thread.id, fromUserId: message.fromUser, fromEntityId: null, preview, hasAttachments: false, negotiation: false },
-      });
-      if (await repos.social.hasUnreadThreadNote(tx, businessId, thread.id)) {
-        await repos.events.markNarrated(tx, businessId, [eventId]);
-        continue;
-      }
-      const bodyMd = [
-        `${name} wrote to you on Network${where ? ` ${where}` : ""}:`,
-        `“${preview}”`,
-        "Open Network to read the conversation and reply. An agent can draft a reply for you, but only your own Send sends it.",
-      ].join("\n\n");
-      await fileHumanMessage(tx, businessId, { fromUserId: message.fromUser, subject: `Message from ${name}`, bodyMd, eventIds: [eventId] });
-    }
-  }
-  return recipients;
+  return thread.participantIds.filter((id) => id !== message.fromUser && !thread.mutedIds.includes(id));
 }
 
 /**

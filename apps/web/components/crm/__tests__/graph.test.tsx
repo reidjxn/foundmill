@@ -36,4 +36,19 @@ describe("RelationshipGraph", () => {
     expect(r.getByRole("img", { name: "Acme Skincare: 1 relationship" })).toBeTruthy();
     expect(r.queryByRole("button")).toBeNull();
   });
+  it("the screen-reader caption reads relationships in words, like the visible labels ('works at', not 'works_at')", () => {
+    const r = render(
+      <RelationshipGraph
+        centre={{ id: "e1", name: "Pennine Contract Cosmetics", kind: "organisation" }}
+        nodes={[
+          { id: "p1", name: "Hana Brandt", kind: "person", type: "works_at", strength: 18 },
+          { id: "o1", name: "Meridian Labs Testing", kind: "organisation", type: "tests_with", strength: 12 },
+        ]}
+      />,
+    );
+    const caption = r.container.querySelector("figcaption")!.textContent ?? "";
+    expect(caption).toContain("Hana Brandt (Person) · works at · strength 18 of 20");
+    expect(caption).toContain("· tests with ·");
+    expect(caption).not.toMatch(/works_at|tests_with/);
+  });
 });

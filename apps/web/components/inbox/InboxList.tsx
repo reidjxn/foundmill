@@ -40,7 +40,7 @@ export interface InboxListRow extends InboxRowModel {
   agent: AgentMeta | undefined;
   /** The founder's own note: it carries their initials. */
   fromUser: boolean;
-  /** Another person's words (a connection request or a message from another founder, filed here by Network). */
+  /** Another person's note (not the viewer's own). Network traffic is never filed in a business's Inbox (FU-S-2). */
   fromPerson?: boolean;
 }
 

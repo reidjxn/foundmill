@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CONTRACT_NEXT, DATA_FLOWS, calendarMonths, calendarRows, dataFlows, daysToNextDeadline, detectSectors, founderCanTakeOver, gateState, generatePolicies, officerRows, readObligations, routeForJurisdiction, screenTrademark, stepRows } from "../legal-data";
+import { calendarMonths, calendarRows, CONTRACT_NEXT, DATA_FLOWS, dataFlows, daysToNextDeadline, detectSectors, founderCanCancel, founderCanTakeOver, gateState, generatePolicies, mentionsKeyword, midSentence, officerRows, openSectorGates, readObligations, ROUTE_META, routeForJurisdiction, screenTrademark, sectorSelection, stepRows } from "../legal-data";
 import { NOW } from "./fake-source";
 import { compliance, contractMsa, incorporationAbandoned, incorporationAwaiting, integrations, legalEntity, officers } from "./fixtures";
 
@@ -13,10 +13,11 @@ describe("routes and steps", () => {
 
   it("folds recorded steps and the status into step states; the founder's steps are marked", () => {
     const rows = stepRows(incorporationAwaiting);
+    // the workflow records "founder_review" when it asks the founder; until they submit, that step is the current one (#167)
     expect(rows.map((r) => [r.key, r.state])).toEqual([
       ["prepare_documents", "done"],
-      ["founder_review", "done"],
-      ["founder_submits", "current"],
+      ["founder_review", "current"],
+      ["founder_submits", "todo"],
       ["record_filing", "todo"],
       ["complete", "todo"],
     ]);
@@ -26,6 +27,17 @@ describe("routes and steps", () => {
     expect(founderCanTakeOver(incorporationAwaiting)).toBe(true);
     expect(founderCanTakeOver(incorporationAbandoned)).toBe(false);
     expect(founderCanTakeOver(null)).toBe(false);
+    expect(founderCanCancel(incorporationAwaiting)).toBe(true);
+    expect(founderCanCancel({ ...incorporationAwaiting, status: "submitted" })).toBe(false);
+    expect(founderCanCancel({ ...incorporationAwaiting, status: "complete" })).toBe(false);
+    expect(founderCanCancel(incorporationAbandoned)).toBe(false);
+    expect(founderCanCancel(null)).toBe(false);
+  });
+
+  it("fills in what each route forms when it is picked", () => {
+    expect(ROUTE_META.stripe_atlas.defaults).toEqual({ jurisdiction: "Delaware", entityType: "C-corp" });
+    expect(ROUTE_META.companies_house_web.defaults).toEqual({ jurisdiction: "United Kingdom", entityType: "Ltd" });
+    expect(ROUTE_META.kit.defaults).toBeNull();
   });
 });
 
@@ -96,6 +108,19 @@ describe("policies", () => {
     expect(none.privacy).toContain("We do not share personal data with third-party processors.");
     expect(none.privacy).toContain("opt out of the sale");
   });
+
+  it("keeps acronyms and names in processor purposes ('AI agents', 'DNS', 'the CRM', a connector's name)", () => {
+    const flow = (connectorKey: string) => ({ connectorKey, ...DATA_FLOWS[connectorKey]! });
+    const mystery = { connectorKey: "mystery_tool", processor: "Mystery Tool", purpose: "Connected service (Mystery Tool)", data: [], cookies: [] };
+    const p = generatePolicies({ businessName: "Ledgerly", legalName: "Ledgerly AB", jurisdiction: "se", entityType: "ab", regNo: null, address: "", region: "eu", archetype: "b2b_saas", flows: [flow("anthropic"), flow("cloudflare_dns"), flow("gmail"), flow("sendgrid"), mystery], today: "2026-10-09" });
+    expect(p.privacy).toContain("- **Anthropic**: AI agents that draft, research and classify");
+    expect(p.privacy).toContain("- **Cloudflare**: DNS and edge delivery for the website");
+    expect(p.privacy).toContain("- **Google (Gmail)**: email correspondence synced into the CRM");
+    expect(p.privacy).toContain("- **Twilio SendGrid**: transactional and marketing email");
+    expect(p.privacy).toContain("- **Mystery Tool**: connected service (Mystery Tool).");
+    expect(p.privacy).not.toMatch(/\bai agents\b|\bdns\b|\bthe crm\b/);
+    expect(midSentence("OpenCorporates lookups")).toBe("OpenCorporates lookups");
+  });
 });
 
 describe("trademark screen", () => {
@@ -126,6 +151,40 @@ describe("sector gates", () => {
     expect(gateState("cosmetics", selected, new Set())).toBe("open");
     expect(gateState("health", selected, new Set())).toBe("not_applicable");
     expect(gateState("cosmetics", selected, new Set(["cosmetics:safety", "cosmetics:pif", "cosmetics:notification", "cosmetics:claims"]))).toBe("clear");
+  });
+});
+
+describe("sector keywords match whole words (#353)", () => {
+  it("does not read 'tea' in 'team', 'hair' in 'chair' or 'teen' in 'canteen'", () => {
+    const keys = (input: Parameters<typeof detectSectors>[0]) => detectSectors(input).map((h) => h.key);
+    expect(keys({ name: "Northwind Skincare", archetype: null, glossary: { squad: "lab team" } })).not.toContain("food");
+    expect(keys({ name: "Steady Teams", archetype: "b2b_saas" })).toEqual([]);
+    expect(keys({ name: "Transparent Payroll", archetype: null })).not.toContain("children");
+    expect(keys({ name: "Chairside Analytics", archetype: null })).not.toContain("cosmetics");
+    expect(keys({ name: "Canteen Software", archetype: null })).not.toContain("children");
+    // real mentions still match, with a plural and a stem
+    expect(keys({ name: "Tea Collective", archetype: null })).toContain("food");
+    expect(keys({ name: "Hair care for kids", archetype: null })).toEqual(expect.arrayContaining(["cosmetics", "children"]));
+    expect(keys({ name: "Diagnosis Cloud", archetype: null })).toContain("health");
+    expect(detectSectors({ name: "Tea Collective", archetype: null })[0]?.reasons.join(" ")).toContain('"tea"');
+  });
+
+  it("matches phrases as words in a row", () => {
+    expect(mentionsKeyword("a contract review tool", "contract review")).toBe(true);
+    expect(mentionsKeyword("contracts review", "contract review")).toBe(false);
+    expect(mentionsKeyword("make up artists", "make up")).toBe(true);
+  });
+});
+
+describe("saved sector choices", () => {
+  it("lets a stored choice win over the suggestion and lists the gates still open", () => {
+    const { selected, done } = sectorSelection([{ sector: "cosmetics", applies: false, done: [] }, { sector: "health", applies: true, done: ["claims"] }], ["cosmetics", "food"]);
+    expect([...selected].sort()).toEqual(["food", "health"]); // cosmetics turned off, food still suggested, health added
+    expect(done.has("health:claims")).toBe(true);
+    expect(openSectorGates([{ sector: "cosmetics", applies: false, done: [] }], ["cosmetics"]).map((g) => g.key)).toEqual([]);
+    expect(openSectorGates([], ["food"]).map((g) => g.key)).toEqual(["food"]);
+    const allFood = ["registration", "labelling", "haccp", "claims"];
+    expect(openSectorGates([{ sector: "food", applies: true, done: allFood }], ["food"])).toEqual([]);
   });
 });
 

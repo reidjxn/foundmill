@@ -508,8 +508,14 @@ export const agentsRepo = {
     });
   },
 
-  /** Promotes a version to live: retires the previous live version and points the agent at the new one. */
-  async promoteVersion(db: Executor, businessId: string, agentId: string, versionId: string): Promise<Agent> {
+  /**
+   * Promotes a version to live: retires the previous live version and points the agent at the new one. The agent also
+   * takes the model the version carries (a rollback to an earlier version brings its model back, a model change's retest
+   * copy makes the new model live), unless `keepAgentModel`: the agent keeps running on the model it runs now. A draft
+   * keeps the model it was saved with, which can be one the agent has since moved off; promoting it must not move the
+   * agent back (`trainingRepo.decide` keeps the model for every draft but a retest copy).
+   */
+  async promoteVersion(db: Executor, businessId: string, agentId: string, versionId: string, options: { keepAgentModel?: boolean } = {}): Promise<Agent> {
     return db.transaction(async (tx) => {
       const version = await agentsRepo.getVersion(tx, businessId, versionId);
       if (version.agentId !== agentId) throw new ValidationError("Version belongs to another agent", { versionId, agentId });
@@ -518,7 +524,7 @@ export const agentsRepo = {
         .set({ state: "retired" })
         .where(and(eq(agentVersions.businessId, businessId), eq(agentVersions.agentId, agentId), eq(agentVersions.state, "live"), sql`${agentVersions.id} <> ${versionId}::uuid`));
       await tx.update(agentVersions).set({ state: "live" }).where(eq(agentVersions.id, versionId));
-      return one(await tx.update(agents).set({ currentVersionId: versionId, modelKey: version.modelKey }).where(scoped(businessId, agentId)).returning(), "agent", agentId);
+      return one(await tx.update(agents).set({ currentVersionId: versionId, ...(options.keepAgentModel ? {} : { modelKey: version.modelKey }) }).where(scoped(businessId, agentId)).returning(), "agent", agentId);
     });
   },
 

@@ -10,7 +10,7 @@ describeConnectorContract("companies_house (mock)", {
   connector: companiesHouseMock,
   mode: "mock",
   calls: [
-    { tool: "search_companies", args: { q: "northwind" }, check: (r) => expect(isUntrusted(r.data) && (r.data.content as { items: unknown[] }).items).toHaveLength(1) },
+    { tool: "search_companies", args: { q: "northwind" }, check: (r) => expect(isUntrusted(r.data) && (r.data.content as { items: unknown[] }).items).toHaveLength(2) }, // the fixture company and the Northwind demo business, each at its own number
     { tool: "get_company", args: { companyNumber: "14523871" }, check: (r) => expect(isUntrusted(r.data) && r.data.content).toMatchObject({ name: "NORTHWIND SKINCARE LTD", sicCodes: ["20420", "47910"] }) },
     { tool: "get_company", args: { companyNumber: "sc654321" }, check: (r) => expect(isUntrusted(r.data) && r.data.source).toMatchObject({ connector: "companies_house", kind: "api", ref: "company:SC654321" }) },
     { tool: "get_company", args: { companyNumber: "00000000" }, expectOk: false, check: (r) => expect(r.error?.code).toBe("not_found") },
