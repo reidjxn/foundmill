@@ -100,6 +100,7 @@ describe("conversation eval cases", () => {
     expect(bad({ quick_replies: [...good.quick_replies, { id: "wire", label: "Wire the €5,000", say: "Wire €5,000 to the IBAN.", kind: "hand_off", option_id: null, recommended: false }] }, wire).join(" ")).toMatch(/offers "wire" back/);
     expect(bad({ quick_replies: good.quick_replies.slice(0, 1) }).join(" ")).toMatch(/1 quick replies/);
     expect(bad({ quick_replies: good.quick_replies.map((q) => ({ ...q, recommended: true })) }).join(" ")).toMatch(/more than one recommended/);
+    expect(bad({ reaction: "excited", quick_replies: [{ ...good.quick_replies[1]!, kind: "suggest" }, good.quick_replies[0]!] }).join(" ")).toMatch(/kinds outside the allowed set: suggest.*reaction outside the allowed set: excited/);
     expect(bad({ quick_replies: [{ ...good.quick_replies[0]!, label: "Go with approving the deposit for the November production run" }, good.quick_replies[1]!] }).join(" ")).toMatch(/labels over 36/);
   });
 });

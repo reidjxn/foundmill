@@ -161,6 +161,30 @@ describe("finaliseAgentReply (server-side checks)", () => {
       expectValid(r.reply.quick_replies);
     }
   });
+
+  it("an out-of-set reaction or quick reply kind passes the draft schema (no repair call) and is read locally", () => {
+    const draft = {
+      bubbles: ["Happy to explain."],
+      reaction: "excited",
+      quick_replies: [
+        { id: "more", label: "Tell me more", say: "Tell me more.", kind: "suggest", option_id: null, recommended: false },
+        { id: "thanks", label: "Thanks", say: "Thanks.", kind: "acknowledge", option_id: null, recommended: false },
+      ],
+      hand_off: null,
+      refers_to: [],
+    };
+    // The model call's schema accepts it, so the client never asks the model to repair it.
+    expect(AgentReplyDraft.safeParse(draft).success).toBe(true);
+    const r = finaliseAgentReply(draft, { guard });
+    expect(r.reply.reaction).toBe("none");
+    expect(r.reply.quick_replies.map((q) => [q.id, q.kind])).toEqual([
+      ["more", "ask"],
+      ["thanks", "acknowledge"],
+    ]);
+    expect(r.repairs).toEqual(expect.arrayContaining(["read an unknown reaction as none", "read an unknown quick reply kind as ask"]));
+    expect(r.repairs).not.toContain("draft did not match the reply shape");
+    expect(AgentReplyOutput.safeParse(r.reply).success).toBe(true);
+  });
 });
 
 const INPUT: ConversationRequestInput = {

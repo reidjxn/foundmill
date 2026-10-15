@@ -13,7 +13,7 @@
  * Golden cases are then graded (Opus skill grader, BUILD §12.5); injection cases must simply pass.
  */
 import { allowIdsGuard, buildConversationRequest, conversationInputs, finaliseAgentReply, finaliseOptionsFor, prompts } from "@foundmill/agents";
-import { AgentReplyDraft, AgentReplyOutput, QUICK_REPLY_LABEL_MAX, SkillGradeOutput, compilePlanRuleBased, numbersIn, type ModelClient, type PlanAction } from "@foundmill/models";
+import { AgentReplyDraft, AgentReplyOutput, QUICK_REPLY_LABEL_MAX, SkillGradeOutput, agentReactionOf, compilePlanRuleBased, numbersIn, quickReplyKindOf, type ModelClient, type PlanAction } from "@foundmill/models";
 import { weightedScore } from "../harness";
 import type { ConversationCase } from "./cases";
 
@@ -60,6 +60,10 @@ export function checkConversationReply(c: ConversationCase, raw: unknown, rawTex
   const long = d.quick_replies.filter((q) => q.label.trim().length > QUICK_REPLY_LABEL_MAX);
   if (long.length) problems.push(`labels over ${QUICK_REPLY_LABEL_MAX} characters: ${long.map((q) => q.label).join(" | ")}`);
   if (d.quick_replies.filter((q) => q.recommended).length > 1) problems.push("more than one recommended quick reply");
+  // The draft takes any string for these (no repair call); the server reads an unknown one, but the model still missed.
+  const unknownKinds = d.quick_replies.filter((q) => quickReplyKindOf(q.kind) === null).map((q) => q.kind);
+  if (unknownKinds.length) problems.push(`quick reply kinds outside the allowed set: ${unknownKinds.join(", ")}`);
+  if (agentReactionOf(d.reaction) !== d.reaction) problems.push(`reaction outside the allowed set: ${d.reaction}`);
   if (new Set(d.quick_replies.map((q) => q.label.trim().toLowerCase())).size !== d.quick_replies.length) problems.push("duplicate quick reply labels");
 
   const inputs = numbersIn(JSON.stringify(conversationInputs(c.input)));

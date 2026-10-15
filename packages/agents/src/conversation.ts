@@ -25,8 +25,10 @@ import {
   QUICK_REPLY_LABEL_MAX,
   QUICK_REPLY_SAY_MAX,
   REFERS_TO_MAX,
+  agentReactionOf,
   detectHardGates,
   founderIntent,
+  quickReplyKindOf,
   type FounderIntent,
   type HardGate,
   type QuickReply,
@@ -368,18 +370,31 @@ export interface FinalisedReply {
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const QUICK_REPLY_KIND_SET = new Set<string>(["ask", "acknowledge", "hand_off", "choose_option", "decline", "write"]);
-const REACTION_SET = new Set<string>(["none", "noted", "thinking", "concerned", "pleased"]);
 
-/** Read whatever is usable from a draft, field by field, so one bad field does not lose the whole reply. */
-function readDraft(draft: unknown, repairs: string[]): AgentReplyDraft {
+/** A draft with its reaction and quick reply kinds read into the allowed values. */
+type ReadDraft = Omit<AgentReplyDraft, "reaction" | "quick_replies"> & {
+  reaction: AgentReplyOutput["reaction"];
+  quick_replies: Array<Omit<AgentReplyDraft["quick_replies"][number], "kind"> & { kind: QuickReplyKind }>;
+};
+
+/**
+ * Read whatever is usable from a draft, field by field, so one bad field does not lose the whole reply. The draft
+ * schema takes any string for `reaction` and `kind` (no repair call for an out-of-set value): an unknown reaction reads
+ * as "none" and an unknown kind as "ask", here and never by asking the model again.
+ */
+function readDraft(draft: unknown, repairs: string[]): ReadDraft {
   const strict = AgentReplyDraft.safeParse(draft);
-  if (strict.success) return strict.data;
+  if (strict.success) {
+    const d = strict.data;
+    if (d.reaction !== agentReactionOf(d.reaction)) repairs.push("read an unknown reaction as none");
+    if (d.quick_replies.some((q) => quickReplyKindOf(q.kind) === null)) repairs.push("read an unknown quick reply kind as ask");
+    return { ...d, reaction: agentReactionOf(d.reaction), quick_replies: d.quick_replies.map((q) => ({ ...q, kind: quickReplyKindOf(q.kind) ?? "ask" })) };
+  }
   repairs.push("draft did not match the reply shape");
   const o = isObj(draft) ? draft : {};
   const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
   const quickReplies = (Array.isArray(o.quick_replies) ? o.quick_replies : []).filter(isObj).flatMap((q) => {
-    const kind = typeof q.kind === "string" && QUICK_REPLY_KIND_SET.has(q.kind) ? (q.kind as QuickReplyKind) : "ask";
+    const kind = quickReplyKindOf(q.kind) ?? "ask";
     const label = typeof q.label === "string" ? q.label : "";
     if (!label) return [];
     return [{ id: typeof q.id === "string" ? q.id : label, label, say: typeof q.say === "string" ? q.say : label, kind, option_id: typeof q.option_id === "string" ? q.option_id : null, recommended: q.recommended === true }];
@@ -387,7 +402,7 @@ function readDraft(draft: unknown, repairs: string[]): AgentReplyDraft {
   const handOff = isObj(o.hand_off) && typeof o.hand_off.instruction === "string" ? { instruction: o.hand_off.instruction } : null;
   return {
     bubbles: strings(o.bubbles),
-    reaction: typeof o.reaction === "string" && REACTION_SET.has(o.reaction) ? (o.reaction as AgentReplyDraft["reaction"]) : "none",
+    reaction: agentReactionOf(o.reaction),
     quick_replies: quickReplies,
     hand_off: handOff,
     refers_to: strings(o.refers_to),
