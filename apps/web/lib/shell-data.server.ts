@@ -1,6 +1,6 @@
 /**
- * Everything the business shell needs from the server (the /b/[bid] and LIVE layouts): `business.get` (shared with
- * `generateMetadata` through lib/trpc-server.ts) and the sidebar's `department.list`, asked together with the profile;
+ * Everything the business shell needs from the server (the /b/[bid] and LIVE layouts): `business.get` and the sidebar's
+ * `department.list` (request-cached in lib/trpc-server.ts), asked together with the profile;
  * then the shell's first-screen queries (inbox, finance, cycle), which are not awaited: `<Prefetched>` hands them to
  * the browser, pending or done, under the keys BusinessShell's hooks use.
  *
@@ -29,7 +29,6 @@ export function startBusinessShell(server: ServerApi, businessId: string): Busin
     if (!b) throw new Error("Signed out");
     return b;
   });
-  // `serverDepartments` is the same request-cached call the department and agent pages' browser titles read.
   const departments = serverDepartments(businessId).then((d) => {
     if (!d) throw new Error("Signed out");
     return d;
