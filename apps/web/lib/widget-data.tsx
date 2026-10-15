@@ -4,6 +4,10 @@
  * tRPC paths over the untyped client, cached by the same QueryClient (and the same query keys) as the typed hooks,
  * mutations that invalidate their router's queries, the Next.js router for `navigate`, the tab's stream client for
  * `subscribe`, and the business glossary/game mode/currency from `business.get`.
+ *
+ * A change resolves as soon as the API has taken it: the reads it makes stale refetch behind it, so a button settles
+ * after one round trip instead of two or three (audit WEB-6). A caller that must read the refreshed data awaits the
+ * promise's `settled` (`MutationPromise`).
  */
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -29,10 +33,41 @@ export interface WidgetSourceOptions {
   setFocus?: WidgetDataSource["setFocus"];
 }
 
-/** Every procedure the widgets call takes `businessId`; it is merged into the input so widgets never pass it. */
+/** Every business procedure the widgets call takes `businessId`; it is merged into the input so widgets never pass it. */
 export function withBusiness(businessId: string, input: Record<string, unknown> | undefined): Record<string, unknown> {
   return { businessId, ...(input ?? {}) };
 }
+
+/**
+ * Routers whose reads belong to the person, not to a business (the API's `protectedProcedure`s: the founder's profile
+ * and preferences, ideas, imports, the network), apart from `BUSINESS_READS_IN_ACCOUNT_ROUTERS`: a business procedure,
+ * or a read scoped by an optional `businessId` (saved table views are kept per business).
+ */
+const ACCOUNT_ROUTERS: ReadonlySet<string> = new Set(["founder", "idea", "import", "live"]);
+const ACCOUNT_READS: ReadonlySet<string> = new Set(["health", "business.listArchived"]);
+const BUSINESS_READS_IN_ACCOUNT_ROUTERS: ReadonlySet<string> = new Set(["live.leaderboards.positions", "founder.tableViews.get"]);
+
+/**
+ * A read whose input has no `businessId` at all (lib/__tests__/account-reads.test.ts checks this against the API's
+ * router). Its input is used as given, so a widget asking `founder.profile.get` shares the shell's cache entry and
+ * request instead of asking again under a key of its own (audit WEB-9).
+ */
+export function isAccountRead(path: string): boolean {
+  if (ACCOUNT_READS.has(path)) return true;
+  if (BUSINESS_READS_IN_ACCOUNT_ROUTERS.has(path)) return false;
+  return ACCOUNT_ROUTERS.has(path.split(".")[0] ?? path);
+}
+
+/** The input a widget read is sent (and cached) with: `businessId` merged in, except for an account read. */
+export function readInput(businessId: string, path: string, input: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  return isAccountRead(path) ? input : withBusiness(businessId, input);
+}
+
+/** What `mutate` returns: the change's answer, and `settled`, which resolves once the reads it made stale have refetched. */
+export type MutationPromise<T> = Promise<T> & { settled: Promise<void> };
+
+/** The host's data source: the widgets' contract, with `mutate` returning a `MutationPromise`. */
+export type HostWidgetDataSource = Omit<WidgetDataSource, "mutate"> & { mutate: <T = unknown>(path: string, input: Record<string, unknown>) => MutationPromise<T> };
 
 /** Routers whose reads change after a mutation on `path` (e.g. inbox.decide → inbox.*, plan.*, dev.*). */
 export const INVALIDATION_MAP: Record<string, readonly string[]> = {
@@ -62,7 +97,7 @@ export function routersToInvalidate(path: string): readonly string[] {
 }
 
 /** Build the data source outside React (tests, stories). The `useQuery` member is a hook and must be called in render. */
-export function createWidgetSource(opts: WidgetSourceOptions): WidgetDataSource {
+export function createWidgetSource(opts: WidgetSourceOptions): HostWidgetDataSource {
   const { businessId, client, queryClient } = opts;
   return {
     businessId,
@@ -79,7 +114,7 @@ export function createWidgetSource(opts: WidgetSourceOptions): WidgetDataSource 
     useStreamOpen: () => useBusinessLive(businessId),
     // This member is a hook by contract (widgets call it in render).
     useQuery: <T,>(path: string, input: Record<string, unknown> | undefined, qo?: QueryOptions): QueryState<T> => {
-      const full = withBusiness(businessId, input);
+      const full = readInput(businessId, path, input);
       const q = useQuery<T, Error>(
         {
           queryKey: trpcQueryKey(path, full) as unknown[],
@@ -91,10 +126,21 @@ export function createWidgetSource(opts: WidgetSourceOptions): WidgetDataSource 
       );
       return { data: q.data, isLoading: q.isLoading, error: q.error ?? null, refetch: () => void q.refetch() };
     },
-    mutate: async <T,>(path: string, input: Record<string, unknown>): Promise<T> => {
-      const result = (await client.mutation(path, withBusiness(businessId, input))) as T;
-      await Promise.all(routersToInvalidate(path).map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] })));
-      return result;
+    mutate: <T,>(path: string, input: Record<string, unknown>): MutationPromise<T> => {
+      let markSettled: () => void = () => undefined;
+      const settled = new Promise<void>((resolve) => (markSettled = resolve));
+      const answer = (async () => {
+        try {
+          const result = (await client.mutation(path, withBusiness(businessId, input))) as T;
+          // Not awaited: the caller has its answer now; the screens refresh what changed behind it.
+          void Promise.all(routersToInvalidate(path).map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] }))).then(markSettled, markSettled);
+          return result;
+        } catch (err) {
+          markSettled();
+          throw err;
+        }
+      })();
+      return Object.assign(answer, { settled });
     },
   };
 }

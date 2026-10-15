@@ -7,15 +7,21 @@
  * while it was down or unsubscribed (another business on screen), may have missed an event and keeps the short default.
  * When a channel comes back after a gap, `resyncBusiness` refetches that business's queries (the stream does not
  * replay), and a tab that becomes visible again refetches the stale queries of the business on screen.
+ *
+ * Kept: in the browser a screen's data stays in memory for `BROWSER_GC_MS` after the screen is left (TanStack's default
+ * is 5 minutes), so coming back to it paints what it showed at once and refreshes behind it (audit WEB-10).
  */
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { reportApiError } from "./auth/session-end";
+import { trpcPathPrefix } from "./trpc";
 import { businessOfKey, routerOfKey } from "./query-keys";
 import { businessLiveSince } from "./stream-status";
 
 export { businessOfKey, routerOfKey };
 
 export const DEFAULT_STALE_MS = 30_000;
+/** How long the browser keeps the data of a screen nobody shows (a server render keeps TanStack's own default). */
+export const BROWSER_GC_MS = 60 * 60_000;
 /** Freshness of stream-kept data while its business's channel stays live. */
 export const STREAM_KEPT_STALE_MS = 5 * 60_000;
 /**
@@ -54,6 +60,23 @@ export function resyncBusiness(queryClient: QueryClient, businessId: string): Pr
   return queryClient.invalidateQueries({ predicate: (query) => businessOfKey(query.queryKey) === businessId });
 }
 
+/**
+ * An event says routers changed (BusinessShell `INVALIDATE_ON_EVENT`): refetch their queries. A read already on its way
+ * is kept (`cancelRefetch: false`), so what it brings paints instead of being thrown away and asked again, as it was
+ * when a change's own refetch and its event crossed (audit WEB-6). It may have been read before this change was saved,
+ * though, so each read that was on its way is asked once more after it lands: the screen still ends on the change.
+ */
+export async function invalidateForEvent(queryClient: QueryClient, routers: readonly string[]): Promise<void> {
+  await Promise.all(
+    routers.map(async (router) => {
+      const filters = { queryKey: trpcPathPrefix(router) as unknown[] };
+      const onTheirWay = queryClient.getQueryCache().findAll({ ...filters, fetchStatus: "fetching" }).map((q) => q.queryKey);
+      await queryClient.invalidateQueries(filters, { cancelRefetch: false });
+      await Promise.all(onTheirWay.map((queryKey) => queryClient.invalidateQueries({ queryKey, exact: true }, { cancelRefetch: false })));
+    }),
+  );
+}
+
 /** The business a mutation's variables name (`{ businessId, ... }`); null for account-level writes. */
 function businessOfVariables(variables: unknown): string | null {
   const id = variables && typeof variables === "object" ? (variables as { businessId?: unknown }).businessId : undefined;
@@ -69,6 +92,8 @@ export function makeQueryClient(): QueryClient {
     defaultOptions: {
       queries: {
         staleTime: streamAwareStaleTime(DEFAULT_STALE_MS),
+        // Only in the browser: on the server every render has its own client, and a timer per query would keep it alive.
+        gcTime: typeof window === "undefined" ? undefined : BROWSER_GC_MS,
         // Back to a hidden tab: the business's stale reads refetch (a stream-kept one stays fresh only while its
         // channel stayed live). Account-level reads (the studio, profile) keep what they have.
         refetchOnWindowFocus: (query) => businessOfKey(query.queryKey) !== null,
