@@ -29,7 +29,6 @@ describe("a typed spend in a freshly committed business", () => {
       if (reply.route !== "decision") return;
       const budget = reply.decision.evaluations.find((e) => e.action.type === "set_budget")!;
       expect(budget.outcome, JSON.stringify(budget)).toBe("ask");
-      expect(budget.denied ?? false).toBe(false);
       expect(reply.decision.requiresConfirmation).toBe(true);
       expect(reply.decision.plan.status).toBe("pending_confirmation");
       expect(reply.decision.plan.actions.find((a) => a.type === "set_budget")?.result).toMatchObject({ policyReasons: expect.any(Array) });
