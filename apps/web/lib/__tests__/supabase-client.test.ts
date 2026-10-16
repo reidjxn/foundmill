@@ -1,17 +1,18 @@
 /**
  * The browser Supabase client bounds its token requests (audit C5): a refresh that hangs is cut after
  * `SUPABASE_FETCH_TIMEOUT_MS` (auth-js then retries it) instead of holding the session lock, and every API request
- * waiting on it, for up to 30 s. Other requests (sending a sign-in link) keep the browser's own limits.
+ * waiting on it, for up to 30 s. Other requests (sending a sign-in link) keep the browser's own limits. A refresh that
+ * could not reach Supabase fails the API request instead of sending it without a bearer.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetPublicEnvCache } from "../env";
-import { fetchWithTokenTimeout, isTokenRequest, SUPABASE_FETCH_TIMEOUT_MS } from "../supabase/client";
+import { fetchWithTokenTimeout, isTokenRequest, SESSION_REFRESH_FAILED_MESSAGE, SUPABASE_FETCH_TIMEOUT_MS } from "../supabase/client";
 
-const created = vi.hoisted(() => ({ options: [] as unknown[] }));
+const created = vi.hoisted(() => ({ options: [] as unknown[], session: { data: { session: null as { access_token: string } | null }, error: null as { name: string } | null } }));
 vi.mock("@supabase/ssr", () => ({
   createBrowserClient: (_url: string, _key: string, options: unknown) => {
     created.options.push(options);
-    return { auth: {} };
+    return { auth: { getSession: async () => created.session } };
   },
 }));
 
@@ -75,5 +76,34 @@ describe("browser Supabase client", () => {
     await createClient();
     const options = created.options.at(-1) as { global?: { fetch?: unknown } } | undefined;
     expect(typeof options?.global?.fetch).toBe("function");
+  });
+});
+
+describe("the token an API request carries", () => {
+  async function load() {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://ref.supabase.co");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon");
+    resetPublicEnvCache();
+    vi.resetModules();
+    return import("../supabase/client");
+  }
+
+  it("is the session's token, or none when there is no session", async () => {
+    const { getRequestAccessToken } = await load();
+    created.session = { data: { session: { access_token: "jwt" } }, error: null };
+    expect(await getRequestAccessToken()).toBe("jwt");
+    created.session = { data: { session: null }, error: null };
+    expect(await getRequestAccessToken()).toBeNull();
+    // A refresh Supabase refused (the session is over): no token, and the API's answer signs the tab out.
+    created.session = { data: { session: null }, error: { name: "AuthApiError" } };
+    expect(await getRequestAccessToken()).toBeNull();
+  });
+
+  it("fails the request when the session could not be refreshed (Supabase out of reach), rather than send it unsigned", async () => {
+    const { getRequestAccessToken, getBrowserAccessToken } = await load();
+    created.session = { data: { session: null }, error: { name: "AuthRetryableFetchError" } };
+    await expect(getRequestAccessToken()).rejects.toThrow(SESSION_REFRESH_FAILED_MESSAGE);
+    // The other readers (the event stream, the spec editor) keep their null.
+    expect(await getBrowserAccessToken()).toBeNull();
   });
 });

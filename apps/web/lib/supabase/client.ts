@@ -11,7 +11,8 @@
  * Token requests (a refresh) are bounded (`SUPABASE_FETCH_TIMEOUT_MS`, audit C5): a refresh that hangs is cut and
  * retried by auth-js instead of holding the session lock, and every API request waiting on it, for good. Other requests
  * keep the browser's own limits (sending a sign-in link can take a few seconds). The API requests bound their own wait
- * for the token (lib/trpc.ts `TOKEN_TIMEOUT_MS`). A tab coming back into view needs nothing here: auth-js already
+ * for the token (lib/trpc.ts `TOKEN_TIMEOUT_MS`), and a refresh that failed fails them rather than sending them
+ * unsigned (`getRequestAccessToken`). A tab coming back into view needs nothing here: auth-js already
  * refreshes an expiring session on `visibilitychange` (autoRefreshToken, on in the browser), under the same lock the
  * requests of TanStack's refetch on focus wait on.
  */
@@ -69,4 +70,22 @@ export async function getBrowserAccessToken(): Promise<string | null> {
   if (!supabase) return null;
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token ?? null;
+}
+
+/** What an API request says when the session could not be refreshed for it (Supabase out of reach). */
+export const SESSION_REFRESH_FAILED_MESSAGE = "Your sign-in could not be refreshed. Check your connection, then try again.";
+
+/**
+ * The access token for an API request (the tRPC links' token getter). As `getBrowserAccessToken`, except when an
+ * expiring session could not be refreshed because Supabase was out of reach (offline, a timeout, a 5xx: auth-js keeps
+ * the session and tries again on the next call): the request then fails as a retryable error instead of going out with
+ * no bearer, which the API would answer as signed out (and the tab would go to sign-in). An expired token is never sent.
+ */
+export async function getRequestAccessToken(): Promise<string | null> {
+  const supabase = await createClient();
+  if (!supabase) return null;
+  const { data, error } = await supabase.auth.getSession();
+  if (data.session) return data.session.access_token;
+  if (error?.name === "AuthRetryableFetchError") throw Object.assign(new Error(SESSION_REFRESH_FAILED_MESSAGE), { name: "SessionRefreshError" });
+  return null;
 }

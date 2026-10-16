@@ -9,7 +9,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { ToastProvider, TooltipProvider } from "@foundmill/dugout";
 import { getQueryClient } from "@/lib/query-client";
-import { getBrowserAccessToken } from "@/lib/supabase/client";
+import { getRequestAccessToken } from "@/lib/supabase/client";
 import { browserQueryUrl, createApiClient, untypedClientOf, type UntypedApiClient } from "@/lib/trpc";
 import { TRPCProvider } from "@/lib/trpc-react";
 import { AuthLossWatcher } from "./AuthLossWatcher";
@@ -25,7 +25,7 @@ export function useUntypedApi(): UntypedApiClient {
 
 export function AppProviders({ children }: { children: ReactNode }) {
   const queryClient = getQueryClient();
-  const [trpcClient] = useState(() => createApiClient({ getToken: getBrowserAccessToken, queryUrl: browserQueryUrl() }));
+  const [trpcClient] = useState(() => createApiClient({ getToken: getRequestAccessToken, queryUrl: browserQueryUrl() }));
   const [untyped] = useState(() => untypedClientOf(trpcClient));
   return (
     <QueryClientProvider client={queryClient}>
