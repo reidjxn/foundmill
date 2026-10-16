@@ -29,8 +29,9 @@ function procedures(req: Request, businessId: string): string[] {
 test.describe("first load of Home", () => {
   test("the shell's and Home's first queries come with the page; the widgets share their ribbon and departments", async ({ page }) => {
     await signIn(page);
-    // signIn may land on another business's Home whose widgets are still loading (network idle can come before they
-    // ask): count only this business's calls, from the load below.
+    // signIn may land on a Home (another business's, or this one's) whose widgets are still loading, and network idle
+    // can come before they ask: let them answer first, then count only this business's calls, from the load below.
+    if (/\/home/.test(page.url())) await expect(page.locator("section[data-department]").first()).toBeVisible({ timeout: LONG });
     await page.waitForLoadState("networkidle", { timeout: LONG });
     const asked: string[] = [];
     page.on("request", (req) => {
