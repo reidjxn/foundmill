@@ -9,6 +9,7 @@
     "./registry": "./src/registry.ts",
     "./lazy": "./src/lazy.ts",
     "./product/foundations": "./src/product/foundations.tsx",
+    "./team/skills": "./src/team/skills.tsx",
     "./*.css": "./src/*.css",
     "./*": "./src/*.ts"
   },

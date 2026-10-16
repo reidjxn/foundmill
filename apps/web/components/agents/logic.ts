@@ -90,6 +90,10 @@ export function latestPromotedRun(runs: readonly TrainingRunRecord[]): TrainingR
   return runs.filter((r) => r.decision === "promoted" && r.results && Object.keys(r.results).length > 0).sort((a, b) => toMillis(b.endedAt ?? b.createdAt) - toMillis(a.endedAt ?? a.createdAt))[0] ?? null;
 }
 
+/**
+ * The SkillGrid rows. A skill the business added (custom, from the library or a file) reads under its own name; one
+ * with no tested rating yet (added and not yet scored by a training run) is marked "Untested", its value the baseline.
+ */
 export function toSkillRows(skills: readonly AgentSkillRecord[], runs: readonly TrainingRunRecord[] = []): SkillRow[] {
   const promoted = latestPromotedRun(runs);
   return skills.map((s) => {
@@ -99,7 +103,8 @@ export function toSkillRows(skills: readonly AgentSkillRecord[], runs: readonly 
     const r = promoted?.results?.[s.skillKey];
     return {
       id: s.skillKey,
-      name: humaniseKey(s.skillKey),
+      name: ("name" in s && s.name) || humaniseKey(s.skillKey),
+      ...(tested === null && proven === null ? { note: "Untested" } : {}),
       group: s.group,
       value,
       delta: r ? Math.round(r.new - r.old) : undefined,

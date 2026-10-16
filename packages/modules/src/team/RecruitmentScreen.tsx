@@ -328,8 +328,8 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         departments={departments.data}
         defaultDepartmentId={departmentId}
         preferredDepartmentId={hire ? departmentForTemplate(hire.template, departments.data, agentsQuery.data?.agents)?.id : undefined}
-        onHired={(agent, template) => {
-          setNotice(`${agent.name ?? template.name} hired. Train it from its profile to tune its skills.`);
+        onHired={(agent, template, skills) => {
+          setNotice(`${agent.name ?? template.name} hired${skills ? ` with ${plural(skills, "added skill")}` : ""}. Train it from its profile to tune its skills.`);
           setSentence("");
           refetch();
         }}
