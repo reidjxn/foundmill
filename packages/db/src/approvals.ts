@@ -7,7 +7,6 @@
  *
  * Callers write `inbox.item_created` through the outbox themselves (the event schemas live in @foundmill/events).
  */
-import { APP_NAME } from "@foundmill/config";
 import { formatMoney, type Section } from "@foundmill/shared";
 import { repos } from "./repos";
 import type { Executor } from "./repos/_shared";
@@ -33,8 +32,10 @@ const BRANDS: Record<string, string> = {
   cloudflare_dns: "Cloudflare DNS",
   dropbox_sign: "Dropbox Sign",
   google_drive: "Google Drive",
-  platform: APP_NAME,
 };
+
+/** Calls the platform runs inside the business itself (campaign launches, budgets, channels): no outside service. */
+const PLATFORM_CONNECTOR = "platform";
 
 /** "GitHub", "Google Calendar" from a connector key, when the caller has no display name. */
 export function connectorLabel(key: string | null | undefined): string {
@@ -45,8 +46,14 @@ export function connectorLabel(key: string | null | undefined): string {
 /** "run migration" from `run_migration`. */
 export const toolWords = (tool: string | null | undefined): string => (tool ? tool.replace(/[_.]+/g, " ").trim() : "an action");
 
-/** "GitHub › run migration": the call an approval is about, as the founder reads it. */
-export const approvalAction = (approval: Pick<Approval, "connectorKey" | "tool">, connectorName?: string | null): string => `${connectorName?.trim() || connectorLabel(approval.connectorKey)} › ${toolWords(approval.tool)}`;
+/**
+ * "GitHub › run migration": the call an approval is about, as the founder reads it. A platform call is named after the
+ * business it runs in ("LP.GP › launch campaign"), never after the platform, which read as if the agent worked for it.
+ */
+export const approvalAction = (approval: Pick<Approval, "connectorKey" | "tool">, connectorName?: string | null, businessName?: string | null): string => {
+  const where = approval.connectorKey === PLATFORM_CONNECTOR ? businessName?.trim() || "Your business" : connectorName?.trim() || connectorLabel(approval.connectorKey);
+  return `${where} › ${toolWords(approval.tool)}`;
+};
 
 /** Connectors whose calls belong to a section (BUILD §11.9): deciding one needs write on it. Others need Inbox write only. */
 const CONNECTOR_SECTIONS: Record<string, Section> = {
@@ -101,6 +108,8 @@ export interface ApprovalItemDetails {
   taskTitle?: string | null;
   /** The connector's display name ("GitHub"); derived from the key when omitted. */
   connectorName?: string | null;
+  /** The business's name, which names a platform call ("LP.GP › launch campaign"); read from the business when omitted. */
+  businessName?: string | null;
   /** What the call would do, in one line (the arguments as the agent sent them, already shortened). */
   argsSummary?: string | null;
   /** The `approval.requested` event(s) this item narrates. */
@@ -135,7 +144,7 @@ export function approvalAmount(approval: Pick<Approval, "amountMinor" | "currenc
 
 /** The Inbox item for one approval: a blocking decision from the agent who asked. */
 export function approvalItem(approval: Pick<Approval, "connectorKey" | "tool" | "reasons" | "amountMinor" | "currency" | "args">, details: ApprovalItemDetails) {
-  const action = approvalAction(approval, details.connectorName);
+  const action = approvalAction(approval, details.connectorName, details.businessName);
   const amount = approvalAmount(approval);
   const what = approvalArgsText(approval, details.argsSummary);
   const reasons = approval.reasons.map((r) => r.trim()).filter(Boolean);
@@ -182,7 +191,8 @@ export async function openApprovalItem(db: Executor, businessId: string, approva
   if (approval.inboxItemId) return { item: await repos.inbox.get(db, businessId, approval.inboxItemId), created: false };
   return db.transaction(async (tx) => {
     const taskTitle = details.taskTitle !== undefined ? details.taskTitle : await approvalTaskTitle(tx, businessId, approval);
-    const item = await repos.inbox.createItem(tx, businessId, approvalItem(approval, { ...details, taskTitle }));
+    const businessName = details.businessName ?? (approval.connectorKey === PLATFORM_CONNECTOR ? (await repos.businesses.get(tx, businessId)).name : null);
+    const item = await repos.inbox.createItem(tx, businessId, approvalItem(approval, { ...details, taskTitle, businessName }));
     await repos.approvals.linkInboxItem(tx, businessId, approval.id, item.id);
     if (details.sourceEventIds?.length) await repos.events.markNarrated(tx, businessId, details.sourceEventIds);
     return { item, created: true };

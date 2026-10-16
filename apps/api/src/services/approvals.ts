@@ -90,7 +90,7 @@ export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, appro
     await emit(tx, ctx, { type: "approval.resolved", payload: { approvalId: approval.id, planActionId: approval.planActionId, agentId: approval.agentId, outcome, resolvedBy: { kind: "user", id: ctx.userId }, note, latencyMs: Math.max(0, Date.now() - approval.createdAt.getTime()) } });
   }
   const sessionWaiting = session !== null && session.endedAt === null;
-  const action = approvalAction(approval);
+  const action = approvalAction(approval, null, ctx.business.name);
   const who = agent?.name ?? "the agent";
   const asked = `${agent ? `${agent.name}'s` : "the"} request to run ${action}`;
 
@@ -201,7 +201,7 @@ export async function resolveApproval(ctx: BusinessContext, input: { approvalId:
  * too: a reader walled from Finance sees no amount (nor the arguments of a call that spends), and one who cannot read
  * the section the call changes sees no arguments.
  */
-export async function pendingApprovals(tx: DbTx, ctx: Pick<BusinessContext, "businessId" | "membership" | "userId" | "role">) {
+export async function pendingApprovals(tx: DbTx, ctx: Pick<BusinessContext, "businessId" | "business" | "membership" | "userId" | "role">) {
   const rows = await repos.approvals.pending(tx, ctx.businessId);
   const agents = new Map((await repos.agents.list(tx, ctx.businessId, { limit: 500 })).items.map((a) => [a.id, a.name]));
   const financeWalled = !hasSectionAccess(ctx.membership, "finance", "read");
@@ -220,7 +220,7 @@ export async function pendingApprovals(tx: DbTx, ctx: Pick<BusinessContext, "bus
         reasons: financeWalled ? a.reasons.map(maskFinance) : a.reasons,
         agentName: a.agentId ? (agents.get(a.agentId) ?? null) : null,
         taskTitle: await approvalTaskTitle(tx, ctx.businessId, a),
-        action: approvalAction(a),
+        action: approvalAction(a, null, ctx.business.name),
         section,
         canAnswer: hasSectionAccess(ctx.membership, section ?? "inbox", "write") && canResolveApproval(a, { userId: ctx.userId, role: ctx.role }),
         // Who the Responsibilities matrix named (the founder when nobody), and whether it waits for the person asking.
@@ -237,7 +237,7 @@ export async function pendingApprovals(tx: DbTx, ctx: Pick<BusinessContext, "bus
  * it would send and the amount), or null for any other item. A reader walled from Finance sees no amount, and one who
  * cannot read the section the call changes sees no arguments; `canAnswer` says whether Approve and Reject are theirs.
  */
-export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "businessId" | "membership" | "userId" | "role">, itemId: string) {
+export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "businessId" | "business" | "membership" | "userId" | "role">, itemId: string) {
   const approval = await repos.approvals.forInboxItem(tx, ctx.businessId, itemId);
   if (!approval) return null;
   const [agent, task, session] = await Promise.all([
@@ -256,7 +256,7 @@ export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "busines
     resolvedAt: approval.resolvedAt,
     connectorKey: approval.connectorKey,
     tool: approval.tool,
-    action: approvalAction(approval),
+    action: approvalAction(approval, null, ctx.business.name),
     args: args && financeWalled ? maskFinance(args) : args,
     argsHidden: argsWalled,
     amount: spends && !financeWalled ? { amountMinor: approval.amountMinor!, currency: approval.currency! } : null,
