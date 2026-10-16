@@ -5,14 +5,15 @@
  * message) and on the HTTP agent-edit endpoint (Bearer):
  *
  *  - **Supabase access tokens** (ES256/RS256 against `${SUPABASE_URL}/auth/v1/.well-known/jwks.json`, or legacy
- *    HS256 with the project JWT secret), audience `authenticated` → a `user` principal.
+ *    HS256 with the project JWT secret), audience `authenticated` → a `user` principal. `keepKeysFresh` fetches the
+ *    keys at boot and every 5 minutes in the background, so no connection waits for them.
  *  - **Collab service tokens** (HS256 with `SESSION_TOKEN_SECRET`, audience `foundmill-collab/service`) minted by
  *    the orchestrator for one agent session → an `agent` principal bound to one business. Agents therefore edit
  *    through the same server and the same CRDT as humans (BUILD §11.5), never through the database directly.
  *  - **Dev tokens** (`dev`, `dev:<uuid>`) only when `DEV_AUTH_USER_ID` is set and `APP_ENV` is development/test
  *    (docs/DECISIONS.md "Development auth bypass").
  */
-import { createRemoteJWKSet, decodeJwt, decodeProtectedHeader, jwtVerify, SignJWT, type JWTPayload, type JWTVerifyGetKey } from "jose";
+import { createRemoteJWKSet, customFetch, decodeJwt, decodeProtectedHeader, jwtVerify, SignJWT, type JWTPayload, type JWTVerifyGetKey } from "jose";
 import { isGuid } from "./document-name";
 
 export const COLLAB_SERVICE_AUDIENCE = "foundmill-collab/service" as const;
@@ -36,6 +37,30 @@ export interface CollabAuthenticator {
   /** Verifies a token and returns who is connecting; throws `CollabAuthError`. */
   verify(token: string | null | undefined): Promise<Principal>;
   readonly devUserId: string | null;
+  /**
+   * Fetches Supabase's signing keys now and every `intervalMs` (default `JWKS_REFRESH_MS`) on an unref'd timer, so a
+   * connection finds them cached. Nothing to do without SUPABASE_URL (or with an override that cannot reload).
+   */
+  keepKeysFresh?(options?: { intervalMs?: number; onError?: (err: unknown) => void }): KeyRefresher;
+}
+
+export interface KeyRefresher {
+  /** Resolves when the first fetch has finished: true when the keys were fetched. */
+  readonly ready: Promise<boolean>;
+  stop(): void;
+}
+
+/** How often the signing keys are fetched in the background: a revoked key stops being accepted within this long. */
+export const JWKS_REFRESH_MS = 5 * 60_000;
+/**
+ * How long fetched keys are used before a connection would fetch them itself (jose's `cacheMaxAge`, 10 minutes by
+ * default): three background fetches in a row must fail first, and then verification fails closed as it always did.
+ */
+export const JWKS_CACHE_MAX_AGE_MS = 15 * 60_000;
+
+/** jose's remote key set for a Supabase project: cached, reloaded on an unknown kid at most every 30 s. */
+export function supabaseJwks(supabaseUrl: string, fetchImpl?: typeof fetch): JWTVerifyGetKey & { reload(): Promise<void> } {
+  return createRemoteJWKSet(new URL("/auth/v1/.well-known/jwks.json", supabaseUrl), { cooldownDuration: 30_000, cacheMaxAge: JWKS_CACHE_MAX_AGE_MS, ...(fetchImpl ? { [customFetch]: fetchImpl } : {}) });
 }
 
 export interface CollabAuthenticatorOptions {
@@ -48,6 +73,8 @@ export interface CollabAuthenticatorOptions {
   devUserId?: string | null;
   /** Override the JWKS fetcher (tests). */
   jwks?: JWTVerifyGetKey;
+  /** The `fetch` the remote JWKS uses (tests). */
+  jwksFetch?: typeof fetch;
   now?: () => Date;
 }
 
@@ -116,7 +143,7 @@ export function createCollabAuthenticator(opts: CollabAuthenticatorOptions): Col
   const getJwks = (): JWTVerifyGetKey => {
     if (jwks) return jwks;
     if (!opts.supabaseUrl) throw new CollabAuthError("SUPABASE_URL is not configured; cannot verify tokens", "auth-unavailable");
-    jwks = createRemoteJWKSet(new URL("/auth/v1/.well-known/jwks.json", opts.supabaseUrl), { cooldownDuration: 30_000 });
+    jwks = supabaseJwks(opts.supabaseUrl, opts.jwksFetch);
     return jwks;
   };
 
@@ -151,6 +178,23 @@ export function createCollabAuthenticator(opts: CollabAuthenticatorOptions): Col
 
   return {
     devUserId,
+    keepKeysFresh(options = {}) {
+      const keys = opts.jwks ?? (opts.supabaseUrl ? getJwks() : null);
+      const reload = (keys as Partial<{ reload(): Promise<void> }> | null)?.reload;
+      if (typeof reload !== "function") return { ready: Promise.resolve(false), stop: () => undefined };
+      const refresh = () =>
+        reload.call(keys).then(
+          () => true,
+          (err: unknown) => {
+            options.onError?.(err);
+            return false;
+          },
+        );
+      const ready = refresh();
+      const timer = setInterval(() => void refresh(), options.intervalMs ?? JWKS_REFRESH_MS);
+      timer.unref?.();
+      return { ready, stop: () => clearInterval(timer) };
+    },
     async verify(token) {
       const t = token?.trim() || null;
       if (!t) {

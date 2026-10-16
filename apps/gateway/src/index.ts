@@ -11,7 +11,7 @@ import { createLogger } from "@foundmill/shared/logger";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
 import { installTelemetry } from "@foundmill/shared/telemetry";
-import { closeDb, createServiceDb, repos, type Db } from "@foundmill/db";
+import { closeDb, createServiceDb, keepPoolWarm, repos, type Db, type PoolWarmer } from "@foundmill/db";
 import { createDefaultRegistry, platformSecretsFromEnv, type ConnectorRegistry } from "@foundmill/connectors";
 import { createModelClient, effectiveModelMode, type ModelClient } from "@foundmill/models";
 import { createGatewayApp, type GatewayApp } from "./app";
@@ -243,6 +243,7 @@ if (isMain) {
   const telemetry = installTelemetry("gateway", env);
   const log = createLogger("gateway", env.LOG_LEVEL) as unknown as GatewayLogger;
   let gateway: (RunningGateway & BuiltGateway) | null = null;
+  let warmer: PoolWarmer | null = null;
   onShutdown({
     service: "gateway",
     log,
@@ -256,6 +257,7 @@ if (isMain) {
           if (forced > 0) log.warn({ forced }, "gateway: connections still open at the drain deadline were cut");
         },
       },
+      { name: "stop pool warmer", run: () => warmer?.stop() },
       { name: "close redis", run: () => gateway?.close() },
       { name: "close database", run: () => gateway && closeDb(gateway.deps.db) },
       { name: "flush telemetry", run: () => telemetry.shutdown() },
@@ -264,6 +266,8 @@ if (isMain) {
   startGateway({ env, log })
     .then((g) => {
       gateway = g;
+      // Tool calls find open connections: each new one to the pooler costs a TLS and SCRAM handshake (packages/db `keepPoolWarm`).
+      warmer = keepPoolWarm(g.deps.db, { connections: 4, onError: (err) => log.warn({ err: (err as Error)?.message }, "warming the database pool failed") });
     })
     .catch((e) => {
       console.error("gateway failed to start:", e instanceof Error ? e.message : e);

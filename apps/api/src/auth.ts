@@ -2,12 +2,14 @@
  * Bearer-token verification (docs/ARCHITECTURE.md §13, docs/DECISIONS.md "Development auth bypass").
  *
  * - Supabase access tokens are verified with `jose` against `${SUPABASE_URL}/auth/v1/.well-known/jwks.json`
- *   (ES256/RS256; the remote JWKS is cached by jose and refreshed on an unknown kid).
+ *   (ES256/RS256; the remote JWKS is cached by jose and refreshed on an unknown kid). `keepKeysFresh` fetches the keys
+ *   at boot and every 5 minutes in the background, so no request waits for them: until 2026-10-15 the first request
+ *   after every 10-minute gap fetched them itself (audit api-db F7).
  * - Projects still on the legacy HS256 secret are accepted when `SUPABASE_JWT_SECRET` is present.
  * - `DEV_AUTH_USER_ID` replaces verification only when `APP_ENV` is development or test (loadEnv already nulls it
  *   elsewhere); the id must be a UUID because it becomes the RLS `sub` claim.
  */
-import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
+import { createRemoteJWKSet, customFetch, decodeProtectedHeader, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
 
 export interface AuthUser {
   userId: string;
@@ -31,6 +33,32 @@ export interface AuthVerifier {
   resolve(authorization: string | null | undefined): Promise<AuthUser | null>;
   /** Verifies a raw token. Throws on an invalid token. */
   verify(token: string): Promise<AuthUser>;
+  /**
+   * Fetches Supabase's signing keys now and every `intervalMs` (default `JWKS_REFRESH_MS`) on an unref'd timer, so
+   * requests find them cached. Nothing to do without SUPABASE_URL (or with an override that cannot reload). `stop()` in
+   * the shutdown steps.
+   */
+  keepKeysFresh?(options?: { intervalMs?: number; onError?: (err: unknown) => void }): KeyRefresher;
+}
+
+export interface KeyRefresher {
+  /** Resolves when the first fetch has finished: true when the keys were fetched. */
+  readonly ready: Promise<boolean>;
+  stop(): void;
+}
+
+/** How often the signing keys are fetched in the background: a revoked key stops being accepted within this long. */
+export const JWKS_REFRESH_MS = 5 * 60_000;
+/**
+ * How long fetched keys are used before a request would fetch them itself (jose's `cacheMaxAge`, 10 minutes by
+ * default). Three background fetches in a row must fail before that happens, and then a request fails closed as it
+ * always did when Supabase cannot be reached.
+ */
+export const JWKS_CACHE_MAX_AGE_MS = 15 * 60_000;
+
+/** jose's remote key set for a Supabase project: cached, reloaded on an unknown kid at most every 30 s. */
+export function supabaseJwks(supabaseUrl: string, fetchImpl?: typeof fetch): JWTVerifyGetKey & { reload(): Promise<void> } {
+  return createRemoteJWKSet(new URL("/auth/v1/.well-known/jwks.json", supabaseUrl), { cooldownDuration: 30_000, cacheMaxAge: JWKS_CACHE_MAX_AGE_MS, ...(fetchImpl ? { [customFetch]: fetchImpl } : {}) });
 }
 
 export interface AuthVerifierOptions {
@@ -42,6 +70,8 @@ export interface AuthVerifierOptions {
   appEnv: string;
   /** Override the JWKS fetcher (tests). */
   jwks?: JWTVerifyGetKey;
+  /** The `fetch` the remote JWKS uses (tests). */
+  jwksFetch?: typeof fetch;
   /** Override the HS256 key (tests). */
   hsKey?: Uint8Array;
 }
@@ -110,7 +140,7 @@ export function createAuthVerifier(opts: AuthVerifierOptions): AuthVerifier {
   const getJwks = (): JWTVerifyGetKey => {
     if (jwks) return jwks;
     if (!opts.supabaseUrl) throw new AuthError("SUPABASE_URL is not configured; cannot verify tokens");
-    jwks = createRemoteJWKSet(new URL("/auth/v1/.well-known/jwks.json", opts.supabaseUrl), { cooldownDuration: 30_000 });
+    jwks = supabaseJwks(opts.supabaseUrl, opts.jwksFetch);
     return jwks;
   };
   const hsKey = opts.hsKey ?? (opts.jwtSecret ? new TextEncoder().encode(opts.jwtSecret) : null);
@@ -139,6 +169,23 @@ export function createAuthVerifier(opts: AuthVerifierOptions): AuthVerifier {
 
   return {
     verify,
+    keepKeysFresh(options = {}) {
+      const keys = opts.jwks ?? (opts.supabaseUrl ? getJwks() : null);
+      const reload = (keys as Partial<{ reload(): Promise<void> }> | null)?.reload;
+      if (typeof reload !== "function") return { ready: Promise.resolve(false), stop: () => undefined };
+      const refresh = () =>
+        reload.call(keys).then(
+          () => true,
+          (err: unknown) => {
+            options.onError?.(err);
+            return false;
+          },
+        );
+      const ready = refresh();
+      const timer = setInterval(() => void refresh(), options.intervalMs ?? JWKS_REFRESH_MS);
+      timer.unref?.();
+      return { ready, stop: () => clearInterval(timer) };
+    },
     async resolve(authorization) {
       const token = bearerToken(authorization);
       if (!token) return devBypass ? { userId: devBypass, email: null, authenticatedAt: new Date(), emailConfirmed: true } : null;

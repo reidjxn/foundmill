@@ -2,19 +2,20 @@
  * @foundmill/stream — WebSocket fan-out of Redis streams `ev:{businessId}` / `as:{sessionId}` to browser tabs
  * (docs/ARCHITECTURE.md §12, BUILD §8.2).
  *
- * Boot: load env → service database (repositories only, for membership checks) → ioredis → token verifier
- * (Supabase JWKS, or the dev bypass in development/test) → stream server listening on PORT (fallback STREAM_PORT)
+ * Boot: load env → service database (repositories only, for membership checks; two connections kept open, packages/db
+ * `keepPoolWarm`) → ioredis → token verifier (Supabase JWKS fetched at boot and every 5 minutes, or the dev bypass in
+ * development/test) → stream server listening on PORT (fallback STREAM_PORT)
  * on host "::" (Railway's private network is IPv6-only, §17; falls back to 0.0.0.0). SIGTERM/SIGINT: refuse new
  * upgrades, close every socket with 1001 "going away" (clients reconnect, to the new deployment), stop the Redis
  * readers, close Redis and the database pool, exit 0, within SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3). The browser
  * client lives in `./client` (`@foundmill/stream/client`) and pulls in none of this.
  */
-import { createServiceDb, closeDb } from "@foundmill/db";
+import { createServiceDb, closeDb, keepPoolWarm, type PoolWarmer } from "@foundmill/db";
 import { admittedBy, loadEnv, parseSignupAllowlist, servicePort } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { onShutdown } from "@foundmill/shared/shutdown";
 import { installTelemetry } from "@foundmill/shared/telemetry";
-import { createTokenVerifier } from "./auth";
+import { createTokenVerifier, type KeyRefresher } from "./auth";
 import { createCachedAuthorizer, createRepoAuthorizer } from "./authorize";
 import { prepareDb } from "./db-boot";
 import { createStreamRedis, probeRedis, unreachableMessage } from "./redis";
@@ -44,6 +45,8 @@ export async function main(): Promise<void> {
   const db = createServiceDb({ max: 4 });
   let redis: ReturnType<typeof createStreamRedis> | null = null;
   let server: ReturnType<typeof createStreamServer> | null = null;
+  let warmer: PoolWarmer | null = null;
+  let keys: KeyRefresher | null = null;
   const lifecycle = onShutdown({
     service: "stream",
     log,
@@ -51,12 +54,16 @@ export async function main(): Promise<void> {
     steps: () => [
       // Refuses new upgrades, sends 1001 to every socket, waits for the close handshakes, stops the readers and the HTTP server.
       { name: "close sockets", run: () => server?.close() },
+      { name: "stop key refresh", run: () => keys?.stop() },
+      { name: "stop pool warmer", run: () => warmer?.stop() },
       { name: "close redis", run: () => redis?.quit().catch(() => redis?.disconnect()) },
       { name: "close database", run: () => closeDb(db) },
       { name: "flush telemetry", run: () => telemetry.shutdown() },
     ],
   });
   const readiness = await prepareDb(db, log, { service: "stream" });
+  // Membership checks find an open connection (each new one to the pooler costs a TLS and SCRAM handshake).
+  warmer = keepPoolWarm(db, { connections: 2, onError: (err) => log.warn({ err: (err as Error)?.message }, "warming the database pool failed") });
   // Redis is required for fan-out: one bounded probe, one clear line when it is down, then stay up and unhealthy.
   const probe = await probeRedis(env.REDIS_URL);
   if (!probe.ok) log.error({ reason: probe.reason }, unreachableMessage(env.REDIS_URL, probe));
@@ -72,6 +79,7 @@ export async function main(): Promise<void> {
     appEnv: env.APP_ENV,
   });
   if (auth.devUserId) log.warn({ userId: auth.devUserId }, "DEV_AUTH_USER_ID is set: tokens are not verified (development/test only)");
+  keys = auth.keepKeysFresh?.({ onError: (err) => log.warn({ err: (err as Error)?.message }, "fetching Supabase's signing keys failed; retrying in 5 minutes") }) ?? null;
 
   if (lifecycle.stopping) return;
   // The api's invite list (SIGNUP_ALLOWLIST): an account it does not name gets no socket either.
