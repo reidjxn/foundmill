@@ -53,6 +53,14 @@ describe("proxy redirects", () => {
     expect(cleared?.value).toBe("");
     expect(cleared?.maxAge).toBe(0);
     expect(cleared?.path).toBe("/");
+    // The index renders without it too, so it does not pick the stale business again; the session cookie still goes along.
+    const forwarded = res.headers.get("x-middleware-request-cookie") ?? "";
+    expect(forwarded).toContain(`${DEV_AUTH_COOKIE}=1`);
+    expect(forwarded).not.toContain(LAST_BUSINESS_COOKIE);
+    // A report about another business than the cookie's leaves the cookie alone.
+    const other = await proxy(signedIn(`http://localhost:3000/?stale=00000000-0000-4000-8000-0000000000ff`, `${LAST_BUSINESS_COOKIE}=${LAST}`));
+    expect(other.cookies.get(LAST_BUSINESS_COOKIE)).toBeUndefined();
+    expect(other.headers.get("x-middleware-request-cookie")).toContain(`${LAST_BUSINESS_COOKIE}=${LAST}`);
   });
 
   it("sends a signed-out visitor to sign in with the page as next", async () => {

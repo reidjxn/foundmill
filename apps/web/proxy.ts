@@ -15,10 +15,13 @@ export async function proxy(request: NextRequest) {
   const { response, authenticated } = await updateSession(request);
   const decision = decideRedirect({ pathname: request.nextUrl.pathname, search: request.nextUrl.search, authenticated, lastBusinessId: request.cookies.get(LAST_BUSINESS_COOKIE)?.value });
   if (decision.kind === "next") return response;
+  const forget = decision.kind === "rewrite" && decision.forgetLastBusiness;
+  // The rewritten render must not read the stale business either (it picks from the request's cookies).
+  if (forget) request.cookies.delete(LAST_BUSINESS_COOKIE);
   // A redirect or a rewrite keeps any refreshed auth cookies, so the next request (or the rewritten render) is signed in.
   const answer = decision.kind === "redirect" ? NextResponse.redirect(new URL(decision.to, request.url)) : NextResponse.rewrite(new URL(decision.to, request.url), { request });
   for (const cookie of response.cookies.getAll()) answer.cookies.set(cookie);
-  if (decision.kind === "rewrite" && decision.forgetLastBusiness) answer.cookies.set({ name: LAST_BUSINESS_COOKIE, value: "", path: "/", maxAge: 0 });
+  if (forget) answer.cookies.set({ name: LAST_BUSINESS_COOKIE, value: "", path: "/", maxAge: 0 });
   return answer;
 }
 
