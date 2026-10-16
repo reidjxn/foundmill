@@ -205,8 +205,12 @@ export interface ActionState {
   pending: string | null;
   error: Error | null;
   clearError: () => void;
-  /** Run a mutation; resolves to the result or undefined when it failed (the error is kept in state). */
-  run: <T = unknown>(path: string, input: Record<string, unknown>, opts?: { key?: string; then?: (result: T) => void }) => Promise<T | undefined>;
+  /**
+   * Run a mutation; resolves to the result or undefined when it failed (the error is kept in state). `fresh`: wait, still
+   * pending, until the reads the change made stale have reloaded (the host's `settled`), for a caller that drops what it
+   * showed meanwhile and shows those reads next.
+   */
+  run: <T = unknown>(path: string, input: Record<string, unknown>, opts?: { key?: string; then?: (result: T) => void; fresh?: boolean }) => Promise<T | undefined>;
 }
 
 /** Mutations through the host data source with one pending key and the last error, for buttons and inline errors. */
@@ -216,12 +220,14 @@ export function useAction(): ActionState {
   const [error, setError] = useState<Error | null>(null);
   const alive = useRef(true);
   const run = useCallback(
-    async <T,>(path: string, input: Record<string, unknown>, opts?: { key?: string; then?: (result: T) => void }): Promise<T | undefined> => {
+    async <T,>(path: string, input: Record<string, unknown>, opts?: { key?: string; then?: (result: T) => void; fresh?: boolean }): Promise<T | undefined> => {
       const key = opts?.key ?? path;
       setPending(key);
       setError(null);
       try {
-        const result = await mutate<T>(path, input);
+        const change = mutate<T>(path, input);
+        const result = await change;
+        if (opts?.fresh) await change.settled;
         opts?.then?.(result);
         return result;
       } catch (e) {

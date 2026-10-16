@@ -6,7 +6,7 @@
  * the team's brief each cycle, which tells the team not to do the listed activities and to bring them to the founder
  * as decisions instead. Identity-bound steps are the founder's.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, ShieldAlert, ShieldCheck, ShieldOff } from "lucide-react";
 import { Checkbox, Chip, KeyValueList, Label, Panel, StatusPill, Switch, cn, type StatusTone } from "@foundmill/dugout";
 import { useWidgetQuery } from "@foundmill/widgets/data";
@@ -18,6 +18,11 @@ import type { BusinessGetResponse, RegulatoryGateRow } from "./types";
 const BUSINESS_INPUT: Record<string, unknown> = {};
 const GATES_INPUT: Record<string, unknown> = {};
 const REGION_WORD: Record<string, string> = { eu: "European Union", us: "United States" };
+
+/** The same checklist items, in any order. */
+function sameItems(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((x) => b.includes(x));
+}
 
 const GATE_PILL: Record<GateState, { tone: StatusTone; word: string }> = { open: { tone: "warn", word: "Gate open" }, clear: { tone: "good", word: "Cleared" }, not_applicable: { tone: "neutral", word: "Not applicable" } };
 
@@ -41,18 +46,26 @@ export function RegulatoryScreen({ businessId: _businessId }: ModuleScreenProps)
   }, [stored.data, local, detectedKeys]);
   const { selected: chosen, done } = useMemo(() => sectorSelection(choices, detectedKeys), [choices, detectedKeys]);
 
+  // A change stays shown until the store's copy shows it: the save answers before the reload behind it lands.
+  useEffect(() => {
+    const rows = stored.data;
+    if (!rows) return;
+    setLocal((l) => {
+      const shown = Object.keys(l).filter((key) => {
+        const row = rows.find((c) => c.sector === key);
+        const change = l[key as SectorKey]!;
+        return row && (change.applies === undefined || change.applies === row.applies) && (change.done === undefined || sameItems(change.done, row.done));
+      });
+      if (!shown.length) return l;
+      const rest = { ...l };
+      for (const key of shown) delete rest[key as SectorKey];
+      return rest;
+    });
+  }, [stored.data]);
+
   const save = async (key: SectorKey, change: { applies?: boolean; done?: string[] }) => {
     setLocal((l) => ({ ...l, [key]: { ...l[key], ...change } }));
-    await action.run("legal.regulatory.set", { sector: key, ...change }, {
-      key,
-      then: () => {
-        stored.refetch();
-        setLocal((l) => {
-          const { [key]: _saved, ...rest } = l;
-          return rest;
-        });
-      },
-    });
+    await action.run("legal.regulatory.set", { sector: key, ...change }, { key, then: () => stored.refetch() });
   };
   const toggle = (key: SectorKey, on: boolean) => void save(key, { applies: on, done: [...(choices.find((c) => c.sector === key)?.done ?? [])] });
   const tick = (key: SectorKey, itemId: string, on: boolean) => {

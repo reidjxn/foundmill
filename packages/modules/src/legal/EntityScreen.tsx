@@ -160,6 +160,7 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
     const regNoText = details.regNo.trim();
     await action.run("legal.entity.update", { legalEntityId: entity.id, ...(regNoText ? { regNo: regNoText } : {}), ...(details.formedAt ? { formedAt: details.formedAt } : {}) }, {
       key: "details",
+      fresh: true,
       then: () => {
         setDetails({ regNo: "", formedAt: "" });
         status.refetch();

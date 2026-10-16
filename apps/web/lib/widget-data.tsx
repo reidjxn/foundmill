@@ -7,7 +7,7 @@
  *
  * A change resolves as soon as the API has taken it: the reads it makes stale refetch behind it, so a button settles
  * after one round trip instead of two or three (audit WEB-6). A caller that must read the refreshed data awaits the
- * promise's `settled` (`MutationPromise`).
+ * promise's `settled` (`MutationPromise`; the modules' `useAction` does with `fresh`).
  */
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
