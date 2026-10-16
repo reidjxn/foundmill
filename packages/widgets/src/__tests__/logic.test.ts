@@ -14,7 +14,8 @@ import { describeEvent } from "../widgets/live-feed";
 import { customersPerWeek, monthLabel, revenueBars, weekLines, weeksFrom } from "../widgets/revenue-customers";
 import { formatDate } from "@foundmill/dugout";
 import { groupByHorizon, roadmapStatus, taskProgress } from "../widgets/roadmap-timeline";
-import { sessionsToPulseCells } from "../widgets/squad-pulse";
+import { dayHourIn } from "@foundmill/shared/time-zone";
+import { sessionsToPulseCells, type SessionRow } from "../widgets/squad-pulse";
 import { boardWords, runwayTile, squadHealth, statusTiles } from "../widgets/status-strip";
 import { headlineMetric } from "../widgets/department-card";
 import { teamHealth, teamHealthCounts, teamHealthSummary } from "../shared/health";
@@ -96,6 +97,53 @@ describe("team pulse", () => {
     // Half an hour off UTC: each half lands in its own local hour.
     const india = sessionsToPulseCells(session, departments, days, at, "Asia/Kolkata");
     expect(india.map((c) => [c.dayIndex, c.hour, c.agentHours])).toEqual([[1, 2, 0.5], [1, 3, 0.5]]);
+  });
+
+  it("computes 200 sessions over 30 days well under 50 ms, with the same cells as walking every half hour", () => {
+    // The walk before audit C1: every half-hour step from each session's start, kept only when it lands on a day shown.
+    const walkEveryStep = (rows: readonly SessionRow[], days: readonly string[], now: Date, zone: string | null) => {
+      const deptOf = new Map(departments.flatMap((d) => d.squad.map((a) => [a.id, d.id] as const)));
+      const cells = new Map<string, { departmentId: string; dayIndex: number; hour: number; agentHours: number }>();
+      for (const r of rows) {
+        const departmentId = deptOf.get(r.agentId)!;
+        const start = Date.parse(r.startedAt);
+        const end = r.endedAt ? Date.parse(r.endedAt) : now.getTime();
+        if (end <= start) continue;
+        for (let cursor = Math.floor(start / 1_800_000) * 1_800_000; cursor < end; cursor += 1_800_000) {
+          const overlap = Math.min(end, cursor + 1_800_000) - Math.max(start, cursor);
+          const { day, hour } = dayHourIn(cursor, zone);
+          const di = days.indexOf(day);
+          if (di < 0 || overlap <= 0) continue;
+          const key = `${departmentId}:${di}:${hour}`;
+          const cell = cells.get(key) ?? { departmentId, dayIndex: di, hour, agentHours: 0 };
+          cell.agentHours += overlap / 3_600_000;
+          cells.set(key, cell);
+        }
+      }
+      return [...cells.values()];
+    };
+    const agents = departments.flatMap((d) => d.squad.map((a) => a.id));
+    const at = new Date(`${TODAY}T12:00:00.000Z`);
+    const many: SessionRow[] = Array.from({ length: 200 }, (_, i) => {
+      const startedAt = at.getTime() - (i / 200) * 30 * 86_400_000 - (i % 7) * 600_000;
+      // Every tenth session is still open, so it runs until now: the case that walked up to 30 days of steps.
+      const endedAt = i % 10 === 0 ? null : new Date(startedAt + (1 + (i % 6)) * 3_600_000).toISOString();
+      return { id: `s${i}`, agentId: agents[i % agents.length]!, startedAt: new Date(startedAt).toISOString(), endedAt };
+    });
+    const days = lastDays(7, TODAY);
+    // UTC, a zone half an hour off and one 45 minutes off UTC (its days do not start on a half-hour step).
+    for (const zone of [null, "Asia/Kolkata", "Asia/Kathmandu"]) {
+      let best = Infinity;
+      let cells: ReturnType<typeof sessionsToPulseCells> = [];
+      for (let run = 0; run < 3; run++) {
+        const t0 = performance.now();
+        cells = sessionsToPulseCells(many, departments, days, at, zone);
+        best = Math.min(best, performance.now() - t0);
+      }
+      expect(best).toBeLessThan(50);
+      expect(cells.length).toBeGreaterThan(0);
+      expect(cells).toEqual(walkEveryStep(many, days, at, zone));
+    }
   });
 });
 
