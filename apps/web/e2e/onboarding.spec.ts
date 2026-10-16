@@ -45,6 +45,8 @@ test.describe("onboarding", () => {
       await expect(page).toHaveURL(/\/onboarding$/);
       await page.goto("/new/ideate");
       await expect(page).toHaveURL(/\/onboarding$/);
+      await page.goto("/businesses");
+      await expect(page).toHaveURL(/\/onboarding$/);
       await page.goto("/onboarding");
       await completeProfile(page);
     } else {

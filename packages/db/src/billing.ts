@@ -7,8 +7,9 @@
  * Credits are always enforced (DECISIONS 2026-10-12): every tier includes a monthly platform credit
  * (`includedCreditsMinor`, packages/config), granted on the first charge of the period when no top-up came first, so no
  * business runs on the platform's key without a ceiling. The included credit is a per-founder monthly pool: the
- * businesses one founder took charge of (archived ones included) share as many included credits a month as their plan
- * holds businesses (`includedCreditsFor`), so archiving and taking charge again never yields a second free grant.
+ * businesses one founder took charge of (archived ones included) share as many included credits a month as their plan's
+ * `includedCreditBusinesses` (`includedCreditsFor`), so archiving and taking charge again never yields a second free
+ * grant, and lifting the business limit (founder, 2026-10-16) never widens the pool.
  *
  * What is charged: every platform cost in the credits currency (USD), whatever the business's model billing. A business
  * on its own key runs its agents on that key (billed `byok`, never charged), but the api's and the composer's calls
@@ -26,7 +27,7 @@
  * `assertPlatformCredits` refuses a call while the month's credits are used up (or stopped for it), and where calls are
  * live, credits granted by a simulated payment never count (`ALLOW_MOCK_PAYMENTS`, docs/DEPLOY.md §4).
  */
-import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor, TIERS } from "@foundmill/config";
+import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor, tierIncludedCreditPlaces } from "@foundmill/config";
 import { CreditsExhaustedError } from "@foundmill/shared";
 import { stopBusinessAgents } from "./controls";
 import { repos } from "./repos";
@@ -70,7 +71,8 @@ type CreditsBusiness = Pick<Business, "id" | "planTier" | "createdBy">;
 /**
  * What `business`'s tier includes for `period`, after the founder's monthly pool: the businesses one founder took charge
  * of (`created_by`, archived ones included) are granted included credits for at most as many businesses a month as the
- * founder's plan holds (`businessAllowance`; unlimited on Scale). Past that, a business starts the month with nothing
+ * founder's plan covers (`tierIncludedCreditPlaces` of the founder's tier, `businessAllowance`; every one on Scale).
+ * It is its own number, not the business limit (there is none for now). Past that, a business starts the month with nothing
  * included (a top-up or the founder's own key keeps it working). `lock` serializes grants of one founder's businesses
  * (inside the transaction that creates the balance row). A business with no recorded founder (old seeds) is not pooled.
  */
@@ -78,8 +80,9 @@ export async function includedCreditsFor(db: Executor, business: CreditsBusiness
   const included = includedCreditsMinor(business.planTier);
   if (included <= 0 || !business.createdBy) return included;
   if (options.lock) await repos.usage.lockIncludedCredits(db, business.createdBy);
-  const [{ allowed }, taken] = await Promise.all([businessAllowance(db, business.createdBy), repos.usage.includedCreditPlacesTaken(db, business.createdBy, period, { exceptBusinessId: business.id })]);
-  return allowed !== null && taken >= allowed ? 0 : included;
+  const [{ tier }, taken] = await Promise.all([businessAllowance(db, business.createdBy), repos.usage.includedCreditPlacesTaken(db, business.createdBy, period, { exceptBusinessId: business.id })]);
+  const places = tierIncludedCreditPlaces(tier);
+  return places !== null && taken >= places ? 0 : included;
 }
 
 /**
@@ -222,8 +225,8 @@ const tierWord = (tier: Business["planTier"]) => tier.charAt(0).toUpperCase() + 
 /** Why a month started with nothing included: another business of the same founder took the pool's place. */
 function poolSentence(business: Business, balance: CreditBalance): string {
   if (Number(balance.grantedMinor) > 0 || includedCreditsMinor(business.planTier) <= 0) return "";
-  const allowed = TIERS[business.planTier].businesses;
-  const places = typeof allowed === "number" ? `${allowed} business${allowed === 1 ? "" : "es"}` : "its businesses";
+  const n = tierIncludedCreditPlaces(business.planTier);
+  const places = n !== null ? `${n} business${n === 1 ? "" : "es"}` : "its businesses";
   return ` The ${tierWord(business.planTier)} plan includes credits for ${places} a month, and this month's already went to another business you took charge of.`;
 }
 

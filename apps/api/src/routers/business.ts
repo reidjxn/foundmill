@@ -395,7 +395,7 @@ export const businessRouter = router({
   }),
   /** Owner-only: bring an archived business back (idempotent). Its agents stay stopped until resumed. */
   restore: ownerArchivedProcedure.mutation(({ ctx }) => restoreBusiness(ctx)),
-  /** The archived businesses the signed-in account owns, with any scheduled deletion (New business › Archived businesses). */
+  /** The archived businesses the signed-in account owns, with any scheduled deletion (Your businesses › Archived businesses). */
   listArchived: protectedProcedure.query(async ({ ctx }) => {
     const archived = await repos.businesses.listArchivedForUser(ctx.db, ctx.userId);
     return Promise.all(

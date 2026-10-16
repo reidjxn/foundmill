@@ -104,7 +104,7 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   runwayEstimate?: boolean;
   onRunwayClick?: () => void;
   onModeClick?: () => void;
-  /** The business name's menu: Home, the founder's other businesses, Start another business, the profile. */
+  /** The logo and name become the business switcher: the founder's businesses, Create a new business, Manage businesses, Home, Your profile. */
   businessMenu?: KitBarBusinessMenu;
   /** The live connection is down: the kit bar says so (ConnectionChip). */
   connection?: ConnectionChipProps | null;

@@ -29,3 +29,4 @@ export * from "./agents/HealthBadge";
 export * from "./agents/HierarchyChart";
 export * from "./agents/useLiveMockSessions";
 export * from "./agents/TeamOrbit";
+export * from "./agents/SkillPicker";

@@ -285,6 +285,16 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(screen.getByTestId("commit-upgrade").getAttribute("href")).toBe("/b/b1/settings/billing");
   });
 
+  it("says before Take charge when the team would start paused (this month's included credits went to another business)", () => {
+    renderForm(vi.fn());
+    expect(screen.queryByTestId("commit-credits-notice")).toBeNull();
+    cleanup();
+    renderForm(vi.fn(), { creditsNotice: "This month's included credits ($5.00) already went to another business you took charge of, so this one starts with its team paused." });
+    const notice = screen.getByTestId("commit-credits-notice");
+    expect(notice.textContent).toContain("Team starts paused");
+    expect(notice.textContent).toContain("already went to another business you took charge of");
+  });
+
   it("shows the team the archetype seeds", () => {
     renderForm(vi.fn(), {
       preview: {

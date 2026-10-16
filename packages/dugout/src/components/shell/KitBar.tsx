@@ -1,15 +1,13 @@
-"use client";
-
 import { forwardRef, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, House, Plus, Search, UserRound } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import type { BusinessMode, GameMode, Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { darkenHex, isHexColour, kitOnPrimary, kitRamp } from "../../lib/colour";
 import { BusinessLogo } from "../foundation/BusinessLogo";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "../foundation/DropdownMenu";
 import { FitText } from "../foundation/FitText";
 import { Icon } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";
+import { BusinessSwitcher, type KitBarBusinessMenu } from "./BusinessSwitcher";
 import { ConnectionChip, type ConnectionChipProps } from "./ConnectionChip";
 import { ContinueButton, type ContinueButtonProps } from "./ContinueButton";
 import { KitBarFit } from "./KitBarFit";
@@ -18,16 +16,8 @@ import { RunwayChip, type RunwayWords } from "./RunwayChip";
 import { StopAllAgents, type StopAllAgentsProps } from "./StopAllAgents";
 import type { Kit } from "./types";
 
-/**
- * The business name's menu (audit IAE-08, WEB-13): Home, every business the founder can open (the current one ticked),
- * Start another business and the founder profile.
- */
-export interface KitBarBusinessMenu {
-  businesses: readonly { id: string; name: string; current?: boolean }[];
-  onOpenBusiness: (id: string) => void;
-  onNewBusiness?: () => void;
-  onProfile?: () => void;
-}
+/** The business switcher's list and actions (BusinessSwitcher.tsx); re-exported here, where it was first defined. */
+export type { KitBarBusinessMenu } from "./BusinessSwitcher";
 
 export interface KitBarNav {
   onBack?: () => void;
@@ -76,7 +66,7 @@ export interface KitBarProps extends Omit<HTMLAttributes<HTMLElement>, "title"> 
   stopAll: StopAllAgentsProps;
   /** Logo + name become a button (go Home). */
   onHome?: () => void;
-  /** Logo + name open the business menu instead (Home is its first item). */
+  /** Logo + name become the business switcher instead (Switch business: the founder's businesses, Create a new business, Manage businesses, Home, Your profile). */
   businessMenu?: KitBarBusinessMenu;
   /** The live connection is down: a chip before the date says so. Null or absent while it is fine. */
   connection?: ConnectionChipProps | null;
@@ -116,7 +106,8 @@ export function kitBarGradient(kit: Kit): string {
 /**
  * The 56 px top bar (BUILD §5.3, DESIGN §8): a glass slab in the brand colour (gloss, a brand gradient from 92 % to
  * 38 %, a fixed specular streak, a light top edge, a kit-lift line under it and the brand's light cast onto the canvas).
- * Left: the 32 px logo tile, the business name, back/forward, a hairline, the screen title. Then the universal search
+ * Left: the 32 px logo tile and the business name (with `businessMenu`, the business switcher: a chevron after the
+ * name, the tooltip "Switch business"), back/forward, a hairline, the screen title. Then the universal search
  * and, right: date + runway, the business-mode chip, Continue, Stop all agents — all glass, 34 px. Nothing is clipped at
  * 1280: the search gives way first (its placeholder shortens, then only the icon remains); then, while the bar still
  * cannot hold everything whole or the screen title would lose its room, the chips compact one step at a time
@@ -177,9 +168,9 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
     >
       <div className="flex min-w-0 max-w-sidebar shrink-0 items-center">
         {businessMenu ? (
-          <BusinessMenu businessName={businessName} menu={businessMenu} onHome={onHome}>
+          <BusinessSwitcher businessName={businessName} menu={businessMenu} onHome={onHome}>
             {identity}
-          </BusinessMenu>
+          </BusinessSwitcher>
         ) : onHome ? (
           <button
             type="button"
@@ -241,49 +232,3 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
     </header>
   );
 });
-
-/** The logo and name as a menu button: Home, the founder's businesses, Start another business, the founder profile. */
-function BusinessMenu({ businessName, menu, onHome, children }: { businessName: string; menu: KitBarBusinessMenu; onHome?: () => void; children: ReactNode }) {
-  const others = menu.businesses.filter((b) => !b.current);
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="flex min-w-0 items-center gap-1 rounded-sm text-left outline-none hover:no-underline focus-visible:shadow-ring"
-          aria-label={`${businessName}: Home and your businesses`}
-          data-testid="kitbar-business-menu"
-        >
-          {children}
-          <Icon icon={ChevronDown} size="inline" className="shrink-0 opacity-70" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-56">
-        {onHome ? (
-          <DropdownMenuItem onSelect={onHome}>
-            <Icon icon={House} size="inline" /> Home
-          </DropdownMenuItem>
-        ) : null}
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel>{others.length ? "Your businesses" : "Your business"}</DropdownMenuLabel>
-        {menu.businesses.map((b) => (
-          <DropdownMenuItem key={b.id} onSelect={() => (b.current ? onHome?.() : menu.onOpenBusiness(b.id))} data-business-id={b.id} aria-current={b.current ? "true" : undefined}>
-            <span className="min-w-0 flex-1 truncate">{b.name}</span>
-            {b.current ? <Icon icon={Check} size="inline" aria-label="Open now" /> : null}
-          </DropdownMenuItem>
-        ))}
-        {menu.onNewBusiness || menu.onProfile ? <DropdownMenuSeparator /> : null}
-        {menu.onNewBusiness ? (
-          <DropdownMenuItem onSelect={menu.onNewBusiness} data-testid="kitbar-new-business">
-            <Icon icon={Plus} size="inline" /> Start another business
-          </DropdownMenuItem>
-        ) : null}
-        {menu.onProfile ? (
-          <DropdownMenuItem onSelect={menu.onProfile}>
-            <Icon icon={UserRound} size="inline" /> Your profile
-          </DropdownMenuItem>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}

@@ -1,11 +1,11 @@
 import { readFile } from "node:fs/promises";
-import { expect, test, type Download, type Page } from "@playwright/test";
-import { LONG, UUID, ensureDeck, openBusiness, openSettings, settingsScreen, signIn } from "./helpers";
+import { expect, test, type Download } from "@playwright/test";
+import { LONG, commitThrowaway, openBusiness, openSettings, settingsScreen } from "./helpers";
 
 /**
  * Settings › Danger zone (BUILD §11.15): Export everything saves a JSON file holding every table of the business; an
- * archived business is listed for its owner under New business › Archived businesses, where it can be exported and
- * restored. The archive test commits a throwaway business so the seeded ones are never archived. Stack and commands:
+ * archived business is listed for its owner under Your businesses › Archived businesses (and on /new), where it can be
+ * exported and restored. The archive test commits a throwaway business so the seeded ones are never archived. Stack and commands:
  * e2e/README.md. The tab's own content is looked up through `settingsScreen` (React parks a second copy of a streamed
  * screen outside the shell for a moment, helpers.ts); the confirmation dialog is a portal and is looked up on the page.
  */
@@ -13,17 +13,6 @@ import { LONG, UUID, ensureDeck, openBusiness, openSettings, settingsScreen, sig
 async function archiveJson(download: Download): Promise<{ format: string; business: { id: string }; tables: Record<string, unknown[]>; counts: Record<string, number> }> {
   const path = await download.path();
   return JSON.parse(await readFile(path!, "utf8")) as Awaited<ReturnType<typeof archiveJson>>;
-}
-
-async function commitThrowaway(page: Page, name: string): Promise<string> {
-  await signIn(page);
-  await ensureDeck(page, 1);
-  await page.getByTestId("commit-link").first().click();
-  await expect(page.getByTestId("commit-form")).toBeVisible({ timeout: LONG });
-  await page.getByLabel(/Business name/).fill(name);
-  await page.getByTestId("take-charge").click();
-  await page.waitForURL(new RegExp(`/b/${UUID}/`), { timeout: LONG });
-  return page.url().match(new RegExp(`/b/(${UUID})/`))![1]!;
 }
 
 test.describe("settings › danger zone", () => {
@@ -54,12 +43,13 @@ test.describe("settings › danger zone", () => {
     const bid = await commitThrowaway(page, name);
     const screen = await openSettings(page, "danger", bid);
     await expect(screen.getByTestId("danger-zone")).toBeVisible({ timeout: LONG });
-    await expect(screen.getByTestId("danger-zone")).toContainText("New business › Archived businesses");
+    await expect(screen.getByTestId("danger-zone")).toContainText("Your businesses › Archived businesses");
     await screen.getByRole("button", { name: `Archive ${name}` }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Archive" }).click();
 
-    // Off to New business, where the owner finds it.
-    await page.waitForURL(/\/new#archived$/, { timeout: LONG });
+    // Off to Your businesses, where the owner finds it.
+    await page.waitForURL(/\/businesses#archived$/, { timeout: LONG });
+    await expect(page.locator(`[data-business-row="${bid}"]`)).toHaveCount(0);
     const row = page.locator(`[data-archived-business="${bid}"]`);
     await expect(row).toBeVisible({ timeout: LONG });
     await expect(row).toContainText(name);
@@ -72,6 +62,9 @@ test.describe("settings › danger zone", () => {
     await row.getByTestId("archived-restore").click();
     await page.waitForURL(new RegExp(`/b/${bid}/home`), { timeout: LONG });
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+    await page.goto("/businesses");
+    await expect(page.locator(`[data-business-row="${bid}"]`)).toBeVisible({ timeout: LONG });
+    await expect(page.locator(`[data-archived-business="${bid}"]`)).toHaveCount(0);
     await page.goto("/new");
     await expect(page.getByTestId("doors")).toBeVisible({ timeout: LONG });
     await expect(page.locator(`[data-archived-business="${bid}"]`)).toHaveCount(0);

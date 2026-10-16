@@ -491,11 +491,12 @@ Space = Continue · `R` = refresh Inbox · `G` then letter = go to section (`G H
 ```text
 /                               → redirect to last business Home, or /onboarding
 /onboarding                     founder profile (once per account)
-/new                            New business: Door A (ideate) or Door B (import)
+/new                            Create a new business: Door A (ideate) or Door B (import)
 /new/ideate                     Ideation Studio
 /new/compare?ids=…              Concept comparison
 /new/import                     Import sources
 /new/commit/[ideaId]            Commit screen
+/businesses                     Your businesses: open, settings, archived (account level)
 /b/[bid]/home[/[dashboardId]]   Home dashboards
 /b/[bid]/inbox[/[itemId]]       Inbox
 /b/[bid]/journey/[journeyId]    Customer Journey (Match Day)
@@ -733,7 +734,7 @@ Consumers: `composer` (narration), `journey` (journey builder), `source-watcher`
 ### 8.3 tRPC routers (`apps/api`)
 
 ```text
-founder.profile.get/update
+founder.profile.get/update   founder.businesses.list/allowance
 idea.generate/compare/merge/fork/ask/discard/commit
 business.get/update/setGameMode/setBusinessMode/startHoliday/endHoliday/stopAllAgents
 department.list/create/update/merge/split/reorder/archive/resetDefaults

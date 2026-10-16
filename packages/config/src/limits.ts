@@ -56,6 +56,8 @@ export const LIMITS = {
   trpcMaxBodyBytes: 2 * 1024 * 1024,
   /** Largest body of a request that uploads a logo (a 2 MB SVG travels base64-encoded inside JSON). */
   trpcMaxLogoBodyBytes: 6 * 1024 * 1024,
+  /** Largest skill file a founder may upload for an agent (UTF-8 bytes); checked in the browser and again by the api. */
+  skillFileMaxBytes: 64 * 1024,
 } as const;
 
 /**

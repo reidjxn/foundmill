@@ -2756,3 +2756,15 @@ Decided (founder, 2026-10-16): the `conversation` route runs **Sonnet 5.5 at low
 
 - **Observed (CI, PR #5).** Runway's Starting cash read "45,064.3" at rest on the day the seeded cash ended in a zero cent: `toField` printed minor units as `String(minor / 100)` and the field groups what it is given. The screen spec (#172) asks for "grouped, with cents when it has them" as two digits; the unit test pinned the one-digit form.
 - **Decision.** A money driver with cents shows two cent digits ("1500.50" → "1,500.50"); a whole amount shows none ("1,500"). What the founder types is still kept as typed while the field has focus. The unit test now expects "1,500.50".
+
+## 2026-10-16 — No business limit for now; the included credits stay one pool
+
+Decided (founder, 2026-10-16): no business limit on any plan until paid plans launch. This supersedes "Tier limits are enforced: Businesses" and BUILD §10.5's business numbers; seats and concurrency are unchanged, and the allowance check stays in Commit so a number in `TIERS.*.businesses` brings a limit back. The founder also chose to keep the included model credits as one pool per owner (free covers 1 business a month): creating businesses cannot multiply free credits, and a second free business that month starts with its team paused until credits or the founder's own key are added. Switch business is a popover with a filterable list (cmdk) rather than a menu, because a menu's typeahead fights the filter; archived businesses' canonical place is `/businesses#archived`.
+
+## 2026-10-16 — Skills from the library or files
+
+Stored as business skill definitions per agent type (keys `library_<key>` and `upload_<name>_<hash8>`), so the same library skill or the same file is one definition; removing a skill deletes the agent's rating row and keeps the definition as a record. Each library skill shows as one attribute; uploaded files show as Craft. Limits: 64 KB per file, 20,000 characters of instructions per skill, 8 added skills and 60,000 characters of skill instructions per agent, so the Skills section stays a bounded part of every prompt. Screening refuses rather than strips (YAML tags and anchors, HTML comments, invisible characters, imitations of the platform's section headings, role and delimiter spoofing, anything the house-rules detector or injection heuristics flag); a tool list in front matter is ignored and the founder is told so. Skills never change tools, autonomy, spend caps or approvals.
+
+## 2026-10-16 — A platform call is named after the business
+
+An approval note named a call the platform runs inside the business with the platform's name ("asks to run Foundmill › launch campaign"), which read as if the agent worked for Foundmill. Platform calls now carry the business's name ("LP.GP › launch campaign"); outside services keep theirs ("GitHub › run migration").

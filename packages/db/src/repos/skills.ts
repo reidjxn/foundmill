@@ -1,5 +1,5 @@
 /** skill_definitions, skill_tests, agent_skills — attribute ratings (BUILD §11.10; routers agent.profile.*). */
-import { SKILL_GROUPS, ValidationError } from "@foundmill/shared";
+import { ADDED_SKILL_SOURCES, SKILL_GROUPS, ValidationError, type AddedSkillSource, type SkillGroup } from "@foundmill/shared";
 import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agentSkills, skillDefinitions, skillTests, type AgentSkill, type SkillDefinition, type SkillTest } from "../schema";
@@ -36,6 +36,40 @@ export const UpsertAgentSkillInput = z.object({
   potential: z.number().int().min(1).max(20).default(1),
 });
 export type UpsertAgentSkillInput = z.input<typeof UpsertAgentSkillInput>;
+
+/**
+ * A skill the founder added from the library or a skill file (0061): a business definition for the agent's type with
+ * the instructions its prompt carries. The api parses and screens a file before it gets here.
+ */
+export const CreateAddedSkillInput = z.object({
+  agentType: z.string().trim().min(1).max(80),
+  skillKey: z.string().trim().min(1).max(80).regex(/^(library|upload)_[a-z0-9_]+$/),
+  name: z.string().trim().min(1).max(120),
+  description: z.string().max(1024).default(""),
+  group: z.enum(SKILL_GROUPS),
+  source: z.enum(ADDED_SKILL_SOURCES),
+  instructionsMd: z.string().min(1).max(20_000),
+  fileName: z.string().min(1).max(255).nullable().default(null),
+  contentHash: z.string().regex(/^[0-9a-f]{64}$/).nullable().default(null),
+});
+export type CreateAddedSkillInput = z.input<typeof CreateAddedSkillInput>;
+
+/** An agent's added skill: its rating row and the definition its prompt reads. */
+export interface AddedAgentSkill {
+  definitionId: string;
+  skillKey: string;
+  name: string;
+  description: string;
+  group: SkillGroup;
+  source: AddedSkillSource;
+  instructionsMd: string;
+  fileName: string | null;
+  contentHash: string | null;
+  tested: string | null;
+  displayed: number;
+  potential: number;
+  addedAt: Date;
+}
 
 /** Held-out tests are redacted to id + count for the Training screen (AC-11.10.2). */
 export type RedactedSkillTest = Pick<SkillTest, "id" | "skillDefinitionId" | "heldOut">;
@@ -189,6 +223,58 @@ export const skillsRepo = {
         .returning(),
       "skill test",
     );
+  },
+
+  /**
+   * Writes (or refreshes) an added skill's definition for the business and agent type. The same library skill, or the
+   * same file (same key: name and content hash), is one definition however many agents of the type carry it.
+   */
+  async upsertAddedDefinition(db: Executor, businessId: string, input: CreateAddedSkillInput): Promise<SkillDefinition> {
+    const v = parseInput(CreateAddedSkillInput, input, "added skill");
+    if (v.source === "upload" && (!v.fileName || !v.contentHash)) throw new ValidationError("An uploaded skill keeps its file name and content hash");
+    const set = { name: v.name, description: v.description, group: v.group, custom: false, source: v.source, instructionsMd: v.instructionsMd, fileName: v.fileName, contentHash: v.contentHash, archivedAt: null };
+    return one(
+      await db
+        .insert(skillDefinitions)
+        .values({ businessId, agentType: v.agentType, skillKey: v.skillKey, ...set })
+        .onConflictDoUpdate({ target: [skillDefinitions.businessId, skillDefinitions.agentType, skillDefinitions.skillKey], set, targetWhere: sql`${skillDefinitions.businessId} is not null` })
+        .returning(),
+      "skill definition",
+    );
+  },
+
+  /** The library and uploaded skills an agent carries, oldest first, with the instructions its prompt reads. */
+  async listAddedForAgent(db: Executor, businessId: string, agentId: string, agentType: string): Promise<AddedAgentSkill[]> {
+    const rows = await db
+      .select({ skill: agentSkills, def: skillDefinitions })
+      .from(agentSkills)
+      .innerJoin(
+        skillDefinitions,
+        and(eq(skillDefinitions.businessId, agentSkills.businessId), eq(skillDefinitions.skillKey, agentSkills.skillKey), eq(skillDefinitions.agentType, agentType), isNotNull(skillDefinitions.source), isNull(skillDefinitions.archivedAt)),
+      )
+      .where(and(eq(agentSkills.businessId, businessId), eq(agentSkills.agentId, agentId)))
+      .orderBy(asc(agentSkills.createdAt), asc(agentSkills.skillKey));
+    return rows.map(({ skill, def }) => ({
+      definitionId: def.id,
+      skillKey: skill.skillKey,
+      name: def.name,
+      description: def.description,
+      group: skill.group,
+      source: def.source!,
+      instructionsMd: def.instructionsMd ?? "",
+      fileName: def.fileName,
+      contentHash: def.contentHash,
+      tested: skill.tested,
+      displayed: skill.displayed,
+      potential: skill.potential,
+      addedAt: skill.createdAt,
+    }));
+  },
+
+  /** Takes a skill off an agent (its rating row); the definition stays as the business's record. Null when it had none. */
+  async removeFromAgent(db: Executor, businessId: string, agentId: string, skillKey: string): Promise<AgentSkill | null> {
+    const rows = await db.delete(agentSkills).where(and(eq(agentSkills.businessId, businessId), eq(agentSkills.agentId, agentId), eq(agentSkills.skillKey, skillKey))).returning();
+    return rows[0] ?? null;
   },
 
   // agent skills ------------------------------------------------------------------------------------------------------

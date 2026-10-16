@@ -280,7 +280,7 @@ export interface RequestDeletionResult {
 export function deletionCopy(business: Pick<Business, "name"> & { archivedAt?: Date | null }, scheduledFor: string): { title: string; body: string } {
   const when = usDate(scheduledFor);
   const until = business.archivedAt
-    ? "Until then any owner can cancel from New business › Archived businesses, or restore the business and cancel from Settings › Danger zone."
+    ? "Until then any owner can cancel from Your businesses › Archived businesses, or restore the business and cancel from Settings › Danger zone."
     : "Until then the business keeps working and any owner can cancel from Settings › Danger zone.";
   return {
     title: `Deletion scheduled for ${when}`,

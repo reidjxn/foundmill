@@ -1,8 +1,8 @@
 /** businesses — the business record (BUILD §7.2 "Accounts and businesses", routers business.*). */
-import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, ConflictError, DATA_REGIONS, DEFAULT_BUSINESS_CURRENCY, GAME_MODES, MODEL_BILLING, PLAN_TIERS, ValidationError, slugify, uuid, type AgentStopReason } from "@foundmill/shared";
+import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, ConflictError, DATA_REGIONS, DEFAULT_BUSINESS_CURRENCY, GAME_MODES, MODEL_BILLING, PLAN_TIERS, ValidationError, slugify, uuid, type AgentStopReason, type BusinessMode, type GameMode, type MembershipRole, type PlanTier } from "@foundmill/shared";
 import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { auditLog, businesses, memberships, type Business } from "../schema";
+import { auditLog, businessLogos, businesses, memberships, type Business } from "../schema";
 import { Currency, changes, defined, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, rowsOf, uniqueViolation, type Executor } from "./_shared";
 
 const HexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/, "brand colors are #RRGGBB");
@@ -53,6 +53,29 @@ export type UpdateBusinessInput = z.input<typeof UpdateBusinessInput>;
 const notArchived = isNull(businesses.archivedAt);
 
 /**
+ * One business as the founder's own lists show it (the top bar's Switch business, the palette, Your businesses): what
+ * a row needs and nothing more, with the person's role and the version of the logo (`business.logo.get` by sha256).
+ */
+export interface BusinessSummary {
+  id: string;
+  name: string;
+  slug: string;
+  role: MembershipRole;
+  planTier: PlanTier;
+  gameMode: GameMode;
+  businessMode: BusinessMode;
+  isDemo: boolean;
+  kitPrimary: string;
+  kitSecondary: string;
+  createdAt: Date;
+  committedAt: Date | null;
+  /** The team is stopped (Stop all agents, a revoked key, used-up credits). */
+  agentsStopped: boolean;
+  /** Null without a stored logo (the initials mark is drawn). */
+  logo: { sha256: string } | null;
+}
+
+/**
  * Settings › Danger zone writes a scheduled deletion and its cancellation as audit entries (DECISIONS "Deletion requests
  * live on the audit chain"); the latest of the two is the business's deletion state.
  */
@@ -87,6 +110,38 @@ export const businessesRepo = {
       .where(and(eq(memberships.userId, userId), notArchived))
       .orderBy(desc(businesses.createdAt));
     return rows.map((r) => ({ ...r.business, role: r.role }));
+  },
+
+  /**
+   * Account-scoped: the businesses the user belongs to (not archived), with their role and logo version, A–Z by name.
+   * One statement, no logo bytes. Run it as the user (`withRls`): RLS only ever shows a caller businesses they are a
+   * member of, whatever `userId` is asked for.
+   */
+  async listSummariesForUser(db: Executor, userId: string): Promise<BusinessSummary[]> {
+    const id = parseInput(Id, userId, "user id");
+    const rows = await db
+      .select({
+        id: businesses.id,
+        name: businesses.name,
+        slug: businesses.slug,
+        planTier: businesses.planTier,
+        gameMode: businesses.gameMode,
+        businessMode: businesses.businessMode,
+        isDemo: businesses.isDemo,
+        kitPrimary: businesses.kitPrimary,
+        kitSecondary: businesses.kitSecondary,
+        createdAt: businesses.createdAt,
+        committedAt: businesses.committedAt,
+        agentsStoppedAt: businesses.agentsStoppedAt,
+        role: memberships.role,
+        logoSha256: businessLogos.sha256,
+      })
+      .from(memberships)
+      .innerJoin(businesses, eq(businesses.id, memberships.businessId))
+      .leftJoin(businessLogos, eq(businessLogos.businessId, businesses.id))
+      .where(and(eq(memberships.userId, id), notArchived))
+      .orderBy(sql`lower(${businesses.name})`, asc(businesses.id));
+    return rows.map(({ agentsStoppedAt, logoSha256, ...r }) => ({ ...r, agentsStopped: agentsStoppedAt !== null, logo: logoSha256 ? { sha256: logoSha256 } : null }));
   },
 
   /**

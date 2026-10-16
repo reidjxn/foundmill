@@ -5,11 +5,16 @@
  * business is committed (counted per owner), `maxConcurrentAgents` when a cycle dispatches, `seats` when someone is
  * invited, and `includedCreditsMinor` as the platform credit each business on credits is granted every month, so a
  * business that runs on the platform's model key always has a balance that pauses it when it is used up.
+ *
+ * Business limits are lifted on every plan until paid plans launch (founder, 2026-10-16). The allowance machinery stays
+ * (`tierBusinessLimit`, packages/db `assertBusinessAllowance`): put a number back in `businesses` to bring a limit back.
+ * The included-credit pool is its own number (`includedCreditBusinesses`, SEC2 S6), so lifting the business limit never
+ * hands out more free credits.
  */
 export const TIERS = {
-  free: { priceMonthly: null, modelBilling: "credits_or_byok", businesses: 1, maxConcurrentAgents: 4, channels: "all", seats: 1, includedCreditsMinor: 500 },
-  pro: { priceMonthly: "TBD", modelBilling: "credits_or_byok", businesses: 3, maxConcurrentAgents: 16, channels: "all", seats: 3, includedCreditsMinor: "TBD" },
-  scale: { priceMonthly: "TBD", modelBilling: "credits_or_byok", businesses: "unlimited", maxConcurrentAgents: 64, channels: "all", seats: 10, includedCreditsMinor: "TBD", prioritySupport: true },
+  free: { priceMonthly: null, modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: 1, maxConcurrentAgents: 4, channels: "all", seats: 1, includedCreditsMinor: 500 },
+  pro: { priceMonthly: "TBD", modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: 3, maxConcurrentAgents: 16, channels: "all", seats: 3, includedCreditsMinor: "TBD" },
+  scale: { priceMonthly: "TBD", modelBilling: "credits_or_byok", businesses: "unlimited", includedCreditBusinesses: "unlimited", maxConcurrentAgents: 64, channels: "all", seats: 10, includedCreditsMinor: "TBD", prioritySupport: true },
 } as const;
 export type TierKey = keyof typeof TIERS;
 /** Lowest to highest: an owner's allowance follows the highest tier any business they own is on. */
@@ -56,10 +61,19 @@ export function initialModelBilling(tier: TierKey): "credits" | "byok" {
   return billing === "byok_required" ? "byok" : "credits";
 }
 
-/** How many businesses an owner on `tier` may hold (null = unlimited). */
+/** How many businesses an owner on `tier` may hold (null = unlimited; every plan for now, founder 2026-10-16). */
 export function tierBusinessLimit(tier: TierKey): number | null {
   const limit: number | string = TIERS[tier].businesses;
   return typeof limit === "number" ? limit : null;
+}
+
+/**
+ * How many of a founder's businesses get the tier's included credits each month (null = every one): the founder's
+ * monthly pool (SEC2 S6), its own number so it never grows with the business limit.
+ */
+export function tierIncludedCreditPlaces(tier: TierKey): number | null {
+  const places: number | string = TIERS[tier].includedCreditBusinesses;
+  return typeof places === "number" ? places : null;
 }
 
 /** The higher of two tiers. */

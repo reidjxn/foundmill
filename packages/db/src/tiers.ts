@@ -2,8 +2,11 @@
  * Plan tier limits, enforced (BUILD §10.5 `TIERS`; DECISIONS 2026-10-12 "Tier limits are enforced"). Three checks, one
  * per limit, each read where the limit bites:
  *
- * - **Businesses per owner** (`idea.commit`): the plan tier is stored per business, so an owner's allowance follows the
- *   highest tier among the unarchived businesses they own (none: free). A new business always starts on free.
+ * - **Businesses per owner** (`idea.commit`): unlimited on every plan for now (founder, 2026-10-16); the check still
+ *   runs inside commit so a limit can return. The plan tier is stored per business, so an owner's allowance follows
+ *   the highest tier among the unarchived businesses they own (none: free). A new business always starts on free.
+ *   The same tier sizes the founder's monthly pool of included credits (`includedCreditPool`, SEC2 S6), which keeps
+ *   its own number (`includedCreditBusinesses`).
  * - **Seats** (`team.humans.invite`): every membership of the business is a seat, the owner included.
  * - **Concurrent agents** (cycle dispatch, `dev.tasks.start` and every session the orchestrator opens): agent sessions
  *   still open for the business, started within the last `OPEN_SESSION_WINDOW_HOURS` (an older open row is a session
@@ -11,7 +14,7 @@
  *
  * Refusals are `TierLimitError` (code `tier_limit`), which the web turns into an upgrade prompt.
  */
-import { higherTier, tierBusinessLimit, TIERS, type TierKey } from "@foundmill/config";
+import { higherTier, tierBusinessLimit, tierIncludedCreditPlaces, TIERS, type TierKey } from "@foundmill/config";
 import { TierLimitError } from "@foundmill/shared";
 import { repos } from "./repos";
 import { MAX_PAGE_SIZE, type Executor } from "./repos/_shared";
@@ -31,8 +34,16 @@ export interface BusinessAllowance {
   planBusinessId: string | null;
 }
 
+export interface BusinessAllowanceOptions {
+  /**
+   * The business limit of a tier (default `tierBusinessLimit`, unlimited on every plan for now). Tests pass a number to
+   * keep the refusal covered until a limit returns.
+   */
+  limitFor?: (tier: TierKey) => number | null;
+}
+
 /** How many businesses `userId` owns (unarchived) against what their highest tier allows. */
-export async function businessAllowance(db: Executor, userId: string): Promise<BusinessAllowance> {
+export async function businessAllowance(db: Executor, userId: string, options: BusinessAllowanceOptions = {}): Promise<BusinessAllowance> {
   const owned = (await repos.businesses.listForUser(db, userId)).filter((b) => b.role === "owner");
   let tier: TierKey = "free";
   let planBusinessId: string | null = null;
@@ -41,16 +52,16 @@ export async function businessAllowance(db: Executor, userId: string): Promise<B
     tier = b.planTier;
     planBusinessId = b.id;
   }
-  return { tier, allowed: tierBusinessLimit(tier), owned: owned.length, planBusinessId };
+  return { tier, allowed: (options.limitFor ?? tierBusinessLimit)(tier), owned: owned.length, planBusinessId };
 }
 
 /**
  * Refuses a new business once the owner holds as many as their tier allows. Call it inside the transaction that creates
  * the business: it takes a per-owner transaction lock first, so two commits by one owner cannot both pass the count.
  */
-export async function assertBusinessAllowance(db: Executor, userId: string): Promise<BusinessAllowance> {
+export async function assertBusinessAllowance(db: Executor, userId: string, options: BusinessAllowanceOptions = {}): Promise<BusinessAllowance> {
   await repos.businesses.lockOwnerBusinesses(db, userId);
-  const a = await businessAllowance(db, userId);
+  const a = await businessAllowance(db, userId, options);
   if (a.allowed !== null && a.owned >= a.allowed) {
     throw new TierLimitError(`The ${tierWord(a.tier)} plan holds ${plural(a.allowed, "business", "businesses")} and you already own ${a.owned}. Archive one, or move a business you own to a larger plan in Settings › Billing, to take charge of another.`, {
       limit: "businesses",
@@ -61,6 +72,27 @@ export async function assertBusinessAllowance(db: Executor, userId: string): Pro
     });
   }
   return a;
+}
+
+export interface IncludedCreditPool {
+  /** The founder's tier: the highest among the unarchived businesses they own (free when they own none). */
+  tier: TierKey;
+  /** The month, "2026-10". */
+  period: string;
+  /** How many of their businesses the tier's included credits cover each month (null: every one). */
+  places: number | null;
+  /** How many places this period's grants already took (businesses the founder created, archived ones included). */
+  taken: number;
+}
+
+/**
+ * The founder's monthly pool of included credits (SEC2 S6): their tier, how many businesses it covers and how many
+ * places this period's grants already took. Read-only; `includedCreditsFor` (billing.ts) applies the same rule when it
+ * grants.
+ */
+export async function includedCreditPool(db: Executor, userId: string, period: string): Promise<IncludedCreditPool> {
+  const [{ tier }, taken] = await Promise.all([businessAllowance(db, userId), repos.usage.includedCreditPlacesTaken(db, userId, period)]);
+  return { tier, period, places: tierIncludedCreditPlaces(tier), taken };
 }
 
 /** Seats the business uses (every membership) against its tier. */

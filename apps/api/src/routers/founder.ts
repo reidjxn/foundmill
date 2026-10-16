@@ -10,6 +10,7 @@
 import { freeDisplayName, liveModeOpen } from "@foundmill/config";
 import { AccountPreferencesPatch, repos, withRls, FounderProfileInput, FounderProfilePatch, SaveTableViewsInput, TableViewsScope, type Db, type DbTx } from "@foundmill/db";
 import { protectedProcedure, router } from "../trpc";
+import { founderBusinessesRouter } from "./founder-businesses";
 
 /** Runs fn as the signed-in user, so Postgres RLS holds every row it touches to that user. */
 function asUser<T>(ctx: { db: Db; userId: string; email?: string | null }, fn: (tx: DbTx) => Promise<T>): Promise<T> {
@@ -17,6 +18,7 @@ function asUser<T>(ctx: { db: Db; userId: string; email?: string | null }, fn: (
 }
 
 export const founderRouter = router({
+  businesses: founderBusinessesRouter,
   profile: router({
     get: protectedProcedure.query(async ({ ctx }) => {
       // The profile, the memberships and the open businesses in one statement: one round trip on one pooled connection.
