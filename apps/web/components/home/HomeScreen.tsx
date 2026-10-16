@@ -240,14 +240,28 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
     );
   }
   if (loadFailed(dashboardQ)) return <ErrorPanel title="Home" message={errorMessage(dashboardQ.error)} onRetry={() => void dashboardQ.refetch()} />;
-  if (!row) return <ScreenSkeleton />;
+  // Foundations, Autopilot and Day one start their reads at mount instead of after the dashboard (audit WEB-3): while it
+  // loads they mount out of sight, so their answers are in the cache when they take their place above the grid.
+  const lead = (
+    <>
+      <HomeFoundations />
+      <HomeAutopilot />
+      <DayOne businessId={businessId} currency={currency} />
+    </>
+  );
+  if (!row) {
+    return (
+      <>
+        <ScreenSkeleton />
+        <div hidden>{lead}</div>
+      </>
+    );
+  }
 
   return (
     <div className="flex min-h-full flex-col gap-gutter p-gutter" data-testid="home-screen" data-dashboard-id={row.id} data-dashboard-version={row.version} data-editing={editing || undefined}>
       {refreshFailed(listQ) || refreshFailed(dashboardQ) ? <RefreshFailedNotice query={refreshFailed(dashboardQ) ? dashboardQ : listQ} className="flex items-center gap-2" /> : null}
-      <HomeFoundations />
-      <HomeAutopilot />
-      <DayOne businessId={businessId} currency={currency} />
+      {lead}
       <DashboardGrid
         key={row.id}
         businessId={businessId}

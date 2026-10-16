@@ -42,7 +42,7 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { readOnlyReason } from "@/lib/access";
 import { entityHref } from "@/lib/entity-links";
 import { isGuid } from "@/lib/ids";
-import { monthStart, pnlTotals } from "@foundmill/modules/finance/metrics";
+import { monthStart, pnlTotals } from "@foundmill/modules/finance/pnl";
 import { usePageShortcuts } from "@/lib/keys";
 import { useHydrated } from "@/lib/today";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";

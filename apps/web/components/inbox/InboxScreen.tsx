@@ -17,6 +17,7 @@ import { humanSender } from "@foundmill/widgets/shared/note-tags";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { usePageShortcuts } from "@/lib/keys";
 import { streamAwareStaleTime } from "@/lib/query-client";
+import { shellQueryInputs } from "@/lib/shell-queries";
 import { streamPollInterval, useBusinessLive } from "@/lib/stream-status";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -75,8 +76,19 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
   // so a new note costs about one request however deep the reader has scrolled (audit SOAK-09).
   const fetchedAt = useRef(new Map<string, number>()); // "business|tab|cursor" → when that page was fetched
   const fetchPage = listOptions.queryFn;
+  // The shell already holds All's first page (`inbox.list({ businessId, limit: 50 })`: the same answer, tab defaults to
+  // "all"), so the first open paints from it and revalidates under the same staleness (audit WEB-7).
+  const shellListKey = trpc.inbox.list.queryKey(shellQueryInputs(businessId).inbox);
   const listQ = useInfiniteQuery({
     ...listOptions,
+    initialData:
+      tab === "all"
+        ? () => {
+            const shell = queryClient.getQueryData<InboxPage>(shellListKey);
+            return shell ? { pages: [shell], pageParams: [null] } : undefined;
+          }
+        : undefined,
+    initialDataUpdatedAt: tab === "all" ? () => queryClient.getQueryState(shellListKey)?.dataUpdatedAt : undefined,
     queryFn: typeof fetchPage === "function"
       ? async (ctx) => {
           const cursor = ctx.pageParam ?? null;
@@ -126,6 +138,8 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
     },
     [businessId, tab],
   );
+  // Hover or focus on a row starts its note (the same query and staleness the reading pane reads), so a click opens it.
+  const prefetchNote = useCallback((itemId: string) => void queryClient.prefetchQuery(trpc.inbox.get.queryOptions({ businessId, itemId }, { staleTime: 10_000 })), [queryClient, trpc, businessId]);
   const onNext = useCallback(() => select(neighbourId(ids, selectedId, "next")), [ids, selectedId, select]);
   const onPrev = useCallback(() => select(neighbourId(ids, selectedId, "prev")), [ids, selectedId, select]);
 
@@ -187,7 +201,7 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
     <div className="flex h-full min-h-0" data-testid="inbox-screen" data-tab={tab} data-selected={selectedId ?? undefined}>
       <aside className="flex min-h-0 shrink-0 flex-col border-r border-subtle bg-panel" style={{ width: INBOX_LIST_WIDTH }} aria-label={`${INBOX_TAB_LABELS[tab]} notes`} data-testid="inbox-pane">
         {refreshFailed(listQ) ? <RefreshFailedNotice query={listQ} /> : null}
-        <InboxList rows={rows} selectedId={selectedId} onSelect={select} loading={listQ.isLoading} hasMore={!!listQ.hasNextPage} loadingMore={listQ.isFetchingNextPage} onLoadMore={() => void listQ.fetchNextPage()} emptyText={EMPTY_TEXT[tab]} founderName={founderName} />
+        <InboxList rows={rows} selectedId={selectedId} onSelect={select} onPrefetch={prefetchNote} loading={listQ.isLoading} hasMore={!!listQ.hasNextPage} loadingMore={listQ.isFetchingNextPage} onLoadMore={() => void listQ.fetchNextPage()} emptyText={EMPTY_TEXT[tab]} founderName={founderName} />
       </aside>
       <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Reading pane" data-testid="reading-pane">
         {selectedId ? (
