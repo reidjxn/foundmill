@@ -1,14 +1,15 @@
 /**
  * @foundmill/composer — Inbox Composer + Refresh buffer + Journey commentary + chapter titles (docs/ARCHITECTURE.md §11).
  *
- * Boot: load env → service database (repositories only) → models client (mock or live, usage metered into
+ * Boot: load env → service database (repositories only; four connections kept open, packages/db `keepPoolWarm`, so a
+ * Refresh after a quiet spell does not open them) → models client (mock or live, usage metered into
  * usage_ledger) → Hono app → listen on PORT (fallback COMPOSER_PORT) on host "::" (Railway's private network is
  * IPv6-only, §17; falls back to 0.0.0.0 where IPv6 is unavailable). SIGTERM/SIGINT: stop accepting connections, let
  * in-flight requests finish, drain buffer refills, close the database pool, exit 0, within SHUTDOWN_TIMEOUT_MS
  * (docs/DEPLOY.md §3).
  */
 import { serve } from "@hono/node-server";
-import { createServiceDb, closeDb } from "@foundmill/db";
+import { createServiceDb, closeDb, keepPoolWarm, type PoolWarmer } from "@foundmill/db";
 import { createModelClient, effectiveModelMode, gateModelClient } from "@foundmill/models";
 import { loadEnv, servicePort } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
@@ -46,6 +47,7 @@ export async function main(): Promise<void> {
   const db = createServiceDb();
   let server: ReturnType<typeof serve> | null = null;
   let service: ReturnType<typeof createComposerService> | null = null;
+  let warmer: PoolWarmer | null = null;
   const lifecycle = onShutdown({
     service: "composer",
     log,
@@ -60,12 +62,14 @@ export async function main(): Promise<void> {
         },
       },
       { name: "drain buffer refills", run: () => service?.drain() },
+      { name: "stop pool warmer", run: () => warmer?.stop() },
       { name: "close database", run: () => closeDb(db) },
       { name: "flush telemetry", run: () => telemetry.shutdown() },
     ],
   });
   // PGlite boots + migrates here; a locked directory or an unreachable Postgres is one clear line and /health says db:false.
   const readiness = await prepareDb(db, log, { service: "composer" });
+  warmer = keepPoolWarm(db, { connections: 4, onError: (err) => log.warn({ err: (err as Error)?.message }, "warming the database pool failed") });
   const platform = createModelClient({ mode: effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log), apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage: createUsageSink(db, log) });
   // The platform key's ceiling: no call for a business whose credits are used up (usage.ts `creditsGate`).
   const models = gateModelClient(platform, creditsGate(db, platform.mode === "live"));

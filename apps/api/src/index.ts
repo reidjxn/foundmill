@@ -1,9 +1,11 @@
 /**
  * @foundmill/api — Hono + tRPC (docs/ARCHITECTURE.md §13).
  *
- * Boot: load env → build deps → shutdown handlers → log every private service address still on localhost in staging
- * or production → run migrations in one transaction under pg_advisory_xact_lock(7461, 1) (idempotent; exit 1 when the
- * lock is not granted within MIGRATION_LOCK_TIMEOUT_MS; keep serving if the db is down) → supervise the outbox relay
+ * Boot: load env → build deps → shutdown handlers → fetch Supabase's signing keys (and every 5 minutes after, auth.ts
+ * `keepKeysFresh`) → log every private service address still on localhost in staging or production → run migrations in
+ * one transaction under pg_advisory_xact_lock(7461, 1) (idempotent; exit 1 when the lock is not granted within
+ * MIGRATION_LOCK_TIMEOUT_MS; keep serving if the db is down) → open the database pool's connections and keep them open
+ * (a `select 1` per connection every minute, packages/db `keepPoolWarm`) → supervise the outbox relay
  * (started once Redis answers PING, retried with a capped backoff until it does: services/relay.ts) → listen on PORT
  * (fallback API_PORT) on host "::" (Railway private network is IPv6-only, §17) → with SEED_ON_BOOT, build the demo
  * businesses in the background (services/seed-on-boot.ts). SIGTERM/SIGINT: stop accepting connections, let in-flight
@@ -11,11 +13,12 @@
  * SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3 "Redeploys and shutdown").
  */
 import { serve } from "@hono/node-server";
-import { closeDb, isMigrationLockTimeout, migrateDb } from "@foundmill/db";
+import { closeDb, isMigrationLockTimeout, keepPoolWarm, migrateDb, type PoolWarmer } from "@foundmill/db";
 import { loadEnv, servicePort } from "@foundmill/shared";
 import { drainHttpServer, flushLog, onShutdown } from "@foundmill/shared/shutdown";
 import { installTelemetry } from "@foundmill/shared/telemetry";
 import { createApp } from "./app";
+import type { KeyRefresher } from "./auth";
 import { createApiDeps, type ApiDeps } from "./context";
 import type { ApiRedis } from "./services/redis";
 import { superviseOutboxRelay, type RelaySupervisor } from "./services/relay";
@@ -68,6 +71,12 @@ export async function migrateOnBoot(deps: ApiDeps, options: MigrateOnBootOptions
   }
 }
 
+/**
+ * Connections the api keeps open (of its pool of 10): Home's first batches alone ask for more than ten at once, and each
+ * new connection to the pooler costs a TCP, TLS and SCRAM handshake, about 250 ms in production (audit api-db F1).
+ */
+export const WARM_CONNECTIONS = 8;
+
 /** Service addresses the api calls over the private network; each defaults to localhost, which is wrong once deployed. */
 const PRIVATE_URLS = ["INGEST_URL", "GATEWAY_URL", "COMPOSER_URL"] as const;
 
@@ -117,6 +126,9 @@ export async function main(): Promise<void> {
   let relay: RelaySupervisor | null = null;
   let reconciler: { stop(): void } | null = null;
   let workerMonitor: WorkerMonitor | null = null;
+  let warmer: PoolWarmer | null = null;
+  // Fetched now and refreshed in the background: no request waits for Supabase's signing keys.
+  const keys: KeyRefresher | null = deps.auth.keepKeysFresh?.({ onError: (err) => deps.log.warn({ err: (err as Error)?.message }, "fetching Supabase's signing keys failed; retrying in 5 minutes (a token with an unknown key fetches them at once)") }) ?? null;
   // Installed before the migration: a SIGTERM during boot still closes the pool (the migration transaction rolls back).
   const lifecycle = onShutdown({
     service: "api",
@@ -133,6 +145,8 @@ export async function main(): Promise<void> {
         },
       },
       { name: "stop workflow reconciler", run: () => reconciler?.stop() },
+      { name: "stop key refresh", run: () => keys?.stop() },
+      { name: "stop pool warmer", run: () => warmer?.stop() },
       { name: "stop outbox relay", run: () => relay?.stop() },
       { name: "stop worker monitor", run: () => workerMonitor?.stop() },
       { name: "close temporal", run: () => deps.temporal.close() },
@@ -151,6 +165,7 @@ export async function main(): Promise<void> {
   warnLocalhostUrls(deps);
   const migrated = await migrateOnBoot(deps);
   if (lifecycle.stopping) return;
+  warmer = keepPoolWarm(deps.db, { connections: WARM_CONNECTIONS, onError: (err) => deps.log.warn({ err: (err as Error)?.message }, "warming the database pool failed; the next request opens its own connection") });
   // The relay's state is reported on /health, so the supervisor exists before the app does.
   relay = superviseOutboxRelay(deps);
   const app = createApp({ ...deps, relay });

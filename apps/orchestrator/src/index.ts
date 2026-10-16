@@ -30,6 +30,7 @@
 import { fileURLToPath } from "node:url";
 import { NativeConnection, Worker, type NativeConnection as NativeConnectionType } from "@temporalio/worker";
 import { APP_NAME } from "@foundmill/config";
+import { keepPoolWarm, type PoolWarmer } from "@foundmill/db";
 import { MemoryRedis } from "@foundmill/events";
 import { onShutdown } from "@foundmill/shared/shutdown";
 import { installTelemetry, parseOtlpHeaders } from "@foundmill/shared/telemetry";
@@ -242,6 +243,7 @@ export async function main(): Promise<void> {
   let running: Promise<void> | null = null;
   let health: HealthServer | null = null;
   let dbOk = false;
+  let warmer: PoolWarmer | null = null;
   const lifecycle = onShutdown({
     service: "orchestrator",
     log: deps.log,
@@ -258,6 +260,7 @@ export async function main(): Promise<void> {
         },
       },
       { name: "close health server", run: () => health?.close() },
+      { name: "stop pool warmer", run: () => warmer?.stop() },
       { name: "close temporal connection", run: () => connection?.close() },
       { name: "close redis and database", run: () => deps.close() },
       { name: "flush telemetry", run: () => telemetry.shutdown() },
@@ -266,6 +269,8 @@ export async function main(): Promise<void> {
   // Database: PGlite boots + migrates here; a locked directory or an unreachable Postgres is one clear line, activities then fail per call.
   const readiness = await prepareDb(deps.db, deps.log, { service: "orchestrator" });
   dbOk = readiness.ok;
+  // The first activities after a quiet spell find open connections (packages/db `keepPoolWarm`).
+  warmer = keepPoolWarm(deps.db, { connections: 4, onError: (err) => deps.log.warn({ err: (err as Error)?.message }, "warming the database pool failed") });
   const queues = [env.TEMPORAL_TASK_QUEUE, sessionTaskQueue(env.TEMPORAL_TASK_QUEUE)];
   health = await startHealthServer({
     port: env.PORT ?? env.ORCHESTRATOR_PORT,

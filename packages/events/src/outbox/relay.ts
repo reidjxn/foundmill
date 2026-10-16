@@ -6,6 +6,10 @@
  * the next tick, so consumers de-duplicate on the event `id`. Rows are locked with
  * `for update skip locked` when the database can open a transaction, which lets a second relay instance
  * run safely (it simply skips rows the first one is publishing).
+ *
+ * Latency (audit realtime-bg F7): an idle tick sends one statement that locks nothing (`hasUnpublishedSql`) and opens
+ * the locking transaction only when rows wait, and `wake()` runs a tick at once, so a process that has just committed
+ * events (the api, after a mutation) does not wait for the poll. The poll stays as the net for every other writer.
  */
 import { sql } from "drizzle-orm";
 import { safeParseEvent, serializeEvent, type PlatformEvent } from "../catalogue";
@@ -18,7 +22,10 @@ export type RelayDb = Queryable | TransactionalQueryable;
 export interface OutboxRelayOptions {
   /** Rows per tick (default 100). */
   batch?: number;
-  /** Idle wait between ticks when the outbox is empty (default 250 ms). A full batch triggers an immediate next tick. */
+  /**
+   * Idle wait between ticks when the outbox is empty (default 250 ms). A full batch triggers an immediate next tick, and
+   * so does `wake()`.
+   */
   intervalMs?: number;
   /** XADD MAXLEN ~ (default 100 000). */
   maxLen?: number;
@@ -44,6 +51,12 @@ export interface OutboxRelay {
   tick(): Promise<number>;
   /** Start the polling loop (no-op if already running). */
   start(): void;
+  /**
+   * Run the next tick now instead of after the idle wait (call it after committing outbox rows). A wake during a tick
+   * runs one more right after it, so rows committed while it read are not left to the poll. Ignored while the loop is
+   * not running or is backing off after a failure.
+   */
+  wake(): void;
   /** Stop after the in-flight tick finishes. Resolves when the loop has exited. */
   stop(): Promise<void>;
   readonly running: boolean;
@@ -71,6 +84,11 @@ join ${sql.identifier(EVENTS_TABLE)} e on e.id = o.event_id
 where o.published_at is null
 order by e.occurred_at asc, o.event_id asc
 limit ${limit}${lock ? sql` for update of o skip locked` : sql``}`;
+}
+
+/** Whether any row waits, without locking anything: what an idle tick sends before it opens a transaction. */
+export function hasUnpublishedSql() {
+  return sql`select exists (select 1 from ${sql.identifier(OUTBOX_TABLE)} where published_at is null) as "pending"`;
 }
 
 export function markPublishedSql(ids: readonly string[]) {
@@ -130,18 +148,32 @@ function hasTransaction(db: RelayDb): db is TransactionalQueryable {
   return typeof (db as TransactionalQueryable).transaction === "function";
 }
 
-const sleep = (ms: number, signal: { cancelled: boolean; wake?: () => void }) =>
+interface LoopSignal {
+  cancelled: boolean;
+  /** Ends the current sleep early (set while sleeping). */
+  wake?: () => void;
+  /** A `wake()` arrived while no idle sleep was running: the next idle sleep returns at once. */
+  woken: boolean;
+}
+
+/** An idle wait (`wakeable`) ends early on `wake()` or `stop()`; a backoff after a failure ends early only on `stop()`. */
+const sleep = (ms: number, signal: LoopSignal, wakeable: boolean) =>
   new Promise<void>((resolve) => {
     if (signal.cancelled) return resolve();
+    if (wakeable && signal.woken) {
+      signal.woken = false;
+      return resolve();
+    }
     const t = setTimeout(() => {
       signal.wake = undefined;
       resolve();
     }, ms);
-    signal.wake = () => {
+    const end = () => {
       clearTimeout(t);
       signal.wake = undefined;
       resolve();
     };
+    signal.wake = wakeable ? end : () => (signal.cancelled ? end() : undefined);
   });
 
 /** Build a relay without starting it (tests call `tick()` directly). */
@@ -160,7 +192,7 @@ export function createOutboxRelay(
     opts.onError ?? ((err: unknown) => console.error("[events] outbox relay error", err));
   const lock = (opts.lockRows ?? true) && hasTransaction(db);
 
-  const state = { running: false, cancelled: false, wake: undefined as (() => void) | undefined };
+  const state: LoopSignal & { running: boolean } = { running: false, cancelled: false, wake: undefined, woken: false };
   let loopPromise: Promise<void> = Promise.resolve();
   let inFlight: Promise<number> | null = null;
 
@@ -233,6 +265,10 @@ export function createOutboxRelay(
 
   async function tickOnce(): Promise<number> {
     if (lock && hasTransaction(db)) {
+      // One statement that locks nothing first: an empty outbox costs one round trip instead of the transaction's three
+      // (BEGIN, the locking select, COMMIT), and holds a pooled connection for that long only.
+      const [probe] = rowsOf(await db.execute(hasUnpublishedSql()));
+      if (!probe || (probe.pending !== true && probe.pending !== "t")) return 0;
       return db.transaction(async (tx) => {
         const rows = rowsOf(await tx.execute(selectUnpublishedSql(batch, true)));
         return publishRows(tx, rows);
@@ -259,13 +295,13 @@ export function createOutboxRelay(
         backoff = errorBackoffMs;
       } catch (err) {
         onError(err);
-        await sleep(backoff, state);
+        await sleep(backoff, state, false);
         backoff = Math.min(backoff * 2, 30_000);
         continue;
       }
       if (state.cancelled) break;
       if (n >= batch) continue; // more waiting: drain without pausing
-      await sleep(intervalMs, state);
+      await sleep(intervalMs, state, true);
     }
     state.running = false;
   }
@@ -276,7 +312,13 @@ export function createOutboxRelay(
       if (state.running) return;
       state.running = true;
       state.cancelled = false;
+      state.woken = false;
       loopPromise = loop();
+    },
+    wake() {
+      if (!state.running || state.cancelled) return;
+      if (state.wake) state.wake();
+      else state.woken = true;
     },
     async stop() {
       if (!state.running) return;

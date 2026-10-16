@@ -37,9 +37,15 @@ export interface AutopilotStatus {
   changedAt: string | null;
 }
 
-export async function autopilotStatus(ctx: BusinessContext): Promise<AutopilotStatus> {
-  const business = await repos.businesses.get(ctx.db, ctx.businessId);
-  const facts = await loadAutopilotFacts(ctx.db, business, new Date());
+/**
+ * The chip and the settings for `ctx.business` (the row the request's access lookup read, or the one a change just
+ * wrote). The facts are read on the service connection, as the workflow reads them (the founder's credits pool spans
+ * businesses this member may not belong to), in one transaction: its reads go out together on one connection instead
+ * of fanning out over up to eight pooled connections (audit api-db F3).
+ */
+export async function autopilotStatus(ctx: Pick<BusinessContext, "db" | "business">): Promise<AutopilotStatus> {
+  const business = ctx.business;
+  const facts = await ctx.db.transaction((tx) => loadAutopilotFacts(tx, business, new Date()));
   const decision = decideAutopilot(facts);
   const view = autopilotView(decision);
   return {
@@ -111,13 +117,14 @@ export async function setAutopilot(ctx: BusinessContext, input: SetAutopilotInpu
       });
       await emit(tx, ctx, { type: "autopilot.changed", payload: autopilotChangedPayload(r.business, change, null) });
     }
-    return { turnedOn: r.turnedOn, change };
+    return { turnedOn: r.turnedOn, change, business: r.business };
   });
 
   let workflow: TemporalResult | null = null;
   if (result.turnedOn) workflow = await startAutopilotWorkflow(ctx);
   else if (result.change && (willBeOn || before.autopilotEnabled)) workflow = await ctx.temporal.signal(workflowIds.autopilot(ctx.businessId), SIGNALS.autopilotRefresh, {});
-  return { status: await autopilotStatus({ ...ctx, business: await repos.businesses.get(ctx.db, ctx.businessId) }), change: result.change, workflow };
+  // The row the change just wrote (no second read of it).
+  return { status: await autopilotStatus({ ...ctx, business: result.business }), change: result.change, workflow };
 }
 
 /**
@@ -125,7 +132,8 @@ export async function setAutopilot(ctx: BusinessContext, input: SetAutopilotInpu
  * The shell calls it when Home opens, so an Autopilot saved while the orchestrator was down begins as soon as it is back.
  */
 export async function ensureAutopilot(ctx: BusinessContext): Promise<{ running: boolean; workflow: TemporalResult | null }> {
-  const business = await repos.businesses.get(ctx.db, ctx.businessId);
+  // The row this request's access lookup read (no second read of it).
+  const business = ctx.business;
   if (!business.autopilotEnabled || business.autopilotPausedReason !== null || business.agentsStoppedAt !== null) return { running: false, workflow: null };
   const workflow = await ctx.temporal.start(WORKFLOWS.autopilot, { workflowId: workflowIds.autopilot(ctx.businessId), args: [{ businessId: ctx.businessId }] });
   return { running: workflow.queued, workflow };

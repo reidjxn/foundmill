@@ -1,11 +1,11 @@
 /** founder_profiles — account-scoped (userId first), routers founder.profile.get/update. */
 import { RESERVED_NAME_MESSAGE, isReservedName } from "@foundmill/config";
 import { VISIBILITY, ValidationError } from "@foundmill/shared";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
-import { founderProfiles, type FounderProfile } from "../schema";
-import { Currency, changes, maybeOne, MinorAmount, one, parseInput, type Executor, patchSchema } from "./_shared";
+import { businesses, founderProfiles, memberships, type Business, type FounderProfile, type Membership } from "../schema";
+import { Currency, changes, Id, maybeOne, MinorAmount, one, parseInput, type Executor, patchSchema } from "./_shared";
 
 const SkillRatings = z.record(z.string(), z.number().int().min(1).max(20));
 
@@ -75,6 +75,33 @@ export const foundersRepo = {
       .onConflictDoUpdate({ target: founderProfiles.userId, set: { ...values, archivedAt: null } })
       .returning();
     return one(rows, "founder profile", userId);
+  },
+
+  /**
+   * The signed-in account in one statement, one round trip (founder.profile.get): the profile as `get` answers it, every
+   * membership as `memberships.listForUser` answers them (oldest first, archived businesses included) and the open
+   * businesses with the role held in each as `businesses.listForUser` answers them (newest first). Until 2026-10-15 these
+   * were three statements on three pooled connections.
+   */
+  async account(db: Executor, userId: string): Promise<{ profile: FounderProfile | null; memberships: Membership[]; businesses: (Business & { role: string })[] }> {
+    const id = parseInput(Id, userId, "user id");
+    // One row per membership (one row of nulls when there is none), each carrying the profile.
+    const rows = await db
+      .select({ profile: founderProfiles, membership: memberships, business: businesses, businessOrder: sql<number>`row_number() over (order by ${businesses.createdAt} desc nulls last)`.mapWith(Number) })
+      .from(sql`(select ${id}::uuid as user_id) as "me"`)
+      .leftJoin(founderProfiles, and(sql`${founderProfiles.userId} = "me"."user_id"`, isNull(founderProfiles.archivedAt)))
+      .leftJoin(memberships, sql`${memberships.userId} = "me"."user_id"`)
+      .leftJoin(businesses, and(eq(businesses.id, memberships.businessId), isNull(businesses.archivedAt)))
+      .orderBy(asc(memberships.createdAt));
+    const held = rows.filter((r): r is typeof r & { membership: Membership } => r.membership !== null);
+    return {
+      profile: rows[0]?.profile ?? null,
+      memberships: held.map((r) => r.membership),
+      businesses: held
+        .filter((r): r is typeof r & { business: Business } => r.business !== null)
+        .sort((a, b) => a.businessOrder - b.businessOrder)
+        .map((r) => ({ ...r.business, role: r.membership.role })),
+    };
   },
 
   async update(db: Executor, userId: string, patch: FounderProfilePatch): Promise<FounderProfile> {

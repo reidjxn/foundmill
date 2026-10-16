@@ -4,14 +4,15 @@
  *
  * - Supabase access tokens are verified with `jose` against `${SUPABASE_URL}/auth/v1/.well-known/jwks.json`
  *   (ES256/RS256; jose caches the JWKS and refreshes it on an unknown kid). Audience must be `authenticated`, and
- *   the token must carry `exp`: it is when the server closes the socket (`AuthUser.expiresAt`).
+ *   the token must carry `exp`: it is when the server closes the socket (`AuthUser.expiresAt`). `keepKeysFresh`
+ *   fetches the keys at boot and every 5 minutes in the background, so an upgrade never waits for them.
  * - Legacy HS256 project secrets are accepted when one is supplied (`jwtSecret`).
  * - When `DEV_AUTH_USER_ID` is set and `APP_ENV` is development/test: a missing token, the literal token `dev`, or
  *   `dev:<uuid>` (to impersonate another seeded user in Playwright) resolves without touching the network, and an
  *   invalid JWT falls back to the dev user so a stale local session never locks the founder out. Outside those
  *   environments `loadEnv` already nulls the variable, and this module nulls it again.
  */
-import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
+import { createRemoteJWKSet, customFetch, decodeProtectedHeader, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
 
 export interface AuthUser {
   userId: string;
@@ -26,6 +27,30 @@ export interface TokenVerifier {
   /** Verifies a JWT; throws `StreamAuthError` on failure. */
   verify(token: string): Promise<AuthUser>;
   readonly devUserId: string | null;
+  /**
+   * Fetches Supabase's signing keys now and every `intervalMs` (default `JWKS_REFRESH_MS`) on an unref'd timer, so an
+   * upgrade finds them cached. Nothing to do without SUPABASE_URL (or with an override that cannot reload).
+   */
+  keepKeysFresh?(options?: { intervalMs?: number; onError?: (err: unknown) => void }): KeyRefresher;
+}
+
+export interface KeyRefresher {
+  /** Resolves when the first fetch has finished: true when the keys were fetched. */
+  readonly ready: Promise<boolean>;
+  stop(): void;
+}
+
+/** How often the signing keys are fetched in the background: a revoked key stops being accepted within this long. */
+export const JWKS_REFRESH_MS = 5 * 60_000;
+/**
+ * How long fetched keys are used before an upgrade would fetch them itself (jose's `cacheMaxAge`, 10 minutes by
+ * default): three background fetches in a row must fail first, and then verification fails closed as it always did.
+ */
+export const JWKS_CACHE_MAX_AGE_MS = 15 * 60_000;
+
+/** jose's remote key set for a Supabase project: cached, reloaded on an unknown kid at most every 30 s. */
+export function supabaseJwks(supabaseUrl: string, fetchImpl?: typeof fetch): JWTVerifyGetKey & { reload(): Promise<void> } {
+  return createRemoteJWKSet(new URL("/auth/v1/.well-known/jwks.json", supabaseUrl), { cooldownDuration: 30_000, cacheMaxAge: JWKS_CACHE_MAX_AGE_MS, ...(fetchImpl ? { [customFetch]: fetchImpl } : {}) });
 }
 
 export interface TokenVerifierOptions {
@@ -35,6 +60,8 @@ export interface TokenVerifierOptions {
   appEnv: string;
   /** Override the JWKS fetcher (tests). */
   jwks?: JWTVerifyGetKey;
+  /** The `fetch` the remote JWKS uses (tests). */
+  jwksFetch?: typeof fetch;
   hsKey?: Uint8Array;
   audience?: string;
 }
@@ -73,7 +100,7 @@ export function createTokenVerifier(opts: TokenVerifierOptions): TokenVerifier {
   const getJwks = (): JWTVerifyGetKey => {
     if (jwks) return jwks;
     if (!opts.supabaseUrl) throw new StreamAuthError("SUPABASE_URL is not configured; cannot verify tokens");
-    jwks = createRemoteJWKSet(new URL("/auth/v1/.well-known/jwks.json", opts.supabaseUrl), { cooldownDuration: 30_000 });
+    jwks = supabaseJwks(opts.supabaseUrl, opts.jwksFetch);
     return jwks;
   };
   const hsKey = opts.hsKey ?? (opts.jwtSecret ? new TextEncoder().encode(opts.jwtSecret) : null);
@@ -102,6 +129,23 @@ export function createTokenVerifier(opts: TokenVerifierOptions): TokenVerifier {
   return {
     devUserId,
     verify,
+    keepKeysFresh(options = {}) {
+      const keys = opts.jwks ?? (opts.supabaseUrl ? getJwks() : null);
+      const reload = (keys as Partial<{ reload(): Promise<void> }> | null)?.reload;
+      if (typeof reload !== "function") return { ready: Promise.resolve(false), stop: () => undefined };
+      const refresh = () =>
+        reload.call(keys).then(
+          () => true,
+          (err: unknown) => {
+            options.onError?.(err);
+            return false;
+          },
+        );
+      const ready = refresh();
+      const timer = setInterval(() => void refresh(), options.intervalMs ?? JWKS_REFRESH_MS);
+      timer.unref?.();
+      return { ready, stop: () => clearInterval(timer) };
+    },
     async resolve(token) {
       const t = token?.trim() || null;
       if (!t) return devUserId ? { userId: devUserId, email: null, expiresAt: null } : null;

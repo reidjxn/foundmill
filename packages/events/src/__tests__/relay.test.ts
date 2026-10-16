@@ -57,7 +57,7 @@ describe("outbox relay", () => {
     await writeEvent(db, fixtureInput("cycle.started"));
     await createOutboxRelay(db, redis).tick();
     expect(db.transactions).toBe(1);
-    expect(db.statements.find((s) => s.sql.startsWith("select"))!.sql).toContain(
+    expect(db.statements.find((s) => s.sql.startsWith("select o.event_id"))!.sql).toContain(
       "for update of o skip locked",
     );
 
@@ -71,6 +71,85 @@ describe("outbox relay", () => {
       "for update",
     );
     expect(await redis.xlen("ev:plain")).toBe(1);
+  });
+
+  it("an idle tick sends one statement that locks nothing, and opens the transaction only when rows wait", async () => {
+    const db = new FakeDb();
+    const redis = new MemoryRedis();
+    const relay = createOutboxRelay(db, redis);
+    expect(await relay.tick()).toBe(0);
+    expect(await relay.tick()).toBe(0);
+    // Until 2026-10-15 every idle tick was BEGIN, select … for update skip locked, COMMIT: three round trips.
+    expect(db.transactions).toBe(0);
+    expect(db.statements.map((s) => s.sql)).toEqual([
+      'select exists (select 1 from "outbox" where published_at is null) as "pending"',
+      'select exists (select 1 from "outbox" where published_at is null) as "pending"',
+    ]);
+    expect(db.statements.some((s) => /for update/.test(s.sql))).toBe(false);
+
+    db.statements.length = 0;
+    await writeEvent(db, fixtureInput("cycle.started"));
+    db.statements.length = 0;
+    expect(await relay.tick()).toBe(1);
+    expect(db.transactions).toBe(1);
+    expect(db.statements.map((s) => s.sql.slice(0, 20))).toEqual([
+      "select exists (selec",
+      "select o.event_id as",
+      'update "outbox" set ',
+    ]);
+  });
+
+  it("wake() runs the next tick at once instead of after the idle wait", async () => {
+    const db = new FakeDb();
+    const redis = new MemoryRedis();
+    const relay = runOutboxRelay(db, redis, { intervalMs: 60_000 });
+    // The first tick runs at start and finds nothing; the loop then sleeps for a minute.
+    await waitFor(() => db.statements.length === 1);
+    await new Promise((r) => setTimeout(r, 20));
+    await writeEvent(db, fixtureInput("cycle.started"));
+    relay.wake();
+    await waitFor(() => db.unpublished().length === 0);
+    expect(await redis.xlen(businessStreamKey(FIXTURE_BUSINESS_ID))).toBe(1);
+    await relay.stop();
+  });
+
+  it("a wake that arrives during a tick runs one more right after it", async () => {
+    let release: () => void = () => undefined;
+    let held = false;
+    const db = new FakeDb();
+    const redis = new MemoryRedis();
+    const execute = db.execute.bind(db);
+    // The first probe reads the empty outbox, and its answer arrives only once the test lets it: the event commits (and
+    // wakes the relay) in between, so that probe says there is nothing to publish.
+    db.execute = async (q) => {
+      const result = await execute(q);
+      if (!held) {
+        held = true;
+        await new Promise<void>((r) => (release = r));
+      }
+      return result;
+    };
+    const relay = runOutboxRelay(db, redis, { intervalMs: 60_000 });
+    await waitFor(() => held);
+    await writeEvent({ execute }, fixtureInput("cycle.started"));
+    relay.wake();
+    release();
+    await waitFor(() => db.unpublished().length === 0);
+    await relay.stop();
+  });
+
+  it("wake() is ignored while backing off after a failure, and stop() still ends the backoff", async () => {
+    const db = new FakeDb({ failOn: (s) => (s.sql.startsWith("select exists") ? new Error("db down") : undefined) });
+    const errors: unknown[] = [];
+    const relay = runOutboxRelay(db, new MemoryRedis(), { errorBackoffMs: 60_000, onError: (e) => errors.push(e) });
+    await waitFor(() => errors.length === 1);
+    relay.wake();
+    relay.wake();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(errors).toHaveLength(1);
+    await relay.stop();
+    expect(relay.running).toBe(false);
+    relay.wake();
   });
 
   it("respects the batch size and reports how many rows it handled", async () => {
