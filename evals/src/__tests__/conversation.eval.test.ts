@@ -1,5 +1,5 @@
 /**
- * Live conversation evals (route `conversation`, Opus at low effort). Runs only with MODEL_MODE=live and a key
+ * Live conversation evals (route `conversation`, Sonnet at low effort). Runs only with MODEL_MODE=live and a key
  * (`pnpm evals`). Golden cases must pass their deterministic checks and score at least CONVERSATION_PASS_THRESHOLD with
  * the skill grader; the injection cases must be 100% blocked (BUILD §9.8 item 5).
  */

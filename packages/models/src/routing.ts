@@ -11,7 +11,8 @@
  * - `maxTokens` → `max_tokens` for a call that sends none (a request's own `maxTokens` wins). Opus 5.5 and Sonnet 5.5
  *   always think, and the thinking counts toward `max_tokens`, so a thinking route's budget is the reply plus the
  *   thinking at the route's effort: `THINKING_MAX_TOKENS` at the API default effort (Opus `medium`, Sonnet `high`),
- *   `LOW_EFFORT_MAX_TOKENS` at `low`. Haiku 4.5 does not think unless asked, so its routes keep `PLAIN_MAX_TOKENS`. An
+ *   `LOW_EFFORT_MAX_TOKENS` at `low` (a route the founder waits on may keep the thinking ceiling at `low`: the budget is only
+ *   a cap, and a cut-off graph costs a retry). Haiku 4.5 does not think unless asked, so its routes keep `PLAIN_MAX_TOKENS`. An
  *   override onto a thinking model never runs below that model's floor (a classifier moved to Opus still has room to
  *   think). Both thinking budgets stay well inside a non-streaming call's time limit.
  */
@@ -71,11 +72,16 @@ export interface RouteDefinition {
 }
 
 export const ROUTES = {
-  inboxComposer: { model: "opus", locked: true, maxTokens: THINKING_MAX_TOKENS }, // Inbox always Opus
-  planCompiler: { model: "opus", locked: true, maxTokens: THINKING_MAX_TOKENS },
+  // Inbox always Opus. The Inbox notes, the plan compiler, the Planner and the leads' Recommend answers run at low effort
+  // (founder, 2026-10-15: speed over the medium-effort default); the budgets stay at the thinking ceiling because
+  // `max_tokens` is only a cap, and a 15-task graph must never be cut short.
+  inboxComposer: { model: "opus", locked: true, effort: "low", maxTokens: THINKING_MAX_TOKENS },
+  planCompiler: { model: "opus", locked: true, effort: "low", maxTokens: THINKING_MAX_TOKENS },
   chiefOfStaff: { model: "opus", warnOnDowngrade: true, maxTokens: THINKING_MAX_TOKENS },
   departmentLead: { model: "opus", maxTokens: THINKING_MAX_TOKENS },
-  planner: { model: "opus", maxTokens: THINKING_MAX_TOKENS },
+  // Distribution's channel scores and Legal's jurisdiction cards: answers the founder waits on behind a Recommend button.
+  leadRecommendation: { model: "opus", effort: "low", maxTokens: THINKING_MAX_TOKENS },
+  planner: { model: "opus", effort: "low", maxTokens: THINKING_MAX_TOKENS },
   codeReview: { model: "opus", maxTokens: THINKING_MAX_TOKENS },
   // Concept cards, compare and the card Q&A (Ideation Studio): first drafts the founder waits on.
   ideation: { model: "opus", effort: "low", speed: "fast", maxTokens: LOW_EFFORT_MAX_TOKENS },
@@ -97,9 +103,10 @@ export const ROUTES = {
   quarantinedReader: { model: "haiku", maxTokens: PLAIN_MAX_TOKENS },
   moderation: { model: "haiku", maxTokens: PLAIN_MAX_TOKENS },
   // Talking to an agent at their desk (audit-conversation §4): 1–3 short bubbles and 2–4 quick replies the founder waits
-  // on, so Opus at low effort; callers cache the system prompt (house rules + instructions) and size max_tokens for the
-  // reply (~700 tokens) plus the thinking Opus 5.5 always does, which counts toward max_tokens.
-  conversation: { model: "opus", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
+  // on, so Sonnet at low effort (founder, 2026-10-15: replies in seconds over Opus's nuance); callers cache the system
+  // prompt (house rules + instructions) and size max_tokens for the reply (~700 tokens) plus the thinking Sonnet 5.5
+  // always does, which counts toward max_tokens.
+  conversation: { model: "sonnet", effort: "low", maxTokens: LOW_EFFORT_MAX_TOKENS },
 } as const satisfies Record<string, RouteDefinition>;
 export type RouteKey = keyof typeof ROUTES;
 

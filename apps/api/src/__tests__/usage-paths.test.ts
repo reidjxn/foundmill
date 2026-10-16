@@ -102,7 +102,7 @@ describe("API model calls and the usage ledger, path by path", () => {
     const legal = await booked(() => owner().legal.recommend({ businessId: hz.A.businessId }));
     const distribution = await booked(() => owner().distribution.recommend({ businessId: hz.A.businessId }));
     const planner = await booked(() => owner().dev.tasks.plan({ businessId: hz.A.businessId, goal: "Ship the pricing page" }));
-    expect([...legal.business, ...distribution.business, ...planner.business].map((e) => e.route)).toEqual(["departmentLead", "departmentLead", "planner"]);
+    expect([...legal.business, ...distribution.business, ...planner.business].map((e) => e.route)).toEqual(["leadRecommendation", "leadRecommendation", "planner"]);
   });
 
   it("Ideation drafting and Ask on a concept, before a business exists: no business, nothing booked", async () => {
