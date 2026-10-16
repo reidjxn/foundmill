@@ -201,7 +201,9 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
         return { skillKey: input.skillKey, group, testsRun: 0, meanScore: 0, tested: previousTested ?? template.baselineRating, previousTested, costMinor: 0, costMicroMinor: 0, checksFailed: 0 };
       }
       const instructions = AgentInstructions.safeParse(draft.instructions);
-      const system = buildSystemPrompt({ businessName: business.name, appName: APP_NAME, template: { instructions: instructions.success ? instructions.data : template.instructions, description: template.description }, glossary: business.glossary });
+      // The agent as it works: its added skills (library or files) follow its instructions here as in its sessions.
+      const skills = (await repos.skills.listAddedForAgent(db, input.businessId, agent.id, agent.agentType)).filter((a) => a.instructionsMd.trim()).map((a) => ({ name: a.name, source: a.source, instructionsMd: a.instructionsMd }));
+      const system = buildSystemPrompt({ businessName: business.name, appName: APP_NAME, template: { instructions: instructions.success ? instructions.data : template.instructions, description: template.description }, glossary: business.glossary, skills });
       const route = resolveModel(template.route, input.modelKey);
       const sandboxes = new MockSandboxProvider({ speed: Infinity, autoplay: false, holds: { autoResolveAfterMs: 1 } });
       const recording = RECORDINGS.find((r) => r.taskKind === (template.taskKinds[0] ?? "code")) ?? RECORDINGS[0]!;

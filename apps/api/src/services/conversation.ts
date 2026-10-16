@@ -71,6 +71,7 @@ import { decideInboxItem, decidesByText, planContextFor, type DecideItemResult }
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactText, redactValue } from "./inbox-redaction";
 import { assertInstructionSectionAccess, assertPlanSectionAccess, compilePlan, evaluatePlan, requiresConfirmation, stagedAction, type ActionEvaluation } from "./plans";
 import { takeOrThrow, type RateLimitStore, type WindowLimit } from "./rate-limit";
+import { promptSkills } from "./skills";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Limits: every send can be a model call (a reply, a plan compile), so sends are bounded per person and per business.
@@ -701,13 +702,14 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
   const ctxData = await ctx.rls(async (tx) => {
     // The prompt carries only what this person may read: the masked note and thread, and no CRM names without CRM read.
     const seen = await seenAtDesk(tx, ctx, r, toMessageViews(p.history));
-    const [ins, manifest, persona] = await Promise.all([instructionsOf(tx, ctx, r.agent), manifestFor(tx, ctx), personaOf(tx, ctx, seen.r, seed)]);
-    return { ins, manifest, persona, seen };
+    // Skills the founder added from the library or files: a delimited section after the house rules and instructions.
+    const [ins, manifest, persona, skills] = await Promise.all([instructionsOf(tx, ctx, r.agent), manifestFor(tx, ctx), personaOf(tx, ctx, seen.r, seed), repos.skills.listAddedForAgent(tx, ctx.businessId, r.agent.id, r.agent.agentType)]);
+    return { ins, manifest, persona, seen, skills: promptSkills(skills) };
   });
   const requestInput: ConversationRequestInput = {
     businessName: ctx.business.name,
     appName: APP_NAME,
-    agent: { id: r.agent.id, name: r.agent.name, role: ctxData.persona.role, instructions: ctxData.ins.instructions, description: ctxData.ins.description, voice },
+    agent: { id: r.agent.id, name: r.agent.name, role: ctxData.persona.role, instructions: ctxData.ins.instructions, description: ctxData.ins.description, voice, skills: ctxData.skills },
     glossary: Object.fromEntries(Object.entries(ctx.business.glossary ?? {}).filter(([from]) => from !== "currency")),
     currentWork: { task: taskInput(r.currentTask), nextTask: taskInput(r.nextTask), status: r.agent.status, presence: ctxData.persona.presence },
     subject: promptSubject(ctxData.seen.r, ctx.business.currency),
