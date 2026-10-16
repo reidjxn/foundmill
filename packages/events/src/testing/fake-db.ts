@@ -3,8 +3,8 @@
  * dialect (so assertions can look at the exact SQL `writeEvent` emits) and keeps in-memory `events` and
  * `outbox` tables so the relay can run end to end without Postgres.
  *
- * It understands only the statements this package issues (insert into events / outbox, select unpublished,
- * update outbox set published_at) and throws on anything else, which keeps the fake honest.
+ * It understands only the statements this package issues (insert into events / outbox, the relay's idle probe,
+ * select unpublished, update outbox set published_at) and throws on anything else, which keeps the fake honest.
  */
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
@@ -125,6 +125,10 @@ export class FakeDb implements TransactionalQueryable {
         );
       this.outbox.push({ event_id, published_at: null, created_at: now() });
       return this.wrap([]);
+    }
+
+    if (s.startsWith('select exists (select 1 from "outbox" where published_at is null)')) {
+      return this.wrap([{ pending: this.outbox.some((o) => o.published_at === null) }]);
     }
 
     if (s.startsWith("select o.event_id") && s.includes('from "outbox" o join "events" e')) {

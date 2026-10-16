@@ -137,7 +137,7 @@ describe("GET /health", () => {
   });
 
   it("reports the relay's state and the orchestrator's worker without failing readiness", async () => {
-    const relay = { status: () => ({ state: "waiting_for_redis" as const, attempts: 7, since: null }), stop: async () => undefined };
+    const relay = { status: () => ({ state: "waiting_for_redis" as const, attempts: 7, since: null }), wake: () => undefined, stop: async () => undefined };
     const temporal = { ...hz.deps.temporal, taskQueues: async () => [{ taskQueue: "test", activityPollers: 0, backlogCount: 12, backlogAgeSeconds: 3_600 }] };
     const res = await createApp({ ...hz.deps, relay, temporal }).request("/health");
     expect(res.status).toBe(200);
