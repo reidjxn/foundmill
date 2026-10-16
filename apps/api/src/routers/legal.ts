@@ -110,7 +110,7 @@ export const legalRouter = router({
   recommend: write.input(z.object({ fundraising: z.enum(["none", "angels", "vc"]).default("none"), coFounders: z.number().int().min(0).max(10).default(0) })).use(modelLimited("recommend")).mutation(async ({ ctx, input }) => {
     const profile = await repos.founders.get(ctx.db, ctx.userId);
     const result = await ctx.models.complete({
-      route: "departmentLead",
+      route: "leadRecommendation",
       schema: JurisdictionRecommendation,
       // The cards' costs are shown in the business's own currency (0025), so they are asked for in it.
       system: `You are the Legal agent. Recommend two jurisdictions for this founder and business with up to six cards. Give every cost and the minimum capital in minor units of the business's currency (business.currency), converted where the register charges in another. Information only, never legal or tax advice. ${HOUSE_STYLE}`,

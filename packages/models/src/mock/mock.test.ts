@@ -7,6 +7,16 @@ import type { UsageEvent } from "../types";
 import { MOCK_ROUTES, MockModelClient, listMockRoutes } from "./index";
 import { AGENTS, COMPOSER_INPUT, MANIFEST, ORG_ALDER, PERSON_MARA, promptWith } from "./fixtures.test-helpers";
 
+const DEPARTMENT_LEAD_INPUT = {
+  department: { id: "dept-eng", name: "Engineering" },
+  goal: "Ship the retail portal",
+  tasks: [
+    { id: "t1", title: "Fix checkout bug", kind: "code", status: "ready", department_id: "dept-eng" },
+    { id: "t5", title: "Write the onboarding email sequence", kind: "channel", status: "ready", department_id: "dept-eng" },
+  ],
+  agents: AGENTS,
+};
+
 /** Realistic inputs per route. */
 const SAMPLE_INPUT: Record<RouteKey, Record<string, unknown>> = {
   inboxComposer: COMPOSER_INPUT,
@@ -23,15 +33,8 @@ const SAMPLE_INPUT: Record<RouteKey, Record<string, unknown>> = {
     ],
     agents: AGENTS,
   },
-  departmentLead: {
-    department: { id: "dept-eng", name: "Engineering" },
-    goal: "Ship the retail portal",
-    tasks: [
-      { id: "t1", title: "Fix checkout bug", kind: "code", status: "ready", department_id: "dept-eng" },
-      { id: "t5", title: "Write the onboarding email sequence", kind: "channel", status: "ready", department_id: "dept-eng" },
-    ],
-    agents: AGENTS,
-  },
+  departmentLead: DEPARTMENT_LEAD_INPUT,
+  leadRecommendation: DEPARTMENT_LEAD_INPUT,
   planner: { roadmap_items: [{ id: "r1", title: "Retail partner portal", description: "A page where retail partners place orders and see invoices" }, { id: "r2", title: "Stripe payment webhooks", description: "Record invoice.paid events" }] },
   codeReview: { diff: "diff --git a/apps/api/src/routers/orders.ts b/apps/api/src/routers/orders.ts\n--- a/apps/api/src/routers/orders.ts\n+++ b/apps/api/src/routers/orders.ts\n@@ -1,3 +1,6 @@\n+const rows = await db.select().from(orders);\n+console.log(rows);\n+const key = process.env.STRIPE_KEY;\n" },
   ideation: { prompt: "A skincare brand for people with eczema who want fragrance-free products", founder: { skills: { engineering: 8, sales: 14, design: 12, finance: 9, domain: 16 }, constraints: ["bootstrapped"] } },

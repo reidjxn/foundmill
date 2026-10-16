@@ -48,6 +48,8 @@ export interface InboxListProps {
   rows: readonly InboxListRow[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  /** A row the pointer or the keyboard focus reached: its note can load before the click. */
+  onPrefetch?: (id: string) => void;
   loading: boolean;
   hasMore: boolean;
   loadingMore?: boolean;
@@ -57,7 +59,7 @@ export interface InboxListProps {
   founderName?: string;
 }
 
-export function InboxList({ rows, selectedId, onSelect, loading, hasMore, loadingMore, onLoadMore, emptyText, founderName }: InboxListProps) {
+export function InboxList({ rows, selectedId, onSelect, onPrefetch, loading, hasMore, loadingMore, onLoadMore, emptyText, founderName }: InboxListProps) {
   const listRef = useRef<VirtualListHandle>(null);
   // The row time stays relative ("3 min ago"); its tooltip is the moment in the person's own date format, printed only
   // once the browser knows the reader's time zone (the server renders in UTC).
@@ -114,6 +116,8 @@ export function InboxList({ rows, selectedId, onSelect, loading, hasMore, loadin
               aria-posinset={index + 1}
               aria-setsize={setSize}
               onClick={() => onSelect(row.id)}
+              onPointerEnter={onPrefetch ? () => onPrefetch(row.id) : undefined}
+              onFocus={onPrefetch ? () => onPrefetch(row.id) : undefined}
               data-inbox-row={row.id}
               data-type={row.typeWord}
               data-unread={row.unread || undefined}

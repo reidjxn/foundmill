@@ -153,6 +153,43 @@ export interface BusinessCard {
   live: boolean;
 }
 
+/**
+ * The Network badge's counts as statements (the methods below run them one at a time; `badge` sends them as one), so
+ * the two can never count differently.
+ */
+const badgeQueries = {
+  /** Unread messages across the person's threads: threads they muted do not count. */
+  unread: (db: Executor, userId: string) =>
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(messages)
+      .innerJoin(messageThreads, eq(messageThreads.id, messages.threadId))
+      .where(and(sql`${messageThreads.participantIds} @> array[${userId}::uuid]`, sql`not (${messageThreads.mutedIds} @> array[${userId}::uuid])`, sql`not (${messages.readBy} @> array[${userId}::uuid])`)),
+  /** Connection requests waiting for this person's answer. */
+  incomingRequests: (db: Executor, userId: string) => db.select({ n: sql<number>`count(*)::int` }).from(connections).where(and(eq(connections.toUser, userId), eq(connections.status, "requested"))),
+  /** Invitations waiting for this person's answer. */
+  invitations: (db: Executor, userId: string) =>
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(communityMembers)
+      .innerJoin(communities, eq(communities.id, communityMembers.communityId))
+      .where(and(eq(communityMembers.userId, userId), eq(communityMembers.status, "invited"), isNull(communities.archivedAt))),
+  /** Posts waiting for this person across the communities they moderate. */
+  moderation: (db: Executor, userId: string) => {
+    const moderated = db
+      .select({ communityId: communityMembers.communityId })
+      .from(communityMembers)
+      .where(and(eq(communityMembers.userId, userId), eq(communityMembers.status, "active"), inArray(communityMembers.role, ["owner", "moderator"])));
+    const reported = db.select({ postId: postReports.postId }).from(postReports).where(and(inArray(postReports.communityId, moderated), isNull(postReports.resolvedAt)));
+    return db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(posts)
+      .where(and(inArray(posts.communityId, moderated), isNull(posts.archivedAt), or(eq(posts.status, "pending_review"), and(eq(posts.status, "visible"), inArray(posts.id, reported)))));
+  },
+  /** The person's own confirmation that they are 18 or older. */
+  adultConfirmedAt: (db: Executor, userId: string) => db.select({ at: networkAttestations.adultConfirmedAt }).from(networkAttestations).where(eq(networkAttestations.userId, userId)).limit(1),
+};
+
 export const socialRepo = {
   // public profiles (view over LIVE businesses + founders who opted in) -------------------------------------------------
   async publicProfile(db: Executor, businessId: string): Promise<PublicProfile | null> {
@@ -175,8 +212,23 @@ export const socialRepo = {
   // the network is for adults (0027) ----------------------------------------------------------------------------------
   /** When this person confirmed that they are 18 or older; null when they have not (BUILD §11.14 "18+ only"). */
   async adultConfirmedAt(db: Executor, userId: string): Promise<Date | null> {
-    const rows = await db.select({ at: networkAttestations.adultConfirmedAt }).from(networkAttestations).where(eq(networkAttestations.userId, userId)).limit(1);
+    const rows = await badgeQueries.adultConfirmedAt(db, userId);
     return rows[0]?.at ?? null;
+  },
+
+  /**
+   * The person's Network badge in one statement, one round trip (live.summary; until 2026-10-15 five statements on five
+   * pooled connections): what `unreadCount`, `incomingRequestCount`, `invitationCount` and `moderationCount` count, and
+   * whether `adultConfirmedAt` has a date.
+   */
+  async badge(db: Executor, userId: string): Promise<{ unreadMessages: number; requestsWaiting: number; invitations: number; moderation: number; adultConfirmed: boolean }> {
+    const id = parseInput(Id, userId, "user id");
+    const [row] = rowsOf<Record<"unreadMessages" | "requestsWaiting" | "invitations" | "moderation", number | string> & { adultConfirmed: boolean }>(
+      await db.execute(
+        sql`select ${badgeQueries.unread(db, id)} as "unreadMessages", ${badgeQueries.incomingRequests(db, id)} as "requestsWaiting", ${badgeQueries.invitations(db, id)} as "invitations", ${badgeQueries.moderation(db, id)} as "moderation", ${badgeQueries.adultConfirmedAt(db, id)} is not null as "adultConfirmed"`,
+      ),
+    );
+    return { unreadMessages: Number(row?.unreadMessages ?? 0), requestsWaiting: Number(row?.requestsWaiting ?? 0), invitations: Number(row?.invitations ?? 0), moderation: Number(row?.moderation ?? 0), adultConfirmed: row?.adultConfirmed === true };
   },
 
   /** Records the person's own confirmation that they are 18 or older. The first one stands; asking again changes nothing. */
@@ -586,17 +638,13 @@ export const socialRepo = {
 
   /** Unread messages across the person's threads, for their badge: threads they muted do not count. */
   async unreadCount(db: Executor, userId: string): Promise<number> {
-    const rows = await db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(messages)
-      .innerJoin(messageThreads, eq(messageThreads.id, messages.threadId))
-      .where(and(sql`${messageThreads.participantIds} @> array[${userId}::uuid]`, sql`not (${messageThreads.mutedIds} @> array[${userId}::uuid])`, sql`not (${messages.readBy} @> array[${userId}::uuid])`));
+    const rows = await badgeQueries.unread(db, userId);
     return Number(rows[0]?.n ?? 0);
   },
 
   /** Connection requests waiting for this person's answer. */
   async incomingRequestCount(db: Executor, userId: string): Promise<number> {
-    const rows = await db.select({ n: sql<number>`count(*)::int` }).from(connections).where(and(eq(connections.toUser, userId), eq(connections.status, "requested")));
+    const rows = await badgeQueries.incomingRequests(db, userId);
     return Number(rows[0]?.n ?? 0);
   },
 
@@ -1137,25 +1185,13 @@ export const socialRepo = {
 
   /** How many posts wait for this person across the communities they moderate (their Communities badge). */
   async moderationCount(db: Executor, userId: string): Promise<number> {
-    const moderated = db
-      .select({ communityId: communityMembers.communityId })
-      .from(communityMembers)
-      .where(and(eq(communityMembers.userId, userId), eq(communityMembers.status, "active"), inArray(communityMembers.role, ["owner", "moderator"])));
-    const reported = db.select({ postId: postReports.postId }).from(postReports).where(and(inArray(postReports.communityId, moderated), isNull(postReports.resolvedAt)));
-    const rows = await db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(posts)
-      .where(and(inArray(posts.communityId, moderated), isNull(posts.archivedAt), or(eq(posts.status, "pending_review"), and(eq(posts.status, "visible"), inArray(posts.id, reported)))));
+    const rows = await badgeQueries.moderation(db, userId);
     return Number(rows[0]?.n ?? 0);
   },
 
   /** Invitations waiting for this person's answer (their Network badge). */
   async invitationCount(db: Executor, userId: string): Promise<number> {
-    const rows = await db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(communityMembers)
-      .innerJoin(communities, eq(communities.id, communityMembers.communityId))
-      .where(and(eq(communityMembers.userId, userId), eq(communityMembers.status, "invited"), isNull(communities.archivedAt)));
+    const rows = await badgeQueries.invitations(db, userId);
     return Number(rows[0]?.n ?? 0);
   },
 

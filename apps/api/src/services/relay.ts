@@ -6,6 +6,10 @@
  *
  * Now the supervisor tries again with a capped backoff (1 s, 2 s, 4 s … 30 s) until Redis answers PING, then starts
  * the relay, whose own ticks ride out later Redis errors. `status()` is reported on /health.
+ *
+ * `wake()` asks the relay to publish now: trpc.ts calls it after every mutation, so the events a founder's click
+ * committed reach the stream without waiting for the idle poll (about 220 ms on average until 2026-10-15). Writes made
+ * by other services wait for the poll, which stays at 250 ms.
  */
 import { runOutboxRelay, type OutboxRelay } from "@foundmill/events";
 import type { ApiDeps } from "../context";
@@ -23,6 +27,8 @@ export interface RelayStatus {
 
 export interface RelaySupervisor {
   status(): RelayStatus;
+  /** Run the relay's next tick now (after committing outbox rows); nothing while it has not started. */
+  wake(): void;
   stop(): Promise<void>;
 }
 
@@ -81,6 +87,7 @@ export function superviseOutboxRelay(deps: Pick<ApiDeps, "db" | "redis" | "log" 
 
   return {
     status: () => ({ state, attempts, since }),
+    wake: () => relay?.wake(),
     async stop() {
       stopped = true;
       if (timer) clearTimeout(timer);

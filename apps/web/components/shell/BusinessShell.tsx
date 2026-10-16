@@ -29,7 +29,7 @@ import { CYCLE_EVENT_TYPES, cycleFromSnapshot, initialCycle, nextPulseKey, reduc
 import type { AgentSummary } from "@/lib/entity-links";
 import { useEntityResolver } from "@/lib/entity-resolver";
 import { publicEnv } from "@/lib/env";
-import { streamAwareStaleTime } from "@/lib/query-client";
+import { invalidateForEvent, streamAwareStaleTime } from "@/lib/query-client";
 import { shellQueryInputs } from "@/lib/shell-queries";
 import { useBusinessLogoSrc } from "@/components/logo/useBusinessLogo";
 import { KeyboardRegistryProvider, createKeyboardRegistry, useRegisteredShortcuts } from "@/lib/keys";
@@ -278,7 +278,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       router.push(routes.inbox(businessId, reportId));
     }
     const routers = INVALIDATE_ON_EVENT[event.type];
-    if (routers) void invalidate(routers);
+    // A read already on its way is kept and asked again once it lands (lib/query-client.ts `invalidateForEvent`).
+    if (routers) void invalidateForEvent(queryClient, routers);
   });
 
   // --- last business cookie (the index route redirects here next time) -------------------------------------------

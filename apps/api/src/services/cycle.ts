@@ -141,8 +141,11 @@ export function untilWords(text: string | null | undefined): string {
   return !t || /^i return$/i.test(t) ? "you return" : t;
 }
 
-/** The Continue button state (BUILD §5.4, AC-11.3.3): holiday › blocked › win waiting for its Customer Update › processing › idle. */
-export async function continueStateFor(ctx: CycleScope, status?: CycleStatus): Promise<ContinueState> {
+/**
+ * The Continue button state (BUILD §5.4, AC-11.3.3): holiday › blocked › win waiting for its Customer Update › processing › idle.
+ * `status` is the cycle status when the caller has it, or is reading it (a promise: its reads then go out with these).
+ */
+export async function continueStateFor(ctx: CycleScope, status?: CycleStatus | Promise<CycleStatus>): Promise<ContinueState> {
   const { db, businessId } = ctx;
   const [holiday, blocking, wins] = await Promise.all([repos.holidays.current(db, businessId), repos.inbox.countBlocking(db, businessId), repos.inbox.list(db, businessId, { type: "customer_won", state: "unread", limit: 1 }, ctx.userId)]);
   if (holiday) {
@@ -155,9 +158,12 @@ export async function continueStateFor(ctx: CycleScope, status?: CycleStatus): P
     const journeyId = str(asRecord(asRecord(win.decision).meta).journeyId);
     return { kind: "matchday", journeyId, itemId: win.id };
   }
-  const s = status ?? (await cycleStatus(ctx));
-  if (s.running && !s.paused) return { kind: "processing" };
-  return { kind: "idle" };
+  return cycleContinueState(await (status ?? cycleStatus(ctx)));
+}
+
+/** What Continue shows when nothing comes before the cycle: processing while one runs and is not paused, else idle. */
+export function cycleContinueState(s: CycleStatus): ContinueState {
+  return s.running && !s.paused ? { kind: "processing" } : { kind: "idle" };
 }
 
 /** Actor id of in-process cycle steps (distinguishes them from orchestrator-run cycles in the event log). */
@@ -187,20 +193,27 @@ export class ContinueBlockedError extends AppError {
  * start, no second audit row), and one whose workflow is gone is closed first so it cannot hold Continue for good.
  */
 export async function startCycle(ctx: BusinessContext): Promise<StartCycleResult> {
-  await assertAgentsRunning(ctx, "the next cycle");
-  const before = await continueStateFor(ctx);
+  // The stop, the Continue state and the cycle status are read at once (one wave of independent reads; until 2026-10-15
+  // the status was read three times, one after another). A stopped team is still refused first.
+  const first = cycleStatus(ctx);
+  const [stop, ready] = await Promise.allSettled([assertAgentsRunning(ctx, "the next cycle"), Promise.all([continueStateFor(ctx, first), first])]);
+  if (stop.status === "rejected") throw stop.reason;
+  if (ready.status === "rejected") throw ready.reason;
+  const [before, read] = ready.value;
   if (before.kind === "holiday") throw new ContinueBlockedError("The Chief of Staff is running the business while you are away. End the vacation to take over.", { continueState: before });
   if (before.kind === "blocked") throw new ContinueBlockedError(`Respond to ${before.count} item${before.count === 1 ? "" : "s"} in the Inbox before the next cycle.`, { continueState: before });
+  // Neither a vacation nor a blocking item comes after this point: a win waiting for its Customer Update still shows, else the cycle's state.
+  const continueStateAfter = (s: CycleStatus): ContinueState => (before.kind === "matchday" ? before : cycleContinueState(s));
 
   // Plans an earlier decision could not hand to the orchestrator start now that the founder moves on (audit api-services-15).
   await redispatchPlans(ctx).catch((err: unknown) => ctx.log.warn({ err: (err as Error).message }, "plan redispatch failed"));
 
-  const status = await reconcileCycle(ctx);
+  const status = await reconcileCycle(ctx, read);
   if (status.running && status.paused) {
     const result = await resumeCycle(ctx, status);
-    return { action: "resumed", mode: status.mode ?? "temporal", workflow: result.workflow, item: null, status: result.status, continueState: await continueStateFor(ctx, result.status) };
+    return { action: "resumed", mode: status.mode ?? "temporal", workflow: result.workflow, item: null, status: result.status, continueState: continueStateAfter(result.status) };
   }
-  if (status.running) return { action: "already_running", mode: status.mode ?? "temporal", workflow: null, item: null, status, continueState: await continueStateFor(ctx, status) };
+  if (status.running) return { action: "already_running", mode: status.mode ?? "temporal", workflow: null, item: null, status, continueState: continueStateAfter(status) };
 
   const cycleNumber = status.nextCycleNumber;
   const workflowId = workflowIds.cycle(ctx.businessId, cycleNumber);
@@ -212,13 +225,35 @@ export async function startCycle(ctx: BusinessContext): Promise<StartCycleResult
     return { action: "already_running", mode: "temporal", workflow, item: null, status: optimistic, continueState: { kind: "processing" } };
   }
   if (workflow.queued) {
-    await ctx.rls((tx) => audit(tx, ctx, { action: CONTINUE_ACTION, target: { kind: "cycle", id: workflowId }, details: { cycleNumber, mode: "temporal", workflowId, trigger: "continue" } }));
+    const mark = await ctx.rls((tx) => audit(tx, ctx, { action: CONTINUE_ACTION, target: { kind: "cycle", id: workflowId }, details: { cycleNumber, mode: "temporal", workflowId, trigger: "continue" } }));
     // The audit row is the cycle's first mark: status reads it as queued until the orchestrator writes `cycle.started`.
-    const after = await cycleStatus(ctx);
-    return { action: "started", mode: "temporal", workflow, item: null, status: after, continueState: { kind: "processing" } };
+    // What that read would say is known without asking again (the stream brings the orchestrator's own marks).
+    return { action: "started", mode: "temporal", workflow, item: null, status: queuedStatus(status, { cycleNumber, workflowId, queuedAt: mark.createdAt }), continueState: { kind: "processing" } };
   }
   const local = await runLocalCycleStep(ctx, cycleNumber, workflow.reason ?? "temporal unreachable");
   return { action: "started", mode: "local", workflow, item: local.item, status: local.status, continueState: await continueStateFor(ctx, local.status) };
+}
+
+/**
+ * The status `cycleStatus` reads right after a Continue press queued cycle `cycleNumber` (its audit row written at
+ * `queuedAt`), given the status read before it: open and queued, numbered, nothing planned or paused yet.
+ */
+export function queuedStatus(before: CycleStatus, queued: { cycleNumber: number; workflowId: string; queuedAt: Date }): CycleStatus {
+  return {
+    ...before,
+    running: true,
+    queued: true,
+    paused: false,
+    cycleId: null,
+    cycleNumber: queued.cycleNumber,
+    workflowId: queued.workflowId,
+    startedAt: queued.queuedAt.toISOString(),
+    trigger: "continue",
+    plannedTaskIds: [],
+    pausedTaskIds: [],
+    nextCycleNumber: Math.max(before.nextCycleNumber, queued.cycleNumber + 1),
+    mode: "temporal",
+  };
 }
 
 const reconciledAt = new Map<string, number>();

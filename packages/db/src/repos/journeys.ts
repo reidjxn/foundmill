@@ -379,7 +379,9 @@ export const journeysRepo = {
     const r = parseInput(DateRange, range, "date range");
     const to = r.to ?? new Date();
     const from = r.from ?? to;
-    const role = (cond: SQL) => sql`exists (select 1 from entity_roles r where r.business_id = ${conversions.businessId} and r.entity_id = ${conversions.entityId} and r.role = 'customer' and ${cond})`;
+    // The business id as a value too, not only through the outer row: the planner can then narrow entity_roles to this
+    // business by its index instead of checking (under RLS, row by row) every role on the platform (audit api-db F5).
+    const role = (cond: SQL) => sql`exists (select 1 from entity_roles r where r.business_id = ${businessId} and r.business_id = ${conversions.businessId} and r.entity_id = ${conversions.entityId} and r.role = 'customer' and ${cond})`;
     // A role that was over before the window began; churned before = has such a role and no role that reached the window.
     const overBefore = sql`coalesce((r.ended_at is not null and r.ended_at < ${from.toISOString()}) or (r.ended_at is null and r.stage = 'churned' and r.updated_at < ${from.toISOString()}), false)`;
     const churnedBefore = sql`(${role(overBefore)} and not ${role(sql`not ${overBefore}`)})`;

@@ -176,6 +176,7 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
   const runCancel = async () => {
     if (!incorporation) return;
     await cancel.run("legal.incorporate.cancel", { incorporationId: incorporation.id }, {
+      fresh: true,
       then: () => {
         setCancelOpen(false);
         setSubmittedLocally(false);

@@ -22,3 +22,21 @@ export async function writeEventRow<T extends EventType>(tx: Executor, input: Wr
   });
   return row.id;
 }
+
+/**
+ * Several events of one business in one go (`repos.events.writeMany`: one insert into events, then one into outbox),
+ * each validated against the catalogue first. `narrated` writes them already narrated. Returns the event ids in order.
+ */
+export async function writeEventRows(tx: Executor, inputs: readonly WriteEventInput[], options: { narrated?: boolean } = {}): Promise<string[]> {
+  const built = inputs.map((input) => buildEvent(input));
+  const businessId = built[0]?.businessId;
+  if (!businessId) return [];
+  if (built.some((e) => e.businessId !== businessId)) throw new Error("writeEventRows writes the events of one business");
+  await repos.events.writeMany(
+    tx,
+    businessId,
+    built.map((e) => ({ id: e.id, type: e.type, actor: e.actor, entityIds: e.entityIds, payload: e.payload as Record<string, unknown>, occurredAt: e.occurredAt })),
+    options,
+  );
+  return built.map((e) => e.id);
+}

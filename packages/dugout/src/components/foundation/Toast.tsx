@@ -199,11 +199,16 @@ export function ToastProvider({ children, duration = 5000, position: fixedPositi
   const stack = useMemo(() => toastStack(toasts.map((t) => t.id), heights), [toasts, heights]);
   const frontHeight = toasts.length ? heights[toasts[toasts.length - 1]!.id] : undefined;
 
+  // The app sits beside Radix's provider, not inside it: the viewport registers itself in that provider's state on the
+  // first commit, and a changed context value above a streamed Suspense boundary that has not been revealed yet makes
+  // React client-render it, so the page would hold the business shell twice for a moment (docs/DECISIONS.md,
+  // 2026-10-16). Only a caller that places <Toaster /> itself needs its children inside.
   return (
     <ToastContext.Provider value={api}>
       <ToastPlacementContext.Provider value={placementApi}>
+        {renderViewport ? children : null}
         <ToastPrimitive.Provider duration={duration} swipeDirection={position === "bottom-left" ? "left" : "right"} label="Notification">
-          {children}
+          {renderViewport ? null : children}
           {toasts.map((t) => (
             <Toast
               key={t.id}

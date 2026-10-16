@@ -14,6 +14,7 @@ import { and, eq, ne, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withRls } from "../client";
 import { repos } from "../repos";
+import { bypassesRls } from "../repos/_shared";
 import { businesses, memberships } from "../schema";
 import { createTestDb, type TestHarness } from "../testing/pglite";
 import { createWireDb, type WireDb } from "../testing/wire";
@@ -123,7 +124,7 @@ describe("withRls", () => {
     // RLS applied before the first statement ran: the owner of A sees A only.
     expect(value.map((r) => r.id)).toEqual([A.businessId]);
     expect(statements[0]).toBe("begin ");
-    expect(statements[1]).toBe("select set_config('role', $1, true), set_config('request.jwt.claims', $2, true)");
+    expect(statements[1]).toBe("select set_config('role', $1, true), set_config('request.jwt.claims', $2, true), set_config('jit', 'off', true)");
     expect(statements[2]).toMatch(/^select "id" from "businesses"/);
     // Until 2026-10-12: 6 (BEGIN; the setup's parameter types, then its values; the select's, then its; COMMIT).
     expect(trips).toBe(3);
@@ -225,6 +226,36 @@ describe("withRls", () => {
     expect(await withRls(wire.db, { userId: A.ownerId }, (tx) => tx.select({ id: businesses.id }).from(businesses))).toHaveLength(1);
   });
 
+  it("turns JIT off for the transaction in the same statement, and only for it", async () => {
+    const before = (await wire.db.execute(sql`select current_setting('jit') as jit`)) as unknown as Array<{ jit: string }>;
+    const { value, trips } = await count(() => withRls(wire.db, { userId: A.ownerId }, async (tx) => (await tx.execute(sql`select current_setting('jit') as jit`)) as unknown as Array<{ jit: string }>));
+    expect(value[0]?.jit).toBe("off");
+    expect(trips).toBe(3);
+    const after = (await wire.db.execute(sql`select current_setting('jit') as jit`)) as unknown as Array<{ jit: string }>;
+    expect(after[0]?.jit).toBe(before[0]?.jit);
+    const onPglite = await withRls(h.db as unknown as Parameters<typeof withRls>[0], { userId: A.ownerId }, async (tx) => (await tx.execute(sql`select current_setting('jit') as jit`)) as unknown as { rows: Array<{ jit: string }> });
+    expect(onPglite.rows[0]?.jit).toBe("off");
+  });
+
+  it("says which role it runs as, so the Ribbon's reads need not ask the server (bypassesRls)", async () => {
+    // Under the signed-in user: the view (RLS applies), answered without the `pg_roles` question (one round trip less).
+    const asUser = await count(() => withRls(wire.db, { userId: A.ownerId }, (tx) => repos.journeys.dailyRange(tx, A.businessId, {})));
+    expect(asUser.statements.some((q) => /pg_roles/.test(q))).toBe(false);
+    expect(asUser.statements.some((q) => /from "journey_daily"/.test(q))).toBe(true);
+    expect(asUser.trips).toBe(3);
+    // As service_role inside withRls: the materialized view, still without asking.
+    const asService = await count(() => withRls(wire.db, { userId: A.ownerId, role: "service_role" }, (tx) => repos.journeys.dailyRange(tx, A.businessId, {})));
+    expect(asService.statements.some((q) => /pg_roles/.test(q))).toBe(false);
+    expect(asService.statements.some((q) => /from "journey_daily_mv"/.test(q))).toBe(true);
+    expect(asService.value).toEqual(await repos.journeys.dailyRange(h.db, A.businessId, {}));
+    // Any other connection or transaction is asked, as before.
+    const plain = await count(() => wire.db.transaction((tx) => bypassesRls(tx)));
+    expect(plain.value).toBe(true);
+    expect(plain.statements.some((q) => /pg_roles/.test(q))).toBe(true);
+    expect(await withRls(wire.db, { userId: A.ownerId }, (tx) => bypassesRls(tx))).toBe(false);
+    expect(await withRls(wire.db, { userId: A.ownerId, role: "anon" }, (tx) => bypassesRls(tx))).toBe(false);
+  });
+
   it("does the same on PGlite's own driver (no postgres.js), where the setup is awaited", async () => {
     const rows = await withRls(h.db as unknown as Parameters<typeof withRls>[0], { userId: B.ownerId, claims: { email: "x'y@b.test" } }, async (tx) => {
       const claims = (await tx.execute(sql`select current_setting('request.jwt.claims', true) as claims`)) as unknown as { rows: Array<{ claims: string }> };
@@ -232,6 +263,15 @@ describe("withRls", () => {
     });
     expect(rows.visible.map((r) => r.id)).toEqual([B.businessId]);
     expect(rows.claims.email).toBe("x'y@b.test");
+  });
+});
+
+describe("repos.journeys.countPayingCustomers", () => {
+  it("names the business by value in both churn checks, so they can use its index under RLS", async () => {
+    const { statements, value } = await count(() => withRls(wire.db, { userId: A.ownerId }, (tx) => repos.journeys.countPayingCustomers(tx, A.businessId, { from: new Date("2026-06-01"), to: new Date("2026-07-01") })));
+    const query = statements.find((q) => /from "conversions"/.test(q)) ?? "";
+    expect(query.match(/from entity_roles r where r\.business_id = \$\d+ and r\.business_id = "conversions"\."business_id"/g)).toHaveLength(2);
+    expect(value).toBe(await repos.journeys.countPayingCustomers(h.db, A.businessId, { from: new Date("2026-06-01"), to: new Date("2026-07-01") }));
   });
 });
 

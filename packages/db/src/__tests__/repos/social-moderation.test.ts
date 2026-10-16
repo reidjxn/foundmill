@@ -8,6 +8,7 @@ import { repos } from "../../repos";
 import { REPORTS_TO_HOLD } from "../../repos/social";
 import * as s from "../../schema";
 import type { PostScreening } from "../../schema";
+import { createWireDb } from "../../testing/wire";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
 
 let r: RepoHarness;
@@ -318,5 +319,47 @@ describe("the network is for adults", () => {
     expect((await repos.social.adultConfirmedAt(r.db, ada!))?.getTime()).toBe(at.getTime());
     expect(await repos.social.adultConfirmedAt(r.db, bo!)).toBeNull();
     await expect(repos.social.confirmAdult(r.db, "not-a-user")).rejects.toThrow();
+  });
+});
+
+describe("the Network badge in one statement (live.summary)", () => {
+  it("counts what the five reads count, for everyone involved, in one round trip on the wire", async () => {
+    const [owner, member, friend, asker, quiet] = await people(5, "badge");
+    const room = await repos.social.createCommunity(r.db, { name: "Badge room", slug: "badge-room", createdBy: owner });
+    await repos.social.joinCommunity(r.db, member!, room.id);
+    // A post waiting for review (the owner moderates it) and a reported visible one.
+    await repos.social.createPost(r.db, { communityId: room.id, authorUserId: member!, bodyMd: "You idiot", screening: HOLD });
+    const visible = await repos.social.createPost(r.db, { communityId: room.id, authorUserId: member!, bodyMd: "Hello", screening: ALLOW });
+    await repos.social.reportPost(r.db, owner!, visible.id, { reason: "spam" });
+    // An invitation waiting, a connection request waiting and an unread message.
+    await connect(owner!, friend!);
+    await repos.social.inviteToCommunity(r.db, owner!, room.id, friend!);
+    await repos.social.requestConnection(r.db, asker!, friend!);
+    const thread = await repos.social.startThread(r.db, owner!, [friend!]);
+    await repos.social.sendMessage(r.db, owner!, thread.id, "Welcome aboard");
+    await repos.social.confirmAdult(r.db, friend!);
+
+    const separately = async (userId: string) => ({
+      unreadMessages: await repos.social.unreadCount(r.db, userId),
+      requestsWaiting: await repos.social.incomingRequestCount(r.db, userId),
+      invitations: await repos.social.invitationCount(r.db, userId),
+      moderation: await repos.social.moderationCount(r.db, userId),
+      adultConfirmed: (await repos.social.adultConfirmedAt(r.db, userId)) !== null,
+    });
+    const wire = await createWireDb(r.h.pg);
+    try {
+      for (const userId of [owner!, member!, friend!, asker!, quiet!]) {
+        const expected = await separately(userId);
+        expect(await repos.social.badge(r.db, userId)).toEqual(expected);
+        wire.reset();
+        expect(await repos.social.badge(wire.db, userId)).toEqual(expected);
+        expect(wire.statements()).toHaveLength(1);
+        expect(wire.roundTrips()).toBe(1);
+      }
+      expect(await repos.social.badge(r.db, friend!)).toEqual({ unreadMessages: 1, requestsWaiting: 1, invitations: 1, moderation: 0, adultConfirmed: true });
+      expect((await repos.social.badge(r.db, owner!)).moderation).toBe(2);
+    } finally {
+      await wire.close();
+    }
   });
 });

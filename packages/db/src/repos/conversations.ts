@@ -6,7 +6,7 @@
  * `last_message_at` and `message_count` in the same statement batch so lists can sort threads by recency. The api runs
  * every call inside `withRls` as the signed-in member (the Inbox's access model: members write, viewers read).
  */
-import { AGENT_REACTIONS, CONVERSATION_AUTHOR_KINDS, CONVERSATION_SUBJECT_KINDS, QUICK_REPLY_KINDS, ValidationError, type ConversationSubjectKind } from "@foundmill/shared";
+import { AGENT_REACTIONS, CONVERSATION_AUTHOR_KINDS, CONVERSATION_SUBJECT_KINDS, QUICK_REPLY_KINDS, uuid, ValidationError, type ConversationSubjectKind } from "@foundmill/shared";
 import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agentMessages, agentThreads, type AgentMessage, type AgentThread } from "../schema";
@@ -31,6 +31,8 @@ export const StoredQuickReplyInput = z.object({
 
 export const AppendMessageInput = z
   .object({
+    /** Set by a caller that needs the id before the row is written (`appendExchange` and the events that name it). */
+    id: Id.optional(),
     threadId: Id,
     authorKind: z.enum(CONVERSATION_AUTHOR_KINDS),
     authorUserId: Id.nullable().optional(),
@@ -159,6 +161,7 @@ export const conversationsRepo = {
     const [row] = await db
       .insert(agentMessages)
       .values({
+        ...(m.id ? { id: m.id } : {}),
         businessId,
         threadId: thread.id,
         authorKind: m.authorKind,
@@ -183,6 +186,56 @@ export const conversationsRepo = {
       .set({ lastMessageAt: sql`greatest(coalesce(${agentThreads.lastMessageAt}, ${at.toISOString()}::timestamptz), ${at.toISOString()}::timestamptz)`, messageCount: sql`${agentThreads.messageCount} + 1` })
       .where(and(eq(agentThreads.businessId, businessId), eq(agentThreads.id, thread.id)));
     return row!;
+  },
+
+  /**
+   * Several messages of one thread in one insert (the founder's message and the agent's reply), with the thread's
+   * activity bumped in a statement sent alongside it, so an exchange costs one round trip instead of three per message.
+   * `thread` is the row the caller read in this business; messages keep their order (`at`, then a millisecond apart).
+   * Returns the rows in order and the thread as it now stands.
+   */
+  async appendExchange(db: Executor, businessId: string, thread: AgentThread, inputs: readonly AppendMessageInput[], options: { at?: Date } = {}): Promise<{ messages: AgentMessage[]; thread: AgentThread }> {
+    const ms = inputs.map((input) => parseInput(AppendMessageInput, input, "conversation message"));
+    if (ms.length === 0) return { messages: [], thread };
+    if (ms.some((m) => m.threadId !== thread.id)) throw new ValidationError("Every message of an exchange belongs to its thread", { threadId: thread.id });
+    const at = options.at ?? new Date();
+    const rows = ms.map((m, i) => {
+      const createdAt = new Date(at.getTime() + i);
+      return {
+        id: m.id ?? uuid(),
+        businessId,
+        threadId: thread.id,
+        authorKind: m.authorKind,
+        authorUserId: m.authorUserId ?? null,
+        agentId: m.agentId ?? (m.authorKind === "agent" ? thread.agentId : null),
+        bubbles: m.bubbles,
+        reaction: m.reaction,
+        quickReplies: m.quickReplies,
+        chosenQuickReplyId: m.chosenQuickReplyId ?? null,
+        clientMessageId: m.clientMessageId ?? null,
+        handOff: m.handOff ?? null,
+        refersTo: m.refersTo,
+        entityIds: m.entityIds,
+        planId: m.planId ?? null,
+        meta: m.meta,
+        createdAt,
+        updatedAt: createdAt,
+      };
+    });
+    const last = rows[rows.length - 1]!.createdAt.toISOString();
+    // Sent together; a failed insert (a repeated client message id) fails the update after it, so its error is the one thrown.
+    const [inserted, updated] = await Promise.allSettled([
+      db.insert(agentMessages).values(rows).returning(),
+      db
+        .update(agentThreads)
+        .set({ lastMessageAt: sql`greatest(coalesce(${agentThreads.lastMessageAt}, ${last}::timestamptz), ${last}::timestamptz)`, messageCount: sql`${agentThreads.messageCount} + ${rows.length}` })
+        .where(and(eq(agentThreads.businessId, businessId), eq(agentThreads.id, thread.id)))
+        .returning(),
+    ]);
+    if (inserted.status === "rejected") throw inserted.reason;
+    if (updated.status === "rejected") throw updated.reason;
+    const byId = new Map(inserted.value.map((r) => [r.id, r]));
+    return { messages: rows.map((r) => byId.get(r.id)!), thread: one(updated.value, "agent thread", thread.id) };
   },
 
   /**

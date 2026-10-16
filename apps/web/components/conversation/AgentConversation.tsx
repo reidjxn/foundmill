@@ -5,15 +5,17 @@
  *
  *   - `get` gives the persona (presence, current task, voice), the thread and the starters: no model call, so the
  *     quick replies are there at once.
- *   - A quick reply or typed text goes to `send` (Inbox notes: typed text goes to `inboxReply`, so a question never
- *     uses up the decision). The founder's bubble appears at once ("Sending…"), the agent types while the reply is
- *     genuinely in flight, and the reply is merged into the cache (no refetch).
+ *   - A quick reply or typed text goes to `sendStream` (Inbox notes: typed text goes to `inboxReplyStream`, so a question
+ *     never uses up the decision). The founder's bubble appears at once ("Sending…"), the agent types while the reply is
+ *     genuinely in flight, each of its bubbles shows the moment it is written (audit MB-1), and the stored reply is
+ *     merged into the cache in their place (no refetch).
  *   - "Go with: …" decides through the existing decide path (`onDecision`); "Review the plan" stages the hand-off and
  *     opens "Here is what will happen"; only `plan.confirm` runs it. "Take a break" pauses the agent's running task
  *     through `dev.tasks.pause`, acknowledged in the agent's own voice (no model call).
  *   - A send that fails (the api is down, the model failed, a limit, a chip that is no longer open) keeps the founder's
  *     words on screen ("Not sent") and the agent says what happened in its own voice, with "Try again" first among the
- *     replies; nothing is resent without a press. One send at a time: a second press while one is in flight does nothing.
+ *     replies; nothing is resent without a press. A reply that fails part-way withdraws the bubbles it had shown (the
+ *     server stored none of it). One send at a time: a second press while one is in flight does nothing.
  *   - Once the item is decided (`decided`), no "Go with: …" is offered any more.
  *
  * Nothing here decides what is allowed: the server applies the house rules and hard gates to every reply and plan.
@@ -22,8 +24,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { AgentDesk, Button, EntityText, Markdown, Skeleton, stripEntityMarkup, useToast, type AgentDeskVariant, type DeskMessage, type QuickReplyItem } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
-import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
-import { useTRPC } from "@/lib/trpc-react";
+import { errorMessage, trpcPathPrefix, type RouterInputs, type RouterOutputs } from "@/lib/trpc";
+import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { readOnlyReason } from "@/lib/access";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import { provideAgentConversation } from "./DeskHost";
@@ -41,12 +43,15 @@ import {
   failureQuickReplies,
   failureReply,
   openFailureLine,
+  readReplyStream,
   roleBesideName,
   sayOf,
+  streamingIdOf,
   voiceAck,
   withPlanId,
   withSent,
   withoutChoices,
+  type ConversationInboxReply,
   type ConversationSend,
   type ConversationSubject,
   type HandOffPreview,
@@ -188,8 +193,15 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
 
   const invalidate = useCallback((routers: readonly string[]) => Promise.all(routers.map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] }))), [queryClient]);
 
-  const sendM = useMutation(trpc.agent.conversation.send.mutationOptions());
-  const replyM = useMutation(trpc.agent.conversation.inboxReply.mutationOptions());
+  // Streamed (audit MB-1): `onBubbles` gets the reply's bubbles as they are written; the promise resolves with the result.
+  const client = useTRPCClient();
+  type Streamed<I> = { input: I; onBubbles: (bubbles: string[]) => void };
+  const sendM = useMutation({
+    mutationFn: async ({ input, onBubbles }: Streamed<RouterInputs["agent"]["conversation"]["sendStream"]>): Promise<ConversationSend> => readReplyStream(await client.agent.conversation.sendStream.mutate(input), onBubbles),
+  });
+  const replyM = useMutation({
+    mutationFn: async ({ input, onBubbles }: Streamed<RouterInputs["agent"]["conversation"]["inboxReplyStream"]>): Promise<ConversationInboxReply> => readReplyStream(await client.agent.conversation.inboxReplyStream.mutate(input), onBubbles),
+  });
   const handOffM = useMutation(trpc.agent.conversation.handOff.mutationOptions());
   const pauseM = useMutation(trpc.dev.tasks.pause.mutationOptions());
   const confirmM = useMutation(
@@ -212,13 +224,27 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
 
   const merge = useCallback(
     (sent: Pick<ConversationSend, "thread" | "messages" | "quickReplies">, localId: string) => {
-      // The founder's message keeps its optimistic id on screen: it never re-arrives.
+      // The founder's message keeps its optimistic id on screen, and the reply the id it streamed in under: neither
+      // re-arrives. The local copies make way once the view holds the stored ones (below), so nothing blinks.
       const founder = sent.messages.find((m) => m.author === "founder");
       if (founder) alias.current.set(founder.id, localId);
-      queryClient.setQueryData(key, (old) => (old ? withSent(old, sent) : old));
-      setLocal((l) => l.filter((m) => m.id !== localId));
+      const reply = sent.messages.find((m) => m.author === "agent");
+      if (reply) alias.current.set(reply.id, streamingIdOf(localId));
+      if (queryClient.getQueryData(key)) queryClient.setQueryData(key, (old) => (old ? withSent(old, sent) : old));
+      else setLocal((l) => l.filter((m) => m.id !== localId && m.id !== streamingIdOf(localId)));
     },
     [queryClient, key],
+  );
+  /** The stored id of a message shown under a local id (a hand-off on the reply that streamed in). */
+  const storedIdOf = useCallback((shownId: string) => [...alias.current].find(([, shown]) => shown === shownId)?.[0] ?? shownId, []);
+  /** The reply as it streams in: its bubbles so far, under the id the stored reply will keep on screen. */
+  const streamed = useCallback(
+    (localId: string) => (bubbles: string[]) =>
+      setLocal((l) => {
+        const rest = l.filter((m) => m.id !== streamingIdOf(localId));
+        return bubbles.length ? [...rest, { id: streamingIdOf(localId), author: "agent", bubbles, at: new Date(), reaction: null, quickReplies: [] }] : rest;
+      }),
+    [],
   );
 
   const showPreview = useCallback((p: HandOffPreview) => {
@@ -287,13 +313,14 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
         setPendingReplyId(null);
       };
       // Promises, not per-call callbacks: the reply still reaches the cache if the founder moves on before it arrives.
+      const onBubbles = streamed(out.localId);
       const job: Promise<void> =
         inboxReply && out.text && subject.kind === "inbox_item"
-          ? replyM.mutateAsync({ businessId, itemId: subject.id, text: out.text, ...(out.clientMessageId ? { clientMessageId: out.clientMessageId } : {}) }).then((res) => {
+          ? replyM.mutateAsync({ input: { businessId, itemId: subject.id, text: out.text, ...(out.clientMessageId ? { clientMessageId: out.clientMessageId } : {}) }, onBubbles }).then((res) => {
               outgoing.current.delete(out.localId);
               if (res.route === "decision") {
                 // An instruction: it answered the note through the decide path (nothing is said in the thread).
-                setLocal((l) => l.filter((m) => m.id !== out.localId));
+                setLocal((l) => l.filter((m) => m.id !== out.localId && m.id !== streamingIdOf(out.localId)));
                 onDecision?.(res.decision);
                 return;
               }
@@ -301,7 +328,7 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
               if (res.decision) onDecision?.(res.decision);
               if (res.handOff) showPreview(res.handOff);
             })
-          : sendM.mutateAsync({ businessId, subject: input.subject, ...(out.clientMessageId ? { clientMessageId: out.clientMessageId } : {}), ...(out.quickReplyId ? { quickReplyId: out.quickReplyId, ...(out.optionId !== undefined ? { optionId: out.optionId } : {}) } : { text: out.text! }) }).then((res) => {
+          : sendM.mutateAsync({ input: { businessId, subject: input.subject, ...(out.clientMessageId ? { clientMessageId: out.clientMessageId } : {}), ...(out.quickReplyId ? { quickReplyId: out.quickReplyId, ...(out.optionId !== undefined ? { optionId: out.optionId } : {}) } : { text: out.text! }) }, onBubbles }).then((res) => {
               outgoing.current.delete(out.localId);
               merge(res, out.localId);
               if (res.decision) onDecision?.(res.decision);
@@ -309,13 +336,15 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
             });
       void job
         .catch(async (err: unknown) => {
+          // A reply that broke off part-way was never stored: what it had shown goes.
+          onBubbles([]);
           // No answer is not "never arrived": ask the server whether it holds the message before saying it was not sent.
           if (await arrived(out, err)) return;
           failed(out, err);
         })
         .finally(settle);
     },
-    [queryClient, key, arrived, inboxReply, subject.kind, subject.id, replyM, sendM, businessId, input.subject, merge, onDecision, showPreview, failed],
+    [queryClient, key, arrived, inboxReply, subject.kind, subject.id, replyM, sendM, businessId, input.subject, merge, streamed, onDecision, showPreview, failed],
   );
 
   const post = useCallback(
@@ -405,9 +434,9 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
   );
 
   const onHandOff = useCallback(
-    (messageId: string) => {
+    (shownId: string) => {
       handOffM.mutate(
-        { businessId, messageId },
+        { businessId, messageId: storedIdOf(shownId) },
         {
           onSuccess: (p) => {
             // Staged before (here, after a reload, or on another device): the stored plan comes back. One that was
@@ -423,7 +452,7 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
         },
       );
     },
-    [handOffM, businessId, showPreview, toast, queryClient, key],
+    [handOffM, businessId, storedIdOf, showPreview, toast, queryClient, key],
   );
 
   // The palette's "Ask <agent> · <question>": the question is the founder's first message, sent once the desk is ready.
@@ -477,7 +506,18 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
     [deskEl, openWrite, variant],
   );
 
-  const messages = useMemo<DeskMessage[]>(() => withoutChoices(view ? [...deskMessagesOf(view, alias.current), ...local] : local, decided), [view, local, decided]);
+  // A local message the view now holds (the founder's words, the streamed reply) is shown once, as stored.
+  const messages = useMemo<DeskMessage[]>(() => {
+    const stored = view ? deskMessagesOf(view, alias.current) : [];
+    const ids = new Set(stored.map((m) => m.id));
+    return withoutChoices([...stored, ...local.filter((m) => !ids.has(m.id))], decided);
+  }, [view, local, decided]);
+  // ...and then lets go of its local copy.
+  useEffect(() => {
+    if (!view) return;
+    const ids = new Set(deskMessagesOf(view, alias.current).map((m) => m.id));
+    setLocal((l) => (l.some((m) => ids.has(m.id)) ? l.filter((m) => !ids.has(m.id)) : l));
+  }, [view]);
   const starters = useMemo(() => (view ? (decided ? view.starters.filter((q) => q.kind !== "choose_option") : view.starters) : []), [view, decided]);
   // Decided from the DecisionBar (or another tab): the server's view drops "Go with" too, so read it again once.
   useEffect(() => {

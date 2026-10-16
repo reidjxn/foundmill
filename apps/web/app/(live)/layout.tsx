@@ -6,26 +6,37 @@
  * proxy.ts sends them to /login (these paths are not public).
  *
  * The business the cookie names is loaded while the profile loads (lib/shell-data.server.ts) and used only if the
- * profile confirms it is one of the founder's; otherwise the picked business is loaded after.
+ * profile confirms it is one of the founder's; otherwise the picked business is loaded after. The app frame shows
+ * meanwhile (a Suspense boundary around all of it), so the document head and the scripts reach the browser first.
  */
 import { redirect } from "next/navigation";
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import { pickCurrentBusiness } from "@/lib/auth/current-business";
 import { getLastBusinessId } from "@/lib/auth/server";
 import { getServerDateFormat } from "@/lib/date-format.server";
 import { Prefetched } from "@/lib/hydrate.server";
 import { startBusinessShell } from "@/lib/shell-data.server";
 import { errorMessage } from "@/lib/trpc";
+import { handOverProfile } from "@/lib/profile-handover";
 import { serverApi } from "@/lib/trpc-server";
 import { LiveViewerProvider } from "@/components/live/viewer";
 import { DateFormatHost } from "@/components/providers/DateFormatHost";
 import { BusinessShell } from "@/components/shell/BusinessShell";
 import { ApiErrorPage } from "@/components/shell/ApiErrorPage";
+import { ShellSkeleton } from "@/components/shell/ShellSkeleton";
 import { UnreachablePage } from "@/components/shell/UnreachablePage";
 
 export const dynamic = "force-dynamic";
 
-export default async function LiveLayout({ children }: { children: ReactNode }) {
+export default function LiveLayout({ children }: { children: ReactNode }) {
+  return (
+    <Suspense fallback={<ShellSkeleton />}>
+      <LiveShell>{children}</LiveShell>
+    </Suspense>
+  );
+}
+
+async function LiveShell({ children }: { children: ReactNode }) {
   const server = await serverApi();
   if (!server) redirect("/login");
   const { api } = server;
@@ -52,7 +63,7 @@ export default async function LiveLayout({ children }: { children: ReactNode }) 
   try {
     const [[business, departments], date] = await Promise.all([shell.data, dateFormat]);
     return (
-      <Prefetched queryClient={shell.prefetch()}>
+      <Prefetched queryClient={handOverProfile(shell.prefetch(), profile)}>
         <DateFormatHost initial={date.prefs} owner={date.owner}>
           <BusinessShell businessId={current.id} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId, name: profile.profile?.displayName ?? null }}>
             <LiveViewerProvider value={{ userId: founder.userId, displayName: founder.displayName }}>{children}</LiveViewerProvider>

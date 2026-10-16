@@ -11,7 +11,7 @@
 import { NotFoundError, ValidationError } from "@foundmill/shared";
 import { and, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { z } from "zod";
-import type { Db, DbTx } from "../client";
+import { rlsRoleOf, type Db, type DbTx } from "../client";
 
 /** A database or a transaction (a transaction is a database; repos never care which). */
 export type Executor = Db | DbTx;
@@ -270,8 +270,14 @@ export function changes<T extends Record<string, unknown>>(patch: T, what: strin
   return out;
 }
 
-/** True when the current Postgres role bypasses RLS (service_role or a superuser) — some reads pick a different relation. */
+/**
+ * True when the current Postgres role bypasses RLS (service_role or a superuser) — some reads pick a different relation.
+ * A transaction `withRls` opened says which role it runs as without asking the server (`rlsRoleOf`): the Ribbon's reads
+ * run under it on every open, and the question cost them a round trip. Anything else is asked.
+ */
 export async function bypassesRls(db: Executor): Promise<boolean> {
+  const role = rlsRoleOf(db);
+  if (role) return role === "service_role";
   const rows = rowsOf<{ bypass: boolean }>(
     await db.execute(sql`select (current_user = 'service_role' or exists (select 1 from pg_roles where rolname = current_user and (rolsuper or rolbypassrls))) as bypass`),
   );

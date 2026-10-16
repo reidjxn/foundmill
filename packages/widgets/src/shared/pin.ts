@@ -7,7 +7,7 @@
  * `usePinToHomeMenu({ key })` naming the gallery widget it matches. Home itself provides no instance: its widgets are
  * already there.
  */
-import { createContext, createElement, useCallback, useContext, useMemo, type ReactNode } from "react";
+import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { PanelMenu } from "@foundmill/dugout";
 import { useWidgetData, useWidgetQuery } from "../data";
 import { appendWidget, migrateLayout, toScreenLayout, type DashboardLayout } from "../layout";
@@ -60,6 +60,23 @@ interface HomeDashboard {
 export function usePinToHomeMenu(target: WidgetInstance | null): PanelMenu | undefined {
   const { mutate } = useWidgetData();
   const def = target ? getWidget(target.key) : undefined;
+  const unregistered = !!target && !def;
+  const [, setGalleryLoaded] = useState(false);
+  // A module screen can render before any gallery widget registered (department tabs no longer import the gallery
+  // up front, audit WEB-8): load it on demand, then read the definition again.
+  useEffect(() => {
+    if (!unregistered) return;
+    let live = true;
+    void import("../widgets").then(
+      () => {
+        if (live) setGalleryLoaded(true);
+      },
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [unregistered]);
   const home = useWidgetQuery<HomeDashboard>("dashboard.get", {}, { enabled: !!def });
   const settings = target?.settings;
   const stored = home.data?.layout;

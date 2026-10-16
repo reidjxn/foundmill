@@ -258,9 +258,20 @@ const mapErrors = t.middleware(async ({ next, ctx, path, type }) => {
   return result;
 });
 
+/**
+ * After a mutation (whatever its outcome: a failed one may have committed a first transaction), the outbox relay is
+ * woken so the events it committed reach the stream now, not at the next idle poll (services/relay.ts). A wake with
+ * nothing to publish costs the relay one cheap statement.
+ */
+const wakeRelay = t.middleware(async ({ ctx, type, next }) => {
+  const result = await next();
+  if (type === "mutation") ctx.relay?.wake();
+  return result;
+});
+
 // --- procedures ------------------------------------------------------------------------------------------------------
 
-export const publicProcedure = t.procedure.use(mapErrors);
+export const publicProcedure = t.procedure.use(mapErrors).use(wakeRelay);
 
 export const protectedProcedure = publicProcedure.use(({ ctx, next }) => {
   if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to continue" });

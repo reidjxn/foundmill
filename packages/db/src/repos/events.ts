@@ -83,6 +83,24 @@ export const eventsRepo = {
     });
   },
 
+  /**
+   * Several events written at once in the caller's transaction: one insert into events, then one into outbox, instead
+   * of a savepoint and two inserts per event. `narrated` marks them narrated as they are written (a chat message is
+   * never an Inbox note). No idempotency keys: use `write` for an event that may repeat.
+   */
+  async writeMany(db: Executor, businessId: string, inputs: readonly WriteEventInput[], options: { narrated?: boolean } = {}): Promise<Event[]> {
+    const rows = inputs.map((input) => {
+      const v = parseInput(WriteEventInput, input, "event");
+      if (v.idempotencyKey) throw new ValidationError("writeMany takes no idempotency keys; write the event with write", { type: v.type });
+      if (isPersonAddressedEvent(v.type)) throw new ValidationError(`${v.type} is addressed to a person and is never written to a business's events`, { type: v.type });
+      return { id: v.id ?? uuid(), businessId, type: v.type, occurredAt: v.occurredAt ?? new Date(), actor: v.actor, entityIds: [...new Set(v.entityIds)], payload: v.payload, narrated: options.narrated === true, idempotencyKey: null };
+    });
+    if (rows.length === 0) return [];
+    const written = await db.insert(events).values(rows).returning();
+    await db.insert(outbox).values(rows.map((r) => ({ businessId, eventId: r.id })));
+    return written;
+  },
+
   async get(db: Executor, businessId: string, eventId: string): Promise<Event> {
     return one(await db.select().from(events).where(and(eq(events.businessId, businessId), eq(events.id, eventId))).limit(1), "event", eventId);
   },

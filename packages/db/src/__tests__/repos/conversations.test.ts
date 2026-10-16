@@ -51,6 +51,42 @@ describe("conversations repo", () => {
     expect(after.lastMessageAt?.toISOString()).toBe(new Date(t0.getTime() + 1).toISOString());
   });
 
+  it("appendExchange writes an exchange in one insert, in order, and bumps the thread by its length", async () => {
+    const { businessId, ownerId, agent2Id } = r.A;
+    const thread = await r.as(ownerId, (tx) => repos.conversations.ensureThread(tx, businessId, { agentId: agent2Id, subjectKind: "agent", subjectId: agent2Id }));
+    const t0 = new Date("2026-10-15T09:00:00.000Z");
+    const founderId = "4b1f1a2c-6d3e-4f5a-8b9c-0d1e2f3a4b5c";
+    const out = await r.as(ownerId, (tx) =>
+      repos.conversations.appendExchange(
+        tx,
+        businessId,
+        thread,
+        [
+          { id: founderId, threadId: thread.id, authorKind: "founder", authorUserId: ownerId, bubbles: ["What's next?"], clientMessageId: "client-message-1" },
+          { threadId: thread.id, authorKind: "agent", bubbles: ["The carton proofs."], quickReplies: [chip("thanks", "Thanks", { kind: "acknowledge" }), chip("more", "Tell me more")], meta: { source: "model" } },
+        ],
+        { at: t0 },
+      ),
+    );
+    expect(out.messages.map((m) => [m.authorKind, m.createdAt.toISOString()])).toEqual([
+      ["founder", t0.toISOString()],
+      ["agent", new Date(t0.getTime() + 1).toISOString()],
+    ]);
+    expect(out.messages[0]!.id).toBe(founderId);
+    expect(out.messages[1]!.agentId).toBe(agent2Id);
+    expect(out.thread).toMatchObject({ id: thread.id, messageCount: thread.messageCount + 2 });
+    expect(out.thread.lastMessageAt?.toISOString()).toBe(new Date(t0.getTime() + 1).toISOString());
+    expect((await r.as(ownerId, (tx) => repos.conversations.listMessages(tx, businessId, thread.id))).map((m) => m.id)).toEqual(out.messages.map((m) => m.id));
+    // A repeated client message id fails the whole exchange with the unique violation, not with the update sent beside it.
+    const again = await r
+      .as(ownerId, (tx) => repos.conversations.appendExchange(tx, businessId, thread, [{ threadId: thread.id, authorKind: "founder", authorUserId: ownerId, bubbles: ["What's next?"], clientMessageId: "client-message-1" }, { threadId: thread.id, authorKind: "agent", bubbles: ["Twice."] }]))
+      .catch((err: unknown) => err);
+    expect(String((again as { cause?: { code?: string } }).cause?.code ?? (again as { code?: string }).code)).toBe("23505");
+    expect((await r.as(ownerId, (tx) => repos.conversations.getThread(tx, businessId, thread.id))).messageCount).toBe(thread.messageCount + 2);
+    // Every message belongs to the thread it is written to.
+    await expect(r.as(ownerId, (tx) => repos.conversations.appendExchange(tx, businessId, thread, [{ threadId: r.A.agentThreadId, authorKind: "agent", bubbles: ["Elsewhere."] }]))).rejects.toBeInstanceOf(ValidationError);
+  });
+
   it("refuses shapes the contract forbids: founder chips, agent presses, two recommended, oversized labels", async () => {
     const { businessId, ownerId, agentThreadId } = r.A;
     const bad = [

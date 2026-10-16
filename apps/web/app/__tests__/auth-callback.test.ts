@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { classifyCallbackParams, classifyExchangeError, parseSignInError, signInErrorCopy } from "@/lib/auth/sign-in-errors";
 
@@ -12,8 +13,8 @@ vi.mock("@/lib/supabase/server", () => ({
 
 const { GET } = await import("../auth/callback/route");
 
-async function callback(query: string) {
-  const res = await GET(new Request(`https://foundmill.com/auth/callback${query}`));
+async function callback(query: string, cookie?: string) {
+  const res = await GET(new NextRequest(`https://foundmill.com/auth/callback${query}`, { headers: cookie ? { cookie } : {} }));
   return { status: res.status, location: res.headers.get("location") };
 }
 
@@ -30,6 +31,19 @@ describe("/auth/callback", () => {
     exchangeCodeForSession.mockResolvedValue({ error: null });
     expect(await callback("?code=abc&next=%2Fb%2Fx%2Finbox")).toEqual({ status: 307, location: "https://foundmill.com/b/x/inbox" });
     expect(exchangeCodeForSession).toHaveBeenCalledWith("abc");
+  });
+
+  it("without a next, goes straight to the last business's Home when the browser remembers one (as `/` would, one hop sooner)", async () => {
+    exchangeCodeForSession.mockResolvedValue({ error: null });
+    const last = "b1e5e5e5-0000-4000-8000-000000000001";
+    expect(await callback("?code=abc", `fm_last_business=${last}`)).toEqual({ status: 307, location: `https://foundmill.com/b/${last}/home` });
+    // An explicit next still wins; no usable cookie leaves `/` to pick.
+    expect((await callback("?code=abc&next=%2Fb%2Fx%2Finbox", `fm_last_business=${last}`)).location).toBe("https://foundmill.com/b/x/inbox");
+    expect((await callback("?code=abc", "fm_last_business=nope")).location).toBe("https://foundmill.com/");
+    expect((await callback("?code=abc")).location).toBe("https://foundmill.com/");
+    // A failed exchange never uses it.
+    exchangeCodeForSession.mockResolvedValue({ error: verifierMissing });
+    expect((await callback("?code=abc", `fm_last_business=${last}`)).location).toBe("https://foundmill.com/login?error=other_address");
   });
 
   it("a link asked for on another address (no code verifier here) lands on the login form with that reason and the same next", async () => {

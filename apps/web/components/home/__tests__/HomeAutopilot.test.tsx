@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@foundmill/dugout";
 
 const BUSINESS = "6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60";
+let businessId = BUSINESS;
 const push = vi.fn();
 const ensure = vi.fn(async () => ({ running: true, workflow: null }));
 let status: Record<string, unknown> | null = null;
@@ -25,7 +26,7 @@ vi.mock("@/lib/trpc-react", () => ({
     },
   }),
 }));
-vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ businessId: BUSINESS, data: { role } }) }));
+vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ businessId, data: { role } }) }));
 
 import { HomeAutopilot } from "../HomeAutopilot";
 
@@ -41,6 +42,7 @@ const renderChip = () =>
 afterEach(() => {
   status = null;
   role = "owner";
+  businessId = BUSINESS;
   push.mockClear();
   ensure.mockClear();
 });
@@ -54,6 +56,19 @@ describe("Home Autopilot chip", () => {
     expect(chip.querySelector("[data-autopilot-next]")?.textContent).toContain("Oct 14, 3:45 PM");
     expect(chip.querySelector("[data-provenance='estimate']")).toBeTruthy();
     await waitFor(() => expect(ensure).toHaveBeenCalledTimes(1));
+  });
+
+  it("makes sure once per business per browser session, not on every Home visit", async () => {
+    businessId = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+    status = { enabled: true, state: "on", label: "On", detail: "", pausedReason: null, nextAt: null };
+    const first = renderChip();
+    await screen.findByTestId("autopilot-chip");
+    await waitFor(() => expect(ensure).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(window.sessionStorage.getItem(`autopilot-ensured:${businessId}`)).toBe("1"));
+    first.unmount();
+    renderChip();
+    await screen.findByTestId("autopilot-chip");
+    expect(ensure).toHaveBeenCalledTimes(1);
   });
 
   it("shows Waiting for you and Paused with their reasons, without nudging a paused Autopilot", async () => {

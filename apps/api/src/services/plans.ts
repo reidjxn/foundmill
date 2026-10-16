@@ -74,8 +74,17 @@ export interface CompiledPlan {
   source: "model" | "rules";
 }
 
-/** Compile the founder's instruction into typed actions. The rule engine always validates a live plan (hard gates). */
+/**
+ * Compile the founder's instruction into typed actions. The rule engine reads it first and decides every hard gate: an
+ * instruction with one (money, signing, filings, terms, deletion, security) compiles to the rules' plan, with
+ * `request_human_action` for each gated clause, and the model is not asked (audit MB-3). A live plan may never automate
+ * a gated clause (BUILD §2.2), so that was already the outcome whenever the model proposed any automated action beside a
+ * gate; the model's plan stood only when it, too, left everything to the founder (or proposed nothing at all). Policy
+ * and section checks run on the compiled plan wherever it is staged, whichever compiled it.
+ */
 export async function compilePlan(models: ModelClient, text: string, ctx: PlanContext): Promise<CompiledPlan> {
+  const rules = compilePlanRuleBased(text, { agents: planAgents(ctx.agents), defaultCurrency: ctx.currency, roadmap: ctx.roadmap });
+  if (rules.actions.some((a) => a.type === "request_human_action")) return { summary: rules.summary, actions: rules.actions, source: "rules" };
   const agents = ctx.agents.map((a) => ({ id: a.id, name: a.name, role: a.role, agent_type: a.agentType, department_id: a.departmentIds[0] ?? null, channel: getTemplateByAgentType(a.agentType)?.channelKey ?? null }));
   const roadmap = (ctx.roadmap ?? []).map((r) => ({ id: r.id, title: r.title, horizon: r.horizon, target_start: r.targetStart, target_end: r.targetEnd }));
   const input = {
@@ -100,12 +109,6 @@ export async function compilePlan(models: ModelClient, text: string, ctx: PlanCo
     messages: [{ role: "user", content: "```json\n" + JSON.stringify(input) + "\n```" }],
     attribution: { businessId: ctx.business.id, kind: "plan_compiler" },
   });
-  const rules = compilePlanRuleBased(text, { agents: planAgents(ctx.agents), defaultCurrency: ctx.currency, roadmap: ctx.roadmap });
-  // The deterministic pre-check wins on hard gates: a live plan may never automate a gated clause (BUILD §2.2).
-  const gated = rules.actions.filter((a) => a.type === "request_human_action");
-  if (gated.length > 0 && result.json.actions.some((a) => a.type !== "request_human_action" && a.type !== "reply_only")) {
-    return { summary: rules.summary, actions: rules.actions, source: "rules" };
-  }
   // A playbook the model wrote must match the contract the engine runs; otherwise the rule engine's reading stands.
   if (result.json.actions.some((a) => a.type === "create_playbook" && !CreatePlaybookParams.safeParse(a.params).success)) {
     return { summary: rules.summary, actions: rules.actions, source: "rules" };

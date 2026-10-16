@@ -276,6 +276,51 @@ describe("a spend assigned to an agent with no allowance asks for the founder's 
   });
 });
 
+describe("rules first: a hard-gated instruction compiles without a model call (audit MB-3)", () => {
+  /** The mock client, counting plan-compiler calls. */
+  function counted() {
+    const inner = new MockModelClient();
+    const calls: string[] = [];
+    const models: ModelClient = {
+      mode: "live",
+      complete: (async (req: CompleteRequest) => {
+        if (req.route === "planCompiler") calls.push(req.route);
+        return inner.complete(req as never);
+      }) as ModelClient["complete"],
+    };
+    return { models, calls };
+  }
+  async function contextOf(t: Team): Promise<PlanContext> {
+    const list = await repos.agents.list(hz.db, t.businessId, { limit: 50 });
+    return { business: (await repos.businesses.get(hz.db, t.businessId)) as Business, agents: list.items, holidayActive: false, currency: "USD" };
+  }
+
+  it("a gated clause, alone or beside other work, is the rules' plan: every gate asks the founder, nothing gated is automated", async () => {
+    const t = await team("rules-first");
+    const ctx = await contextOf(t);
+    const { models, calls } = counted();
+    for (const text of ["Pay the supplier invoice", "Pay the supplier invoice and draft a LinkedIn post about the launch"]) {
+      const plan = await compilePlan(models, text, ctx);
+      expect(plan.source).toBe("rules");
+      expect(plan.actions[0]).toMatchObject({ type: "request_human_action", params: { gate: "move_money" }, agent_id: null });
+      expect(plan.actions.filter((a) => a.type === "request_human_action")).toHaveLength(1);
+      expect(evaluatePlan(plan.actions, ctx)[0]).toMatchObject({ hardGate: true });
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("an instruction with no gate is still compiled by the model; a typed spend still asks for the allowance", async () => {
+    const t = await team("rules-first-model");
+    await hz.db.update(agents).set({ autonomy: { mode: "inherit", spendCapMinor: 0, approvalThresholdMinor: LIMITS.approvalThresholdMinorDefault } }).where(eq(agents.businessId, t.businessId));
+    const ctx = await contextOf(t);
+    const { models, calls } = counted();
+    const plan = await compilePlan(models, "Spend up to $500 on LinkedIn ads targeting fintech CFOs next week", ctx);
+    expect(calls).toEqual(["planCompiler"]);
+    expect(plan.source).toBe("model");
+    expect(evaluatePlan(plan.actions, ctx).find((e) => e.action.type === "set_budget")).toMatchObject({ outcome: "ask", reasons: [SPEND_ALLOWANCE_ASK] });
+  });
+});
+
 describe("plan agents (audit api-services-28)", () => {
   it("an agent id the model wrote that is not the business's own is dropped, whoever's it is", async () => {
     const t = await team("own-agents");

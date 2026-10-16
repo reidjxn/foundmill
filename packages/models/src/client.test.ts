@@ -162,8 +162,9 @@ describe("LiveModelClient.complete", () => {
 
     expect(result.json.actions.map((a) => a.params)).toEqual([{ channel: "meta_ads" }, { channel: "google_ads", amount_minor: 30_000, currency: "EUR" }]);
     const body = calls[0]!.body;
-    // No output_config.format: the SDK's rewrite would close `params` to an object with no properties.
-    expect(body.output_config).toBeUndefined();
+    // No output_config.format: the SDK's rewrite would close `params` to an object with no properties. Only the route's
+    // low effort (founder, 2026-10-15) rides in output_config.
+    expect(body.output_config).toEqual({ effort: "low" });
     const system = body.system as { type: string; text: string; cache_control?: unknown }[];
     expect(system.map((b) => b.text.split("\n")[0])).toEqual(["House rules block", "You are the plan compiler.", "## Response format"]);
     // The breakpoint moves to the last block, so the whole system (format block included) stays one cached prefix.
@@ -206,6 +207,20 @@ describe("LiveModelClient.complete", () => {
     expect(events).toHaveLength(2);
     expect(events.map((e) => e.attempt)).toEqual([0, 1]);
     expect(result.usage.inputTokens).toBe(240); // both calls metered
+  });
+
+  it("a conversation reply with an out-of-set reaction or quick reply kind costs one call, not a repair (the draft takes any string)", async () => {
+    const reply = { bubbles: ["Sure."], reaction: "excited", quick_replies: [{ id: "more", label: "Tell me more", say: "Tell me more.", kind: "suggest", option_id: null, recommended: false }], hand_off: null, refers_to: [] };
+    const { fetch, calls } = fakeFetch([() => message(JSON.stringify(reply))]);
+    const client = new LiveModelClient({ apiKey: "sk-ant-test", fetch, sleep: noSleep });
+    const result = await client.complete({ route: "conversation", messages: [{ role: "user", content: "go" }], schema: AgentReplyDraft });
+    expect(calls).toHaveLength(1);
+    expect(result.repaired).toBe(false);
+    expect(result.json.reaction).toBe("excited");
+    // The allowed values still reach the model, in the descriptions.
+    const format = JSON.stringify(calls[0]!.body.output_config ?? calls[0]!.body);
+    expect(format).toContain("one of none, noted, thinking, concerned, pleased");
+    expect(format).toContain("One of ask, acknowledge, hand_off, choose_option, decline, write");
   });
 
   it("gives up after one repair with a ModelOutputError carrying the issues", async () => {
@@ -532,7 +547,7 @@ describe("LiveModelClient: a stopped call is still metered (review item 8)", () 
     expect(sent).toHaveLength(1);
     expect(events).toHaveLength(1);
     const e = events[0]!;
-    expect(e).toMatchObject({ route: "conversation", model: MODELS.opus, mode: "live", aborted: true, attempt: 0, scope: "s1", attribution: { businessId: "b-1", agentId: "a-1", kind: "conversation" } });
+    expect(e).toMatchObject({ route: "conversation", model: MODELS.sonnet, mode: "live", aborted: true, attempt: 0, scope: "s1", attribution: { businessId: "b-1", agentId: "a-1", kind: "conversation" } });
     // About four characters per token over the messages and the system prompt; nothing was written back.
     expect(e.usage.inputTokens).toBeGreaterThanOrEqual(Math.floor(PROMPT.length / 4));
     expect(e.usage).toMatchObject({ outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 });

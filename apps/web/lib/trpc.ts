@@ -4,19 +4,23 @@
  *
  * This module is server-safe (no React); the hooks live in lib/trpc-react.ts (`useTRPC`, `TRPCProvider`).
  *
- * `createApiClient` builds the vanilla client (also used on the server with a server-side token); the untyped
- * client powers the dotted-path `WidgetDataSource` for @foundmill/widgets and @foundmill/modules.
+ * `createApiClient` builds the vanilla client (also used on the server with a server-side token, `SERVER_LIMITS`); the
+ * untyped client over the same links (`untypedClientOf`) powers the dotted-path `WidgetDataSource` for
+ * @foundmill/widgets and @foundmill/modules, so a widget's read and the shell's read made in the same tick share a batch.
  *
  * Transport: a `splitLink`. Procedures that stream their answer (an async generator on the API, `STREAMING_PROCEDURES`)
  * go over `httpBatchStreamLink`, so each result reaches the browser the moment the API yields it; everything else stays
- * on `httpBatchLink` (one JSON answer per batch, gzip-compressed by the API, read by the server-rendered layouts).
+ * on `httpBatchLink` (one JSON answer per batch, gzip-compressed by the API, read by the server-rendered layouts). In the
+ * browser plain reads go to the web app's own origin (`queryUrl`, lib/same-origin-api.ts: no CORS preflight per read);
+ * changes and streams go to the API directly, since they can run for minutes.
  */
-import { createTRPCClient, createTRPCUntypedClient, httpBatchLink, httpBatchStreamLink, splitLink, TRPCClientError, type TRPCLink } from "@trpc/client";
+import { createTRPCClient, createTRPCUntypedClient, getUntypedClient, httpBatchLink, httpBatchStreamLink, splitLink, TRPCClientError, type TRPCLink, type TRPCUntypedClient } from "@trpc/client";
 import superjson from "superjson";
 import type { AppRouter } from "@foundmill/api/router";
 import { LIMITS } from "@foundmill/config";
 import { DEV_BEARER_TOKEN } from "@/lib/auth/constants";
 import { isDevLike, publicEnv } from "@/lib/env";
+import { SAME_ORIGIN_TRPC_PATH } from "@/lib/same-origin-api";
 
 export type { AppRouter } from "@foundmill/api/router";
 export type { RouterInputs, RouterOutputs } from "@foundmill/api/router";
@@ -28,9 +32,39 @@ export function apiTrpcUrl(base = publicEnv().apiUrl): string {
   return `${base.replace(/\/+$/, "")}/trpc`;
 }
 
-/** Bearer for a request: the session token, else the dev token in development/test, else nothing. */
-export async function resolveBearer(getToken: TokenGetter): Promise<string | null> {
-  const token = await getToken();
+/**
+ * Where the browser sends plain reads: this origin's `/api/trpc` (rewritten to the API, lib/same-origin-api.ts). On the
+ * server (a client component's server render) there is no page origin, so it stays the API itself.
+ */
+export function browserQueryUrl(): string {
+  return typeof window === "undefined" ? apiTrpcUrl() : SAME_ORIGIN_TRPC_PATH;
+}
+
+/**
+ * Upper bound of the wait for the bearer before a request (audit C5). In the browser the session token comes from
+ * Supabase, which refreshes an expiring one first and retries a failing refresh for up to 30 s; past this bound the
+ * request fails with `SIGN_IN_TIMEOUT_MESSAGE` and is retried like any failed read, and the refresh carries on.
+ */
+export const TOKEN_TIMEOUT_MS = 6_000;
+/** What a request says when the bearer did not come in time. */
+export const SIGN_IN_TIMEOUT_MESSAGE = "Your sign-in took too long to refresh. Check your connection, then try again.";
+
+/**
+ * Bearer for a request: the session token, else the dev token in development/test, else nothing. A token that does not
+ * come within `timeoutMs` rejects the request instead: nothing is sent, so an expired token never is.
+ */
+export async function resolveBearer(getToken: TokenGetter, timeoutMs = TOKEN_TIMEOUT_MS): Promise<string | null> {
+  const pending = getToken();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const token =
+    typeof pending === "string" || pending === null
+      ? pending
+      : await Promise.race([
+          pending,
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(Object.assign(new Error(SIGN_IN_TIMEOUT_MESSAGE), { name: "TimeoutError" })), timeoutMs);
+          }),
+        ]).finally(() => clearTimeout(timer));
   if (token) return token;
   return isDevLike() ? DEV_BEARER_TOKEN : null;
 }
@@ -39,7 +73,7 @@ export async function resolveBearer(getToken: TokenGetter): Promise<string | nul
  * Procedures whose answer is a stream (`AsyncIterable`): they must go over `httpBatchStreamLink` (the API refuses a
  * stream on a plain batch). Add a procedure here when it becomes an async generator on the API.
  */
-export const STREAMING_PROCEDURES: ReadonlySet<string> = new Set(["idea.draft", "idea.logo.stream", "business.logo.stream"]);
+export const STREAMING_PROCEDURES: ReadonlySet<string> = new Set(["idea.draft", "idea.logo.stream", "business.logo.stream", "agent.conversation.sendStream", "agent.conversation.inboxReplyStream", "idea.askStream"]);
 
 /** True for an operation that must use the streaming link. */
 export function isStreamingOperation(op: { path: string }): boolean {
@@ -56,6 +90,27 @@ export const QUERY_TIMEOUT_MS = 45_000;
  * written is never cut off, and still finite, so no button spins and no dialog stays locked for good.
  */
 export const MUTATION_TIMEOUT_MS = LIMITS.composerClientTimeoutMs + 30_000;
+/**
+ * Upper bound of a read made by a server render (audit F3): a page waits on it before sending anything, so a stalled
+ * API shows the unreachable page (or hands the read to the browser, lib/hydrate.server.tsx) after this instead of
+ * leaving a blank tab for the browser's full `QUERY_TIMEOUT_MS`.
+ */
+export const SERVER_QUERY_TIMEOUT_MS = 8_000;
+
+/** Per-request upper bounds: a read (GET) and a change (anything else). */
+export interface RequestLimits {
+  query: number;
+  mutation: number;
+}
+/** The browser's bounds. */
+export const BROWSER_LIMITS: RequestLimits = { query: QUERY_TIMEOUT_MS, mutation: MUTATION_TIMEOUT_MS };
+/** A server render's bounds (lib/trpc-server.ts). */
+export const SERVER_LIMITS: RequestLimits = { query: SERVER_QUERY_TIMEOUT_MS, mutation: MUTATION_TIMEOUT_MS };
+/**
+ * Longest URL a batched read may have before the batch link splits it: the input travels in the URL, and the CDN in
+ * front of the same-origin path refuses a URL over 14 KB (Node's own header limit is 16 KB).
+ */
+export const MAX_URL_LENGTH = 8_000;
 /** What a timed-out request says (`errorMessage` shows it). */
 export const REQUEST_TIMEOUT_MESSAGE = "The server took too long to answer. Check your connection, then try again.";
 
@@ -64,7 +119,7 @@ export const REQUEST_TIMEOUT_MESSAGE = "The server took too long to answer. Chec
  * and after `QUERY_TIMEOUT_MS` (GET) or `MUTATION_TIMEOUT_MS` (anything else) the request is aborted with
  * `REQUEST_TIMEOUT_MESSAGE`. Streaming answers do not use it: they are long by design and the person stops them.
  */
-export function fetchWithTimeout(base?: typeof fetch, limits: { query: number; mutation: number } = { query: QUERY_TIMEOUT_MS, mutation: MUTATION_TIMEOUT_MS }): typeof fetch {
+export function fetchWithTimeout(base?: typeof fetch, limits: RequestLimits = BROWSER_LIMITS): typeof fetch {
   return (input, init) => {
     const method = (init?.method ?? "GET").toUpperCase();
     const ms = method === "GET" ? limits.query : limits.mutation;
@@ -82,34 +137,56 @@ export function fetchWithTimeout(base?: typeof fetch, limits: { query: number; m
   };
 }
 
-export function createApiLinks(opts: { getToken: TokenGetter; url?: string; fetch?: typeof fetch }): TRPCLink<AppRouter>[] {
-  const common = {
-    url: opts.url ?? apiTrpcUrl(),
-    transformer: superjson,
-    fetch: opts.fetch,
-    headers: async () => {
-      const bearer = await resolveBearer(opts.getToken);
-      return bearer ? { authorization: `Bearer ${bearer}` } : {};
-    },
-  };
-  // One stream per request (`maxItems: 1`): a batched request is only aborted once every operation in it is, so Stop on
-  // a draft that shared a request with another stream would leave the API drafting.
-  // A batch carries at most `LIMITS.trpcMaxBatchSize` calls: the api refuses a longer one (400).
-  return [splitLink({ condition: isStreamingOperation, true: httpBatchStreamLink({ ...common, maxItems: 1 }), false: httpBatchLink({ ...common, fetch: fetchWithTimeout(opts.fetch), maxItems: LIMITS.trpcMaxBatchSize }) })];
+export interface ApiClientOptions {
+  getToken: TokenGetter;
+  /** The API's tRPC endpoint for changes and streams (and reads, unless `queryUrl` says otherwise). Default `apiTrpcUrl()`. */
+  url?: string;
+  /** Where plain reads go; default `url`. The browser passes `browserQueryUrl()`. */
+  queryUrl?: string;
+  fetch?: typeof fetch;
+  /** Per-request upper bounds; default `BROWSER_LIMITS`. */
+  limits?: RequestLimits;
 }
 
-export function createApiClient(opts: { getToken: TokenGetter; url?: string; fetch?: typeof fetch }) {
+export function createApiLinks(opts: ApiClientOptions): TRPCLink<AppRouter>[] {
+  const url = opts.url ?? apiTrpcUrl();
+  const queryUrl = opts.queryUrl ?? url;
+  const headers = async () => {
+    const bearer = await resolveBearer(opts.getToken);
+    return bearer ? { authorization: `Bearer ${bearer}` } : {};
+  };
+  // A batch carries at most `LIMITS.trpcMaxBatchSize` calls: the api refuses a longer one (400).
+  const batch = (to: string, fetch: typeof globalThis.fetch | undefined) =>
+    httpBatchLink<AppRouter>({ url: to, transformer: superjson, headers, fetch: fetchWithTimeout(fetch, opts.limits), maxItems: LIMITS.trpcMaxBatchSize, maxURLLength: MAX_URL_LENGTH });
+  // Reads to the page's own origin carry its cookies, as any same-origin request does: they ride the connection the page
+  // already has open, and a preview deployment behind Vercel's protection lets them through. The API reads only the bearer.
+  const plain = queryUrl === url ? batch(url, opts.fetch) : splitLink<AppRouter>({ condition: (op) => op.type === "query", true: batch(queryUrl, opts.fetch), false: batch(url, opts.fetch) });
+  // One stream per request (`maxItems: 1`): a batched request is only aborted once every operation in it is, so Stop on
+  // a draft that shared a request with another stream would leave the API drafting.
+  return [splitLink({ condition: isStreamingOperation, true: httpBatchStreamLink({ url, transformer: superjson, headers, fetch: opts.fetch, maxItems: 1 }), false: plain })];
+}
+
+export function createApiClient(opts: ApiClientOptions) {
   return createTRPCClient<AppRouter>({ links: createApiLinks(opts) });
 }
 
 export type ApiClient = ReturnType<typeof createApiClient>;
 
 /** Path-addressed client (`client.query("inbox.list", input)`) for the widget data source. */
-export function createUntypedApiClient(opts: { getToken: TokenGetter; url?: string; fetch?: typeof fetch }) {
-  return createTRPCUntypedClient<AppRouter>({ links: createApiLinks(opts) });
+export type UntypedApiClient = TRPCUntypedClient<AppRouter>;
+
+/**
+ * The path-addressed view of a typed client: the same links, so its calls and the typed client's calls made in the same
+ * tick travel in one batch (one request, one answer) instead of two.
+ */
+export function untypedClientOf(client: ApiClient): UntypedApiClient {
+  return getUntypedClient(client);
 }
 
-export type UntypedApiClient = ReturnType<typeof createUntypedApiClient>;
+/** A path-addressed client with links of its own (tests, stories). The app uses `untypedClientOf`. */
+export function createUntypedApiClient(opts: ApiClientOptions): UntypedApiClient {
+  return createTRPCUntypedClient<AppRouter>({ links: createApiLinks(opts) });
+}
 
 /** tRPC error code of an unknown error, or null. */
 export function trpcErrorCode(err: unknown): string | null {

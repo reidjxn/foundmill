@@ -20,8 +20,11 @@ export type QueryOptions = { enabled?: boolean; refetchIntervalMs?: number };
 export type WidgetDataSource = {
   /** Subscribe to a tRPC query by dotted path, e.g. "inbox.list", with its input. */
   useQuery: <T = unknown>(path: string, input: Record<string, unknown> | undefined, opts?: QueryOptions) => QueryState<T>;
-  /** Fire a tRPC mutation by dotted path. */
-  mutate: <T = unknown>(path: string, input: Record<string, unknown>) => Promise<T>;
+  /**
+   * Fire a tRPC mutation by dotted path. It resolves once the change is saved; the reads it made stale reload behind it,
+   * and `settled` (when the host gives one) resolves once they have, for a caller that shows those reads next.
+   */
+  mutate: <T = unknown>(path: string, input: Record<string, unknown>) => Promise<T> & { settled?: Promise<void> };
   /** Navigate inside the app (host router). */
   navigate: (href: string) => void;
   /**

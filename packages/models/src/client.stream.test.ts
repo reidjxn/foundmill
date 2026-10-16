@@ -90,14 +90,15 @@ describe("per-route effort and fast mode", () => {
   it("applies the route's effort, lets the request override it, and leaves effortless routes alone", async () => {
     const { fetch, calls } = fakeFetch([() => message("ok")]);
     const client = new LiveModelClient({ apiKey: "k", fetch, sleep: noSleep });
-    const ask = (route: "ideation" | "planner" | "foundations" | "logoDesigner" | "inboxComposer", effort?: "high") => client.complete({ route, messages: [{ role: "user", content: "go" }], ...(effort ? { effort } : {}) });
+    const ask = (route: "ideation" | "departmentLead" | "foundations" | "logoDesigner" | "chiefOfStaff" | "inboxComposer", effort?: "high") => client.complete({ route, messages: [{ role: "user", content: "go" }], ...(effort ? { effort } : {}) });
     const r = await ask("ideation");
-    await ask("planner");
+    await ask("departmentLead");
     await ask("ideation", "high");
     await ask("foundations");
     await ask("logoDesigner");
+    await ask("chiefOfStaff");
     await ask("inboxComposer");
-    expect(calls.map((c) => (c.body.output_config as { effort?: string } | undefined)?.effort)).toEqual(["low", undefined, "high", "low", "low", undefined]);
+    expect(calls.map((c) => (c.body.output_config as { effort?: string } | undefined)?.effort)).toEqual(["low", undefined, "high", "low", "low", undefined, "low"]);
     expect(r.effort).toBe("low");
     // Fast mode is off unless the client opts in: standard endpoint, no speed, no beta header.
     for (const c of calls) {

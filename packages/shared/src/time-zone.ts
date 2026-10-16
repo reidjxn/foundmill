@@ -5,15 +5,23 @@
  */
 export const DEFAULT_TIME_ZONE = "UTC";
 
+/** Answers per zone name: building an Intl.DateTimeFormat to test a zone costs about 70 µs (audit C1). */
+const knownZones = new Map<string, boolean>();
+
 /** Whether the runtime knows this IANA zone ("Europe/London", "UTC"). */
 export function isValidTimeZone(timeZone: string | null | undefined): timeZone is string {
   if (!timeZone) return false;
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone });
-    return true;
-  } catch {
-    return false;
+  let known = knownZones.get(timeZone);
+  if (known === undefined) {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone });
+      known = true;
+    } catch {
+      known = false;
+    }
+    knownZones.set(timeZone, known);
   }
+  return known;
 }
 
 /** Every zone the runtime knows, UTC first (Settings › Business). */
@@ -46,17 +54,18 @@ function partsIn(date: Date, timeZone: string): Record<string, number> {
   return out;
 }
 
+const pad2 = (n: number | undefined) => String(n ?? 0).padStart(2, "0");
+const dayKeyOf = (p: Record<string, number>) => `${p.year}-${pad2(p.month)}-${pad2(p.day)}`;
+
 /** "2026-10-12": the calendar day of `date` in the zone (UTC when the zone is null or unknown). */
 export function dayKeyIn(date: Date | number = new Date(), timeZone?: string | null): string {
-  const p = partsIn(date instanceof Date ? date : new Date(date), businessTimeZone(timeZone));
-  const pad = (n: number | undefined) => String(n ?? 0).padStart(2, "0");
-  return `${p.year}-${pad(p.month)}-${pad(p.day)}`;
+  return dayKeyOf(partsIn(date instanceof Date ? date : new Date(date), businessTimeZone(timeZone)));
 }
 
 /** The calendar day and the hour of the day (0–23) of `date` in the zone: where an hour of activity falls on a heatmap. */
 export function dayHourIn(date: Date | number, timeZone?: string | null): { day: string; hour: number } {
-  const at = date instanceof Date ? date : new Date(date);
-  return { day: dayKeyIn(at, timeZone), hour: partsIn(at, businessTimeZone(timeZone)).hour ?? 0 };
+  const p = partsIn(date instanceof Date ? date : new Date(date), businessTimeZone(timeZone));
+  return { day: dayKeyOf(p), hour: p.hour ?? 0 };
 }
 
 /** Milliseconds the zone is ahead of UTC at `date` (Tokyo +9 h, Los Angeles −7 h in October). */

@@ -4,15 +4,17 @@
  * shell, LIVE, /new, /onboarding). It starts from the choice the server rendered with (`initial`, from the cookie or the
  * API; lib/date-format.server.ts), so the first client render matches the server's HTML, then:
  *
- * - reconciles with `founder.preferences.get` once on load (another device may have changed it) and whenever the query
- *   is refetched, and keeps the cookie in step with what it read, so the next server render is right;
+ * - reconciles with `founder.preferences.get` (another device may have changed it) and keeps the cookie in step with what
+ *   it read, so the next server render is right. When the server rendered from this browser's own cookie, that choice is
+ *   taken as current: no read on load, and the account is checked when the window regains focus after `PREFS_FRESH_MS`
+ *   (audit WEB-9). Otherwise (no cookie yet, or the API did not answer the server) it is checked once on load;
  * - saves a change through `founder.preferences.update` (`useDatePreferences().save`), showing it at once everywhere
  *   (optimistic, rolled back if the save fails) and writing the cookie.
  *
  * Everything that prints a date reads it through the design system's `useFormatters()` / `useDateFormat()`.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DateFormatProvider, normalizeDateFormatPrefs, type DateFormatPrefs } from "@foundmill/dugout";
 import { dateFormatCookieString, encodeDateFormatCookie, readDateFormatCookie } from "@/lib/date-format";
 import { useTRPC } from "@/lib/trpc-react";
@@ -41,17 +43,29 @@ export interface DateFormatHostProps {
   children?: ReactNode;
 }
 
+/** How long the choice read on load (or rendered from the cookie) is taken as current. */
+export const PREFS_FRESH_MS = 5 * 60_000;
+
+/** True in the browser when the cookie holds exactly the choice the server rendered with, for this person. */
+function renderedFromCookie(initial: DateFormatPrefs, owner: string): boolean {
+  return typeof document !== "undefined" && owner !== "" && readDateFormatCookie(document.cookie) === encodeDateFormatCookie(normalizeDateFormatPrefs(initial), owner);
+}
+
 export function DateFormatHost({ initial, owner, children }: DateFormatHostProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const queryKey = trpc.founder.preferences.get.queryKey();
-  // Seeded with the server's choice (so hydration matches) and marked stale, so it is checked once against the account.
+  // Seeded with the server's choice (so hydration matches). Rendered from the cookie, it counts as read at mount;
+  // otherwise it is marked stale, so it is checked once against the account. Decided once, at mount, as the seed is: it
+  // never changes what renders, only when the account is read.
+  const [seededAt] = useState(() => (renderedFromCookie(initial, owner) ? Date.now() : 0));
   const q = useQuery(
     trpc.founder.preferences.get.queryOptions(undefined, {
       enabled: owner !== "",
       initialData: initial,
-      initialDataUpdatedAt: 0,
-      staleTime: 5 * 60_000,
+      initialDataUpdatedAt: seededAt,
+      staleTime: PREFS_FRESH_MS,
+      refetchOnWindowFocus: true,
       retry: false,
     }),
   );

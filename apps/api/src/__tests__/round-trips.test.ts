@@ -9,11 +9,14 @@
  * A business procedure costs: the access lookup (membership and business, one statement, once per HTTP request), then
  * its RLS transaction: BEGIN, the setup sent with the first statements, any later dependent statements, COMMIT.
  */
+import { repos } from "@foundmill/db";
 import { createWireDb, type WireDb } from "@foundmill/db/testing/wire";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app";
 import type { ApiDeps } from "../context";
 import { createCaller } from "../router";
+import { silentLog } from "../services/log";
+import { createApiModelClient } from "../services/models";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -39,15 +42,26 @@ function procedure(caller: unknown, path: string): Procedure {
 const today = () => new Date().toISOString().slice(0, 10);
 const monthAgo = () => new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
 
-/** Home's and the shell's first reads, with the most round trips each may take. Before 2026-10-12 each took 10-24. */
+/**
+ * Home's and the shell's first reads, with the most round trips each may take. Before 2026-10-12 each took 10-24; the
+ * comments give the count before 2026-10-15 where it has come down since (audit api-db F3).
+ */
 const BUDGETS: Array<[path: string, input: (businessId: string) => unknown, trips: number]> = [
   ["business.get", (b) => ({ businessId: b }), 4],
   ["department.list", (b) => ({ businessId: b }), 4],
   ["inbox.list", (b) => ({ businessId: b }), 4],
   ["finance.overview", (b) => ({ businessId: b }), 4],
-  // cycle.status reads the cycle events, running tasks, agents and the pause, continue and queue rows (five statements, one connection here).
-  ["cycle.status", (b) => ({ businessId: b }), 9],
-  ["journey.ribbon", (b) => ({ businessId: b, from: monthAgo(), to: today(), slim: true }), 5],
+  // The cycle events, running tasks, agents and the pause, continue and queue rows, read once under RLS (was 9: read
+  // twice, the first time outside a transaction on five connections).
+  ["cycle.status", (b) => ({ businessId: b }), 4],
+  // The same plus the vacation, the blocking count and the waiting win, in the same wave (was 10).
+  ["cycle.continueState", (b) => ({ businessId: b }), 4],
+  // No question to the server about which role reads (was 5 slim, 7 in full).
+  ["journey.ribbon", (b) => ({ businessId: b, from: monthAgo(), to: today(), slim: true }), 4],
+  ["journey.ribbon", (b) => ({ businessId: b, from: monthAgo(), to: today() }), 6],
+  // Eight reads on one connection in one transaction, the business taken from the access lookup (was 10 here, up to
+  // eight connections in production, the business read twice).
+  ["business.autopilot.get", (b) => ({ businessId: b }), 4],
   ["dev.tasks.list", (b) => ({ businessId: b }), 4],
   ["dev.sessions.list", (b) => ({ businessId: b, limit: 200 }), 4],
   ["team.agents.list", (b) => ({ businessId: b }), 5],
@@ -55,7 +69,8 @@ const BUDGETS: Array<[path: string, input: (businessId: string) => unknown, trip
   ["product.roadmap.list", (b) => ({ businessId: b }), 4],
   ["product.foundations.get", (b) => ({ businessId: b }), 4],
   ["distribution.channels.list", (b) => ({ businessId: b }), 4],
-  ["founder.profile.get", () => undefined, 3],
+  // The profile, memberships and businesses in one statement (was 3 statements on three connections).
+  ["founder.profile.get", () => undefined, 1],
   ["founder.preferences.get", () => undefined, 3],
 ];
 
@@ -67,6 +82,32 @@ describe("round trips per procedure, on the wire", () => {
     const viaWire = await procedure(createCaller(deps, user), path)(input(hz.A.businessId));
     expect(wire.roundTrips(), wire.statements().join("\n")).toBeLessThanOrEqual(budget);
     expect(viaWire).toEqual(viaPglite);
+  });
+
+  it("live.summary counts the Network badge in one statement (was five, on five connections)", async () => {
+    // LIVE is closed by default; the badge is read only where it is open.
+    const env = { ...deps.env, LIVE_MODE: "on" };
+    const user = { userId: hz.A.ownerId, email: "owner@a.test" };
+    const viaPglite = await createCaller({ ...hz.deps, env }, user).live.summary();
+    wire.reset();
+    const viaWire = await createCaller({ ...deps, env }, user).live.summary();
+    expect(wire.statements()).toHaveLength(1);
+    expect(wire.roundTrips()).toBe(1);
+    expect(viaWire).toEqual(viaPglite);
+  });
+
+  it("business.setTimeZone answers without waiting for the Journey's rebuild (was 11 round trips and the rebuild)", async () => {
+    const refresh = vi.spyOn(repos.journeys, "refreshDaily").mockImplementation(() => new Promise<void>(() => undefined));
+    try {
+      wire.reset();
+      const set = await createCaller(deps, { userId: hz.A.ownerId, email: "owner@a.test" }).business.setTimeZone({ businessId: hz.A.businessId, timeZone: "Asia/Tokyo" });
+      expect(set.timeZone).toBe("Asia/Tokyo");
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(wire.statements().some((q) => /refresh_journey_daily/.test(q))).toBe(false);
+      expect(wire.roundTrips(), wire.statements().join("\n")).toBeLessThanOrEqual(10);
+    } finally {
+      refresh.mockRestore();
+    }
   });
 
   it("business.get: one access lookup, then BEGIN, the setup with all seven reads, and COMMIT", async () => {
@@ -108,6 +149,27 @@ describe("round trips per procedure, on the wire", () => {
     expect(stored.business.name).toBe(`Trips' "Co" ✓`);
     expect(stored.business.glossary).toEqual(glossary);
     expect(stored.departments.find((d) => d.id === created.id)?.moduleKeys).toEqual(["development", "product"]);
+  });
+
+  it("agent.conversation.send: the desk and the reply's context in one transaction, the exchange in one more (34 round trips before 2026-10-15)", async () => {
+    // The api's model client without a database: its credits gate and usage booking (services/models.ts) have budgets of
+    // their own; this counts what the conversation itself sends.
+    const models = createApiModelClient({ MODEL_MODE: "mock", ANTHROPIC_API_KEY: undefined }, silentLog());
+    const owner = createCaller({ ...deps, models }, { userId: hz.A.ownerId, email: "owner@a.test" });
+    const subject = { kind: "agent" as const, id: hz.A.agentId };
+    await owner.agent.conversation.send({ businessId: hz.A.businessId, subject, text: "How is it going?" });
+    wire.reset();
+    const sent = await owner.agent.conversation.send({ businessId: hz.A.businessId, subject, text: "What is next on your list?" });
+    expect(sent.messages.map((m) => m.author)).toEqual(["founder", "agent"]);
+    expect(wire.roundTrips(), wire.statements().join("\n")).toBeLessThanOrEqual(15);
+    const statements = wire.statements();
+    expect(statements.filter((s) => /^begin/.test(s))).toHaveLength(2);
+    // Both messages in one insert, both events in one, already narrated (no update afterwards).
+    expect(statements.filter((s) => /^insert into "agent_messages"/.test(s))).toHaveLength(1);
+    expect(statements.filter((s) => /^insert into "events"/.test(s))).toHaveLength(1);
+    expect(statements.filter((s) => /^update "events"/.test(s))).toHaveLength(0);
+    // The audit chain is kept: one entry, linked to the one before it.
+    expect(statements.filter((s) => /^insert into "audit_log"/.test(s))).toHaveLength(1);
   });
 
   it("a non-member is refused after the one access lookup, before any transaction", async () => {

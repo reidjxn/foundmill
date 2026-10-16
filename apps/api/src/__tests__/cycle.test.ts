@@ -1,5 +1,7 @@
 import { repos } from "@foundmill/db";
+import { createWireDb, type WireDb } from "@foundmill/db/testing/wire";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createCaller } from "../router";
 import { untilWords } from "../services/cycle";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
@@ -121,6 +123,9 @@ describe("business.continue / pauseCycle with Temporal reachable", () => {
     expect(result.item).toBeNull();
     expect(result.continueState.kind).toBe("processing");
     expect(temporal.starts).toEqual([{ type: "businessCycle", workflowId: `cycle:${businessId}:1`, args: [{ businessId, cycleNumber: 1, trigger: "continue" }] }]);
+    // The queued status the press returns without reading it again is the one cycle.status reads now.
+    expect(result.status).toMatchObject({ running: true, queued: true, cycleNumber: 1, workflowId: `cycle:${businessId}:1`, trigger: "continue", mode: "temporal", nextCycleNumber: 2 });
+    expect(await owner.cycle.status({ businessId })).toEqual(result.status);
 
     // The orchestrator's startCycle activity writes cycle.started and opens a session on a running task.
     const cycleId = crypto.randomUUID();
@@ -173,6 +178,45 @@ describe("business.continue / pauseCycle with Temporal reachable", () => {
     expect((await repos.plans.get(hz.db, businessId, plan.id)).workflowId).toBe(`plan:${plan.id}`);
     expect(temporal.starts.map((x) => x.workflowId)).not.toContain(`plan:${playbookStep.id}`);
     expect(await repos.plans.awaitingDispatch(hz.db, businessId)).toEqual([]);
+  });
+});
+
+describe("business.continue reads the cycle status once (audit realtime-bg F2)", () => {
+  let hz: ApiHarness;
+  let wire: WireDb;
+  const temporal = fakeTemporalClient();
+  beforeAll(async () => {
+    hz = await createApiHarness({ prefix: "cycle3", temporalClient: temporal });
+    wire = await createWireDb(hz.h.pg);
+  }, 120_000);
+  afterAll(async () => {
+    await wire?.close();
+    await hz?.close();
+  });
+
+  it("one wave of reads (the stop, the Continue state, the status) before the start; none after it", async () => {
+    const { businessId } = hz.A;
+    const owner = createCaller({ ...hz.deps, db: wire.db }, { userId: hz.A.ownerId, email: "owner@a.test" });
+    wire.reset();
+    const result = await owner.business.continue({ businessId });
+    expect(result).toMatchObject({ action: "started", mode: "temporal", continueState: { kind: "processing" } });
+    const statements = wire.statements();
+    // The cycle events and the queue rows are read once each (until 2026-10-15: three times, one after another).
+    expect(statements.filter((q) => /from "events" where/.test(q) && /order by/.test(q))).toHaveLength(1);
+    expect(statements.filter((q) => /from "audit_log" where/.test(q) && /"audit_log"\."action" in/.test(q))).toHaveLength(2);
+    // Until 2026-10-15: 28 on the wire.
+    expect(wire.roundTrips(), statements.join("\n")).toBeLessThanOrEqual(18);
+    expect(await hz.caller({ userId: hz.A.ownerId }).cycle.status({ businessId })).toEqual(result.status);
+  });
+
+  it("a second press answers already_running from the same single read", async () => {
+    const { businessId } = hz.A;
+    const owner = createCaller({ ...hz.deps, db: wire.db }, { userId: hz.A.ownerId, email: "owner@a.test" });
+    wire.reset();
+    const again = await owner.business.continue({ businessId });
+    expect(again).toMatchObject({ action: "already_running", continueState: { kind: "processing" }, status: { running: true, queued: true, cycleNumber: 1 } });
+    expect(wire.statements().filter((q) => /from "events" where/.test(q) && /order by/.test(q))).toHaveLength(1);
+    expect(temporal.starts.filter((x) => x.type === "businessCycle")).toHaveLength(1);
   });
 });
 

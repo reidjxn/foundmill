@@ -2,7 +2,8 @@
  * @foundmill/collab — Hocuspocus (Yjs) server for spec blocks (docs/ARCHITECTURE.md §1, §3, §17; BUILD §11.5).
  *
  * Boot: load env → service database (repositories only) → token verifier (Supabase JWKS / HS256, collab service
- * tokens, dev bypass) → Hocuspocus server listening on PORT (fallback COLLAB_PORT) on host "::" with a 0.0.0.0
+ * tokens, dev bypass; the JWKS fetched at boot and every 5 minutes) → Hocuspocus server listening on PORT (fallback
+ * COLLAB_PORT) on host "::" with a 0.0.0.0
  * fallback → graceful shutdown flushes pending stores before closing.
  */
 import { closeDb, createServiceDb } from "@foundmill/db";
@@ -37,6 +38,7 @@ export async function main(): Promise<void> {
     serviceSecret: env.SESSION_TOKEN_SECRET ?? null,
     devUserId: env.DEV_AUTH_USER_ID ?? null,
   });
+  const keys = auth.keepKeysFresh?.({ onError: (err) => log.warn({ err: (err as Error)?.message }, "fetching Supabase's signing keys failed; retrying in 5 minutes") });
   if (!env.SESSION_TOKEN_SECRET) log.warn({}, "SESSION_TOKEN_SECRET is not set; agents cannot connect to the collab server");
   // The api's invite list (SIGNUP_ALLOWLIST): a person it does not name opens no spec block either.
   const allowlist = parseSignupAllowlist(env.SIGNUP_ALLOWLIST);
@@ -46,6 +48,7 @@ export async function main(): Promise<void> {
 
   const shutdown = async (signal: string) => {
     log.info({ signal }, "collab shutting down");
+    keys?.stop();
     try {
       await server.close();
     } finally {

@@ -126,17 +126,22 @@ export function founderIntent(text: string, chipKind?: string | null): FounderIn
  * A looser shape for the model call itself: the server (`finaliseAgentReply` in packages/agents) trims, pads, de-dupes
  * and re-checks into `AgentReplyOutput`, so a reply with a long label or a fifth quick reply is repaired locally instead
  * of costing a second model call.
+ *
+ * `reaction` and `kind` are plain strings with their allowed values in the description: structured outputs carry no
+ * `enum` keyword (the SDK moves it into the description anyway), so a closed enum here only turned an out-of-set value
+ * into a failed parse and a full repair call. `finaliseAgentReply` maps an unknown reaction to "none" and an unknown
+ * kind to "ask" locally.
  */
 export const AgentReplyDraft = z.object({
   bubbles: z.array(z.string().describe("One short chat bubble, at most 320 characters; Markdown and [[ent:<id>|Name]] mentions from the manifest only.")).min(1).describe("1-3 bubbles, 60 words at most in total."),
-  reaction: z.enum(AGENT_REACTIONS).describe("How you react to the founder's message."),
+  reaction: z.string().describe(`How you react to the founder's message: one of ${AGENT_REACTIONS.join(", ")}.`),
   quick_replies: z
     .array(
       z.object({
         id: z.string().describe("1-24 characters of a-z, 0-9, _ or -; unique in this reply."),
         label: z.string().describe("Sentence case, at most 36 characters; unique in this reply."),
         say: z.string().describe("What the founder says when they press it, at most 280 characters."),
-        kind: z.enum(QUICK_REPLY_KINDS),
+        kind: z.string().describe(`One of ${QUICK_REPLY_KINDS.join(", ")}.`),
         option_id: z.string().nullable().describe("For choose_option: the decision option id from subject.options; otherwise null."),
         recommended: z.boolean().describe("At most one quick reply is recommended."),
       }),
@@ -146,3 +151,10 @@ export const AgentReplyDraft = z.object({
   refers_to: z.array(z.string()).describe("Source record ids the answer relies on (at most 5)."),
 });
 export type AgentReplyDraft = z.infer<typeof AgentReplyDraft>;
+
+const REACTION_SET: ReadonlySet<string> = new Set(AGENT_REACTIONS);
+const QUICK_REPLY_KIND_SET: ReadonlySet<string> = new Set(QUICK_REPLY_KINDS);
+/** An allowed reaction, or "none" for anything else the model wrote. */
+export const agentReactionOf = (v: unknown): AgentReplyOutput["reaction"] => (typeof v === "string" && REACTION_SET.has(v) ? (v as AgentReplyOutput["reaction"]) : "none");
+/** An allowed quick reply kind, or null for anything else the model wrote. */
+export const quickReplyKindOf = (v: unknown): QuickReply["kind"] | null => (typeof v === "string" && QUICK_REPLY_KIND_SET.has(v) ? (v as QuickReply["kind"]) : null);
