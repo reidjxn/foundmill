@@ -62,6 +62,37 @@ export function deskMessagesOf(view: Pick<ConversationView, "messages">, alias: 
   }));
 }
 
+/* ---------- a reply streamed bubble by bubble ---------- */
+
+/** One event of a streamed reply (`agent.conversation.sendStream` / `inboxReplyStream`), as the API sends it. */
+export type ReplyStreamEvent<R> = { type: "bubble"; index: number; text: string } | { type: "reset" } | { type: "done"; result: R };
+
+/** What a stream that ends without its result says: a dropped connection, so the desk asks whether the message arrived. */
+export const STREAM_CUT_MESSAGE = "The connection dropped before the reply arrived.";
+
+/**
+ * Reads a streamed reply (audit MB-1): the bubbles shown so far go to `onBubbles` as each arrives (a `reset` withdraws
+ * them: the reply is being written again), and the stored result resolves the promise. The server stores nothing until
+ * the whole reply has passed its checks, so these bubbles are only ever a preview of the reply the result carries. A
+ * stream that ends without a result rejects with `STREAM_CUT_MESSAGE` (`deskFailureOf` reads it as offline).
+ */
+export async function readReplyStream<R>(stream: AsyncIterable<ReplyStreamEvent<R>>, onBubbles: (bubbles: string[]) => void): Promise<R> {
+  let bubbles: string[] = [];
+  for await (const event of stream) {
+    if (event.type === "done") return event.result;
+    if (event.type === "reset") bubbles = [];
+    else {
+      bubbles = [...bubbles];
+      bubbles[event.index] = event.text;
+    }
+    onBubbles(bubbles.filter((b) => typeof b === "string"));
+  }
+  throw new Error(STREAM_CUT_MESSAGE);
+}
+
+/** The id of the agent's reply while it streams in (and of the stored reply once it is merged, so nothing re-renders). */
+export const streamingIdOf = (localId: string): string => `streaming:${localId}`;
+
 /** The cached view with a send's messages appended (deduplicated by id) and its quick replies: no refetch. */
 export function withSent<V extends Pick<ConversationView, "thread" | "messages" | "quickReplies">>(view: V, sent: Pick<ConversationSend, "thread" | "messages" | "quickReplies">): V {
   const seen = new Set(view.messages.map((m) => m.id));

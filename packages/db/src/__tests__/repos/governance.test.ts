@@ -213,6 +213,19 @@ describe("events and outbox", () => {
     expect(await repos.events.countByType(r.db, A)).not.toHaveProperty("message.received");
   });
 
+  it("writeMany writes several events and their outbox rows at once, narrated when asked; it refuses keys and person-addressed types", async () => {
+    const A = r.A.businessId;
+    const actor = { kind: "user", id: r.A.memberId } as const;
+    const ids = ["5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d", "6b7c8d9e-0f1a-4b2c-9d3e-4f5a6b7c8d9e"];
+    const written = await repos.events.writeMany(r.db, A, ids.map((id, i) => ({ id, type: "task.progressed" as const, actor, payload: { step: i } })), { narrated: true });
+    expect(written.map((e) => [e.id, e.narrated, e.businessId])).toEqual(ids.map((id) => [id, true, A]));
+    expect((await repos.events.outboxPending(r.db, A)).filter((p) => ids.includes(p.eventId))).toHaveLength(2);
+    expect((await repos.events.unnarrated(r.db, A, 500)).map((e) => e.id)).not.toContain(ids[0]);
+    expect(await repos.events.writeMany(r.db, A, [])).toEqual([]);
+    await expect(repos.events.writeMany(r.db, A, [{ type: "task.progressed", actor, idempotencyKey: "k-1" }])).rejects.toThrow(/no idempotency keys/);
+    await expect(repos.events.writeMany(r.db, A, [{ type: "message.received", actor, payload: {} }])).rejects.toThrow(/addressed to a person/);
+  });
+
   it("writes through the outbox, orders un-narrated events by priority, de-duplicates by idempotency key", async () => {
     const A = r.A.businessId;
     const actor = { kind: "webhook", id: "stripe" } as const;

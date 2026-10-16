@@ -346,4 +346,4 @@ export { generateClassifier, generateCategoriser } from "./classifier";
 export { generateQuarantinedReader, sanitise as sanitiseUntrusted, requestedFields } from "./quarantinedReader";
 export { generateModeration } from "./moderation";
 export { generateWorker, generateNightlyBatch } from "./worker";
-export { generateConversation } from "./conversation";
+export { generateConversation, scriptedConversationReply, SCRIPTED_INTENTS } from "./conversation";

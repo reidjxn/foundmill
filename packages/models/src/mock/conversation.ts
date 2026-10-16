@@ -13,11 +13,15 @@
  *   value); every template sentence is digit-free.
  * - Untrusted subject fields are never read for instructions and never echoed into a quick reply.
  * - Quick replies by subject kind (decision, update, agent or task, concept), 2–4 of them, at most one recommended.
+ *
+ * The greeting, thanks and "not now" answers are also what the api sends without any model call
+ * (`scriptedConversationReply`, audit MB-1): they need nothing a model would add.
  */
 import { usDate } from "@foundmill/shared";
 import type { AgentReplyOutput, QuickReply } from "../schemas";
-import { QUICK_REPLY_LABEL_MAX, founderIntent } from "../conversation-schema";
-import { type MockContext, isRecord, truncate } from "./inputs";
+import { QUICK_REPLY_LABEL_MAX, founderIntent, type FounderIntent } from "../conversation-schema";
+import { seededRng } from "../hash";
+import { type MockContext, buildMockContext, isRecord, truncate } from "./inputs";
 import { detectHardGates } from "./planCompiler";
 
 /** The api sends the expected date as words ("Oct 11"); an ISO date from any other caller is read the US way too. */
@@ -350,4 +354,20 @@ export function generateConversation(ctx: MockContext): AgentReplyOutput {
     hand_off: handOff,
     refers_to: [],
   };
+}
+
+/** The founder intents answered from the agent's voice kit alone, with no model call. */
+export const SCRIPTED_INTENTS: readonly FounderIntent[] = ["greeting", "acknowledge", "decline"];
+
+/**
+ * The reply to a greeting, a thanks or a "not now", written without a model (the api's scripted replies): the same
+ * deterministic answer as the mock's, from the JSON inputs the request builder sends (`conversationInputs` in
+ * packages/agents), with `seed` choosing the voice's acknowledgement. Null when the founder's message is anything else.
+ */
+export function scriptedConversationReply(inputs: Record<string, unknown>, seed: string): AgentReplyOutput | null {
+  const ctx = buildMockContext({ route: "conversation", messages: [{ role: "user", content: "```json\n" + JSON.stringify(inputs) + "\n```" }] }, seed, seededRng(seed));
+  const fm = ctx.getRecord("founder_message") ?? {};
+  const chip = isRecord(fm.quick_reply) ? fm.quick_reply : null;
+  if (!SCRIPTED_INTENTS.includes(founderIntent(str(fm.text) ?? "", chip ? str(chip.kind) : null))) return null;
+  return generateConversation(ctx);
 }

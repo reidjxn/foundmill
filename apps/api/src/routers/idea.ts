@@ -8,7 +8,7 @@ import { ARCHETYPES, Archetype, BUSINESS_MODES, CurrencyCode, GAME_MODES, Valida
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { commitIdea, squadPreview } from "../services/commit";
-import { conceptPersona, conceptStarters, replyAboutConcept } from "../services/conversation";
+import { conceptPersona, conceptStarters, replyAboutConcept, replyStream, type ReplyHooks, type ReplyStreamEvent } from "../services/conversation";
 import { checkDomainAvailability, DomainCheckInput } from "../services/domains";
 import { linkableImportJob } from "../services/foundations";
 import { draftEventStream, draftIdeas, isMeta, readMeta, takeIdeationAllowance, withMeta, type DraftEvent } from "../services/ideation";
@@ -90,6 +90,46 @@ function importJobOf(ctx: Pick<Context, "env">, userId: string, input: GenerateI
   if (!importJobId) throw new ValidationError("That import job cannot be linked to a new business");
   return importJobId;
 }
+
+const AskInput = z
+  .object({ ideaId: Id, question: z.string().trim().min(1).max(2000).optional(), quickReplyId: z.string().regex(/^[a-z0-9_-]{1,24}$/).optional() })
+  .refine((v) => (v.question ? 1 : 0) + (v.quickReplyId ? 1 : 0) === 1, { message: "Ask a question or pick a quick reply", path: ["question"] });
+
+/**
+ * One Ask on a concept card (`ask` and `askStream`): the Research agent's reply (`replyAboutConcept`, streamed with
+ * `hooks.emit`), stored as a new version of the card with the exchange in its Q&A.
+ */
+async function askAboutConcept(ctx: Pick<Context, "db" | "models" | "limits"> & { userId: string }, input: z.infer<typeof AskInput>, hooks: ReplyHooks = {}) {
+  const idea = await repos.ideas.get(ctx.db, ctx.userId, input.ideaId);
+  const before = (idea.current?.attributes as AttrMap | undefined) ?? {};
+  const qa = storedQa(idea.current?.research);
+  const history = qa.flatMap((q) => (q && typeof q === "object" && typeof (q as { question?: unknown }).question === "string" && typeof (q as { answer?: unknown }).answer === "string" ? [{ question: (q as { question: string }).question, answer: (q as { answer: string }).answer }] : [])).slice(-6);
+  const reply = await replyAboutConcept(
+    ctx.models,
+    {
+      concept: { id: idea.id, title: idea.current?.title ?? idea.title, pitch: idea.current?.pitch ?? idea.pitch, attributes: before },
+      question: input.question,
+      quickReplyId: input.quickReplyId,
+      history,
+      userId: ctx.userId,
+      limits: ctx.limits,
+    },
+    hooks,
+  );
+  const question = input.question ?? conceptStarters().find((q) => q.id === input.quickReplyId)?.say ?? "";
+  const exchange = { question, answer: reply.answerMd, bubbles: reply.bubbles, quick_replies: reply.quickReplies, quick_reply_id: input.quickReplyId ?? null, reaction: reply.reaction };
+  // The conversation route answers from the card; it never moves a rating, so the attributes carry over unchanged.
+  // The answer joins the Q&A of the version current when it is saved (under the idea's row lock), not the one read
+  // before the model call, so two asks at once keep both answers.
+  const version = await repos.ideas.addVersion(ctx.db, ctx.userId, idea.id, (latest) => ({
+    action: "edited",
+    attributes: (latest.current?.attributes as AttrMap | undefined) ?? before,
+    research: withMeta(latest.current?.research, { qa: [...storedQa(latest.current?.research), exchange] }),
+    parentVersionId: latest.current?.id ?? null,
+  }));
+  return { version, answer: reply.answerMd, question, bubbles: reply.bubbles, quickReplies: reply.quickReplies, reaction: reply.reaction, persona: reply.persona };
+}
+type AskResult = Awaited<ReturnType<typeof askAboutConcept>>;
 
 export const ideaRouter = router({
   /** Logo before commit: check an upload, or generate marks for the idea (the choice travels with `commit`). */
@@ -217,36 +257,15 @@ export const ideaRouter = router({
    */
   ask: protectedProcedure
     .use(modelLimited("conversation"))
-    .input(
-      z
-        .object({ ideaId: Id, question: z.string().trim().min(1).max(2000).optional(), quickReplyId: z.string().regex(/^[a-z0-9_-]{1,24}$/).optional() })
-        .refine((v) => (v.question ? 1 : 0) + (v.quickReplyId ? 1 : 0) === 1, { message: "Ask a question or pick a quick reply", path: ["question"] }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      const idea = await repos.ideas.get(ctx.db, ctx.userId, input.ideaId);
-      const before = (idea.current?.attributes as AttrMap | undefined) ?? {};
-      const qa = storedQa(idea.current?.research);
-      const history = qa.flatMap((q) => (q && typeof q === "object" && typeof (q as { question?: unknown }).question === "string" && typeof (q as { answer?: unknown }).answer === "string" ? [{ question: (q as { question: string }).question, answer: (q as { answer: string }).answer }] : [])).slice(-6);
-      const reply = await replyAboutConcept(ctx.models, {
-        concept: { id: idea.id, title: idea.current?.title ?? idea.title, pitch: idea.current?.pitch ?? idea.pitch, attributes: before },
-        question: input.question,
-        quickReplyId: input.quickReplyId,
-        history,
-        userId: ctx.userId,
-        limits: ctx.limits,
-      });
-      const question = input.question ?? conceptStarters().find((q) => q.id === input.quickReplyId)?.say ?? "";
-      const exchange = { question, answer: reply.answerMd, bubbles: reply.bubbles, quick_replies: reply.quickReplies, quick_reply_id: input.quickReplyId ?? null, reaction: reply.reaction };
-      // The conversation route answers from the card; it never moves a rating, so the attributes carry over unchanged.
-      // The answer joins the Q&A of the version current when it is saved (under the idea's row lock), not the one read
-      // before the model call, so two asks at once keep both answers.
-      const version = await repos.ideas.addVersion(ctx.db, ctx.userId, idea.id, (latest) => ({
-        action: "edited",
-        attributes: (latest.current?.attributes as AttrMap | undefined) ?? before,
-        research: withMeta(latest.current?.research, { qa: [...storedQa(latest.current?.research), exchange] }),
-        parentVersionId: latest.current?.id ?? null,
-      }));
-      return { version, answer: reply.answerMd, question, bubbles: reply.bubbles, quickReplies: reply.quickReplies, reaction: reply.reaction, persona: reply.persona };
+    .input(AskInput)
+    .mutation(({ ctx, input }) => askAboutConcept(ctx, input)),
+
+  /** `ask`, streamed (audit MB-1): the Research agent's bubbles as they are written, then `done` with the `ask` result. */
+  askStream: protectedProcedure
+    .use(modelLimited("conversation"))
+    .input(AskInput)
+    .mutation(async function* ({ ctx, input, signal }): AsyncGenerator<ReplyStreamEvent<AskResult>, void, undefined> {
+      yield* replyStream<AskResult>(ctx, "idea.askStream", signal, (emit) => askAboutConcept(ctx, input, { emit }));
     }),
 
   /** Discard (reversible: archived, not deleted). */

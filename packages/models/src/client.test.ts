@@ -209,6 +209,20 @@ describe("LiveModelClient.complete", () => {
     expect(result.usage.inputTokens).toBe(240); // both calls metered
   });
 
+  it("a conversation reply with an out-of-set reaction or quick reply kind costs one call, not a repair (the draft takes any string)", async () => {
+    const reply = { bubbles: ["Sure."], reaction: "excited", quick_replies: [{ id: "more", label: "Tell me more", say: "Tell me more.", kind: "suggest", option_id: null, recommended: false }], hand_off: null, refers_to: [] };
+    const { fetch, calls } = fakeFetch([() => message(JSON.stringify(reply))]);
+    const client = new LiveModelClient({ apiKey: "sk-ant-test", fetch, sleep: noSleep });
+    const result = await client.complete({ route: "conversation", messages: [{ role: "user", content: "go" }], schema: AgentReplyDraft });
+    expect(calls).toHaveLength(1);
+    expect(result.repaired).toBe(false);
+    expect(result.json.reaction).toBe("excited");
+    // The allowed values still reach the model, in the descriptions.
+    const format = JSON.stringify(calls[0]!.body.output_config ?? calls[0]!.body);
+    expect(format).toContain("one of none, noted, thinking, concerned, pleased");
+    expect(format).toContain("One of ask, acknowledge, hand_off, choose_option, decline, write");
+  });
+
   it("gives up after one repair with a ModelOutputError carrying the issues", async () => {
     const bad = JSON.stringify({ subject: "", body: "short", tags: [] });
     const { fetch, calls } = fakeFetch([() => message(bad)]);
