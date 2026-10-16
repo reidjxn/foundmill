@@ -15,14 +15,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useTransition, type ReactNode } from "react";
 import { AppShell, Avatar, EntityLinkProvider, ShellLinkProvider, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
 import { ModuleEnvProvider, type ModuleEnv } from "@foundmill/modules/env";
 import { readWidgetEvent, type WidgetEvent } from "@foundmill/widgets/data";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { runwayWords } from "@foundmill/widgets/shared/runway";
 import { agentsStoppedView } from "@/lib/agents-stopped";
-import { LAST_BUSINESS_COOKIE, SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
+import { SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
+import { rememberLastBusiness } from "@/lib/auth/last-business";
+import { accountRoutes } from "@/lib/account-routes";
 import { readOnlyReason } from "@/lib/access";
 import { awayReportId, computeContinueState, journeyHref, respondHref, unviewedWin } from "@/lib/continue-state";
 import { CYCLE_EVENT_TYPES, cycleFromSnapshot, initialCycle, nextPulseKey, reduceCycleEvent, setPaused, type CycleEvent, type CycleStatus } from "@/lib/cycle";
@@ -31,7 +33,7 @@ import { useEntityResolver } from "@/lib/entity-resolver";
 import { publicEnv } from "@/lib/env";
 import { invalidateForEvent, streamAwareStaleTime } from "@/lib/query-client";
 import { shellQueryInputs } from "@/lib/shell-queries";
-import { useBusinessLogoSrc } from "@/components/logo/useBusinessLogo";
+import { useBusinessLogoSrc, useBusinessLogos } from "@/components/logo/useBusinessLogo";
 import { KeyboardRegistryProvider, createKeyboardRegistry, useRegisteredShortcuts } from "@/lib/keys";
 import { publicPaletteItems, publicSearchText } from "@/lib/public-search";
 import { entityPaletteItems, filterLocal, localPaletteItems, searchInputFor } from "@/lib/search";
@@ -49,6 +51,7 @@ import { AgentDeskHost, prefetchAgentDesk, type AgentDeskApi } from "@/component
 import { useNetworkBadge } from "@/components/live/signals";
 import { agentOfAskItem, askPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
+import { switcherBusinesses } from "./business-switcher";
 import { ShellChromeProvider, useShellChromeValue } from "./chrome";
 import { isShellLinkClick, renderNextShellLink } from "./NextShellLink";
 
@@ -196,8 +199,6 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const inboxQ = useQuery(trpc.inbox.list.queryOptions(inputs.inbox, { staleTime: INBOX_STALE, refetchInterval: poll.inbox }));
   const financeQ = useQuery(trpc.finance.overview.queryOptions(inputs.finance, { staleTime: FINANCE_STALE, retry: false }));
   const cycleQ = useQuery(trpc.cycle.status.queryOptions(inputs.cycle, { staleTime: CYCLE_STALE, refetchInterval: poll.cycle, retry: false }));
-  // The founder's businesses, for the business menu and the palette (the same query the Inbox reads for the founder's name).
-  const profileQ = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
 
   // --- foundations: the first open drafts the vision, specification and roadmap (BUILD §11.1, §11.5) ---------------
   // `product.foundations.ensure` is idempotent on the server (it claims a pending draft exactly once, so two tabs or a
@@ -284,7 +285,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
 
   // --- last business cookie (the index route redirects here next time) -------------------------------------------
   useEffect(() => {
-    document.cookie = `${LAST_BUSINESS_COOKIE}=${businessId}; path=/; max-age=31536000; samesite=lax`;
+    rememberLastBusiness(businessId);
   }, [businessId]);
 
   // --- sidebar -------------------------------------------------------------------------------------------------
@@ -453,7 +454,15 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   }, [parsed, resolveDepartment]);
   // Records only for someone who may read the CRM (anyone else would get a silent refusal).
   const searchQ = useQuery(trpc.crm.search.queryOptions({ businessId, ...(debounced ?? { q: "-" }) }, { enabled: debounced !== null && access.canRead("crm"), staleTime: 15_000, retry: false }));
-  const businesses = useMemo(() => (profileQ.data?.businesses ?? []).map((b) => ({ id: b.id, name: b.name })), [profileQ.data?.businesses]);
+  const [searchOpen, setSearchOpenState] = useState(false);
+  // The founder's businesses (Switch business, the palette's "Switch to"): asked for only once the founder reaches for
+  // them (pointer, focus, open, or the palette), so opening a business costs no request for them.
+  const [wantBusinesses, setWantBusinesses] = useState(false);
+  const businessesQ = useQuery(trpc.founder.businesses.list.queryOptions(undefined, { enabled: wantBusinesses || searchOpen, staleTime: 60_000 }));
+  const { data: businessesData, isLoading: businessesLoading, refetch: refetchBusinesses } = businessesQ;
+  const businessesFailed = Boolean(businessesQ.error);
+  const businessLogos = useBusinessLogos(businessesData?.businesses, wantBusinesses);
+  const businesses = useMemo(() => (businessesData?.businesses ?? []).map((b) => ({ id: b.id, name: b.name })), [businessesData]);
   const canEditLayout = Boolean(shortcuts.onEditLayout);
   const localItems = useMemo(
     () => localPaletteItems({ businessId, departments, inboxItems: inboxQ.data?.items, live, canEditLayout, businesses, access }),
@@ -473,7 +482,6 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     setSearchText(raw);
     setParsed(q);
   }, []);
-  const [searchOpen, setSearchOpenState] = useState(false);
   // Every open starts empty: the last query never lingers for new typing to append to (audit GTM-27).
   const setSearchOpen = useCallback((open: boolean) => {
     setSearchOpenState(open);
@@ -510,6 +518,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       // While the team is stopped the same place holds Resume agents, which says so.
       if (item.id === "command:stop-all") return document.querySelector<HTMLButtonElement>("[data-testid=stop-all-trigger], [data-testid=resume-agents-trigger]")?.click();
       if (item.id === "command:sign-out") return signOut();
+      if (item.id.startsWith("business:")) rememberLastBusiness(item.id.slice("business:".length));
       if (item.href) router.push(item.href);
     },
     [router, refreshInbox, businessId, shortcuts, setSearchOpen],
@@ -540,14 +549,33 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     () => (connectionState ? { state: connectionState, detail: connectionState === "reconnecting" ? "The live connection dropped. What you see may be out of date; the Inbox and Continue refresh every 30 s until it is back." : "Live updates are paused. What you see may be out of date; the Inbox and Continue refresh every 30 s." } : null),
     [connectionState],
   );
+  // Switch business: the pick is remembered at once and the other business opens in a transition, so this one stays
+  // whole on screen until the new business's layout replaces it (the /b/[bid] segment remounts the shell; every query
+  // is keyed by its business id).
+  const [switching, startSwitching] = useTransition();
+  const [switchingTo, setSwitchingTo] = useState<string | null>(null);
+  const openBusiness = useCallback(
+    (id: string) => {
+      rememberLastBusiness(id);
+      setSwitchingTo(id);
+      startSwitching(() => router.push(routes.home(id)));
+    },
+    [router],
+  );
   const businessMenu = useMemo(
     () => ({
-      businesses: (businesses.length ? businesses : [{ id: businessId, name: business.name }]).map((b) => ({ ...b, current: b.id === businessId })),
-      onOpenBusiness: (id: string) => router.push(routes.home(id)),
-      onNewBusiness: () => router.push("/new"),
-      onProfile: () => router.push("/onboarding"),
+      businesses: switcherBusinesses(businessesData?.businesses, { id: businessId, name: business.name, kitPrimary: data.kit.primary, logoSrc, isDemo: business.isDemo, role: data.role }, businessLogos),
+      loading: wantBusinesses && businessesLoading,
+      error: businessesFailed ? "Could not load your other businesses." : null,
+      onRetry: () => void refetchBusinesses(),
+      onIntent: () => setWantBusinesses(true),
+      onOpenBusiness: openBusiness,
+      onNewBusiness: () => router.push(accountRoutes.newBusiness),
+      onManageBusinesses: () => router.push(accountRoutes.businesses),
+      onProfile: () => router.push(accountRoutes.profile),
+      pendingBusinessId: switching ? switchingTo : null,
     }),
-    [businesses, businessId, business.name, router],
+    [businessesData, businessesLoading, businessesFailed, refetchBusinesses, businessId, business.name, business.isDemo, data.kit.primary, data.role, logoSrc, businessLogos, wantBusinesses, openBusiness, router, switching, switchingTo],
   );
 
   const financeDept = useMemo(() => visibleDepartments.find((d) => d.moduleKeys.includes("finance")), [visibleDepartments]);

@@ -140,6 +140,9 @@ describe("proxy redirect rules", () => {
     expect(isPublicPath("/auth")).toBe(true);
     expect(isPublicPath("/b/x")).toBe(false);
     expect(isFounderPath("/new/ideate")).toBe(true);
+    expect(isFounderPath("/businesses")).toBe(true);
     expect(isFounderPath("/login")).toBe(false);
+    // Your businesses is signed-in only, like /new.
+    expect(decideRedirect({ pathname: "/businesses", authenticated: false })).toEqual({ kind: "redirect", to: "/login?next=%2Fbusinesses" });
   });
 });

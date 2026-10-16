@@ -6,7 +6,8 @@
  * team is stopped); Reject keeps the task blocked and the Chief of Staff says so. Section walls hold, and
  * `team.approvals.resolve` does the same from Team › approvals.
  */
-import { APPROVAL_OPTIONS, inboxItems, openApprovalItem, repos, resumeBusinessAgents, stopBusinessAgents, type Approval } from "@foundmill/db";
+import { APP_NAME } from "@foundmill/config";
+import { APPROVAL_OPTIONS, approvalAction, inboxItems, openApprovalItem, repos, resumeBusinessAgents, stopBusinessAgents, type Approval } from "@foundmill/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
@@ -248,6 +249,16 @@ describe("approvals a plan action or a channel launch waits on", () => {
     const { item } = await openApprovalItem(hz.db, hz.A.businessId, approval, { agentId: hz.A.agentId, agentName: "Distribution Strategist" });
     await owner().inbox.decide({ businessId: hz.A.businessId, itemId: item.id, chosenOption: APPROVAL_OPTIONS.approve });
     expect(temporal.signals).toEqual([{ workflowId: `approval:${approval.id}`, signal: "decision", args: [expect.objectContaining({ approvalId: approval.id, planActionId: hz.A.planActionId, outcome: "approved" })] }]);
+  });
+
+  it("a platform call is named after the business it runs in, never after the platform", async () => {
+    const approval = await repos.approvals.create(hz.db, hz.A.businessId, { planActionId: hz.A.planActionId, agentId: hz.A.agentId, connectorKey: "platform", tool: "launch_campaign", args: { channelKey: "seo" } });
+    const { item } = await openApprovalItem(hz.db, hz.A.businessId, approval, { agentId: hz.A.agentId, agentName: "Lead Generation Engine" });
+    const name = (await repos.businesses.get(hz.db, hz.A.businessId)).name;
+    expect(item.subject).toBe(`Lead Generation Engine asks to run ${name} › launch campaign`.slice(0, 80));
+    expect(item.bodyMd).toContain(`wants to run **${name} › launch campaign**`);
+    expect(item.bodyMd).not.toContain(APP_NAME);
+    expect(approvalAction({ connectorKey: "github", tool: "run_migration" }, null, name)).toBe("GitHub › run migration");
   });
 });
 

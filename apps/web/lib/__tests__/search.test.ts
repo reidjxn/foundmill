@@ -53,9 +53,12 @@ describe("universal search", () => {
     expect(localPaletteItems({ businessId: BID, departments, live: false, canEditLayout: true }).some((i) => i.id === "command:edit-layout")).toBe(true);
   });
 
-  it("opens the founder's other businesses and starts a new one (audit IAE-08, WEB-13)", () => {
+  it("switches to the founder's other businesses, creates a new one and manages them all (audit IAE-08, WEB-13)", () => {
     const items = localPaletteItems({ businessId: BID, departments, live: false, businesses: [{ id: BID, name: "Northwind" }, { id: "b2", name: "Ledgerly" }] });
-    expect(items.find((i) => i.id === "business:b2")).toMatchObject({ label: "Open Ledgerly", href: "/b/b2/home" });
+    expect(items.find((i) => i.id === "business:b2")).toMatchObject({ label: "Switch to Ledgerly", description: "Switch business", href: "/b/b2/home" });
+    expect(items.find((i) => i.id === "command:new-business")).toMatchObject({ label: "Create a new business", href: "/new" });
+    expect(items.find((i) => i.id === "command:manage-businesses")).toMatchObject({ label: "Manage businesses", href: "/businesses" });
+    expect(filterLocal(items, "manage")[0]?.id).toBe("command:manage-businesses");
     expect(items.some((i) => i.id === `business:${BID}`)).toBe(false);
     expect(items.find((i) => i.id === "command:new-business")?.href).toBe("/new");
     expect(items.find((i) => i.id === "command:profile")?.href).toBe("/onboarding");

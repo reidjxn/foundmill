@@ -147,8 +147,9 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     // Claim the idea before anything is created. Of two concurrent commits only one gets past this line; the other has
     // waited for the winner's row lock, finds the idea committed and creates nothing (answered below).
     if (!(await repos.ideas.claimForCommit(tx, userId, input.ideaId))) return null;
-    // Tier limits (BUILD §10.5): the owner's plan holds a number of businesses (TierLimitError past it, which the Commit
-    // screen turns into an upgrade prompt). A new business starts on the free tier, paid for by its included credits.
+    // Tier limits (BUILD §10.5): no business limit on any plan for now (founder, 2026-10-16); the check stays so one can
+    // return (TierLimitError past it, which the Commit screen turns into an upgrade prompt). A new business starts on the
+    // free tier; its included credits come from the founder's monthly pool (SEC2 S6, billing.ts `includedCreditsFor`).
     await assertBusinessAllowance(tx, userId);
     const planTier = "free" as const;
     const modelBilling = initialModelBilling(planTier);

@@ -148,7 +148,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     await expect(other.idea.commit(input)).rejects.toThrow(/not found/);
   });
 
-  it("starts on the free tier with this month's included credits in US dollars, keeps the spend cap, and refuses a second business", async () => {
+  it("starts on the free tier with this month's included credits in US dollars, keeps the spend cap, and takes charge of a second business on the free plan: no business limit; the second starts with nothing included (one credit pool a month per founder, SEC2 S6)", async () => {
     const userId = await hz.h.createUser("tier@test.local");
     const caller = hz.caller({ userId, email: "tier@test.local" });
     await caller.founder.profile.update({ displayName: "Ada", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
@@ -164,24 +164,18 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(plan).toMatchObject({ tier: "free", modelBilling: "credits", creditsCurrency: "USD", includedCreditsMinor: includedCreditsMinor("free"), credits: { currency: "USD", exhausted: false }, usage: { currency: "USD" } });
     expect((await repos.audit.list(hz.db, bid, { action: "idea.commit" })).items[0]?.details).toMatchObject({ spendCapMinor: 5_000, planTier: "free", modelBilling: "credits", includedCreditsMinor: includedCreditsMinor("free") });
 
-    // The free plan holds one business: the second commit is refused with a typed error and creates nothing.
-    await expect(caller.idea.commit({ ideaId: second!.id, name: "Tier Two", archetype: "b2b_saas", gameMode: "personal" })).rejects.toMatchObject({
-      code: "FORBIDDEN",
-      cause: { code: "tier_limit", details: { limit: "businesses", tier: "free", allowed: 1, used: 1, planBusinessId: bid } },
-    });
-    expect((await repos.businesses.listForUser(hz.db, userId)).map((b) => b.id)).toEqual([bid]);
-    expect((await repos.ideas.get(hz.db, userId, second!.id)).businessId).toBeNull();
-
-    // An archived business frees its place.
-    await caller.business.archive({ businessId: bid, reason: "trying another idea" });
+    // No business limit on any plan for now (founder, 2026-10-16): the second commit succeeds while the first is active.
     const again = await caller.idea.commit({ ideaId: second!.id, name: "Tier Two", archetype: "b2b_saas", gameMode: "personal" });
     expect(again.business).toMatchObject({ planTier: "free", spendCapMinor: null });
-    // It frees the place, never a second included credit in the same month (SEC2 S6): the new business starts with
-    // nothing included, stopped like any team whose credits ran out, and the Inbox says why and what to do.
+    expect((await repos.businesses.listForUser(hz.db, userId)).map((b) => b.id).sort()).toEqual([bid, again.business.id].sort());
+    expect((await caller.founder.businesses.list()).businesses.map((b) => b.name)).toEqual(["Tier One", "Tier Two"]);
+    // Never a second included credit in the same month (SEC2 S6): the new business starts with nothing included,
+    // stopped like any team whose credits ran out, and the Inbox says why and what to do.
     expect(await repos.usage.creditBalance(hz.db, again.business.id, period)).toMatchObject({ grantedMinor: 0, balanceMinor: 0 });
     expect(await repos.businesses.stopState(hz.db, again.business.id)).toMatchObject({ stopped: true, reason: "credits_exhausted" });
     const warning = (await repos.inbox.list(hz.db, again.business.id, { limit: 50 })).items.find((i) => i.subject === CREDITS_EXHAUSTED_SUBJECT);
     expect(warning?.bodyMd).toMatch(/this month's already went to another business you took charge of\. Add your own Anthropic key in Settings → Keys/);
+    expect((await caller.founder.businesses.allowance()).includedCredits).toMatchObject({ places: 1, taken: 1 });
     expect((await caller.billing.plan({ businessId: again.business.id })).includedCreditsMinor).toBe(0);
   });
 

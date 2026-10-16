@@ -1,7 +1,7 @@
 "use client";
 /**
  * Settings › Danger zone (BUILD §11.15): export everything (`business.export`, saved by the browser as a JSON file),
- * archive the business (`business.archive`; an owner restores it from New business › Archived businesses), permanent
+ * archive the business (`business.archive`; an owner restores it from Your businesses › Archived businesses), permanent
  * deletion (`business.requestDeletion`: founder-only, fresh sign-in required, 7-day delay, cancellable with
  * `business.cancelDeletion`). Outlined in status-bad at 40 % (DESIGN §9).
  */
@@ -47,10 +47,12 @@ export function DangerTab() {
       onSuccess: (result) => {
         setConfirmArchive(false);
         const n = result.stopped.pausedAgents;
-        t.saved("Business archived", `${n} agent${n === 1 ? "" : "s"} stopped. The business is hidden from your list; ${isOwner ? "restore it" : "an owner can restore it"} from New business › Archived businesses.`);
-        // This business no longer opens: leave for New business, where its owner finds it under Archived businesses.
+        t.saved("Business archived", `${n} agent${n === 1 ? "" : "s"} stopped. The business is hidden from your list; ${isOwner ? "restore it" : "an owner can restore it"} from Your businesses › Archived businesses.`);
+        // This business no longer opens: leave for Your businesses, where its owner finds it under Archived businesses.
         router.push(ARCHIVED_HREF);
         void refreshBusiness();
+        // It leaves the founder's lists too (Switch business, Your businesses).
+        void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("founder") as unknown[] });
       },
       onError: (err) => t.failed(err, "Archive failed"),
     }),
@@ -99,7 +101,7 @@ export function DangerTab() {
         </div>
         <div className="flex flex-col gap-2 border-t border-line pt-4">
           <span className="t-display-sm">Archive business</span>
-          <p className="text-body text-secondary">Stops every agent and hides the business. Data stays; an owner can restore, export or delete it from New business › Archived businesses.</p>
+          <p className="text-body text-secondary">Stops every agent and hides the business. Data stays; an owner can restore, export or delete it from Your businesses › Archived businesses.</p>
           <div>
             <Button icon={Archive} variant="default" disabled={!isAdmin} onClick={() => setConfirmArchive(true)}>
               Archive {data.business.name}
@@ -134,7 +136,7 @@ export function DangerTab() {
         <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>Archive {data.business.name}?</DialogTitle>
-            <DialogDescription>All agents stop within 30 seconds. The business leaves your list until an owner restores it from New business › Archived businesses.</DialogDescription>
+            <DialogDescription>All agents stop within 30 seconds. The business leaves your list until an owner restores it from Your businesses › Archived businesses.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setConfirmArchive(false)}>

@@ -37,6 +37,6 @@ describe("Danger zone export (BUILD §11.15)", () => {
   it("names the file and what it holds, and flags an incomplete archive", () => {
     expect(exportToast(result, true)).toEqual({ tone: "good", title: "Export downloaded", description: "ledgerly-3f2a1c-export-2026-10-12.json: 12,345 records across 2 tables. Credentials are never included." });
     expect(exportToast({ ...result, complete: false }, true).description).toMatch(/Not complete/);
-    expect(ARCHIVED_HREF).toBe("/new#archived");
+    expect(ARCHIVED_HREF).toBe("/businesses#archived");
   });
 });

@@ -31,7 +31,7 @@ export function isPublicPath(pathname: string): boolean {
 const LIVE_PREFIXES = ["/network", "/communities", "/leaderboards", "/profiles"];
 
 export function isFounderPath(pathname: string): boolean {
-  return pathname === "/" || pathname === "/onboarding" || pathname.startsWith("/new") || pathname.startsWith("/b/") || LIVE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  return pathname === "/" || pathname === "/onboarding" || pathname === "/businesses" || pathname.startsWith("/new") || pathname.startsWith("/b/") || LIVE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
 /**

@@ -8,6 +8,16 @@ import { IMPORT_STEPS, STUDIO_STEPS, StudioFrame } from "../StudioFrame";
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
 
 describe("StudioFrame (first-run trail)", () => {
+  it("draws no step trail on an account page (Your businesses)", () => {
+    render(
+      <StudioFrame title="Your businesses">
+        <p>body</p>
+      </StudioFrame>,
+    );
+    expect(screen.queryByRole("navigation", { name: "First-run steps" })).toBeNull();
+    expect(screen.getByTestId("studio-frame").hasAttribute("data-step")).toBe(false);
+  });
+
   it("marks earlier steps done, the current one active and later ones upcoming", () => {
     render(
       <StudioFrame step="ideate" title="Ideation Studio" viewer={{ email: "founder@example.com" }}>

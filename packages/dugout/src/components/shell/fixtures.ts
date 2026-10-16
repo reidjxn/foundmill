@@ -3,6 +3,8 @@
  * six departments. Deterministic; no network. Not exported from the package barrel.
  */
 import { Bot, BookOpen, Code2, Globe, Home, Inbox, KeyRound, Megaphone, PiggyBank, Scale, Settings, Trophy, Users, Users2, Wrench } from "lucide-react";
+import { SAMPLE_LOGOS } from "../foundation/logo-samples";
+import type { SwitcherBusiness } from "./BusinessSwitcher";
 import type { DecisionOption } from "./DecisionBar";
 import type { PaletteItem } from "./CommandPalette";
 import type { Kit, ProcessingSegment, SidebarItem, TabItem } from "./types";
@@ -84,3 +86,21 @@ export const REORDER_OPTIONS: DecisionOption[] = [
 ];
 
 export const DEPARTMENTS_FOR_KEYS = NORTHWIND_SIDEBAR.filter((it) => it.group === "department").map((it) => ({ id: it.id, name: it.label }));
+
+/** The founder's businesses in the top bar's Switch business: Northwind is open (logo), Ledgerly a demo, Tutorlane as an admin. */
+export const SWITCHER_BUSINESSES: SwitcherBusiness[] = [
+  { id: "nw", name: "Northwind Skincare", current: true, logoSrc: SAMPLE_LOGOS.stack, primary: NORTHWIND_KIT.primary },
+  { id: "lg", name: "Ledgerly", logoSrc: SAMPLE_LOGOS.orbit, primary: LEDGERLY_KIT.primary, demo: true },
+  { id: "tl", name: "Tutorlane", primary: "#7A3B8F", roleLabel: "Admin" },
+];
+
+/** Enough businesses for the filter field ("Find a business…"). */
+export const MANY_SWITCHER_BUSINESSES: SwitcherBusiness[] = [
+  ...SWITCHER_BUSINESSES,
+  { id: "ac", name: "Aurora Candles", primary: "#F5B841" },
+  { id: "bk", name: "Brightkeel Labs", primary: "#1F6F5F", roleLabel: "Member" },
+  { id: "fm", name: "Fieldmouse Farms", logoSrc: SAMPLE_LOGOS.fold, primary: "#7A3B8F" },
+  { id: "ob", name: "Orbit Bikes", primary: "#2B6CB0", roleLabel: "Viewer" },
+  { id: "pq", name: "Pequod Coffee", primary: "#8C5A2B" },
+  { id: "sw", name: "Swiftledger Payroll", primary: "#0F1318", roleLabel: "Advisor" },
+];

@@ -6,6 +6,7 @@
 import type { PaletteItem, SearchQuery } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
+import { accountRoutes } from "./account-routes";
 import { canOpenDepartment, FULL_ACCESS, type Access } from "./access";
 import { entityHref } from "./entity-links";
 
@@ -96,12 +97,13 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
   if (access.isAdmin) items.push({ id: "command:stop-all", kind: "command", label: "Stop all agents", description: "Kill switch: pause every workflow, engine and campaign" });
   items.push({ id: "command:sign-out", kind: "command", label: "Sign out", description: "End your session on this device", keywords: ["log out", "logout", "sign off"] });
   if (access.isAdmin) items.push({ id: "command:holiday", kind: "command", label: "Go on vacation", description: "Hand the business to the Chief of Staff", href: routes.settings(bid, "mode") });
-  // Every other business the founder can open, and a new one (audit IAE-08, WEB-13).
+  // Every other business the founder can open, a new one and the list of them all (audit IAE-08, WEB-13).
   for (const b of input.businesses ?? []) {
     if (b.id === bid) continue;
-    items.push({ id: `business:${b.id}`, kind: "command", label: `Open ${b.name}`, description: "Switch business", href: routes.home(b.id), keywords: ["switch", "business", b.name] });
+    items.push({ id: `business:${b.id}`, kind: "command", label: `Switch to ${b.name}`, description: "Switch business", href: routes.home(b.id), keywords: ["switch", "business", "open", b.name] });
   }
-  items.push({ id: "command:new-business", kind: "command", label: "New business", description: "Start another business from an idea or an import", href: "/new", keywords: ["start", "another", "create", "business", "idea"] });
+  items.push({ id: "command:new-business", kind: "command", label: "Create a new business", description: "From an idea in the Ideation Studio, or import what already exists", href: accountRoutes.newBusiness, keywords: ["new business", "create", "start", "another", "business", "idea", "import"] });
+  items.push({ id: "command:manage-businesses", kind: "command", label: "Manage businesses", description: "Open one, change its settings or restore an archived one", href: accountRoutes.businesses, keywords: ["businesses", "manage", "archived", "restore", "your businesses"] });
   items.push({ id: "command:profile", kind: "command", label: "Your profile", description: "Your founder profile: name, background and preferences", href: "/onboarding", keywords: ["profile", "founder", "account", "me"] });
   for (const it of input.inboxItems ?? []) {
     if (it.state === "archived") continue;
