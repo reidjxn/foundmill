@@ -32,7 +32,7 @@ import {
   type QuickReply,
 } from "@foundmill/models";
 import type { AgentPresence, AgentStatus, ConversationAuthorKind, ConversationSubjectKind, QuickReplyKind } from "@foundmill/shared";
-import { buildSystemPrompt, hasClubRulesPrefix } from "./club-rules";
+import { buildSystemPrompt, hasClubRulesPrefix, type AgentSkillPrompt } from "./club-rules";
 import { agentConversationPrompt } from "./prompts/agent-conversation";
 import { researcher as researcherTemplate } from "./templates/workers/researcher";
 import type { AgentInstructions, AgentVoice } from "./types";
@@ -591,6 +591,8 @@ export interface ConversationRequestInput {
     instructions: AgentInstructions;
     description?: string;
     voice: AgentVoice;
+    /** Skills the founder added (library or file): the "## Skills" section after the instructions. */
+    skills?: readonly AgentSkillPrompt[];
   };
   brief?: string;
   glossary?: Record<string, string>;
@@ -688,6 +690,7 @@ export function buildConversationRequest(input: ConversationRequestInput): Conve
     template: { instructions: input.agent.instructions, description: input.agent.description },
     brief: input.brief,
     glossary: input.glossary,
+    skills: input.agent.skills,
   });
   if (!hasClubRulesPrefix(agentSystem)) throw new Error("conversation system prompt must start with the house rules");
   const conversation = agentConversationPrompt.render({ agent_name: input.agent.name, agent_role: input.agent.role || "agent", business_name: input.businessName, max_words: CONVERSATION_MAX_WORDS });
