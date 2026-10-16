@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import { KitBar } from "./KitBar";
-import { FIXTURE_TODAY, LEDGERLY_KIT, NORTHWIND_KIT } from "./fixtures";
+import { FIXTURE_TODAY, LEDGERLY_KIT, NORTHWIND_KIT, SWITCHER_BUSINESSES } from "./fixtures";
 
 const meta = {
   title: "Shell/Top bar",
@@ -41,17 +41,10 @@ export const Ledgerly: Story = { args: { kit: LEDGERLY_KIT, businessName: "Ledge
 /** No logo yet: the initials mark in the primary, separated from the bar by its hairline. */
 export const WithoutLogo: Story = { name: "No logo yet → initials mark", args: { logoSrc: null } };
 
-export const BusinessMenu: Story = {
-  name: "Business menu",
-  args: {
-    businessMenu: {
-      businesses: [{ id: "nw", name: "Northwind Skincare", current: true }, { id: "lg", name: "Ledgerly" }, { id: "tl", name: "Tutorlane" }],
-      onOpenBusiness: () => {},
-      onNewBusiness: () => {},
-      onProfile: () => {},
-    },
-  },
-  parameters: { docs: { description: { story: "The logo and name open a menu: Home, every business the founder can open (the current one ticked), Start another business and Your profile." } } },
+export const SwitchBusiness: Story = {
+  name: "Switch business",
+  args: { businessMenu: { businesses: SWITCHER_BUSINESSES, onOpenBusiness: () => {}, onNewBusiness: () => {}, onManageBusinesses: () => {}, onProfile: () => {} } },
+  parameters: { docs: { description: { story: "The logo and name are the business switcher: a chevron after the name and the tooltip “Switch business”. It opens the founder's businesses (the current one first and checked, logos, role and Demo chips), a filter from six businesses, then Create a new business, Manage businesses, Home and Your profile." } } },
 };
 
 export const ConnectionDown: Story = {

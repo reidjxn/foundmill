@@ -102,21 +102,22 @@ describe("AppShell", () => {
     expect(mark.querySelector("path")).toBeNull();
   });
 
-  it("the business name opens Home, the founder's other businesses and Start another business (audit IAE-08)", async () => {
+  it("the logo and name are Switch business: the founder's other businesses, Create a new business and Home (audit IAE-08)", async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
     const onOpenBusiness = vi.fn();
     const onNewBusiness = vi.fn();
     const businessMenu = { businesses: [{ id: "nw", name: "Northwind Skincare", current: true }, { id: "lg", name: "Ledgerly" }], onOpenBusiness, onNewBusiness };
     render(<AppShell {...shellProps({ onNavigate, businessMenu })} />);
-    await user.click(screen.getByRole("button", { name: "Northwind Skincare: Home and your businesses" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Ledgerly" }));
+    const trigger = screen.getByRole("button", { name: "Switch business: Northwind Skincare" });
+    await user.click(trigger);
+    await user.click(await screen.findByRole("option", { name: /Ledgerly/ }));
     expect(onOpenBusiness).toHaveBeenCalledWith("lg");
-    await user.click(screen.getByRole("button", { name: "Northwind Skincare: Home and your businesses" }));
-    await user.click(await screen.findByRole("menuitem", { name: /Start another business/ }));
+    await user.click(trigger);
+    await user.click(await screen.findByRole("option", { name: /Create a new business/ }));
     expect(onNewBusiness).toHaveBeenCalledTimes(1);
-    await user.click(screen.getByRole("button", { name: "Northwind Skincare: Home and your businesses" }));
-    await user.click(await screen.findByRole("menuitem", { name: /^Home$/ }));
+    await user.click(trigger);
+    await user.click(await screen.findByRole("option", { name: /^Home$/ }));
     expect(onNavigate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "home" }));
   });
 

@@ -6,6 +6,7 @@ export * from "./shell/ShellLink";
 export * from "./shell/AppShell";
 export * from "./shell/Sidebar";
 export * from "./shell/KitBar";
+export * from "./shell/BusinessSwitcher";
 export * from "./shell/KitBarFit";
 export * from "./shell/ContinueButton";
 export * from "./shell/StopAllAgents";
