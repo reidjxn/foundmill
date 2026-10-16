@@ -3,7 +3,7 @@
  * stopAllAgents/resumeAgents/export/archive/restore/listArchived/requestDeletion/cancelDeletion (BUILD §9.4, §9.6, §11.15, §14).
  */
 import { LIMITS, liveModeOpen } from "@foundmill/config";
-import { HolidayRunningError, repos, SLUG_TAKEN, UpdateBusinessInput } from "@foundmill/db";
+import { HolidayRunningError, repos, SLUG_TAKEN, UpdateBusinessInput, type Db } from "@foundmill/db";
 import { demoBusinessIdForSlug } from "@foundmill/db/seed/constants";
 import { BUSINESS_SETTINGS_FIELDS, businessStreamKey } from "@foundmill/events";
 import { PRICING_CURRENCY } from "@foundmill/models";
@@ -17,6 +17,7 @@ import { archiveBusiness, cancelDeletion, deletionState, exportBusiness, request
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { modelLimited } from "../services/model-limits";
 import { noteAsSeenBy } from "../services/inbox-redaction";
+import type { Context } from "../context";
 import { adminArchivedProcedure, adminProcedure, archivedBusinessProcedure, assertLiveOpen, audit, businessProcedure, emit, ownerArchivedProcedure, ownerProcedure, protectedProcedure, router, writeProcedure } from "../trpc";
 import { businessLogoRouter } from "./logo";
 
@@ -58,6 +59,33 @@ const AutopilotSettingsInput = z.object({
   spendCeilingMinor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable().optional(),
   maxIdleCycles: z.number().int().min(AUTOPILOT_LIMITS.maxIdleCycles.min).max(AUTOPILOT_LIMITS.maxIdleCycles.max).optional(),
 });
+
+const journeyRefreshes = new WeakMap<Db, { running: Promise<void> | null; again: boolean }>();
+
+/**
+ * Rebuilds the Journey's daily rows in the background (`refresh_journey_daily()`, over every business: 450-850 ms in
+ * production, which `business.setTimeZone` used to wait for; audit api-db F6). A request while one runs folds into one
+ * more right after it; a failure is logged and left to the orchestrator's refresh every 15 minutes. Resolves when the
+ * rebuild it joined has finished (tests wait on it; the router does not).
+ */
+export function refreshJourneyDailySoon(ctx: Pick<Context, "db" | "log">): Promise<void> {
+  let state = journeyRefreshes.get(ctx.db);
+  if (!state) journeyRefreshes.set(ctx.db, (state = { running: null, again: false }));
+  const s = state;
+  if (s.running) {
+    s.again = true;
+    return s.running;
+  }
+  const run = async () => {
+    do {
+      s.again = false;
+      await repos.journeys.refreshDaily(ctx.db).catch((err: unknown) => ctx.log.warn({ err: (err as Error)?.message }, "journey_daily refresh after a time zone change failed; the scheduled refresh retries"));
+    } while (s.again);
+    s.running = null;
+  };
+  s.running = run();
+  return s.running;
+}
 
 export const businessRouter = router({
   logo: businessLogoRouter,
@@ -219,7 +247,7 @@ export const businessRouter = router({
   /**
    * The business time zone (0041): Home's "today", week and month, the Journey's days and the top bar's date follow it.
    * The app sets it from an owner's or admin's browser the first time they open the business; Settings › Business
-   * changes it. The Journey's daily rows are rebuilt in the new zone right away.
+   * changes it. The Journey's daily rows are rebuilt in the new zone right after, in the background.
    */
   setTimeZone: adminProcedure.input(z.object({ timeZone: z.string().min(1).max(64).refine(isValidTimeZone, "Pick a time zone such as America/New_York") })).mutation(async ({ ctx, input }) => {
     const business = await ctx.rls(async (tx) => {
@@ -228,8 +256,9 @@ export const businessRouter = router({
       if (from !== input.timeZone) await audit(tx, ctx, { action: "business.set_time_zone", target: { kind: "business", id: ctx.businessId }, details: { from, to: input.timeZone } });
       return updated;
     });
-    // Best effort: the nightly refresh (and every later one) buckets in the new zone anyway.
-    if (ctx.business.timeZone !== input.timeZone) await repos.journeys.refreshDaily(ctx.db).catch(() => undefined);
+    // Not awaited: the rebuild covers every business and the answer does not depend on it. The nightly refresh (and
+    // every later one) buckets in the new zone anyway.
+    if (ctx.business.timeZone !== input.timeZone) void refreshJourneyDailySoon(ctx);
     return business;
   }),
 

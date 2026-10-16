@@ -2,8 +2,10 @@
  * 0041 through the API: saved table views persist per person (audit #204), and the business time zone sets the
  * Journey's "today" (audit #196).
  */
+import { repos } from "@foundmill/db";
 import { TRPCError } from "@trpc/server";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { refreshJourneyDailySoon } from "../routers/business";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -49,6 +51,33 @@ describe("business.setTimeZone and the Journey's today", () => {
     const set = await hz.caller({ userId: hz.A.ownerId }).business.setTimeZone({ businessId: hz.A.businessId, timeZone: "Pacific/Kiritimati" });
     expect(set.timeZone).toBe("Pacific/Kiritimati");
     expect((await hz.caller({ userId: hz.A.memberId }).business.get({ businessId: hz.A.businessId })).business.timeZone).toBe("Pacific/Kiritimati");
+  });
+
+  it("saves the zone without waiting for the Journey's rebuild, which it asks for in the background (audit api-db F6)", async () => {
+    // The rebuild covers every business (850 ms in production): here it runs until the test lets it finish.
+    const releases: Array<() => void> = [];
+    const refresh = vi.spyOn(repos.journeys, "refreshDaily").mockImplementation(() => new Promise<void>((resolve) => void releases.push(resolve)));
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    try {
+      expect((await owner.business.setTimeZone({ businessId: hz.A.businessId, timeZone: "Europe/Lisbon" })).timeZone).toBe("Europe/Lisbon");
+      expect((await owner.business.get({ businessId: hz.A.businessId })).business.timeZone).toBe("Europe/Lisbon");
+      expect(refresh).toHaveBeenCalledTimes(1);
+      // Two more changes while it runs fold into one rebuild right after it; the same zone again asks for none.
+      await owner.business.setTimeZone({ businessId: hz.A.businessId, timeZone: "America/Chicago" });
+      await owner.business.setTimeZone({ businessId: hz.A.businessId, timeZone: "America/Denver" });
+      await owner.business.setTimeZone({ businessId: hz.A.businessId, timeZone: "America/Denver" });
+      expect(refresh).toHaveBeenCalledTimes(1);
+      releases.shift()!();
+      await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+      releases.shift()!();
+      // A rebuild that fails is logged and left to the scheduled one; the change it followed stands.
+      refresh.mockRejectedValueOnce(new Error("canceling statement due to statement timeout"));
+      await refreshJourneyDailySoon({ db: hz.deps.db, log: hz.deps.log });
+      expect(refresh).toHaveBeenCalledTimes(3);
+    } finally {
+      refresh.mockRestore();
+    }
+    await owner.business.setTimeZone({ businessId: hz.A.businessId, timeZone: "Pacific/Kiritimati" });
   });
 
   it("journey.ribbon's default today is the business's day, not UTC's", async () => {
