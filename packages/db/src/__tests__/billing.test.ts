@@ -182,7 +182,7 @@ describe("included credits: one pool a month per founder (SEC2 S6)", () => {
     expect((await charge(first.id, 10, 4)).credits?.balance).toMatchObject({ period: "2027-05", grantedMinor: FREE_INCLUDED });
     await repos.businesses.archive(r.db, first.id);
 
-    // The free plan holds one business: the archive frees the place, not a second $5 this month.
+    // The free plan's included credits cover one business a month: a second business this month gets nothing included.
     const second = await open("Pool Second");
     expect(await includedCreditsFor(r.db, second, "2027-05")).toBe(0);
     expect(await platformCredits(r.db, second, "2027-05")).toMatchObject({ includedMinor: 0, balanceMinor: 0, exhausted: true });
@@ -197,7 +197,7 @@ describe("included credits: one pool a month per founder (SEC2 S6)", () => {
     // A month's stop for used-up credits does not hold the next month's calls back.
     await expect(assertPlatformCredits(r.db, second.id, { live: false, now: in2027(20, 5) })).resolves.toMatchObject({ ok: true });
 
-    // On Scale the plan holds unlimited businesses: every one gets its included credits.
+    // On Scale every business gets its included credits.
     await repos.businesses.update(r.db, second.id, { planTier: "scale" });
     expect(await includedCreditsFor(r.db, { ...first, planTier: "scale" }, "2027-06")).toBe(includedCreditsMinor("scale"));
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CREDITS_CURRENCY, higherTier, includedCreditsMinor, initialModelBilling, sandboxCostMicroMinor, SANDBOX_MICRO_MINOR_PER_SECOND, TIER_ORDER, TIERS, tierBusinessLimit } from "../pricing";
+import { CREDITS_CURRENCY, higherTier, includedCreditsMinor, initialModelBilling, sandboxCostMicroMinor, SANDBOX_MICRO_MINOR_PER_SECOND, TIER_ORDER, TIERS, tierBusinessLimit, tierIncludedCreditPlaces } from "../pricing";
 
 describe("pricing tiers (BUILD §10.5)", () => {
   it("keeps credits in US dollars and includes a bounded platform credit on every tier", () => {
@@ -16,11 +16,19 @@ describe("pricing tiers (BUILD §10.5)", () => {
     for (const tier of TIER_ORDER) expect(initialModelBilling(tier)).toBe("credits");
   });
 
-  it("states the free tier's limits: one business, four agents at once, one seat", () => {
-    expect(TIERS.free).toMatchObject({ businesses: 1, maxConcurrentAgents: 4, seats: 1 });
-    expect(tierBusinessLimit("free")).toBe(1);
-    expect(tierBusinessLimit("pro")).toBe(3);
-    expect(tierBusinessLimit("scale")).toBeNull();
+  it("no business limit on any plan until paid plans launch (founder, 2026-10-16); the included-credit pool keeps its size", () => {
+    for (const tier of TIER_ORDER) {
+      expect(TIERS[tier].businesses).toBe("unlimited");
+      expect(tierBusinessLimit(tier)).toBeNull();
+    }
+    // The founder's monthly pool of included credits (SEC2 S6) is its own number, so more businesses never mean more free credits.
+    expect(tierIncludedCreditPlaces("free")).toBe(1);
+    expect(tierIncludedCreditPlaces("pro")).toBe(3);
+    expect(tierIncludedCreditPlaces("scale")).toBeNull();
+  });
+
+  it("states the free tier's other limits: four agents at once, one seat", () => {
+    expect(TIERS.free).toMatchObject({ maxConcurrentAgents: 4, seats: 1 });
   });
 
   it("orders tiers from free to scale", () => {
