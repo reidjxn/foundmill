@@ -21,7 +21,8 @@ const count = async (table: "events" | "inbox_items", id: string) => (await one<
 
 beforeAll(async () => {
   const all = readMigrations();
-  h = await createTestDb({ migrations: all.filter((m) => m.tag < TAG) });
+  // Every other migration, later ones included (as the 0052 and 0056 tests do): the shared fixture writes their columns.
+  h = await createTestDb({ migrations: all.filter((m) => m.tag !== TAG) });
   A = await createBusinessFixture(h, "m56");
   const q = async (text: string, params: unknown[] = []) => (await h.pg.query<{ id: string }>(text, params)).rows[0]!.id;
   const event = (type: string, payload: object = {}) => q(`insert into events (business_id, type, payload) values ($1, $2, $3::jsonb) returning id`, [A.businessId, type, JSON.stringify(payload)]);
