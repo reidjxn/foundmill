@@ -14,8 +14,10 @@ describe("settings logic", () => {
   });
 
   it("states each tier's limits and its monthly model credits in US dollars", () => {
-    expect(tierFacts("free")).toEqual(["1 business", "4 agents at once", "1 seat", "$5.00 of model credits a month", "Then credits or your key"]);
-    expect(includedCreditsFact("pro")).toBe("Monthly credits to be announced (at least $5.00)");
+    // No business limit on any plan for now (founder, 2026-10-16); the included credits still cover the plan's pool.
+    expect(tierFacts("free")).toEqual(["Unlimited businesses", "4 agents at once", "1 seat", "$5.00 of model credits a month, for 1 business", "Then credits or your key"]);
+    expect(includedCreditsFact("pro")).toBe("Monthly credits to be announced (at least $5.00), for 3 businesses");
+    expect(includedCreditsFact("scale")).toBe("Monthly credits to be announced (at least $5.00), for every business");
     expect(tierFacts("scale")[0]).toBe("Unlimited businesses");
   });
 

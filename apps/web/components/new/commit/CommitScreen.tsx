@@ -10,16 +10,16 @@
  * `CommitForm` is pure apart from the local trademark screen and the logo and domain calls it is handed (`logoApi`,
  * `domainApi`); `CommitScreen` loads the idea, wires those calls to tRPC and commits.
  */
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, Check, Globe, Lock, RotateCw, Scale, SearchX, ThumbsUp } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype, type BusinessMode, type DeptColourToken, type GameMode } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { Avatar, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, Switch, cn, fieldDescribedBy, formatMoney, useFormatters, useToast, type Kit } from "@foundmill/dugout";
-import { plainWords, plural } from "@/lib/format";
+import { Avatar, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, Switch, cn, fieldDescribedBy, formatMoney, useDateFormat, useFormatters, useToast, type Kit } from "@foundmill/dugout";
+import { formatDate, plainWords, plural } from "@/lib/format";
 import { useSingleFlight } from "@/lib/single-flight";
-import { errorMessage, tierLimitOf, trpcErrorCode, type RouterOutputs } from "@/lib/trpc";
+import { errorMessage, tierLimitOf, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
 import { IMPORT_STEPS, STUDIO_STEPS, StudioFrame, type StudioStepItem } from "../StudioFrame";
@@ -27,6 +27,7 @@ import { conceptErrorMessage, isConceptGone } from "../ideate/concept-errors";
 import { readMeta, toConcept, type IdeaLike } from "../ideate/concepts";
 import type { GeneratedLogoSet, LogoActions, LogoProgress } from "@/components/logo/LogoPicker";
 import { readLogoStream } from "@/components/logo/logo-stream";
+import { creditsNoticeOf } from "./credits-notice";
 import { LogoColoursEditor } from "./LogoColoursEditor";
 import {
   ARCHETYPE_CARDS,
@@ -84,6 +85,10 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
   const { toast } = useToast();
   const ideaQ = useQuery(trpc.idea.get.queryOptions({ ideaId }));
   const featuresQ = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
+  // This month's included-credit pool (SEC2 S6): Commit says before Take charge when the new team would start paused.
+  const allowanceQ = useQuery(trpc.founder.businesses.allowance.queryOptions(undefined, { staleTime: 60_000, retry: false }));
+  const datePrefs = useDateFormat();
+  const queryClient = useQueryClient();
   const [archetype, setArchetype] = useState<Archetype | null>(null);
   const previewQ = useQuery(trpc.idea.preview.queryOptions({ archetype: archetype ?? "b2b_saas" }, { enabled: archetype !== null, staleTime: 60_000 }));
   // Whether the founder's 18+ confirmation is on record (a LIVE start asks for it otherwise).
@@ -107,6 +112,8 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
         // A second Take charge of this idea (another tab, a retried request) answers with the business the first created.
         toast({ title: res.alreadyCommitted ? `${res.business.name} is already yours` : `${res.business.name} is yours`, description: "The Board's first item is waiting in the Inbox.", tone: "good" });
         const to = routes.inbox(res.business.id, res.boardItem.id);
+        // The new business is in the founder's lists at once (Switch business, Your businesses).
+        void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("founder") as unknown[] });
         router.push(to);
         // Belt and braces: if the client-side move has not happened in a few seconds, load the page outright.
         window.setTimeout(() => {
@@ -192,6 +199,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
       committing={commit.isPending || commit.isSuccess}
       error={commit.error ? errorMessage(commit.error) : null}
       upgradeHref={upgradeHrefOf(commit.error)}
+      creditsNotice={creditsNoticeOf(allowanceQ.data?.includedCredits, (d) => formatDate(d, datePrefs))}
       adultConfirmed={summaryQ.data?.adultConfirmed === true}
       liveOpen={featuresQ.data?.features.liveMode ?? false}
       onCommit={onCommit}
@@ -223,6 +231,8 @@ export interface CommitFormProps {
   error?: string | null;
   /** Where the plan changes when the commit was refused by the plan's business limit (an upgrade prompt). */
   upgradeHref?: string | null;
+  /** This month's included credits already went to the founder's other businesses: the team starts paused (SEC2 S6). */
+  creditsNotice?: string | null;
   /** The founder's 18+ confirmation is on record already (`live.summary`), so a LIVE start does not ask again. */
   adultConfirmed?: boolean;
   /** Whether LIVE is open on this deployment (`founder.profile.get` features); while it is not, only Personal is offered. */
@@ -264,7 +274,7 @@ export function upgradeHrefOf(err: unknown): string | null {
 
 const DEBOUNCE_MS = 350;
 
-export function CommitForm({ idea, viewer, currency, initialName, suggestedArchetype, steps, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, adultConfirmed = false, liveOpen = true, onCommit, logoApi, domainApi, back }: CommitFormProps) {
+export function CommitForm({ idea, viewer, currency, initialName, suggestedArchetype, steps, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, creditsNotice, adultConfirmed = false, liveOpen = true, onCommit, logoApi, domainApi, back }: CommitFormProps) {
   const concept = useMemo(() => toConcept(idea), [idea]);
   // The idea's seed only picks the starting brand colours now; the logo is uploaded or generated.
   const ideaSeed = String(readMeta(idea.current?.research).crest_seed ?? idea.id);
@@ -615,6 +625,12 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                 {Number.isFinite(capMinor) && form.spendCap.trim() ? <Chip>Cap {formatMoney({ amountMinor: capMinor, currency: form.currency })}</Chip> : null}
                 {form.autopilot ? <Chip>Autopilot</Chip> : null}
               </div>
+              {creditsNotice ? (
+                <div data-testid="commit-credits-notice" className="mt-3 flex flex-col items-start gap-1.5">
+                  <StatusPill tone="warn">Team starts paused</StatusPill>
+                  <p className="text-small text-pretty text-secondary">{creditsNotice}</p>
+                </div>
+              ) : null}
               <Button type="submit" variant="primary" icon={ThumbsUp} loading={committing} className="mt-4 w-full" data-testid="take-charge-bottom">
                 Take charge
               </Button>

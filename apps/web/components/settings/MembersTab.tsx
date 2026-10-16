@@ -13,6 +13,7 @@ import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
+import { ROLE_WORD } from "@/lib/roles";
 
 const ROLE_HELP: Record<MembershipRole, string> = {
   owner: "Everything, including tier changes and permanent actions.",
@@ -22,8 +23,7 @@ const ROLE_HELP: Record<MembershipRole, string> = {
   advisor: "Read only, invited for advice.",
 };
 
-/** "owner" → "Owner": roles are shown as words, never as stored values. */
-export const ROLE_WORD: Record<MembershipRole, string> = { owner: "Owner", admin: "Admin", member: "Member", viewer: "Viewer", advisor: "Advisor" };
+export { ROLE_WORD };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

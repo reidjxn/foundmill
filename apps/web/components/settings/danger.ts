@@ -1,13 +1,13 @@
 /**
- * Pure helpers shared by Settings › Danger zone and New business › Archived businesses (BUILD §11.15): saving the
+ * Pure helpers shared by Settings › Danger zone and Your businesses › Archived businesses (BUILD §11.15): saving the
  * `business.export` archive as a file and the words that say what it holds.
  */
 import { downloadText, exportJson } from "@/lib/download";
 import { formatNumber } from "@/lib/format";
 
 export const DELETION_DELAY_DAYS = 7;
-/** Where an archived business is listed for its owner (Restore, Export everything, Delete permanently). */
-export const ARCHIVED_HREF = "/new#archived";
+/** Where an archived business is listed for its owner (Restore, Export everything, Delete permanently): Your businesses. */
+export const ARCHIVED_HREF = "/businesses#archived";
 
 /** What `business.export` returns that the page needs to save the file and say what it holds. */
 export interface ExportedArchive {

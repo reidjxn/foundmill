@@ -1,15 +1,17 @@
 "use client";
 /**
- * /new — Door A (Ideation Studio) or Door B (Import an existing business), BUILD §11.1. Two large choices, each a
+ * /new — Create a new business: Door A (Ideation Studio) or Door B (Import an existing business), BUILD §11.1. A
+ * founder who came from a business (Switch business › Create a new business) has Back to it. Two large choices, each a
  * panel with a logo-sized icon, what happens behind the door and who it is for. Earlier concepts are listed below
  * so a founder who left mid-studio can pick up where they stopped, and under them the businesses the founder archived
  * (Restore, Export everything, Delete permanently; `#archived`).
  */
-import { ArrowRight, FolderInput, Lightbulb } from "lucide-react";
+import { ArrowLeft, ArrowRight, FolderInput, Lightbulb } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Chip, Icon, Panel, StarRating, buttonVariants, cn, type IconComponent } from "@foundmill/dugout";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { LinkButton } from "./LinkButton";
 import { plural } from "@/lib/format";
 import { useTRPC } from "@/lib/trpc-react";
@@ -22,6 +24,8 @@ export interface DoorsProps {
   /** From founder.profile.get: the profile line shown under the title. */
   profileLine?: string | null;
   businessCount: number;
+  /** The business the founder came from (the last one opened): Back to it. Null for a first business. */
+  backTo?: { id: string; name: string } | null;
 }
 
 interface Door {
@@ -67,14 +71,31 @@ export function conceptsMeta(shown: number, more: boolean): string | undefined {
   return more ? `${shown} newest` : plural(shown, "concept");
 }
 
-export function Doors({ viewer, profileLine, businessCount }: DoorsProps) {
+/** The page's title: a founder with a business creates another; a new founder starts their first. */
+export function doorsTitle(businessCount: number): string {
+  return businessCount > 0 ? "Create a new business" : "Your first business";
+}
+
+export function Doors({ viewer, profileLine, businessCount, backTo }: DoorsProps) {
   const trpc = useTRPC();
   const router = useRouter();
   const ideasQ = useQuery(trpc.idea.list.queryOptions({ limit: CONCEPTS_SHOWN }, { staleTime: 15_000 }));
   const ideas = ideasQ.data?.items ?? [];
   const moreConcepts = Boolean(ideasQ.data?.nextCursor);
   return (
-    <StudioFrame step="new" title={businessCount > 0 ? "Start another business" : "Your first business"} lede={profileLine ? `Your profile: ${profileLine}.` : "Two doors. Both end at the same Commit screen."} viewer={viewer}>
+    <StudioFrame
+      step="new"
+      title={doorsTitle(businessCount)}
+      lede={profileLine ? `Your profile: ${profileLine}.` : "Two doors. Both end at the same Commit screen."}
+      viewer={viewer}
+      actions={
+        backTo ? (
+          <LinkButton variant="ghost" icon={ArrowLeft} href={routes.home(backTo.id)} data-testid="new-back-to-business">
+            Back to {backTo.name}
+          </LinkButton>
+        ) : null
+      }
+    >
       <div className="grid grid-cols-2 gap-gutter" data-testid="doors">
         {DOORS.map((d) => (
           <Link

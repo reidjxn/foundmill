@@ -19,7 +19,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Coins, CreditCard, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor, PRICE_TBA_LABEL, TIERS, type TierKey } from "@foundmill/config";
+import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor, PRICE_TBA_LABEL, tierIncludedCreditPlaces, TIERS, type TierKey } from "@foundmill/config";
 import { Button, Chip, IconButton, KeyValueList, MiniTable, ProvenanceChip, SimpleSelect, StatusPill, formatCompact, useDateFormat, type DateFormatPrefs, type StatusTone } from "@foundmill/dugout";
 import { PLAN_TIERS } from "@foundmill/shared/constants";
 import { formatMoney, formatMonthYear, formatNumber, plainWords, plural } from "@/lib/format";
@@ -57,10 +57,15 @@ export function periodLabel(period: string, prefs?: DateFormatPrefs | null): str
   return formatMonthYear(new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, 1)), { long: true }, prefs);
 }
 
-/** "$5.00 of model credits a month" ("to be announced, at least $5.00" while a paid tier's size is open). */
+/**
+ * "$5.00 of model credits a month, for 1 business" ("to be announced, at least $5.00" while a paid tier's size is open):
+ * the founder's monthly pool covers the plan's `includedCreditBusinesses` (SEC2 S6), whatever the number of businesses.
+ */
 export function includedCreditsFact(tier: TierKey): string {
   const amount = formatMoney({ amountMinor: includedCreditsMinor(tier), currency: CREDITS_CURRENCY });
-  return typeof TIERS[tier].includedCreditsMinor === "number" ? `${amount} of model credits a month` : `Monthly credits to be announced (at least ${amount})`;
+  const places = tierIncludedCreditPlaces(tier);
+  const forWhom = places === null ? ", for every business" : `, for ${plural(places, "business", "businesses")}`;
+  return (typeof TIERS[tier].includedCreditsMinor === "number" ? `${amount} of model credits a month` : `Monthly credits to be announced (at least ${amount})`) + forWhom;
 }
 
 /** What a tier includes, in plain words with correct plurals ("1 business", "3 seats", "Unlimited businesses"). */

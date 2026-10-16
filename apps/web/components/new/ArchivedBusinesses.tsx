@@ -1,6 +1,6 @@
 "use client";
 /**
- * New business › Archived businesses (BUILD §11.15): the archived businesses the signed-in account owns
+ * Your businesses and Create a new business › Archived businesses (BUILD §11.15; `#archived` on both pages): the archived businesses the signed-in account owns
  * (`business.listArchived`), each with Restore (`business.restore`, then its Home opens; its agents stay stopped until
  * resumed), Export everything (`business.export`, saved as a JSON file) and Delete permanently
  * (`business.requestDeletion`: fresh sign-in, typed name, 7-day delay; `business.cancelDeletion` while scheduled).
@@ -48,7 +48,8 @@ function ArchivedBusinessRow({ row }: { row: ArchivedRow }) {
   const [typedName, setTypedName] = useState("");
   const { business, deletion } = row;
   const businessId = business.id;
-  const refresh = () => queryClient.invalidateQueries({ queryKey: trpcPathPrefix("business") as unknown[] });
+  // A restored business is back in the founder's lists too (Switch business, Your businesses).
+  const refresh = () => Promise.all(["business", "founder"].map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] })));
 
   const restore = useMutation(
     trpc.business.restore.mutationOptions({
