@@ -149,14 +149,9 @@ export const liveRouter = router({
    * moderate; and whether they have confirmed that they are 18 or older (the LIVE pages ask until they have).
    */
   summary: protectedProcedure.query(async ({ ctx }) => {
-    const [unreadMessages, requestsWaiting, invitations, moderation, adultConfirmedAt] = await Promise.all([
-      repos.social.unreadCount(ctx.db, ctx.userId),
-      repos.social.incomingRequestCount(ctx.db, ctx.userId),
-      repos.social.invitationCount(ctx.db, ctx.userId),
-      repos.social.moderationCount(ctx.db, ctx.userId),
-      repos.social.adultConfirmedAt(ctx.db, ctx.userId),
-    ]);
-    return { unreadMessages, requestsWaiting, invitations, moderation, total: unreadMessages + requestsWaiting + invitations, adultConfirmed: adultConfirmedAt !== null };
+    // Five counts in one statement: one round trip on one pooled connection.
+    const { unreadMessages, requestsWaiting, invitations, moderation, adultConfirmed } = await repos.social.badge(ctx.db, ctx.userId);
+    return { unreadMessages, requestsWaiting, invitations, moderation, total: unreadMessages + requestsWaiting + invitations, adultConfirmed };
   }),
 
   connections: router({

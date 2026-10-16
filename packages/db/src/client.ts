@@ -163,9 +163,22 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /**
  * The statement that makes RLS apply to a transaction: `set_config('role', …, true)` is `set local role` (the same
  * privilege check, transaction-local) and `request.jwt.claims` is what auth.uid() reads. Both values are bound
- * parameters ($1 and $2), never interpolated.
+ * parameters ($1 and $2), never interpolated. It also turns JIT compilation off for the transaction, in the same round
+ * trip: a policy calls a function on every row it checks, which makes aggregates over a business's history look costly
+ * enough to compile, and compiling took longer than the query (audit api-db F5).
  */
-const RLS_SETUP_SQL = "select set_config('role', $1, true), set_config('request.jwt.claims', $2, true)";
+const RLS_SETUP_SQL = "select set_config('role', $1, true), set_config('request.jwt.claims', $2, true), set_config('jit', 'off', true)";
+
+/** The role each `withRls` transaction runs as, by its transaction handle (`rlsRoleOf`). */
+const rlsRoles = new WeakMap<object, RlsRole>();
+
+/**
+ * The role `db` runs as when it is a transaction `withRls` opened (its callback's `tx`), else undefined: then only the
+ * server can say (`bypassesRls` in repos/_shared asks it).
+ */
+export function rlsRoleOf(db: object): RlsRole | undefined {
+  return rlsRoles.get(db);
+}
 
 /** The postgres.js handle a Drizzle transaction runs on (its postgres-js session), or null on another driver (PGlite). */
 function postgresJsClient(tx: DbTx): Pick<Sql, "unsafe"> | null {
@@ -190,11 +203,12 @@ export async function withRls<T>(db: Db, ctx: RlsContext, fn: (tx: DbTx) => Prom
   if (role !== "anon" && !UUID_RE.test(ctx.userId)) throw new Error("withRls: userId must be a UUID");
   const claims = JSON.stringify({ ...(ctx.claims ?? {}), sub: role === "anon" ? undefined : ctx.userId, role });
   return db.transaction(async (tx) => {
+    rlsRoles.set(tx, role);
     // Infrastructure, not a data query: this statement is what makes RLS apply to everything fn(tx) runs.
     const client = postgresJsClient(tx);
     if (!client) {
       // eslint-disable-next-line fm/no-raw-db -- role switch and JWT claims for this transaction (ARCHITECTURE §4)
-      await tx.execute(sql`select set_config('role', ${role}, true), set_config('request.jwt.claims', ${claims}, true)`);
+      await tx.execute(sql`select set_config('role', ${role}, true), set_config('request.jwt.claims', ${claims}, true), set_config('jit', 'off', true)`);
       return fn(tx);
     }
     // `execute()` queues the statement on the connection now (a postgres.js query is otherwise sent only once
