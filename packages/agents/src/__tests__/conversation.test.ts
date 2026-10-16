@@ -1,5 +1,6 @@
-import { AgentReplyDraft, AgentReplyOutput, MockModelClient, QuickReply } from "@foundmill/models";
+import { AgentReplyDraft, AgentReplyOutput, MockModelClient, QuickReply, streamStructured } from "@foundmill/models";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { hasClubRulesPrefix } from "../club-rules";
 import {
   CONCEPT_BUSINESS_NAME,
@@ -10,11 +11,13 @@ import {
   TAKE_A_BREAK_ID,
   agentPresence,
   allowIdsGuard,
+  bubbleStream,
   buildConversationRequest,
   classifyFounderText,
   conceptConversationInput,
   conversationStarters,
   finaliseAgentReply,
+  finaliseBubble,
   finaliseOptionsFor,
   isConversationalText,
   presenceLabel,
@@ -24,6 +27,7 @@ import {
   trimLabel,
   untrustedContent,
   type ConversationRequestInput,
+  type StreamedBubble,
 } from "../conversation";
 import { chiefOfStaff } from "../templates";
 
@@ -186,6 +190,61 @@ describe("finaliseAgentReply (server-side checks)", () => {
     expect(r.repairs).toEqual(expect.arrayContaining(["read an unknown reaction as none", "read an unknown quick reply kind as ask"]));
     expect(r.repairs).not.toContain("draft did not match the reply shape");
     expect(AgentReplyOutput.safeParse(r.reply).success).toBe(true);
+  });
+});
+
+describe("bubbleStream (a reply shown as it is written, audit MB-1)", () => {
+  const collect = () => {
+    const shown: StreamedBubble[] = [];
+    return { shown, feed: bubbleStream(guard, (b) => void shown.push(b)) };
+  };
+
+  it("shows each bubble through the same checks as the stored reply, in order, skipping empty ones and stopping at three", async () => {
+    const raw = ["  ", `Ask [[ent:${ENT_OK}|Mara]] and [[ent:${ENT_BAD}|Nobody]].`, "I'm a real person, promise.", "x".repeat(400), "A fourth one."];
+    const { shown, feed } = collect();
+    for (const [index, value] of raw.entries()) await feed({ index, value });
+    const fin = finaliseAgentReply({ bubbles: raw, reaction: "noted", quick_replies: [], hand_off: null, refers_to: [] }, { guard });
+    // What was shown while the reply streamed is what is stored, bubble for bubble.
+    expect(shown.map((b) => b.text)).toEqual(fin.reply.bubbles);
+    expect(shown.map((b) => b.index)).toEqual([0, 1, 2]);
+    expect(shown[0]!.text).toBe(`Ask [[ent:${ENT_OK}|Mara]] and Nobody.`);
+    expect(shown[1]!.text).toBe("I'm an AI agent on your team.");
+    expect(shown[2]!.text.length).toBeLessThanOrEqual(320);
+  });
+
+  it("holds a bubble that arrives before the one ahead of it (a repaired element) until that one is shown", async () => {
+    const { shown, feed } = collect();
+    await feed({ index: 1, value: "Second." });
+    expect(shown).toEqual([]);
+    await feed({ index: 0, value: "First." });
+    expect(shown).toEqual([
+      { index: 0, text: "First." },
+      { index: 1, text: "Second." },
+    ]);
+  });
+
+  it("finaliseBubble returns null for a bubble with nothing left", () => {
+    expect(finaliseBubble("   ", guard)).toBeNull();
+    expect(finaliseBubble(`[[ent:${ENT_BAD}|]]`, guard)).toBeNull();
+  });
+
+  it("on the mock's stream: every bubble arrives before the stream ends, and the shown bubbles are the stored ones", async () => {
+    const order: string[] = [];
+    const { shown, feed } = collect();
+    const res = await streamStructured(new MockModelClient(), {
+      ...buildConversationRequest(INPUT),
+      elementPath: "bubbles",
+      elementSchema: z.string(),
+      onElement: async (el) => {
+        order.push(`bubble ${el.index}`);
+        await feed(el);
+      },
+    });
+    order.push("done");
+    const fin = finaliseAgentReply(res.json, { ...finaliseOptionsFor(INPUT), guard });
+    expect(shown.length).toBeGreaterThan(0);
+    expect(order.at(-1)).toBe("done");
+    expect(shown.map((b) => b.text)).toEqual(fin.reply.bubbles);
   });
 });
 

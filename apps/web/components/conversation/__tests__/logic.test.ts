@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RETRY_REPLY_ID, bubbleNeedsMarkdown, deskFailureOf, deskMessagesOf, deskPersonaOf, failureQuickReplies, failureReply, openFailureLine, roleBesideName, samePersonaWords, sayOf, voiceAck, withPlanId, withSent, withoutChoices, type ConversationView } from "../logic";
+import { RETRY_REPLY_ID, STREAM_CUT_MESSAGE, bubbleNeedsMarkdown, deskFailureOf, deskMessagesOf, deskPersonaOf, failureQuickReplies, failureReply, openFailureLine, readReplyStream, roleBesideName, samePersonaWords, sayOf, voiceAck, withPlanId, withSent, withoutChoices, type ConversationView, type ReplyStreamEvent } from "../logic";
 import { agentOfAskItem, askPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "../palette";
 
 const persona = (over: Partial<ConversationView["persona"]> = {}): ConversationView["persona"] =>
@@ -178,5 +178,24 @@ describe("when a send fails (adversarial: api down, model error, limits, stale c
     expect(withoutChoices(msgs, false)).toEqual(msgs);
     expect(withoutChoices(msgs, true)[0]!.quickReplies!.map((q) => q.id)).toEqual(["thanks"]);
     expect(withoutChoices(msgs, true)[1]).toBe(msgs[1]);
+  });
+});
+
+describe("readReplyStream (a reply streamed bubble by bubble, audit MB-1)", () => {
+  async function* events<R>(...list: ReplyStreamEvent<R>[]): AsyncGenerator<ReplyStreamEvent<R>> {
+    for (const e of list) yield e;
+  }
+
+  it("hands on the bubbles so far as each arrives, withdraws them on a reset, and resolves with the stored result", async () => {
+    const seen: string[][] = [];
+    const result = await readReplyStream(events<string>({ type: "bubble", index: 0, text: "One." }, { type: "reset" }, { type: "bubble", index: 0, text: "Uno." }, { type: "bubble", index: 1, text: "Dos." }, { type: "done", result: "stored" }), (b) => seen.push(b));
+    expect(result).toBe("stored");
+    expect(seen).toEqual([["One."], [], ["Uno."], ["Uno.", "Dos."]]);
+  });
+
+  it("a stream that ends without its result reads as a dropped connection, so the desk asks whether the message arrived", async () => {
+    const cut = readReplyStream(events<string>({ type: "bubble", index: 0, text: "One." }), () => undefined);
+    await expect(cut).rejects.toThrow(STREAM_CUT_MESSAGE);
+    expect(deskFailureOf(new Error(STREAM_CUT_MESSAGE)).kind).toBe("offline");
   });
 });

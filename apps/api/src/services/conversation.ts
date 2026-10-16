@@ -8,6 +8,8 @@
  *           anything else → the `conversation` route (house rules first) → `finaliseAgentReply` (mentions, hard gates,
  *           2–4 quick replies) → both messages, `conversation.message_posted` × 2 and the audit entry in ONE transaction.
  *         The model is called before the transaction opens, so no connection waits on it; a failed call writes nothing.
+ *         Streamed (`hooks.emit`, audit MB-1), each bubble of the model's reply is shown once it is written and checked;
+ *         the exchange is still stored only once the whole reply has passed.
  * handOff an agent message's hand-off → `compilePlan` + `evaluatePlan` → the plan.preview shape, and the plan is staged
  *         as `pending_confirmation`. Nothing executes here: the founder runs it with the existing `plan.confirm` (or
  *         answers an Inbox decision with `inbox.decide`).
@@ -24,6 +26,7 @@ import {
   TAKE_A_BREAK_ID,
   ackLine,
   agentPresence,
+  bubbleStream,
   buildConversationRequest,
   conversationStarters,
   finaliseAgentReply,
@@ -41,6 +44,7 @@ import {
   trimLabel,
   type AgentVoice,
   type ConceptCardInput,
+  type ConversationRequest,
   type ConversationRequestInput,
   type ConversationSubjectInput,
   type ConversationTaskInput,
@@ -48,10 +52,11 @@ import {
   type MentionGuard,
   type NudgePreset,
   type StarterSubject,
+  type StreamedBubble,
 } from "@foundmill/agents";
 import { repos, sqlState, type Agent, type AgentMessage, type AgentThread, type DbTx, type InboxItem, type PlanWithActions, type Task } from "@foundmill/db";
 import { buildManifest, stripInvalidMentions, stripMarkup, validateMarkup, type ManifestEntityInput } from "@foundmill/entity-linker";
-import { type AgentReplyOutput, type ModelClient, type PlanAction, type QuickReply } from "@foundmill/models";
+import { ModelError, streamStructured, type AgentReplyDraft, type AgentReplyOutput, type CompleteRequest, type CompleteResultWithJson, type ModelClient, type PlanAction, type QuickReply } from "@foundmill/models";
 import {
   CONVERSATION_SUBJECT_KINDS,
   NotFoundError,
@@ -70,10 +75,12 @@ import {
 } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { audit, effectivePermission, hasSectionAccess, Id, type BusinessContext, type Section } from "../trpc";
+import type { Context } from "../context";
+import { audit, effectivePermission, hasSectionAccess, Id, internalErrorMessage, toTRPCError, type BusinessContext, type Section } from "../trpc";
+import { eventStream } from "./event-stream";
 import { writeEventRows } from "./events";
 import { decideInboxItem, decidesByText, planContextFor, type DecideItemResult } from "./decide";
-import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactText, redactValue } from "./inbox-redaction";
+import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactText, redactValue, type RedactionSource } from "./inbox-redaction";
 import { assertInstructionSectionAccess, assertPlanSectionAccess, compilePlan, evaluatePlan, requiresConfirmation, stagedAction, type ActionEvaluation } from "./plans";
 import { takeOrThrow, type RateLimitStore, type WindowLimit } from "./rate-limit";
 
@@ -579,6 +586,75 @@ async function sentAsSeen(ctx: BusinessContext, r: Resolved, sent: SendResult): 
   return { ...sent, messages: seen.messages, quickReplies: seen.chips };
 }
 
+/**
+ * A bubble shown while the reply is still being written, masked exactly as `sentAsSeen` masks it in the stored reply:
+ * the note's records and the bubble's own mentions are all a bubble's mask reads, so loading only those gives the same
+ * text. The database is read only behind a CRM wall, and only when there is something to look up.
+ */
+async function bubbleAsSeen(ctx: BusinessContext, r: Resolved, text: string): Promise<string> {
+  const walls = inboxWalls(ctx.membership);
+  if (!isWalled(walls)) return text;
+  const ids = [...(r.item ? idsOfItem(r.item) : []), ...mentionIds(text)];
+  const source: RedactionSource = walls.crm && ids.length > 0 ? await ctx.rls((tx) => loadRedactionSource(tx, ctx.businessId, walls, ids)) : { walls, crm: new Map(), keep: new Set() };
+  return redactText(text, source, r.item ? noteMask(r.item) : {});
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Streaming a reply (audit MB-1): the founder reads the first bubble while the rest is still being written
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** What a streamed reply sends before it is stored: a bubble that passed its checks, or `reset` when it is asked again. */
+export type ReplyProgress = ({ type: "bubble" } & StreamedBubble) | { type: "reset" };
+/** One event of `agent.conversation.sendStream`, `inboxReplyStream` and `idea.askStream`: progress, then the stored result. */
+export type ReplyStreamEvent<R> = ReplyProgress | { type: "done"; result: R };
+
+export interface ReplyHooks {
+  /**
+   * Receives the reply's bubbles as the model writes them (only a reply from the model streams; a decision, a staged
+   * hand-off, a scripted or a repeated message has its result at once). Nothing is stored before the whole reply has
+   * passed its checks, so a reply that fails part-way leaves no half exchange.
+   */
+  emit?: (event: ReplyProgress) => void;
+}
+
+/** Errors thrown mid-stream skip the error-mapping middleware: they are mapped the same way here. */
+function replyStreamError(ctx: Pick<Context, "env" | "log" | "requestId">, path: string, err: unknown): TRPCError {
+  const mapped = toTRPCError(err);
+  if (mapped.code !== "INTERNAL_SERVER_ERROR") return mapped;
+  ctx.log.error({ path, err: mapped.cause ?? mapped, requestId: ctx.requestId }, "procedure failed");
+  return new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: internalErrorMessage(mapped.message, ctx.env.APP_ENV, ctx.requestId), cause: mapped.cause });
+}
+
+/**
+ * A reply streamed from `run`: its progress as it comes, then `done` with its result. The stream's own abort signal is
+ * not handed on: the send completes and is stored whether or not anyone is still reading.
+ */
+export async function* replyStream<R>(ctx: Pick<Context, "env" | "log" | "requestId">, path: string, signal: AbortSignal | undefined, run: (emit: (event: ReplyStreamEvent<R>) => void) => Promise<R>): AsyncGenerator<ReplyStreamEvent<R>, void, undefined> {
+  try {
+    yield* eventStream<ReplyStreamEvent<R>>(async (emit) => emit({ type: "done", result: await run(emit) }), signal);
+  } catch (err) {
+    throw replyStreamError(ctx, path, err);
+  }
+}
+
+type ConversationCall = ConversationRequest & Pick<CompleteRequest<AgentReplyDraft>, "attribution" | "scope">;
+
+/**
+ * The `conversation` route call: one `complete()`, or with `stream` a streamed call whose bubbles are shown as each is
+ * written and checked (`bubbleStream`). A streamed reply whose thinking left no room for its JSON is asked again whole
+ * with twice the room, as `complete()` does on its own, after `reset` has withdrawn what was shown.
+ */
+async function conversationReply(models: ModelClient, call: ConversationCall, guard: MentionGuard, stream?: { show: (bubble: StreamedBubble) => void | Promise<void>; reset: () => void }): Promise<CompleteResultWithJson<AgentReplyDraft>> {
+  if (!stream) return models.complete(call);
+  try {
+    return await streamStructured(models, { ...call, elementPath: "bubbles", elementSchema: z.string(), onElement: bubbleStream(guard, stream.show) });
+  } catch (err) {
+    if (!(err instanceof ModelError && err.code === "max_tokens")) throw err;
+    stream.reset();
+    return models.complete({ ...call, maxTokens: call.maxTokens * 2 });
+  }
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // send
 // ---------------------------------------------------------------------------------------------------------------------
@@ -751,7 +827,7 @@ async function replyContext(tx: DbTx, ctx: BusinessContext, p: Prepared, forMode
 /** A scripted reply carries no mention it could check against the manifest: any markup is reduced to its name. */
 const PLAIN_GUARD: MentionGuard = { isValid: (t) => !t.includes("[[ent:"), strip: (t) => stripMarkup(t), entityIds: () => [] };
 
-export async function sendConversationMessage(ctx: BusinessContext, input: SendInput): Promise<SendResult> {
+export async function sendConversationMessage(ctx: BusinessContext, input: SendInput, hooks: ReplyHooks = {}): Promise<SendResult> {
   // One transaction reads the desk and, when the agent will answer, everything its reply is built from.
   const { p, ctxData } = await ctx.rls(async (tx) => {
     const prepared = await prepare(tx, ctx, input);
@@ -821,7 +897,14 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
     manifest: promptManifest(model.manifest.entries, [JSON.stringify(turn.subject), ...turn.thread.map((m) => m.text), p.founderText, r.currentTask?.title ?? "", r.nextTask?.title ?? ""]).map((e) => ({ id: e.id, kind: e.kind, name: e.name, aliases: e.aliases ?? [] })),
   };
   const request = buildConversationRequest(requestInput);
-  const result = await ctx.models.complete({ ...request, attribution: { businessId: ctx.businessId, agentId: r.agent.id, inboxItemId: r.item?.id, kind: "conversation" }, scope: `conversation:${r.agent.id}` });
+  const emit = hooks.emit;
+  const result = await conversationReply(
+    ctx.models,
+    { ...request, attribution: { businessId: ctx.businessId, agentId: r.agent.id, inboxItemId: r.item?.id, kind: "conversation" }, scope: `conversation:${r.agent.id}` },
+    model.manifest.guard,
+    // Each bubble is shown as this person may read it (the stored reply is masked the same way by `sentAsSeen`).
+    emit ? { show: async (b) => emit({ type: "bubble", index: b.index, text: await bubbleAsSeen(ctx, r, b.text) }), reset: () => emit({ type: "reset" }) } : undefined,
+  );
   // Open decision options (ids + labels), quoted vs trusted text: the same checks the conversation evals measure.
   const fin = finaliseAgentReply(result.json, { ...finaliseOptionsFor(requestInput), guard: model.manifest.guard, fallbackQuickReplies: r.starters });
   const written = await writeExchange(ctx, {
@@ -943,12 +1026,12 @@ export type InboxReplyResult = ({ route: "conversation" } & SendResult) | { rout
  * decision would be used up with nothing done (audit-conversation P0). The agent's reply offers "Go with: …" chips, so
  * "OK, go ahead" is one press away from a real decision.
  */
-export async function replyToInboxItem(ctx: BusinessContext, input: { itemId: string; text: string; clientMessageId?: string }): Promise<InboxReplyResult> {
+export async function replyToInboxItem(ctx: BusinessContext, input: { itemId: string; text: string; clientMessageId?: string }, hooks: ReplyHooks = {}): Promise<InboxReplyResult> {
   // A note that asks for no decision (an Update, a Milestone, a follow-up) has nothing to decide: what the founder writes
   // on it is a message to the agent (audit VRUI-X2).
   const item = await ctx.rls((tx) => repos.inbox.get(tx, ctx.businessId, input.itemId));
   if (isConversationalText(input.text) || (!decidesByText(item) && item.state !== "answered" && item.state !== "archived")) {
-    const sent = await sendConversationMessage(ctx, { subject: { kind: "inbox_item", id: input.itemId }, text: input.text, ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}) });
+    const sent = await sendConversationMessage(ctx, { subject: { kind: "inbox_item", id: input.itemId }, text: input.text, ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}) }, hooks);
     return { route: "conversation", ...sent };
   }
   return { route: "decision", decision: await decideInboxItem(ctx, { itemId: input.itemId, freeText: input.text }) };
@@ -979,13 +1062,18 @@ export function conceptPersona(conceptTitle: string): ConceptReply["persona"] {
   return { name: "Research agent", role: researcher.role, avatarSeed: "research-agent", voice: researcher.voice, thinkingLine: thinkingLine(researcher.voice, { lookingAt: conceptTitle }), isAgent: true };
 }
 
+/** A concept card's Research agent knows no records: any mention markup in its reply is reduced to its name. */
+const CONCEPT_GUARD: MentionGuard = { isValid: (t) => !t.includes("[[ent:"), strip: (t) => stripMarkup(t) };
+
 /**
  * One reply from the Research agent about a concept card, for `idea.ask` (audit-conversation §4 "Ask on a concept").
- * Same route, house rules and checks as the desk; the mock answers from the card's attributes, never "Mock …".
+ * Same route, house rules and checks as the desk; the mock answers from the card's attributes, never "Mock …". With
+ * `hooks.emit` its bubbles stream as they are written (`idea.askStream`).
  */
 export async function replyAboutConcept(
   models: ModelClient,
   input: { concept: ConceptInput; question?: string; quickReplyId?: string; history?: ReadonlyArray<{ question: string; answer: string }> } & ({ userId: string; limits: RateLimitStore } | { userId?: undefined; limits?: undefined }),
+  hooks: ReplyHooks = {},
 ): Promise<ConceptReply> {
   const starters = conceptStarters();
   const chip = input.quickReplyId ? (starters.find((q) => q.id === input.quickReplyId) ?? null) : null;
@@ -997,8 +1085,14 @@ export async function replyAboutConcept(
   // Title, pitch and evidence travel as untrusted data; the house rules name a neutral principal, never the concept.
   const requestInput = conceptConversationInput({ appName: APP_NAME, concept: input.concept, text, quickReply: chip, history: input.history });
   const request = buildConversationRequest(requestInput);
-  const result = await models.complete({ ...request, attribution: { kind: "ideation_ask" }, scope: input.userId ? `ideation:${input.userId}` : undefined });
-  const fin = finaliseAgentReply(result.json, { ...finaliseOptionsFor(requestInput), guard: { isValid: (t) => !t.includes("[[ent:"), strip: (t) => stripMarkup(t) }, fallbackQuickReplies: starters });
+  const emit = hooks.emit;
+  const result = await conversationReply(
+    models,
+    { ...request, attribution: { kind: "ideation_ask" }, scope: input.userId ? `ideation:${input.userId}` : undefined },
+    CONCEPT_GUARD,
+    emit ? { show: (b) => emit({ type: "bubble", ...b }), reset: () => emit({ type: "reset" }) } : undefined,
+  );
+  const fin = finaliseAgentReply(result.json, { ...finaliseOptionsFor(requestInput), guard: CONCEPT_GUARD, fallbackQuickReplies: starters });
   return {
     bubbles: fin.reply.bubbles,
     quickReplies: fin.reply.quick_replies,

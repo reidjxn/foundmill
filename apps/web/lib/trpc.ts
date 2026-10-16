@@ -39,7 +39,7 @@ export async function resolveBearer(getToken: TokenGetter): Promise<string | nul
  * Procedures whose answer is a stream (`AsyncIterable`): they must go over `httpBatchStreamLink` (the API refuses a
  * stream on a plain batch). Add a procedure here when it becomes an async generator on the API.
  */
-export const STREAMING_PROCEDURES: ReadonlySet<string> = new Set(["idea.draft", "idea.logo.stream", "business.logo.stream"]);
+export const STREAMING_PROCEDURES: ReadonlySet<string> = new Set(["idea.draft", "idea.logo.stream", "business.logo.stream", "agent.conversation.sendStream", "agent.conversation.inboxReplyStream", "idea.askStream"]);
 
 /** True for an operation that must use the streaming link. */
 export function isStreamingOperation(op: { path: string }): boolean {

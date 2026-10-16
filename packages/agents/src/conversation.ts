@@ -432,6 +432,58 @@ const HUMAN_CLAIM_RE = /\b(?:I(?:'m| am)\s+(?:a\s+|an\s+)?(?:human|real\s+person
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 /**
+ * One bubble as the founder may read it: mentions checked against the manifest (invalid ones stripped), no claim to be
+ * human, at most 320 characters. Null for a bubble with nothing left. Each bubble is checked on its own, so a bubble
+ * shown while the rest of the reply is still being written (`bubbleStream`) is the bubble `finaliseAgentReply` keeps.
+ */
+export function finaliseBubble(raw: string, guard: MentionGuard, repairs: string[] = []): string | null {
+  let b = raw.trim();
+  if (!b) return null;
+  if (!guard.isValid(b)) {
+    b = guard.strip(b).trim();
+    repairs.push("stripped invalid mention");
+  }
+  if (HUMAN_CLAIM_RE.test(b)) {
+    b = "I'm an AI agent on your team.";
+    repairs.push("removed a claim to be human");
+  }
+  if (b.length > AGENT_BUBBLE_MAX) {
+    b = trimText(b, AGENT_BUBBLE_MAX);
+    repairs.push("trimmed a long bubble");
+  }
+  return b || null;
+}
+
+/** A bubble of a reply that is still being written, as it is shown: its position among the shown bubbles and its text. */
+export interface StreamedBubble {
+  index: number;
+  text: string;
+}
+
+/**
+ * The bubbles of a streamed reply (`streamStructured` with elementPath "bubbles", audit MB-1), shown as the model writes
+ * them: in order (an element that arrives early waits for the ones before it), each through `finaliseBubble`, empty
+ * ones skipped and at most three. Every bubble shown is the bubble `finaliseAgentReply` keeps at that position; the one
+ * exception is a third bubble that the note about a dropped hand-off replaces, which the stored reply carries.
+ */
+export function bubbleStream(guard: MentionGuard, show: (bubble: StreamedBubble) => void | Promise<void>): (element: { index: number; value: string }) => Promise<void> {
+  const arrived = new Map<number, string>();
+  let next = 0;
+  let shown = 0;
+  return async ({ index, value }) => {
+    arrived.set(index, value);
+    while (arrived.has(next)) {
+      const raw = arrived.get(next)!;
+      arrived.delete(next);
+      next++;
+      if (shown >= AGENT_BUBBLES_MAX) continue;
+      const text = finaliseBubble(raw, guard);
+      if (text !== null) await show({ index: shown++, text });
+    }
+  };
+}
+
+/**
  * Turn a model draft (or any loosely shaped object) into a reply that satisfies `AgentReplyOutput` and the house rules.
  * Never throws for a malformed draft: what cannot be repaired is replaced with a plain, honest default.
  */
@@ -443,20 +495,7 @@ export function finaliseAgentReply(draft: unknown, options: FinaliseReplyOptions
   // Bubbles: mentions checked against the manifest, no human claims, 1–3 of at most 320 characters.
   const bubbles: string[] = [];
   for (const raw of d.bubbles) {
-    let b = raw.trim();
-    if (!b) continue;
-    if (!guard.isValid(b)) {
-      b = guard.strip(b).trim();
-      repairs.push("stripped invalid mention");
-    }
-    if (HUMAN_CLAIM_RE.test(b)) {
-      b = "I'm an AI agent on your team.";
-      repairs.push("removed a claim to be human");
-    }
-    if (b.length > AGENT_BUBBLE_MAX) {
-      b = trimText(b, AGENT_BUBBLE_MAX);
-      repairs.push("trimmed a long bubble");
-    }
+    const b = finaliseBubble(raw, guard, repairs);
     if (b) bubbles.push(b);
   }
   if (bubbles.length > AGENT_BUBBLES_MAX) repairs.push("kept the first three bubbles");
