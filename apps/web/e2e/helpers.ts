@@ -16,6 +16,8 @@ import { makePng } from "../../../packages/shared/src/testing/logo-fixtures";
  * last-opened business, which the Commit specs change to a fresh business with no seeded data.
  */
 export const NORTHWIND_BUSINESS_ID = "b1e5e5e5-0000-4000-8000-000000000001";
+/** The dev founder's second seeded business (Scale, LIVE, a demo). */
+export const LEDGERLY_BUSINESS_ID = "b1e5e5e5-0000-4000-8000-000000000002";
 export const UUID = "[0-9a-f-]{36}";
 /** Long waits: the api answers tRPC against PGlite and next dev compiles each route on first visit. */
 export const LONG = 60_000;
@@ -152,6 +154,26 @@ export async function ensureDeck(page: Page, minimum = 1): Promise<void> {
     await page.getByTestId("generate-button").click();
     await expect(cards.nth(minimum - 1)).toBeVisible({ timeout: LONG });
   }
+}
+
+/** Commits a throwaway business from the first concept card (the seeded ones are never archived or changed); its id. */
+export async function commitThrowaway(page: Page, name: string): Promise<string> {
+  await signIn(page);
+  await ensureDeck(page, 1);
+  await page.getByTestId("commit-link").first().click();
+  await expect(page.getByTestId("commit-form")).toBeVisible({ timeout: LONG });
+  await page.getByLabel(/Business name/).fill(name);
+  await page.getByTestId("take-charge").click();
+  await page.waitForURL(new RegExp(`/b/${UUID}/`), { timeout: LONG });
+  return page.url().match(new RegExp(`/b/(${UUID})/`))![1]!;
+}
+
+/** Opens the top bar's Switch business; the popover, once open. */
+export async function openSwitcher(page: Page): Promise<Locator> {
+  await page.getByRole("button", { name: /^Switch business/ }).click();
+  const switcher = page.getByRole("dialog", { name: "Switch business" });
+  await expect(switcher).toBeVisible({ timeout: LONG });
+  return switcher;
 }
 
 /** Fails the test early with a clear message when the seed lacks something a spec relies on (never a skip). */

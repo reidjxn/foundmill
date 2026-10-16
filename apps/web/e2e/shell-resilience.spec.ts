@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
+import { LEDGERLY_BUSINESS_ID, LONG, NORTHWIND_BUSINESS_ID, openBusiness, openSwitcher } from "./helpers";
 
 /** lib/chunk-error.ts CHUNK_RELOAD_KEY (a spec cannot import app code that reaches for the window). */
 const CHUNK_RELOAD_KEY = "fm.chunk-reload-at";
@@ -67,26 +67,32 @@ test.describe("shell resilience", () => {
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
   });
 
-  test("the business name opens a menu: Home, the founder's businesses, Start another business (IAE-08, WEB-13)", async ({ page }) => {
+  test("Switch business reaches Home, the other businesses and Create a new business (IAE-08, WEB-13)", async ({ page }) => {
     await openBusiness(page);
-    await page.getByTestId("kitbar-business-menu").click();
-    await expect(page.getByRole("menuitem", { name: /^Home$/ })).toBeVisible();
-    await expect(page.getByRole("menuitem", { name: /Start another business/ })).toBeVisible();
-    await page.getByRole("menuitem", { name: /Start another business/ }).click();
-    await expect(page).toHaveURL(/\/new/, { timeout: LONG });
+    let switcher = await openSwitcher(page);
+    await expect(switcher.getByRole("option", { name: /Ledgerly/ })).toBeVisible({ timeout: LONG });
+    await switcher.getByRole("option", { name: /^Home$/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/home$`));
+    switcher = await openSwitcher(page);
+    await switcher.getByRole("option", { name: /Create a new business/ }).click();
+    await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
   });
 
-  test("Ctrl+K reaches New business and the other businesses, opens empty each time, and lists records by operators alone (IAE-08, GTM-27)", async ({ page }) => {
+  test("Ctrl+K reaches Create a new business and the other businesses, opens empty each time, and lists records by operators alone (IAE-08, GTM-27)", async ({ page }) => {
     await openBusiness(page);
     await page.keyboard.press("Control+k");
     const input = page.getByRole("combobox").or(page.getByPlaceholder(/search/i)).first();
     await input.fill("new business");
-    await expect(page.getByRole("option", { name: /New business/ }).first()).toBeVisible();
+    await expect(page.getByRole("option", { name: /Create a new business/ }).first()).toBeVisible();
     await page.keyboard.press("Escape");
     await page.keyboard.press("Control+k");
     await expect(input).toHaveValue("");
     await input.fill("role:customer");
     await expect(page.getByRole("option").first()).toBeVisible({ timeout: LONG });
+    await input.fill("Ledgerly");
+    await expect(page.getByRole("option", { name: /Switch to Ledgerly/ })).toBeVisible({ timeout: LONG });
+    await page.getByRole("option", { name: /Switch to Ledgerly/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/home$`), { timeout: LONG });
   });
 
   test("Edit layout is offered only where a layout can be edited (OL-29)", async ({ page }) => {

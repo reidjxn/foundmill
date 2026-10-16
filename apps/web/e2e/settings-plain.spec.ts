@@ -85,7 +85,9 @@ test.describe("settings, plain words", () => {
     const screen = await openSettings(page, "billing");
     await expect(screen.locator("[data-tier]").first()).toBeVisible({ timeout: LONG });
     await expect(screen).not.toContainText(/\b1 (businesses|seats|agents)\b/);
-    await expect(screen.locator("[data-tier=free]")).toContainText("1 business");
+    // No business limit on any plan for now (founder, 2026-10-16); the included credits still cover one business.
+    await expect(screen.locator("[data-tier=free]")).toContainText("Unlimited businesses");
+    await expect(screen.locator("[data-tier=free]")).toContainText("for 1 business");
     await expect(screen.locator("[data-tier=free]")).toContainText("$5.00 of model credits a month");
     // Northwind keeps its books in pounds, but credits and metered model costs are US dollars, never relabeled.
     await expect(screen.getByTestId("credits-balance")).toContainText("$");

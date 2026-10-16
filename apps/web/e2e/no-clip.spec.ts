@@ -35,6 +35,7 @@ const FIXED_ROUTES = [
   "/leaderboards",
   "/onboarding",
   "/new",
+  "/businesses",
   "/new/ideate",
   "/new/import",
 ];
