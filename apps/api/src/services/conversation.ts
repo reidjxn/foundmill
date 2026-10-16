@@ -394,6 +394,32 @@ export async function manifestFor(tx: DbTx, ctx: Pick<BusinessContext, "business
   };
 }
 
+/** CRM entities every reply's prompt carries beyond the ones the conversation names (the manifest's first, by name). */
+export const PROMPT_CRM_ENTITIES = 30;
+
+const MENTIONED_ID_RE = /\[\[ent:([^|\]]+)\|/g;
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The manifest entries a reply's prompt carries (audit MB-1): every agent, every entity the conversation names (a
+ * mention, or its name or an alias as a whole word in `texts`: the subject, the thread, the current work and the
+ * founder's words) and the first `crmMax` others. A business with hundreds of CRM entities otherwise sent all of them,
+ * uncached, with every message. Mentions in the reply are still validated against the whole manifest (`manifestFor`'s
+ * guard), so an entity of the business named from outside this list is linked exactly as before.
+ */
+export function promptManifest(entries: readonly ManifestEntityInput[], texts: readonly string[], crmMax = PROMPT_CRM_ENTITIES): ManifestEntityInput[] {
+  const text = texts.join("\n");
+  const lower = text.toLowerCase();
+  const mentioned = new Set([...text.matchAll(MENTIONED_ID_RE)].map((m) => m[1]));
+  const named = (e: ManifestEntityInput) =>
+    [e.name, ...(e.aliases ?? [])].some((n) => {
+      const word = n.trim().toLowerCase();
+      return word.length >= 3 && lower.includes(word) && new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRe(word)}(?:$|[^\\p{L}\\p{N}])`, "u").test(lower);
+    });
+  let others = 0;
+  return entries.filter((e) => e.kind === "agent" || mentioned.has(e.id) || named(e) || others++ < crmMax);
+}
+
 /**
  * `currency` is the business's own: an option's cost is business money, priced in it as the Inbox shows it, and an
  * Estimate. Never the note's `inbox_items.currency`, which is the currency of what writing the note cost (audit CML-12).
@@ -696,7 +722,6 @@ function replayedSend(p: Prepared & { replay: NonNullable<Prepared["replay"]> })
   return { thread: p.thread!, messages: toMessageViews(rows), quickReplies: asQuickReplies(p.replay.reply?.quickReplies), decision: null, handOff: null };
 }
 
-/** How a send is answered: the decide path, staging a hand-off, or the agent's reply (the model). */
 /**
  * How a send is answered: the decide path, staging a hand-off, a scripted reply from the agent's voice kit (a thanks, a
  * "not now" or a greeting: nothing a model would add), or the agent's reply from the model.
@@ -792,7 +817,8 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
     appName: APP_NAME,
     agent: { ...turn.agent, instructions: model.ins.instructions, description: model.ins.description },
     glossary: Object.fromEntries(Object.entries(ctx.business.glossary ?? {}).filter(([from]) => from !== "currency")),
-    manifest: model.manifest.entries.map((e) => ({ id: e.id, kind: e.kind, name: e.name, aliases: e.aliases ?? [] })),
+    // What the reply can use; its mentions are still checked against the whole manifest.
+    manifest: promptManifest(model.manifest.entries, [JSON.stringify(turn.subject), ...turn.thread.map((m) => m.text), p.founderText, r.currentTask?.title ?? "", r.nextTask?.title ?? ""]).map((e) => ({ id: e.id, kind: e.kind, name: e.name, aliases: e.aliases ?? [] })),
   };
   const request = buildConversationRequest(requestInput);
   const result = await ctx.models.complete({ ...request, attribution: { businessId: ctx.businessId, agentId: r.agent.id, inboxItemId: r.item?.id, kind: "conversation" }, scope: `conversation:${r.agent.id}` });
