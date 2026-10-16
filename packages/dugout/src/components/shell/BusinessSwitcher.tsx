@@ -107,6 +107,8 @@ export function BusinessSwitcher({ businessName, menu, onHome, defaultOpen = fal
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  /** The popover closed because the founder clicked or focused elsewhere: focus stays where they went. */
+  const leftOutside = useRef(false);
   const headingId = useId();
   const dialogId = useId();
 
@@ -172,6 +174,13 @@ export function BusinessSwitcher({ businessName, menu, onHome, defaultOpen = fal
         onInteractOutside={(e) => {
           // A click on the trigger toggles it itself: closing here first would reopen it at once.
           if (triggerRef.current?.contains(e.target as Node)) e.preventDefault();
+          else leftOutside.current = true;
+        }}
+        onCloseAutoFocus={(e) => {
+          // The trigger is an anchor, not a Radix trigger: give the focus back to it ourselves (Escape, a pick).
+          e.preventDefault();
+          if (!leftOutside.current) triggerRef.current?.focus();
+          leftOutside.current = false;
         }}
       >
         <Command ref={rootRef} tabIndex={-1} label="Find a business" shouldFilter={false} loop className="flex flex-col outline-none">

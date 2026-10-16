@@ -86,6 +86,14 @@ describe("BusinessSwitcher", () => {
     }
   });
 
+  it("gives the focus back to the trigger on Escape", async () => {
+    const { user, trigger, open } = setup();
+    await open();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("picks with the arrow keys and Enter", async () => {
     const { menu, user, open } = setup();
     await open();
