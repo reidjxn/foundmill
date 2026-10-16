@@ -63,11 +63,16 @@ export function latestByScenario(rows: readonly ForecastRow[] | undefined): Part
   return out;
 }
 
-/** A driver as the field shows it when nobody is typing in it (cents kept: "1500.5", not "1501"). */
+/**
+ * A driver as the field shows it when nobody is typing in it. Money keeps its cents as two digits ("1500.50", never
+ * "1501" or "1500.5"), and a whole amount has none ("1500"), so the field at rest reads "1,500.50" or "1,500".
+ */
 export function toField(d: ForecastDrivers, key: keyof ForecastDrivers, kind: "money" | "percent" | "months"): string {
   const v = d[key];
   if (typeof v !== "number") return "";
-  return kind === "money" ? String(Math.round(v) / 100) : String(v);
+  if (kind !== "money") return String(v);
+  const minor = Math.round(v);
+  return minor % 100 === 0 ? String(minor / 100) : (minor / 100).toFixed(2);
 }
 
 /**

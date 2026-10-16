@@ -1,8 +1,25 @@
-import { expect, test } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
+import { expect, test, type APIRequestContext } from "@playwright/test";
+import { LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness, signIn } from "./helpers";
 
 /** lib/chunk-error.ts CHUNK_RELOAD_KEY (a spec cannot import app code that reaches for the window). */
 const CHUNK_RELOAD_KEY = "fm.chunk-reload-at";
+
+/** The procedures a tRPC request carries, in batch order ("/api/trpc/inbox.get,inbox.list" → both). */
+function procedures(url: URL): string[] {
+  const at = url.pathname.indexOf("/trpc/");
+  return at < 0 ? [] : decodeURIComponent(url.pathname.slice(at + "/trpc/".length)).split(",");
+}
+
+/** A batched read's answer when the API failed it. */
+const FAILED_READ = { error: { json: { message: "Internal server error", code: -32603, data: { code: "INTERNAL_SERVER_ERROR", httpStatus: 500 } } } };
+
+/** A dashboard's stored layout, read as the dev founder. */
+async function storedLayout(api: APIRequestContext, dashboardId: string): Promise<unknown> {
+  const input = encodeURIComponent(JSON.stringify({ json: { businessId: NORTHWIND_BUSINESS_ID, dashboardId } }));
+  const res = await api.get(`/trpc/dashboard.get?input=${input}`);
+  expect(res.ok(), `dashboard.get answered ${res.status()}`).toBe(true);
+  return ((await res.json()) as { result: { data: { json: { layout: unknown } } } }).result.data.json.layout;
+}
 
 /**
  * The app shell's resilience and navigation (audit W07): a failed refetch keeps loaded content, a missing record says so,
@@ -15,7 +32,17 @@ test.describe("shell resilience", () => {
     const rows = page.locator("[data-inbox-row]");
     await expect(rows.first()).toBeVisible({ timeout: LONG });
     const before = await rows.count();
-    await page.route("**/trpc/inbox.list**", (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify([{ error: { json: { message: "Internal server error", code: -32603, data: { code: "INTERNAL_SERVER_ERROR", httpStatus: 500 } } } }]) }));
+    // Every `inbox.list` read fails from here, wherever it sits in a batch: the refresh opens its new note, and that
+    // note's read can share a request with the list's, ahead of it. The other reads in such a batch keep their answers.
+    await page.route(
+      (url) => procedures(url).includes("inbox.list"),
+      async (route) => {
+        const procs = procedures(new URL(route.request().url()));
+        if (procs.every((p) => p === "inbox.list")) return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify(procs.map(() => FAILED_READ)) });
+        const answers = (await (await route.fetch()).json()) as unknown[];
+        return route.fulfill({ status: 207, contentType: "application/json", body: JSON.stringify(answers.map((a, i) => (procs[i] === "inbox.list" ? FAILED_READ : a))) });
+      },
+    );
     await page.getByTestId("inbox-refresh").click();
     await expect(page.getByTestId("refresh-failed").first()).toBeVisible({ timeout: LONG });
     await expect(rows).toHaveCount(before);
@@ -115,37 +142,53 @@ test.describe("shell resilience", () => {
     await expect(page.getByTestId("home-screen")).not.toHaveAttribute("data-editing", "true");
   });
 
-  test("a layout edit survives a trip to the Inbox and back, and the next edit builds on it (WEB-09)", async ({ page }) => {
+  test("a layout edit survives a trip to the Inbox and back, and the next edit builds on it (WEB-09)", async ({ page, playwright }) => {
     await openBusiness(page);
     const screen = page.getByTestId("home-screen");
     const widgets = page.locator("[data-widget-id]");
-    await page.keyboard.press("e");
-    const before = await widgets.count();
-    test.skip(before < 2, "the active dashboard has no widget to remove");
-    await widgets.first().hover();
-    await page.getByRole("button", { name: /^Remove / }).first().click();
-    await expect(widgets).toHaveCount(before - 1, { timeout: LONG });
-    await page.keyboard.press("Escape");
-    // Leaving Edit mode saves the layout: wait until the saved version stops moving before taking it as the baseline.
-    await page.waitForLoadState("networkidle", { timeout: LONG });
-    let versionAfterEdit = await screen.getAttribute("data-dashboard-version");
-    for (let i = 0; i < 10; i++) {
-      await page.waitForTimeout(500);
-      const now = await screen.getAttribute("data-dashboard-version");
-      if (now === versionAfterEdit) break;
-      versionAfterEdit = now;
+    // The edit removes the first widget (the Journey Ribbon) from Northwind's default Home, which the specs after this
+    // one and the golden path read on the same database: the stored layout is put back afterwards, pass or fail.
+    const api = await devApi(playwright);
+    const dashboardId = (await screen.getAttribute("data-dashboard-id"))!;
+    const original = await storedLayout(api, dashboardId);
+    try {
+      await page.keyboard.press("e");
+      const before = await widgets.count();
+      test.skip(before < 2, "the active dashboard has no widget to remove");
+      await widgets.first().hover();
+      await page.getByRole("button", { name: /^Remove / }).first().click();
+      await expect(widgets).toHaveCount(before - 1, { timeout: LONG });
+      await page.keyboard.press("Escape");
+      // Leaving Edit mode saves the layout: wait until the saved version stops moving before taking it as the baseline.
+      await page.waitForLoadState("networkidle", { timeout: LONG });
+      let versionAfterEdit = await screen.getAttribute("data-dashboard-version");
+      for (let i = 0; i < 10; i++) {
+        await page.waitForTimeout(500);
+        const now = await screen.getAttribute("data-dashboard-version");
+        if (now === versionAfterEdit) break;
+        versionAfterEdit = now;
+      }
+      await page.getByRole("link", { name: "Inbox" }).first().click();
+      await page.waitForURL(/\/inbox/, { timeout: LONG });
+      await page.getByRole("link", { name: "Home" }).first().click();
+      await expect(screen).toBeVisible({ timeout: LONG });
+      await expect(widgets).toHaveCount(before - 1);
+      // Opening Home saved nothing by itself.
+      await expect(screen).toHaveAttribute("data-dashboard-version", versionAfterEdit ?? /\d+/);
+    } finally {
+      const res = await api.post("/trpc/dashboard.update", { data: { json: { businessId: NORTHWIND_BUSINESS_ID, dashboardId, layout: original } } });
+      expect(res.ok(), `dashboard.update answered ${res.status()}: ${await res.text()}`).toBe(true);
+      await api.dispose();
     }
-    await page.getByRole("link", { name: "Inbox" }).first().click();
-    await page.waitForURL(/\/inbox/, { timeout: LONG });
-    await page.getByRole("link", { name: "Home" }).first().click();
-    await expect(screen).toBeVisible({ timeout: LONG });
-    await expect(widgets).toHaveCount(before - 1);
-    // Opening Home saved nothing by itself.
-    await expect(screen).toHaveAttribute("data-dashboard-version", versionAfterEdit ?? /\d+/);
   });
 
   test("the live-connection chip appears when the stream is down for a few seconds (RES-11)", async ({ page, context }) => {
-    await openBusiness(page);
+    await signIn(page);
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
+    await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+    // A connection that is not up yet says nothing for its first seconds (the grace). This stack runs no stream service
+    // (README), so the chip is checked as soon as the shell shows: once the grace has run out it is rightly there, and
+    // Home with its Journey Ribbon can take longer than that to go quiet on the network.
     await expect(page.getByTestId("connection-chip")).toHaveCount(0);
     await context.setOffline(true);
     await expect(page.getByTestId("connection-chip")).toBeVisible({ timeout: 20_000 });

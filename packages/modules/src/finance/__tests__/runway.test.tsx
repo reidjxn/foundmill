@@ -35,7 +35,10 @@ describe("driver fields (#172)", () => {
   });
 
   it("shows a stored driver with its cents and decimals, in the form it would be typed", () => {
-    expect(toField(drivers, "startingCashMinor", "money")).toBe("1500.5");
+    expect(toField(drivers, "startingCashMinor", "money")).toBe("1500.50");
+    expect(toField({ ...drivers, startingCashMinor: 4_506_430 }, "startingCashMinor", "money")).toBe("45064.30");
+    expect(toField({ ...drivers, startingCashMinor: 150_000 }, "startingCashMinor", "money")).toBe("1500");
+    expect(toField({ ...drivers, startingCashMinor: -150_005 }, "startingCashMinor", "money")).toBe("-1500.05");
     expect(toField(drivers, "revenueGrowthPct", "percent")).toBe("2.5");
     expect(toField(drivers, "horizonMonths", "months")).toBe("18");
     expect(toField(drivers, "runway_months", "months")).toBe("");
@@ -135,9 +138,9 @@ describe("RunwayScreen", () => {
     await user.clear(cash);
     await user.keyboard("1500.50");
     expect(cash.value).toBe("1500.50");
-    // after a field loses focus it shows the value it holds in its usual form
+    // after a field loses focus it shows the value it holds in its usual form: money with its cents as two digits
     fireEvent.blur(cash);
-    expect(cash.value).toBe("1,500.5");
+    expect(cash.value).toBe("1,500.50");
     fireEvent.blur(growth);
     expect(growth.value).toBe("2.5");
     await act(async () => {
