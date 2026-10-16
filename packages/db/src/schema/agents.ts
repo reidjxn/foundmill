@@ -1,6 +1,6 @@
 /** 0004 — agents, versions, skills, training, departments, screens, dashboards, tasks, playbooks, holidays. */
 import {
-  AGENT_LAYERS, AGENT_PAUSE_REASONS, AGENT_STATUSES, AGENT_VERSION_STATES, DEPT_COLOUR_TOKENS, MODEL_KEYS, SKILL_GROUPS, TASK_KINDS, TASK_PHASES, TASK_STATUSES,
+  ADDED_SKILL_SOURCES, AGENT_LAYERS, AGENT_PAUSE_REASONS, AGENT_STATUSES, AGENT_VERSION_STATES, DEPT_COLOUR_TOKENS, MODEL_KEYS, SKILL_GROUPS, TASK_KINDS, TASK_PHASES, TASK_STATUSES,
 } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { boolean, date, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
@@ -183,6 +183,13 @@ export const skillDefinitions = pgTable(
     description: text("description").notNull().default(""),
     group: text("group", { enum: SKILL_GROUPS }).notNull(),
     custom: boolean("custom").notNull().default(false),
+    /** 0061: where a skill the founder added came from (null for platform and custom skills). */
+    source: text("source", { enum: ADDED_SKILL_SOURCES }),
+    /** 0061: the Markdown an added skill puts in the agent's "## Skills" section. */
+    instructionsMd: text("instructions_md"),
+    /** 0061: an uploaded skill's original file name and the SHA-256 of its normalized content. */
+    fileName: text("file_name"),
+    contentHash: text("content_hash"),
     ...timestampsWithArchive(),
   },
   (t) => [

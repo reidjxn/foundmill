@@ -580,6 +580,28 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
   });
 
+  it("the agent's skills from the library or files reach its system prompt in their own section after the house rules and instructions", async () => {
+    const worker = await repos.agents.get(t.db, t.businessId, t.workerId);
+    await repos.skills.upsertAddedDefinition(t.db, t.businessId, { agentType: worker.agentType, skillKey: "library_meeting_notes", name: "Meeting notes", description: "Notes and action items.", group: "execution", source: "library", instructionsMd: "# Meeting notes\n\nDecisions first, then action items with owners." });
+    await repos.skills.upsertForAgent(t.db, t.businessId, t.workerId, [{ skillKey: "library_meeting_notes", group: "execution", tested: null, displayed: 8, potential: 8 }]);
+    try {
+      const { sessionId, input, launch } = await start();
+      script = success(sessionId);
+      expect((await acts.runAgentSession(input, launch)).outcome).toBe("done");
+      const system = String(calls.at(-1)!.options.systemPrompt);
+      expect(system.startsWith("## House rules")).toBe(true);
+      const section = system.indexOf("## Skills");
+      expect(section).toBeGreaterThan(system.indexOf("## Your instructions"));
+      expect(system.indexOf("Decisions first, then action items with owners.")).toBeGreaterThan(section);
+      expect(system).toContain('<skill name="Meeting notes" source="library">');
+      // A skill changes nothing else: the tools the session may call are the same with or without it.
+      expect((calls.at(-1)!.options.allowedTools as string[]).every((x) => x.startsWith("mcp__"))).toBe(true);
+    } finally {
+      await repos.skills.removeFromAgent(t.db, t.businessId, t.workerId, "library_meeting_notes");
+      await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+    }
+  });
+
   it("Stop interrupts the turn in flight, waits for the SDK's final usage and ends stopped with every token booked (O-04)", async () => {
     const { sessionId, input, launch } = await start();
     script = async function* (call) {

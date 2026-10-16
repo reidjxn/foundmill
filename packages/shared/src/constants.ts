@@ -94,6 +94,10 @@ export type ModelKey = (typeof MODEL_KEYS)[number];
 export const SKILL_GROUPS = ["craft", "judgement", "execution"] as const;
 export type SkillGroup = (typeof SKILL_GROUPS)[number];
 
+/** Where a skill the founder added to an agent came from (`skill_definitions.source`, 0061): the skills library or a skill file. */
+export const ADDED_SKILL_SOURCES = ["library", "upload"] as const;
+export type AddedSkillSource = (typeof ADDED_SKILL_SOURCES)[number];
+
 export const AGENT_VERSION_STATES = ["draft", "live", "retired"] as const;
 export type AgentVersionState = (typeof AGENT_VERSION_STATES)[number];
 

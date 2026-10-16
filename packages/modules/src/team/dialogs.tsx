@@ -11,6 +11,7 @@ import { Button, Checkbox, Chip, MODEL_LABELS, Dialog, DialogBody, DialogContent
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 import { humanise } from "../fit";
 import { FAMILY_LABELS, InlineError, isChiefOfStaff, useAction } from "./shared";
+import { SkillsStep, toSkillChoices, type SkillDraft } from "./skills";
 import type { AgentRow, TemplateRow } from "./types";
 
 function departmentOptions(departments: readonly DepartmentRow[] | undefined) {
@@ -41,10 +42,11 @@ export interface HireDialogProps {
   defaultName?: string;
   /** The wage cap's currency: a wage cap caps metered model cost, so US dollars (`CREDITS_CURRENCY`). */
   currency?: string;
-  onHired: (agent: AgentRow, template: TemplateRow) => void;
+  /** `skills`: how many skills from the library or files the agent was hired with. */
+  onHired: (agent: AgentRow, template: TemplateRow, skills: number) => void;
 }
 
-/** Hire a catalogue template into a department (team.agents.hire). */
+/** Hire a catalogue template into a department (team.agents.hire), optionally with skills from the library or files. */
 export function HireDialog({ template, onOpenChange, departments, defaultDepartmentId, preferredDepartmentId, defaultName, currency = CREDITS_CURRENCY, onHired }: HireDialogProps) {
   const id = useId();
   const action = useAction();
@@ -52,6 +54,7 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
   const [departmentId, setDepartmentId] = useState<string>("");
   const [name, setName] = useState("");
   const [fullDescription, setFullDescription] = useState(false);
+  const [skills, setSkills] = useState<SkillDraft[]>([]);
   useEffect(() => {
     if (template) {
       const mod = template.module;
@@ -61,6 +64,7 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
       setDepartmentId((open && (!forModule.length || forModule.includes(open)) ? open : (preferred ?? forModule[0])) ?? open ?? options[0]?.value ?? "");
       setName(defaultName ?? "");
       setFullDescription(false);
+      setSkills([]);
       action.clearError();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset the form when a template is chosen
@@ -70,9 +74,10 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
     if (!template || !departmentId) return;
     const input: Record<string, unknown> = { templateKey: template.key, departmentId };
     if (name.trim()) input.name = name.trim();
+    if (skills.length) input.skills = toSkillChoices(skills);
     const agent = await action.run<AgentRow>("team.agents.hire", input, { key: `hire:${template.key}` });
     if (agent) {
-      onHired(agent, template);
+      onHired(agent, template, skills.length);
       onOpenChange(false);
     }
   };
@@ -117,7 +122,8 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
           <Field htmlFor={`${id}-name`} label="Name" hint="Leave empty to keep the template's name.">
             <Input id={`${id}-name`} value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={template?.name} />
           </Field>
-          <p className="text-small text-secondary">The agent starts with the template's instructions, tools and skills and appears in the team table straight away. Train it from its profile to tune them.</p>
+          <SkillsStep value={skills} onChange={setSkills} disabled={action.pending !== null} />
+          <p className="text-small text-secondary">The agent starts with the template's instructions, tools and skills, plus any you add here, and appears in the team table straight away. Train it from its profile to tune them.</p>
           <InlineError error={action.error} />
         </DialogBody>
         <DialogFooter>

@@ -29,7 +29,7 @@
  * turn and waits briefly for the SDK's final usage before aborting it, so every token spent is booked.
  */
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
-import { AgentInstructions, buildSystemPrompt, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentTemplate } from "@foundmill/agents";
+import { AgentInstructions, buildSystemPrompt, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, sandboxCostMicroMinor } from "@foundmill/config";
 import { resolveGrants } from "@foundmill/connectors";
 import { bookUsage, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
@@ -622,8 +622,10 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       repos.businesses.get(db, input.businessId),
       repos.agents.getSession(db, input.businessId, input.sessionId),
     ]);
-    const version = agent.currentVersionId ? await repos.agents.getVersion(db, input.businessId, agent.currentVersionId) : null;
-    return { agent, task, business, session, version, template: templateForAgent(agent) };
+    const [version, added] = await Promise.all([agent.currentVersionId ? repos.agents.getVersion(db, input.businessId, agent.currentVersionId) : null, repos.skills.listAddedForAgent(db, input.businessId, agent.id, agent.agentType)]);
+    // Skills the founder added from the library or files: their instructions follow the house rules and instructions.
+    const skills: AgentSkillPrompt[] = added.filter((a) => a.instructionsMd.trim()).map((a) => ({ name: a.name, source: a.source, instructionsMd: a.instructionsMd }));
+    return { agent, task, business, session, version, template: templateForAgent(agent), skills };
   }
 
   /**
@@ -723,7 +725,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       let run: SessionRunOptions = runOptions ?? { fromSeq: 0, resume: null };
       const retried = retriedFrom();
       if (retried) run = { ...run, resume: { cursor: retried.cursor ?? run.resume?.cursor ?? null, progress: retried.progress ?? run.resume?.progress ?? initialProgress({ planSteps: launch.planSteps, acceptanceTests: launch.acceptanceTests }), reason: "retry" } };
-      const { agent, task, business, version, template } = await loadContext(input);
+      const { agent, task, business, version, template, skills } = await loadContext(input);
       const startedAtMs = deps.clock.nowMs();
       const recorder = new SessionRecorder(deps, { input, launch, task, agent, startedAtMs, run });
       const signal = cancellation();
@@ -793,7 +795,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           await created.start();
           return created;
         };
-        return settle(await runLiveSession(deps, recorder, { input, launch, task, agent, startedAtMs, run }, { business, version, template, briefText, resolveApiKey, sandboxEnv: env, acquireSandbox, pull }));
+        return settle(await runLiveSession(deps, recorder, { input, launch, task, agent, startedAtMs, run }, { business, version, template, skills, briefText, resolveApiKey, sandboxEnv: env, acquireSandbox, pull }));
       } catch (err) {
         // `base()` carries the usage recorded so far: tokens already spent are booked whatever went wrong.
         const message = (err as Error).message ?? String(err);
@@ -1095,6 +1097,8 @@ interface LiveContext {
   business: { id: string; name: string; glossary: Record<string, string>; modelBilling: "byok" | "credits"; planTier: Business["planTier"] };
   version: AgentVersion | null;
   template: AgentTemplate;
+  /** The agent's skills from the library or files (`buildSystemPrompt` renders them after the instructions). */
+  skills: AgentSkillPrompt[];
   briefText: string | null;
   resolveApiKey: (businessId: string, billing: "byok" | "credits") => Promise<{ apiKey: string | null; source: "byok" | "platform" | "none" }>;
   /** The sandbox's short-lived identifiers (`buildSandboxEnv`); the SDK process receives the same and nothing from the host. */
@@ -1236,7 +1240,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   const budget = await sessionBudget(deps, { business: live.business, task, agentId: agent.id, sessionId: input.sessionId });
   if (budget.remainingMinor <= 0) return { outcome: "blocked", reason: `model budget exhausted: ${LIMIT_WORDS[budget.limit].used}`, blockedReason: "budget", approvalId: null, summary: budgetSummary(budget.limit, budget), providerSessionId: null };
   // Everything that can fail without a workspace runs before one exists (no restored code left on disk, no token).
-  const systemPrompt = buildSystemPrompt({ businessName: live.business.name, appName: APP_NAME, template: { instructions: instructionsFor(live.version, live.template), description: live.template.description }, brief: live.briefText ?? undefined, glossary: live.business.glossary });
+  const systemPrompt = buildSystemPrompt({ businessName: live.business.name, appName: APP_NAME, template: { instructions: instructionsFor(live.version, live.template), description: live.template.description }, brief: live.briefText ?? undefined, glossary: live.business.glossary, skills: live.skills });
   if (!hasClubRulesPrefix(systemPrompt)) throw new Error("house rules missing from the system prompt");
   const policy = sdkToolPolicyFor(task.kind, grants.mcpTools);
   const sdk = await import("@anthropic-ai/claude-agent-sdk");

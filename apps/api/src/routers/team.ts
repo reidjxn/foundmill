@@ -7,6 +7,7 @@ import { z } from "zod";
 import { pendingApprovals, resolveApproval } from "../services/approvals";
 import { modelLimited } from "../services/model-limits";
 import { archivePlaybook, compilePlaybookText, createPlaybook, setPlaybookEnabled, toPlaybookView, updatePlaybook } from "../services/playbooks";
+import { SkillChoice, SkillFileUpload, attachSkills, libraryView, resolveSkillChoice, uploadPreview } from "../services/skills";
 import { hireFromTemplate } from "../services/squad";
 import { SIGNALS, workflowIds } from "../services/temporal";
 import { Id, adminProcedure, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, writeProcedure } from "../trpc";
@@ -43,6 +44,17 @@ export function latestUpdate(latest: NonNullable<AgentRosterActivity["latest"]>)
 }
 
 export const teamRouter = router({
+  /**
+   * The skills library and skill-file previews (founder request 2026-10-16): the hire dialog's Skills step and the
+   * profile's Skills from the library or files panel. Adding happens in team.agents.hire and agent.skills.add.
+   */
+  skills: router({
+    /** The curated, read-only catalog: every skill with its category, the attribute it shows as and its instructions. */
+    library: read.query(() => libraryView()),
+    /** Parses and screens a skill file without storing it: the preview, or a 400 that says what to change. */
+    preview: write.input(SkillFileUpload).mutation(({ input }) => uploadPreview(input)),
+  }),
+
   agents: router({
     /**
      * Squad table rows (BUILD §11.9): agent, role, departments, status, current task, skills, model, wage, and what the
@@ -113,22 +125,30 @@ export const teamRouter = router({
         .map((t) => ({ key: t.key, name: t.name, role: t.role, family: t.family, layer: t.layer, module: t.module, channelKey: t.channelKey ?? null, modelKey: t.modelKey, description: t.description, skills: t.skills, wageCapMinor: t.wageCapMinor, wageLabel: "Estimate" as const, traits: t.traits })),
     ),
 
-    /** Hire from the catalogue into a department (agent_skills is service-written, so this runs on the service db). */
-    hire: write.input(z.object({ templateKey: z.string().min(1).refine(hasTemplate, "Unknown agent template"), departmentId: Id, name: z.string().min(1).max(80).optional() })).mutation(async ({ ctx, input }) => {
-      // One Chief of Staff per business: it joins with the business and plans every cycle.
-      if (getTemplate(input.templateKey).family === "assistant") throw new ValidationError("A business has one Chief of Staff; it joins with the business and cannot be hired again");
-      const department = await ctx.rls((tx) => repos.departments.get(tx, ctx.businessId, input.departmentId));
-      if (department.archivedAt) throw new ValidationError(`${department.name} has been archived; hire into a live department`);
-      const hired = await ctx.db.transaction(async (tx) => {
-        // A new hire reports to the department's lead, never to an agent that has left the team.
-        const lead = department.leadAgentId ? (await repos.agents.byIds(tx, ctx.businessId, [department.leadAgentId]))[0] : undefined;
-        const h = await hireFromTemplate(tx, ctx.businessId, input.templateKey, { departmentIds: [department.id], lineManagerId: lead && !lead.archivedAt ? lead.id : null, name: input.name, createdBy: ctx.userId });
-        await repos.departments.addMember(tx, ctx.businessId, department.id, { memberKind: "agent", memberId: h.agent.id });
-        await audit(tx, ctx, { action: "team.agents.hire", target: { kind: "agent", id: h.agent.id }, details: { templateKey: input.templateKey, departmentId: department.id } });
-        return h;
-      });
-      return hired.agent;
-    }),
+    /**
+     * Hire from the catalogue into a department (agent_skills is service-written, so this runs on the service db), with
+     * any skills chosen in the hire dialog's Skills step (library keys or skill files). Files are parsed and screened
+     * again here, before anything is written, so a refused file hires nobody; the agent and its skills land together.
+     */
+    hire: write
+      .input(z.object({ templateKey: z.string().min(1).refine(hasTemplate, "Unknown agent template"), departmentId: Id, name: z.string().min(1).max(80).optional(), skills: z.array(SkillChoice).max(8).default([]) }))
+      .mutation(async ({ ctx, input }) => {
+        // One Chief of Staff per business: it joins with the business and plans every cycle.
+        if (getTemplate(input.templateKey).family === "assistant") throw new ValidationError("A business has one Chief of Staff; it joins with the business and cannot be hired again");
+        const department = await ctx.rls((tx) => repos.departments.get(tx, ctx.businessId, input.departmentId));
+        if (department.archivedAt) throw new ValidationError(`${department.name} has been archived; hire into a live department`);
+        const skills = input.skills.map(resolveSkillChoice);
+        const hired = await ctx.db.transaction(async (tx) => {
+          // A new hire reports to the department's lead, never to an agent that has left the team.
+          const lead = department.leadAgentId ? (await repos.agents.byIds(tx, ctx.businessId, [department.leadAgentId]))[0] : undefined;
+          const h = await hireFromTemplate(tx, ctx.businessId, input.templateKey, { departmentIds: [department.id], lineManagerId: lead && !lead.archivedAt ? lead.id : null, name: input.name, createdBy: ctx.userId });
+          await repos.departments.addMember(tx, ctx.businessId, department.id, { memberKind: "agent", memberId: h.agent.id });
+          await audit(tx, ctx, { action: "team.agents.hire", target: { kind: "agent", id: h.agent.id }, details: { templateKey: input.templateKey, departmentId: department.id, skills: skills.map((s) => s.skillKey) } });
+          await attachSkills(tx, ctx, h.agent, skills);
+          return h;
+        });
+        return hired.agent;
+      }),
 
     /**
      * Release: the agent leaves the team (archived, paused). Its open tasks are handed back (unassigned; the ones it

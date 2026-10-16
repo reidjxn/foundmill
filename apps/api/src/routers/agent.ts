@@ -3,7 +3,7 @@
  * agent.model.compare/set, agent.autonomy.set, agent.negotiation.set — all scoped actions accept `applyScope`
  * ("agent" | "type" | "all", BUILD §9.6 ApplyScopeDialog). BUILD §11.10; AC-11.10.1/2/5/6.
  */
-import { AgentInstructions, CUSTOM_SKILL_TEST_COUNT, CustomSkillTestsOutput, HOUSE_STYLE, customSkillKey, detectClubRuleViolation, isCustomSkillKey, deriveTraits, getPrompt, getSkillTests, getTemplateByAgentType, redactHeldOut, storedCustomTest } from "@foundmill/agents";
+import { AgentInstructions, CUSTOM_SKILL_TEST_COUNT, CustomSkillTestsOutput, HOUSE_STYLE, customSkillKey, detectClubRuleViolation, isCustomSkillKey, deriveTraits, getPrompt, getSkillDefinition, getSkillTests, getTemplateByAgentType, redactHeldOut, storedCustomTest } from "@foundmill/agents";
 import { CREDITS_CURRENCY, LIMITS } from "@foundmill/config";
 import { UpdateAgentInput, periodOf, repos, type Agent, type Executor } from "@foundmill/db";
 import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
@@ -11,6 +11,7 @@ import { ConflictError, ForbiddenError, MODEL_KEYS, ValidationError, type ModelK
 import { z } from "zod";
 import { modelLimited } from "../services/model-limits";
 import { changeAgentModels, routeOf, startModelRetests } from "../services/agent-model";
+import { SkillChoice, addedSkillView, attachSkills, detachSkill, resolveSkillChoice } from "../services/skills";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds } from "../services/temporal";
 import { Id, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
@@ -144,6 +145,9 @@ export const agentRouter = router({
         const parsed = current ? AgentInstructions.safeParse(current.instructions) : null;
         const traits = parsed?.success ? deriveTraits(parsed.data) : [];
         const template = getTemplateByAgentType(agent.agentType) ?? null;
+        // The business's own skills (custom, library, files) read under the name the founder gave or chose.
+        const ownKeys = skills.filter((k) => !getSkillDefinition(k.skillKey)).map((k) => k.skillKey);
+        const definitions = ownKeys.length ? (await repos.skills.listDefinitions(tx, ctx.businessId, { agentType: agent.agentType })).filter((d) => d.businessId === ctx.businessId && ownKeys.includes(d.skillKey)) : [];
         const tested = skills.length ? skills.reduce((s, k) => s + Number(k.tested ?? 0), 0) / skills.length : null;
         const potential = skills.length ? Math.max(...skills.map((k) => k.potential)) : null;
         // One row per day with activity; review findings come only from the nightly roll-up, the rest from the rows.
@@ -158,7 +162,10 @@ export const agentRouter = router({
           agent,
           current,
           versions,
-          skills,
+          skills: skills.map((k) => {
+            const d = definitions.find((x) => x.skillKey === k.skillKey);
+            return { ...k, name: d?.name ?? null, source: d?.source ?? (d?.custom ? ("custom" as const) : null) };
+          }),
           traits,
           metrics,
           recent,
@@ -399,6 +406,43 @@ export const agentRouter = router({
         await repos.skills.upsertForAgent(tx, ctx.businessId, agent.id, [{ skillKey: definition.skillKey, group: definition.group, tested: null, proven: null, nLive: 0, displayed: baseline, potential: baseline }]);
         await audit(tx, ctx, { action: "agent.skills.review", target: { kind: "skill_definition", id: definition.id }, details: { agentId: agent.id, ...reviewed } });
         return { definitionId: definition.id, skillKey: definition.skillKey, ...reviewed };
+      }),
+    ),
+
+    /**
+     * Skills from the library or skill files on this agent (founder request 2026-10-16): what each one is, where it
+     * came from and whether a training run has scored it yet. Its instructions reach the agent's prompt after the house
+     * rules; the list shows their first lines.
+     */
+    added: read.input(z.object({ agentId: Id })).query(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
+        return (await repos.skills.listAddedForAgent(tx, ctx.businessId, agent.id, agent.agentType)).map(addedSkillView);
+      }),
+    ),
+
+    /**
+     * Add skills from the library or skill files (screened again here, whatever the preview said). No model call: the
+     * skill shows on the agent's attributes at once, untested until a training run scores it.
+     */
+    add: write.input(z.object({ agentId: Id, skills: z.array(SkillChoice).min(1).max(8) })).mutation(async ({ ctx, input }) => {
+      const resolved = input.skills.map(resolveSkillChoice);
+      return ctx.db.transaction(async (tx) => {
+        await repos.memberships.get(tx, ctx.businessId, ctx.userId);
+        const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
+        if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team; its profile is kept as a record`);
+        return (await attachSkills(tx, ctx, agent, resolved)).map(addedSkillView);
+      });
+    }),
+
+    /** Take a library or file skill off the agent; its definition stays as the business's record. */
+    remove: write.input(z.object({ agentId: Id, skillKey: z.string().min(1).max(80) })).mutation(async ({ ctx, input }) =>
+      ctx.db.transaction(async (tx) => {
+        await repos.memberships.get(tx, ctx.businessId, ctx.userId);
+        const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
+        if (agent.archivedAt) throw new ValidationError(`${agent.name} has left the team; its profile is kept as a record`);
+        const removed = await detachSkill(tx, ctx, agent, input.skillKey);
+        return { removed: removed.skillKey };
       }),
     ),
 

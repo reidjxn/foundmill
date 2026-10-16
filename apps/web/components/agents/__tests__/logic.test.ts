@@ -84,6 +84,18 @@ describe("skill rows", () => {
     const rows = toSkillRows([skill({ skillKey: "speed", tested: "10", proven: "14", nLive: 20, displayed: 0 })]);
     expect(rows[0]!.value).toBe(12);
   });
+  it("names a skill from the library or a file as the founder chose it, and marks it Untested at the baseline until a run scores it", () => {
+    const rows = toSkillRows([
+      skill({ skillKey: "library_newsletter_writing", tested: null, displayed: 8, name: "Newsletter writing", source: "library" } as never),
+      skill({ skillKey: "upload_changelog_digest_ab12cd34", tested: null, displayed: 8, name: "Changelog digest", source: "upload" } as never),
+      skill({ skillKey: "testing", tested: "12", displayed: 12 }),
+    ]);
+    expect(rows.map((r) => [r.name, r.value, r.note])).toEqual([
+      ["Newsletter writing", 8, "Untested"],
+      ["Changelog digest", 8, "Untested"],
+      ["Testing", 12, undefined],
+    ]);
+  });
   it("turns a 1–20 mean into 0–5 stars in halves", () => {
     expect(starsFor(14)).toBe(3.5);
     expect(starsFor(20)).toBe(5);

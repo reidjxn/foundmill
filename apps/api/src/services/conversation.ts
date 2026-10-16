@@ -83,6 +83,7 @@ import { decideInboxItem, decidesByText, planContextFor, type DecideItemResult }
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactText, redactValue, type RedactionSource } from "./inbox-redaction";
 import { assertInstructionSectionAccess, assertPlanSectionAccess, compilePlan, evaluatePlan, requiresConfirmation, stagedAction, type ActionEvaluation } from "./plans";
 import { takeOrThrow, type RateLimitStore, type WindowLimit } from "./rate-limit";
+import { promptSkills } from "./skills";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Limits: every send can be a model call (a reply, a plan compile), so sends are bounded per person and per business.
@@ -820,8 +821,9 @@ async function replyContext(tx: DbTx, ctx: BusinessContext, p: Prepared, forMode
   // The prompt carries only what this person may read: the masked note and thread, and no CRM names without CRM read.
   const seen = await seenAtDesk(tx, ctx, p.r, toMessageViews(p.history));
   if (!forModel) return { seen, model: null };
-  const [ins, manifest, persona] = await Promise.all([instructionsOf(tx, ctx, p.r.agent), manifestFor(tx, ctx), personaOf(tx, ctx, seen.r, seedOf(p))]);
-  return { seen, model: { ins, manifest, persona } };
+  // Skills the founder added from the library or files: a delimited section after the house rules and instructions.
+  const [ins, manifest, persona, skills] = await Promise.all([instructionsOf(tx, ctx, p.r.agent), manifestFor(tx, ctx), personaOf(tx, ctx, seen.r, seedOf(p)), repos.skills.listAddedForAgent(tx, ctx.businessId, p.r.agent.id, p.r.agent.agentType)]);
+  return { seen, model: { ins, manifest, persona, skills: promptSkills(skills) } };
 }
 
 /** A scripted reply carries no mention it could check against the manifest: any markup is reduced to its name. */
@@ -891,7 +893,7 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
     ...turn,
     businessName: ctx.business.name,
     appName: APP_NAME,
-    agent: { ...turn.agent, instructions: model.ins.instructions, description: model.ins.description },
+    agent: { ...turn.agent, instructions: model.ins.instructions, description: model.ins.description, skills: model.skills },
     glossary: Object.fromEntries(Object.entries(ctx.business.glossary ?? {}).filter(([from]) => from !== "currency")),
     // What the reply can use; its mentions are still checked against the whole manifest.
     manifest: promptManifest(model.manifest.entries, [JSON.stringify(turn.subject), ...turn.thread.map((m) => m.text), p.founderText, r.currentTask?.title ?? "", r.nextTask?.title ?? ""]).map((e) => ({ id: e.id, kind: e.kind, name: e.name, aliases: e.aliases ?? [] })),
