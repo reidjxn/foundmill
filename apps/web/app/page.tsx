@@ -1,36 +1,18 @@
 /**
- * `/` → signed out: the landing page (what Foundmill is, and a way in). Signed in: the last business's Home, else the
- * first business, else /new (profile complete) or /onboarding (BUILD §6.2, AC-11.1.1).
+ * `/` for a signed-out visitor: the landing page (what Foundmill is, and a way in), prerendered and served from the CDN
+ * (audit topology F4): it reads no cookie and asks the API nothing. proxy.ts never shows it to a signed-in founder: with
+ * the last-business cookie it redirects to that business's Home, without it it serves app/start/page.tsx, which picks.
+ * A deep link to another example business (`/?example=glitchwick|northwind`) is served from that business's own
+ * prerendered page (app/examples/[id]/page.tsx); Tutorlane, the default, is in the page's own bundle.
  *
- * `/?example=glitchwick|northwind|tutorlane` deep-links the landing page's example business. It is read here, on the
- * server, and the chosen business is loaded and passed down whole, so the server render and hydration show the same
- * business (Tutorlane, the default, is in the page's own bundle and needs no prop).
+ * Regenerated hourly, and the day it was rendered on is handed to the page, so a page rendered on an earlier day still
+ * hydrates without a mismatch (components/landing/parts.tsx `useToday`).
  */
-import { redirect } from "next/navigation";
-import { routes } from "@foundmill/widgets/shared/routes";
-import { pickCurrentBusiness } from "@/lib/auth/current-business";
-import { getLastBusinessId } from "@/lib/auth/server";
-import { serverApi } from "@/lib/trpc-server";
-import { ApiErrorPage } from "@/components/shell/ApiErrorPage";
 import { LandingPage } from "@/components/landing/LandingPage";
-import { DEFAULT_EXAMPLE_ID, EXAMPLE_PARAM, loadExample, parseExampleId } from "@/components/landing/examples";
+import { calendarDay } from "@/components/landing/examples/helpers";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 3600;
 
-export default async function IndexPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const server = await serverApi();
-  if (!server) {
-    const id = parseExampleId((await searchParams)[EXAMPLE_PARAM]);
-    return <LandingPage initialExample={id === DEFAULT_EXAMPLE_ID ? undefined : await loadExample(id)} />;
-  }
-  let profile: Awaited<ReturnType<typeof server.api.founder.profile.get.query>>;
-  try {
-    profile = await server.api.founder.profile.get.query();
-  } catch (err) {
-    return <ApiErrorPage error={err} email={server.auth.email} />;
-  }
-  if (!profile.complete) redirect("/onboarding");
-  const target = pickCurrentBusiness(await getLastBusinessId(), profile.businesses);
-  if (target) redirect(routes.home(target.id));
-  redirect("/new");
+export default function IndexPage() {
+  return <LandingPage renderDay={calendarDay(new Date(), "utc")} />;
 }

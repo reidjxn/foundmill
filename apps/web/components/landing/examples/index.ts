@@ -1,23 +1,22 @@
 /**
  * The registry of example businesses on the landing page. Tutorlane is the default and ships in the page's main bundle;
  * every other business is its own chunk, loaded on demand (and prefetched when the visitor points at or focuses its
- * picker option, and on idle after first paint). A deep link (`/?example=glitchwick`) is resolved on the server, which
- * passes the loaded business to the page as a prop, so the first paint and hydration agree.
+ * picker option, and on idle after first paint). A deep link (`/?example=glitchwick`) is served from that business's
+ * own prerendered page (proxy.ts rewrites it to app/examples/[id]), which passes the loaded business to the page as a
+ * prop, so the first paint and hydration agree.
  *
  * Adding a business: add its id to `EXAMPLE_IDS` (./types.ts), its identity to `EXAMPLE_IDENTITIES` (./identity.ts) with a
  * logo mark in ../logos.ts, write `./<id>.ts` exporting an `ExampleBusiness` (copy ./glitchwick.ts), and add its loader
  * below. The registry test checks every business against every section's needs.
  */
 import { EXAMPLE_IDENTITIES } from "./identity";
+import { DEFAULT_EXAMPLE_ID, EXAMPLE_PARAM } from "./ids";
 import { TUTORLANE } from "./tutorlane";
 import { EXAMPLE_IDS, type ExampleBusiness, type ExampleId } from "./types";
 
 export { EXAMPLE_IDENTITIES } from "./identity";
+export { DEFAULT_EXAMPLE_ID, EXAMPLE_PARAM, examplePath, exampleRoute, isExampleId, parseExampleId } from "./ids";
 export { EXAMPLE_IDS, type ExampleBusiness, type ExampleId, type ExampleIdentity } from "./types";
-
-export const DEFAULT_EXAMPLE_ID: ExampleId = "tutorlane";
-/** The query parameter of a deep link: `/?example=northwind`. */
-export const EXAMPLE_PARAM = "example";
 
 /** The default business, always loaded. */
 export const DEFAULT_EXAMPLE: ExampleBusiness = TUTORLANE;
@@ -27,17 +26,6 @@ const LOADERS: Readonly<Record<ExampleId, () => Promise<ExampleBusiness>>> = {
   glitchwick: () => import("./glitchwick").then((m) => m.GLITCHWICK),
   northwind: () => import("./northwind").then((m) => m.NORTHWIND),
 };
-
-export function isExampleId(value: unknown): value is ExampleId {
-  return typeof value === "string" && (EXAMPLE_IDS as readonly string[]).includes(value);
-}
-
-/** The business a query value names (the first, when repeated), or the default for anything else. */
-export function parseExampleId(value: string | readonly string[] | null | undefined): ExampleId {
-  const first = Array.isArray(value) ? value[0] : value;
-  const id = typeof first === "string" ? first.trim().toLowerCase() : "";
-  return isExampleId(id) ? id : DEFAULT_EXAMPLE_ID;
-}
 
 /** The URL of the landing page showing a business: the default has none of its own, so it stays "/". */
 export function exampleSearch(id: ExampleId, current = ""): string {

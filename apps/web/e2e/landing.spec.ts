@@ -121,6 +121,16 @@ test.describe("landing page", () => {
     }
   });
 
+  test("`/` and its deep links are prerendered pages, regenerated hourly, not a render per visit", async ({ page }) => {
+    for (const path of ["/", "/?example=northwind", "/?example=glitchwick"]) {
+      const res = await page.request.get(path);
+      expect(res.ok(), path).toBe(true);
+      const cacheControl = res.headers()["cache-control"] ?? "";
+      expect(cacheControl, path).toMatch(/s-maxage=3600/);
+      expect(cacheControl, path).not.toMatch(/no-store|private/);
+    }
+  });
+
   test("the picker works from the keyboard, and a deep link opens on its business", async ({ page }) => {
     await page.goto("/?example=northwind");
     const picker = page.getByRole("radiogroup", { name: "Watch it run" });

@@ -319,6 +319,40 @@ describe("LandingPage server render", () => {
     }
   });
 
+  it("a page prerendered on an earlier day hydrates without a mismatch, then shows the visitor's day", async () => {
+    // `/` is prerendered and served for up to an hour (app/page.tsx): the HTML can be from yesterday (and from last year
+    // on New Year's Day). Hydration reads the day it was rendered on; the browser's own day follows.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2025-12-31T23:30:00Z"));
+    vi.resetModules();
+    const [{ renderToString }, { createElement }, { hydrateRoot }, dugout, landing] = await Promise.all([import("react-dom/server"), import("react"), import("react-dom/client"), import("@foundmill/dugout"), import("../LandingPage")]);
+    const tree = createElement(dugout.TooltipProvider, null, createElement(landing.LandingPage, { terminalRenderer: "plain", renderDay: "2025-12-31" }));
+    const html = renderToString(tree);
+    expect(html).toContain("Wed, Dec 31");
+    expect(html.replaceAll("<!-- -->", "")).toContain(`© 2025 ${APP_NAME}`);
+    vi.setSystemTime(new Date("2026-01-02T15:00:00Z"));
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    document.body.appendChild(container);
+    const errors: unknown[] = [];
+    const consoleError = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => void errors.push(args.join(" ")));
+    try {
+      let root: ReturnType<typeof hydrateRoot> | undefined;
+      await act(async () => {
+        root = hydrateRoot(container, tree, { onRecoverableError: (e) => errors.push(e) });
+      });
+      expect(errors).toEqual([]);
+      expect(container.textContent).toContain("Fri, Jan 2");
+      expect(container.textContent).toContain(`© 2026 ${APP_NAME}`);
+      act(() => root!.unmount());
+    } finally {
+      consoleError.mockRestore();
+      container.remove();
+      vi.useRealTimers();
+      vi.resetModules();
+    }
+  });
+
   it("is identical in every time zone, so it hydrates cleanly anywhere", async () => {
     const original = process.env.TZ;
     // Late in the UTC day: already tomorrow in Tokyo and Auckland. The deck's date is the server's (UTC) day until it hydrates.

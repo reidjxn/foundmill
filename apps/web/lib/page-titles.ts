@@ -1,7 +1,9 @@
 /**
- * Browser titles of the screens inside a business (WCAG 2.4.2, audit A11Y-15). The business layout's template wraps
- * each into "<screen> · <business> · Foundmill"; these give the "<screen>" part. Pure and server-safe: the route pages'
- * `metadata` / `generateMetadata` call them, and the tests pin them.
+ * Browser titles of the screens inside a business (WCAG 2.4.2, audit A11Y-15): "<screen> · <business> · Foundmill".
+ * These give the "<screen>" part, by route (`businessScreenTitle`), and <BusinessTitle> (components/shell) renders the
+ * whole title in the browser from what the shell already holds. Next metadata gives none under /b/[bid]: asking for
+ * the business's name there cost a `business.get` on every navigation and hover prefetch. Pure and server-safe; the
+ * tests pin them.
  */
 import { AGENT_TABS } from "@/components/agents/tabs";
 import { ENTITY_TABS } from "@/components/crm/tabs";
@@ -16,9 +18,9 @@ export const SCREEN_TITLES = {
   journey: "Customer Update",
 } as const;
 
-/** The business layout's template: the screen, then the business, then the product. */
-export function businessTitleTemplate(businessName: string, appName: string): string {
-  return `%s · ${businessName} · ${appName}`;
+/** The whole title: the screen, then the business, then the product; the business and the product without a screen. */
+export function businessDocumentTitle(screen: string | null, businessName: string, appName: string): string {
+  return screen ? `${screen} · ${businessName} · ${appName}` : `${businessName} · ${appName}`;
 }
 
 export function settingsTitle(tab: string): string {
@@ -54,4 +56,45 @@ export function entityTitle(entityName: string | null, tab: string): string {
   const label = ENTITY_TABS.find((t) => t.id === tab)?.label;
   const name = entityName?.trim() || SCREEN_TITLES.crm;
   return label ? `${label} · ${name}` : name;
+}
+
+/** The entity id of a CRM record path inside the business (/b/<id>/crm/<entityId>/<tab>), else null. */
+export function entityIdOfPath(pathname: string, businessId: string): string | null {
+  const [section, entityId] = businessPathParts(pathname, businessId) ?? [];
+  return section === "crm" && entityId ? entityId : null;
+}
+
+function businessPathParts(pathname: string, businessId: string): string[] | null {
+  const prefix = `/b/${businessId}`;
+  if (pathname !== prefix && !pathname.startsWith(`${prefix}/`)) return null;
+  return pathname.slice(prefix.length + 1).split("/");
+}
+
+/**
+ * The "<screen>" part for a path inside the business, as each route names itself: the fixed screens, a settings
+ * section, a department tab and an agent by the departments the shell holds, a CRM record by its name once the record
+ * is loaded. Null for a path that is none of these (the title is then the business and the product).
+ */
+export function businessScreenTitle(pathname: string, businessId: string, departments: readonly TitleDepartment[], entityName: string | null = null): string | null {
+  const [section, a = "", b = ""] = businessPathParts(pathname, businessId) ?? [];
+  switch (section) {
+    case "home":
+      return SCREEN_TITLES.home;
+    case "inbox":
+      return SCREEN_TITLES.inbox;
+    case "crm":
+      return a ? entityTitle(entityName, b) : SCREEN_TITLES.crm;
+    case "milestones":
+      return SCREEN_TITLES.milestones;
+    case "journey":
+      return SCREEN_TITLES.journey;
+    case "settings":
+      return settingsTitle(a);
+    case "d":
+      return departmentTitle(departments, a, b);
+    case "agents":
+      return agentTitle(departments, a, b);
+    default:
+      return null;
+  }
 }

@@ -3,7 +3,7 @@
  * Building blocks shared by the landing page's sections: the page container, section frame and heading, the glass
  * panel, the window frame around live product parts, and the one-shot rise-in as a block enters the window.
  */
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { cn, prefersReducedMotion } from "@foundmill/dugout";
 import { calendarDay } from "./examples/helpers";
 
@@ -156,12 +156,17 @@ export function Reveal({ children, className, delay = 0, as: Tag = "div" }: { ch
   );
 }
 
+/** The UTC day the page was rendered on (LandingPage's `renderDay`); null outside the page (a section in a test). */
+const RenderDayContext = createContext<string | null>(null);
+export const RenderDayProvider = RenderDayContext.Provider;
+
 /**
  * Today's calendar day on the example business ("2026-10-12"): the deck's top bar and the Inbox note's date. The server
- * renders the UTC day and hydration reads the same, so the markup matches in every time zone; once hydrated, the page
- * shows the visitor's own day.
+ * renders the UTC day it renders on and hydration reads that same day, so the markup matches in every time zone even
+ * when the prerendered page is from an earlier day; once hydrated, the page shows the visitor's own day.
  */
 export function useToday(): string {
-  return useSyncExternalStore(noSubscription, () => calendarDay(new Date(), "local"), () => calendarDay(new Date(), "utc"));
+  const renderDay = useContext(RenderDayContext);
+  return useSyncExternalStore(noSubscription, () => calendarDay(new Date(), "local"), () => renderDay ?? calendarDay(new Date(), "utc"));
 }
 const noSubscription = () => () => {};

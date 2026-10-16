@@ -18,7 +18,7 @@ import { HowItWorks } from "./HowItWorks";
 import { JourneySection } from "./Journey";
 import { TeamSection } from "./TeamSection";
 import { Thesis } from "./Thesis";
-import { Container, SIGN_IN } from "./parts";
+import { Container, RenderDayProvider, SIGN_IN, useToday } from "./parts";
 import { ExampleProvider, useExample } from "./examples/context";
 import type { ExampleBusiness } from "./examples/types";
 
@@ -30,13 +30,20 @@ export interface LandingPageProps {
    * agree. Absent: the default business, Tutorlane.
    */
   initialExample?: ExampleBusiness;
+  /**
+   * The UTC day the server rendered the page on ("2026-10-12"). The page is prerendered and served for up to an hour,
+   * so hydration reads this day rather than the browser's clock (`useToday`). Absent: the UTC day at render time.
+   */
+  renderDay?: string;
 }
 
-export function LandingPage({ terminalRenderer, initialExample }: LandingPageProps) {
+export function LandingPage({ terminalRenderer, initialExample, renderDay }: LandingPageProps) {
   return (
-    <ExampleProvider initial={initialExample}>
-      <LandingContent terminalRenderer={terminalRenderer} />
-    </ExampleProvider>
+    <RenderDayProvider value={renderDay ?? null}>
+      <ExampleProvider initial={initialExample}>
+        <LandingContent terminalRenderer={terminalRenderer} />
+      </ExampleProvider>
+    </RenderDayProvider>
   );
 }
 
@@ -122,6 +129,8 @@ function TopBar() {
 }
 
 function Footer() {
+  // The year of the day the page shows (the render day until hydrated), so a page rendered last year still hydrates.
+  const year = useToday().slice(0, 4);
   return (
     <footer className="border-t border-subtle/60">
       <Container className="flex h-20 items-center gap-6 text-small text-secondary">
@@ -130,7 +139,7 @@ function Footer() {
         <span className="flex-1" />
         <span>Desktop only · 1280 px and wider</span>
         <span>
-          © {new Date().getFullYear()} {APP_NAME}
+          © {year} {APP_NAME}
         </span>
       </Container>
     </footer>
