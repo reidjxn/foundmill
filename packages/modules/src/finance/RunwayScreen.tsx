@@ -173,7 +173,7 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
   const save = async (s: ForecastScenario) => {
     const projection = projections[s];
     const drivers = { ...drafts[s], runway_months: projection.runwayMonths };
-    const result = await action.run("finance.forecast.update", { scenario: s, currency: cur, drivers, series: projection.series }, { key: `save-${s}` });
+    const result = await action.run("finance.forecast.update", { scenario: s, currency: cur, drivers, series: projection.series }, { key: `save-${s}`, fresh: true });
     if (result !== undefined) {
       clearTyping(s);
       setDirty((set) => {

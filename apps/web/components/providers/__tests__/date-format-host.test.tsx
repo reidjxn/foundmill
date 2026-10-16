@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 /**
- * DateFormatHost: starts from the server's choice (so hydration matches), checks it once against the account, keeps the
- * cookie in step with what it read, and saves a change optimistically (rolled back if the save fails).
+ * DateFormatHost: starts from the server's choice (so hydration matches), checks it once against the account unless it
+ * came from this browser's own cookie, keeps the cookie in step with what it read, and saves a change optimistically
+ * (rolled back if the save fails).
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
@@ -129,6 +130,22 @@ describe("DateFormatHost", () => {
     });
     await waitFor(() => expect(screen.getByTestId("probe").textContent).toBe("Oct 7, 2026, 3:45 PM"));
     expect(cookie()).toBe("us.12h.dev");
+  });
+
+  it("takes the choice rendered from this browser's own cookie as current: no read on load (audit WEB-9)", async () => {
+    stored = { date: "iso", time: "24h" };
+    document.cookie = `${DATE_FORMAT_COOKIE}=day_first.24h.dev; path=/`;
+    mount({ date: "day_first", time: "24h" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(get).not.toHaveBeenCalled();
+    expect(screen.getByTestId("probe").textContent).toBe("7 Oct 2026, 15:45");
+    expect(cookie()).toBe("day_first.24h.dev");
+  });
+
+  it("checks the account once on load when the cookie belongs to someone else", async () => {
+    document.cookie = `${DATE_FORMAT_COOKIE}=day_first.24h.someone-else; path=/`;
+    mount({ date: "day_first", time: "24h" });
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(1));
   });
 
   it("reads and writes nothing for a signed-out page", async () => {

@@ -82,6 +82,7 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
     const merged = applyDecisions(diff.ops, diff.hunks, decisions[active]);
     await action.run("product.spec.editBlock", { blockId: current.id, patch: { content: textToPm(merged), pinned: true } }, {
       key: active,
+      fresh: true,
       then: () => {
         setApplied(active);
         setDecisions((d) => ({ ...d, [active]: {} }));
@@ -94,6 +95,7 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
     if (!generated || current) return;
     await action.run("legal.policies.publish", { title: POLICY_TITLES[active], content: textToPm(proposed) }, {
       key: `publish-${active}`,
+      fresh: true,
       then: () => {
         setApplied(active);
         spec.refetch();

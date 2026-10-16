@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { WidgetDataProvider, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
-import { createWidgetSource } from "../widget-data";
-import type { UntypedApiClient } from "../trpc";
+import { createWidgetSource, isAccountRead, readInput } from "../widget-data";
+import { createApiClient, trpcQueryKey, type AppRouter, type UntypedApiClient } from "../trpc";
 
 function fakeClient() {
   const query = vi.fn(async (path: string, input: unknown) => ({ path, input, items: [1, 2] }));
@@ -80,4 +81,82 @@ describe("WidgetDataSource over tRPC", () => {
     source.setFocus?.("as:s1", true);
     expect(setFocus).toHaveBeenCalledWith("as:s1", true);
   });
+
+  it("reads account-level procedures without a businessId, under the shell's own key (audit WEB-9)", async () => {
+    const { client, query } = fakeClient();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const source = createWidgetSource({ businessId: "b1", glossary: {}, gameMode: "personal", currency: "USD", client, queryClient, navigate: vi.fn(), subscribe: () => () => {} });
+    function Widget() {
+      const profile = useWidgetQuery<{ path: string }>("founder.profile.get", undefined);
+      const positions = useWidgetQuery<{ path: string }>("live.leaderboards.positions", {});
+      return <span data-testid="out">{profile.data && positions.data ? "ready" : "loading"}</span>;
+    }
+    render(
+      <WidgetDataProvider source={source}>
+        <Widget />
+      </WidgetDataProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("out").textContent).toBe("ready"));
+    expect(query).toHaveBeenCalledWith("founder.profile.get", undefined);
+    // A business read that lives in an account router still gets its business.
+    expect(query).toHaveBeenCalledWith("live.leaderboards.positions", { businessId: "b1" });
+    // The key the shell's typed hook uses (BusinessShell: trpc.founder.profile.get.queryOptions()).
+    const shellKey = createTRPCOptionsProxy<AppRouter>({ client: createApiClient({ getToken: () => null }), queryClient }).founder.profile.get.queryKey();
+    expect(queryClient.getQueryData(shellKey)).toBeTruthy();
+    expect(trpcQueryKey("founder.profile.get")).toEqual(shellKey);
+  });
+
+  it("classifies reads by whether they belong to a business", () => {
+    for (const path of ["founder.profile.get", "founder.preferences.get", "live.summary", "live.people.lookup", "live.leaderboards.list", "idea.list", "import.status", "business.listArchived", "health"]) expect(isAccountRead(path), path).toBe(true);
+    for (const path of ["inbox.list", "business.get", "business.autopilot.get", "live.leaderboards.positions", "dev.tasks.list", "journey.ribbon"]) expect(isAccountRead(path), path).toBe(false);
+    // Saved table views are kept per business: the read names it, as the save does.
+    expect(isAccountRead("founder.tableViews.get")).toBe(false);
+    expect(readInput("b1", "founder.tableViews.get", { tableKey: "crm" })).toEqual({ businessId: "b1", tableKey: "crm" });
+    expect(readInput("b1", "live.leaderboards.list", {})).toEqual({});
+    expect(readInput("b1", "inbox.list", { limit: 4 })).toEqual({ businessId: "b1", limit: 4 });
+  });
+
+  it("answers a change as soon as the API has it; the stale reads refetch behind it (audit WEB-6)", async () => {
+    const { client, mutation } = fakeClient();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let release: (v: string) => void = () => undefined;
+    let fetches = 0;
+    const observer = new QueryObserver(queryClient, {
+      queryKey: trpcQueryKey("inbox.list", { businessId: "b1" }) as unknown[],
+      queryFn: () => {
+        fetches += 1;
+        return fetches === 1 ? Promise.resolve("before") : new Promise<string>((r) => (release = r));
+      },
+    });
+    const unsubscribe = observer.subscribe(() => undefined);
+    await waitFor(() => expect(observer.getCurrentResult().data).toBe("before"));
+    const source = createWidgetSource({ businessId: "b1", glossary: {}, gameMode: "personal", currency: "USD", client, queryClient, navigate: vi.fn(), subscribe: () => () => {} });
+    const pending = source.mutate<{ ok: boolean }>("inbox.decide", { itemId: "i" });
+    let settled = false;
+    void pending.settled.then(() => (settled = true));
+    // The answer is back while the refetch it started is still on its way.
+    expect(await pending).toMatchObject({ ok: true });
+    expect(mutation).toHaveBeenCalledWith("inbox.decide", { businessId: "b1", itemId: "i" });
+    await waitFor(() => expect(fetches).toBe(2));
+    expect(settled).toBe(false);
+    expect(observer.getCurrentResult().data).toBe("before");
+    // `settled` waits for the refetch, for a caller that must read the fresh data.
+    release("after");
+    await pending.settled;
+    expect(observer.getCurrentResult().data).toBe("after");
+    unsubscribe();
+  });
+
+  it("rejects a refused change and refetches nothing; its settled still resolves", async () => {
+    const { client, mutation } = fakeClient();
+    mutation.mockRejectedValueOnce(new Error("refused"));
+    const queryClient = new QueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const source = createWidgetSource({ businessId: "b1", glossary: {}, gameMode: "personal", currency: "USD", client, queryClient, navigate: vi.fn(), subscribe: () => () => {} });
+    const pending = source.mutate("inbox.decide", { itemId: "i" });
+    await expect(pending).rejects.toThrow("refused");
+    await pending.settled;
+    expect(invalidate).not.toHaveBeenCalled();
+  });
 });
+

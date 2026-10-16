@@ -100,6 +100,28 @@ describe("RegulatoryScreen", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("Settings could not be saved");
   });
 
+  it("keeps a switch as the founder set it until the store's own copy shows it (the save answers before its reload)", async () => {
+    const user = userEvent.setup();
+    const store = withStore();
+    // The list answers from a copy of the store that catches up only when told to, as a reload still on its way does.
+    let copy: Stored[] = [];
+    const fake = createFakeSource({ businessId: BID, responses: { ...store.responses, "legal.regulatory.list": () => copy }, onMutate: store.onMutate });
+    renderScreen(fake, <RegulatoryScreen {...props} />);
+    const food = () => screen.getByRole("switch", { name: "Food and drink" });
+    expect(food().getAttribute("aria-checked")).toBe("true");
+    await user.click(food());
+    await waitFor(() => expect(fake.refetches["legal.regulatory.list"]).toBe(1));
+    // Saved, and reloaded from a copy that has not caught up: the switch does not flick back.
+    expect(food().getAttribute("aria-checked")).toBe("false");
+    copy = [...store.rows.values()];
+    act(() => fake.setResponse("legal.regulatory.list", () => copy));
+    expect(food().getAttribute("aria-checked")).toBe("false");
+    // The store's copy now holds the choice, so the store wins again: a change from elsewhere shows.
+    copy = copy.map((r) => (r.sector === "food" ? { ...r, applies: true } : r));
+    act(() => fake.setResponse("legal.regulatory.list", () => copy));
+    expect(food().getAttribute("aria-checked")).toBe("true");
+  });
+
   it("shows no suggestions for a blank profile, loading and errors", () => {
     const fake = createFakeSource({ businessId: BID, responses: emptyResponses });
     renderScreen(fake, <RegulatoryScreen {...props} />);

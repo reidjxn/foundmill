@@ -45,6 +45,10 @@ describe("CORS preflight", () => {
     }
   });
 
+  it("lets the browser keep a preflight for two hours (Chrome's cap), so a change does not ask again every 10 minutes", async () => {
+    expect((await preflight("https://foundmill.com")).headers.get("access-control-max-age")).toBe("7200");
+  });
+
   it("still refuses everything else, look-alikes included", async () => {
     for (const origin of ["https://evil.example", "http://www.foundmill.com", "https://www.foundmill.com.evil.example", "https://wwwfoundmill.com", "https://api.foundmill.com"]) {
       expect((await preflight(origin)).headers.get("access-control-allow-origin"), origin).toBeNull();

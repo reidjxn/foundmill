@@ -121,7 +121,10 @@ export function createApp(deps: ApiDeps) {
       allowMethods: ["GET", "POST", "OPTIONS"],
       exposeHeaders: ["x-request-id"],
       credentials: true,
-      maxAge: 600,
+      // Two hours, Chrome's cap (Firefox allows a day): a browser asks again before a change or a stream only after that.
+      // The browser's reads come through the web app's own origin and need no preflight at all (apps/web
+      // lib/same-origin-api.ts).
+      maxAge: 7200,
     }),
   );
 
