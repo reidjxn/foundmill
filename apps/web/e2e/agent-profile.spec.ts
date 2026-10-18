@@ -113,6 +113,48 @@ test.describe("agent profile", () => {
     await expect(page.getByTestId("train-dialog")).toBeHidden();
   });
 
+  test("promoting a run writes its scores onto the attributes; a skill with no tests stays untested (founder: 'Training doesn't update ratings')", async ({ page }) => {
+    // The seed leaves the Frontend Engineer's trained draft awaiting a decision, with a library skill the run found no
+    // tests for (packages/db/src/seed/northwind.ts). The stack is seeded once per run, so the run is promoted once.
+    await openBusiness(page, "d/team/squad");
+    const link = page.locator("[data-testid=module-screen] a[href*='/agents/']").filter({ hasText: "Frontend Engineer" }).first();
+    await expect(link, "the seed hires a frontend engineer into Northwind").toBeVisible({ timeout: LONG });
+    await page.goto((await link.getAttribute("href"))!);
+    await expect(page.getByTestId("agent-profile")).toBeVisible({ timeout: LONG });
+    const skills = page.getByTestId("skills-panel");
+    const craft = skills.locator("[data-skill=component_craft]");
+    const releaseNotes = skills.locator("[data-skill=library_release_notes]");
+    await expect(craft).toBeVisible({ timeout: LONG });
+    await expect(releaseNotes).toContainText("Untested");
+    const before = Number((await craft.locator("[data-rating-figure]").first().textContent())?.trim());
+    expect(before, "the seed rates the skill at the template's baseline").toBeGreaterThan(0);
+
+    await page.getByRole("tab", { name: "Training" }).click();
+    const training = page.getByTestId("agent-training");
+    await expect(training).toBeVisible({ timeout: LONG });
+    await expect(training).toHaveAttribute("data-phase", /awaiting|watch/, { timeout: LONG });
+    if ((await training.getAttribute("data-phase")) === "awaiting") {
+      const results = page.getByTestId("training-results");
+      await expect(results).toBeVisible({ timeout: LONG });
+      const untested = results.locator("[data-skill=library_release_notes]");
+      await expect(untested).toContainText("Release notes");
+      await expect(untested).toContainText("No tests yet");
+      await expect(results.locator("[data-skill=component_craft]")).toContainText("up 3");
+      expect(await results.innerText(), "skills read as words, never keys").not.toMatch(/library_|_craft/);
+      await results.getByRole("button", { name: /^Promote v\d+$/ }).click();
+      await expect(page.getByTestId("training-notice")).toContainText("Promoted; 6 ratings updated", { timeout: LONG });
+      await expect(training).toHaveAttribute("data-phase", "watch", { timeout: LONG });
+    }
+
+    // The attributes reflect the promotion at once: the scored skill shows its new rating, the library skill is still untested.
+    await page.getByRole("tab", { name: "Overview" }).click();
+    await expect(craft).toBeVisible({ timeout: LONG });
+    await expect(craft.locator("[data-rating-figure]").first()).toHaveText(String(before + 3), { timeout: LONG });
+    await expect(craft.locator("[data-skill-delta]")).toContainText("3");
+    await expect(releaseNotes).toContainText("Untested");
+    await expect(releaseNotes.locator("[data-rating-figure]").first()).toHaveText(String(before));
+  });
+
   test("autonomy and tools panels render with their save paths", async ({ page }) => {
     await openSquadAgent(page);
     await page.getByRole("tab", { name: "Autonomy" }).click();

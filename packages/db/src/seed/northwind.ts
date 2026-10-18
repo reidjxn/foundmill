@@ -4,8 +4,8 @@
  * distribution), sourcing and formulation specialists in the lab, two years of synthetic journey data, Shopify-style
  * orders as payments, suppliers and retail partners in the CRM, a UK Ltd with its compliance calendar.
  */
-import { getArchetypeSeed } from "@foundmill/agents";
-import { APP_NAME } from "@foundmill/config";
+import { getArchetypeSeed, getLibrarySkill, librarySkillKey } from "@foundmill/agents";
+import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { eq } from "drizzle-orm";
 import { repos } from "../repos";
 import { entities as entitiesTable, type Entity } from "../schema";
@@ -102,6 +102,35 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     byTemplate: { channel_print: "idle", channel_broadcast: "idle", channel_outdoor: "idle", channel_direct_mail: "idle", channel_affiliate: "idle", channel_pr: "paused", packaging_design: "idle", certification: "degraded", moderation: "idle" },
   });
   log(`team: ${squad.agents.length} agents in ${squad.departments.length} departments`);
+
+  // --- training: the frontend engineer carries a library skill (no tests) and has a trained draft awaiting the
+  // founder's decision (BUILD §11.10): Promote writes the scores onto its ratings, the library skill stays untested.
+  const frontend = squad.byTemplate.get("frontend_engineer");
+  if (frontend?.versionId) {
+    const releaseNotes = getLibrarySkill("release_notes")!;
+    const libraryKey = librarySkillKey(releaseNotes.key);
+    const base = frontend.template.baselineRating;
+    await repos.skills.upsertAddedDefinition(db, businessId, { agentType: frontend.agent.agentType, skillKey: libraryKey, name: releaseNotes.attribute.name, description: releaseNotes.description, group: releaseNotes.attribute.group, source: "library", instructionsMd: releaseNotes.instructionsMd, fileName: null, contentHash: null });
+    await repos.skills.upsertForAgent(db, businessId, frontend.agent.id, [{ skillKey: libraryKey, group: releaseNotes.attribute.group, tested: null, proven: null, nLive: 0, displayed: base, potential: base }]);
+    const draft = await repos.agents.createVersion(db, businessId, frontend.agent.id, {
+      instructions: { ...frontend.template.instructions, rules: [...frontend.template.instructions.rules, "Check every new screen with the keyboard alone before opening the pull request."] },
+      tools: frontend.template.tools,
+      modelKey: frontend.template.modelKey,
+      state: "draft",
+      createdByKind: "user",
+      createdBy: ctx.owner.userId,
+    });
+    const trainedAt = atHour(addDays(ctx.today, -1), 9);
+    const run = await repos.training.create(db, businessId, { agentId: frontend.agent.id, fromVersionId: frontend.versionId, toVersionId: draft.id, status: "awaiting_decision", costMinor: 1_420, currency: CREDITS_CURRENCY, requestedBy: ctx.owner.userId });
+    const scored = (delta: number) => ({ old: base, new: base + delta, tests: 12 });
+    await repos.training.update(db, businessId, run.id, {
+      status: "awaiting_decision",
+      startedAt: trainedAt,
+      endedAt: new Date(trainedAt.getTime() + 4 * 60_000),
+      results: { component_craft: scored(3), design_fidelity: scored(2), accessibility: scored(0), testing: scored(-1), planning: scored(1), speed: scored(-1), [libraryKey]: { old: base, new: base, tests: 0 } },
+      coachSummaryMd: `72 tests across 6 skills. 3 skills up, none dropped by more than a point. The keyboard-only check shows in Component craft (${base}→${base + 3}) and Design fidelity (${base}→${base + 2}); Speed and Testing each gave back a point to the extra pass. No tests yet for ${releaseNotes.attribute.name}: its rating stands until the skill has tests (add it as a custom skill to have tests drafted for your review). Recommendation: promote (Estimate from tested ratings; proven ratings follow live work).`,
+    });
+  }
 
   const channels = await seedChannels(ctx, businessId, squad, CURRENCY, {
     enabled: ["influencer", "paid_ads", "social", "email_automation"],
