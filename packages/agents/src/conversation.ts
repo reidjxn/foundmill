@@ -349,14 +349,16 @@ export function quotedContentCheck(untrusted: readonly string[], trusted: readon
   const q = markersOf(untrusted.join("\n"));
   const t = markersOf(trusted.join("\n"));
   const trustedLower = trusted.join("\n").toLowerCase();
-  const tokens = [...q.tokens].filter((x) => !t.tokens.has(x) && !trustedLower.includes(x));
+  // A short word token ("bic", "swift", "iban") matches as a word, not inside another ("bicycle", "swiftly").
+  const names = (text: string, x: string) => (/^[a-z]{2,5}$/.test(x) ? new RegExp(`\\b${x}\\b`).test(text) : text.includes(x));
+  const tokens = [...q.tokens].filter((x) => !t.tokens.has(x) && !names(trustedLower, x));
   const numbers = [...q.numbers].filter((x) => !t.numbers.has(x));
   const grams = [...q.grams].filter((x) => !t.grams.has(x));
   if (tokens.length + numbers.length + grams.length === 0) return { echoes: () => null };
   return {
     echoes(text: string): string | null {
       const lower = text.toLowerCase();
-      const hit = tokens.find((x) => lower.includes(x));
+      const hit = tokens.find((x) => names(lower, x));
       if (hit) return hit;
       const own = markersOf(text);
       const num = numbers.find((x) => own.numbers.has(x) || [...own.numbers].some((n) => n.length >= 4 && x.includes(n)));
@@ -440,17 +442,41 @@ const HUMAN_CLAIM_RE = /\b(?:I(?:'m| am)\s+(?:a\s+|an\s+)?(?:human|real\s+person
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 // A conversation never acts, so a reply never says that work was done, started or sent (house rules, audit §4).
-/** Verbs that claim an action ran. "started" only as an act, not "started looking". */
-const DONE_VERBS = "spent|launched|started(?!\\s+\\w+ing\\b)|set\\s+up|enabled|disabled|paid|sent|wired|transferred|booked|signed|changed|scheduled|created|approved|submitted|filed|cancel(?:l)?ed|deleted|removed|revoked|rotated|reset|turned\\s+(?:off|on)|switched\\s+(?:off|on)|ordered|published|posted|deployed|shipped|activated|deactivated";
+/** Looking at something is not acting: "started looking" (reading, drafting, ...) is not a claim; "started sending" is. */
+const LOOKING_VERBS = "looking|thinking|reading|checking|reviewing|comparing|digging|going|pulling|gathering|collecting|researching|drafting|writing|sketching|mapping|listing|working";
+/** Verbs that claim an action ran. "started" as an act or as starting one, not "started looking". */
+const DONE_VERBS = `spent|launched|started(?!\\s+(?:${LOOKING_VERBS})\\b)|set\\s+up|enabled|disabled|paid|sent|wired|transferred|booked|signed|changed|scheduled|created|approved|submitted|filed|cancel(?:l)?ed|deleted|removed|revoked|rotated|reset|turned\\s+(?:off|on)|switched\\s+(?:off|on)|ordered|published|posted|deployed|shipped|activated|deactivated`;
 /** "I've wired", "I just sent", "I already set up": first person, always a claim. */
 const FIRST_PERSON_DONE_RE = new RegExp(`\\bI(?:'ve|\\s+have)(?:\\s+(?:already|just|now))?\\s+(?:${DONE_VERBS})\\b|\\bI\\s+(?:already|just)\\s+(?:${DONE_VERBS})\\b`, "i");
-/** "It's done", "all done", "has been sent", "Done.": a claim unless the sentence reports what quoted text says. */
-const STATED_DONE_RE = new RegExp(`\\b(?:it|that|this|everything)(?:'s|\\s+is|\\s+was)\\s+(?:all\\s+)?(?:done|sorted|taken\\s+care\\s+of)\\b|\\ball\\s+done\\b|\\bconsider\\s+it\\s+done\\b|\\b(?:has|have)\\s+been\\s+(?:${DONE_VERBS})\\b|^\\s*done[.!]`, "i");
+/** "It's done", "all done", "has been sent", "it's been paid", "Done.": a claim unless the sentence reports what quoted text says. */
+const STATED_DONE_RE = new RegExp(`\\b(?:it|that|this|everything)(?:'s|\\s+is|\\s+was)\\s+(?:all\\s+)?(?:done|sorted|taken\\s+care\\s+of)\\b|\\ball\\s+done\\b|\\bconsider\\s+it\\s+done\\b|(?:\\b(?:has|have|had)|['’](?:s|ve|d))\\s+been\\s+(?:${DONE_VERBS})\\b|^\\s*done[.!]`, "i");
 /** Reporting verbs: what follows them is what a note or a person said, not what the agent did. */
-const REPORTED_RE = /\b(?:says?|said|saying|asks?|asked|asking|tells?|told|telling|wants?|wanted|instruct(?:s|ed|ing|ions?)?|claims?|claimed|report(?:s|ed)?|pretend(?:s|ed)?|demands?|demanded|requests?|requested)\b/i;
+const REPORTED_RE = /\b(?:says?|said|saying|asks?|asked|asking|tells?|told|telling|wants?|wanted|instruct(?:s|ed|ing|ions?)?|claims?|claimed|report(?:s|ed)?|pretend(?:s|ed)?|demands?|demanded|requests?|requested|wrote|writes|replie[sd]|confirm(?:s|ed)?|insist(?:s|ed)?|mention(?:s|ed)?|suggest(?:s|ed)?)\b/gi;
+/**
+ * Between the reporting verb and the claim: at most five plain words ("to tell you that", "the deposit"), no comma and
+ * no conjunction, so "As you asked, it's done" and "you asked and it's done" stay claims.
+ */
+const REPORTED_GAP_RE = /^(?:\s+(?!(?:and|but|so|then|once|now|because|since|after|when|if)\b)[\w'’-]+){0,5}\s*:?\s*["“']?\s*$/;
+/** The reporting verb is the agent's own: "I told you", "I can report", "happy to report", "just to confirm". */
+const OWN_SPEECH_RE = /(?:\b(?:I|I['’]m|I['’]ve|I['’]d|I['’]ll|we|we['’]re|we['’]ve|we['’]d)\b(?:\s+[\w'’-]+)?|\bto)\s*$/i;
 const sentencesOf = (text: string): string[] => text.split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 0);
 /** What replaces a sentence that claimed work was done. */
 export const DONE_CLAIM_NOTE = "Nothing has been done from this conversation: I can only write work up for you to confirm.";
+
+/**
+ * True when the stated claim that follows `before` is what a note or a person said ("the note says to tell you it's
+ * done", "the supplier confirms the deposit has been paid"): a reporting verb sits within a few plain words of the
+ * claim, and the sentence's first reporting verb is not the agent's own ("I'm happy to report that it's done" and
+ * "as you asked, it's done" are claims).
+ */
+function reportedSpeech(before: string): boolean {
+  const verbs = [...before.matchAll(REPORTED_RE)];
+  const first = verbs[0];
+  const last = verbs[verbs.length - 1];
+  if (!first || !last) return false;
+  if (OWN_SPEECH_RE.test(before.slice(0, first.index))) return false;
+  return REPORTED_GAP_RE.test(before.slice(last.index + last[0].length));
+}
 
 /**
  * The first sentence of `text` that claims work was done ("I've wired it", "Done.", "it has been sent"), or null. A
@@ -461,7 +487,7 @@ export function doneClaimIn(text: string): string | null {
   for (const sentence of sentencesOf(text)) {
     if (FIRST_PERSON_DONE_RE.test(sentence)) return sentence.trim();
     const m = STATED_DONE_RE.exec(sentence);
-    if (m && !REPORTED_RE.test(sentence.slice(0, m.index))) return sentence.trim();
+    if (m && !reportedSpeech(sentence.slice(0, m.index))) return sentence.trim();
   }
   return null;
 }
