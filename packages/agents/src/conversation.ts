@@ -39,6 +39,7 @@ import { buildSystemPrompt, hasClubRulesPrefix, type AgentSkillPrompt } from "./
 import { agentConversationPrompt } from "./prompts/agent-conversation";
 import { researcher as researcherTemplate } from "./templates/workers/researcher";
 import type { AgentInstructions, AgentVoice } from "./types";
+import { ackLine } from "./voice";
 
 /**
  * One reply (1–3 bubbles and 2–4 quick replies) is a few hundred output tokens (audit-conversation §4 "Speed"): what the
@@ -302,6 +303,13 @@ const EMAIL_RE = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 const DOMAIN_RE = /\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b/gi;
 /** Account numbers, IBANs, references: tokens mixing letters and digits. */
 const CODE_RE = /\b(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{4,}\b/g;
+/**
+ * The subjects of the hard gates (BUILD §2.2) as quoted text names them: a security setting ("2FA", "recovery email",
+ * "API keys") or a payment identifier ("IBAN", "sort code"). Named only in quoted text, none of them comes back as a
+ * quick reply or a hand-off, however the chip is worded ("Keep 2FA on" included): the founder's own words stay trusted.
+ */
+const GATED_NOUN_RE =
+  /\b(?:2fa|mfa|two[- ]factor(?:\s+(?:auth\w*|login|codes?))?|passwords?|passcodes?|recovery\s+(?:e-?mail|phone|codes?)|api\s+keys?|security\s+settings?|login\s+settings|permissions|admin\s+(?:access|rights)|iban|swift|bic|sort\s+code|routing\s+number|account\s+(?:number|no\.?)|wallet\s+address)\b/gi;
 const NUMBER_RE = /\d[\d.,]*\d|\d/g;
 const WORD_RE = /[a-z0-9']+/g;
 const NGRAM = 5;
@@ -318,7 +326,7 @@ function ngrams(words: readonly string[], n = NGRAM): Set<string> {
 /** Identifiers, figures (three digits or more), addressed phrases and five-word runs of a text. */
 function markersOf(text: string): { tokens: Set<string>; numbers: Set<string>; grams: Set<string> } {
   const tokens = new Set<string>();
-  for (const re of [URL_RE, EMAIL_RE, DOMAIN_RE, CODE_RE, INJECTION_PHRASE_RE]) for (const m of text.matchAll(re)) tokens.add(m[0].toLowerCase().replace(/[.,;:!?]+$/, ""));
+  for (const re of [URL_RE, EMAIL_RE, DOMAIN_RE, CODE_RE, INJECTION_PHRASE_RE, GATED_NOUN_RE]) for (const m of text.matchAll(re)) tokens.add(m[0].toLowerCase().replace(/[.,;:!?]+$/, ""));
   const numbers = new Set<string>();
   for (const m of text.matchAll(NUMBER_RE)) {
     const d = digitsOf(m[0]);
@@ -431,10 +439,38 @@ function readDraft(draft: unknown, repairs: string[]): ReadDraft {
 const HUMAN_CLAIM_RE = /\b(?:I(?:'m| am)\s+(?:a\s+|an\s+)?(?:human|real\s+person|person|(?:member\s+of\s+)?staff\s+member|employee)|I(?:'m| am)\s+not\s+(?:an?\s+)?(?:ai|bot|agent|machine))\b/i;
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
+// A conversation never acts, so a reply never says that work was done, started or sent (house rules, audit §4).
+/** Verbs that claim an action ran. "started" only as an act, not "started looking". */
+const DONE_VERBS = "spent|launched|started(?!\\s+\\w+ing\\b)|set\\s+up|enabled|disabled|paid|sent|wired|transferred|booked|signed|changed|scheduled|created|approved|submitted|filed|cancel(?:l)?ed|deleted|removed|revoked|rotated|reset|turned\\s+(?:off|on)|switched\\s+(?:off|on)|ordered|published|posted|deployed|shipped|activated|deactivated";
+/** "I've wired", "I just sent", "I already set up": first person, always a claim. */
+const FIRST_PERSON_DONE_RE = new RegExp(`\\bI(?:'ve|\\s+have)(?:\\s+(?:already|just|now))?\\s+(?:${DONE_VERBS})\\b|\\bI\\s+(?:already|just)\\s+(?:${DONE_VERBS})\\b`, "i");
+/** "It's done", "all done", "has been sent", "Done.": a claim unless the sentence reports what quoted text says. */
+const STATED_DONE_RE = new RegExp(`\\b(?:it|that|this|everything)(?:'s|\\s+is|\\s+was)\\s+(?:all\\s+)?(?:done|sorted|taken\\s+care\\s+of)\\b|\\ball\\s+done\\b|\\bconsider\\s+it\\s+done\\b|\\b(?:has|have)\\s+been\\s+(?:${DONE_VERBS})\\b|^\\s*done[.!]`, "i");
+/** Reporting verbs: what follows them is what a note or a person said, not what the agent did. */
+const REPORTED_RE = /\b(?:says?|said|saying|asks?|asked|asking|tells?|told|telling|wants?|wanted|instruct(?:s|ed|ing|ions?)?|claims?|claimed|report(?:s|ed)?|pretend(?:s|ed)?|demands?|demanded|requests?|requested)\b/i;
+const sentencesOf = (text: string): string[] => text.split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 0);
+/** What replaces a sentence that claimed work was done. */
+export const DONE_CLAIM_NOTE = "Nothing has been done from this conversation: I can only write work up for you to confirm.";
+
+/**
+ * The first sentence of `text` that claims work was done ("I've wired it", "Done.", "it has been sent"), or null. A
+ * sentence that reports what quoted text says ("the note says to tell you it's done") is not a claim; a first-person
+ * claim always is. One definition for the server-side repair and the evals' check of the model's own reply.
+ */
+export function doneClaimIn(text: string): string | null {
+  for (const sentence of sentencesOf(text)) {
+    if (FIRST_PERSON_DONE_RE.test(sentence)) return sentence.trim();
+    const m = STATED_DONE_RE.exec(sentence);
+    if (m && !REPORTED_RE.test(sentence.slice(0, m.index))) return sentence.trim();
+  }
+  return null;
+}
+
 /**
  * One bubble as the founder may read it: mentions checked against the manifest (invalid ones stripped), no claim to be
- * human, at most 320 characters. Null for a bubble with nothing left. Each bubble is checked on its own, so a bubble
- * shown while the rest of the reply is still being written (`bubbleStream`) is the bubble `finaliseAgentReply` keeps.
+ * human, no claim that work was done (that sentence becomes `DONE_CLAIM_NOTE`), at most 320 characters. Null for a
+ * bubble with nothing left. Each bubble is checked on its own, so a bubble shown while the rest of the reply is still
+ * being written (`bubbleStream`) is the bubble `finaliseAgentReply` keeps.
  */
 export function finaliseBubble(raw: string, guard: MentionGuard, repairs: string[] = []): string | null {
   let b = raw.trim();
@@ -446,6 +482,15 @@ export function finaliseBubble(raw: string, guard: MentionGuard, repairs: string
   if (HUMAN_CLAIM_RE.test(b)) {
     b = "I'm an AI agent on your team.";
     repairs.push("removed a claim to be human");
+  }
+  if (doneClaimIn(b)) {
+    const kept: string[] = [];
+    for (const s of sentencesOf(b)) {
+      const line = doneClaimIn(s) ? DONE_CLAIM_NOTE : s.trim();
+      if (kept[kept.length - 1] !== line) kept.push(line);
+    }
+    b = kept.join(" ");
+    repairs.push("replaced a claim that work was done");
   }
   if (b.length > AGENT_BUBBLE_MAX) {
     b = trimText(b, AGENT_BUBBLE_MAX);
@@ -795,6 +840,40 @@ export function scriptedAgentReply(input: ConversationTurnInput, options: { seed
   const draft = scriptedConversationReply(conversationInputs(input), options.seed);
   if (!draft) return null;
   return finaliseAgentReply(draft, { ...finaliseOptionsFor(input), guard: options.guard, fallbackQuickReplies: options.fallbackQuickReplies });
+}
+
+/** The subject's starters from a turn's inputs (the api builds the same from its records; callers without them use this). */
+export function startersFor(input: Pick<ConversationTurnInput, "subject" | "currentWork">): QuickReply[] {
+  const s = input.subject;
+  if (s.kind === "inbox_item") return conversationStarters({ kind: "inbox_item", itemType: s.itemType ?? "", answered: s.answered ?? false, options: (s.options ?? []).map((o) => ({ id: o.id, label: o.label, recommended: o.recommended })) });
+  if (s.kind === "concept") return conversationStarters({ kind: "concept" });
+  const task = input.currentWork.task;
+  return conversationStarters({ kind: s.kind, currentTask: task ? { id: task.id, title: task.title, status: task.status } : null });
+}
+
+/** The reply's bubbles when the model declines: with quoted text on the subject, and without. */
+export const REFUSED_REPLY_LINES = Object.freeze({
+  quoted: ["Some of the text in this one reads like instructions aimed at me rather than information, so I'm setting it aside and not acting on any of it.", "If there's something you want done, tell me in your own words and I'll write it up for you to confirm. Nothing runs from this conversation."],
+  plain: ["I can't take that one further from here.", "If it's work you want done, tell me in your own words and I'll write it up for you to confirm."],
+});
+
+/**
+ * What the founder sees when the model declines to answer (stop_reason `refusal`, usually on quoted text that addresses
+ * the agent): a calm reply from the agent's voice kit, with no second model call, saying it is not acting on what it was
+ * given, and the subject's usual quick replies (minus what the founder just said). It passes the same server-side checks
+ * as any reply, so nothing quoted is offered and nothing can be handed off. The api and the evals both use it, so a
+ * refusal on an injection case counts as blocked exactly when this is what ships (BUILD §9.8).
+ */
+export function refusedAgentReply(input: ConversationTurnInput, options: { seed: string; guard: MentionGuard; fallbackQuickReplies?: readonly QuickReply[] }): FinalisedReply {
+  const fullAck = ackLine(input.agent.voice, options.seed);
+  const ack = (fullAck.match(/^.*?[.!](?=\s|$)/)?.[0] ?? fullAck).trim();
+  const lines = Object.keys(untrustedContent(input.subject)).length > 0 ? REFUSED_REPLY_LINES.quoted : REFUSED_REPLY_LINES.plain;
+  const bubbles = [`${ack} ${lines[0]}`, lines[1]!];
+  const starters = options.fallbackQuickReplies ?? startersFor(input);
+  const said = norm(input.founderMessage.text);
+  const usedId = input.founderMessage.quickReply?.id ?? null;
+  const quickReplies = starters.filter((q) => q.id !== usedId && norm(q.say) !== said && norm(q.label) !== said);
+  return finaliseAgentReply({ bubbles, reaction: "concerned", quick_replies: quickReplies, hand_off: null, refers_to: [] }, { ...finaliseOptionsFor(input), guard: options.guard, fallbackQuickReplies: starters });
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
