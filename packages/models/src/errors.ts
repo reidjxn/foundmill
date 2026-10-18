@@ -80,6 +80,16 @@ export function isModelBillingError(err: unknown): err is ModelBillingError {
   return typeof e === "object" && e !== null && (e.name === "ModelBillingError" || e.code === "billing");
 }
 
+/**
+ * True when the model declined the request (stop_reason `refusal`, thrown as a `ModelOutputError` with code `refusal`),
+ * also across package copies and serialization. A refusal is never retried: the caller decides what the person sees.
+ */
+export function isModelRefusal(err: unknown): err is ModelOutputError {
+  if (err instanceof ModelError) return err.code === "refusal";
+  const e = err as { code?: unknown } | null;
+  return typeof e === "object" && e !== null && e.code === "refusal";
+}
+
 /** Rate limit (429) still in force after every allowed attempt, or a wait longer than the limiter permits. */
 export class ModelRateLimitError extends ModelError {
   constructor(
