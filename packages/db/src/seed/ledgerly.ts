@@ -18,6 +18,7 @@ import { addDays, addHours, atHour, mention, money, pct, quarterFacts, quarterKe
 import { seedFinance } from "./finance";
 import { seedJourney } from "./journey";
 import { seedLegal } from "./legal";
+import { seedLedgerlyResearch } from "./research";
 import { applyAgentStatuses, seedSquad } from "./squad";
 import type { SeededBusiness } from "./types";
 
@@ -182,6 +183,9 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
   // --- product -----------------------------------------------------------------------------------------------------------
   const specIds = await seedSpec(ctx, businessId, archetype.specOutline, SPEC_TEXT, squad.byTemplate.get("product_lead")?.agent.id ?? null);
   const roadmapIds = await seedRoadmap(ctx, businessId, ROADMAP, specIds, squad);
+  // The Product Researcher's plan to test the specification with the ICP (Product › Research).
+  const research = await seedLedgerlyResearch(ctx, businessId, squad, specIds);
+  log(`research: ${research.artifacts} artifacts`);
   await repos.product.createSource(db, businessId, {
     kind: "doc",
     uri: `https://github.com/${LEDGERLY_GITHUB_REPO}`,

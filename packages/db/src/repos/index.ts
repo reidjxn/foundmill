@@ -34,6 +34,7 @@ import { playbooksRepo } from "./playbooks";
 import { policiesRepo } from "./policies";
 import { productRepo } from "./product";
 import { recordingsRepo } from "./recordings";
+import { researchRepo } from "./research";
 import { screensRepo } from "./screens";
 import { skillsRepo } from "./skills";
 import { socialRepo } from "./social";
@@ -82,6 +83,7 @@ export const repos = {
   workspaces: workspacesRepo,
   logos: logosRepo,
   foundations: foundationsRepo,
+  research: researchRepo,
   conversations: conversationsRepo,
   preferences: preferencesRepo,
   tableViews: tableViewsRepo,
@@ -123,6 +125,7 @@ export * from "./playbooks";
 export * from "./policies";
 export * from "./product";
 export * from "./recordings";
+export * from "./research";
 export * from "./screens";
 export * from "./skills";
 export * from "./social";
