@@ -4,7 +4,7 @@
  * the case's rubric (BUILD §12.5). The checks look at what the model wrote itself: a section the normaliser had to fill,
  * an import seed it had to add or a figure it had to label counts against the model.
  */
-import { assembleFoundationsDraft, buildFoundationsRequest, docText, finaliseFoundations, foundationsReadyNote, memoryProgressStore, prompts, type FoundationsDraft } from "@foundmill/agents";
+import { assembleFoundationsDraft, buildFoundationsRequest, docText, finaliseFoundations, foundationsSignoffNotes, memoryProgressStore, prompts, type FoundationsDraft } from "@foundmill/agents";
 import { draftFoundationsStaged } from "@foundmill/agents/foundations-steps";
 import { type ModelClient, SkillGradeOutput, type StreamStructuredRequest } from "@foundmill/models";
 import { weightedScore } from "../harness";
@@ -40,8 +40,9 @@ export function storedStrings(c: FoundationsCase, draft: FoundationsDraft): stri
   walk(draft);
   const r = { now: 0, next: 0, later: 0 };
   for (const i of draft.roadmap) r[i.horizon]++;
-  const note = foundationsReadyNote(draft, c.inputs.door, { sectionsWritten: draft.sections.filter((s) => s.drafted).length, sectionsTotal: draft.sections.length, sectionsKept: 0, roadmap: r, importedIssues: draft.roadmap.filter((i) => i.imported).length });
-  out.push(note.subject, note.bodyMd);
+  // The two sign-off notes the Product lead posts from the draft (founder, 2026-10-18): checked like any founder-facing text.
+  const notes = foundationsSignoffNotes(draft, c.inputs.door, { sectionsWritten: draft.sections.filter((s) => s.drafted).length, sectionsTotal: draft.sections.length, sectionsKept: 0, roadmap: r, importedIssues: draft.roadmap.filter((i) => i.imported).length });
+  out.push(notes.spec.subject, notes.spec.bodyMd, notes.roadmap.subject, notes.roadmap.bodyMd);
   return out;
 }
 
