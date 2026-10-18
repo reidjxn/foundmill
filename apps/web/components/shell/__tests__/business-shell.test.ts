@@ -67,6 +67,13 @@ describe("staff changes on the stream (security review S1)", () => {
   });
 });
 
+describe("the first days on the stream (founder, 2026-10-18)", () => {
+  it("a sign-off decision refetches the business, the Product tabs' sign-offs, the Inbox and the Plan; a distribution start the Board", () => {
+    expect(INVALIDATE_ON_EVENT["product.signoff_decided"]).toEqual(["business", "product.signoff", "inbox", "dev"]);
+    expect(INVALIDATE_ON_EVENT["distribution.started"]).toEqual(["business", "distribution", "inbox"]);
+  });
+});
+
 describe("foundations progress on the stream (audit P3)", () => {
   it("foundations.progressed refetches the foundations query only, which the dotted prefix reaches", async () => {
     expect(INVALIDATE_ON_EVENT["foundations.progressed"]).toEqual(["product.foundations"]);

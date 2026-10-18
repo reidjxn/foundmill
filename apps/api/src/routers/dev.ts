@@ -5,14 +5,14 @@
  * Training Ground reflects the intent.
  */
 import { FLAGS, isSimulateEnv } from "@foundmill/config";
-import { HOUSE_STYLE } from "@foundmill/agents";
 import { TaskListFilter, assertConcurrencyRoom, codeRepositoryOf, modelBudgetState, periodOf, repos, type AgentSession, type DbTx, type Executor, type Task } from "@foundmill/db";
 import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
-import { TaskGraphOutput } from "@foundmill/models";
 import { AppError, ForbiddenError, NotFoundError, ValidationError, connectorMode, formatMoney, hasSectionAccess, sessionSections, type TaskStatus } from "@foundmill/shared";
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import { replaySession } from "../services/replay";
+import { PlanInput, planKey, planTaskGraph, type PlanResult } from "../services/task-graph";
+
+export { PLAN_REPEAT_WINDOW_MS, PlanInput, planKey } from "../services/task-graph";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds, type SignalName } from "../services/temporal";
 import { modelLimited } from "../services/model-limits";
@@ -69,11 +69,6 @@ async function readableSession(tx: Executor, ctx: Pick<BusinessContext, "busines
 /** A merged pull request row: GitHub's `pr.merged` payload (repo, PR number, diff stats…) or the merge queue's own fields. */
 type MergedPr = Record<string, unknown> & { eventId: string | null; occurredAt: Date; source: "github" | "merge_queue"; taskId?: unknown; title?: unknown };
 
-function departmentOfRoadmapItem(item: { ownerRef: unknown } | null): string | null {
-  const ref = item?.ownerRef as { kind?: string; id?: string } | null | undefined;
-  return ref && ref.kind === "department" && typeof ref.id === "string" ? ref.id : null;
-}
-
 async function openSession(ctx: BusinessContext, taskId: string) {
   const sessions = await repos.agents.listSessions(ctx.db, ctx.businessId, { taskId, openOnly: true, limit: 1 });
   return sessions.items[0] ?? null;
@@ -103,75 +98,8 @@ export class TaskNotStartedError extends AppError {
   }
 }
 
-export const PlanInput = z.object({ roadmapItemId: Id.optional(), goal: z.string().max(4000).optional(), departmentId: Id.optional() });
-type PlanInput = z.infer<typeof PlanInput>;
-type PlanResult = { tasks: Task[]; graph: Awaited<ReturnType<typeof repos.tasks.graph>>; costMinor: number; costLabel: "Estimate"; reused: boolean };
-
-/** A plan written this recently for the same request is that request repeated (a double click, a retried call). */
-export const PLAN_REPEAT_WINDOW_MS = 60_000;
 /** Plans being built on this instance, by business and request: a concurrent identical request shares the one planner call. */
 const plansInFlight = new Map<string, Promise<PlanResult>>();
-
-/** What makes two plan requests the same request: the roadmap item, the goal (whitespace-insensitive) and the department. */
-export function planKey(input: PlanInput): string {
-  const goal = (input.goal ?? "").trim().replace(/\s+/g, " ");
-  return createHash("sha256").update(JSON.stringify([input.roadmapItemId ?? null, goal, input.departmentId ?? null])).digest("hex").slice(0, 32);
-}
-
-/** The plan written for this request in the repeat window, while its tasks are still there; null otherwise. */
-async function repeatedPlan(ctx: BusinessContext, tx: DbTx, key: string): Promise<PlanResult | null> {
-  const entry = await repos.audit.latestMatching(tx, ctx.businessId, "dev.tasks.plan", { planKey: key }, new Date(Date.now() - PLAN_REPEAT_WINDOW_MS));
-  const ids = (entry?.details as { taskIds?: unknown } | undefined)?.taskIds;
-  if (!Array.isArray(ids) || ids.length === 0) return null;
-  const byId = new Map((await repos.tasks.byIds(tx, ctx.businessId, ids.map(String))).filter((t) => t.archivedAt === null).map((t) => [t.id, t]));
-  const tasks = ids.map((id) => byId.get(String(id))).filter((t): t is Task => t !== undefined);
-  if (tasks.length !== ids.length) return null;
-  return { tasks, graph: await repos.tasks.graph(tx, ctx.businessId), costMinor: 0, costLabel: "Estimate", reused: true };
-}
-
-async function buildPlan(ctx: BusinessContext, input: PlanInput, key: string): Promise<PlanResult> {
-  // Before the planner is paid for: the department must be this business's own (400), as the tasks' repo insists (audit RA-07).
-  if (input.departmentId) await ctx.rls((tx) => repos.departments.assertOwned(tx, ctx.businessId, [input.departmentId], "departmentId"));
-  const repeated = await ctx.rls((tx) => repeatedPlan(ctx, tx, key));
-  if (repeated) return repeated;
-  const roadmapItem = input.roadmapItemId ? await ctx.rls((tx) => repos.product.getRoadmapItem(tx, ctx.businessId, input.roadmapItemId!)) : null;
-  const goal = input.goal ?? roadmapItem?.descriptionMd ?? roadmapItem?.title;
-  if (!goal) throw new ValidationError("Give a goal or a roadmap item to plan");
-  const blocks = await ctx.rls((tx) => repos.product.listBlocks(tx, ctx.businessId));
-  const result = await ctx.models.complete({
-    route: "planner",
-    schema: TaskGraphOutput,
-    system: `You are the Planner. Build a task graph with goals, acceptance criteria, test expectations, file-scope hints and dependencies. ${HOUSE_STYLE}`,
-    messages: [{ role: "user", content: "```json\n" + JSON.stringify({ goal, roadmap_item: roadmapItem, spec_sections: blocks.map((b) => b.section) }) + "\n```" }],
-    attribution: { businessId: ctx.businessId, kind: "planner" },
-  });
-  return ctx.rls(async (tx) => {
-    // One writer per business at a time, so a request planned on another instance meanwhile is seen, not written twice.
-    await repos.tasks.lockPlanning(tx, ctx.businessId);
-    const written = await repeatedPlan(ctx, tx, key);
-    if (written) return written;
-    const idByPlanned = new Map<string, string>();
-    const created: Task[] = [];
-    for (const t of result.json.tasks) {
-      const task = await repos.tasks.create(tx, ctx.businessId, {
-        kind: t.kind,
-        title: t.title.slice(0, 200),
-        goalMd: t.goal,
-        acceptance: t.acceptance_criteria,
-        fileScope: t.file_scope_hints,
-        roadmapItemId: roadmapItem?.id ?? null,
-        departmentId: input.departmentId ?? departmentOfRoadmapItem(roadmapItem),
-        status: "planned",
-        priority: t.hard ? 10 : 0,
-      });
-      idByPlanned.set(t.id, task.id);
-      created.push(task);
-    }
-    for (const t of result.json.tasks) for (const dep of t.depends_on) if (idByPlanned.has(dep)) await repos.tasks.addEdge(tx, ctx.businessId, idByPlanned.get(dep)!, idByPlanned.get(t.id)!);
-    await audit(tx, ctx, { action: "dev.tasks.plan", target: { kind: "roadmap_item", id: roadmapItem?.id ?? "" }, details: { tasks: created.length, costMinor: result.cost.costMinorInt, planKey: key, taskIds: created.map((t) => t.id) } });
-    return { tasks: created, graph: await repos.tasks.graph(tx, ctx.businessId), costMinor: result.cost.costMinorInt, costLabel: "Estimate" as const, reused: false };
-  });
-}
 
 export const devRouter = router({
   tasks: router({
@@ -185,7 +113,7 @@ export const devRouter = router({
       const flightKey = `${ctx.businessId}:${key}`;
       const inFlight = plansInFlight.get(flightKey);
       if (inFlight) return inFlight;
-      const run = buildPlan(ctx, input, key).finally(() => plansInFlight.delete(flightKey));
+      const run = planTaskGraph(ctx, input, key).finally(() => plansInFlight.delete(flightKey));
       plansInFlight.set(flightKey, run);
       return run;
     }),

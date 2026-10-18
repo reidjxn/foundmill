@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, devApi, ensureDeck, logoPng, openSettings, signIn } from "./helpers";
+import { LONG, UUID, devApi, ensureDeck, inboxRow, logoPng, openSettings, signIn } from "./helpers";
 
 /**
  * /new/commit/[ideaId] — the Commit screen (BUILD §11.1; AC-11.1.6, AC-11.1.7). The test drafts a card in the
@@ -123,7 +123,7 @@ test.describe("commit", () => {
     await expect(preview).toHaveAttribute("data-logo", "image");
   });
 
-  test("AC-11.1.6: Take charge creates the business and opens the Board item in the Inbox", async ({ page }) => {
+  test("AC-11.1.6: Take charge creates the business and lands on Home, where the foundations draft; the Inbox has the welcome note, nothing blocks Continue", async ({ page }) => {
     const name = `Playwright Business ${Date.now().toString(36)}`;
     await page.getByLabel(/Business name/).fill(name);
     await page.getByLabel(/Business mode/).getByLabel(/Assisted/).check();
@@ -132,20 +132,25 @@ test.describe("commit", () => {
     await expect(page.getByTestId("logo-option")).toHaveCount(4, { timeout: LONG });
     await page.getByTestId("logo-option").first().click();
     await page.getByTestId("take-charge").click();
-    await expect(page).toHaveURL(/\/b\/[0-9a-f-]+\/inbox\/[0-9a-f-]+/, { timeout: LONG });
+    // The first days are about the product (founder, 2026-10-18): Take charge lands on Home, not on a Board decision.
+    await page.waitForURL(new RegExp(`/b/${UUID}/home`), { timeout: LONG });
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("kit-bar")).toContainText(name);
     await expect(page.getByTestId("kitbar-logo")).toHaveAttribute("data-logo", "image", { timeout: LONG });
     await expect(page.getByTestId("kitbar-logo").locator("img")).toHaveAttribute("src", /^data:image\/svg\+xml;base64,/);
-    // The Board item: a decision from the Chief of Staff with at least two options.
-    const item = page.getByTestId("inbox-item");
-    await expect(item).toBeVisible({ timeout: LONG });
-    await expect(item).toHaveAttribute("data-type", "decision");
-    await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
+    // Home shows the foundations drafting (or already drafted: the mock model is quick).
+    await expect(page.getByTestId("home-screen")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("foundations-status")).toBeVisible({ timeout: LONG });
     // The sidebar carries the departments the commit created.
     expect(await page.locator("[data-testid=app-shell] nav a[href*='/d/']").count()).toBeGreaterThanOrEqual(1);
-    // The spend cap per action chosen on Commit (the Assisted default, 250) is kept on the business, editable in Settings › Mode.
     const bid = /\/b\/([0-9a-f-]+)\//.exec(page.url())![1]!;
+    // The Inbox has the Chief of Staff's welcome note (an Update); Continue is not "Respond" for it.
+    await page.goto(`/b/${bid}/inbox`);
+    await expect(inboxRow(page, "Your team is drafting the product foundations")).toBeVisible({ timeout: LONG });
+    await inboxRow(page, "Your team is drafting the product foundations").click();
+    await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-type", "update", { timeout: LONG });
+    await expect(page.getByTestId("decision-bar")).toHaveCount(0);
+    // The spend cap per action chosen on Commit (the Assisted default, 250) is kept on the business, editable in Settings › Mode.
     const mode = await openSettings(page, "mode", bid);
     await expect(mode.getByTestId("spend-cap-form").getByLabel("Spend cap per action")).toHaveValue("250", { timeout: LONG });
     // A new business starts on the free plan with this month's included credits, in US dollars.
@@ -161,7 +166,7 @@ test.describe("commit", () => {
       if (req.url().includes("idea.commit")) commits.push(req.url());
     });
     await page.getByTestId("take-charge").dblclick();
-    await expect(page).toHaveURL(/\/b\/[0-9a-f-]+\/inbox\/[0-9a-f-]+/, { timeout: LONG });
+    await page.waitForURL(new RegExp(`/b/${UUID}/home`), { timeout: LONG });
     // One call, never a batch of two (`idea.commit,idea.commit`).
     expect(commits).toHaveLength(1);
     expect(commits[0]).not.toContain("idea.commit,idea.commit");

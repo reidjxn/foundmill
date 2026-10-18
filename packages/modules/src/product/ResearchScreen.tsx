@@ -11,6 +11,7 @@ import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, u
 import { plural } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { Screen, blockTitle, findBlock } from "./shared";
+import { ResearchPlanPanel } from "./research/ResearchPlanPanel";
 import { RESEARCH_NOTE_KINDS, SOURCE_KIND_META, coverageBySection, hostOf, isWebUri, linkedBlocks, relevance, topicCounts, topics } from "./sources/kinds";
 import type { SourceRow, SourcesListResponse, SpecBlockRow, SpecGetResponse } from "./types";
 
@@ -148,6 +149,9 @@ export function ResearchScreen({ businessId }: ModuleScreenProps) {
 
   return (
     <Screen name="product/research">
+      {/* The Product Researcher's plan to test the specification with the ICP (the founder's 2026-10-18 request). */}
+      <ResearchPlanPanel businessId={businessId} blocks={blocks} onOpenBlock={openBlock} />
+
       <Panel
         title="Competitors"
         span={8}

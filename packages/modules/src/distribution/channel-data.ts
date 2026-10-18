@@ -210,17 +210,29 @@ export function totalBudget(views: readonly Pick<ChannelView, "enabled" | "budge
 
 /* ---------- Status ---------- */
 
-export type ChannelStatusWord = "Running" | "Starting" | "Paused" | "Off the board" | "Not scored";
+export type ChannelStatusWord = "Running" | "Starting" | "Waiting for the product" | "Paused" | "Off the board" | "Not scored";
+
+/** Every status word, in the order the Channels table's filter offers them. */
+export const CHANNEL_STATUS_WORDS: readonly ChannelStatusWord[] = ["Running", "Starting", "Waiting for the product", "Paused", "Off the board", "Not scored"];
 
 /** Why a channel on the board reads "Starting": its engine has not started (yet). */
 export const ENGINE_STARTING_HINT = "On the board, but its engine has not started yet. It starts within 15 minutes; until then nothing is drafted or launched.";
+/** Why a channel on the board reads "Waiting for the product" (founder, 2026-10-18): the founder has not started distribution. */
+export const ENGINE_WAITING_HINT = "On the board. Its engine starts when you start distribution (Distribution › Board › Start distribution).";
+
+/** The hint behind a status word, for the pill's title. */
+export function statusHint(word: ChannelStatusWord): string | undefined {
+  return word === "Starting" ? ENGINE_STARTING_HINT : word === "Waiting for the product" ? ENGINE_WAITING_HINT : undefined;
+}
 
 /**
  * A channel on the board is "Running" only when its engine is recorded (`engineWorkflowId`); one without an engine reads
- * "Starting" (audit GTM-01). A row from before the field existed (undefined) is taken as running.
+ * "Starting" (audit GTM-01), or "Waiting for the product" while the founder has not started distribution (founder,
+ * 2026-10-18; `distributionStarted: false`). A row from before the field existed (undefined) is taken as running.
  */
-export function channelStatus(view: Pick<ChannelView, "enabled" | "paused" | "scored"> & { persisted?: boolean; engineWorkflowId?: string | null }): { tone: "good" | "warn" | "neutral"; word: ChannelStatusWord } {
+export function channelStatus(view: Pick<ChannelView, "enabled" | "paused" | "scored"> & { persisted?: boolean; engineWorkflowId?: string | null }, options: { distributionStarted?: boolean | null } = {}): { tone: "good" | "warn" | "neutral"; word: ChannelStatusWord } {
   if (view.enabled && view.paused) return { tone: "warn", word: "Paused" };
+  if (view.enabled && options.distributionStarted === false) return { tone: "neutral", word: "Waiting for the product" };
   if (view.enabled && view.persisted !== false && view.engineWorkflowId === null) return { tone: "warn", word: "Starting" };
   if (view.enabled) return { tone: "good", word: "Running" };
   if (!view.scored) return { tone: "neutral", word: "Not scored" };

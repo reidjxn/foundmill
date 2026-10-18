@@ -11,13 +11,14 @@ import { eq } from "drizzle-orm";
 import { openApprovalItem } from "../approvals";
 import { repos } from "../repos";
 import { agentSessions, type Entity } from "../schema";
-import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
+import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSignedOffAndSelling, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
 import { ensureSeedCommunity, ensureSeedPost } from "./community";
 import { BOOTSTRAPPED_COMMUNITY_SLUG, DEMO_OWNER_DISPLAY_NAME, DEMO_SEED_AUDIT_ACTION, LEDGERLY_BUSINESS_ID, LEDGERLY_COMMUNITY_SLUG, LEDGERLY_GITHUB_REPO, LEDGERLY_NAME, LEDGERLY_SLUG } from "./constants";
 import { addDays, addHours, atHour, mention, money, pct, quarterFacts, quarterKey, type SeedCtx } from "./context";
 import { seedFinance } from "./finance";
 import { seedJourney } from "./journey";
 import { seedLegal } from "./legal";
+import { seedLedgerlyResearch } from "./research";
 import { applyAgentStatuses, seedSquad } from "./squad";
 import type { SeededBusiness } from "./types";
 
@@ -180,8 +181,13 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
   await repos.capTable.createEntry(db, businessId, { holderEntityId: investorB.id, securityId: safeB.id, quantity: 400_000, priceMinor: 100, issuedAt: safeBDate.toISOString().slice(0, 10) });
 
   // --- product -----------------------------------------------------------------------------------------------------------
-  const specIds = await seedSpec(ctx, businessId, archetype.specOutline, SPEC_TEXT, squad.byTemplate.get("product_lead")?.agent.id ?? null);
+  const { ids: specIds, versionId: specVersionId } = await seedSpec(ctx, businessId, archetype.specOutline, SPEC_TEXT, squad.byTemplate.get("product_lead")?.agent.id ?? null);
+  // Signed off in the first days and selling since week three (founder, 2026-10-18): the channels keep running.
+  await seedSignedOffAndSelling(ctx, businessId, specVersionId);
   const roadmapIds = await seedRoadmap(ctx, businessId, ROADMAP, specIds, squad);
+  // The Product Researcher's plan to test the specification with the ICP (Product › Research).
+  const research = await seedLedgerlyResearch(ctx, businessId, squad, specIds);
+  log(`research: ${research.artifacts} artifacts`);
   await repos.product.createSource(db, businessId, {
     kind: "doc",
     uri: `https://github.com/${LEDGERLY_GITHUB_REPO}`,

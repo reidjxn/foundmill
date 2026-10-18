@@ -82,12 +82,18 @@ export const EVENT_WALLS = {
   "inbox.item_updated": { sections: ["inbox"] },
   "decision.made": { sections: ["inbox"], hide: freeText("freeText") },
   "foundations.progressed": { sections: ["product"] },
+  // The Product Researcher's plan is ready (ids only): the Research tab refetches `product.research.get`.
+  "product.research_drafted": { sections: ["product"] },
   "conversation.message_posted": { sections: conversationSections, hide: freeText("preview") },
   "membership.changed": { sections: [] },
   // Which Settings fields a save changed (names only, never values): every member's open tab refetches the business.
   "business.updated": { sections: [] },
   // A typed message between two agents (the platform tools): the Team's, and its subject and body are agent-written free text.
   "agent.message_sent": { sections: ["team"], hide: freeText("subject", "body") },
+  // The founder's sign-off of the specification or roadmap (their notes are their own free text about the product).
+  "product.signoff_decided": { sections: ["product"], hide: freeText("notes") },
+  // Distribution started: ids and a count only.
+  "distribution.started": { sections: ["distribution"] },
 } as const satisfies { readonly [K in EventType]: EventWall };
 
 /** What one reader may see of business events: their walls (sections they may not read at all). */

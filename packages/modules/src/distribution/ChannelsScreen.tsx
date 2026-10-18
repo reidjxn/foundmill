@@ -37,7 +37,8 @@ import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery } from "@fou
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import type { ModuleScreenProps } from "../registry";
-import { buildChannelViews, channelStatus, ENGINE_STARTING_HINT, resumeStatus, type ChannelView } from "./channel-data";
+import { useBusinessStage } from "../stage";
+import { buildChannelViews, channelStatus, CHANNEL_STATUS_WORDS, resumeStatus, statusHint, type ChannelView } from "./channel-data";
 import { METRICS_WINDOW_DAYS } from "./FormationScreen";
 import { localScores, RESCORE_DEBOUNCE_MS, useDebouncedRun } from "./rescore";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
@@ -81,7 +82,8 @@ export function RecommendedMark() {
   );
 }
 
-export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColumns<ChannelColumnId>(null, CHANNEL_FIT, [])): DataTableColumn<ChannelView>[] {
+export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColumns<ChannelColumnId>(null, CHANNEL_FIT, []), options: { distributionStarted?: boolean | null } = {}): DataTableColumn<ChannelView>[] {
+  const distributionStarted = options.distributionStarted ?? null;
   return [
     {
       id: "label",
@@ -129,18 +131,18 @@ export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColum
     { id: "budget", accessorFn: (r) => r.budgetMinor, header: "Monthly budget", size: sizes.budget, cell: ({ row }) => <span className="tabular-nums">{row.original.persisted ? formatMoney({ amountMinor: row.original.budgetMinor, currency: row.original.currency }) : "—"}</span>, meta: { numeric: true } },
     {
       id: "status",
-      accessorFn: (r) => channelStatus(r).word,
+      accessorFn: (r) => channelStatus(r, { distributionStarted }).word,
       header: "Status",
       size: sizes.status,
       cell: ({ row }) => {
-        const s = channelStatus(row.original);
+        const s = channelStatus(row.original, { distributionStarted });
         return (
-          <StatusPill tone={s.tone} className="whitespace-nowrap" title={s.word === "Starting" ? ENGINE_STARTING_HINT : undefined}>
+          <StatusPill tone={s.tone} className="whitespace-nowrap" title={statusHint(s.word)}>
             {s.word}
           </StatusPill>
         );
       },
-      meta: { filter: "select", filterOptions: ["Running", "Starting", "Paused", "Off the board", "Not scored"].map((w) => ({ value: w, label: w })) },
+      meta: { filter: "select", filterOptions: CHANNEL_STATUS_WORDS.map((w) => ({ value: w, label: w })) },
     },
     { id: "enabled", accessorFn: (r) => r.enabled, header: "Running", size: sizes.enabled, cell: ({ getValue }) => (getValue() ? "Yes" : "No"), meta: { filter: "boolean" } },
     {
@@ -207,7 +209,10 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
     const built = buildChannelViews({ channels: channels.data?.channels, campaigns: campaigns.data?.items, metrics: metrics.data, recommendation, currency, today });
     return provisional ? localScores(built) : built;
   }, [channels.data, campaigns.data, metrics.data, recommendation, currency, today, provisional]);
-  const columns = useMemo(() => fitToGrow(channelColumns(), CHANNEL_FIT), []);
+  // Before the founder has started distribution (founder, 2026-10-18) every channel on the board reads "Waiting for the product".
+  const stage = useBusinessStage();
+  const distributionStarted = stage.distributionStarted;
+  const columns = useMemo(() => fitToGrow(channelColumns(undefined, { distributionStarted }), CHANNEL_FIT), [distributionStarted]);
 
   const rescore = useCallback(async () => {
     try {

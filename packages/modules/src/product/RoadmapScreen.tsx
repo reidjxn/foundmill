@@ -11,8 +11,10 @@ import type { RoadmapHorizon } from "@foundmill/shared";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import type { ModuleScreenProps } from "../registry";
+import { useCanWrite } from "../env";
 import { FoundationsBanner, useFoundations } from "./foundations";
 import { computeRoadmapStatus, type RoadmapStatus } from "./roadmap-status";
+import { SignoffBanner, useSignoffs } from "./signoff";
 import { groupByHorizon, indexDependencies, isMove, moveInput } from "./roadmap/board";
 import { Board } from "./roadmap/Board";
 import { ItemDialog } from "./roadmap/ItemDialog";
@@ -68,6 +70,9 @@ export function RoadmapScreen({ businessId, subView }: ModuleScreenProps) {
     roadmap.refetch();
     spec.refetch();
   });
+  // The founder's sign-off of the roadmap (founder, 2026-10-18): approving it starts the first build.
+  const signoffs = useSignoffs();
+  const canWrite = useCanWrite("product");
 
   const items = useMemo(() => roadmap.data?.items ?? [], [roadmap.data]);
   const columns = useMemo(() => groupByHorizon(items), [items]);
@@ -97,6 +102,7 @@ export function RoadmapScreen({ businessId, subView }: ModuleScreenProps) {
   return (
     <Screen name="product/roadmap">
       <FoundationsBanner foundations={foundations} detail={{ roadmap: true }} />
+      <SignoffBanner kind="roadmap" signoffs={signoffs} canWrite={canWrite} onDecided={() => roadmap.refetch()} />
       <Panel
         title="Roadmap"
         menu={pinMenu}

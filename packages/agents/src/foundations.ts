@@ -683,22 +683,39 @@ function roadmapDescription(description: string, criteria: string[], sourceRef: 
  * messages can carry request ids and internal detail; the cause is logged by the caller.
  */
 export function describeFoundationsFailure(err: unknown): string {
+  return describeModelFailure(err, { subject: "The drafting", agent: "The drafting agent", refusalHint: "Check the idea and the imported sources, then try again." });
+}
+
+export interface ModelFailureWords {
+  /** The run, as a sentence subject ("The drafting", "The research plan"). */
+  subject: string;
+  /** Who was asked ("The drafting agent", "The Product Researcher"). */
+  agent: string;
+  /** What to check after a refusal. */
+  refusalHint: string;
+}
+
+/**
+ * The founder-readable reason a background model run failed (the foundations drafting, the research plan). Never the
+ * raw error: provider messages can carry request ids and internal detail; the cause is logged by the caller.
+ */
+export function describeModelFailure(err: unknown, words: ModelFailureWords): string {
   const e = err as { name?: string; code?: string; status?: number } | null;
-  if (e?.name === "ModelOutputError" && e.code === "max_tokens") return "The drafting agent ran out of room before it finished. Try again.";
-  if (e?.name === "ModelOutputError") return "The drafting agent's answer could not be read. Try again.";
+  if (e?.name === "ModelOutputError" && e.code === "max_tokens") return `${words.agent} ran out of room before it finished. Try again.`;
+  if (e?.name === "ModelOutputError") return `${words.agent}'s answer could not be read. Try again.`;
   // Before the rate-limit check: the tier's spend cap is a 429 too, and waiting a minute does not lift it.
   const billing = modelBillingFacts(err);
-  if (billing) return modelBillingMessage(billing, "The drafting");
+  if (billing) return modelBillingMessage(billing, words.subject);
   if (e?.name === "ModelRateLimitError" || e?.status === 429 || e?.code === "rate_limited") return "The model was busy. Try again in a minute.";
   if (e?.code === "auth" || e?.status === 401) return "The model key was refused. Check the Anthropic key in Settings, then try again.";
   if (e?.code === "unavailable") return "The model service did not answer. Try again in a few minutes.";
-  if (e?.code === "refusal") return "The drafting agent declined to answer. Check the idea and the imported sources, then try again.";
-  if (e?.name === "AbortError" || e?.name === "TimeoutError" || e?.code === "aborted" || /timed? ?out/i.test(String((err as Error)?.message ?? ""))) return "The drafting took too long and was stopped. Try again.";
-  return "The drafting did not finish. Try again.";
+  if (e?.code === "refusal") return `${words.agent} declined to answer. ${words.refusalHint}`;
+  if (e?.name === "AbortError" || e?.name === "TimeoutError" || e?.code === "aborted" || /timed? ?out/i.test(String((err as Error)?.message ?? ""))) return `${words.subject} took too long and was stopped. Try again.`;
+  return `${words.subject} did not finish. Try again.`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// The Inbox note when the foundations are ready
+// The sign-off notes when the foundations are ready (founder, 2026-10-18: the first days are about the product)
 // ---------------------------------------------------------------------------------------------------------------------
 
 const words = (s: string) => s.split(/\s+/).filter(Boolean);
@@ -715,28 +732,54 @@ export interface FoundationsNoteStats {
   importedIssues: number;
 }
 
-/**
- * The update the Product lead posts when the foundations are ready (BUILD §11.3 note style: fact → why it matters →
- * ask; 60-180 words). Deterministic from the draft, so it needs no second model call and invents nothing.
- */
-export function foundationsReadyNote(draft: FoundationsDraft, door: FoundationsDoor, stats: FoundationsNoteStats): { subject: string; bodyMd: string } {
-  const from = door === "import" ? "the Import report (it says which of your sources have been read)" : "your idea and your founder profile";
-  const kept = stats.sectionsKept ? `, ${stats.sectionsKept} left as the team wrote them` : "";
-  const issues = stats.importedIssues ? `, including ${stats.importedIssues} open issue${stats.importedIssues === 1 ? "" : "s"} from the import` : "";
-  // Model text goes in as plain, escaped text: the note is rendered as Markdown and stored without entity ids (M1).
-  const md = (s: string) => escapeMarkdown(plainLine(s));
-  const lines = [
-    `**Vision.** ${md(clipWords(draft.vision.statement, 40))}`,
-    `**North star.** ${md(draft.vision.northStar.metric)}: ${md(clipWords(draft.vision.northStar.target, 24))}.`,
-    `I drafted ${stats.sectionsWritten} of ${stats.sectionsTotal} specification sections${kept}, and the first roadmap has ${stats.roadmap.now} items in Now, ${stats.roadmap.next} in Next and ${stats.roadmap.later} in Later${issues}. Everything comes from ${from}; figures that are not yours are marked Estimate or Forecast.`,
-    `Read the Vision tab and correct anything that is wrong. Blocks you edit are pinned, so agents propose changes to them rather than overwrite them.`,
-  ];
-  const question = draft.openQuestions[0];
-  if (question) lines.push(`First open question: ${md(clipWords(question, 25))}`);
+/** The words of one Inbox note; the option blocks are fixed in packages/db (`signoffDecisionBlock`). */
+export interface NoteDraft {
+  subject: string;
+  bodyMd: string;
+}
+
+export const SPEC_SIGNOFF_SUBJECT = "Sign off the product specification";
+export const ROADMAP_SIGNOFF_SUBJECT = "Sign off the product roadmap";
+
+/** Keep a note's body under 180 words by dropping its last lines (never the first three). */
+function within180(lines: string[]): string {
   let body = lines.join("\n\n");
   while (words(body).length > 180 && lines.length > 3) {
     lines.pop();
     body = lines.join("\n\n");
   }
-  return { subject: "Vision, specification and roadmap drafted", bodyMd: body };
+  return body;
+}
+
+/**
+ * The two decision notes the Product lead posts when the foundations are ready (BUILD §11.3 note style: fact → why it
+ * matters → ask; 60-180 words each): "Sign off the product specification" and "Sign off the product roadmap". The
+ * founder approves each, or asks for changes in their own words. Deterministic from the draft, so they need no second
+ * model call and invent nothing; model text goes in as plain, escaped text (the notes render as Markdown).
+ */
+export function foundationsSignoffNotes(draft: FoundationsDraft, door: FoundationsDoor, stats: FoundationsNoteStats): { spec: NoteDraft; roadmap: NoteDraft } {
+  const from = door === "import" ? "the Import report (it says which of your sources have been read)" : "your idea and your founder profile";
+  const md = (s: string) => escapeMarkdown(plainLine(s));
+  const sectionNames = draft.sections.filter((s) => s.drafted).map((s) => md(s.section));
+  const named = sectionNames.slice(0, 3).join(", ") + (sectionNames.length > 3 ? ", …" : "");
+  const kept = stats.sectionsKept ? ` ${stats.sectionsKept} section${stats.sectionsKept === 1 ? " was" : "s were"} left as the team wrote ${stats.sectionsKept === 1 ? "it" : "them"}.` : "";
+  const specLines = [
+    `**Vision.** ${md(clipWords(draft.vision.statement, 40))}`,
+    `The specification is drafted: ${stats.sectionsWritten} of ${stats.sectionsTotal} sections${named ? ` (${named})` : ""}, from ${from}.${kept} Figures that are not yours are marked Estimate or Forecast.`,
+    `Read it on the Specification tab. Approve it and the team builds from this version; ask for changes in your own words and I revise it. Blocks you edit yourself are pinned, so agents propose changes to them rather than overwrite them.`,
+  ];
+  const question = draft.openQuestions[0];
+  if (question) specLines.push(`First open question: ${md(clipWords(question, 25))}`);
+
+  const issues = stats.importedIssues ? `, including ${stats.importedIssues} open issue${stats.importedIssues === 1 ? "" : "s"} from the import` : "";
+  const firstNow = [...draft.roadmap].filter((r) => r.horizon === "now").sort((a, b) => a.position - b.position)[0];
+  const roadmapLines = [
+    `The first roadmap has ${stats.roadmap.now} item${stats.roadmap.now === 1 ? "" : "s"} in Now, ${stats.roadmap.next} in Next and ${stats.roadmap.later} in Later${issues}.${firstNow ? ` First in Now: ${md(clipWords(firstNow.title, 16))}.` : ""}`,
+    `Approve it and building starts: the Planner turns the Now items into tasks and the engineers pick them up in the next cycle. Ask for changes if the order or the scope is wrong; nothing is spent on distribution until you start it.`,
+    `**North star.** ${md(draft.vision.northStar.metric)}: ${md(clipWords(draft.vision.northStar.target, 24))}. Every roadmap item names the specification blocks it serves, so a change to one shows up on the other.`,
+  ];
+  return {
+    spec: { subject: SPEC_SIGNOFF_SUBJECT, bodyMd: within180(specLines) },
+    roadmap: { subject: ROADMAP_SIGNOFF_SUBJECT, bodyMd: within180(roadmapLines) },
+  };
 }

@@ -4,6 +4,7 @@ import { HOUSE_STYLE } from "@foundmill/agents";
 import { CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, CHANNEL_WINDOW_DAYS, ChannelKey, CurrencyCode, dayKeyIn, ValidationError, type ChannelLine } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { DISTRIBUTION_NOT_STARTED } from "../services/engines";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { modelLimited } from "../services/model-limits";
@@ -183,10 +184,13 @@ async function setEnabled(ctx: Ctx, channelKey: ChannelKey, enabled: boolean) {
     await audit(tx, ctx, { action: enabled ? "distribution.channels.enable" : "distribution.channels.disable", target: { kind: "channel", id: row.id }, details: { channelKey } });
     return row;
   });
-  // The engine workflow follows the toggle (AC-11.7.2); the Board re-scores from the returned channel list.
+  // The engine workflow follows the toggle (AC-11.7.2); the Board re-scores from the returned channel list. Before the
+  // founder has started distribution (0062) the channel keeps its place on the board and its engine waits for the start.
   const workflowId = workflowIds.engine(channel.id);
   const workflow = enabled
-    ? await ctx.temporal.start(WORKFLOWS.channelEngine, { workflowId, args: [{ businessId: ctx.businessId, channelId: channel.id, channelKey }] })
+    ? (await repos.businesses.distributionStarted(ctx.db, ctx.businessId))
+      ? await ctx.temporal.start(WORKFLOWS.channelEngine, { workflowId, args: [{ businessId: ctx.businessId, channelId: channel.id, channelKey }] })
+      : { queued: false, workflowId, reason: DISTRIBUTION_NOT_STARTED }
     : await ctx.temporal.signal(workflowId, "stop", { reason: "channel_disabled", by: ctx.userId });
   if (workflow.queued) await repos.channels.setEngineWorkflow(ctx.db, ctx.businessId, channel.id, enabled ? workflowId : null);
   return { channel: { ...channel, engineWorkflowId: workflow.queued && enabled ? workflowId : channel.engineWorkflowId }, workflow };

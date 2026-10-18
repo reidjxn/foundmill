@@ -3,7 +3,7 @@
  * Declared here so the package depends only on wave-1 packages. Dates arrive as ISO strings (or Dates through
  * superjson); every formatter accepts both.
  */
-import type { HunkDecision, ProposalStatus, RoadmapHorizon, Severity, SourceKind } from "@foundmill/shared";
+import type { HunkDecision, ProposalStatus, ResearchArtifactKind, ResearchArtifactStatus, ResearchStatus, RoadmapHorizon, Severity, SourceKind } from "@foundmill/shared";
 import type { Page, RoadmapItemRow, RoadmapListResponse } from "@foundmill/widgets";
 
 export type DateLike = string | Date;
@@ -100,6 +100,41 @@ export interface FoundationsResponse {
   stale?: boolean;
 }
 
+/* product.research.get (apps/api services/product-research.ts `ResearchView`) */
+export interface ResearchArtifactRow {
+  id: string;
+  kind: ResearchArtifactKind;
+  title: string;
+  summary: string;
+  bodyMd: string;
+  status: ResearchArtifactStatus;
+  specBlockIds: string[];
+  taskId: string | null;
+  createdByAgentId: string | null;
+  createdAt: DateLike;
+  updatedAt: DateLike;
+}
+export interface ResearchResponse {
+  /** "none": the business has no plan (set up before the Product Researcher existed). */
+  status: "none" | ResearchStatus;
+  attempt: number;
+  icp: string;
+  error: string | null;
+  summary: {
+    icp?: string;
+    assumptions?: { assumption: string; fromSection: string; whyItMatters: string; testKind: string }[];
+    openQuestions?: string[];
+    firstStepTaskIds?: string[];
+    inboxItemId?: string | null;
+    [key: string]: unknown;
+  };
+  artifacts: ResearchArtifactRow[];
+  agent: { id: string; name: string } | null;
+  startedAt: DateLike | null;
+  finishedAt: DateLike | null;
+  stale: boolean;
+}
+
 /* product.roadmap.list */
 export interface RoadmapRow extends RoadmapItemRow {
   descriptionMd?: string;
@@ -181,3 +216,25 @@ export interface SourceRelevance {
   [key: string]: unknown;
 }
 export type SourcesListResponse = Page<SourceRow>;
+
+/* product.signoff.get (apps/api services/signoff.ts `SignoffViews`; founder 2026-10-18) */
+export type SignoffStatusKey = "pending" | "approved" | "changes_requested" | "declined";
+export interface SignoffView {
+  id: string;
+  kind: "spec" | "roadmap" | "ready_to_sell";
+  round: number;
+  status: SignoffStatusKey;
+  requestedAt: DateLike;
+  decidedAt: DateLike | null;
+  decidedBy: { kind: "user" | "system"; id: string | null } | null;
+  notes: string | null;
+  /** The specification version an approval published (spec rounds). */
+  specVersion: number | null;
+  inboxItemId: string | null;
+}
+export interface SignoffViews {
+  stage: "drafting" | "awaiting_signoff" | "building" | "selling";
+  spec: SignoffView | null;
+  roadmap: SignoffView | null;
+  readyToSell: SignoffView | null;
+}

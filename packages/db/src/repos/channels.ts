@@ -9,7 +9,7 @@
  */
 import { createHash } from "node:crypto";
 import { CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, type ChannelKey, type ChannelLine } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { businesses, CHANNEL_METRIC_SOURCES, channelMetrics, channels, SUPPRESSION_SCOPES, suppressionList, type Channel, type ChannelMetric, type SuppressionEntry } from "../schema";
 import { Currency, DayRange, dayRange, defined, Id, MinorAmount, numericText, one, parseInput, type Executor } from "./_shared";
@@ -292,14 +292,15 @@ export const channelsRepo = {
 
   /**
    * Service role, for the engine reconciler (orchestrator `channelEngineReconcile`): every enabled channel of a committed
-   * business that is neither archived nor stopped (0023), i.e. every channel the Board shows as running, oldest first.
+   * business that is neither archived nor stopped (0023) and whose founder has started distribution (0062), i.e. every
+   * channel the Board shows as running, oldest first.
    */
   async listForEngines(db: Executor, options: { limit?: number } = {}): Promise<{ businessId: string; channelId: string; channelKey: ChannelKey; engineWorkflowId: string | null }[]> {
     const rows = await db
       .select({ businessId: channels.businessId, channelId: channels.id, channelKey: channels.channelKey, engineWorkflowId: channels.engineWorkflowId })
       .from(channels)
       .innerJoin(businesses, eq(businesses.id, channels.businessId))
-      .where(and(eq(channels.enabled, true), isNull(channels.archivedAt), isNull(businesses.archivedAt), isNull(businesses.agentsStoppedAt), sql`${businesses.committedAt} is not null`))
+      .where(and(eq(channels.enabled, true), isNull(channels.archivedAt), isNull(businesses.archivedAt), isNull(businesses.agentsStoppedAt), sql`${businesses.committedAt} is not null`, isNotNull(businesses.distributionStartedAt)))
       .orderBy(asc(channels.createdAt), asc(channels.id))
       .limit(options.limit ?? 5_000);
     return rows.map((r) => ({ ...r, channelKey: r.channelKey as ChannelKey }));

@@ -29,14 +29,14 @@
  * turn and waits briefly for the SDK's final usage before aborting it, so every token spent is booked.
  */
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
-import { AgentInstructions, buildSystemPrompt, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
+import { AgentInstructions, buildSystemPrompt, docText, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentSkillPrompt, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY, sandboxCostMicroMinor } from "@foundmill/config";
 import { resolveGrants } from "@foundmill/connectors";
-import { bookUsage, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
+import { bookUsage, closeApprovalItem, loadByokApiKey, MICRO_PER_MINOR, repos, signoffDecisionBlock, type Agent, type AgentVersion, type Approval, type Business, type Task } from "@foundmill/db";
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
 import { assertNoLongLivedCredentials, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
-import { isUuid, type AgentStatus, type ModelKey, type TaskStatus } from "@foundmill/shared";
+import { CHANNEL_META, isUuid, type AgentStatus, type ChannelKey, type ModelKey, type TaskStatus } from "@foundmill/shared";
 import { currentTraceparent } from "@foundmill/shared/telemetry";
 import { Context } from "@temporalio/activity";
 import { ApplicationFailure } from "@temporalio/common";
@@ -911,6 +911,15 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       }
       if (task.status !== taskStatus) await repos.tasks.setStatus(db, input.businessId, task.id, taskStatus, { force: true });
       if (taskStatus === "done") await repos.tasks.setProgress(db, input.businessId, task.id, { progress: Math.max(result.progress.progress, task.status === "done" ? 1 : result.progress.progress), phase: result.progress.phase ?? "done" });
+      // The last task of a roadmap item done: the first "shipped" signal, so the Chief of Staff offers Ready to start
+      // selling? once per business (founder, 2026-10-18) and the demo task is created.
+      if (taskStatus === "done" && task.roadmapItemId) {
+        const offered = await offerReadyToSellAfterTask(deps, input.businessId, task).catch((err: unknown) => {
+          deps.log.warn({ businessId: input.businessId, taskId: task.id, err: (err as Error).message }, "ready-to-sell offer not written");
+          return null;
+        });
+        if (offered) eventIds.push(offered.eventId);
+      }
 
       // Health: loops and failures mark the agent; a clean finish returns it to idle when nothing else is open. A
       // paused agent stays paused whatever the outcome, including a pause that lands after the read above (the write is
@@ -948,6 +957,56 @@ export function createSessionActivities(deps: OrchestratorDeps) {
 }
 
 export type SessionActivities = ReturnType<typeof createSessionActivities>;
+
+/** The subject of the note the Chief of Staff posts when the first roadmap item ships. */
+export const READY_TO_SELL_SUBJECT = "Ready to start selling?";
+
+/**
+ * When every task of a roadmap item is done (the one "shipped" signal there is), the Chief of Staff offers to start
+ * distribution: a non-blocking decision note tied to a `ready_to_sell` round, once per business and never once
+ * distribution has started (`repos.productSignoffs.offerReadyToSell`). With it, the demo task: a research task to walk
+ * through what shipped as a first customer would, for the Product Researcher when hired, else the researcher.
+ */
+export async function offerReadyToSellAfterTask(deps: OrchestratorDeps, businessId: string, task: Pick<Task, "id" | "roadmapItemId">): Promise<{ inboxItemId: string; eventId: string; demoTaskId: string | null } | null> {
+  const { db } = deps;
+  if (!task.roadmapItemId) return null;
+  const siblings = await repos.tasks.list(db, businessId, { roadmapItemId: task.roadmapItemId, limit: 500 });
+  if (siblings.items.length === 0 || siblings.items.some((t) => t.status !== "done")) return null;
+  const [item, chief, channels, agents] = await Promise.all([repos.product.getRoadmapItem(db, businessId, task.roadmapItemId), repos.agents.chiefOfStaff(db, businessId), repos.channels.list(db, businessId, { enabled: true }), repos.agents.list(db, businessId, { limit: 500 })]);
+  if (!chief) return null;
+  const labels = channels.map((c) => CHANNEL_META[c.channelKey as ChannelKey]?.label ?? c.channelKey);
+  const n = siblings.items.length;
+  const body = [
+    `${item.title} shipped: its ${n} task${n === 1 ? " is" : "s are"} done.`,
+    labels.length ? `The channels on the board (${labels.join(", ")}) are waiting for the product.` : "No channel is on the board yet.",
+    "Start distribution now, or keep building first.",
+  ].join(" ");
+  const offered = await repos.productSignoffs.offerReadyToSell(db, businessId, {
+    roadmapItemId: item.id,
+    title: item.title,
+    chiefId: chief.id,
+    item: { type: "decision", from_agent_id: chief.id, subject: READY_TO_SELL_SUBJECT, body_md: body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: signoffDecisionBlock("ready_to_sell"), blocks_continue: false, source_event_ids: [], entity_ids: [] },
+  });
+  if (!offered) return null;
+  const ev = await emitEvent(db, { businessId, type: "inbox.item_created", actor: { kind: "agent", id: chief.id }, payload: { inboxItemId: offered.item.id, type: "decision", fromAgentId: chief.id, subject: offered.item.subject, blocksContinue: false, sourceEventIds: [], cost: null } });
+  // The demo: a research task for the Product Researcher (template key `product_researcher`), else the researcher.
+  const assignee = agents.items.find((a) => a.agentType === "product_researcher" && !a.archivedAt) ?? agents.items.find((a) => a.agentType === "researcher" && !a.archivedAt) ?? null;
+  const customers = (await repos.product.listBlocks(db, businessId, { section: "Customers" }))[0];
+  const icp = customers ? docText(customers.content).split("\n").map((l) => l.trim()).filter(Boolean)[0]?.slice(0, 80) : undefined;
+  const departments = await repos.departments.list(db, businessId);
+  const product = departments.find((d) => (d.moduleKeys as string[]).includes("product")) ?? null;
+  const demo = await repos.tasks.create(db, businessId, {
+    kind: "research",
+    title: `Record a demo of ${item.title} for ${icp ?? "the first customers"}`.slice(0, 200),
+    goalMd: "Walk through what shipped as a first customer would, record the steps and what they see, and note what is missing before it is shown to anyone. Nothing is sent to anyone.",
+    acceptance: ["The demo follows the steps a first customer takes", "What is missing before it is shown to anyone is listed", "Nothing was sent to anyone"],
+    roadmapItemId: item.id,
+    departmentId: product?.id ?? null,
+    assigneeAgentId: assignee?.id ?? null,
+    status: "ready",
+  });
+  return { inboxItemId: offered.item.id, eventId: ev.id, demoTaskId: demo.id };
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Mock runner (packages/sandbox replay)

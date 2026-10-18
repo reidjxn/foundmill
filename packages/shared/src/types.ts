@@ -51,6 +51,12 @@ import {
   FOUNDATIONS_STATUSES,
   FOUNDATIONS_DOORS,
   FOUNDATIONS_RUNNERS,
+  PRODUCT_STAGES,
+  SIGNOFF_KINDS,
+  SIGNOFF_STATUSES,
+  RESEARCH_STATUSES,
+  RESEARCH_ARTIFACT_KINDS,
+  RESEARCH_ARTIFACT_STATUSES,
   INTEGRATION_STATUSES,
   CONNECTOR_AUTH_KINDS,
   INCORPORATION_ROUTES,
@@ -178,6 +184,18 @@ export const FoundationsDoor = z.enum(FOUNDATIONS_DOORS);
 export type FoundationsDoor = C.FoundationsDoor;
 export const FoundationsRunner = z.enum(FOUNDATIONS_RUNNERS);
 export type FoundationsRunner = C.FoundationsRunner;
+export const ProductStage = z.enum(PRODUCT_STAGES);
+export type ProductStage = C.ProductStage;
+export const SignoffKind = z.enum(SIGNOFF_KINDS);
+export type SignoffKind = C.SignoffKind;
+export const SignoffStatus = z.enum(SIGNOFF_STATUSES);
+export type SignoffStatus = C.SignoffStatus;
+export const ResearchStatus = z.enum(RESEARCH_STATUSES);
+export type ResearchStatus = C.ResearchStatus;
+export const ResearchArtifactKind = z.enum(RESEARCH_ARTIFACT_KINDS);
+export type ResearchArtifactKind = C.ResearchArtifactKind;
+export const ResearchArtifactStatus = z.enum(RESEARCH_ARTIFACT_STATUSES);
+export type ResearchArtifactStatus = C.ResearchArtifactStatus;
 export const IntegrationStatus = z.enum(INTEGRATION_STATUSES);
 export type IntegrationStatus = C.IntegrationStatus;
 export const ConnectorAuthKind = z.enum(CONNECTOR_AUTH_KINDS);

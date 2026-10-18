@@ -93,7 +93,8 @@ export const agentMention = (entities: AgentEntities, a: SeededAgent | Agent): s
 
 // --- specification ------------------------------------------------------------------------------------------------------
 
-export async function seedSpec(ctx: SeedCtx, businessId: string, outline: readonly string[], text: Record<string, string[]>, authorAgentId: string | null): Promise<Map<string, string>> {
+/** The blocks by section, and the version published from them (the demo founder's sign-off names it). */
+export async function seedSpec(ctx: SeedCtx, businessId: string, outline: readonly string[], text: Record<string, string[]>, authorAgentId: string | null): Promise<{ ids: Map<string, string>; versionId: string }> {
   const ids = new Map<string, string>();
   for (const [position, section] of outline.entries()) {
     const paragraphs = text[section] ?? [`${section}: to be drafted by the Product lead in the next cycle.`];
@@ -107,8 +108,18 @@ export async function seedSpec(ctx: SeedCtx, businessId: string, outline: readon
     });
     ids.set(section, block.id);
   }
-  await repos.product.publishVersion(ctx.db, businessId, { changelogMd: "Specification v1 drafted from the concept card (synthetic demo).", publishedBy: ctx.owner.userId });
-  return ids;
+  const version = await repos.product.publishVersion(ctx.db, businessId, { changelogMd: "Specification v1 drafted from the concept card (synthetic demo).", publishedBy: ctx.owner.userId });
+  return { ids, versionId: version.id };
+}
+
+/**
+ * The demo founder signed off the specification and the roadmap in the business's first days and started distribution
+ * two weeks in (founder, 2026-10-18), so the Product tabs read "Signed off", the stage is selling and the channels keep
+ * running. Idempotent: a second seed of the business keeps the first rounds.
+ */
+export async function seedSignedOffAndSelling(ctx: SeedCtx, businessId: string, specVersionId: string): Promise<void> {
+  await repos.productSignoffs.seedApproved(ctx.db, businessId, { spec: { at: addDays(ctx.startDate, 2), specVersionId }, roadmap: { at: addDays(ctx.startDate, 3) }, decidedBy: ctx.owner.userId });
+  await repos.businesses.startDistribution(ctx.db, businessId, { at: addDays(ctx.startDate, 14) });
 }
 
 /**

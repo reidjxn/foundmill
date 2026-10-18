@@ -92,6 +92,10 @@ export const CRAFT_SKILLS: Record<string, CatalogueEntry> = {
   synthesis: { name: "Synthesis", description: "Turns many sources into a few well-supported findings with stated confidence." },
   citation_discipline: { name: "Citation discipline", description: "Attaches a real, fetched citation to every number and claim; quotes under 25 words." },
   market_sizing: { name: "Market sizing", description: "Estimates market size with a stated method and labels the result Estimate." },
+  // Product researcher
+  discovery_interviewing: { name: "Discovery interviewing", description: "Plans and scripts customer interviews that test the specification's riskiest assumptions without leading the witness." },
+  survey_design: { name: "Survey design", description: "Writes short, unbiased surveys with a sampling plan and a decision rule per question." },
+  demo_scripting: { name: "Demo scripting", description: "Writes demo scripts that show the first value in under five minutes and record what the viewer does next." },
   change_risk_assessment: { name: "Change risk assessment", description: "Judges the blast radius of a diff (schema, auth, payments, tenancy) and sets the verdict accordingly." },
   conflict_resolution: { name: "Conflict resolution", description: "Resolves trivial merge conflicts correctly and returns semantic ones to the author." },
   release_hygiene: { name: "Release hygiene", description: "Keeps main green, PRs complete and merges traceable to tasks, tests and reviews." },

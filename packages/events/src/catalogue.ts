@@ -31,6 +31,7 @@ import {
   InboxItemType,
   MatchdayLevel,
   Money,
+  SIGNOFF_KINDS,
   Severity,
   SkillGroup,
   SourceKind,
@@ -1209,6 +1210,32 @@ const foundationsProgressed = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// Product research (BUILD §11.5 Research tab; the Product Researcher's plan)
+// ---------------------------------------------------------------------------------------------------
+
+const productResearchDrafted = declareEvent(
+  "product.research_drafted",
+  z.object({
+    researchId: Id,
+    /** The drafting attempt that wrote it. */
+    attempt: z.number().int().positive(),
+    /** The Product Researcher the plan is attributed to (null when the business has none hired). */
+    agentId: Id.nullable(),
+    /** The artifacts written (interview plan and script, smoke test, survey, demo script). */
+    artifactIds: z.array(Id).max(12),
+    /** The follow-up research tasks created for the cycles. */
+    taskIds: z.array(Id).max(8),
+    /** The researcher's Inbox note announcing the plan. */
+    inboxItemId: Id.nullable(),
+  }),
+  {
+    doc: "The Product Researcher's research plan is ready: artifacts on Product › Research, follow-up tasks on Development › Plan and one Inbox note. apps/stream pushes it so open tabs refetch `product.research.get`. Never narrated (the researcher posts the note itself).",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Founder ↔ agent conversations (audit-conversation §4)
 // ---------------------------------------------------------------------------------------------------
 
@@ -1286,6 +1313,56 @@ const agentMessageSent = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// The first days: sign-offs and the start of distribution (founder, 2026-10-18)
+// ---------------------------------------------------------------------------------------------------
+
+const productSignoffDecided = declareEvent(
+  "product.signoff_decided",
+  z.object({
+    signoffId: Id,
+    kind: z.enum(SIGNOFF_KINDS),
+    round: z.number().int().positive(),
+    decision: z.enum(["approved", "changes_requested", "declined"]),
+    decidedBy: z.object({ kind: z.enum(["user", "system"]), id: Id.nullable() }),
+    /** The founder's own words with the decision (what to change, or notes with an approval); null when none. */
+    notes: z.string().max(2000).nullable().default(null),
+    /** The specification version an approval of the spec published; null for the roadmap and for Request changes. */
+    specVersionId: Id.nullable().default(null),
+    /** This decision was the second approval: the api planned the first build and started the next cycle. */
+    buildStarted: z.boolean().default(false),
+    /** The tasks the Planner wrote when the build started (empty otherwise). */
+    plannedTaskIds: z.array(Id).max(64).default([]),
+    /** The cycle the build start queued (or ran in-process); null when none started. */
+    cycle: z.object({ queued: z.boolean(), workflowId: z.string().max(200) }).nullable().default(null),
+  }),
+  {
+    doc: "The founder decided a sign-off round of the product specification or the roadmap (or answered Ready to start selling): approved, sent back with notes, or declined. apps/stream pushes it so the Product tabs show the pill and Development › Plan the first build. Never narrated: the Product lead's own follow-up note says what happens next.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+const distributionStarted = declareEvent(
+  "distribution.started",
+  z.object({
+    startedBy: z.object({ kind: z.literal("user"), id: Id }),
+    /** Where it was started: the Distribution › Board button, or the Chief of Staff's Ready to start selling? note. */
+    via: z.enum(["board", "inbox"]),
+    /** The channels on the board whose engines start with it. */
+    channelIds: z.array(Id).max(15),
+    /** The archetype's Board question posted with the start ("Where should the first customer come from?"); null when it existed. */
+    boardItemId: Id.nullable().default(null),
+    /** Engines Temporal took now (the reconciler starts the rest). */
+    engines: Count,
+  }),
+  {
+    doc: "The founder started distribution (BUILD §11.7, founder 2026-10-18: nothing is spent on distribution until the product is ready to show). The channel engines start from here, the channel-scoring task is created and the Board asks which route to the first customer comes first. apps/stream pushes it so the Board and the Channels table drop 'Waiting for the product'. Never narrated: the Distribution strategist's note says it.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
 
@@ -1341,6 +1418,9 @@ export const EVENTS = {
   "conversation.message_posted": conversationMessagePosted,
   "membership.changed": membershipChanged,
   "agent.message_sent": agentMessageSent,
+  "product.signoff_decided": productSignoffDecided,
+  "distribution.started": distributionStarted,
+  "product.research_drafted": productResearchDrafted,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
 
 export type EventsRegistry = typeof EVENTS;

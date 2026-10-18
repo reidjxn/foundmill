@@ -21,8 +21,8 @@ import { businessesRepo } from "./businesses";
 import { departmentsRepo } from "./departments";
 import { foundersRepo } from "./founders";
 import { ideasRepo } from "./ideas";
-import { inboxRepo } from "./inbox";
 import { productRepo } from "./product";
+import { productSignoffsRepo, signoffDecisionBlock } from "./product-signoffs";
 import { Id, JsonObject, maybeOne, parseInput, type Executor } from "./_shared";
 
 export const CreateFoundationsInput = z.object({
@@ -34,7 +34,7 @@ export const CreateFoundationsInput = z.object({
 export type CreateFoundationsInput = z.input<typeof CreateFoundationsInput>;
 
 /** Plain text of a Tiptap document (one line per paragraph, heading or list item). */
-function pmText(doc: unknown): string {
+export function pmText(doc: unknown): string {
   const lines: string[] = [];
   const inline = (n: { text?: unknown; content?: unknown }): string => (typeof n.text === "string" ? n.text : Array.isArray(n.content) ? (n.content as object[]).map((c) => inline(c)).join("") : "");
   const walk = (n: unknown) => {
@@ -52,13 +52,23 @@ function pmText(doc: unknown): string {
 const META_KIND = "foundmill:meta";
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 
+/** The words of a sign-off note (the option blocks are fixed: `signoffDecisionBlock`). */
+export interface NoteDraft {
+  subject: string;
+  bodyMd: string;
+}
+
 export interface ApplyFoundationsOptions {
-  /** The Inbox update posted when the foundations are ready (from the author agent); null posts none. */
-  note: ((stats: FoundationsNoteStats) => { subject: string; bodyMd: string }) | null;
+  /**
+   * The two decision notes the Product lead posts when the foundations are ready (founder, 2026-10-18): "Sign off the
+   * product specification" and "Sign off the product roadmap", each opening a `product_signoffs` round that blocks
+   * Continue until the founder answers. Null posts none (tests).
+   */
+  signoffs: { spec: (stats: FoundationsNoteStats) => NoteDraft; roadmap: (stats: FoundationsNoteStats) => NoteDraft } | null;
   /** Model metadata kept in the summary (route, model id, mode, cost in minor units as an Estimate). */
   model?: Record<string, unknown>;
   /**
-   * Called inside the transaction right after the Inbox note is created, to write its `inbox.item_created` event
+   * Called inside the transaction right after each Inbox note is created, to write its `inbox.item_created` event
    * through the outbox (`repos.events.write` on the same `tx`): the item and its event commit or roll back together.
    */
   onInboxItem?: (tx: Executor, item: InboxItem) => Promise<unknown>;
@@ -70,7 +80,8 @@ export interface ApplyFoundationsResult {
   applied: boolean;
   row: BusinessFoundationsRow | null;
   stats: FoundationsNoteStats | null;
-  inboxItem: InboxItem | null;
+  /** The sign-off notes, specification first (empty when none were asked for). */
+  inboxItems: InboxItem[];
   writtenBlockIds: string[];
   roadmapItemIds: string[];
 }
@@ -245,8 +256,9 @@ export const foundationsRepo = {
 
   /**
    * drafting → ready with every write in one transaction: spec blocks through `repos.product` (never a pinned block,
-   * never a block someone already wrote), roadmap items through `repos.product`, the vision on the row, the Inbox note
-   * and the audit entry. Applies only while `attempt` is the current drafting attempt; otherwise writes nothing.
+   * never a block someone already wrote), roadmap items through `repos.product`, the vision on the row, the two
+   * sign-off notes with their rounds, and the audit entry. Applies only while `attempt` is the current drafting
+   * attempt; otherwise writes nothing.
    */
   async apply(db: Executor, businessId: string, attempt: number, draft: FoundationsDraft, options: ApplyFoundationsOptions): Promise<ApplyFoundationsResult> {
     return db.transaction(async (tx) => {
@@ -257,7 +269,7 @@ export const foundationsRepo = {
         .where(and(eq(businessFoundations.businessId, businessId), eq(businessFoundations.attempt, attempt), eq(businessFoundations.status, "drafting")))
         .returning();
       const current = locked[0];
-      if (!current) return { applied: false, row: await foundationsRepo.get(tx, businessId), stats: null, inboxItem: null, writtenBlockIds: [], roadmapItemIds: [] };
+      if (!current) return { applied: false, row: await foundationsRepo.get(tx, businessId), stats: null, inboxItems: [], writtenBlockIds: [], roadmapItemIds: [] };
 
       const inputs = await foundationsRepo.inputs(tx, businessId);
       const author = inputs.authorAgentId;
@@ -312,11 +324,28 @@ export const foundationsRepo = {
         importedIssues: draft.roadmap.filter((r) => r.imported).length,
       };
 
-      const note = options.note && author ? options.note(stats) : null;
-      const inboxItem = note
-        ? await inboxRepo.createItem(tx, businessId, { type: "update", from_agent_id: author, subject: note.subject.slice(0, 80), body_md: note.bodyMd, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] })
-        : null;
-      if (inboxItem && options.onInboxItem) await options.onInboxItem(tx, inboxItem);
+      // The two sign-off notes (founder, 2026-10-18): decision items from the Product lead that block Continue until the
+      // founder approves or asks for changes, each tied to its `product_signoffs` round. The roadmap round keeps a
+      // snapshot of what was asked about, so a later reorder is visible against it.
+      const inboxItems: InboxItem[] = [];
+      if (options.signoffs && author) {
+        const roadmapNow = await productRepo.listRoadmap(tx, businessId);
+        const asks = [
+          { kind: "spec" as const, note: options.signoffs.spec(stats), snapshot: null },
+          { kind: "roadmap" as const, note: options.signoffs.roadmap(stats), snapshot: { items: roadmapNow.map((i) => ({ id: i.id, title: i.title, horizon: i.horizon, position: i.position })) } },
+        ];
+        for (const ask of asks) {
+          const opened = await productSignoffsRepo.open(tx, businessId, {
+            kind: ask.kind,
+            snapshot: ask.snapshot,
+            item: { type: "decision", from_agent_id: author, subject: ask.note.subject.slice(0, 80), body_md: ask.note.bodyMd, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: signoffDecisionBlock(ask.kind), blocks_continue: true, source_event_ids: [], entity_ids: [] },
+          });
+          if (opened.created && opened.item) {
+            inboxItems.push(opened.item);
+            if (options.onInboxItem) await options.onInboxItem(tx, opened.item);
+          }
+        }
+      }
 
       const summary = {
         sectionsWritten: writtenBlockIds.length,
@@ -326,7 +355,7 @@ export const foundationsRepo = {
         importedIssues: stats.importedIssues,
         openQuestions: draft.openQuestions,
         notes: draft.notes,
-        inboxItemId: inboxItem?.id ?? null,
+        inboxItemIds: inboxItems.map((i) => i.id),
         model: options.model ?? null,
       };
       const ready = await tx
@@ -343,7 +372,7 @@ export const foundationsRepo = {
         target: { kind: "business_foundations", id: current.id },
         details: { attempt, door: current.door, sectionsWritten: writtenBlockIds.length, sectionsKept: kept.length, roadmapItems: roadmapItemIds.length, importedIssues: stats.importedIssues },
       });
-      return { applied: true, row: ready[0] ?? null, stats, inboxItem, writtenBlockIds, roadmapItemIds };
+      return { applied: true, row: ready[0] ?? null, stats, inboxItems, writtenBlockIds, roadmapItemIds };
     });
   },
 };

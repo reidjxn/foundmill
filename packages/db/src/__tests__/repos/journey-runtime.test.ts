@@ -183,16 +183,21 @@ describe("schedule inputs", () => {
     expect(runnable).not.toContain(stopped);
   });
 
-  it("lists the enabled channels of runnable businesses for the engine reconciler", async () => {
+  it("lists the enabled channels of runnable businesses that started distribution for the engine reconciler", async () => {
     const live = await newBusiness("Engines Live");
     const stopped = await newBusiness("Engines Stopped");
+    const waiting = await newBusiness("Engines Waiting");
     const on = await repos.channels.upsert(r.db, live, { channelKey: "seo", line: CHANNEL_META.seo.line, enabled: true });
     await repos.channels.upsert(r.db, live, { channelKey: "pr", line: CHANNEL_META.pr.line, enabled: false });
     await repos.channels.upsert(r.db, stopped, { channelKey: "seo", line: CHANNEL_META.seo.line, enabled: true });
+    await repos.channels.upsert(r.db, waiting, { channelKey: "seo", line: CHANNEL_META.seo.line, enabled: true });
     await repos.businesses.setAgentsStopped(r.db, stopped, { reason: "kill_switch" });
+    for (const id of [live, stopped]) await repos.businesses.startDistribution(r.db, id);
     const list = await repos.channels.listForEngines(r.db);
     expect(list.filter((c) => c.businessId === live)).toEqual([{ businessId: live, channelId: on.id, channelKey: "seo", engineWorkflowId: null }]);
     expect(list.some((c) => c.businessId === stopped)).toBe(false);
+    // The founder has not started distribution (0062): its engines wait, whatever the Board shows enabled.
+    expect(list.some((c) => c.businessId === waiting)).toBe(false);
   });
 
   it("knows whether a channel ever launched a campaign", async () => {

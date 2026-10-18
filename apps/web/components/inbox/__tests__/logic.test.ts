@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { confirmPlanDescription } from "../ConfirmPlanDialog";
+import { signoffNeedsNotes } from "../logic";
 import {
   REFRESH_DEBOUNCE_MS,
   agentIndex,
@@ -525,5 +526,16 @@ describe("an agent's request in the Inbox (audit FR-01)", () => {
   it("a recorded answer reads as itself in the decided plan", () => {
     expect(describeAction("reply_only", { acknowledgement: "You approved Legal Lead's request to run GitHub › run migration. Legal Lead carries on." })).toBe("You approved Legal Lead's request to run GitHub › run migration. Legal Lead carries on.");
     expect(describeAction("reply_only", { question: "Which market first?" })).toBe("Reply: Which market first?");
+  });
+});
+
+describe("sign-off notes (founder, 2026-10-18)", () => {
+  it("Request changes needs the founder's words; Approve and the Ready to sell options never do", () => {
+    expect(signoffNeedsNotes("request_changes", "")).toBe(true);
+    expect(signoffNeedsNotes("request_changes", "   ")).toBe(true);
+    expect(signoffNeedsNotes("request_changes", "Shorten the pricing section.")).toBe(false);
+    expect(signoffNeedsNotes("approve", "")).toBe(false);
+    expect(signoffNeedsNotes("start", "")).toBe(false);
+    expect(signoffNeedsNotes("not_yet", "")).toBe(false);
   });
 });

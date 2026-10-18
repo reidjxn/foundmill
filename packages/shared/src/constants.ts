@@ -225,9 +225,42 @@ export type FoundationsStatus = (typeof FOUNDATIONS_STATUSES)[number];
 export const FOUNDATIONS_DOORS = ["ideation", "import"] as const;
 export type FoundationsDoor = (typeof FOUNDATIONS_DOORS)[number];
 
+/**
+ * Where a business stands in its first days (founder, 2026-10-18: the product comes first). Derived, never stored:
+ * `drafting` while the foundations are pending, drafting or failed; `awaiting_signoff` until the founder has approved
+ * both the specification and the roadmap; `building` once both are approved and before distribution has started;
+ * `selling` once `businesses.distribution_started_at` is set (every business committed before sign-offs existed).
+ */
+export const PRODUCT_STAGES = ["drafting", "awaiting_signoff", "building", "selling"] as const;
+export type ProductStage = (typeof PRODUCT_STAGES)[number];
+
+/** What the founder signs off (`product_signoffs.kind`): the specification, the roadmap, and the step that starts distribution. */
+export const SIGNOFF_KINDS = ["spec", "roadmap", "ready_to_sell"] as const;
+export type SignoffKind = (typeof SIGNOFF_KINDS)[number];
+
+/** A sign-off round's state: asked, approved, sent back with the founder's notes, or declined (a "Not yet" on Ready to sell). */
+export const SIGNOFF_STATUSES = ["pending", "approved", "changes_requested", "declined"] as const;
+export type SignoffStatus = (typeof SIGNOFF_STATUSES)[number];
+
 /** Where the drafting runs: the orchestrator's `businessFoundations` workflow, or in the api when Temporal is unreachable. */
 export const FOUNDATIONS_RUNNERS = ["temporal", "local"] as const;
 export type FoundationsRunner = (typeof FOUNDATIONS_RUNNERS)[number];
+
+/**
+ * Product research (BUILD §11.5 Research tab; the Product Researcher agent): the research plan a new business gets as
+ * soon as its foundations are ready, drafted once by the api (`product_research`, one row per business): pending until
+ * the foundations are ready, drafting while the plan is written, then ready or failed (a failed draft can be retried).
+ */
+export const RESEARCH_STATUSES = ["pending", "drafting", "ready", "failed"] as const;
+export type ResearchStatus = (typeof RESEARCH_STATUSES)[number];
+
+/** What the Product Researcher produces (`research_artifacts.kind`): the plan's parts first, then what the tests yield. */
+export const RESEARCH_ARTIFACT_KINDS = ["interview_plan", "interview_script", "smoke_test", "survey", "demo_script", "demo", "findings"] as const;
+export type ResearchArtifactKind = (typeof RESEARCH_ARTIFACT_KINDS)[number];
+
+/** An artifact's state: drafted by the agent, marked ready by the team, shared with participants (by the founder, never by an agent). */
+export const RESEARCH_ARTIFACT_STATUSES = ["draft", "ready", "shared"] as const;
+export type ResearchArtifactStatus = (typeof RESEARCH_ARTIFACT_STATUSES)[number];
 
 export const INTEGRATION_STATUSES = ["connected", "degraded", "expired", "disconnected", "mock"] as const;
 export type IntegrationStatus = (typeof INTEGRATION_STATUSES)[number];
@@ -285,6 +318,9 @@ export const EVENT_TYPES = [
   "conversation.message_posted",
   "membership.changed",
   "agent.message_sent",
+  "product.signoff_decided",
+  "distribution.started",
+  "product.research_drafted",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

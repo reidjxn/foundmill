@@ -22,7 +22,7 @@ import {
   assembleFoundationsDraft,
   describeFoundationsFailure,
   foundationsProgressView,
-  foundationsReadyNote,
+  foundationsSignoffNotes,
   progressEventPayload,
   readFoundationsProgress,
   readyEventPayload,
@@ -223,8 +223,9 @@ export function foundationsProgressStore(db: Db, businessId: string, attempt: nu
 
 /**
  * One drafting attempt in this process: inputs → the staged drafting (the plan, then the sections and the roadmap at
- * once, each part stored as it lands) → assemble → apply (one transaction) → the Inbox event. Resumes from the progress
- * an earlier attempt stored. Never throws: a failure marks the attempt failed with a founder-readable reason.
+ * once, each part stored as it lands) → assemble → apply (one transaction, with the two sign-off notes) → the Inbox
+ * events. Resumes from the progress an earlier attempt stored. Never throws: a failure marks the attempt failed with a
+ * founder-readable reason.
  */
 export async function runFoundationsLocally(deps: FoundationsDeps, businessId: string, attempt: number, opts: { timeoutMs?: number } = {}): Promise<void> {
   const signal = AbortSignal.timeout(opts.timeoutMs ?? FOUNDATIONS_LOCAL_TIMEOUT_MS);
@@ -241,10 +242,11 @@ export async function runFoundationsLocally(deps: FoundationsDeps, businessId: s
     const progress = readFoundationsProgress((await repos.foundations.get(deps.db, businessId))?.progress);
     if (!progress) throw new FoundationsSupersededError();
     const draft = assembleFoundationsDraft(progress, inputs);
+    // The two sign-off notes (founder, 2026-10-18): the specification and the roadmap, each a decision from the Product lead.
     const applied = await repos.foundations.apply(deps.db, businessId, attempt, draft, {
-      note: (stats) => foundationsReadyNote(draft, inputs.door, stats),
+      signoffs: { spec: (stats) => foundationsSignoffNotes(draft, inputs.door, stats).spec, roadmap: (stats) => foundationsSignoffNotes(draft, inputs.door, stats).roadmap },
       model: { route: "foundations", model: usage.model, mode: usage.mode, costMinor: usage.costMinor, costLabel: "Estimate", repaired: usage.repaired, runner: "local", staged: true, calls: usage.calls },
-      // The Inbox event is written through the outbox in the same transaction as the item.
+      // The Inbox events are written through the outbox in the same transaction as the items.
       onInboxItem: (tx, item) =>
         writeEventRow(tx, {
           businessId,
@@ -300,6 +302,9 @@ export interface ImportLink {
   status: ImportStatus;
   report: ScoutingReport | null;
 }
+
+/** What the Board's import decision reads from a report: the live report, or the snapshot on the foundations row. */
+export type ScoutingReportLike = Pick<ScoutingReport, "summary"> & { firstDecisions: Pick<ScoutingReport["firstDecisions"][number], "id" | "label" | "consequence" | "recommended" | "reversible" | "actions">[] };
 
 /**
  * Rebuild the Import job's state and report (deterministic in the job token) for the commit to snapshot. The sources

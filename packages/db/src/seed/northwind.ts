@@ -9,12 +9,13 @@ import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { eq } from "drizzle-orm";
 import { repos } from "../repos";
 import { entities as entitiesTable, type Entity } from "../schema";
-import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
+import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSignedOffAndSelling, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
 import { DEMO_OWNER_DISPLAY_NAME, DEMO_SEED_AUDIT_ACTION, NORTHWIND_BUSINESS_ID, NORTHWIND_NAME, NORTHWIND_SLUG } from "./constants";
 import { addDays, atHour, mention, money, pct, proseDoc, type SeedCtx } from "./context";
 import { seedFinance } from "./finance";
 import { seedJourney } from "./journey";
 import { seedLegal } from "./legal";
+import { seedNorthwindResearch } from "./research";
 import { applyAgentStatuses, seedSquad } from "./squad";
 import type { SeededBusiness } from "./types";
 
@@ -203,7 +204,9 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
 
   // --- product ---------------------------------------------------------------------------------------------------------
   const productLead = squad.byTemplate.get("product_lead");
-  const specIds = await seedSpec(ctx, businessId, archetype.specOutline, SPEC_TEXT, productLead?.agent.id ?? null);
+  const { ids: specIds, versionId: specVersionId } = await seedSpec(ctx, businessId, archetype.specOutline, SPEC_TEXT, productLead?.agent.id ?? null);
+  // Signed off in the first days and selling since week three (founder, 2026-10-18): the channels keep running.
+  await seedSignedOffAndSelling(ctx, businessId, specVersionId);
   const roadmapIds = await seedRoadmap(ctx, businessId, ROADMAP, specIds, squad);
   await repos.product.createSource(db, businessId, {
     kind: "doc",
@@ -254,6 +257,9 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     }),
   });
   log(`proposal: ${proposal.hunks.length} hunks from source ${interview.id}`);
+  // The Product Researcher's plan and the findings behind the proposal (Product › Research).
+  const research = await seedNorthwindResearch(ctx, businessId, squad, specIds, interview.id);
+  log(`research: ${research.artifacts} artifacts`);
 
   // --- tasks in mixed states ------------------------------------------------------------------------------------------
   const taskSpecs: TaskSpec[] = [

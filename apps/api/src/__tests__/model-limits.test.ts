@@ -77,6 +77,7 @@ describe("each model-backed procedure is limited", () => {
     { name: "recommend", who: "user", call: () => as(hz.A.ownerId).legal.recommend({ businessId: A() }) },
     { name: "recommend", who: "business", call: () => as(hz.A.ownerId).distribution.recommend({ businessId: A() }) },
     { name: "foundations", who: "business", call: () => as(hz.A.ownerId).product.foundations.retry({ businessId: A() }) },
+    { name: "research", who: "business", call: () => as(hz.A.ownerId).product.research.retry({ businessId: A() }) },
     { name: "training", who: "business", call: () => as(hz.A.ownerId).agent.training.run({ businessId: A(), agentId: hz.A.agentId, versionId: hz.A.agentVersionId }) },
     { name: "training", who: "user", call: () => as(hz.A.ownerId).agent.model.set({ businessId: A(), agentId: hz.A.agentId, modelKey: "sonnet" }) },
     { name: "continue", who: "business", call: () => as(hz.A.ownerId).business.continue({ businessId: A() }) },

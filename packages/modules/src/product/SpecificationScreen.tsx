@@ -13,6 +13,7 @@ import { useCanWrite, useModuleEnv, type SpecEditorStatus } from "../env";
 import type { ModuleScreenProps } from "../registry";
 import { FoundationsBanner, useFoundations } from "./foundations";
 import { pmToText } from "./prosemirror";
+import { SignoffBanner, useSignoffs } from "./signoff";
 import { AuthorRef, InlineError, PinnedChip, Screen, blockTitle, findBlock, groupBySection, useAction, type SectionGroup } from "./shared";
 import { SPEC_EDITOR_STATUS_LABEL, specDocumentName } from "./spec/contract";
 import { PlainBlockEditor } from "./spec/PlainBlockEditor";
@@ -370,6 +371,8 @@ export function SpecificationScreen({ businessId }: ModuleScreenProps) {
   useBusinessEvents(refetchAll, ["spec.version_published"]);
   // The first specification is drafted on the first open; show the drafting and reload the blocks when it is ready.
   const foundations = useFoundations(refetchAll);
+  // The founder's sign-off (founder, 2026-10-18): approving publishes a version, so the history reloads with it.
+  const signoffs = useSignoffs();
 
   useEffect(() => {
     if (!spec.data?.blocks.length) return;
@@ -382,6 +385,7 @@ export function SpecificationScreen({ businessId }: ModuleScreenProps) {
   return (
     <Screen name="product/specification">
       <FoundationsBanner foundations={foundations} detail={{ sectionText: true }} />
+      <SignoffBanner kind="spec" signoffs={signoffs} canWrite={canWrite} onDecided={refetchAll} />
       <Panel
         title="Outline"
         span={3}

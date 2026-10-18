@@ -42,6 +42,11 @@ export const LIMITS = {
    * splits at the same size, so one request can never multiply a procedure (a model call, a write) many times over.
    */
   trpcMaxBatchSize: 25,
+  /**
+   * Roadmap items in Now the api plans (one Planner call each) when the founder's second sign-off starts the first build
+   * (founder, 2026-10-18). More means more Opus spend on the first approval; fewer leaves graphs to build by hand.
+   */
+  signoffPlanRoadmapItems: 2,
   /** LIVE writes per person (audit GLS2F-05): connection requests, messages and posts are throttled so one account cannot flood a person, a thread, a community or the event outbox. */
   liveRequestsPerUserPerHour: 20,
   /** Requests to one person per day, so request, withdraw and request again is stopped quickly. */

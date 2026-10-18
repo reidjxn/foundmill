@@ -163,6 +163,8 @@ const OWNER: SectionMembership = { role: "owner", sectionPermissions: {} };
 
 /** Why an answered item still waits: its plan is outside policy and only the founder gives the go-ahead (`plan.confirm`). */
 export const AWAITING_GO_AHEAD = "its plan waits for your go-ahead";
+/** A sign-off of the product (the specification, the roadmap, Ready to start selling) is never taken for the founder (founder, 2026-10-18). */
+export const SIGNOFF_IS_YOURS = "signing off the product is yours";
 
 /** The item asks the founder to choose (options), or to confirm the plan they chose: the report lists it as waiting. */
 function asksFounder(item: Pick<InboxItem, "state" | "decision">): boolean {
@@ -209,7 +211,9 @@ export async function autoDecideBlocking(deps: OrchestratorDeps, businessId: str
     const decision = item.decision as { options?: { id: string; recommended?: boolean; reversible?: boolean; cost_minor?: number }[] } | null;
     const choices = decision?.options ?? [];
     const recommended = choices.find((o) => o.recommended) ?? choices[0];
-    if (!recommended || !chiefId) {
+    // The product's sign-offs and the start of distribution are the founder's, whatever the authority (founder, 2026-10-18).
+    const signoff = await repos.productSignoffs.forInboxItem(db, businessId, item.id);
+    if (!recommended || !chiefId || signoff) {
       if (item.blocksContinue) queuedGated += 1;
       continue;
     }
@@ -364,8 +368,10 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
       const inboxItemIds: string[] = [];
       const waiting: HolidayDecisions["waiting"] = [];
       for (const item of items.items) {
-        // Answered by the founder, its plan outside policy: only they confirm it ("Here is what will happen").
-        const verdict: VacationVerdict = item.state === "answered" ? { kind: "wait", reason: AWAITING_GO_AHEAD } : vacationVerdict(item, ctx);
+        // Answered by the founder, its plan outside policy: only they confirm it ("Here is what will happen"). A sign-off
+        // of the product (its round is on the item) is never taken for them.
+        const signoff = item.state === "answered" ? null : await repos.productSignoffs.forInboxItem(db, businessId, item.id);
+        const verdict: VacationVerdict = item.state === "answered" ? { kind: "wait", reason: AWAITING_GO_AHEAD } : signoff ? { kind: "wait", reason: SIGNOFF_IS_YOURS } : vacationVerdict(item, ctx);
         if (verdict.kind === "wait" || !chiefId) {
           // Only a decision the founder has to take counts as queued; a note with nothing to choose is just unread.
           if (item.blocksContinue || asksFounder(item)) queuedGated += 1;

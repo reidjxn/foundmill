@@ -43,6 +43,20 @@ test.describe("product", () => {
     await expect(page).toHaveURL(/\/specification\?block=/, { timeout: LONG });
   });
 
+  test("Specification and Roadmap: the demo founder's sign-off reads Signed off with its date (founder, 2026-10-18)", async ({ page }) => {
+    await openProductTab(page, "specification");
+    const spec = page.getByTestId("signoff-banner");
+    await expect(spec).toHaveAttribute("data-signoff-status", "approved", { timeout: LONG });
+    await expect(spec.getByTestId("signoff-pill")).toContainText(/^Signed off [A-Z][a-z]{2} \d{1,2}, \d{4} · v\d+$/);
+    await expect(spec.getByTestId("signoff-approve")).toHaveCount(0);
+    await openProductTab(page, "roadmap");
+    const roadmap = page.getByTestId("signoff-banner");
+    await expect(roadmap).toHaveAttribute("data-signoff-status", "approved", { timeout: LONG });
+    await expect(roadmap.getByTestId("signoff-pill")).toContainText(/^Signed off [A-Z][a-z]{2} \d{1,2}, \d{4}$/);
+    await openProductTab(page, "vision");
+    await expect(page.getByTestId("signoff-summary")).toHaveText("Specification: signed off · Roadmap: signed off", { timeout: LONG });
+  });
+
   test("Roadmap board: owners by name, linked blocks inside their cards", async ({ page }) => {
     await openProductTab(page, "roadmap");
     const board = page.locator("[data-roadmap-board]");

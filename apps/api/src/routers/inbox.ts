@@ -47,18 +47,21 @@ export const inboxRouter = router({
     ctx.rls(async (tx) => {
       const item = await repos.inbox.get(tx, ctx.businessId, input.itemId, ctx.userId);
       const walls = inboxWalls(ctx.membership);
-      const [decisions, plan, fromAgent, entities, source, approval] = await Promise.all([
+      const [decisions, plan, fromAgent, entities, source, approval, signoffRow] = await Promise.all([
         repos.inbox.decisionsFor(tx, ctx.businessId, item.id),
         repos.plans.forInboxItem(tx, ctx.businessId, item.id),
         item.fromAgentId ? repos.agents.get(tx, ctx.businessId, item.fromAgentId) : Promise.resolve(null),
         item.entityIds.length && !walls.crm ? repos.entities.byIds(tx, ctx.businessId, item.entityIds) : Promise.resolve([]),
         loadRedactionSource(tx, ctx.businessId, walls, idsOfItem(item)),
         approvalView(tx, ctx, item.id),
+        repos.productSignoffs.forInboxItem(tx, ctx.businessId, item.id),
       ]);
       // A plan still waiting for its go-ahead comes back with what it needs (audit OL-01): the Inbox offers the
       // confirmation from this, after a reload or on another device, never from what the page that decided remembers.
       const confirmation = plan ? pendingConfirmation(ctx.membership, plan) : null;
-      return { item: redactInboxItem(item, source), decisions: redactDecisions(decisions, source, noteMask(item)), plan: plan ? redactPlan(plan, source, noteMask(item)) : null, confirmation, fromAgent, entities: entityStubs(entities, walls), approval };
+      // A sign-off note (founder, 2026-10-18): the reading pane shows its notes field and status beside the options.
+      const signoff = signoffRow ? { id: signoffRow.id, kind: signoffRow.kind, round: signoffRow.round, status: signoffRow.status, notes: signoffRow.notes, decidedAt: signoffRow.decidedAt } : null;
+      return { item: redactInboxItem(item, source), decisions: redactDecisions(decisions, source, noteMask(item)), plan: plan ? redactPlan(plan, source, noteMask(item)) : null, confirmation, fromAgent, entities: entityStubs(entities, walls), approval, signoff };
     }),
   ),
 
@@ -81,6 +84,10 @@ export const inboxRouter = router({
       // reject it any more, and its task would wait on it for good.
       const approval = await repos.approvals.forInboxItem(tx, ctx.businessId, input.itemId);
       if (approval && approval.outcome === null) throw new ValidationError("Approve or reject this request: an agent is waiting on it.", { itemId: input.itemId, approvalId: approval.id });
+      // A sign-off still waiting for the founder is answered, not filed away: the build starts on it (the Product tabs
+      // also take the decision).
+      const signoff = await repos.productSignoffs.forInboxItem(tx, ctx.businessId, input.itemId);
+      if (signoff && signoff.kind !== "ready_to_sell" && signoff.status === "pending") throw new ValidationError("Approve this or ask for changes: building starts on your sign-off. You can also decide it on the Product tabs.", { itemId: input.itemId, signoffId: signoff.id });
       const item = await repos.inbox.archive(tx, ctx.businessId, input.itemId);
       // Other members' open Inbox refetches on it (audit RUI-09: they acted on an item that was already gone).
       await emit(tx, ctx, { type: "inbox.item_updated", payload: { inboxItemId: item.id, change: "archived" } });

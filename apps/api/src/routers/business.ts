@@ -17,6 +17,7 @@ import { archiveBusiness, cancelDeletion, deletionState, exportBusiness, request
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { modelLimited } from "../services/model-limits";
 import { noteAsSeenBy } from "../services/inbox-redaction";
+import { signoffViews, startDistribution } from "../services/signoff";
 import type { Context } from "../context";
 import { adminArchivedProcedure, adminProcedure, archivedBusinessProcedure, assertLiveOpen, audit, businessProcedure, emit, ownerArchivedProcedure, ownerProcedure, protectedProcedure, router, writeProcedure } from "../trpc";
 import { businessLogoRouter } from "./logo";
@@ -102,8 +103,8 @@ export const businessRouter = router({
   }),
 
   get: businessProcedure.query(async ({ ctx }) => {
-    const [holiday, blocking, departments, agents, deletion, logo, foundations] = await ctx.rls(async (tx) =>
-      Promise.all([repos.holidays.current(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId), repos.departments.list(tx, ctx.businessId), repos.agents.countByStatus(tx, ctx.businessId), deletionState({ db: tx, businessId: ctx.businessId }), repos.logos.getMeta(tx, ctx.businessId), repos.foundations.get(tx, ctx.businessId)]),
+    const [holiday, blocking, departments, agents, deletion, logo, foundations, signoffs] = await ctx.rls(async (tx) =>
+      Promise.all([repos.holidays.current(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId), repos.departments.list(tx, ctx.businessId), repos.agents.countByStatus(tx, ctx.businessId), deletionState({ db: tx, businessId: ctx.businessId }), repos.logos.getMeta(tx, ctx.businessId), repos.foundations.get(tx, ctx.businessId), signoffViews(tx, ctx.businessId)]),
     );
     // While LIVE is closed on this deployment a stored "live" reads as Personal everywhere (sidebar, widgets, Settings),
     // and `liveOpen` tells Settings not to offer Go live.
@@ -131,7 +132,24 @@ export const businessRouter = router({
        * The shell calls `product.foundations.ensure` only while it is pending or drafting, not on every open.
        */
       foundationsStatus: foundations?.status ?? ("none" as const),
+      /**
+       * The first days (founder, 2026-10-18): where the business stands (drafting, awaiting the founder's sign-off,
+       * building, selling), the latest sign-off round of the specification and the roadmap, and when distribution started.
+       */
+      productStage: signoffs.stage,
+      signoffs: { spec: signoffs.spec, roadmap: signoffs.roadmap },
+      distributionStartedAt: ctx.business.distributionStartedAt,
     };
+  }),
+
+  /**
+   * Start distribution (founder, 2026-10-18; owner or admin, audited, refused while the team is stopped): the channel
+   * engines start, the channel-scoring task is created and the Board asks which route to the first customer comes first.
+   * Idempotent: a second start changes nothing (`started: false`).
+   */
+  startDistribution: adminProcedure.mutation(async ({ ctx }) => {
+    const result = await startDistribution(ctx, { via: "board" });
+    return { started: result.started, boardItemId: result.boardItemId, scoringTaskId: result.scoringTaskId, engines: result.engines, followUpId: result.followUp?.id ?? null };
   }),
 
   /**

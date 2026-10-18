@@ -8,7 +8,9 @@ import {
   docText,
   escapeMarkdown,
   finaliseFoundations,
-  foundationsReadyNote,
+  foundationsSignoffNotes,
+  ROADMAP_SIGNOFF_SUBJECT,
+  SPEC_SIGNOFF_SUBJECT,
   knownNumbers,
   labelFigures,
   needsFigureLabel,
@@ -336,7 +338,7 @@ describe("finaliseFoundations over a hand-written answer", () => {
     out.roadmap[0]!.source_ref = "javascript:alert(1)";
     out.open_questions = [`Should we [pay](https://phish.example) [[ent:${ID}|Ada]]?`, `Ask [![](u)[ent:${ID}|Your bank]![](u)]?`];
     const draft = finaliseFoundations(out, ideationInputs());
-    const note = foundationsReadyNote(draft, "ideation", { sectionsWritten: 2, sectionsTotal: 10, sectionsKept: 0, roadmap: { now: 1, next: 2, later: 0 }, importedIssues: 0 });
+    const note = foundationsSignoffNotes(draft, "ideation", { sectionsWritten: 2, sectionsTotal: 10, sectionsKept: 0, roadmap: { now: 1, next: 2, later: 0 }, importedIssues: 0 });
     const stored = JSON.stringify({ draft, note });
     for (const bad of ["](", "![", "[[", "ent:", "http", "www.", "@billing", "<img", "javascript:"]) expect(stored, bad).not.toContain(bad);
     expect(draft.vision.statement).toBe("Ledgerly x closes the month today, ask Ada.");
@@ -347,22 +349,33 @@ describe("finaliseFoundations over a hand-written answer", () => {
     expect(docText(draft.sections[0]!.content)).toBe(`Read me\nAsk Ada or mail ${ADDRESS_REMOVED}\nPay at ${LINK_REMOVED} now`);
     // The run that only formed markup when joined became one unmarked node.
     expect((draft.sections[0]!.content.content[1] as { content: unknown[] }).content).toEqual([{ type: "text", text: `Ask Ada or mail ${ADDRESS_REMOVED}` }]);
-    expect(note.bodyMd).toContain("**Vision.** Ledgerly x closes the month today, ask Ada.");
-    expect(note.bodyMd).toContain("**North star.** Paying practices ‹img src=x onerror=alert\\(1\\)\\>: 40 practices in six months \\(Forecast\\).");
-    expect(note.bodyMd).toContain("First open question: Should we pay Ada?");
+    expect(note.spec.bodyMd).toContain("**Vision.** Ledgerly x closes the month today, ask Ada.");
+    expect(note.roadmap.bodyMd).toContain("**North star.** Paying practices ‹img src=x onerror=alert\\(1\\)\\>: 40 practices in six months \\(Forecast\\).");
+    expect(note.spec.bodyMd).toContain("First open question: Should we pay Ada?");
+    expect(note.roadmap.bodyMd).toContain("First in Now: Bank feed import.");
   });
 });
 
-describe("foundationsReadyNote", () => {
-  it("is a 60-180 word update with the vision, the north star and the counts", async () => {
+describe("foundationsSignoffNotes", () => {
+  it("are two 60-180 word decision notes: the specification with the vision and the sections, the roadmap with the counts and the north star", async () => {
     const draft = await mockDraft(importInputs());
-    const note = foundationsReadyNote(draft, "import", { sectionsWritten: 9, sectionsTotal: 10, sectionsKept: 1, roadmap: { now: 4, next: 5, later: 2 }, importedIssues: 3 });
-    const words = note.bodyMd.split(/\s+/).filter(Boolean).length;
-    expect(words).toBeGreaterThanOrEqual(60);
-    expect(words).toBeLessThanOrEqual(180);
-    expect(note.subject.length).toBeLessThanOrEqual(80);
-    expect(note.bodyMd).toContain(draft.vision.northStar.metric);
-    expect(note.bodyMd).toContain("4 items in Now, 5 in Next and 2 in Later, including 3 open issues from the import");
-    expect(note.bodyMd).toContain("1 left as the team wrote them");
+    const notes = foundationsSignoffNotes(draft, "import", { sectionsWritten: 9, sectionsTotal: 10, sectionsKept: 1, roadmap: { now: 4, next: 5, later: 2 }, importedIssues: 3 });
+    for (const note of [notes.spec, notes.roadmap]) {
+      const words = note.bodyMd.split(/\s+/).filter(Boolean).length;
+      expect(words, note.subject).toBeGreaterThanOrEqual(60);
+      expect(words, note.subject).toBeLessThanOrEqual(180);
+      expect(note.subject.length).toBeLessThanOrEqual(80);
+    }
+    expect(notes.spec.subject).toBe("Sign off the product specification");
+    expect(notes.roadmap.subject).toBe("Sign off the product roadmap");
+    expect(notes.spec.bodyMd).toContain("**Vision.**");
+    expect(notes.spec.bodyMd).toContain("9 of 10 sections");
+    expect(notes.spec.bodyMd).toContain("1 section was left as the team wrote it");
+    expect(notes.spec.bodyMd).toContain("Approve it and the team builds from this version");
+    expect(notes.roadmap.bodyMd).toContain(draft.vision.northStar.metric);
+    expect(notes.roadmap.bodyMd).toContain("4 items in Now, 5 in Next and 2 in Later, including 3 open issues from the import");
+    expect(notes.roadmap.bodyMd).toContain("Approve it and building starts");
+    // The same words the other stack uses (apps/api, apps/orchestrator read these constants).
+    expect([SPEC_SIGNOFF_SUBJECT, ROADMAP_SIGNOFF_SUBJECT]).toEqual([notes.spec.subject, notes.roadmap.subject]);
   });
 });

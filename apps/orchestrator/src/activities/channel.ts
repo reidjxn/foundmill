@@ -108,9 +108,12 @@ export function createChannelActivities(deps: OrchestratorDeps) {
       // Stop all agents (or a revoked key, used-up credits) ends the engine even when its stop signal was missed;
       // resuming the agents starts it again.
       if (await repos.businesses.agentsStopped(db, businessId)) return done("agents are stopped; engine stopping", { stop: true });
+      const business = await repos.businesses.get(db, businessId);
+      // Distribution waits for the founder's start (founder, 2026-10-18): an engine started before it ends here and
+      // Start distribution starts it again.
+      if (!business.distributionStartedAt) return done("distribution has not started; engine stopping", { stop: true });
       const key = isChannelKey(input.channelKey) ? input.channelKey : (channel.channelKey as ChannelKey);
       const meta = CHANNEL_META[key];
-      const business = await repos.businesses.get(db, businessId);
       const owner = channel.ownerAgentId ? await repos.agents.get(db, businessId, channel.ownerAgentId) : null;
       // The channel's agent paused (its wage cap, or by hand): nothing new is drafted or launched for it this week.
       if (owner?.status === "paused" && (input.step === "create" || input.step === "launch")) return done(`${owner.name} is paused; skipped this week's ${input.step}`);
