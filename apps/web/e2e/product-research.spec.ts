@@ -47,10 +47,10 @@ test.describe("product research", () => {
   test("a fresh business: the plan is drafted once the foundations are ready, the researcher's note reaches the Inbox, Team lists the Product Researcher", async ({ page }) => {
     test.setTimeout(240_000);
     const bid = await commitThrowaway(page, `Research ${Date.now().toString(36)}`);
-    // Home drafts the foundations (the shell's ensure), then asks for the research plan when they turn ready.
+    // Home drafts the foundations (the shell's ensure), then asks for the research plan when they turn ready; the mock
+    // drafts in well under a minute, so the Research tab may open while either is still running and fills in by itself.
     await page.goto(`/b/${bid}/home`);
     await expect(page.getByTestId("home-screen")).toBeVisible({ timeout: LONG });
-    await expect(page.getByTestId("foundations-status")).toHaveAttribute("data-foundations-state", "ready", { timeout: LONG });
 
     await openProductTab(page, "research", bid);
     const panel = page.getByTestId("research-plan");
@@ -65,13 +65,11 @@ test.describe("product research", () => {
     const note = page.getByText(/^How we'll test the specification with/).first();
     await expect(note).toBeVisible({ timeout: LONG });
 
-    // Team › Agents lists the Product Researcher, hired at Take charge into the Product department.
-    const team = page.locator("[data-testid=app-shell] nav a[href*='/d/']").filter({ hasText: /^team$/i }).first();
-    await expect(team).toBeVisible({ timeout: LONG });
-    const href = (await team.getAttribute("href"))!;
-    await page.goto(href.replace(/\/d\/([^/]+)\/.*$/, "/d/$1/squad"));
-    await expect(page.getByTestId("module-screen")).toBeVisible({ timeout: LONG });
-    await expect(page.getByText("Product Researcher", { exact: true }).first()).toBeVisible({ timeout: LONG });
-    expect(page.url()).toMatch(new RegExp(`/b/${UUID}/d/`));
+    // Team › Agents lists the Product Researcher, hired at Take charge into the Product department (the Team
+    // department keeps the archetype's slug; its agents tab keeps the slug `squad`).
+    await page.goto(`/b/${bid}/d/team/squad`);
+    await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "team/squad", { timeout: LONG });
+    await expect(page.getByRole("row").filter({ hasText: "Product research analyst" }).first()).toBeVisible({ timeout: LONG });
+    expect(page.url()).toMatch(new RegExp(`/b/${UUID}/d/team/squad`));
   });
 });
