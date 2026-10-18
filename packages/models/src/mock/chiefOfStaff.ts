@@ -21,6 +21,8 @@ export interface TaskIn {
 
 /** The statuses the orchestrator offers a planner (one list with its DISPATCHABLE set: a failed task is retried, never skipped). */
 const OPEN = new Set<string>(PLANNABLE_TASK_STATUSES);
+/** Why a channel task waits before the founder has started distribution (the orchestrator's `planCycle` uses the same words). */
+export const CHANNEL_WAITS_REASON = "distribution starts when you start it from Distribution › Board";
 const CUSTOMER_UNBLOCK = /\b(customer|checkout|payment|signup|onboarding|activation|bug|outage|fix|broken|churn|refund|support|invoice)\b/i;
 
 export function readTasks(ctx: MockContext): TaskIn[] {
@@ -65,6 +67,9 @@ export function generateChiefOfStaff(ctx: MockContext): CyclePlanOutput {
   const approvalsWaiting = ctx.getArray<unknown>("approvals_waiting", "pending_approvals", "approvals");
   const businessName = ctx.getString("business_name", "business.name") ?? "the business";
   const mode = ctx.getString("business_mode", "mode") ?? "assisted";
+  // The first days are about the product (founder, 2026-10-18): channel work waits until the founder has started
+  // distribution. A payload without a stage (an older caller) is read as selling, so nothing it offers is held back.
+  const productStage = ctx.getString("product_stage") ?? "selling";
 
   const limit = Math.max(0, Math.min(maxAgents, capacitySessions ?? Number.POSITIVE_INFINITY, budgetRemaining === 0 ? 0 : Number.POSITIVE_INFINITY));
   const ids = new Set(tasks.map((t) => t.id));
@@ -83,6 +88,10 @@ export function generateChiefOfStaff(ctx: MockContext): CyclePlanOutput {
     const unmet = t.blocked_by.filter((b) => ids.has(b) && !done.has(b));
     if (unmet.length > 0) {
       deferred.push({ task_id: t.id, reason: `Waiting on ${unmet.join(", ")}` });
+      continue;
+    }
+    if (t.kind === "channel" && productStage !== "selling") {
+      deferred.push({ task_id: t.id, reason: CHANNEL_WAITS_REASON });
       continue;
     }
     if (started >= limit) {

@@ -66,8 +66,10 @@ export async function createBusinessFixture(h: TestHarness, slug: string): Promi
     h.createUser(`${slug}-viewer@test.local`),
   ]);
 
+  // An established business (channels running, campaigns live): its founder started distribution (0062). A test about the
+  // first days commits a fresh business instead, which starts with distribution not started.
   const business = first(
-    await db.insert(s.businesses).values({ name: slug.toUpperCase(), slug, createdBy: ownerId, archetype: "b2b_saas" }).returning({ id: s.businesses.id }),
+    await db.insert(s.businesses).values({ name: slug.toUpperCase(), slug, createdBy: ownerId, archetype: "b2b_saas", distributionStartedAt: new Date("2026-01-01T00:00:00Z") }).returning({ id: s.businesses.id }),
     "businesses",
   );
   const businessId = business.id;

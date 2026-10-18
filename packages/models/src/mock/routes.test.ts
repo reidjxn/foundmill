@@ -1,7 +1,7 @@
 import { ENTITY_MARKUP_RE } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { CategoriserOutput, CoachOutput, CodeReviewOutput, CommentaryOutput, CyclePlanOutput, IDEA_ATTRIBUTE_KEYS, IdeationOutput, LinkerOutput, ModerationOutput, SkillGradeOutput, TaskGraphOutput } from "../schemas";
-import { MockModelClient, resolveMention } from "./index";
+import { CHANNEL_WAITS_REASON, MockModelClient, resolveMention } from "./index";
 import { AGENTS, AGENT_TOMAS, MANIFEST, ORG_ALDER, ORG_NORTHWIND, PERSON_MARA, promptWith } from "./fixtures.test-helpers";
 
 const client = new MockModelClient();
@@ -84,6 +84,22 @@ describe("chief of staff cycle plan (BUILD §12.4)", () => {
     const r = await client.complete({ route: "chiefOfStaff", messages: promptWith({ budget_remaining_minor: 0, tasks: [{ id: "t1", title: "Anything", status: "ready" }] }), schema: CyclePlanOutput });
     expect(r.json.departments).toEqual([]);
     expect(r.json.approvals_needed.join(" ")).toMatch(/budget/i);
+  });
+
+  it("holds channel work back until the founder has started distribution (product_stage selling); a payload without a stage holds nothing back", async () => {
+    const tasks = [
+      { id: "t1", title: "Score the 15 channels and propose 3-6 starters", kind: "channel", status: "ready", department_id: "dept-dist" },
+      { id: "t2", title: "Set up the first runway forecast", kind: "finance", status: "ready", department_id: "dept-fin" },
+    ];
+    for (const product_stage of ["awaiting_signoff", "building"]) {
+      const r = await client.complete({ route: "chiefOfStaff", messages: promptWith({ max_agents: 4, product_stage, open_tasks: tasks, agents: AGENTS }), schema: CyclePlanOutput });
+      expect(r.json.departments.flatMap((d) => d.tasks_to_start).map((s) => s.task_id), product_stage).toEqual(["t2"]);
+      expect(r.json.deferred).toEqual([{ task_id: "t1", reason: CHANNEL_WAITS_REASON }]);
+    }
+    for (const payload of [{ max_agents: 4, product_stage: "selling", open_tasks: tasks, agents: AGENTS }, { max_agents: 4, open_tasks: tasks, agents: AGENTS }]) {
+      const r = await client.complete({ route: "chiefOfStaff", messages: promptWith(payload), schema: CyclePlanOutput });
+      expect(r.json.departments.flatMap((d) => d.tasks_to_start).map((s) => s.task_id).sort()).toEqual(["t1", "t2"]);
+    }
   });
 });
 

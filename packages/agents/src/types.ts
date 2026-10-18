@@ -396,6 +396,17 @@ export const BoardDecision = z
   .refine((d) => d.options.filter((o) => o.recommended).length === 1, { message: "exactly one option must be recommended" });
 export type BoardDecision = z.infer<typeof BoardDecision>;
 
+/**
+ * The Planner's fallback goal when building starts (founder, 2026-10-18): both sign-offs approved and no roadmap item in
+ * Now yet. Until then it was the archetype's first-cycle code task ("Plan the first vertical slice").
+ */
+export const FirstBuild = z.object({
+  title: z.string().min(1),
+  goal: z.string().min(20),
+  acceptance: z.array(z.string().min(1)).min(1),
+});
+export type FirstBuild = z.infer<typeof FirstBuild>;
+
 export const ArchetypeSeed = z.object({
   archetype: Archetype,
   /** Chief of Staff is hired for every archetype; listed here so seeds are self-describing. */
@@ -403,7 +414,11 @@ export const ArchetypeSeed = z.object({
   departments: z.array(DepartmentSeed).min(1),
   defaultChannels: z.array(ChannelKey).min(3).max(6),
   specOutline: z.array(z.string().min(1)).min(5),
+  /** Groundwork the first cycle starts at commit: research, finance, legal and specialist work; never distribution. */
   firstCycleTasks: z.array(FirstCycleTask).min(3),
+  /** What the Planner plans when the founder has signed off and Now is empty. */
+  firstBuild: FirstBuild,
+  /** The Board's question, posted when the founder starts distribution. */
   boardDecision: BoardDecision,
 });
 export type ArchetypeSeed = z.infer<typeof ArchetypeSeed>;
