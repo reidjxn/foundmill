@@ -430,6 +430,8 @@ export interface TrainingSkillResult {
   after: number;
   /** Tests run / passed for the hover. */
   tests?: { run: number; passed: number };
+  /** The run found no tests for this skill (a library or file skill): it reads "No tests yet" and keeps its rating. */
+  noTests?: boolean;
 }
 
 export interface ModelOption {

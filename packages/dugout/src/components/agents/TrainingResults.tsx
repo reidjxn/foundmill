@@ -17,9 +17,11 @@ export interface TrainingSummary {
   improved: number;
   dropped: number;
   unchanged: number;
+  /** Skills the run found no tests for: not scored, so neither up, down nor the same. */
+  untested: number;
   /** Drops of more than one point (highlighted). */
   bigDrops: TrainingSkillResult[];
-  /** Mean change across skills. */
+  /** Mean change across the scored skills. */
   meanDelta: number;
 }
 
@@ -27,9 +29,16 @@ export function summariseTraining(results: readonly TrainingSkillResult[]): Trai
   let improved = 0;
   let dropped = 0;
   let unchanged = 0;
+  let untested = 0;
+  let scored = 0;
   let sum = 0;
   const bigDrops: TrainingSkillResult[] = [];
   for (const r of results) {
+    if (r.noTests) {
+      untested++;
+      continue;
+    }
+    scored++;
     const d = r.after - r.before;
     sum += d;
     if (d > 0) improved++;
@@ -37,7 +46,7 @@ export function summariseTraining(results: readonly TrainingSkillResult[]): Trai
     else unchanged++;
     if (-d > DROP_HIGHLIGHT_THRESHOLD) bigDrops.push(r);
   }
-  return { improved, dropped, unchanged, bigDrops, meanDelta: results.length ? Math.round((sum / results.length) * 100) / 100 : 0 };
+  return { improved, dropped, unchanged, untested, bigDrops, meanDelta: scored ? Math.round((sum / scored) * 100) / 100 : 0 };
 }
 
 export interface TrainingResultsProps {
@@ -92,6 +101,7 @@ export function TrainingResults({ results, coachExplanation, candidateVersion, l
           {summary.dropped} down
         </Chip>
         <Chip tone="neutral">{summary.unchanged} same</Chip>
+        {summary.untested ? <Chip tone="neutral">{summary.untested} no tests yet</Chip> : null}
       </header>
       <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div className="border-r border-line">
@@ -119,12 +129,12 @@ export function TrainingResults({ results, coachExplanation, candidateVersion, l
                   .filter((r) => r.group === g)
                   .map((r) => {
                     const d = r.after - r.before;
-                    const big = -d > DROP_HIGHLIGHT_THRESHOLD;
+                    const big = !r.noTests && -d > DROP_HIGHLIGHT_THRESHOLD;
                     return (
-                      <tr key={r.id} data-skill={r.id} data-big-drop={big || undefined} className={cn("h-row-comfortable border-b hairline-50", big && "bg-status-bad/8")}>
+                      <tr key={r.id} data-skill={r.id} data-big-drop={big || undefined} data-no-tests={r.noTests || undefined} className={cn("h-row-comfortable border-b hairline-50", big && "bg-status-bad/8")}>
                         <td className="px-panel-pad text-primary">
-                          <Tooltip content={r.tests ? `${r.tests.passed} of ${r.tests.run} tests passed` : undefined}>
-                            <span tabIndex={r.tests ? 0 : -1}>{r.name}</span>
+                          <Tooltip content={r.tests ? `${r.tests.passed} of ${r.tests.run} tests passed` : r.noTests ? "This skill has no tests, so the run could not score it; its rating stands." : undefined}>
+                            <span tabIndex={r.tests || r.noTests ? 0 : -1}>{r.name}</span>
                           </Tooltip>
                         </td>
                         <td className="px-2 text-right">
@@ -134,11 +144,11 @@ export function TrainingResults({ results, coachExplanation, candidateVersion, l
                           <Icon icon={ArrowRight} size={12} label="to" />
                         </td>
                         <td className="px-2">
-                          <RatingFigure value={r.after} />
+                          <RatingFigure value={r.after} className={r.noTests ? "text-secondary opacity-80" : undefined} />
                         </td>
                         <td className="px-2">
                           <span className="inline-flex items-center gap-1.5">
-                            <DeltaWord delta={d} />
+                            {r.noTests ? <Chip tone="neutral">No tests yet</Chip> : <DeltaWord delta={d} />}
                             {big ? <Chip tone="bad">Drop</Chip> : null}
                           </span>
                         </td>

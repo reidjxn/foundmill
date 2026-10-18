@@ -9,6 +9,8 @@ describe("summariseTraining", () => {
     expect(s.improved).toBe(6);
     expect(s.dropped).toBe(3);
     expect(s.unchanged).toBe(2);
+    // A skill the run found no tests for is neither up, down nor the same, and does not pull the mean change toward zero.
+    expect(s.untested).toBe(1);
     expect(s.bigDrops.map((r) => r.id)).toEqual(["state_management", "speed"]);
     expect(s.meanDelta).toBeCloseTo(0.91, 2);
     expect(summariseTraining([]).meanDelta).toBe(0);
@@ -30,6 +32,13 @@ describe("TrainingResults", () => {
     expect(within(testing).getByRole("img", { name: "to" })).toBeTruthy();
     const unchanged = document.querySelector('[data-skill="accessibility"]') as HTMLElement;
     expect(within(unchanged).getByText("no change")).toBeTruthy();
+    // A library skill with no tests reads "No tests yet" in place of a change, and is never a drop.
+    const untested = document.querySelector('[data-skill="library_release_notes"]') as HTMLElement;
+    expect(untested.dataset.noTests).toBe("true");
+    expect(untested.dataset.bigDrop).toBeUndefined();
+    expect(within(untested).getByText("No tests yet")).toBeTruthy();
+    expect(within(untested).queryByText("no change")).toBeNull();
+    expect(screen.getByText("1 no tests yet")).toBeTruthy();
     expect(screen.getByText(/Speed dropped because/)).toBeTruthy();
     expect(screen.getByText(/State management, Speed dropped by more than one point/)).toBeTruthy();
     expect(screen.getByText("6 up")).toBeTruthy();
