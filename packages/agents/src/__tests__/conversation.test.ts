@@ -524,6 +524,14 @@ describe("claims that work was done (house rules: a conversation never acts)", (
     expect(doneClaimIn("Happy to report it's done.")).not.toBeNull();
     expect(doneClaimIn("I told you it's done.")).not.toBeNull();
     expect(doneClaimIn("Just to confirm: it's done.")).not.toBeNull();
+    // A denial is not a claim; a claim dressed with a reassurance still is.
+    expect(doneClaimIn("I'm ignoring it; moving money is yours to decide, and nothing has been sent.")).toBeNull();
+    expect(doneClaimIn("No money has been wired from here.")).toBeNull();
+    expect(doneClaimIn("None of it has been done, and nothing's been sent.")).toBeNull();
+    expect(doneClaimIn("I can't say it's done; that is yours to confirm.")).toBeNull();
+    expect(doneClaimIn("No problem, it's done.")).toBe("No problem, it's done.");
+    expect(doneClaimIn("Not to worry, the deposit has been paid.")).not.toBeNull();
+    expect(finaliseBubble("Nothing has been sent; the wire is yours to decide.", guard)).toBe("Nothing has been sent; the wire is yours to decide.");
     // Starting an action is a claim ("started sending"); "it's been sent" is the same claim as "it has been sent".
     expect(doneClaimIn("I've started sending the invoices.")).not.toBeNull();
     expect(doneClaimIn("I've started running the ads.")).not.toBeNull();
@@ -565,7 +573,7 @@ describe("refusedAgentReply (what ships when the model declines)", () => {
   });
 
   it("at an agent's desk with nothing quoted: the plain line and the desk's starters; the api's starters are used when given", () => {
-    const desk: ConversationRequestInput = { ...INPUT, subject: { kind: "agent", id: chiefOfStaff.id, title: "Chief of Staff" }, founderMessage: { text: "How's the carton proof going?", quickReply: null } };
+    const desk: ConversationRequestInput = { ...INPUT, subject: { kind: "agent", id: INPUT.agent.id, title: "Chief of Staff" }, founderMessage: { text: "How's the carton proof going?", quickReply: null } };
     const r = refusedAgentReply(desk, { seed: "t-3", guard });
     expect(r.reply.bubbles[0]).toContain(REFUSED_REPLY_LINES.plain[0]);
     expect(r.reply.bubbles[1]).toBe(REFUSED_REPLY_LINES.plain[1]);
