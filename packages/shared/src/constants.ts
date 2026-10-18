@@ -225,6 +225,23 @@ export type FoundationsStatus = (typeof FOUNDATIONS_STATUSES)[number];
 export const FOUNDATIONS_DOORS = ["ideation", "import"] as const;
 export type FoundationsDoor = (typeof FOUNDATIONS_DOORS)[number];
 
+/**
+ * Where a business stands in its first days (founder, 2026-10-18: the product comes first). Derived, never stored:
+ * `drafting` while the foundations are pending, drafting or failed; `awaiting_signoff` until the founder has approved
+ * both the specification and the roadmap; `building` once both are approved and before distribution has started;
+ * `selling` once `businesses.distribution_started_at` is set (every business committed before sign-offs existed).
+ */
+export const PRODUCT_STAGES = ["drafting", "awaiting_signoff", "building", "selling"] as const;
+export type ProductStage = (typeof PRODUCT_STAGES)[number];
+
+/** What the founder signs off (`product_signoffs.kind`): the specification, the roadmap, and the step that starts distribution. */
+export const SIGNOFF_KINDS = ["spec", "roadmap", "ready_to_sell"] as const;
+export type SignoffKind = (typeof SIGNOFF_KINDS)[number];
+
+/** A sign-off round's state: asked, approved, sent back with the founder's notes, or declined (a "Not yet" on Ready to sell). */
+export const SIGNOFF_STATUSES = ["pending", "approved", "changes_requested", "declined"] as const;
+export type SignoffStatus = (typeof SIGNOFF_STATUSES)[number];
+
 /** Where the drafting runs: the orchestrator's `businessFoundations` workflow, or in the api when Temporal is unreachable. */
 export const FOUNDATIONS_RUNNERS = ["temporal", "local"] as const;
 export type FoundationsRunner = (typeof FOUNDATIONS_RUNNERS)[number];
@@ -285,6 +302,8 @@ export const EVENT_TYPES = [
   "conversation.message_posted",
   "membership.changed",
   "agent.message_sent",
+  "product.signoff_decided",
+  "distribution.started",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

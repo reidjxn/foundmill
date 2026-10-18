@@ -10,6 +10,7 @@ import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, Ke
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useBusinessStage } from "../stage";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, humanise, plural, type ColumnFit } from "../fit";
@@ -89,7 +90,9 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   const planner = useAction();
   // Saved per person, business and table (audit #204): they come back after a reload.
   const savedViews = useSavedViews("development.plan", PLAN_VIEWS, { defaultViewId: "all" });
-  useBusinessEvents(() => tasks.refetch(), ["task.started", "task.completed", "task.blocked", "pr.merged"]);
+  useBusinessEvents(() => tasks.refetch(), ["task.started", "task.completed", "task.blocked", "pr.merged", "product.signoff_decided"]);
+  // Building starts when the founder has signed off the specification and the roadmap (founder, 2026-10-18).
+  const stage = useBusinessStage();
 
   const rows = useMemo(() => toPlanRows(tasks.data?.items ?? [], tasks.data?.edges ?? [], agentIndex), [tasks.data, agentIndex]);
   const initialTask = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("task") : null;
@@ -230,6 +233,16 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
 
   return (
     <Screen name="development/plan">
+      {stage.stage === "awaiting_signoff" || stage.stage === "drafting" ? (
+        <Panel span={12} title="Building starts on your sign-off" data-testid="plan-stage-banner" data-product-stage={stage.stage}>
+          <p className="text-body text-secondary">
+            {stage.stage === "drafting" ? "The specification and roadmap are being drafted. " : "Building starts when the specification and the roadmap are signed off. "}
+            <button type="button" className="text-link hover:underline focus-visible:outline-2 focus-visible:outline-link" onClick={() => navigate(routes.inbox(businessId))}>
+              Open the Inbox
+            </button>
+          </p>
+        </Panel>
+      ) : null}
       <Panel
         span={8}
         title="Task graph"

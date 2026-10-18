@@ -75,10 +75,10 @@ describe("foundations", () => {
     const ids = Object.fromEntries(inputs.outline.map((o) => [o.section, o.blockId!]));
     const before = await repos.product.listRoadmap(r.db, businessId);
 
-    const stale = await r.svc((tx) => repos.foundations.apply(tx, businessId, 99, draftFor(ids), { note: null }));
+    const stale = await r.svc((tx) => repos.foundations.apply(tx, businessId, 99, draftFor(ids), { signoffs: null }));
     expect(stale.applied).toBe(false);
 
-    const res = await r.svc((tx) => repos.foundations.apply(tx, businessId, 1, draftFor(ids), { note: (s) => ({ subject: "Vision, specification and roadmap drafted", bodyMd: `Wrote ${s.sectionsWritten} of ${s.sectionsTotal}.` }), model: { route: "foundations" } }));
+    const res = await r.svc((tx) => repos.foundations.apply(tx, businessId, 1, draftFor(ids), { signoffs: { spec: (s) => ({ subject: "Sign off the product specification", bodyMd: `Wrote ${s.sectionsWritten} of ${s.sectionsTotal}.` }), roadmap: (s) => ({ subject: "Sign off the product roadmap", bodyMd: `${s.roadmap.now} in Now.` }) }, model: { route: "foundations" } }));
     expect(res.applied).toBe(true);
     expect(res.row).toMatchObject({ status: "ready" });
     expect(res.row!.vision).toMatchObject({ statement: expect.stringContaining("Ledgerly"), northStar: { label: "Forecast" } });
@@ -96,10 +96,18 @@ describe("foundations", () => {
     const feed = roadmap.find((i) => i.title === "Bank feed import")!;
     expect(feed.specBlockIds).toEqual([ids.Features]);
     expect(feed.position).toBeGreaterThanOrEqual(0);
-    expect(res.inboxItem).toMatchObject({ type: "update", subject: "Vision, specification and roadmap drafted", bodyMd: "Wrote 3 of 4.", blocksContinue: false });
+    // The two sign-off notes (founder, 2026-10-18): decisions from the Product lead that block Continue, each with its round.
+    expect(res.inboxItems.map((i) => ({ type: i.type, subject: i.subject, bodyMd: i.bodyMd, blocksContinue: i.blocksContinue }))).toEqual([
+      { type: "decision", subject: "Sign off the product specification", bodyMd: "Wrote 3 of 4.", blocksContinue: true },
+      { type: "decision", subject: "Sign off the product roadmap", bodyMd: "1 in Now.", blocksContinue: true },
+    ]);
+    const rounds = await repos.productSignoffs.latest(r.db, businessId);
+    expect(rounds.spec).toMatchObject({ round: 1, status: "pending", inboxItemId: res.inboxItems[0]!.id });
+    expect(rounds.roadmap).toMatchObject({ round: 1, status: "pending", inboxItemId: res.inboxItems[1]!.id, snapshot: { items: expect.arrayContaining([expect.objectContaining({ title: "Bank feed import", horizon: "now" })]) } });
+    expect(res.row!.summary).toMatchObject({ inboxItemIds: res.inboxItems.map((i) => i.id) });
 
     // A second apply for the same attempt (a retried activity) writes nothing more.
-    const twice = await r.svc((tx) => repos.foundations.apply(tx, businessId, 1, draftFor(ids), { note: null }));
+    const twice = await r.svc((tx) => repos.foundations.apply(tx, businessId, 1, draftFor(ids), { signoffs: null }));
     expect(twice.applied).toBe(false);
     expect((await repos.product.listRoadmap(r.db, businessId)).length).toBe(before.length + 2);
   });
@@ -145,11 +153,11 @@ describe("foundations", () => {
     const inputs = await repos.foundations.inputs(r.db, businessId);
     const ids = Object.fromEntries(inputs.outline.map((o) => [o.section, o.blockId!]));
     const roadmapBefore = (await repos.product.listRoadmap(r.db, businessId)).length;
-    const note = () => ({ subject: "Vision, specification and roadmap drafted", bodyMd: "Drafted." });
+    const signoffs = { spec: () => ({ subject: "Sign off the product specification", bodyMd: "Drafted." }), roadmap: () => ({ subject: "Sign off the product roadmap", bodyMd: "Drafted." }) };
     await expect(
       r.svc((tx) =>
         repos.foundations.apply(tx, businessId, 2, draftFor(ids), {
-          note,
+          signoffs,
           onInboxItem: async () => {
             throw new Error("outbox unavailable");
           },
@@ -160,9 +168,10 @@ describe("foundations", () => {
     expect((await repos.product.listRoadmap(r.db, businessId)).length).toBe(roadmapBefore);
 
     const seen: string[] = [];
-    const res = await r.svc((tx) => repos.foundations.apply(tx, businessId, 2, draftFor(ids), { note, onInboxItem: async (_tx, item) => void seen.push(item.id) }));
+    const res = await r.svc((tx) => repos.foundations.apply(tx, businessId, 2, draftFor(ids), { signoffs, onInboxItem: async (_tx, item) => void seen.push(item.id) }));
     expect(res.applied).toBe(true);
-    expect(seen).toEqual([res.inboxItem!.id]);
+    expect(seen).toEqual(res.inboxItems.map((i) => i.id));
+    expect(seen).toHaveLength(2);
   });
 
   it("progress (0019): written for the current attempt only, sections merged atomically, the event in the same transaction, kept by a retry, cleared by apply", async () => {
@@ -202,7 +211,7 @@ describe("foundations", () => {
     // Ready: the progress is in the blocks, the roadmap and the vision now; the row no longer carries it.
     const inputs = await repos.foundations.inputs(r.db, businessId);
     const ids = Object.fromEntries(inputs.outline.map((o) => [o.section, o.blockId!]));
-    const applied = await r.svc((tx) => repos.foundations.apply(tx, businessId, retried!.attempt, draftFor(ids), { note: null }));
+    const applied = await r.svc((tx) => repos.foundations.apply(tx, businessId, retried!.attempt, draftFor(ids), { signoffs: null }));
     expect(applied.applied).toBe(true);
     expect(applied.row).toMatchObject({ status: "ready", progress: null });
   });

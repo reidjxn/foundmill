@@ -1,14 +1,18 @@
 /**
- * Archetype seeds (BUILD §11.1 "Take charge → seed departments/agents from archetype → first businessCycle → first inbox
- * item from The Board"; §6.1 departments map 1:1 to modules; §11.5 default spec outline by archetype; §11.7 recommended
- * starter channels).
+ * Archetype seeds (BUILD §11.1 "Take charge → seed departments/agents from archetype → first businessCycle"; §6.1
+ * departments map 1:1 to modules; §11.5 default spec outline by archetype; §11.7 recommended starter channels).
+ *
+ * The first days are about the product (founder, 2026-10-18): the first cycle starts groundwork only (the open
+ * questions of the drafted specification, finance, legal, specialists); the Planner's first build (`firstBuild`) waits
+ * for the founder's sign-off of the specification and the roadmap; the channel-scoring task (`CHANNEL_SCORING_TASK`)
+ * and the Board's question (`boardDecision`) arrive when the founder starts distribution.
  *
  * Everything here is data validated against `ArchetypeSeed` at module load. Department names are display defaults the
  * founder can rename (AC-11.13.1); code routes by `slug`, `moduleKeys` and template keys, never by name.
  */
 import { LIMITS } from "@foundmill/config";
 import { ARCHETYPES, type Archetype, ARCHETYPE_LABELS, type ChannelKey, type DeptColourToken, MODULE_TABS, type ModuleKey, type OptionAction, type TaskKind } from "@foundmill/shared";
-import { ArchetypeSeed, type BoardDecision, type DepartmentSeed, type FirstCycleTask } from "./types";
+import { ArchetypeSeed, type BoardDecision, type DepartmentSeed, type FirstBuild, type FirstCycleTask } from "./types";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Department defaults (1:1 with modules; icon = Lucide name; colour = Dugout department token)
@@ -112,17 +116,25 @@ const PHYSICAL_OUTLINE = [...BASE_OUTLINE.slice(0, 4), "Formulation / BOM", "Man
 
 const task = (t: FirstCycleTask): FirstCycleTask => t;
 
-const SPEC_TASK = (assignee = "product_lead"): FirstCycleTask =>
-  task({
-    kind: "research",
-    title: "Draft the specification from the concept card",
-    goal: "Turn the committed concept card into the first specification version: one block per outline section with sources cited.",
-    acceptance: ["Every outline section has a block", "Every factual claim cites a source or is marked unverified", "Open questions are listed as research tasks"],
-    assigneeTemplateKey: assignee,
-    departmentSlug: "product",
-  });
+/**
+ * The first cycle's product groundwork (founder, 2026-10-18): the specification itself is drafted on the first open
+ * (services/foundations.ts), so the Product lead answers its open questions, through proposals, never by overwriting a
+ * pinned block, and starts nothing on distribution.
+ */
+const OPEN_QUESTIONS_TASK = task({
+  kind: "research",
+  title: "Answer the specification's open questions",
+  goal: "Take the open questions recorded with the drafted specification (Product › Vision) and answer each with cited evidence or mark it for the founder. Propose changes through proposals; never overwrite a pinned block.",
+  acceptance: ["Every open question has an answer with a source id or is marked for the founder", "Changes reach the specification as proposals, not edits", "No distribution work is started"],
+  assigneeTemplateKey: "product_lead",
+  departmentSlug: "product",
+});
 
-const CHANNEL_TASK = task({
+/**
+ * Created when the founder starts distribution (apps/api `startDistribution`), not at commit: scoring the channels is
+ * the first distribution work, and distribution waits for a product to show.
+ */
+export const CHANNEL_SCORING_TASK = task({
   kind: "channel",
   title: "Score the 15 channels and propose 3-6 starters",
   goal: "Score every channel 1-20 on fit for this business and propose the starting channels for the Channel Board with cost-per-customer ranges labeled Estimate.",
@@ -143,8 +155,8 @@ const FINANCE_TASK = task({
 const LEGAL_TASK = (goal: string, acceptance: string[]): FirstCycleTask =>
   task({ kind: "legal", title: "Jurisdiction and compliance scan", goal, acceptance, assigneeTemplateKey: "legal_lead", departmentSlug: "legal" });
 
-const CODE_TASK = (title: string, goal: string, acceptance: string[]): FirstCycleTask =>
-  task({ kind: "code", title, goal, acceptance, assigneeTemplateKey: "planner", departmentSlug: "development" });
+/** The Planner's fallback goal once the founder has signed off and Now is empty (`ArchetypeSeed.firstBuild`). */
+const FIRST_BUILD = (title: string, goal: string, acceptance: string[]): FirstBuild => ({ title, goal, acceptance });
 
 const SPECIALIST_TASK = (title: string, goal: string, acceptance: string[], assignee: string): FirstCycleTask =>
   task({ kind: "specialist", title, goal, acceptance, assigneeTemplateKey: assignee, departmentSlug: "operations" });
@@ -187,13 +199,7 @@ const b2bSaas = ArchetypeSeed.parse({
   defaultChannels: ["lead_generation", "email_automation", "seo", "content"],
   specOutline: BASE_OUTLINE,
   firstCycleTasks: [
-    SPEC_TASK(),
-    CODE_TASK("Plan the first vertical slice", "Build the task graph for a signup → first value → payment slice with acceptance tests per task.", [
-      "Task graph has goals, acceptance criteria and file scopes",
-      "No two tasks share a file scope concurrently",
-      "Every task under four hours",
-    ]),
-    CHANNEL_TASK,
+    OPEN_QUESTIONS_TASK,
     FINANCE_TASK,
     LEGAL_TASK("Recommend an incorporation jurisdiction and list the first compliance obligations for a software business selling to businesses.", [
       "Three jurisdictions compared with dated sources",
@@ -201,11 +207,16 @@ const b2bSaas = ArchetypeSeed.parse({
       "Recommendation labeled as a screen, not legal advice",
     ]),
   ],
+  firstBuild: FIRST_BUILD("Plan the first vertical slice", "Build the task graph for a signup → first value → payment slice with acceptance tests per task.", [
+    "Task graph has goals, acceptance criteria and file scopes",
+    "No two tasks share a file scope concurrently",
+    "Every task under four hours",
+  ]),
   boardDecision: board(
     "b2b_saas",
     "Where should the first customer come from?",
     [
-      "The team is hired and the first cycle has started. Development is planning the first vertical slice; Distribution has scored the channels.",
+      "Distribution has started: the channel engines on the board are starting and the Distribution strategist is scoring the channels while Development builds the first roadmap items.",
       "The Board asks for one decision before committing any budget: which route to the first paying customer should take priority this chapter?",
     ],
     [
@@ -270,13 +281,7 @@ const consumerApp = ArchetypeSeed.parse({
   defaultChannels: ["paid_ads", "social", "influencer", "seo"],
   specOutline: [...BASE_OUTLINE.slice(0, 4), "Onboarding and activation", "Retention loops", ...BASE_OUTLINE.slice(4)],
   firstCycleTasks: [
-    SPEC_TASK(),
-    CODE_TASK("Plan onboarding to first habit", "Build the task graph for install → onboarding → first activation event with analytics events defined up front.", [
-      "Activation event defined and instrumented",
-      "Onboarding flow has acceptance tests",
-      "Store listing requirements captured as tasks",
-    ]),
-    CHANNEL_TASK,
+    OPEN_QUESTIONS_TASK,
     FINANCE_TASK,
     LEGAL_TASK("List consumer-law, privacy and app-store obligations for the target markets and recommend a jurisdiction.", [
       "Privacy policy and consent requirements per market",
@@ -284,11 +289,16 @@ const consumerApp = ArchetypeSeed.parse({
       "Jurisdiction recommendation with dated sources",
     ]),
   ],
+  firstBuild: FIRST_BUILD("Plan onboarding to first habit", "Build the task graph for install → onboarding → first activation event with analytics events defined up front.", [
+    "Activation event defined and instrumented",
+    "Onboarding flow has acceptance tests",
+    "Store listing requirements captured as tasks",
+  ]),
   boardDecision: board(
     "consumer_app",
     "Paid acquisition or organic first?",
     [
-      "The team is in place. Distribution has its Channel Board ready; Development is planning onboarding.",
+      "Distribution has started and the Channel Board is ready; Development is building onboarding.",
       "Consumer apps live or die on cost per activated user. The Board asks how the first budget should be spent.",
     ],
     [
@@ -349,13 +359,7 @@ const marketplace = ArchetypeSeed.parse({
   defaultChannels: ["seo", "lead_generation", "content", "social"],
   specOutline: [...BASE_OUTLINE.slice(0, 3), "Supply side", "Demand side", "Matching and trust", ...BASE_OUTLINE.slice(3)],
   firstCycleTasks: [
-    SPEC_TASK(),
-    CODE_TASK("Plan supply onboarding and the first transaction", "Build the task graph for listing creation, search and a first paid transaction through connected payouts.", [
-      "Payout flow uses the payments connector; no money moves without a founder-approved go-live",
-      "Listing and search have acceptance tests",
-      "Trust and dispute flow captured as later tasks",
-    ]),
-    CHANNEL_TASK,
+    OPEN_QUESTIONS_TASK,
     FINANCE_TASK,
     LEGAL_TASK("Map platform obligations: payments licensing, consumer law, VAT on commissions and terms for both sides.", [
       "Payments and licensing position stated with sources",
@@ -363,6 +367,11 @@ const marketplace = ArchetypeSeed.parse({
       "VAT treatment of commissions noted per market",
     ]),
   ],
+  firstBuild: FIRST_BUILD("Plan supply onboarding and the first transaction", "Build the task graph for listing creation, search and a first paid transaction through connected payouts.", [
+    "Payout flow uses the payments connector; no money moves without a founder-approved go-live",
+    "Listing and search have acceptance tests",
+    "Trust and dispute flow captured as later tasks",
+  ]),
   boardDecision: board(
     "marketplace",
     "Which side do we seed first?",
@@ -436,7 +445,7 @@ const dtcPhysical = ArchetypeSeed.parse({
   defaultChannels: ["influencer", "paid_ads", "social", "email_automation"],
   specOutline: PHYSICAL_OUTLINE,
   firstCycleTasks: [
-    SPEC_TASK(),
+    OPEN_QUESTIONS_TASK,
     SPECIALIST_TASK(
       "Supplier long list and RFQ pack",
       "Build a qualified long list of contract manufacturers and send an identical RFQ pack so quotes are comparable; every quote is read through the quarantined reader.",
@@ -449,12 +458,6 @@ const dtcPhysical = ArchetypeSeed.parse({
       ["Every line cites a quote id or is marked Estimate", "Three volume tiers", "Margin per channel at the planned price"],
       "costing",
     ),
-    CODE_TASK("Plan the storefront and order pipeline", "Build the task graph for the storefront, checkout through the commerce connector, and order webhooks into the journey model.", [
-      "Checkout uses the commerce connector in mock mode",
-      "Order events reach the journey model with attribution",
-      "No payment settings changed without a founder action",
-    ]),
-    CHANNEL_TASK,
     FINANCE_TASK,
     LEGAL_TASK("List product compliance, labeling and consumer obligations for the target markets and recommend a jurisdiction.", [
       "Product regulation named per market with dates",
@@ -462,6 +465,11 @@ const dtcPhysical = ArchetypeSeed.parse({
       "Jurisdiction recommendation with dated sources",
     ]),
   ],
+  firstBuild: FIRST_BUILD("Plan the storefront and order pipeline", "Build the task graph for the storefront, checkout through the commerce connector, and order webhooks into the journey model.", [
+    "Checkout uses the commerce connector in mock mode",
+    "Order events reach the journey model with attribution",
+    "No payment settings changed without a founder action",
+  ]),
   boardDecision: board(
     "dtc_physical",
     "Sample before storefront, or both at once?",
@@ -533,7 +541,7 @@ const hardware = ArchetypeSeed.parse({
   defaultChannels: ["content", "pr", "paid_ads", "events"],
   specOutline: [...PHYSICAL_OUTLINE.slice(0, 4), "Firmware and app", ...PHYSICAL_OUTLINE.slice(4)],
   firstCycleTasks: [
-    SPEC_TASK(),
+    OPEN_QUESTIONS_TASK,
     SPECIALIST_TASK(
       "Certification map",
       "Identify the directives, standards and conformity routes for the target markets and the tests a lab must run, with lead times and costs labeled Estimate.",
@@ -546,12 +554,6 @@ const hardware = ArchetypeSeed.parse({
       ["Every component has a quote id or is marked Estimate", "Long-lead parts flagged with lead time", "No purchase order placed"],
       "sourcing_manufacturing",
     ),
-    CODE_TASK("Plan firmware, app and the pre-order site", "Build the task graph for the firmware build pipeline, the companion app's first screen and a pre-order page with attribution.", [
-      "Firmware CI builds and tests in the sandbox",
-      "Pre-order page tracks source codes",
-      "No OTA or release signing without a founder action",
-    ]),
-    CHANNEL_TASK,
     FINANCE_TASK,
     LEGAL_TASK("List product safety, radio, battery and e-waste obligations for the target markets and recommend a jurisdiction.", [
       "Obligations named per market with dates",
@@ -559,6 +561,11 @@ const hardware = ArchetypeSeed.parse({
       "Jurisdiction recommendation with dated sources",
     ]),
   ],
+  firstBuild: FIRST_BUILD("Plan firmware, app and the pre-order site", "Build the task graph for the firmware build pipeline, the companion app's first screen and a pre-order page with attribution.", [
+    "Firmware CI builds and tests in the sandbox",
+    "Pre-order page tracks source codes",
+    "No OTA or release signing without a founder action",
+  ]),
   boardDecision: board(
     "hardware",
     "Pre-orders before certification?",
@@ -627,13 +634,7 @@ const services = ArchetypeSeed.parse({
   defaultChannels: ["lead_generation", "events", "email_automation", "seo"],
   specOutline: [...BASE_OUTLINE.slice(0, 3), "Service delivery process", "Engagement model and SLAs", ...BASE_OUTLINE.slice(3)],
   firstCycleTasks: [
-    SPEC_TASK(),
-    CODE_TASK("Plan the client portal and intake", "Build the task graph for intake form, client portal and the delivery checklist that agents and staff share.", [
-      "Intake captures lawful basis and source",
-      "Portal is business-scoped with RLS tests",
-      "Delivery checklist drives task status",
-    ]),
-    CHANNEL_TASK,
+    OPEN_QUESTIONS_TASK,
     FINANCE_TASK,
     LEGAL_TASK("Draft the engagement terms playbook and list professional, tax and insurance obligations for the target market.", [
       "Engagement terms clauses listed with defaults",
@@ -641,6 +642,11 @@ const services = ArchetypeSeed.parse({
       "Jurisdiction recommendation with dated sources",
     ]),
   ],
+  firstBuild: FIRST_BUILD("Plan the client portal and intake", "Build the task graph for intake form, client portal and the delivery checklist that agents and staff share.", [
+    "Intake captures lawful basis and source",
+    "Portal is business-scoped with RLS tests",
+    "Delivery checklist drives task status",
+  ]),
   boardDecision: board(
     "services",
     "Productized package or bespoke engagements first?",
@@ -702,13 +708,7 @@ const contentMedia = ArchetypeSeed.parse({
   defaultChannels: ["content", "social", "email_automation", "seo", "geo"],
   specOutline: [...BASE_OUTLINE.slice(0, 3), "Editorial formats and cadence", "Audience and membership", "Sponsorship and monetization", ...BASE_OUTLINE.slice(3)],
   firstCycleTasks: [
-    SPEC_TASK(),
-    CODE_TASK("Plan the publication site and membership", "Build the task graph for the site, newsletter signup with consent, paid membership through the billing connector and sponsorship tracking links.", [
-      "Signup records consent and source",
-      "Membership uses the billing connector in mock mode",
-      "Sponsor links attributed",
-    ]),
-    CHANNEL_TASK,
+    OPEN_QUESTIONS_TASK,
     FINANCE_TASK,
     LEGAL_TASK("List publishing, sponsorship disclosure, email marketing and copyright obligations for the target market and recommend a jurisdiction.", [
       "Sponsorship disclosure rules cited",
@@ -716,6 +716,11 @@ const contentMedia = ArchetypeSeed.parse({
       "Jurisdiction recommendation with dated sources",
     ]),
   ],
+  firstBuild: FIRST_BUILD("Plan the publication site and membership", "Build the task graph for the site, newsletter signup with consent, paid membership through the billing connector and sponsorship tracking links.", [
+    "Signup records consent and source",
+    "Membership uses the billing connector in mock mode",
+    "Sponsor links attributed",
+  ]),
   boardDecision: board(
     "content_media",
     "Free first or paid from issue one?",

@@ -11,7 +11,8 @@
  *
  * An approval's decision item (an agent's gated call waiting for the founder, audit FR-01) is answered without a plan
  * compiler: Approve or Reject resolves the approval (./approvals), records a one-line plan for the history, and the
- * decision reaches the session or wait that asked.
+ * decision reaches the session or wait that asked. A sign-off note (the specification, the roadmap, Ready to start
+ * selling; founder 2026-10-18) is answered the same way from its `product_signoffs` round (./signoff).
  *
  * Only a note that asks for a decision can be decided (audit VRUI-X2): an Update, a Milestone or a follow-up has nothing
  * to choose; free text on them goes to the agent's desk (`replyToInboxItem`).
@@ -25,6 +26,7 @@ import { assertApprovalAccess, deliverApprovalAnswer, recordApprovalAnswer, type
 import { assertMayConfirmAsks } from "./approver";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
 import { startModelRetests } from "./agent-model";
+import { decideSignoffItem } from "./signoff";
 import { assertInstructionSectionAccess, assertPlanSectionAccess, choiceOf, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, planSectionRefusal, redispatchPlans, requiresConfirmation, stagedAction, syncChannelEngines, type ActionEvaluation, type ChannelToggle, type DecisionOption, type DispatchResult, type ModelRetests, type PlanContext } from "./plans";
 
 export interface DecideItemInput {
@@ -96,6 +98,10 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   // An agent's gated call waiting for the founder: Approve or Reject answers the approval itself.
   const approval = await ctx.rls((tx) => repos.approvals.forInboxItem(tx, ctx.businessId, item.id));
   if (approval) return decideApprovalItem(ctx, item, approval, { chosenOption, freeText });
+  // The founder's sign-off of the specification or the roadmap, or Ready to start selling (founder, 2026-10-18): decided
+  // in-process from its round; free text is a request for changes in the founder's words.
+  const signoff = await ctx.rls((tx) => repos.productSignoffs.forInboxItem(tx, ctx.businessId, item.id));
+  if (signoff) return decideSignoffItem(ctx, item, signoff, { chosenOption, freeText });
   if (freeText && !chosenOption && decision.free_text === false) throw new ValidationError("This decision takes one of its options. Pick one, or talk it through with the agent first.", { route: "conversation", itemId: item.id });
   const options = decision.options ?? [];
   const option = chosenOption ? options.find((o) => o.id === chosenOption) : undefined;

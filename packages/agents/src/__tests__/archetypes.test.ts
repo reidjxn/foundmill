@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ARCHETYPES, CHANNEL_KEYS, MODULE_KEYS, MODULE_TABS } from "@foundmill/shared";
-import { ARCHETYPE_SEEDS, ARCHETYPE_SEED_LIST, DEPARTMENT_DEFAULTS, departmentTabs, getArchetypeSeed, templateKeysForArchetype } from "../archetypes";
+import { ARCHETYPE_SEEDS, ARCHETYPE_SEED_LIST, CHANNEL_SCORING_TASK, DEPARTMENT_DEFAULTS, departmentTabs, getArchetypeSeed, templateKeysForArchetype } from "../archetypes";
 import { ArchetypeSeed } from "../types";
 import { getTemplate, hasTemplate } from "../registry";
 
@@ -93,16 +93,25 @@ describe("archetype seeds (BUILD §11.1, AC-11.1.6)", () => {
     expect(departmentTabs({ moduleKeys: ["development"], tabSlugs: ["plan", "nope"] }).map((t) => t.slug)).toEqual(["plan"]);
   });
 
-  it("every seed has the base outline, a spec task, a channel scoring task, a finance forecast and a legal scan", () => {
+  it("every seed has the base outline; the first cycle starts groundwork only (open questions, finance, legal), never a channel or code task (founder, 2026-10-18)", () => {
     for (const seed of ARCHETYPE_SEED_LIST) {
       for (const s of ["Problem", "Customers", "Value proposition", "Pricing", "Metrics", "Risks"]) expect(seed.specOutline, seed.archetype).toContain(s);
       const kinds = seed.firstCycleTasks.map((t) => t.kind);
       expect(kinds).toContain("research");
-      expect(kinds).toContain("channel");
       expect(kinds).toContain("finance");
       expect(kinds).toContain("legal");
+      // Distribution waits for a product to show; the Planner's first build waits for the founder's sign-off.
+      expect(kinds, seed.archetype).not.toContain("channel");
+      expect(kinds, seed.archetype).not.toContain("code");
+      expect(seed.firstCycleTasks[0]!.title).toBe("Answer the specification's open questions");
       expect(seed.firstCycleTasks.find((t) => t.kind === "finance")!.goal).toMatch(/Forecast/);
+      expect(seed.firstBuild.goal.length).toBeGreaterThan(20);
+      expect(seed.firstBuild.acceptance.length).toBeGreaterThan(0);
     }
+    // The channel-scoring task is created when the founder starts distribution; it names the Channel Board.
+    expect(CHANNEL_SCORING_TASK.kind).toBe("channel");
+    expect(CHANNEL_SCORING_TASK.goal).toContain("Channel Board");
+    for (const seed of ARCHETYPE_SEED_LIST) expect(getTemplate(CHANNEL_SCORING_TASK.assigneeTemplateKey).taskKinds, seed.archetype).toContain("channel");
   });
 
   it("the Board decision has 2-4 options with exactly one recommended and no option that moves money automatically", () => {
@@ -157,7 +166,8 @@ describe("archetype seeds (BUILD §11.1, AC-11.1.6)", () => {
       const d = seed.boardDecision;
       for (const text of [d.subject, d.bodyMd, ...d.options.flatMap((o) => [o.label, o.consequence])]) expect(text, seed.archetype).not.toMatch(FOOTBALL);
     }
-    expect(getArchetypeSeed("b2b_saas").firstCycleTasks.find((t) => t.kind === "channel")!.goal).toContain("Channel Board");
+    for (const text of [CHANNEL_SCORING_TASK.title, CHANNEL_SCORING_TASK.goal, ...CHANNEL_SCORING_TASK.acceptance]) expect(text).not.toMatch(FOOTBALL);
+    for (const seed of ARCHETYPE_SEED_LIST) for (const text of [seed.firstBuild.title, seed.firstBuild.goal, ...seed.firstBuild.acceptance]) expect(text, seed.archetype).not.toMatch(FOOTBALL);
   });
 
   it("templateKeysForArchetype starts with the Chief of Staff, hires the utilities and never repeats a key", () => {

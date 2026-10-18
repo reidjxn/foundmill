@@ -3,14 +3,15 @@
  *
  * In ONE service-role transaction: business + owner membership → idea stamped → departments from the archetype seed →
  * agents hired from templates (versions + baseline skills) → leads set → module screens → channels (all 15, starters
- * enabled) → spec outline blocks → the foundations row (pending; Door B also links its Import job: the report is
- * snapshotted and the chosen sources become `sources`, not read yet) → first-cycle tasks → the founder's Home dashboard →
- * the first Board decision in the Inbox → `idea.committed` through the outbox → audit. After commit the first
- * businessCycle is started on Temporal, and for Door B the `importBusiness` workflow that reads the sources through the
- * gateway (both reported as `{ queued, reason }`; the business is complete without them, and a source nothing will read
- * is marked not read), and so is the engine of every starter channel on the board (`ensureChannelEngines`; the
- * orchestrator's reconciler starts any Temporal could not take now). The vision, specification content and roadmap are
- * drafted on the first open (services/foundations.ts).
+ * enabled, their engines waiting) → spec outline blocks → the foundations row (pending; Door B also links its Import
+ * job: the report is snapshotted and the chosen sources become `sources`, not read yet) → the first cycle's groundwork
+ * tasks → the founder's Home dashboard → the Chief of Staff's welcome note in the Inbox → `idea.committed` through the
+ * outbox → audit. After commit the first businessCycle is started on Temporal, and for Door B the `importBusiness`
+ * workflow that reads the sources through the gateway (both reported as `{ queued, reason }`; the business is complete
+ * without them, and a source nothing will read is marked not read). The vision, specification content and roadmap are
+ * drafted on the first open (services/foundations.ts), and the founder is asked to sign them off; the channel engines,
+ * the channel-scoring task and the Board's question wait for the founder's Start distribution (founder, 2026-10-18;
+ * services/signoff.ts).
  *
  * One business per idea: the transaction claims the idea (`ideas.claimForCommit`, one conditional statement) before
  * anything is created, so a double click, a second tab or a retried request never builds a second business; it
@@ -29,8 +30,7 @@ import { hireMany, type PlannedHire } from "./squad";
 import { startAutopilotWorkflow } from "./autopilot";
 import type { TemporalService } from "./temporal";
 import { WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
-import { ensureChannelEngines } from "./engines";
-import { importJobIdOf, resolveImportLink, seedFoundations, type ImportLink } from "./foundations";
+import { importJobIdOf, resolveImportLink, seedFoundations, type ImportLink, type ScoutingReportLike } from "./foundations";
 import { queueImportReads } from "./import";
 import { seedConceptSources } from "./concept-sources";
 
@@ -57,12 +57,13 @@ export interface CommitIdeaResult {
   departmentIds: string[];
   agentIds: string[];
   chiefOfStaffId: string;
-  boardItem: InboxItem;
+  /** The Chief of Staff's welcome note: the team is drafting the foundations, two sign-off notes follow (non-blocking). */
+  firstItem: InboxItem;
   taskIds: string[];
   cycle: { queued: boolean; workflowId: string; reason?: string };
   /** Door B: the `importBusiness` workflow reading the imported sources through the gateway (null for Door A). */
   import: { queued: boolean; workflowId: string; reason?: string } | null;
-  /** The starter channels' engines (`engine:<channelId>`), one per channel on the board (audit GTM-01). */
+  /** Always empty since 2026-10-18: the starter channels' engines start with the founder's Start distribution. */
   engines: TemporalResult[];
   /** The Autopilot workflow start, when the founder chose to run on autopilot. */
   autopilot?: { queued: boolean; workflowId: string; reason?: string } | null;
@@ -74,6 +75,8 @@ export interface CommitIdeaResult {
 
 /** What the `idea.commit` audit row records beyond counts: enough to answer a second commit of the same idea. */
 interface CommitReceipt {
+  firstItemId?: string;
+  /** Receipts written before 2026-10-18 named the Board's decision; read as the first item. */
   boardItemId?: string;
   chiefOfStaffId?: string;
   taskIds?: string[];
@@ -84,34 +87,53 @@ interface CommitReceipt {
 const COMMIT_AUDIT_ACTION = "idea.commit";
 
 /**
- * What the Board's first item says about money. The first cycle starts the moment the founder takes charge, so the team
- * has already started on the basics (model calls included); the decision comes before any budget is committed.
+ * What the Board's item says about money. The first cycle starts the moment the founder takes charge, so the team has
+ * already started on the basics (model calls included); the decision comes before any budget is committed.
  */
 export const BOARD_FIRST_DECISION_LINE = "The team has started on the basics; the Board asks for one decision before committing any budget:";
 
 /**
- * Door B's Board item: the Import report's suggested first decisions (the Import screen promises they arrive as the
- * Board's first item). Door A keeps the archetype's decision; its vision arrives with the drafted foundations.
+ * Door B's Board item: the Import report's suggested first decisions (the Import screen promises they arrive as a
+ * Board item). Posted when the build starts (both sign-offs approved; services/signoff.ts `startBuilding`), from the
+ * report snapshotted on the foundations row.
  */
-export function importBoardDecision(name: string, link: ImportLink): { subject: string; bodyMd: string; options: { id: string; label: string; recommended: boolean; consequence: string; costMinor: number; reversible: boolean; actions?: OptionAction[] }[] } | null {
-  const report = link.report;
+export function importBoardDecisionFromReport(name: string, report: ScoutingReportLike | null, sourceCount: number): { subject: string; bodyMd: string; options: { id: string; label: string; recommended: boolean; consequence: string; costMinor: number; reversible: boolean; actions?: OptionAction[] }[] } | null {
   if (!report || report.firstDecisions.length < 2) return null;
   // Each option carries what choosing it runs, so the click never parses its words (audit IAE-20).
   const options = report.firstDecisions.slice(0, 4).map((d) => ({ id: d.id.slice(0, 40), label: d.label.slice(0, 120), recommended: d.recommended, consequence: d.consequence, costMinor: 0, reversible: d.reversible, ...(d.actions?.length ? { actions: d.actions } : {}) }));
   if (options.filter((o) => o.recommended).length !== 1) options.forEach((o, i) => (o.recommended = i === 0));
-  const sources = link.status.job.sources.length;
   return {
     subject: "Where should the team start with what you imported?",
     bodyMd: [
-      `**The Board** welcomes ${name}, imported from ${sources} source${sources === 1 ? "" : "s"}.`,
+      `**The Board** welcomes ${name}, imported from ${sourceCount} source${sourceCount === 1 ? "" : "s"}.`,
       "",
       report.summary,
       "",
-      // The first cycle starts at commit (BUILD §11.1), so the team is already at work on the basics: the decision gates
-      // the budget, not every model call.
-      `The vision, the specification and the roadmap are drafted from the import when you first open the business. ${BOARD_FIRST_DECISION_LINE} which of the import's first decisions comes first?`,
+      `The specification and the roadmap are signed off. ${BOARD_FIRST_DECISION_LINE} which of the import's first decisions comes first?`,
     ].join("\n"),
     options,
+  };
+}
+
+/** The same decision from a live Import link (tests and the Import screen's preview). */
+export function importBoardDecision(name: string, link: ImportLink): ReturnType<typeof importBoardDecisionFromReport> {
+  return importBoardDecisionFromReport(name, link.report, link.status.job.sources.length);
+}
+
+/**
+ * The Chief of Staff's welcome note at Take charge (non-blocking): the team is hired, the Product lead is drafting the
+ * foundations, two sign-off notes follow, and nothing is spent on distribution until the founder starts it.
+ */
+export function welcomeNote(input: { agents: number; departments: number; productLeadName: string | null; door: "ideation" | "import" }): { subject: string; bodyMd: string } {
+  const from = input.door === "import" ? "the Import report" : "your idea and your founder profile";
+  const who = input.productLeadName ?? "The Product lead";
+  return {
+    subject: "Your team is drafting the product foundations",
+    bodyMd: [
+      `The team is hired: ${input.agents} agents in ${input.departments} departments.`,
+      `${who} is drafting the vision, the specification and the roadmap from ${from}; you will get two notes asking you to sign off each. Building starts when both are approved.`,
+      "Nothing is spent on distribution until you start it from Distribution › Board.",
+    ].join("\n\n"),
   };
 }
 
@@ -295,17 +317,20 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     // Founder's Home dashboard: a department card for every department the archetype seeds (all visible).
     await repos.dashboards.create(tx, businessId, { userId, name: "Home", preset: "founder", layout: presetLayout("founder", { departments: seed.departments.length }), isActive: true });
 
-    // The Board's first decision (vision + first decisions), from the Chief of Staff.
-    const board = (importLink && importBoardDecision(business.name, importLink)) ?? seed.boardDecision;
-    const boardItem = await repos.inbox.createItem(tx, businessId, {
-      type: "decision",
+    // The Chief of Staff's welcome note (founder, 2026-10-18): the product comes first. The Board's question waits for
+    // Start distribution and Door B's import decisions for the build start (services/signoff.ts).
+    const productDept = seed.departments.find((d) => d.moduleKeys.includes("product"));
+    const productLeadId = productDept ? leadByDepartment.get(departmentIdBySlug.get(productDept.slug)!) : undefined;
+    const welcome = welcomeNote({ agents: agentIds.length, departments: seed.departments.length, productLeadName: hired.find((h) => h.agent.id === productLeadId)?.agent.name ?? null, door: importLink ? "import" : "ideation" });
+    const firstItem = await repos.inbox.createItem(tx, businessId, {
+      type: "update",
       from_agent_id: chief.agent.id,
-      subject: board.subject,
-      body_md: board.bodyMd,
+      subject: welcome.subject,
+      body_md: welcome.bodyMd,
       status_strip: [],
       exhibit: { kind: "none", spec_ref: null },
-      decision: { options: board.options.map((o) => ({ id: o.id, label: o.label, recommended: o.recommended, consequence: o.consequence, cost_minor: o.costMinor, reversible: o.reversible, ...(o.actions?.length ? { actions: o.actions } : {}) })), free_text: true, expires_at: null },
-      blocks_continue: true,
+      decision: null,
+      blocks_continue: false,
       source_event_ids: [],
       entity_ids: [],
     });
@@ -352,7 +377,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
         door: importLink ? "import" : "ideation",
         importSources: importSources.length,
         // The receipt a second commit of this idea answers with (committedIdeaResult).
-        boardItemId: boardItem.id,
+        firstItemId: firstItem.id,
         chiefOfStaffId: chief.agent.id,
         taskIds,
         importSourceIds: importSources.map((s) => s.id),
@@ -360,7 +385,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     });
 
     const foundations = { status: "pending" as const, door: importLink ? ("import" as const) : ("ideation" as const), importSourceIds: importSources.map((s) => s.id) };
-    return { business: { ...business, committedAt: new Date(), archetype: input.archetype }, departmentIds, agentIds, chiefOfStaffId: chief.agent.id, boardItem, taskIds, foundations };
+    return { business: { ...business, committedAt: new Date(), archetype: input.archetype }, departmentIds, agentIds, chiefOfStaffId: chief.agent.id, firstItem, taskIds, foundations };
   });
 
   if (!result) return committedIdeaResult(db, userId, input.ideaId);
@@ -370,16 +395,15 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   if (cycle.queued && !cycle.alreadyStarted) await repos.audit.append(db, result.business.id, { actorKind: "user", actorId: userId, action: QUEUE_ACTION, target: { kind: "cycle", id: cycle.workflowId }, details: { cycleNumber: 1, workflowId: cycle.workflowId, trigger: "continue" } });
   // Door B: the sign-up job read nothing; this is the import that reads the sources (or marks them not read).
   const imported = result.foundations.importSourceIds.length ? await queueImportReads({ db, temporal }, result.business.id, result.foundations.importSourceIds) : null;
-  // The starters are on the board, so their engines run from now on (each records its id on the channel).
-  const engines = await ensureChannelEngines({ db, temporal, businessId: result.business.id }, await repos.channels.list(db, result.business.id, { enabled: true }));
-  // Autopilot starts after the first cycle, which it waits for (and for the Board decision, which blocks Continue).
+  // The starters are on the board, but their engines wait for the founder's Start distribution (services/signoff.ts).
+  // Autopilot starts after the first cycle, which it waits for (and for the sign-off notes, which block Continue).
   const autopilot = input.autopilot ? await startAutopilotWorkflow({ businessId: result.business.id, temporal }) : null;
-  return { ...result, cycle, import: imported, engines, autopilot, alreadyCommitted: false };
+  return { ...result, cycle, import: imported, engines: [], autopilot, alreadyCommitted: false };
 }
 
 /**
  * The answer to Take charge on an idea that is already a business (a double click, a second tab, a retried request):
- * the business the first commit created, with its Board item, read back from that commit's audit row. Nothing is
+ * the business the first commit created, with its first note, read back from that commit's audit row. Nothing is
  * created and the first cycle is not started again. Refused like before when the founder no longer belongs to that
  * business or the commit predates the receipt.
  */
@@ -389,19 +413,20 @@ async function committedIdeaResult(db: Db, userId: string, ideaId: string): Prom
   const member = businessId ? await repos.memberships.get(db, businessId, userId) : null;
   const audit = member && businessId ? await repos.audit.list(db, businessId, { action: COMMIT_AUDIT_ACTION, limit: 1 }) : null;
   const receipt = (audit?.items[0]?.details ?? {}) as CommitReceipt;
-  if (!businessId || !receipt.boardItemId || !receipt.chiefOfStaffId) throw new ValidationError("Idea is already committed", { ideaId });
-  const [business, departments, agents, boardItem] = await Promise.all([
+  const firstItemId = receipt.firstItemId ?? receipt.boardItemId;
+  if (!businessId || !firstItemId || !receipt.chiefOfStaffId) throw new ValidationError("Idea is already committed", { ideaId });
+  const [business, departments, agents, firstItem] = await Promise.all([
     repos.businesses.get(db, businessId),
     repos.departments.list(db, businessId),
     repos.agents.list(db, businessId, { limit: 500 }),
-    repos.inbox.get(db, businessId, receipt.boardItemId),
+    repos.inbox.get(db, businessId, firstItemId),
   ]);
   return {
     business,
     departmentIds: departments.map((d) => d.id),
     agentIds: agents.items.map((a) => a.id),
     chiefOfStaffId: receipt.chiefOfStaffId,
-    boardItem,
+    firstItem,
     taskIds: receipt.taskIds ?? [],
     cycle: { queued: false, workflowId: workflowIds.cycle(businessId, 1), reason: "already committed: the first commit started this cycle" },
     import: null,

@@ -373,6 +373,10 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         const enabled = action.type === "enable_channel";
         const existing = await repos.channels.getByKey(db, businessId, p.channel);
         const channel = existing ? await repos.channels.setEnabled(db, businessId, existing.id, enabled) : await repos.channels.upsert(db, businessId, { channelKey: p.channel, line: CHANNEL_META[p.channel].line, enabled, kitMode: CHANNEL_META[p.channel].kitModeByDefault, ownerAgentId: action.agentId });
+        // Before the founder has started distribution (0062) the channel keeps its place on the board; its engine starts
+        // with Start distribution and nothing is recorded now.
+        const waiting = enabled && !(await repos.businesses.distributionStarted(db, businessId));
+        if (waiting) return { result: { channelId: channel.id, enabled, deferred: "distribution has not started; the engine starts with it" }, spawn: [] };
         // The engine's id is recorded with the channel so Stop all agents (and the Distribution toggle) can reach it;
         // while the team is stopped no engine starts, and the recorded id is what makes resuming the agents start it.
         const stopped = enabled && (await repos.businesses.agentsStopped(db, businessId));

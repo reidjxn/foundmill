@@ -61,6 +61,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("roadmap_dependencies", s.roadmapDependencies, "member", (f) => ({ fromItem: f.roadmapItemId, toItem: take(f.roadmapItemIds, "roadmap_dependencies") })),
   spec("proposal_hunks", s.proposalHunks, "member", (f) => ({ proposalId: f.proposalId, specBlockId: f.specBlockId, position: counter() })),
   spec("sources", s.sources, "member", () => ({ kind: "doc", title: uniq("source"), uri: "https://example.test/doc" })),
+  // 0062 product sign-offs (one round per kind; the api decides as the user, services open rounds)
+  spec("product_signoffs", s.productSignoffs, "member", () => ({ kind: "spec", round: 100 + counter() })),
   // 0004 agents, departments, tasks
   spec("agents", s.agents, "member", () => ({ name: uniq("agent"), agentType: "engineer" })),
   spec("agent_versions", s.agentVersions, "member", (f) => ({ agentId: f.agentId, version: 100 + counter() })),

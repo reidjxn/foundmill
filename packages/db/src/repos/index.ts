@@ -33,6 +33,7 @@ import { plansRepo } from "./plans";
 import { playbooksRepo } from "./playbooks";
 import { policiesRepo } from "./policies";
 import { productRepo } from "./product";
+import { productSignoffsRepo } from "./product-signoffs";
 import { recordingsRepo } from "./recordings";
 import { screensRepo } from "./screens";
 import { skillsRepo } from "./skills";
@@ -53,6 +54,7 @@ export const repos = {
   founders: foundersRepo,
   ideas: ideasRepo,
   product: productRepo,
+  productSignoffs: productSignoffsRepo,
   departments: departmentsRepo,
   screens: screensRepo,
   dashboards: dashboardsRepo,
@@ -122,6 +124,7 @@ export * from "./plans";
 export * from "./playbooks";
 export * from "./policies";
 export * from "./product";
+export * from "./product-signoffs";
 export * from "./recordings";
 export * from "./screens";
 export * from "./skills";

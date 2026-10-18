@@ -211,6 +211,14 @@ export function freeTextAllowed(decision: unknown): boolean {
   return v !== false;
 }
 
+/**
+ * A sign-off's Request changes needs the founder's words (they become the Product lead's revision task; founder
+ * 2026-10-18): true when that option is pressed with empty notes, so the pane asks for them instead of sending.
+ */
+export function signoffNeedsNotes(optionId: string, notes: string): boolean {
+  return optionId === "request_changes" && notes.trim().length === 0;
+}
+
 /** "Expires in 5 days", "Expires today", "Expires tomorrow": the deadline under "Your call"; null without one or once expired. */
 export function decisionDeadline(decision: unknown, now = new Date()): string | null {
   const v = (decision as { expires_at?: unknown } | null | undefined)?.expires_at;

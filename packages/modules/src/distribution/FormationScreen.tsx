@@ -6,14 +6,15 @@
  * channel profile drawer (agents, budget, rules, results, pause).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw, Sparkles } from "lucide-react";
-import { Button, Chip, FormationBoard, GridCell, Panel, ProvenanceChip, formatMoney } from "@foundmill/dugout";
+import { Play, RefreshCw, Sparkles } from "lucide-react";
+import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, FormationBoard, GridCell, Panel, ProvenanceChip, formatMoney } from "@foundmill/dugout";
 import type { ChannelKey } from "@foundmill/shared";
 import { CHANNEL_WINDOW_DAYS } from "@foundmill/shared/constants";
 import { addDays } from "@foundmill/widgets/shared/time";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
+import { useBusinessStage } from "../stage";
 import { ChannelProfileDrawer } from "./ChannelProfileDrawer";
 import { buildChannelViews, channelStatus, resumeStatus, toChannelToken, totalBudget, type ChannelView } from "./channel-data";
 import { InlineError, Screen, searchParam, useAction } from "./shared";
@@ -43,6 +44,20 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   const [overrides, setOverrides] = useState<Partial<Record<ChannelKey, boolean>>>({});
   const [selected, setSelected] = useState<ChannelKey | null>(() => searchParam("channel") as ChannelKey | null);
   const [rescoring, setRescoring] = useState(false);
+  // Distribution waits for the founder's explicit start (founder, 2026-10-18): the Board keeps every channel in its place,
+  // the engines start with Start distribution (owners and admins).
+  const stage = useBusinessStage();
+  const [startOpen, setStartOpen] = useState(false);
+  const startDistribution = useCallback(async () => {
+    await action.run("business.startDistribution", {}, {
+      key: "start-distribution",
+      then: () => {
+        setStartOpen(false);
+        stage.refetch();
+        channels.refetch();
+      },
+    });
+  }, [action, stage, channels]);
   // Opened from another screen (a Channels row): the location is only the new one once this screen has mounted.
   useEffect(() => {
     const key = searchParam("channel");
@@ -52,7 +67,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   useBusinessEvents(() => {
     channels.refetch();
     campaigns.refetch();
-  }, ["campaign.launched", "channel.threshold_breached"]);
+  }, ["campaign.launched", "channel.threshold_breached", "distribution.started"]);
 
   // Fresh data from the API supersedes the optimistic toggles.
   useEffect(() => {
@@ -73,8 +88,10 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   const selectedToken = selected ? (tokens.find((t) => t.key === selected) ?? null) : null;
   const scored = views.filter((v) => v.scored).length;
   const starters = views.filter((v) => v.enabled).length;
-  // On the board but no engine recorded yet: said so, never counted as running (audit GTM-01).
-  const starting = views.filter((v) => channelStatus(v).word === "Starting").length;
+  // On the board but no engine recorded yet: said so, never counted as running (audit GTM-01); before Start distribution
+  // every channel on the board waits for the product.
+  const waiting = stage.distributionStarted === false;
+  const starting = views.filter((v) => channelStatus(v, { distributionStarted: stage.distributionStarted }).word === "Starting").length;
 
   const rescore = useCallback(async () => {
     setRescoring(true);
@@ -128,10 +145,46 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   const hasData = !!channels.data;
   return (
     <Screen name="distribution/formation">
+      {waiting ? (
+        <Panel
+          span={12}
+          title="Distribution starts when the product is ready to show"
+          glow="brand"
+          data-testid="distribution-waiting"
+          data-product-stage={stage.stage ?? undefined}
+          actions={
+            <Button size="sm" variant="primary" icon={Play} onClick={() => setStartOpen(true)} disabled={!stage.canStartDistribution} title={stage.canStartDistribution ? undefined : "Owners and admins start distribution"} data-testid="start-distribution">
+              Start distribution
+            </Button>
+          }
+        >
+          <p className="text-body text-secondary">
+            The channels on the board keep their place; their engines start when you start distribution.{" "}
+            {stage.stage === "building" ? "The team is building the first roadmap items now." : stage.stage === "awaiting_signoff" || stage.stage === "drafting" ? "Sign off the specification and the roadmap first." : ""}
+          </p>
+          <Dialog open={startOpen} onOpenChange={setStartOpen}>
+            <DialogContent size="sm">
+              <DialogHeader>
+                <DialogTitle>Start distribution?</DialogTitle>
+                <DialogDescription>The channels on the board start their engines: they draft creative, ask you before anything launches in Assisted mode, and spend within their budgets. The Board will ask which route to the first customer comes first.</DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <InlineError error={action.error} />
+                <Button variant="ghost" onClick={() => setStartOpen(false)}>
+                  Not yet
+                </Button>
+                <Button variant="primary" icon={Play} onClick={() => void startDistribution()} loading={action.pending === "start-distribution"} data-testid="start-distribution-confirm">
+                  Start distribution
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </Panel>
+      ) : null}
       <GridCell span={12} className="flex gap-gutter">
         <Panel
           title="Board"
-          meta={hasData ? (starting ? `${starters - starting} of 15 running · ${starting} starting` : `${starters} of 15 running`) : undefined}
+          meta={hasData ? (waiting ? `${starters} of 15 on the board · waiting for the product` : starting ? `${starters - starting} of 15 running · ${starting} starting` : `${starters} of 15 running`) : undefined}
           loading={channels.isLoading}
           error={channels.error ? channels.error.message : undefined}
           onRetry={channels.refetch}

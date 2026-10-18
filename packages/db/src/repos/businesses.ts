@@ -218,6 +218,7 @@ export const businessesRepo = {
       autopilotPausedReason: null,
       autopilotChangedAt: null,
       autopilotNextAt: null,
+      distributionStartedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
       archivedAt: null,
@@ -315,6 +316,27 @@ export const businessesRepo = {
   async setModelBudget(db: Executor, businessId: string, modelBudgetMinor: number | null): Promise<Business> {
     const budget = parseInput(MinorAmount.nonnegative().nullable(), modelBudgetMinor, "model budget");
     return one(await db.update(businesses).set({ modelBudgetMinor: budget }).where(and(eq(businesses.id, businessId), notArchived)).returning(), "business", businessId);
+  },
+
+  /**
+   * The founder started distribution (0062; Distribution › Board › Start distribution, or the Ready to start selling?
+   * note): sets `distribution_started_at` once. Idempotent: a second start changes nothing (`changed: false`).
+   */
+  async startDistribution(db: Executor, businessId: string, input: { at?: Date } = {}): Promise<{ changed: boolean; business: Business }> {
+    const v = parseInput(z.object({ at: z.date().optional() }), input, "distribution start");
+    const rows = await db
+      .update(businesses)
+      .set({ distributionStartedAt: v.at ?? new Date() })
+      .where(and(eq(businesses.id, businessId), notArchived, isNull(businesses.distributionStartedAt)))
+      .returning();
+    if (rows[0]) return { changed: true, business: rows[0] };
+    return { changed: false, business: await businessesRepo.get(db, businessId) };
+  },
+
+  /** Whether distribution has started (0062): no channel engine starts before it. */
+  async distributionStarted(db: Executor, businessId: string): Promise<boolean> {
+    const rows = await db.select({ at: businesses.distributionStartedAt }).from(businesses).where(eq(businesses.id, businessId)).limit(1);
+    return one(rows, "business", businessId).at !== null;
   },
 
   /** Marks the idea committed (BUILD §11.1): sets archetype and committed_at. */

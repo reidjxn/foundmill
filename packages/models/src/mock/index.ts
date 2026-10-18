@@ -334,7 +334,7 @@ export { generateInboxComposer } from "./inboxComposer";
 export { generateIdeation, generateConceptCard, generateIdeationRoute, type MockCardSpec } from "./ideation";
 export { generateLogoDesigner, MOCK_LOGO_DIRECTION_FAMILIES, MOCK_LOGO_FAMILIES } from "./logoDesigner";
 export { generateFoundations } from "./foundations";
-export { generateChiefOfStaff, readTasks, scoreTask } from "./chiefOfStaff";
+export { CHANNEL_WAITS_REASON, generateChiefOfStaff, readTasks, scoreTask } from "./chiefOfStaff";
 export { generateDepartmentLead } from "./departmentLead";
 export { generatePlanner } from "./planner";
 export { generateCodeReview, parseDiff } from "./codeReview";

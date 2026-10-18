@@ -23,6 +23,10 @@ export interface FoundationsStatusProps extends Omit<HTMLAttributes<HTMLElement>
   /** Ready: the way in (e.g. the Vision tab). */
   onOpen?: () => void;
   openLabel?: string;
+  /** Ready: the status line, when the default ("Your vision, specification and roadmap are drafted.") is not the whole story. */
+  readyLine?: ReactNode;
+  /** Ready: a second way in beside `onOpen` (e.g. the Inbox, where the sign-off notes wait). */
+  secondaryAction?: { label: string; onClick: () => void };
   /** Columns on a PageGrid. */
   span?: GridSpan;
   /** Panel title. */
@@ -43,6 +47,7 @@ const PARTS: { label: string; icon: IconComponent }[] = [
 ];
 
 export const DRAFTING_LINE = "Drafting your vision, specification and roadmap…";
+export const READY_LINE = "Your vision, specification and roadmap are drafted.";
 
 /**
  * The state of a new business's foundations (BUILD §11.1 first open, §11.5): drafting with an indeterminate ring and the
@@ -50,7 +55,7 @@ export const DRAFTING_LINE = "Drafting your vision, specification and roadmap…
  * the body is a polite live region so the change to ready or failed is announced once.
  */
 export const FoundationsStatus = forwardRef<HTMLElement, FoundationsStatusProps>(function FoundationsStatus(
-  { state, basis, summary, error, onRetry, retrying, onOpen, openLabel = "Open the vision", span, heading = "Vision, specification and roadmap", className, ...rest },
+  { state, basis, summary, error, onRetry, retrying, onOpen, openLabel = "Open the vision", readyLine, secondaryAction, span, heading = "Vision, specification and roadmap", className, ...rest },
   ref,
 ) {
   const pill = PILL[state];
@@ -75,7 +80,7 @@ export const FoundationsStatus = forwardRef<HTMLElement, FoundationsStatusProps>
           {drafting ? <ProgressRing indeterminate size={20} strokeWidth={2} tone="kit" label="Drafting" /> : <Icon icon={state === "ready" ? CircleCheck : CircleX} size={20} className={state === "ready" ? "text-status-good" : "text-status-bad"} />}
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <p className="text-body-strong text-primary">{drafting ? DRAFTING_LINE : state === "ready" ? "Your vision, specification and roadmap are drafted." : "The drafting did not finish."}</p>
+          <p className="text-body-strong text-primary">{drafting ? DRAFTING_LINE : state === "ready" ? (readyLine ?? READY_LINE) : "The drafting did not finish."}</p>
           {drafting && basis ? <p className="text-small text-secondary">{basis}</p> : null}
           {state === "ready" && summary ? <p className="text-small text-secondary tabular-nums">{summary}</p> : null}
           {state === "failed" && error ? <p className="text-small text-status-bad">{error}</p> : null}
@@ -93,11 +98,18 @@ export const FoundationsStatus = forwardRef<HTMLElement, FoundationsStatusProps>
               <p className="text-small text-secondary">You can keep working. This updates by itself when they are ready.</p>
             </>
           ) : null}
-          {state === "ready" && onOpen ? (
-            <div>
-              <Button size="sm" variant="default" iconRight={ArrowRight} onClick={onOpen} data-foundations-open>
-                {openLabel}
-              </Button>
+          {state === "ready" && (onOpen || secondaryAction) ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {onOpen ? (
+                <Button size="sm" variant="default" iconRight={ArrowRight} onClick={onOpen} data-foundations-open>
+                  {openLabel}
+                </Button>
+              ) : null}
+              {secondaryAction ? (
+                <Button size="sm" variant="ghost" iconRight={ArrowRight} onClick={secondaryAction.onClick} data-foundations-secondary>
+                  {secondaryAction.label}
+                </Button>
+              ) : null}
             </div>
           ) : null}
           {state === "failed" && onRetry ? (

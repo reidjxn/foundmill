@@ -5,6 +5,7 @@
  */
 import { repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { runFoundationsLocally } from "../services/foundations";
 import { SPEND_ALLOWANCE_ASK } from "../services/plans";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
@@ -23,7 +24,16 @@ describe("a typed spend in a freshly committed business", () => {
       const idea = (await caller.idea.generate({ prompt: "tools for climate operators" })).ideas[0]!;
       const { business } = await caller.idea.commit({ ideaId: idea.id, name: `Typed Spend ${archetype}`, archetype, gameMode: "personal", kit: { primary: "#1B4FD8", secondary: "#F5C400" } });
 
-      const board = (await repos.inbox.list(hz.db, business.id, { tab: "respond", limit: 20 })).items.find((i) => i.type === "decision")!;
+      // The first days are about the product (founder, 2026-10-18): the Board's question is posted once the founder
+      // has signed off the specification and the roadmap and started distribution.
+      const claimed = await repos.foundations.claim(hz.db, business.id, ["pending"]);
+      await runFoundationsLocally({ db: hz.db, models: hz.deps.models, temporal: hz.deps.temporal, log: hz.deps.log }, business.id, claimed!.attempt);
+      await caller.product.signoff.decide({ businessId: business.id, kind: "spec", decision: "approve" });
+      await caller.product.signoff.decide({ businessId: business.id, kind: "roadmap", decision: "approve" });
+      const started = await caller.business.startDistribution({ businessId: business.id });
+      expect(started.boardItemId).toBeTruthy();
+      const board = await repos.inbox.get(hz.db, business.id, started.boardItemId!);
+      expect(board.type).toBe("decision");
       const reply = await caller.agent.conversation.inboxReply({ businessId: business.id, itemId: board.id, text: "Spend up to $500 on LinkedIn ads targeting fintech CFOs next week" });
       expect(reply.route).toBe("decision");
       if (reply.route !== "decision") return;

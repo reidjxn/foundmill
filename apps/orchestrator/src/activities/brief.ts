@@ -3,8 +3,8 @@
  * Facts come from the repositories; nothing is invented and every non-real number carries its label.
  */
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { concurrencyAllowance, creditsState, modelBudgetState, periodOf, repos } from "@foundmill/db";
-import type { TaskStatus } from "@foundmill/shared";
+import { concurrencyAllowance, creditsState, loadProductStage, modelBudgetState, periodOf, repos } from "@foundmill/db";
+import type { ProductStage, TaskStatus } from "@foundmill/shared";
 import { detectSectors, openSectorGates } from "@foundmill/shared/sectors";
 import type { OrchestratorDeps } from "../deps";
 import { failureStreak, taskRetry } from "../retry";
@@ -24,6 +24,14 @@ const BRIEF_TOKEN_BUDGET = 4_000;
 const CHARS_PER_TOKEN = 4;
 
 export const approxTokens = (text: string): number => Math.ceil(text.length / CHARS_PER_TOKEN);
+
+/** What each product stage means for the plan (the brief's "## Product stage" section). */
+export const PRODUCT_STAGE_SENTENCES: Record<ProductStage, string> = {
+  drafting: "the specification and roadmap are being drafted; plan only groundwork",
+  awaiting_signoff: "the founder has not signed off the specification and roadmap; plan research, finance, legal and specialist groundwork only",
+  building: "the product is being built; no distribution work until the founder starts distribution",
+  selling: "distribution has started",
+};
 
 function formatMinor(amountMinor: number, currency: string): string {
   return `${(amountMinor / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
@@ -55,7 +63,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
       // that went over its cap while it worked is paused (with its note) before the planner sees the team.
       await recoverAgents(deps, businessId);
       await enforceWageCaps(deps, businessId);
-      const [business, departmentsRaw, agentsPage, candidates, inFlight, pendingApprovals, blockingInboxItems, holiday, chief, wages, roadmap] = await Promise.all([
+      const [business, departmentsRaw, agentsPage, candidates, inFlight, pendingApprovals, blockingInboxItems, holiday, chief, wages, roadmap, product] = await Promise.all([
         repos.businesses.get(db, businessId),
         repos.departments.list(db, businessId),
         repos.agents.list(db, businessId, { limit: 200 }),
@@ -67,6 +75,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
         repos.agents.chiefOfStaff(db, businessId),
         repos.usage.wages(db, businessId, periodOf(now)),
         repos.product.untaskedRoadmap(db, businessId, 20),
+        loadProductStage(db, businessId),
       ]);
       const retriedIds = candidates.items.filter((t) => t.status === "failed" || t.status === "blocked").map((t) => t.id);
       const recent = await repos.agents.recentOutcomes(db, businessId, { taskIds: retriedIds, limit: 20 * retriedIds.length });
@@ -141,6 +150,8 @@ export function createBriefActivities(deps: OrchestratorDeps) {
       sections.push(`## Open tasks (${candidates.total})\n${fit(taskLines, 1400).join("\n") || "- none"}`);
       if (inFlight.items.length) sections.push(`## In flight (${inFlight.items.length}${inFlight.nextCursor ? "+" : ""})\n${fit(inFlight.items.map((t) => `- [${t.status}] ${t.title} (${t.kind}, id ${t.id})`), 300).join("\n")}`);
       if (untaskedRoadmap.length) sections.push(`## Roadmap without tasks (${untaskedRoadmap.length})\n${fit(untaskedRoadmap.map((r) => `- [${r.horizon}] ${r.title} (roadmap item ${r.id}): needs a task graph (Development › Plan) before anyone can start it`), 300).join("\n")}`);
+      // The first days (founder, 2026-10-18): the product comes first, distribution when the founder starts it.
+      sections.push(`## Product stage\n${product.stage}: ${PRODUCT_STAGE_SENTENCES[product.stage]}`);
       sections.push(`## Governance\n${agentsStopped ? "The team is stopped (Stop all agents, a revoked key or used-up credits): no work starts until an owner or admin resumes it. " : ""}Approvals waiting: ${pendingApprovals}. Inbox items blocking Continue: ${blockingInboxItems}. Concurrency limit: ${maxAgents} agents (plan ${business.planTier}: ${concurrency.limit} at once, ${concurrency.running} already running). Model budget remaining this period: ${budgetRemainingMinor === null ? "the founder's own Anthropic key (no credits)" : formatMinor(budgetRemainingMinor, CREDITS_CURRENCY) + " of credits (Estimate)"}. Rate-limit capacity: ${capacity}.`);
       if (openGates.length) {
         sections.push(`## Regulated areas (gates open)\nThe founder has not cleared these sector gates. Do not do any of the following; propose it to the founder as a decision instead, with what you would do and why:\n${openGates.map((g) => `- ${g.label}: ${g.blocked.join("; ")}`).join("\n")}`);
@@ -171,6 +182,8 @@ export function createBriefActivities(deps: OrchestratorDeps) {
         creditsCurrency: CREDITS_CURRENCY,
         maxAgents,
         capacity,
+        productStage: product.stage,
+        distributionStarted: product.facts.distributionStartedAt !== null,
         text,
         approxTokens: approxTokens(text),
         builtAt: now.toISOString(),

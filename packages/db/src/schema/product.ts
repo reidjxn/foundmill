@@ -1,5 +1,5 @@
-/** 0003 — product: spec blocks, versions, change proposals, roadmap, sources. */
-import { HUNK_DECISIONS, PROPOSAL_STATUSES, ROADMAP_HORIZONS, SEVERITIES, SOURCE_KINDS } from "@foundmill/shared";
+/** 0003 — product: spec blocks, versions, change proposals, roadmap, sources; 0062 — product sign-offs. */
+import { HUNK_DECISIONS, PROPOSAL_STATUSES, ROADMAP_HORIZONS, SEVERITIES, SIGNOFF_KINDS, SIGNOFF_STATUSES, SOURCE_KINDS } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { boolean, date, index, integer, jsonb, pgTable, text, uniqueIndex, uuid, vector, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
@@ -159,4 +159,41 @@ export const sources = pgTable(
 );
 export type Source = typeof sources.$inferSelect;
 export type NewSource = typeof sources.$inferInsert;
+
+/**
+ * 0062 — the founder's sign-offs of the product (founder, 2026-10-18): one row per round of the specification, the
+ * roadmap, or the step that starts distribution, tied to the Inbox decision note that asks for it. Pending → approved,
+ * changes_requested (the founder's notes become a revision task) or declined ("Not yet" on Ready to start selling).
+ */
+export const productSignoffs = pgTable(
+  "product_signoffs",
+  {
+    id: id(),
+    businessId: businessId(),
+    kind: text("kind", { enum: SIGNOFF_KINDS }).notNull(),
+    round: integer("round").notNull().default(1),
+    status: text("status", { enum: SIGNOFF_STATUSES }).notNull().default("pending"),
+    inboxItemId: uuid("inbox_item_id").references((): AnyPgColumn => inboxItems.id, { onDelete: "set null" }),
+    /** The specification version an approval of the spec published. */
+    specVersionId: uuid("spec_version_id").references((): AnyPgColumn => specVersions.id, { onDelete: "set null" }),
+    /** roadmap: `{ items: [{ id, title, horizon, position }] }`; ready_to_sell: `{ roadmapItemId, title }`. */
+    snapshot: jsonb("snapshot").$type<Record<string, unknown>>(),
+    /** The founder's words with the decision (what to change, or notes with an approval), at most 2,000 characters. */
+    notes: text("notes"),
+    decidedBy: uuid("decided_by").references(() => authUsers.id, { onDelete: "set null" }),
+    decidedByKind: text("decided_by_kind", { enum: ["user", "system"] }),
+    decidedAt: tstz("decided_at"),
+    requestedAt: tstz("requested_at").notNull().defaultNow(),
+    ...timestamps(),
+  },
+  (t) => [
+    uniqueIndex("product_signoffs_business_id_kind_round_key").on(t.businessId, t.kind, t.round),
+    index("product_signoffs_business_idx").on(t.businessId, t.kind, t.round),
+    index("product_signoffs_item_idx").on(t.inboxItemId),
+    index("product_signoffs_spec_version_idx").on(t.specVersionId),
+    index("product_signoffs_decided_by_idx").on(t.decidedBy),
+  ],
+);
+export type ProductSignoff = typeof productSignoffs.$inferSelect;
+export type NewProductSignoff = typeof productSignoffs.$inferInsert;
 

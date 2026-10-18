@@ -111,6 +111,12 @@ export const businesses = pgTable(
     autopilotPausedReason: text("autopilot_paused_reason", { enum: AUTOPILOT_PAUSE_REASONS }),
     autopilotChangedAt: tstz("autopilot_changed_at"),
     autopilotNextAt: tstz("autopilot_next_at"),
+    /**
+     * 0062 — when the founder started distribution (Distribution › Board › Start distribution, or the "Ready to start
+     * selling?" note). Null until then: no channel engine starts, the cycle planner defers channel tasks and the Board
+     * reads "Waiting for the product". Businesses committed before sign-offs existed carry their commit time.
+     */
+    distributionStartedAt: tstz("distribution_started_at"),
     ...timestampsWithArchive(),
   },
   (t) => [

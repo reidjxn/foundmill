@@ -1,0 +1,30 @@
+/**
+ * The product stage of a business (founder, 2026-10-18), as `business.get` reports it: drafting → awaiting the
+ * founder's sign-off → building → selling. Read by the Development and Distribution screens through the shell's
+ * cached `business.get` query (`useWidgetQuery`), never computed here.
+ */
+import type { ProductStage } from "@foundmill/shared";
+import { useWidgetQuery } from "@foundmill/widgets/data";
+
+export interface BusinessStageResponse {
+  role?: string;
+  productStage?: ProductStage;
+  distributionStartedAt?: string | Date | null;
+  business?: { id: string; name: string };
+}
+
+const BUSINESS_INPUT: Record<string, unknown> = {};
+
+/** The stage, the role and whether distribution has started, from the shell's `business.get`. */
+export function useBusinessStage() {
+  const q = useWidgetQuery<BusinessStageResponse>("business.get", BUSINESS_INPUT);
+  const data = q.data;
+  return {
+    ...q,
+    stage: data?.productStage ?? null,
+    role: data?.role ?? null,
+    distributionStarted: data ? data.distributionStartedAt !== null && data.distributionStartedAt !== undefined : null,
+    /** Owners and admins start distribution (the api refuses anyone else). */
+    canStartDistribution: data?.role === "owner" || data?.role === "admin",
+  };
+}

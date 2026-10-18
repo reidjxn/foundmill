@@ -495,6 +495,25 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     subject: "Review the pricing page copy",
     body: "The draft is on the task; check the claims against the spec before Friday.",
   },
+  "product.signoff_decided": {
+    signoffId: fixtureId("signoff"),
+    kind: "spec",
+    round: 1,
+    decision: "approved",
+    decidedBy: { kind: "user", id: FIXTURE_USER_ID },
+    notes: null,
+    specVersionId: fixtureId("spec-v1"),
+    buildStarted: false,
+    plannedTaskIds: [],
+    cycle: null,
+  },
+  "distribution.started": {
+    startedBy: { kind: "user", id: FIXTURE_USER_ID },
+    via: "board",
+    channelIds: [fixtureId("channel")],
+    boardItemId: fixtureId("board-item"),
+    engines: 1,
+  },
 };
 
 /** A valid `WriteEventInput` for the given type, with the fixture payload and envelope. */

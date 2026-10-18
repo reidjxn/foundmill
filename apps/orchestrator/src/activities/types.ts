@@ -5,7 +5,7 @@
 import type { SessionCommand } from "../control-bus";
 import type { ProgressState } from "../progress";
 import type { FoundationsDraft } from "@foundmill/agents";
-import type { AgentStatus, BusinessMode, ModelKey, PlanActionType, PolicyOutcome, TaskKind, TaskStatus } from "@foundmill/shared";
+import type { AgentStatus, BusinessMode, ModelKey, PlanActionType, PolicyOutcome, TaskKind, TaskStatus, ProductStage } from "@foundmill/shared";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Brief and cycle planning
@@ -101,6 +101,13 @@ export interface BusinessBrief {
   maxAgents: number;
   /** Rate-limit capacity summary for the planner prompt. */
   capacity: string;
+  /**
+   * Where the business stands in its first days (founder, 2026-10-18; `productStageOf`): before `selling` no channel
+   * task is planned; before the sign-offs only groundwork. Absent in briefs built before the stage existed (read as selling).
+   */
+  productStage?: ProductStage;
+  /** `businesses.distribution_started_at` is set: the channel engines may run. */
+  distributionStarted?: boolean;
   /** The ~4k-token prose brief given to every agent (prompt-cached). */
   text: string;
   /** Approximate token count of `text` (4 chars ≈ 1 token). */
