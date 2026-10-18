@@ -263,11 +263,12 @@ describe("seedDemo on PGlite", () => {
   }, 600_000); // the role-filtered CRM page scans every seeded customer on PGlite (slow, not wrong)
 
   it("gives Ledgerly its LIVE extras: holiday, GitHub repo, Stripe payments, cap table with two SAFEs, community, leaderboard, training", async () => {
-    const holiday = await repos.holidays.current(db, LEDGERLY_BUSINESS_ID);
+    // The vacation runs eleven days past the seed's own today, so "current" is read as of that day, not the real clock.
+    const holiday = await repos.holidays.current(db, LEDGERLY_BUSINESS_ID, TODAY);
     expect(holiday).not.toBeNull();
     expect(holiday!.untilAt!.getTime()).toBeGreaterThan(TODAY.getTime());
     expect(holiday!.reportInboxItemId).toBeTruthy();
-    expect(await repos.holidays.current(db, NORTHWIND_BUSINESS_ID)).toBeNull();
+    expect(await repos.holidays.current(db, NORTHWIND_BUSINESS_ID, TODAY)).toBeNull();
     const github = await repos.integrations.getByKey(db, LEDGERLY_BUSINESS_ID, "github");
     expect((github?.settings as { repo?: string }).repo).toBe("foundmill-demo/ledgerly");
     const stripeEvents = await repos.events.list(db, LEDGERLY_BUSINESS_ID, { type: "payment.received" });
