@@ -129,6 +129,11 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   // items appear on Home and the Product tabs as they land. Only the foundations query: the tabs reload their own data
   // when the drafting turns ready.
   "foundations.progressed": ["product.foundations"],
+  // The founder signed off the specification or the roadmap (or declined to start selling): the Product tabs' pills, the
+  // business's stage, the Inbox and Development › Plan (the first build) follow.
+  "product.signoff_decided": ["business", "product.signoff", "inbox", "dev"],
+  // Distribution started: the Board and the Channels table drop "Waiting for the product"; the Board question is in the Inbox.
+  "distribution.started": ["business", "distribution", "inbox"],
   // Someone's role or section permissions changed (maybe this reader's): the business carries the reader's own role
   // and walls, the Team the staff list. apps/stream has already re-checked the reader's open channels.
   "membership.changed": ["business", "team"],

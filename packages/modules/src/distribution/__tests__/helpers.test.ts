@@ -17,6 +17,8 @@ import {
   toChannelToken,
   totalBudget,
   weeklyForm,
+  CHANNEL_STATUS_WORDS,
+  statusHint,
 } from "../channel-data";
 import { groupAssets } from "../CreativeScreen";
 import { AGENT, CHANNEL, TODAY, agents, assets, campaigns, channels, channelsList, leads, metrics, recommendResponse } from "./fixtures";
@@ -155,6 +157,14 @@ describe("tokens and status", () => {
     // On the board without an engine is never "Running" (audit GTM-01); with one recorded it is.
     expect(channelStatus({ enabled: true, paused: false, persisted: true, scored: true, engineWorkflowId: null })).toEqual({ tone: "warn", word: "Starting" });
     expect(channelStatus({ enabled: true, paused: false, persisted: true, scored: true, engineWorkflowId: "engine:x" })).toEqual({ tone: "good", word: "Running" });
+    // Before the founder has started distribution (founder, 2026-10-18) a channel on the board waits, engine or not; off the board reads as before.
+    expect(channelStatus({ enabled: true, paused: false, persisted: true, scored: true, engineWorkflowId: null }, { distributionStarted: false })).toEqual({ tone: "neutral", word: "Waiting for the product" });
+    expect(channelStatus({ enabled: true, paused: false, persisted: true, scored: true, engineWorkflowId: "engine:x" }, { distributionStarted: false })).toEqual({ tone: "neutral", word: "Waiting for the product" });
+    expect(channelStatus({ enabled: true, paused: true, persisted: true, scored: true }, { distributionStarted: false })).toEqual({ tone: "warn", word: "Paused" });
+    expect(channelStatus({ enabled: false, paused: false, persisted: true, scored: true }, { distributionStarted: false })).toEqual({ tone: "neutral", word: "Off the board" });
+    expect(channelStatus({ enabled: true, paused: false, persisted: true, scored: true, engineWorkflowId: "engine:x" }, { distributionStarted: true })).toEqual({ tone: "good", word: "Running" });
+    expect(statusHint("Waiting for the product")).toMatch(/Start distribution/);
+    expect(CHANNEL_STATUS_WORDS).toContain("Waiting for the product");
   });
 });
 

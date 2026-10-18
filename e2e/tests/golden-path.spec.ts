@@ -3,9 +3,11 @@ import { expect, test, type Page } from "@playwright/test";
 /**
  * The golden path (BUILD §17.1, Gate 1) in mock mode against the PGlite-backed local stack (e2e/playwright.config.ts,
  * apps/web/e2e/README.md): sign in through the dev bypass as the seed owner → founder profile → Ideation Studio →
- * shortlist and compare → Commit ("Take charge") → the Board decision in the Inbox → Continue → decisions by button and
- * by free text (with the "Here is what will happen" confirmation) → Home → the seeded Customer Update → Product
- * Changes → CRM search → NeedsLargerWindow. Test names carry the acceptance-criteria ids they cover.
+ * shortlist and compare → Commit ("Take charge") → Home with the welcome note while the foundations draft → the two
+ * sign-off notes in the Inbox, approved by button → Continue → the first build on Development › Plan → Start
+ * distribution from the Board → its question decided by free text (with the "Here is what will happen" confirmation)
+ * → the seeded Customer Update → Product Changes → CRM search → NeedsLargerWindow. Test names carry the
+ * acceptance-criteria ids they cover.
  *
  * The first describe is serial: every step builds on the business the Commit step creates. The second runs against
  * the seeded Northwind Skincare (fixed id, packages/db/src/seed/constants.ts) and each test signs in on its own.
@@ -38,18 +40,73 @@ async function ensureDeck(page: Page, minimum = 2): Promise<void> {
   }
 }
 
-/** Commits the first drafted concept as a new business and returns the Board item's inbox URL parts. */
-async function commitFreshBusiness(page: Page, name: string): Promise<{ bid: string; itemId: string }> {
+/**
+ * Commits the first drafted concept as a new business. Take charge lands on Home (founder, 2026-10-18: the first days
+ * are about the product), where the vision, specification and roadmap draft in the background; the helper waits for
+ * them so the two sign-off notes are in the Inbox when the test looks.
+ */
+async function commitFreshBusiness(page: Page, name: string): Promise<{ bid: string }> {
   await ensureDeck(page, 1);
   await page.getByTestId("commit-link").first().click();
   await expect(page).toHaveURL(/\/new\/commit\/[0-9a-f-]+/);
   await expect(page.getByTestId("commit-form")).toBeVisible();
   await page.getByLabel(/Business name/).fill(name);
   await page.getByTestId("take-charge").click();
-  await page.waitForURL(new RegExp(`/b/${UUID}/inbox/${UUID}`), { timeout: LONG });
-  const m = page.url().match(new RegExp(`/b/(${UUID})/inbox/(${UUID})`))!;
-  await expect(page.getByTestId("inbox-item")).toBeVisible({ timeout: LONG });
-  return { bid: m[1]!, itemId: m[2]! };
+  await page.waitForURL(new RegExp(`/b/${UUID}/home`), { timeout: LONG });
+  const bid = page.url().match(new RegExp(`/b/(${UUID})/home`))![1]!;
+  await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+  await expect(page.getByTestId("foundations-status")).toHaveAttribute("data-foundations-state", "ready", { timeout: LONG });
+  return { bid };
+}
+
+const WELCOME_NOTE = "Your team is drafting the product foundations";
+const SPEC_SIGNOFF = "Sign off the product specification";
+const ROADMAP_SIGNOFF = "Sign off the product roadmap";
+const BOARD_QUESTION = "Where should the first customer come from?";
+
+/** The Inbox row of a note by its subject. */
+const inboxRow = (page: Page, subject: string | RegExp) => page.getByTestId("inbox-list").getByRole("option").filter({ hasText: subject }).first();
+
+/** Opens a sign-off note from the Inbox list and approves it with its recommended option (the first button). */
+async function approveFromInbox(page: Page, bid: string, subject: string): Promise<void> {
+  await page.goto(`/b/${bid}/inbox`);
+  await expect(page.getByTestId("inbox-list")).toBeVisible({ timeout: LONG });
+  const row = inboxRow(page, subject);
+  await expect(row, `the Inbox lists "${subject}"`).toBeVisible({ timeout: LONG });
+  await row.click();
+  const item = page.getByTestId("inbox-item");
+  await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
+  await expect(page.getByTestId("signoff-panel")).toBeVisible({ timeout: LONG });
+  const bar = page.getByTestId("decision-bar");
+  await expect(bar).toHaveAttribute("data-state", "open");
+  const options = bar.getByRole("group", { name: "Options" });
+  const recommended = options.locator("button[data-recommended]").first();
+  await ((await recommended.count()) ? recommended : options.getByRole("button").first()).click();
+  await expect(item).toHaveAttribute("data-state", "answered", { timeout: LONG });
+  await expect(page.getByTestId("answered-panel")).toBeVisible({ timeout: LONG });
+}
+
+/** Both sign-offs approved: the second approval starts the build and the Product lead's follow-up says so. */
+async function approveBothSignoffs(page: Page, bid: string): Promise<void> {
+  await approveFromInbox(page, bid, SPEC_SIGNOFF);
+  await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
+  await expect(inboxRow(page, /^Building starts:/)).toBeVisible({ timeout: LONG });
+}
+
+/** Start distribution from Distribution › Board (the seed owner owns the business): the Board's question lands in the Inbox. */
+async function startDistributionFromBoard(page: Page, bid: string): Promise<void> {
+  await page.goto(`/b/${bid}/d/distribution/formation`);
+  const waiting = page.getByTestId("distribution-waiting");
+  await expect(waiting).toBeVisible({ timeout: LONG });
+  await expect(page.getByTestId("start-distribution")).toBeEnabled({ timeout: LONG });
+  await page.getByTestId("start-distribution").click();
+  await page.getByTestId("start-distribution-confirm").click();
+  await expect(waiting).toHaveCount(0, { timeout: LONG });
+  await page.goto(`/b/${bid}/inbox`);
+  await expect(inboxRow(page, BOARD_QUESTION)).toBeVisible({ timeout: LONG });
+  await inboxRow(page, BOARD_QUESTION).click();
+  await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-type", "decision", { timeout: LONG });
+  await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open", { timeout: LONG });
 }
 
 /**
@@ -87,7 +144,6 @@ test.describe("golden path", () => {
   test.describe.configure({ mode: "serial" });
 
   let bid = "";
-  let boardItemId = "";
 
   test("AC-11.1.1: the dev bypass signs in; a founder without a profile is held at /onboarding until it is saved", async ({ page }) => {
     await signIn(page);
@@ -159,63 +215,106 @@ test.describe("golden path", () => {
     await expect(page.getByTestId("commit-form")).toBeVisible();
   });
 
-  test("AC-11.1.6 AC-11.1.7: Commit defaults to Assisted; Take charge creates the business and opens the Board item", async ({ page }) => {
+  test("AC-11.1.6 AC-11.1.7: Commit defaults to Assisted; Take charge creates the business and lands on Home with the welcome note", async ({ page }) => {
     await signIn(page);
     await ensureDeck(page, 1);
     await page.getByTestId("commit-link").first().click();
     await expect(page.getByTestId("commit-form")).toBeVisible();
     await expect(page.getByTestId("commit-form")).toHaveAttribute("data-business-mode", "assisted");
     await expect(page.locator('[data-option="assisted"]')).toHaveAttribute("data-selected", "true");
-    const name = `Playwright Club ${Date.now().toString(36)}`;
+    const name = `Playwright Business ${Date.now().toString(36)}`;
     await page.getByLabel(/Business name/).fill(name);
     await page.getByTestId("take-charge").click();
-    await page.waitForURL(new RegExp(`/b/${UUID}/inbox/${UUID}`), { timeout: LONG });
-    const m = page.url().match(new RegExp(`/b/(${UUID})/inbox/(${UUID})`))!;
-    bid = m[1]!;
-    boardItemId = m[2]!;
+    // The first days are about the product (founder, 2026-10-18): Take charge lands on Home, not on a Board decision.
+    await page.waitForURL(new RegExp(`/b/${UUID}/home`), { timeout: LONG });
+    bid = page.url().match(new RegExp(`/b/(${UUID})/home`))![1]!;
     await expect(page.getByTestId("app-shell")).toBeVisible();
     await expect(page.getByTestId("kit-bar")).toContainText(name);
-    // The Board item: a decision from the Chief of Staff with at least two options.
-    const item = page.getByTestId("inbox-item");
-    await expect(item).toBeVisible({ timeout: LONG });
-    await expect(item).toHaveAttribute("data-type", "decision");
-    await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
-    expect(await page.getByTestId("decision-bar").getByRole("group", { name: "Options" }).getByRole("button").count()).toBeGreaterThanOrEqual(2);
+    // Home shows the foundations drafting, then ready: two notes ask for the founder's sign-off.
+    await expect(page.getByTestId("home-screen")).toBeVisible({ timeout: LONG });
+    const status = page.getByTestId("foundations-status");
+    await expect(status).toBeVisible({ timeout: LONG });
+    await expect(status).toHaveAttribute("data-foundations-state", "ready", { timeout: LONG });
+    await expect(status.getByRole("status")).toContainText("Two notes in the Inbox ask for your sign-off.");
     // The sidebar carries the departments the commit created.
     expect(await page.locator("[data-testid=app-shell] nav a[href*='/d/']").count()).toBeGreaterThanOrEqual(1);
+    // The Inbox opens on the Chief of Staff's welcome note: an Update, with no decision to take.
+    await page.goto(`/b/${bid}/inbox`);
+    await expect(inboxRow(page, WELCOME_NOTE)).toBeVisible({ timeout: LONG });
+    await inboxRow(page, WELCOME_NOTE).click();
+    const item = page.getByTestId("inbox-item");
+    await expect(item).toBeVisible({ timeout: LONG });
+    await expect(item).toHaveAttribute("data-type", "update");
+    await expect(page.getByTestId("decision-bar")).toHaveCount(0);
   });
 
-  test("AC-11.3.3: Continue reads Respond · N while the Board item waits; a button decision releases it and Continue runs a cycle step", async ({ page }) => {
+  test("AC-11.3.3: Continue reads Respond · 2 while the sign-off notes wait; approving both releases it and Continue runs a cycle step", async ({ page }) => {
     test.skip(!bid, "the Commit step did not produce a business");
     await signIn(page);
-    await page.goto(`/b/${bid}/inbox/${boardItemId}`);
+    await page.goto(`/b/${bid}/inbox`);
+    await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, ROADMAP_SIGNOFF)).toBeVisible({ timeout: LONG });
     const respond = respondButton(page);
     await expect(respond).toBeVisible({ timeout: LONG });
-    await expect(respond).toHaveText(/Respond · \d+/);
-    const countBefore = Number((await respond.innerText()).match(/\d+/)?.[0] ?? "0");
-    expect(countBefore).toBeGreaterThanOrEqual(1);
+    await expect(respond).toHaveText("Respond to 2 items");
 
+    // The specification first: a sign-off note is a decision from the Product lead with Approve and Request changes.
+    await inboxRow(page, SPEC_SIGNOFF).click();
+    const item = page.getByTestId("inbox-item");
+    await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
     const options = page.getByTestId("decision-bar").getByRole("group", { name: "Options" });
+    await expect(options.getByRole("button")).toHaveCount(2);
+    await expect(page.getByTestId("signoff-panel")).toHaveAttribute("data-signoff-kind", "spec");
     const recommended = options.locator("button[data-recommended]").first();
     await ((await recommended.count()) ? recommended : options.getByRole("button").first()).click();
-    const confirm = page.getByTestId("confirm-plan");
-    const answered = page.getByTestId("answered-panel");
-    await expect(confirm.or(answered).first()).toBeVisible({ timeout: LONG });
-    if (await confirm.isVisible()) {
-      await expect(confirm.getByRole("heading", { name: "Here is what will happen" })).toBeVisible();
-      await page.getByTestId("confirm-plan-go").click();
-      await expect(confirm).toBeHidden({ timeout: LONG });
-    }
-    await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-state", "answered");
-    await expect(answered).toBeVisible();
-    if (countBefore <= 1) await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
-    else await expect(page.getByRole("button", { name: `Respond to ${countBefore - 1} item${countBefore - 1 === 1 ? "" : "s"}` })).toBeVisible({ timeout: LONG });
+    await expect(item).toHaveAttribute("data-state", "answered", { timeout: LONG });
+    await expect(page.getByTestId("answered-panel")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Respond to 1 item" })).toBeVisible({ timeout: LONG });
+
+    // The roadmap: the second approval starts the build and releases Continue.
+    await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
+    await expect(inboxRow(page, /^Building starts:/)).toBeVisible({ timeout: LONG });
+    await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
 
     // One press of Continue → business.continue (in-process cycle step without Temporal) → a toast says what happened.
-    if (countBefore <= 1) {
-      await continueIdle(page).click();
-      await expect(page.getByText(/Cycle started|One new note|Cycle resumed|already running/).first()).toBeVisible({ timeout: LONG });
-    }
+    await continueIdle(page).click();
+    await expect(page.getByText(/Cycle started|One new note|Cycle resumed|already running/).first()).toBeVisible({ timeout: LONG });
+  });
+
+  test("First days: approving both sign-offs plans the first build; distribution waits for Start distribution", async ({ page }) => {
+    test.skip(!bid, "the Commit step did not produce a business");
+    await signIn(page);
+    // The sign-offs read Signed off on the Product tabs; the specification's approval published a version.
+    await page.goto(`/b/${bid}/d/product/specification`);
+    const banner = page.getByTestId("signoff-banner");
+    await expect(banner).toHaveAttribute("data-signoff-status", "approved", { timeout: LONG });
+    await expect(banner.getByTestId("signoff-pill")).toContainText(/^Signed off .* · v\d+$/);
+    // The Planner's first tasks, tied to roadmap items, on Development › Plan.
+    await page.goto(`/b/${bid}/d/development/plan`);
+    const tasks = page.getByRole("grid", { name: "Tasks" });
+    await expect(tasks).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("plan-stage-banner")).toHaveCount(0);
+    await expect.poll(async () => tasks.getByRole("row").filter({ hasNot: page.getByRole("columnheader") }).count(), { timeout: LONG }).toBeGreaterThanOrEqual(3);
+    // Distribution waits for the product: the Board says so, the channels are not running, the Board's question is not asked.
+    await page.goto(`/b/${bid}/d/distribution/formation`);
+    await expect(page.getByTestId("distribution-waiting")).toHaveAttribute("data-product-stage", "building", { timeout: LONG });
+    await expect(page.getByText(/^\d+ of 15 on the board · waiting for the product$/)).toBeVisible();
+    await page.goto(`/b/${bid}/d/distribution/channels`);
+    const channels = page.getByRole("grid", { name: "Channels" });
+    await expect(channels).toBeVisible({ timeout: LONG });
+    await expect(channels.getByRole("row").filter({ hasText: "Waiting for the product" }).first()).toBeVisible({ timeout: LONG });
+    await expect(channels.getByRole("row").filter({ hasText: /Starting|Running/ })).toHaveCount(0);
+    await page.goto(`/b/${bid}/inbox`);
+    await expect(inboxRow(page, WELCOME_NOTE)).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, BOARD_QUESTION)).toHaveCount(0);
+    // Start distribution: the Board's question is in the Inbox, the channels start, the Board no longer waits.
+    await startDistributionFromBoard(page, bid);
+    expect(await page.getByTestId("decision-bar").getByRole("group", { name: "Options" }).getByRole("button").count()).toBeGreaterThanOrEqual(2);
+    await expect(inboxRow(page, "Distribution has started")).toBeVisible({ timeout: LONG });
+    await page.goto(`/b/${bid}/d/distribution/channels`);
+    await expect(channels).toBeVisible({ timeout: LONG });
+    await expect(channels.getByRole("row").filter({ hasText: "Waiting for the product" })).toHaveCount(0, { timeout: LONG });
+    await expect(channels.getByRole("row").filter({ hasText: /Starting|Running/ }).first()).toBeVisible({ timeout: LONG });
   });
 
   test("AC-11.2.1 AC-11.2.3: Home shows the department cards and the Journey Ribbon for the new business", async ({ page }) => {
@@ -234,10 +333,23 @@ test.describe("golden path", () => {
   });
 });
 
+/**
+ * Free text decides the Board's question ("Where should the first customer come from?"), which Start distribution
+ * posts once the product is signed off (founder, 2026-10-18): each test commits a business, approves both sign-offs
+ * with their recommended option and starts distribution from the Board before answering in the founder's own words.
+ */
 test.describe("free-text decisions", () => {
+  test.setTimeout(300_000);
+
+  async function boardQuestionOf(page: Page, name: string): Promise<void> {
+    const { bid } = await commitFreshBusiness(page, name);
+    await approveBothSignoffs(page, bid);
+    await startDistributionFromBoard(page, bid);
+  }
+
   test("AC-11.3.4: 'spend up to €500 on LinkedIn ads…' compiles to enable_channel + set_budget + create_task and shows the confirmation", async ({ page }) => {
     await signIn(page);
-    await commitFreshBusiness(page, `Playwright Ads ${Date.now().toString(36)}`);
+    await boardQuestionOf(page, `Playwright Ads ${Date.now().toString(36)}`);
     const { confirmed } = await decideByFreeText(page, "spend up to €500 on LinkedIn ads targeting fintech CFOs next week");
     test.info().annotations.push({ type: "policy", description: confirmed ? "outside policy: confirmation shown and accepted" : "inside policy: executed without confirmation" });
     const actions = page.getByTestId("answered-panel").getByTestId("plan-actions");
@@ -250,7 +362,7 @@ test.describe("free-text decisions", () => {
 
   test("AC-11.3.5: 'pay the supplier invoice' compiles to a founder action only, never an automated action", async ({ page }) => {
     await signIn(page);
-    await commitFreshBusiness(page, `Playwright Gate ${Date.now().toString(36)}`);
+    await boardQuestionOf(page, `Playwright Gate ${Date.now().toString(36)}`);
     await decideByFreeText(page, "pay the supplier invoice");
     const actions = page.getByTestId("answered-panel").getByTestId("plan-actions");
     await expect(actions).toBeVisible();

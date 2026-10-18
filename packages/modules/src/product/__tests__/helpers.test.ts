@@ -8,6 +8,7 @@ import { coverageBySection, isWebUri, linkedBlocks, topicCounts } from "../sourc
 import { validateSourceDraft, sourceInput } from "../sources/AddSourceDialog";
 import { upsertInput, draftFrom, validateDraft } from "../roadmap/ItemDialog";
 import { compareSections, groupBySection } from "../shared";
+import { signoffStatusWord, signoffSummaryLine } from "../signoff";
 import type { SpecBlockRow } from "../types";
 import { blocks, doc, proposalAnnual, roadmap, sources, BLOCK, ITEM } from "./fixtures";
 
@@ -156,5 +157,23 @@ describe("source helpers", () => {
     expect(validateSourceDraft({ kind: "doc", title: "", uri: "not a url", notes: "" })).toMatch(/URL/);
     expect(validateSourceDraft({ kind: "doc", title: "A note", uri: "", notes: "" })).toBeNull();
     expect(sourceInput({ kind: "competitor", title: "", uri: " https://x.example ", notes: "cheap" })).toEqual({ kind: "competitor", uri: "https://x.example", title: "https://x.example", relevance: { notes: "cheap" } });
+  });
+});
+
+describe("sign-offs (founder, 2026-10-18)", () => {
+  const formatDate = (d: string | Date) => new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+  const round = (status: "pending" | "approved" | "changes_requested" | "declined", extra: Partial<{ specVersion: number | null; decidedAt: string | null; notes: string | null }> = {}) => ({ id: "s1", kind: "spec" as const, round: 1, status, requestedAt: "2026-10-18T09:00:00.000Z", decidedAt: null, decidedBy: null, notes: null, specVersion: null, inboxItemId: "i1", ...extra });
+  it("words the pill: awaiting, signed off with the date and version, changes requested; nothing when nothing was asked", () => {
+    expect(signoffStatusWord(null, formatDate)).toBeNull();
+    expect(signoffStatusWord(round("pending"), formatDate)).toEqual({ tone: "warn", word: "Awaiting your sign-off", actionable: true });
+    expect(signoffStatusWord(round("approved", { decidedAt: "2026-10-18T10:00:00.000Z", specVersion: 2 }), formatDate)).toEqual({ tone: "good", word: "Signed off Oct 18, 2026 · v2", actionable: false });
+    expect(signoffStatusWord(round("approved", { decidedAt: "2026-10-18T10:00:00.000Z" }), formatDate)!.word).toBe("Signed off Oct 18, 2026");
+    expect(signoffStatusWord(round("changes_requested"), formatDate)).toEqual({ tone: "warn", word: "Changes requested", actionable: true });
+  });
+  it("sums both rounds up in one line for the Vision tab", () => {
+    expect(signoffSummaryLine(undefined)).toBeNull();
+    expect(signoffSummaryLine({ spec: null, roadmap: null })).toBeNull();
+    expect(signoffSummaryLine({ spec: round("approved"), roadmap: { ...round("pending"), kind: "roadmap" } })).toBe("Specification: signed off · Roadmap: awaiting your sign-off");
+    expect(signoffSummaryLine({ spec: round("changes_requested"), roadmap: null })).toBe("Specification: changes requested · Roadmap: not asked yet");
   });
 });

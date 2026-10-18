@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, UUID, ensureDeck, openBusiness, signIn } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, ROADMAP_SIGNOFF, SPEC_SIGNOFF, UUID, approveBothSignoffs, approveFromInbox, ensureDeck, inboxRow, openBusiness, signIn, startDistributionFromBoard, takeChargeToHome } from "./helpers";
 
 /**
  * Inbox (BUILD §11.3; AC-11.3.2 refresh, AC-11.3.3 Continue follows blocking items) on the seeded Northwind Skincare,
@@ -17,18 +17,12 @@ async function openInbox(page: Page, tab?: string): Promise<void> {
   await expect(page.getByTestId("inbox-list")).toBeVisible({ timeout: LONG });
 }
 
-/** Commits the first drafted concept as a new business and lands on its Board item (a decision from the Chief of Staff). */
-async function commitFreshBusiness(page: Page, name: string): Promise<{ bid: string; itemId: string }> {
+/** Commits the first drafted concept as a new business and lands on its Home (founder, 2026-10-18). */
+async function commitFreshBusiness(page: Page, name: string): Promise<{ bid: string }> {
   await ensureDeck(page, 1);
   await page.getByTestId("commit-link").first().click();
   await expect(page).toHaveURL(/\/new\/commit\/[0-9a-f-]+/);
-  await expect(page.getByTestId("commit-form")).toBeVisible({ timeout: LONG });
-  await page.getByLabel(/Business name/).fill(name);
-  await page.getByTestId("take-charge").click();
-  await page.waitForURL(new RegExp(`/b/${UUID}/inbox/${UUID}`), { timeout: LONG });
-  const m = page.url().match(new RegExp(`/b/(${UUID})/inbox/(${UUID})`))!;
-  await expect(page.getByTestId("inbox-item")).toBeVisible({ timeout: LONG });
-  return { bid: m[1]!, itemId: m[2]! };
+  return takeChargeToHome(page, name);
 }
 
 test.describe("inbox", () => {
@@ -93,45 +87,41 @@ test.describe("inbox", () => {
     await expect(rows).toHaveCount(before + 1);
   });
 
-  test("AC-11.3.3: answering a blocking decision with 1 releases Continue, which then runs a cycle step", async ({ page }) => {
+  test("AC-11.3.3: the two sign-off notes block Continue; 1 approves each (the second starts the build) and Continue runs a cycle step", async ({ page }) => {
+    test.setTimeout(240_000);
     await signIn(page);
-    await commitFreshBusiness(page, `Playwright Inbox ${Date.now().toString(36)}`);
+    const { bid } = await commitFreshBusiness(page, `Playwright Inbox ${Date.now().toString(36)}`);
+    // The foundations draft in the background (mock models); their two sign-off notes block Continue.
+    await page.goto(`/b/${bid}/inbox`);
+    await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, ROADMAP_SIGNOFF)).toBeVisible({ timeout: LONG });
     const respond = page.getByRole("button", { name: /^Respond to \d+ items?$/ });
     await expect(respond).toBeVisible({ timeout: LONG });
-    const countBefore = Number((await respond.innerText()).match(/\d+/)?.[0] ?? "0");
-    expect(countBefore).toBeGreaterThanOrEqual(1);
+    await expect(respond).toHaveText("Respond to 2 items");
+    await inboxRow(page, SPEC_SIGNOFF).click();
     const item = page.getByTestId("inbox-item");
-    await expect(item).toHaveAttribute("data-type", "decision");
+    await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
     const bar = page.getByTestId("decision-bar");
     await expect(bar).toHaveAttribute("data-state", "open");
-    expect(await bar.getByRole("group", { name: "Options" }).getByRole("button").count()).toBeGreaterThanOrEqual(2);
-    // The agent's desk offers "Go with: …" while the decision is open.
+    expect(await bar.getByRole("group", { name: "Options" }).getByRole("button").count()).toBe(2);
+    // The agent's desk offers "Go with: …" while the decision is open; the panel carries the notes (optional with Approve).
     const desk = page.getByTestId("agent-desk");
     await expect(desk.locator('[data-quick-reply="go_with"]')).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("signoff-panel")).toBeVisible();
+    // Request changes without words asks for them instead of sending (the option stays open).
+    await page.keyboard.press("2");
+    await expect(page.getByTestId("signoff-panel")).toContainText("Say what should change", { timeout: LONG });
+    await expect(item).toHaveAttribute("data-state", /unread|read/);
     await page.keyboard.press("1");
-    const confirm = page.getByTestId("confirm-plan");
     const answered = page.getByTestId("answered-panel");
-    await expect(confirm.or(answered).first()).toBeVisible({ timeout: LONG });
-    if (await confirm.isVisible()) {
-      await expect(confirm.getByRole("heading", { name: "Here is what will happen" })).toBeVisible();
-      // A costed option reaches the plan as a budget the founder confirms; its amount is an Estimate (audit FR-10, OL-11).
-      await expect(confirm.getByTestId("confirm-plan-lines")).toContainText("(Estimate)");
-      await page.getByTestId("confirm-plan-go").click();
-      await expect(confirm).toBeHidden({ timeout: LONG });
-    }
-    await expect(item).toHaveAttribute("data-state", "answered");
+    await expect(item).toHaveAttribute("data-state", "answered", { timeout: LONG });
     await expect(answered).toBeVisible();
-    // An action left to the founder never reads "Confirmed by you" while its plan still awaits confirmation (VOL-X1).
-    if (await answered.getByText("Awaiting your confirmation").isVisible()) await expect(answered.getByText("Confirmed by you")).toHaveCount(0);
     // Decided from the DecisionBar: the desk keeps 2–4 replies but no longer offers "Go with: …" (no second decision).
     await expect(desk.locator('[data-quick-reply="go_with"]')).toHaveCount(0, { timeout: LONG });
-    const left = desk.getByTestId("quick-replies").locator("[data-quick-reply]:not([data-quick-reply=write])");
-    await expect(left.first()).toBeVisible();
-    expect(await left.count()).toBeGreaterThanOrEqual(2);
-    if (countBefore > 1) {
-      await expect(page.getByRole("button", { name: `Respond to ${countBefore - 1} item${countBefore - 1 === 1 ? "" : "s"}` })).toBeVisible({ timeout: LONG });
-      return;
-    }
+    await expect(page.getByRole("button", { name: "Respond to 1 item" })).toBeVisible({ timeout: LONG });
+    // The second approval starts the build: Development › Plan gets the Planner's first tasks.
+    await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
+    await expect(inboxRow(page, /^Building starts:/)).toBeVisible({ timeout: LONG });
     const idle = page.getByRole("button", { name: /^Continue$/ });
     await expect(idle).toBeVisible({ timeout: LONG });
     // One press of Continue → business.continue (an in-process cycle step without Temporal) → a toast says what happened.
@@ -367,9 +357,18 @@ test.describe("inbox", () => {
 
   test("a plan waiting for the go-ahead survives a reload: it stays in Respond, its spend reads as waiting, and Review confirms it once", async ({ page }) => {
     await signIn(page);
-    const { bid, itemId } = await commitFreshBusiness(page, `Playwright Go-ahead ${Date.now().toString(36)}`);
+    test.setTimeout(300_000);
+    const { bid } = await commitFreshBusiness(page, `Playwright Go-ahead ${Date.now().toString(36)}`);
+    // The Board's question arrives once the product is signed off and distribution started (founder, 2026-10-18).
+    await approveBothSignoffs(page, bid);
+    await startDistributionFromBoard(page, bid);
+    await page.goto(`/b/${bid}/inbox`);
+    await inboxRow(page, "Where should the first customer come from?").click();
+    await page.waitForURL(new RegExp(`/b/${bid}/inbox/${UUID}`), { timeout: LONG });
+    const itemId = page.url().match(new RegExp(`/inbox/(${UUID})`))![1]!;
     const item = page.getByTestId("inbox-item");
-    await expect(item).toHaveAttribute("data-type", "decision");
+    await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
+    await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
     // An instruction typed to the agent decides the note; the spend is above the approval threshold, so it waits.
     await page.locator("[data-decision-ask]").click();
     const write = page.getByTestId("agent-desk").getByRole("textbox", { name: /^Reply to / });

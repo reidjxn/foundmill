@@ -45,6 +45,19 @@ describe("FoundationsStatus", () => {
     expect([retry.getAttribute("aria-busy"), retry.getAttribute("aria-disabled")]).toEqual(["true", "true"]);
   });
 
+  it("ready: a custom line and a second way in (the Inbox, where the sign-off notes wait)", async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    const onInbox = vi.fn();
+    render(<FoundationsStatus state="ready" readyLine="Your vision, specification and roadmap are drafted. Two notes in the Inbox ask for your sign-off." onOpen={onOpen} secondaryAction={{ label: "Open the Inbox", onClick: onInbox }} />);
+    expect(screen.getByRole("status").textContent).toContain("Two notes in the Inbox ask for your sign-off.");
+    await user.click(screen.getByRole("button", { name: "Open the Inbox" }));
+    expect(onInbox).toHaveBeenCalledTimes(1);
+    expect(onOpen).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Open the vision" }));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
   it("only pending, drafting and failed need attention", () => {
     expect(["pending", "drafting", "failed"].every((s) => foundationsNeedsAttention(s as never))).toBe(true);
     expect(foundationsNeedsAttention("ready")).toBe(false);

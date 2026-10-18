@@ -238,14 +238,17 @@ test.describe("distribution, finance and legal read in plain words", () => {
     }
   });
 
-  test("distribution: the Board counts as running only channels whose engine runs (audit GTM-01)", async ({ page }) => {
+  test("distribution: the Board counts as running only channels whose engine runs (audit GTM-01); the demo sells, so nothing waits for the product", async ({ page }) => {
     await openTab(page, "distribution", "formation");
     // A channel on the board without its engine yet reads "starting", never "running".
     await expect(page.getByText(/^\d+ of 15 running( · \d+ starting)?$/)).toBeVisible({ timeout: LONG });
+    // Northwind started distribution in its first weeks (the seed): no Start distribution banner.
+    await expect(page.getByTestId("distribution-waiting")).toHaveCount(0);
     await openTab(page, "distribution", "channels");
     const table = page.getByRole("grid", { name: "Channels" });
     const starting = table.getByRole("row").filter({ hasText: "Starting" });
     if ((await starting.count()) > 0) await expect(starting.first().getByTitle(/engine has not started yet/)).toBeVisible();
+    await expect(table.getByRole("row").filter({ hasText: "Waiting for the product" })).toHaveCount(0);
   });
 
   test("distribution: drafted creative shows its copy on the card", async ({ page }) => {

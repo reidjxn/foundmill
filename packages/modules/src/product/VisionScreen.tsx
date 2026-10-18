@@ -16,6 +16,7 @@ import { PlainDoc } from "./PlainDoc";
 import { pmExcerpt, pmWordCount } from "./prosemirror";
 import { computeRoadmapStatus, taskSummary } from "./roadmap-status";
 import { AuthorRef, Fact, PinnedChip, Screen, blockTitle, groupBySection } from "./shared";
+import { signoffSummaryLine, useSignoffs } from "./signoff";
 import type { RoadmapResponse, SpecGetResponse } from "./types";
 
 /** Sections that read as the vision narrative, in order; the rest live on the Specification tab. */
@@ -32,6 +33,9 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
     spec.refetch();
     roadmap.refetch();
   });
+  // Where the founder's sign-offs stand (founder, 2026-10-18), one line under the specification facts.
+  const signoffs = useSignoffs();
+  const signoffLine = signoffSummaryLine(signoffs.data);
   // The vision shows as soon as the drafting has written it (within seconds of the first open), before the rest.
   const vision = foundations.data && foundations.data.status !== "none" ? foundations.data.vision : null;
   // While drafting, a narrative section's empty block reads what has been written for it so far.
@@ -128,7 +132,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
         </ul>
       </Panel>
 
-      <Panel title="Spec at a glance" span={4} className="self-start" loading={spec.isLoading} error={spec.error ? spec.error.message : undefined} onRetry={spec.refetch}>
+      <Panel title="Spec at a glance" span={4} className="self-start" loading={spec.isLoading} error={spec.error ? spec.error.message : undefined} onRetry={spec.refetch} footer={signoffLine ? <span data-testid="signoff-summary">{signoffLine}</span> : undefined}>
         <div className="grid grid-cols-3 gap-3">
           <Fact label="Sections" numeric>
             {groups.length}

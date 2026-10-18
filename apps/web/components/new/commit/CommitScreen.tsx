@@ -110,8 +110,10 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
     trpc.idea.commit.mutationOptions({
       onSuccess: (res) => {
         // A second Take charge of this idea (another tab, a retried request) answers with the business the first created.
-        toast({ title: res.alreadyCommitted ? `${res.business.name} is already yours` : `${res.business.name} is yours`, description: "The Board's first item is waiting in the Inbox.", tone: "good" });
-        const to = routes.inbox(res.business.id, res.boardItem.id);
+        // The first days are about the product (founder, 2026-10-18): Home shows the foundations drafting; the Inbox has
+        // the Chief of Staff's welcome note and, once drafted, the two sign-off notes.
+        toast({ title: res.alreadyCommitted ? `${res.business.name} is already yours` : `${res.business.name} is yours`, description: "Your team is drafting the vision, specification and roadmap; two notes will ask for your sign-off.", tone: "good" });
+        const to = routes.home(res.business.id);
         // The new business is in the founder's lists at once (Switch business, Your businesses).
         void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("founder") as unknown[] });
         router.push(to);

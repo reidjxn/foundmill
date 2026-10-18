@@ -181,3 +181,25 @@ export interface SourceRelevance {
   [key: string]: unknown;
 }
 export type SourcesListResponse = Page<SourceRow>;
+
+/* product.signoff.get (apps/api services/signoff.ts `SignoffViews`; founder 2026-10-18) */
+export type SignoffStatusKey = "pending" | "approved" | "changes_requested" | "declined";
+export interface SignoffView {
+  id: string;
+  kind: "spec" | "roadmap" | "ready_to_sell";
+  round: number;
+  status: SignoffStatusKey;
+  requestedAt: DateLike;
+  decidedAt: DateLike | null;
+  decidedBy: { kind: "user" | "system"; id: string | null } | null;
+  notes: string | null;
+  /** The specification version an approval published (spec rounds). */
+  specVersion: number | null;
+  inboxItemId: string | null;
+}
+export interface SignoffViews {
+  stage: "drafting" | "awaiting_signoff" | "building" | "selling";
+  spec: SignoffView | null;
+  roadmap: SignoffView | null;
+  readyToSell: SignoffView | null;
+}

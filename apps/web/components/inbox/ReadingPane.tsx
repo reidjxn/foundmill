@@ -56,6 +56,7 @@ import { useAgentDesk } from "@/components/conversation/DeskHost";
 import { roleBesideName } from "@/components/conversation/logic";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { ConfirmPlanDialog } from "./ConfirmPlanDialog";
+import { SIGNOFF_NOTES_ID, SignoffPanel } from "./SignoffPanel";
 import { Exhibit } from "./Exhibit";
 import { NoteTagChip } from "./InboxList";
 import {
@@ -85,6 +86,7 @@ import {
   toDecisionOptions,
   TRAILING_MONTHS,
   type ConfirmationLine,
+  signoffNeedsNotes,
 } from "./logic";
 
 type InboxGet = RouterOutputs["inbox"]["get"];
@@ -143,7 +145,7 @@ interface BodyProps {
 }
 
 function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps) {
-  const { item, decisions, plan: storedPlan, confirmation, fromAgent, entities, approval } = data;
+  const { item, decisions, plan: storedPlan, confirmation, fromAgent, entities, approval, signoff } = data;
   const { businessId, data: biz, access } = useBusiness();
   // A person's note: the founder's own ("You"), or someone else's, never "You".
   const sender = humanSender(item.fromUserId, biz.membership.userId);
@@ -202,8 +204,10 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   // --- decision ------------------------------------------------------------------------------------------------------
   const options = useMemo(() => toDecisionOptions(item.decision, currency), [item.decision, currency]);
   const pastDeadline = decisionPastDeadline(item.decision);
-  // An agent's request: the founder's optional reason goes with Approve or Reject.
+  // An agent's request: the founder's optional reason goes with Approve or Reject. A sign-off (founder, 2026-10-18): the
+  // founder's notes go with Approve, and Request changes needs them.
   const [reason, setReason] = useState("");
+  const [needsNotes, setNeedsNotes] = useState(false);
   const cannotAnswer = approval ? !approval.canAnswer : false;
   const [result, setResult] = useState<DecideResult | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -301,10 +305,17 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const onChoose = useCallback(
     (o: DecisionOption) => {
       if (deciding.current) return;
+      // Request changes on a sign-off needs the founder's words: point at the notes instead of a refused request.
+      if (signoff && signoffNeedsNotes(o.id, reason)) {
+        setNeedsNotes(true);
+        document.getElementById(SIGNOFF_NOTES_ID)?.focus();
+        return;
+      }
+      setNeedsNotes(false);
       deciding.current = true;
-      decide.mutate({ businessId, itemId: item.id, chosenOption: o.id, ...(approval && reason.trim() ? { freeText: reason.trim() } : {}) }, { onSettled: () => { deciding.current = false; } });
+      decide.mutate({ businessId, itemId: item.id, chosenOption: o.id, ...((approval || signoff) && reason.trim() ? { freeText: reason.trim() } : {}) }, { onSettled: () => { deciding.current = false; } });
     },
-    [decide, businessId, item.id, approval, reason],
+    [decide, businessId, item.id, approval, signoff, reason],
   );
   // The conversation under the note (DIRECTION #6): Alt+1–4 answer the agent (1–4 stay on the options), T talks.
   const desk = useRef<AgentConversationHandle>(null);
@@ -427,6 +438,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
         <InboxNote bodyMd={item.bodyMd} />
 
         {approval ? <ApprovalPanel approval={approval} businessId={businessId} departments={departments} reason={reason} onReasonChange={setReason} answered={isAnswered || decide.isPending} /> : null}
+        {signoff ? <SignoffPanel signoff={signoff} notes={reason} onNotesChange={(v) => { setReason(v); if (v.trim()) setNeedsNotes(false); }} answered={isAnswered || decide.isPending} needsNotes={needsNotes} chosenOption={answered?.optionId ?? null} /> : null}
 
         {tiles.length ? <StatusStrip tiles={tiles} data-testid="status-strip" /> : null}
 

@@ -220,3 +220,62 @@ export async function restoreFounderProfile(api: APIRequestContext, before: Foun
 }
 
 export { DEMO_OWNER_DISPLAY_NAME, test, expect };
+
+/* ---------- The first days (founder, 2026-10-18) ---------- */
+
+/**
+ * Take charge from the Commit screen the caller is on: lands on the new business's Home (the Chief of Staff's welcome
+ * note is in the Inbox; the foundations draft in the background and two sign-off notes follow).
+ */
+export async function takeChargeToHome(page: Page, name: string): Promise<{ bid: string }> {
+  await expect(page.getByTestId("commit-form")).toBeVisible({ timeout: LONG });
+  await page.getByLabel(/Business name/).fill(name);
+  await page.getByTestId("take-charge").click();
+  await page.waitForURL(new RegExp(`/b/${UUID}/home`), { timeout: LONG });
+  const bid = page.url().match(new RegExp(`/b/(${UUID})/home`))![1]!;
+  await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+  return { bid };
+}
+
+export const SPEC_SIGNOFF = "Sign off the product specification";
+export const ROADMAP_SIGNOFF = "Sign off the product roadmap";
+
+/** The Inbox row of a note by its subject. */
+export function inboxRow(page: Page, subject: string | RegExp): Locator {
+  return page.getByTestId("inbox-list").getByRole("option").filter({ hasText: subject }).first();
+}
+
+/** Opens the note from the Inbox list and approves it with the keyboard (1 = the recommended option). */
+export async function approveFromInbox(page: Page, bid: string, subject: string): Promise<void> {
+  await page.goto(`/b/${bid}/inbox`);
+  await expect(page.getByTestId("inbox-list")).toBeVisible({ timeout: LONG });
+  await settled(page);
+  const row = inboxRow(page, subject);
+  await expect(row, `the Inbox lists "${subject}"`).toBeVisible({ timeout: LONG });
+  await row.click();
+  const item = page.getByTestId("inbox-item");
+  await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
+  await expect(page.getByTestId("signoff-panel")).toBeVisible({ timeout: LONG });
+  await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
+  await page.keyboard.press("1");
+  await expect(item).toHaveAttribute("data-state", "answered", { timeout: LONG });
+  await expect(page.getByTestId("answered-panel")).toBeVisible({ timeout: LONG });
+}
+
+/** Both sign-offs approved from the Inbox: the build starts (Development › Plan gets its first tasks). */
+export async function approveBothSignoffs(page: Page, bid: string): Promise<void> {
+  await approveFromInbox(page, bid, SPEC_SIGNOFF);
+  await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
+  await expect(inboxRow(page, /^Building starts:/)).toBeVisible({ timeout: LONG });
+}
+
+/** Start distribution from Distribution › Board (owners and admins): the Board's question lands in the Inbox. */
+export async function startDistributionFromBoard(page: Page, bid: string): Promise<void> {
+  await page.goto(`/b/${bid}/d/distribution/formation`);
+  const waiting = page.getByTestId("distribution-waiting");
+  await expect(waiting).toBeVisible({ timeout: LONG });
+  await settled(page);
+  await page.getByTestId("start-distribution").click();
+  await page.getByTestId("start-distribution-confirm").click();
+  await expect(waiting).toHaveCount(0, { timeout: LONG });
+}
