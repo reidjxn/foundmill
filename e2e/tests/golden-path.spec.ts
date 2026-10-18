@@ -62,7 +62,6 @@ async function commitFreshBusiness(page: Page, name: string): Promise<{ bid: str
 const WELCOME_NOTE = "Your team is drafting the product foundations";
 const SPEC_SIGNOFF = "Sign off the product specification";
 const ROADMAP_SIGNOFF = "Sign off the product roadmap";
-const BOARD_QUESTION = "Where should the first customer come from?";
 
 /** The Inbox row of a note by its subject. */
 const inboxRow = (page: Page, subject: string | RegExp) => page.getByTestId("inbox-list").getByRole("option").filter({ hasText: subject }).first();
@@ -90,23 +89,35 @@ async function approveFromInbox(page: Page, bid: string, subject: string): Promi
 async function approveBothSignoffs(page: Page, bid: string): Promise<void> {
   await approveFromInbox(page, bid, SPEC_SIGNOFF);
   await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
-  await expect(inboxRow(page, /^Building starts:/)).toBeVisible({ timeout: LONG });
+  await expect(inboxRow(page, /Building starts:/)).toBeVisible({ timeout: LONG });
 }
 
-/** Start distribution from Distribution › Board (the seed owner owns the business): the Board's question lands in the Inbox. */
-async function startDistributionFromBoard(page: Page, bid: string): Promise<void> {
+/**
+ * Start distribution from Distribution › Board (the seed owner owns the business): the Board's question lands in the
+ * Inbox and opens here. Its id comes back from `business.startDistribution` (the question's subject is the archetype's
+ * own words, so the note is opened by id, never by its text).
+ */
+async function startDistributionFromBoard(page: Page, bid: string): Promise<{ boardItemId: string }> {
   await page.goto(`/b/${bid}/d/distribution/formation`);
   const waiting = page.getByTestId("distribution-waiting");
   await expect(waiting).toBeVisible({ timeout: LONG });
   await expect(page.getByTestId("start-distribution")).toBeEnabled({ timeout: LONG });
   await page.getByTestId("start-distribution").click();
+  const answer = page.waitForResponse((r) => r.request().method() === "POST" && r.url().includes("business.startDistribution"), { timeout: LONG });
   await page.getByTestId("start-distribution-confirm").click();
+  type Answer = { result: { data: { json: { boardItemId: string | null } } } };
+  const body = (await (await answer).json()) as Answer | Answer[];
+  const boardItemId = (Array.isArray(body) ? body[0] : body)?.result.data.json.boardItemId;
+  expect(boardItemId, "Start distribution posts the Board's question").toBeTruthy();
   await expect(waiting).toHaveCount(0, { timeout: LONG });
-  await page.goto(`/b/${bid}/inbox`);
-  await expect(inboxRow(page, BOARD_QUESTION)).toBeVisible({ timeout: LONG });
-  await inboxRow(page, BOARD_QUESTION).click();
-  await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-type", "decision", { timeout: LONG });
+  // The Board's question: a decision from the Chief of Staff with at least two options, waiting for the founder.
+  await page.goto(`/b/${bid}/inbox/${boardItemId}`);
+  const item = page.getByTestId("inbox-item");
+  await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
+  await expect(item).toHaveAttribute("data-item-id", boardItemId!);
   await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open", { timeout: LONG });
+  expect(await page.getByTestId("decision-bar").getByRole("group", { name: "Options" }).getByRole("button").count()).toBeGreaterThanOrEqual(2);
+  return { boardItemId: boardItemId! };
 }
 
 /**
@@ -256,7 +267,7 @@ test.describe("golden path", () => {
     await expect(inboxRow(page, ROADMAP_SIGNOFF)).toBeVisible({ timeout: LONG });
     const respond = respondButton(page);
     await expect(respond).toBeVisible({ timeout: LONG });
-    await expect(respond).toHaveText("Respond to 2 items");
+    await expect(respond).toHaveText("Respond · 2");
 
     // The specification first: a sign-off note is a decision from the Product lead with Approve and Request changes.
     await inboxRow(page, SPEC_SIGNOFF).click();
@@ -273,7 +284,7 @@ test.describe("golden path", () => {
 
     // The roadmap: the second approval starts the build and releases Continue.
     await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
-    await expect(inboxRow(page, /^Building starts:/)).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, /Building starts:/)).toBeVisible({ timeout: LONG });
     await expect(continueIdle(page)).toBeVisible({ timeout: LONG });
 
     // One press of Continue → business.continue (in-process cycle step without Temporal) → a toast says what happened.
@@ -306,10 +317,12 @@ test.describe("golden path", () => {
     await expect(channels.getByRole("row").filter({ hasText: /Starting|Running/ })).toHaveCount(0);
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, WELCOME_NOTE)).toBeVisible({ timeout: LONG });
-    await expect(inboxRow(page, BOARD_QUESTION)).toHaveCount(0);
+    // Nothing waits for an answer: the Board's question is not asked before distribution starts.
+    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']")).toHaveCount(0);
     // Start distribution: the Board's question is in the Inbox, the channels start, the Board no longer waits.
-    await startDistributionFromBoard(page, bid);
-    expect(await page.getByTestId("decision-bar").getByRole("group", { name: "Options" }).getByRole("button").count()).toBeGreaterThanOrEqual(2);
+    const { boardItemId } = await startDistributionFromBoard(page, bid);
+    await expect(page.locator(`[data-inbox-row="${boardItemId}"]`)).toHaveAttribute("data-needs-answer", "true", { timeout: LONG });
+    await expect(respondButton(page)).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, "Distribution has started")).toBeVisible({ timeout: LONG });
     await page.goto(`/b/${bid}/d/distribution/channels`);
     await expect(channels).toBeVisible({ timeout: LONG });

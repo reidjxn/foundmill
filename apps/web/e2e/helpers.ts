@@ -257,6 +257,8 @@ export async function approveFromInbox(page: Page, bid: string, subject: string)
   await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
   await expect(page.getByTestId("signoff-panel")).toBeVisible({ timeout: LONG });
   await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
+  // The number keys decide the note from the page (the shell's main content), not from the list row that opened it.
+  await page.getByTestId("shell-content").focus();
   await page.keyboard.press("1");
   await expect(item).toHaveAttribute("data-state", "answered", { timeout: LONG });
   await expect(page.getByTestId("answered-panel")).toBeVisible({ timeout: LONG });
@@ -266,16 +268,36 @@ export async function approveFromInbox(page: Page, bid: string, subject: string)
 export async function approveBothSignoffs(page: Page, bid: string): Promise<void> {
   await approveFromInbox(page, bid, SPEC_SIGNOFF);
   await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
-  await expect(inboxRow(page, /^Building starts:/)).toBeVisible({ timeout: LONG });
+  await expect(inboxRow(page, /Building starts:/)).toBeVisible({ timeout: LONG });
 }
 
-/** Start distribution from Distribution › Board (owners and admins): the Board's question lands in the Inbox. */
-export async function startDistributionFromBoard(page: Page, bid: string): Promise<void> {
+/**
+ * Start distribution from Distribution › Board (owners and admins): the Board's question lands in the Inbox. Its id
+ * comes back from `business.startDistribution` (the question's subject is the archetype's own, so the specs open the
+ * note by id rather than by its words).
+ */
+export async function startDistributionFromBoard(page: Page, bid: string): Promise<{ boardItemId: string }> {
   await page.goto(`/b/${bid}/d/distribution/formation`);
   const waiting = page.getByTestId("distribution-waiting");
   await expect(waiting).toBeVisible({ timeout: LONG });
   await settled(page);
   await page.getByTestId("start-distribution").click();
+  const answer = page.waitForResponse((r) => r.request().method() === "POST" && r.url().includes("business.startDistribution"), { timeout: LONG });
   await page.getByTestId("start-distribution-confirm").click();
+  const body = (await (await answer).json()) as { result: { data: { json: { boardItemId: string | null } } } } | { result: { data: { json: { boardItemId: string | null } } } }[];
+  const boardItemId = (Array.isArray(body) ? body[0] : body)?.result.data.json.boardItemId;
+  expect(boardItemId, "Start distribution posts the Board's question").toBeTruthy();
   await expect(waiting).toHaveCount(0, { timeout: LONG });
+  return { boardItemId: boardItemId! };
+}
+
+/** Opens the Board's question by id: a decision from the Chief of Staff with at least two options, open for the founder. */
+export async function openBoardQuestion(page: Page, bid: string, boardItemId: string): Promise<void> {
+  await page.goto(`/b/${bid}/inbox/${boardItemId}`);
+  const item = page.getByTestId("inbox-item");
+  await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
+  await expect(item).toHaveAttribute("data-item-id", boardItemId);
+  await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open", { timeout: LONG });
+  expect(await page.getByTestId("decision-bar").getByRole("group", { name: "Options" }).getByRole("button").count()).toBeGreaterThanOrEqual(2);
+  await expect(page.locator(`[data-inbox-row="${boardItemId}"]`)).toHaveAttribute("data-needs-answer", "true", { timeout: LONG });
 }

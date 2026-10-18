@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, ROADMAP_SIGNOFF, SPEC_SIGNOFF, approveFromInbox, ensureDeck, inboxRow, settled, signIn, startDistributionFromBoard, takeChargeToHome } from "./helpers";
+import { LONG, ROADMAP_SIGNOFF, SPEC_SIGNOFF, approveFromInbox, ensureDeck, inboxRow, openBoardQuestion, settled, signIn, startDistributionFromBoard, takeChargeToHome } from "./helpers";
 
 /**
  * The first days of a new business are about the product (founder, 2026-10-18): Take charge → Home shows the drafting →
@@ -37,7 +37,7 @@ test.describe("first days", () => {
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
     await approveFromInbox(page, bid, ROADMAP_SIGNOFF);
-    const building = inboxRow(page, /^Building starts: \d+ tasks? planned$/);
+    const building = inboxRow(page, /Building starts: \d+ tasks? planned/);
     await expect(building).toBeVisible({ timeout: LONG });
     await building.click();
     await expect(page.getByTestId("inbox-note")).toContainText("Distribution waits until you start it from Distribution › Board.", { timeout: LONG });
@@ -58,18 +58,17 @@ test.describe("first days", () => {
     await page.goto(`/b/${bid}/d/distribution/formation`);
     await expect(page.getByTestId("distribution-waiting")).toHaveAttribute("data-product-stage", "building", { timeout: LONG });
     await expect(page.getByText("4 of 15 on the board · waiting for the product")).toBeVisible();
-    await expect(inboxRow(page, "Where should the first customer come from?")).toHaveCount(0);
-
-    // Start distribution: the Board's question lands in the Inbox and the channels start their engines.
-    await startDistributionFromBoard(page, bid);
-    await expect(page.getByText(/^\d+ of 15 running( · \d+ starting)?$/)).toBeVisible({ timeout: LONG });
+    // Nothing waits for an answer before distribution starts: the Board's question is not asked yet.
     await page.goto(`/b/${bid}/inbox`);
-    const question = inboxRow(page, "Where should the first customer come from?");
-    await expect(question).toBeVisible({ timeout: LONG });
+    await expect(inboxRow(page, SPEC_SIGNOFF)).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("inbox-list").locator("[data-inbox-row][data-needs-answer='true']")).toHaveCount(0);
+
+    // Start distribution: the Board's question (the archetype's own words) lands in the Inbox and the channels start.
+    const { boardItemId } = await startDistributionFromBoard(page, bid);
+    await expect(page.getByText(/^\d+ of 15 running( · \d+ starting)?$/)).toBeVisible({ timeout: LONG });
+    await openBoardQuestion(page, bid, boardItemId);
+    await expect(page.getByRole("button", { name: /^Respond to \d+ items?$/ })).toBeVisible({ timeout: LONG });
     await expect(inboxRow(page, "Distribution has started")).toBeVisible({ timeout: LONG });
-    await question.click();
-    await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-type", "decision", { timeout: LONG });
-    expect(await page.getByTestId("decision-bar").getByRole("group", { name: "Options" }).getByRole("button").count()).toBeGreaterThanOrEqual(2);
     await page.goto(`/b/${bid}/d/distribution/channels`);
     await expect(channels).toBeVisible({ timeout: LONG });
     await expect(channels.getByRole("row").filter({ hasText: "Waiting for the product" })).toHaveCount(0, { timeout: LONG });
@@ -103,7 +102,7 @@ test.describe("first days", () => {
     // Approve stays available for when the revision reads right; the Product lead's revision task is on the Plan.
     await expect(banner.getByTestId("signoff-approve")).toBeVisible();
     await page.goto(`/b/${bid}/d/development/plan`);
-    await expect(page.getByRole("grid", { name: "Tasks" }).getByRole("row").filter({ hasText: /^Revise the specification:/ })).toHaveCount(1, { timeout: LONG });
+    await expect(page.getByRole("grid", { name: "Tasks" }).getByRole("row").filter({ hasText: /Revise the specification:/ })).toHaveCount(1, { timeout: LONG });
     // The Inbox note was answered by the tab's decision and the follow-up says so.
     await page.goto(`/b/${bid}/inbox`);
     await expect(inboxRow(page, "Changes requested: the specification")).toBeVisible({ timeout: LONG });
