@@ -324,16 +324,27 @@ export function runProgress(run: Pick<TrainingRunRecord, "status" | "startedAt" 
   return Math.max(0.1, Math.min(0.8, 0.1 + frac * 0.7));
 }
 
+/**
+ * A run's results as the Results panel shows them: under the skills' names (a library, file or custom skill reads as
+ * the founder named it), with the test count for the hover. A skill the run found no tests for (`tests` 0) is marked
+ * `noTests`: it reads "No tests yet" and keeps its rating when the run is promoted.
+ */
 export function toTrainingResults(results: TrainingResultsRecord, skills: readonly AgentSkillRecord[]): TrainingSkillResult[] {
-  const groupOf = new Map(skills.map((s) => [s.skillKey, s.group]));
-  return results.deltas.map((d) => ({
-    id: d.skillKey,
-    name: humaniseKey(d.skillKey),
-    group: (groupOf.get(d.skillKey) ?? "craft") as SkillGroup,
-    before: clampRating(d.old),
-    after: clampRating(d.new),
-    tests: results.publicTestCounts[d.skillKey] !== undefined ? { run: results.publicTestCounts[d.skillKey]!, passed: Math.round((results.publicTestCounts[d.skillKey]! * clampRating(d.new)) / 20) } : undefined,
-  }));
+  const byKey = new Map(skills.map((s) => [s.skillKey, s]));
+  return results.deltas.map((d) => {
+    const s = byKey.get(d.skillKey);
+    const noTests = d.tests === 0;
+    const count = results.publicTestCounts[d.skillKey];
+    return {
+      id: d.skillKey,
+      name: (s && "name" in s && s.name) || humaniseKey(d.skillKey),
+      group: (s?.group ?? "craft") as SkillGroup,
+      before: clampRating(d.old),
+      after: clampRating(d.new),
+      ...(noTests ? { noTests: true } : {}),
+      tests: !noTests && count !== undefined ? { run: count, passed: Math.round((count * clampRating(d.new)) / 20) } : undefined,
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

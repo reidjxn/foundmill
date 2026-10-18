@@ -92,7 +92,7 @@ export function RatingFigure({ value, className }: { value: number; className?: 
     "rating-4": "text-rating-4 font-semibold",
   };
   return (
-    <span className={cn("t-display-sm tabular-nums", TEXT[tone], className)} data-tone={tone}>
+    <span className={cn("t-display-sm tabular-nums", TEXT[tone], className)} data-tone={tone} data-rating-figure>
       {v}
     </span>
   );

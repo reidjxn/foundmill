@@ -135,8 +135,9 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
   const resultsQ = useQuery(trpc.agent.training.results.queryOptions({ businessId, runId: flow.awaiting?.id ?? "" }, { enabled: !!flow.awaiting, staleTime: 30_000 }));
   const promote = useMutation(
     trpc.agent.training.promote.mutationOptions({
-      onSuccess: () => {
-        setNotice({ tone: "good", text: "Promoted. A seven-day watch starts now; a drop in proven performance offers a one-click rollback." });
+      onSuccess: (run) => {
+        const n = run.ratings.length;
+        setNotice({ tone: "good", text: `Promoted${n ? `; ${n} ${n === 1 ? "rating" : "ratings"} updated` : ""}. A seven-day watch starts now; a drop in proven performance offers a one-click rollback.` });
         setSavedVersionId(null);
         setSavedSnapshot(null);
         void invalidateAgent();

@@ -4,7 +4,7 @@
  * refresh, channel engine steps, journey
  * build and the credential expiry scan. Everything runs in mock mode without a network.
  */
-import { getSkillTests, storedCustomTest } from "@foundmill/agents";
+import { getSkillTests, getTemplateByAgentType, storedCustomTest } from "@foundmill/agents";
 import { openApprovalItem, periodOf, repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { createModelClient } from "@foundmill/models";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -60,7 +60,7 @@ describe("training run (BUILD §11.10)", () => {
     expect(result.skillDeltas[0]).toMatchObject({ skillKey, after: outcome.tested });
     const stored = await repos.training.get(t.db, t.businessId, run.id);
     expect(stored.status).toBe("awaiting_decision");
-    expect(stored.results[skillKey]).toEqual({ old: expect.any(Number), new: outcome.tested });
+    expect(stored.results[skillKey]).toEqual({ old: expect.any(Number), new: outcome.tested, tests: all.length });
     expect(stored.coachSummaryMd).toMatch(/house rule/);
     // Live version and current pointer untouched (AC-11.10.1).
     expect((await repos.agents.get(t.db, t.businessId, agent.id)).currentVersionId).toBe(live.id);
@@ -74,6 +74,51 @@ describe("training run (BUILD §11.10)", () => {
     for (const u of usage.items) expect({ cost: Number(u.costMinor), currency: u.currency }).toEqual({ cost: 0, currency: "USD" });
     const completed = events.items.find((e) => (e.payload as { trainingRunId: string }).trainingRunId === run.id)!;
     expect((completed.payload as { cost: { currency: string } }).cost.currency).toBe("USD");
+  });
+
+  it("a skill with no tests (from the library) is reported as 'No tests yet', never scored at its baseline, and a promotion writes the scored skills only", async () => {
+    const acts = createTrainingActivities(t.deps);
+    const worker = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const workerLive = await repos.agents.getVersion(t.db, t.businessId, worker.currentVersionId!);
+    const agent = await repos.agents.create(t.db, t.businessId, { name: "Library skill engineer", agentType: worker.agentType, initialVersion: { instructions: workerLive.instructions as never, tools: workerLive.tools, modelKey: "sonnet" } });
+    const scoredKey = getTemplateByAgentType(agent.agentType)!.skills[0]!;
+    await repos.skills.upsertAddedDefinition(t.db, t.businessId, { agentType: agent.agentType, skillKey: "library_release_notes", name: "Release notes", description: "", group: "craft", source: "library", instructionsMd: "# Release notes\nSay what changed and who it helps.", fileName: null, contentHash: null });
+    await repos.skills.upsertForAgent(t.db, t.businessId, agent.id, [
+      { skillKey: scoredKey, group: "craft", tested: 10, proven: null, nLive: 0, displayed: 10, potential: 10 },
+      { skillKey: "library_release_notes", group: "craft", tested: null, proven: null, nLive: 0, displayed: 10, potential: 10 },
+    ]);
+    const draft = await repos.agents.createVersion(t.db, t.businessId, agent.id, { instructions: workerLive.instructions as never, tools: workerLive.tools, modelKey: "sonnet", state: "draft", createdByKind: "user" });
+    const run = await repos.training.create(t.db, t.businessId, { agentId: agent.id, fromVersionId: agent.currentVersionId, toVersionId: draft.id });
+    const loaded = await acts.loadTrainingRun({ businessId: t.businessId, trainingRunId: run.id });
+    expect(loaded.skillKeys.sort()).toEqual([scoredKey, "library_release_notes"].sort());
+    const [scored, untested] = await Promise.all([
+      acts.runSkillTests({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, skillKey: scoredKey, modelKey: "sonnet" }),
+      acts.runSkillTests({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, skillKey: "library_release_notes", modelKey: "sonnet" }),
+    ]);
+    expect(scored.testsRun).toBeGreaterThan(0);
+    expect(untested).toMatchObject({ testsRun: 0, previousTested: null, costMinor: 0 });
+
+    // A custom skill whose drafted tests nobody reviewed yet is the other no-tests case: it is told to review them, not to add the skill again.
+    const pendingReview = { ...untested, skillKey: "custom_grant_writing" };
+    const result = await acts.finalizeTrainingRun({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, liveVersionId: agent.currentVersionId, outcomes: [scored, untested, pendingReview], clubRuleFlags: [], startedAt: new Date().toISOString() });
+    expect(result.status).toBe("awaiting_decision");
+    expect(result.skillDeltas.map((d) => d.skillKey)).toEqual([scoredKey]);
+    const stored = await repos.training.get(t.db, t.businessId, run.id);
+    expect(stored.results[scoredKey]).toEqual({ old: 10, new: scored.tested, tests: scored.testsRun });
+    expect(stored.results.library_release_notes).toEqual({ old: 10, new: 10, tests: 0 });
+    expect(stored.results.custom_grant_writing).toEqual({ old: 10, new: 10, tests: 0 });
+    expect(stored.coachSummaryMd).toMatch(/No tests yet for Release notes: its rating stands until the skill has tests \(add it as a custom skill/);
+    expect(stored.coachSummaryMd).toMatch(/No reviewed tests yet for [^:]+: its rating stands until you review the tests drafted for it/);
+    expect(stored.coachSummaryMd).toMatch(/across 1 skill\./);
+    const completed = (await repos.events.list(t.db, t.businessId, { type: "training.completed", limit: 5 })).items.find((e) => (e.payload as { trainingRunId: string }).trainingRunId === run.id)!;
+    expect((completed.payload as { skillDeltas: { skillKey: string }[] }).skillDeltas.map((d) => d.skillKey)).toEqual([scoredKey]);
+
+    // Promote: the scored skill takes its rating; nothing is invented for the library skill, which stays untested.
+    const decided = await repos.training.decide(t.db, t.businessId, run.id, "promoted");
+    expect(decided.ratings.map((r) => r.skillKey)).toEqual([scoredKey]);
+    const skills = await repos.skills.listForAgent(t.db, t.businessId, agent.id);
+    expect(skills.find((s) => s.skillKey === scoredKey)).toMatchObject({ tested: `${scored.tested}.000`, displayed: scored.tested });
+    expect(skills.find((s) => s.skillKey === "library_release_notes")).toMatchObject({ tested: null, displayed: 10 });
   });
 
   it("books each model call once: the run's own row is a count of tests at no cost (O-19, BILL-10)", async () => {

@@ -4,7 +4,7 @@
  * the plain procedure answers. Nothing is stored before the whole reply has passed: a stream that breaks after its first
  * bubble leaves no half exchange, and the same message sent again is answered once.
  */
-import { CONVERSATION_MAX_TOKENS } from "@foundmill/agents";
+import { CONVERSATION_MAX_TOKENS, REFUSED_REPLY_LINES } from "@foundmill/agents";
 import { repos } from "@foundmill/db";
 import { MockModelClient, ModelOutputError, ModelUnavailableError, type CompleteRequest, type ModelClient, type StreamStructuredRequest, type StreamStructuredResult } from "@foundmill/models";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -155,6 +155,19 @@ describe("agent.conversation.sendStream", () => {
     const asked = client.history.filter((r) => r.route === "conversation");
     expect(asked.map((r) => r.maxTokens)).toEqual([CONVERSATION_MAX_TOKENS, CONVERSATION_MAX_TOKENS * 2]);
     expect(doneOf(events).messages[1]!.bubbles.join(" ")).not.toContain("Half a thought");
+  });
+
+  it("a refusal after a shown bubble withdraws it (reset) and ends with the agent's scripted reply, stored like any other", async () => {
+    const before = await sideEffects(hz.A.agentId);
+    hz.deps.models = new BreaksAfter(["Sure, wiring it now."], new ModelOutputError('Model refused the request for route "conversation"', { stopDetails: { type: "refusal", category: "cyber" } }, "refusal"));
+    const events = await collect(await owner().agent.conversation.sendStream({ businessId: hz.A.businessId, subject: { kind: "agent", id: hz.A.agentId }, text: "Can you sort the supplier portal login for me?" }));
+    expect(events.map((e) => e.type)).toEqual(["bubble", "reset", "done"]);
+    const reply = doneOf(events).messages[1]!;
+    expect(reply.bubbles.join(" ")).not.toContain("wiring it now");
+    expect(reply.bubbles[0]).toContain(REFUSED_REPLY_LINES.plain[0]);
+    expect(reply.handOff).toBeNull();
+    expect(reply.quickReplies.length).toBeGreaterThanOrEqual(2);
+    expect((await sideEffects(hz.A.agentId)).events).toBe(before.events + 2);
   });
 
   it("a thanks, a Go with and a hand-off review answer at once: done only, no model call for the thanks", async () => {

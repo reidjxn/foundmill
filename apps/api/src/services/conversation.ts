@@ -38,6 +38,7 @@ import {
   nudgePresets,
   presenceLabel,
   quickReply,
+  refusedAgentReply,
   scriptedAgentReply,
   scriptedIntent,
   thinkingLine,
@@ -49,6 +50,7 @@ import {
   type ConversationSubjectInput,
   type ConversationTaskInput,
   type ConversationTurnInput,
+  type FinalisedReply,
   type MentionGuard,
   type NudgePreset,
   type StarterSubject,
@@ -56,7 +58,7 @@ import {
 } from "@foundmill/agents";
 import { repos, sqlState, type Agent, type AgentMessage, type AgentThread, type DbTx, type InboxItem, type PlanWithActions, type Task } from "@foundmill/db";
 import { buildManifest, stripInvalidMentions, stripMarkup, validateMarkup, type ManifestEntityInput } from "@foundmill/entity-linker";
-import { ModelError, streamStructured, type AgentReplyDraft, type AgentReplyOutput, type CompleteRequest, type CompleteResultWithJson, type ModelClient, type PlanAction, type QuickReply } from "@foundmill/models";
+import { ModelError, isModelRefusal, streamStructured, type AgentReplyDraft, type AgentReplyOutput, type CompleteRequest, type CompleteResultWithJson, type ModelClient, type PlanAction, type QuickReply } from "@foundmill/models";
 import {
   CONVERSATION_SUBJECT_KINDS,
   NotFoundError,
@@ -643,17 +645,29 @@ type ConversationCall = ConversationRequest & Pick<CompleteRequest<AgentReplyDra
 /**
  * The `conversation` route call: one `complete()`, or with `stream` a streamed call whose bubbles are shown as each is
  * written and checked (`bubbleStream`). A streamed reply whose thinking left no room for its JSON is asked again whole
- * with twice the room, as `complete()` does on its own, after `reset` has withdrawn what was shown.
+ * with twice the room, as `complete()` does on its own, after `reset` has withdrawn what was shown. A refusal is thrown
+ * on to the caller (which answers with `refusedAgentReply`), after `reset` has withdrawn any bubble shown before it.
  */
 async function conversationReply(models: ModelClient, call: ConversationCall, guard: MentionGuard, stream?: { show: (bubble: StreamedBubble) => void | Promise<void>; reset: () => void }): Promise<CompleteResultWithJson<AgentReplyDraft>> {
   if (!stream) return models.complete(call);
   try {
     return await streamStructured(models, { ...call, elementPath: "bubbles", elementSchema: z.string(), onElement: bubbleStream(guard, stream.show) });
   } catch (err) {
+    if (isModelRefusal(err)) {
+      stream.reset();
+      throw err;
+    }
     if (!(err instanceof ModelError && err.code === "max_tokens")) throw err;
     stream.reset();
     return models.complete({ ...call, maxTokens: call.maxTokens * 2 });
   }
+}
+
+/** What a refusal's stop details say, for the log (a category such as "cyber"; never the prompt or the reply). */
+function refusalCategory(err: unknown): string | null {
+  const details = (err as { details?: { stopDetails?: { category?: unknown } } } | null)?.details;
+  const category = details?.stopDetails?.category;
+  return typeof category === "string" ? category : null;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -900,15 +914,27 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
   };
   const request = buildConversationRequest(requestInput);
   const emit = hooks.emit;
-  const result = await conversationReply(
-    ctx.models,
-    { ...request, attribution: { businessId: ctx.businessId, agentId: r.agent.id, inboxItemId: r.item?.id, kind: "conversation" }, scope: `conversation:${r.agent.id}` },
-    model.manifest.guard,
-    // Each bubble is shown as this person may read it (the stored reply is masked the same way by `sentAsSeen`).
-    emit ? { show: async (b) => emit({ type: "bubble", index: b.index, text: await bubbleAsSeen(ctx, r, b.text) }), reset: () => emit({ type: "reset" }) } : undefined,
-  );
-  // Open decision options (ids + labels), quoted vs trusted text: the same checks the conversation evals measure.
-  const fin = finaliseAgentReply(result.json, { ...finaliseOptionsFor(requestInput), guard: model.manifest.guard, fallbackQuickReplies: r.starters });
+  let fin: FinalisedReply;
+  let meta: Record<string, unknown>;
+  try {
+    const result = await conversationReply(
+      ctx.models,
+      { ...request, attribution: { businessId: ctx.businessId, agentId: r.agent.id, inboxItemId: r.item?.id, kind: "conversation" }, scope: `conversation:${r.agent.id}` },
+      model.manifest.guard,
+      // Each bubble is shown as this person may read it (the stored reply is masked the same way by `sentAsSeen`).
+      emit ? { show: async (b) => emit({ type: "bubble", index: b.index, text: await bubbleAsSeen(ctx, r, b.text) }), reset: () => emit({ type: "reset" }) } : undefined,
+    );
+    // Open decision options (ids + labels), quoted vs trusted text: the same checks the conversation evals measure.
+    fin = finaliseAgentReply(result.json, { ...finaliseOptionsFor(requestInput), guard: model.manifest.guard, fallbackQuickReplies: r.starters });
+    meta = { source: "model", route: result.route, model: result.model, mode: result.mode, durationMs: result.durationMs, costMinor: result.cost.costMinorInt, costLabel: "Estimate", repairs: fin.repairs.slice(0, 10) };
+  } catch (err) {
+    if (!isModelRefusal(err)) throw err;
+    // The model declined (stop_reason refusal, usually on quoted text that addresses it): the founder gets a calm line
+    // from the agent's voice kit that nothing in it is acted on, and the subject's usual chips. Nothing from the model.
+    ctx.log.warn({ path: "agent.conversation.send", agentId: r.agent.id, subjectKind: input.subject.kind, category: refusalCategory(err), requestId: ctx.requestId }, "conversation model refused; scripted reply sent");
+    fin = refusedAgentReply(turn, { seed, guard: PLAIN_GUARD, fallbackQuickReplies: r.starters });
+    meta = { source: "refused", route: request.route, category: refusalCategory(err), repairs: fin.repairs.slice(0, 10) };
+  }
   const written = await writeExchange(ctx, {
     clientMessageId: input.clientMessageId,
     thread: p.thread,
@@ -919,7 +945,7 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
     reply: fin.reply,
     entityIds: fin.entityIds,
     handOffGated: fin.handOffGates.length > 0,
-    meta: { source: "model", route: result.route, model: result.model, mode: result.mode, durationMs: result.durationMs, costMinor: result.cost.costMinorInt, costLabel: "Estimate", repairs: fin.repairs.slice(0, 10) },
+    meta,
   });
   return sentAsSeen(ctx, r, { ...written, quickReplies: fin.reply.quick_replies, decision: null, handOff: null });
 }
@@ -1088,13 +1114,20 @@ export async function replyAboutConcept(
   const requestInput = conceptConversationInput({ appName: APP_NAME, concept: input.concept, text, quickReply: chip, history: input.history });
   const request = buildConversationRequest(requestInput);
   const emit = hooks.emit;
-  const result = await conversationReply(
-    models,
-    { ...request, attribution: { kind: "ideation_ask" }, scope: input.userId ? `ideation:${input.userId}` : undefined },
-    CONCEPT_GUARD,
-    emit ? { show: (b) => emit({ type: "bubble", ...b }), reset: () => emit({ type: "reset" }) } : undefined,
-  );
-  const fin = finaliseAgentReply(result.json, { ...finaliseOptionsFor(requestInput), guard: CONCEPT_GUARD, fallbackQuickReplies: starters });
+  let fin: FinalisedReply;
+  try {
+    const result = await conversationReply(
+      models,
+      { ...request, attribution: { kind: "ideation_ask" }, scope: input.userId ? `ideation:${input.userId}` : undefined },
+      CONCEPT_GUARD,
+      emit ? { show: (b) => emit({ type: "bubble", ...b }), reset: () => emit({ type: "reset" }) } : undefined,
+    );
+    fin = finaliseAgentReply(result.json, { ...finaliseOptionsFor(requestInput), guard: CONCEPT_GUARD, fallbackQuickReplies: starters });
+  } catch (err) {
+    if (!isModelRefusal(err)) throw err;
+    // The model declined (usually on a card whose text addresses it): the Research agent's calm scripted line, the starters.
+    fin = refusedAgentReply(requestInput, { seed: input.concept.id, guard: CONCEPT_GUARD, fallbackQuickReplies: starters });
+  }
   return {
     bubbles: fin.reply.bubbles,
     quickReplies: fin.reply.quick_replies,

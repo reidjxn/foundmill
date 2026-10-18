@@ -121,6 +121,90 @@ describe("agent.model.set retests (AC-11.10.5)", () => {
   });
 });
 
+describe("promote writes the run's scores onto the agent's ratings (founder: 'Training doesn't update ratings')", () => {
+  let hz: ApiHarness;
+  beforeAll(async () => {
+    hz = await createApiHarness({ prefix: "agentratings" });
+  }, 120_000);
+  afterAll(() => hz.close());
+
+  const skillsOf = async (agentId: string) => new Map((await repos.skills.listForAgent(hz.db, hz.A.businessId, agentId)).map((s) => [s.skillKey, s]));
+  /** A trained draft awaiting the founder's decision, as the orchestrator leaves it (results per skill, test counts). */
+  const awaitingRun = async (results: Record<string, { old: number; new: number; tests?: number }>) => {
+    const { businessId, ownerId, agentId } = hz.A;
+    const { version } = await hz.caller({ userId: ownerId }).agent.training.saveDraft({ businessId, agentId, instructions: { role: "Chief of Staff", goals: ["Plan every cycle"], rules: ["Ask before spending"], playbook: ["Read the inbox first"], tone: "Plain", examples: [] } });
+    const agent = await repos.agents.get(hz.db, businessId, agentId);
+    const run = await repos.training.create(hz.db, businessId, { agentId, fromVersionId: agent.currentVersionId, toVersionId: version.id, status: "awaiting_decision" });
+    return repos.training.update(hz.db, businessId, run.id, { results, endedAt: new Date() });
+  };
+
+  it("promote writes tested, re-blended displayed and potential in one transaction with the event and the audit entry; a skill with no tests stays untested and the profile's figures follow", async () => {
+    const { businessId, ownerId, agentId } = hz.A;
+    const owner = hz.caller({ userId: ownerId });
+    await repos.skills.upsertForAgent(hz.db, businessId, agentId, [
+      { skillKey: "planning", group: "judgement", tested: 10, proven: null, nLive: 0, displayed: 10, potential: 10 },
+      { skillKey: "speed", group: "execution", tested: 10, proven: 14, nLive: 20, displayed: 12, potential: 10 },
+      { skillKey: "library_release_notes", group: "craft", tested: null, proven: null, nLive: 0, displayed: 10, potential: 10 },
+    ]);
+    const run = await awaitingRun({ planning: { old: 10, new: 13, tests: 12 }, speed: { old: 10, new: 8, tests: 12 }, library_release_notes: { old: 10, new: 10, tests: 0 } });
+    // The results read "No tests yet" for the library skill before anything is decided.
+    const results = await owner.agent.training.results({ businessId, runId: run.id });
+    expect(results.deltas.find((d) => d.skillKey === "library_release_notes")).toMatchObject({ old: 10, new: 10, tests: 0 });
+    expect(results.deltas.find((d) => d.skillKey === "planning")).toMatchObject({ delta: 3, tests: 12 });
+
+    const promoted = await owner.agent.training.promote({ businessId, runId: run.id });
+    expect(promoted.decision).toBe("promoted");
+    // Potential is the best tested score across the agent's runs (BUILD §11.10); the template's baseline is not one.
+    expect(promoted.ratings.map((r) => [r.skillKey, r.previousTested, r.tested, r.displayed, r.potential]).sort()).toEqual([
+      ["planning", 10, 13, 13, 13],
+      ["speed", 10, 8, 11, 8],
+    ]);
+    const skills = await skillsOf(agentId);
+    expect(skills.get("planning")).toMatchObject({ tested: "13.000", displayed: 13, potential: 13 });
+    expect(skills.get("speed")).toMatchObject({ tested: "8.000", proven: "14.000", nLive: 20, displayed: 11, potential: 8 });
+    expect(skills.get("library_release_notes")).toMatchObject({ tested: null, displayed: 10, potential: 10 });
+    // The profile shows it at once: the tested rating per skill, and the stars over the skills that have one (13 + 8) / 2.
+    const profile = await owner.agent.profile.get({ businessId, agentId });
+    expect(profile.skills.find((s) => s.skillKey === "planning")).toMatchObject({ tested: "13.000", displayed: 13 });
+    expect(profile.skills.find((s) => s.skillKey === "library_release_notes")).toMatchObject({ tested: null });
+    expect(profile.stars).toEqual({ current: Math.round(10.5 / 4), potential: Math.round(13 / 4) });
+    const audit = await repos.audit.list(hz.db, businessId, { action: "agent.training.promote" });
+    expect((audit.items[0]!.details as { ratings: { skillKey: string; from: number | null; to: number }[] }).ratings.map((r) => [r.skillKey, r.from, r.to]).sort()).toEqual([
+      ["planning", 10, 13],
+      ["speed", 10, 8],
+    ]);
+    const events = await repos.events.list(hz.db, businessId, { type: "agent.promoted", limit: 5 });
+    expect(events.items.some((e) => (e.payload as { trainingRunId: string | null }).trainingRunId === run.id)).toBe(true);
+  });
+
+  it("discard writes nothing, a viewer may not promote, and another business's owner cannot reach the run", async () => {
+    const { businessId, ownerId, viewerId, agentId } = hz.A;
+    const before = await repos.skills.listForAgent(hz.db, businessId, agentId);
+    const run = await awaitingRun({ planning: { old: 13, new: 18, tests: 12 } });
+    await expect(hz.caller({ userId: viewerId }).agent.training.promote({ businessId, runId: run.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(hz.caller({ userId: hz.B.ownerId }).agent.training.promote({ businessId: hz.B.businessId, runId: run.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const discarded = await hz.caller({ userId: ownerId }).agent.training.discard({ businessId, runId: run.id });
+    expect(discarded).toMatchObject({ decision: "discarded", ratings: [] });
+    expect(await repos.skills.listForAgent(hz.db, businessId, agentId)).toEqual(before);
+  });
+
+  it("rollback restores the ratings the promotion replaced and keeps the potential reached (AC-11.10.6)", async () => {
+    const { businessId, ownerId, agentId } = hz.A;
+    const owner = hz.caller({ userId: ownerId });
+    const run = await awaitingRun({ planning: { old: 13, new: 16, tests: 12 }, library_release_notes: { old: 10, new: 10, tests: 0 } });
+    await owner.agent.training.promote({ businessId, runId: run.id });
+    const promoted = (await skillsOf(agentId)).get("planning")!;
+    // The discarded 18 above was reached on a run too, so the potential already remembers it.
+    expect(promoted).toMatchObject({ tested: "16.000", displayed: 16, potential: 18 });
+    await owner.agent.training.rollback({ businessId, agentId });
+    const skills = await skillsOf(agentId);
+    expect(skills.get("planning")).toMatchObject({ tested: "13.000", displayed: 13, potential: promoted.potential });
+    expect(skills.get("library_release_notes")).toMatchObject({ tested: null });
+    const audit = await repos.audit.list(hz.db, businessId, { action: "agent.training.rollback" });
+    expect((audit.items[0]!.details as { ratingsRestored: { skillKey: string; from: number | null; to: number }[] }).ratingsRestored).toEqual([{ skillKey: "planning", from: 16, to: 13 }]);
+  });
+});
+
 describe("agent.training.cancel without Temporal", () => {
   let hz: ApiHarness;
   beforeAll(async () => {

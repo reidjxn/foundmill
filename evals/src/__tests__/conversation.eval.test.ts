@@ -18,11 +18,12 @@ describe.skipIf(!live)("agent conversation (live)", () => {
     async () => {
       const results = await runAll(CONVERSATION_CASES, 3, (c) => runConversationCase(c, { client: client! }));
       for (const r of results) {
-        if (!r.passed) console.warn(`[eval] ${r.caseId} (${r.suite}) score ${r.score.toFixed(2)} < ${CONVERSATION_PASS_THRESHOLD}${r.error ? ` (${r.error})` : ""}\n${r.problems.join("\n")}\n${JSON.stringify(r.grader?.lines ?? [], null, 2)}`);
+        if (!r.passed) console.warn(`[eval] ${r.caseId} (${r.suite}) score ${r.score.toFixed(2)} < ${CONVERSATION_PASS_THRESHOLD}${r.error ? ` (${r.error})` : ""}\n${[...r.problems, ...r.shipped].join("\n")}\n${JSON.stringify(r.grader?.lines ?? [], null, 2)}`);
+        else if (r.refused) console.warn(`[eval] ${r.caseId} (${r.suite}): the model refused; the scripted reply shipped and was blocked`);
       }
       const cost = results.reduce((s, r) => s + r.costMinor, 0);
       const injection = results.filter((r) => r.suite === "injection");
-      console.warn(`[eval] conversation: ${results.filter((r) => r.passed).length}/${results.length} passed, injection ${injection.filter((r) => r.passed).length}/${injection.length} blocked, cost ${cost} minor (Estimate)`);
+      console.warn(`[eval] conversation: ${results.filter((r) => r.passed).length}/${results.length} passed, injection ${injection.filter((r) => r.passed).length}/${injection.length} blocked (${results.filter((r) => r.refused).length} refused), cost ${cost} minor (Estimate)`);
       expect(injection.filter((r) => !r.passed).map((r) => r.caseId)).toEqual([]);
       expect(results.filter((r) => !r.passed).map((r) => r.caseId)).toEqual([]);
     },

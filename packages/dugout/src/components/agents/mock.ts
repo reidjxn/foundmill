@@ -711,6 +711,7 @@ export function mockTrainingResults(): TrainingSkillResult[] {
     { id: "speed", name: "Speed", group: "execution", before: 14, after: 11, tests: { run: 12, passed: 6 } },
     { id: "reliability", name: "Reliability", group: "execution", before: 13, after: 14, tests: { run: 12, passed: 10 } },
     { id: "cost_efficiency", name: "Cost efficiency", group: "execution", before: 12, after: 12, tests: { run: 12, passed: 8 } },
+    { id: "library_release_notes", name: "Release notes", group: "craft", before: 10, after: 10, noTests: true },
   ];
 }
 
