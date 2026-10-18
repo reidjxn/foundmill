@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MockModelClient, RESEARCH_PLAN_KINDS, ResearchPlanOutput } from "@foundmill/models";
 import { CLUB_RULES_HEADER } from "../club-rules";
-import { ADDRESS_REMOVED, describeFoundationsFailure } from "../foundations";
+import { describeFoundationsFailure } from "../foundations";
 import {
   buildResearchPlanRequest,
   countQuestions,
@@ -162,7 +162,7 @@ describe("researchPlanNote", () => {
     const inputs = researchInputs({ icp: "Operations managers at *fintechs* <b>in the UK</b>" });
     const res = await new MockModelClient().complete(buildResearchPlanRequest(inputs));
     const plan = finaliseResearchPlan(res.json, inputs);
-    const note = researchPlanNote(plan, inputs.icp, "Noor");
+    const note = researchPlanNote(plan, inputs.icp);
     expect(note.subject.startsWith("How we'll test the specification with")).toBe(true);
     expect(note.subject.length).toBeLessThanOrEqual(80);
     const n = wordsOf(note.bodyMd);
@@ -173,7 +173,8 @@ describe("researchPlanNote", () => {
     expect(note.bodyMd).toMatch(/Nothing is sent to anyone without your approval/);
     expect(note.bodyMd).toContain("\\*fintechs\\*");
     expect(note.bodyMd).not.toContain("<b>");
-    expect(note.bodyMd).toContain(ADDRESS_REMOVED.length ? "Noor" : "Noor");
+    // The Inbox names the sender; the note signs nothing itself.
+    expect(note.bodyMd).toMatch(/Tell me which test to run first, or read the plan/);
   });
 
   it("describes a failure in the founder's words, never the raw error", () => {

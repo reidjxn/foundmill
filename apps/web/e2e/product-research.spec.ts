@@ -33,7 +33,8 @@ test.describe("product research", () => {
     const compBox = (await competitors.boundingBox())!;
     expect(planBox.y).toBeLessThan(compBox.y);
     // Read opens the artifact as plain Markdown in a dialog; every threshold is an Estimate.
-    await cards.first().getByRole("button", { name: "Read" }).click();
+    // Exact: a draft card also carries "Mark ready".
+    await cards.first().getByRole("button", { name: "Read", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible({ timeout: LONG });
     await expect(dialog.locator("[data-research-artifact-body]")).toContainText(/Estimate/);

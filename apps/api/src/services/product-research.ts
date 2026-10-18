@@ -236,11 +236,14 @@ export async function runResearchPlanLocally(deps: ResearchDeps, businessId: str
     const departments = await repos.departments.list(deps.db, businessId, { includeHidden: true });
     const productDepartmentId = departments.find((d) => (d.moduleKeys as string[]).includes("product"))?.id ?? null;
     const model = { route: res.route, model: res.model, mode: res.mode, costMinor: Math.max(0, res.cost.costMinorInt), costLabel: "Estimate", repaired: res.repaired, runner: "local" };
+    // The one-line ICP (the Customers section's first sentence) names the plan in titles and subjects; the model's
+    // longer summary is kept with the plan.
+    const icp = inputs.icp || plan.icpSummary;
     const applied = await repos.research.ready(deps.db, businessId, attempt, {
-      icp: plan.icpSummary || inputs.icp,
+      icp,
       specVersion: inputs.specVersion,
       agentId,
-      summary: { icp: plan.icpSummary || inputs.icp, assumptions: plan.assumptions, openQuestions: plan.openQuestions, notes: plan.notes, model },
+      summary: { icp, icpSummary: plan.icpSummary, assumptions: plan.assumptions, openQuestions: plan.openQuestions, notes: plan.notes, model },
       artifacts: plan.artifacts.map((a) => ({ kind: a.kind, title: a.title, summary: a.summary, bodyMd: a.bodyMd, status: "draft" as const, createdByAgentId: agentId })),
       onWritten: async (tx, written) => {
         const taskIds: string[] = [];
@@ -250,7 +253,7 @@ export async function runResearchPlanLocally(deps: ResearchDeps, businessId: str
         }
         let inboxItemId: string | null = null;
         if (agentId) {
-          const note = researchPlanNote(plan, plan.icpSummary || inputs.icp, inputs.researcherName);
+          const note = researchPlanNote(plan, icp);
           const item = await repos.inbox.createItem(tx, businessId, { type: "update", from_agent_id: agentId, subject: note.subject, body_md: note.bodyMd, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] }, { costMinor: model.costMinor, currency: PRICING_CURRENCY });
           inboxItemId = item.id;
           await writeEventRow(tx, {

@@ -31,13 +31,18 @@ function sectionsOf(ctx: MockContext): SectionText[] {
     .filter((s) => s.section);
 }
 
+/** The first sentence of a section, read past its heading lines (a line without a sentence end, followed by more). */
 const firstSentence = (text: string): string => {
-  const cleaned = text.replace(/\s+/g, " ").trim();
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  while (lines.length > 1 && !/[.!?]["')]?$/.test(lines[0]!)) lines.shift();
+  const cleaned = lines.join(" ").replace(/\s+/g, " ").trim();
   const m = cleaned.match(/^.*?[.!?](?=\s|$)/);
   return (m ? m[0] : cleaned).trim();
 };
 
 const lower = (s: string) => (s ? s.charAt(0).toLowerCase() + s.slice(1) : s);
+/** Words a specification uses everywhere that never name its theme. */
+const GENERIC_THEME_WORDS = new Set(["first", "last", "next", "today", "value", "time", "work", "week", "weekly", "daily", "month", "monthly", "session", "sessions", "small", "large", "every", "minutes", "hours", "days"]);
 
 export function generateResearchPlan(ctx: MockContext): ResearchPlanOutput {
   const req = ctx.getRecord("research_request") ?? {};
@@ -55,7 +60,7 @@ export function generateResearchPlan(ctx: MockContext): ResearchPlanOutput {
     }
     return undefined;
   };
-  const topic = keywords([vision, ...sections.map((s) => s.text)].join(" "), 6);
+  const topic = keywords([vision, ...sections.map((s) => s.text)].join(" "), 12).filter((w) => !GENERIC_THEME_WORDS.has(w));
   const theme = topic[0] ? topic[0] : "the core workflow";
   const where = markets.length ? markets.slice(0, 2).join(" and ") : "its first market";
   const firstItem = roadmapNow[0] ?? "the first roadmap item";
@@ -250,5 +255,8 @@ export function generateResearchPlan(ctx: MockContext): ResearchPlanOutput {
     `Is there a budget for participant incentives (Estimate: a small voucher per interview), or none?`,
   ];
 
-  return { icp_summary: truncate(`${sentenceCase(icp)}, in ${where}.`, 400), riskiest_assumptions: assumptions, artifacts, first_steps, open_questions };
+  // One or two sentences: the ICP as given (its own final period dropped), then the markets unless it names them already.
+  const icpSentence = sentenceCase(icp).replace(/[.!?]+$/, "");
+  const namesMarkets = markets.some((mk) => icp.toLowerCase().includes(mk.toLowerCase()));
+  return { icp_summary: truncate(namesMarkets || !markets.length ? `${icpSentence}.` : `${icpSentence}, in ${where}.`, 400), riskiest_assumptions: assumptions, artifacts, first_steps, open_questions };
 }

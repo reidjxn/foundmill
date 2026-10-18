@@ -90,9 +90,17 @@ export function firstSentence(text: string, max = 300): string {
   return s.length <= max ? s : `${s.slice(0, max - 1).trimEnd()}…`;
 }
 
-/** Sections cut to a total budget: the longest lose text first, none disappears. */
+/**
+ * The ICP as one line for titles and subjects ("Testing the specification with …"): the first sentence of the text
+ * without a leading label ("Primary segment: …", "ICP: …") and without its final period.
+ */
+export function icpLine(text: string, max = 300): string {
+  return firstSentence(text.replace(/^[A-Za-z][A-Za-z0-9 /&()'-]{0,40}:\s+(?=\S)/, ""), max).replace(/\.$/, "");
+}
+
+/** Sections cut to a total budget: the longest lose text first, none disappears. Lines (headings, paragraphs) stay apart. */
 export function fitSections(sections: ResearchPlanSection[], budget = RESEARCH_INPUT_SPEC_CHARS): ResearchPlanSection[] {
-  const out = sections.map((s) => ({ section: s.section, text: s.text.replace(/\s+/g, " ").trim() }));
+  const out = sections.map((s) => ({ section: s.section, text: s.text.replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n").trim() }));
   const total = () => out.reduce((n, s) => n + s.text.length, 0);
   while (total() > budget) {
     const longest = out.reduce((a, b) => (b.text.length > a.text.length ? b : a));
@@ -181,7 +189,7 @@ export const researchRepo = {
     );
     const vision = (foundations?.vision ?? null) as { statement?: unknown; forWhom?: unknown } | null;
     const customersBody = [...bySection.entries()].find(([section]) => section.toLowerCase() === "customers")?.[1].body.join("\n") ?? "";
-    const icp = customersBody ? firstSentence(customersBody) : typeof vision?.forWhom === "string" ? firstSentence(vision.forWhom) : "";
+    const icp = customersBody ? icpLine(customersBody) : typeof vision?.forWhom === "string" ? icpLine(vision.forWhom) : "";
     return {
       businessId,
       businessName: business.name,

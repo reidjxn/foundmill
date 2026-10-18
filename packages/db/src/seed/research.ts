@@ -11,8 +11,9 @@ import type { SquadResult } from "./squad";
 
 const md = (...lines: string[]) => lines.join("\n");
 
-const NORTHWIND_ICP = "Adults 25-45 in the UK and Ireland with sensitive or reactive skin, buying online, who already read ingredient lists.";
-const LEDGERLY_ICP = "Operations managers and finance leads at UK and US fintechs with 20-200 staff; the buyer is the head of operations, the user is the ops analyst.";
+// One line each, without a final period: it names the plan in the panel title ("Testing the specification with …").
+const NORTHWIND_ICP = "Adults 25-45 in the UK and Ireland with sensitive or reactive skin, buying online, who already read ingredient lists";
+const LEDGERLY_ICP = "Operations managers and finance leads at UK and US fintechs with 20-200 staff; the buyer is the head of operations, the user is the ops analyst";
 
 function researcherOf(squad: SquadResult): string | null {
   return squad.byTemplate.get("product_researcher")?.agent.id ?? squad.byTemplate.get("researcher")?.agent.id ?? null;

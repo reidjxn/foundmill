@@ -143,14 +143,17 @@ describe("the plan's lifecycle (repo)", () => {
   it("inputs read the ICP from the Customers block, the Now roadmap, the founder's markets and the researcher by agent type", async () => {
     const D = await createBusinessFixture(h, "delta");
     await h.service().run(async (tx) => {
-      await repos.product.createBlock(tx, D.businessId, { section: "Customers", position: 1, content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Independent pharmacists in Ireland who order online. They reorder monthly." }] }] } });
+      await repos.product.createBlock(tx, D.businessId, { section: "Customers", position: 1, content: { type: "doc", content: [{ type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Who buys first" }] }, { type: "paragraph", content: [{ type: "text", text: "Primary segment: independent pharmacists in Ireland who order online. They reorder monthly." }] }] } });
       await repos.product.createBlock(tx, D.businessId, { section: "Pricing", position: 2, content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "€49 per month (Estimate)." }] }] } });
       await repos.agents.create(tx, D.businessId, { name: "Noor", role: "Product research analyst", agentType: "product_researcher", layer: "worker", modelKey: "sonnet" });
     });
     const inputs = await h.service().run((tx) => repos.research.inputs(tx, D.businessId));
-    expect(inputs.icp).toBe("Independent pharmacists in Ireland who order online.");
+    // The heading never reads as the ICP, a leading label is dropped and the line carries no final period (it is a title).
+    expect(inputs.icp).toBe("independent pharmacists in Ireland who order online");
     expect(inputs.roadmapNow).toEqual(["Ship onboarding"]);
     expect(inputs.sections.map((s) => s.section)).toEqual(["Customers", "Pricing"]);
+    // Headings and paragraphs stay on their own lines for the model.
+    expect(inputs.sections[0]!.text).toBe("Who buys first\nPrimary segment: independent pharmacists in Ireland who order online. They reorder monthly.");
     expect(inputs.researcherName).toBe("Noor");
     expect(inputs.businessName).toBe("DELTA");
   });

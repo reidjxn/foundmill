@@ -271,7 +271,7 @@ export function smokeThreshold(bodyMd: string): string | null {
  * The update the Product Researcher posts when the plan is ready (BUILD §11.3 note style: fact → why it matters →
  * ask; 60-180 words). Deterministic from the plan, so it needs no second model call and invents nothing.
  */
-export function researchPlanNote(plan: ResearchPlan, icp: string, agentName: string | null): { subject: string; bodyMd: string } {
+export function researchPlanNote(plan: ResearchPlan, icp: string): { subject: string; bodyMd: string } {
   const md = (s: string) => escapeMarkdown(plainLine(s));
   const who = icp || DEFAULT_ICP;
   const interview = plan.artifacts.find((a) => a.kind === "interview_plan");
@@ -293,7 +293,7 @@ export function researchPlanNote(plan: ResearchPlan, icp: string, agentName: str
     `${drafted} artifacts are drafted on Product › Research for testing the specification with ${md(who)}: ${parts.join(", ")}.`,
     riskiest ? `The riskiest assumption comes from the ${md(riskiest.fromSection)} section: ${md(clipWords(riskiest.assumption, 30))} ${md(clipWords(riskiest.whyItMatters, 24))}` : `The assumptions are listed with the sections they come from.`,
     `Nothing is sent to anyone without your approval: recruiting, the page and the survey wait for you. ${plan.firstSteps.length ? `${plan.firstSteps.length} research tasks are on Development › Plan for the next cycles.` : ""}`.trim(),
-    `Tell me which test to run first${agentName ? ` (${md(agentName)})` : ""}, or read the plan and ask for changes.`,
+    `Tell me which test to run first, or read the plan and ask for changes.`,
   ];
   if (plan.openQuestions[0]) lines.splice(3, 0, `First open question: ${md(clipWords(plan.openQuestions[0], 25))}`);
   let body = lines.join("\n\n");

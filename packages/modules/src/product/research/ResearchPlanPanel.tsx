@@ -106,7 +106,15 @@ export function ResearchPlanPanel({ businessId, blocks, onOpenBlock, span = 12, 
   const taskCount = Array.isArray(summary.firstStepTaskIds) ? summary.firstStepTaskIds.length : 0;
   const blockFor = useMemo(() => new Map(blocks.map((b) => [b.section.toLowerCase(), b] as const)), [blocks]);
   const planHref = moduleHref(businessId, departments.data, "development", "plan") ?? routes.department(businessId, "development", "plan");
-  const setStatus = (artifact: ResearchArtifactRow, status: ResearchArtifactStatus) => void action.run(RESEARCH_ARTIFACT_UPDATE_PATH, { artifactId: artifact.id, status }, { key: artifact.id, then: () => research.refetch() });
+  const setStatus = (artifact: ResearchArtifactRow, status: ResearchArtifactStatus) =>
+    void action.run(RESEARCH_ARTIFACT_UPDATE_PATH, { artifactId: artifact.id, status }, {
+      key: artifact.id,
+      then: () => {
+        // The reading dialog shows the new status at once (its copy of the artifact predates the change).
+        setReading((open) => (open && open.id === artifact.id ? { ...open, status } : open));
+        void research.refetch();
+      },
+    });
 
   if (!r) {
     if (failedWithoutData(research) && !isForbidden(research.error)) return <Panel span={span} title="Testing the specification" error={`The research plan could not be loaded. ${errorMessage(research.error)}`} onRetry={research.refetch} className={className} data-testid="research-plan" data-research-state="error" />;
@@ -142,7 +150,7 @@ export function ResearchPlanPanel({ businessId, blocks, onOpenBlock, span = 12, 
       footer={state === "ready" ? <span className="tabular-nums">{r.artifacts.length} artifacts · every threshold and sample size is an Estimate until it is measured · nothing is sent to anyone without your approval</span> : undefined}
     >
       {state === "none" ? (
-        <p className="max-w-reading text-body text-secondary">This business has no research plan: it was set up before the Product Researcher joined. Hire one from Team › Agents and it plans how to test the specification with your customers.</p>
+        <p className="max-w-reading text-body text-secondary">This business has no research plan: it was set up before its specification was drafted here, so there is nothing for the Product Researcher to test yet.</p>
       ) : null}
       {state === "waiting" ? <p className="max-w-reading text-body text-secondary">Starts when the specification is drafted. {agentName} then plans how to test it with the people it is for: discovery interviews, a smoke test, a survey and a demo script.</p> : null}
       {state === "pending" || state === "drafting" ? (
