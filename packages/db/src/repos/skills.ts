@@ -1,4 +1,5 @@
 /** skill_definitions, skill_tests, agent_skills — attribute ratings (BUILD §11.10; routers agent.profile.*). */
+import { blendDisplayed } from "@foundmill/agents";
 import { ADDED_SKILL_SOURCES, SKILL_GROUPS, ValidationError, type AddedSkillSource, type SkillGroup } from "@foundmill/shared";
 import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -70,6 +71,27 @@ export interface AddedAgentSkill {
   potential: number;
   addedAt: Date;
 }
+
+/** A tested rating to write onto one of an agent's skills (`applyTestedRatings`). */
+export interface TestedRatingInput {
+  skillKey: string;
+  /** The tested rating, 1–20. */
+  tested: number;
+  /** The potential to store; left out, the row keeps its potential, raised to `tested` when that is higher. */
+  potential?: number;
+}
+
+/** A rating row as a training decision changed it. */
+export interface AppliedSkillRating {
+  skillKey: string;
+  group: SkillGroup;
+  previousTested: number | null;
+  tested: number;
+  displayed: number;
+  potential: number;
+}
+
+const clampRating = (v: number) => Math.max(1, Math.min(20, Math.round(v)));
 
 /** Held-out tests are redacted to id + count for the Training screen (AC-11.10.2). */
 export type RedactedSkillTest = Pick<SkillTest, "id" | "skillDefinitionId" | "heldOut">;
@@ -302,6 +324,32 @@ export const skillsRepo = {
    */
   async upsertForAgent(db: Executor, businessId: string, agentId: string, inputs: UpsertAgentSkillInput[]): Promise<AgentSkill[]> {
     return (await skillsRepo.upsertForAgents(db, businessId, [{ agentId, skills: inputs }]))[0]!;
+  },
+
+  /**
+   * Writes tested ratings onto an agent's existing skill rows (a promotion, or a rollback restoring what it replaced):
+   * `tested` takes the value, `displayed` is re-blended with the row's proven rating and live tasks (BUILD §11.10,
+   * AC-11.10.3) and `potential` is the value given, else the row's own, never below the new tested rating. A key the
+   * agent has no row for (a skill removed since the run) is skipped: nothing is invented. One statement; the rows
+   * come back as written, in the agent's skill order.
+   */
+  async applyTestedRatings(db: Executor, businessId: string, agentId: string, inputs: readonly TestedRatingInput[]): Promise<AppliedSkillRating[]> {
+    const list = parseInput(z.array(z.object({ skillKey: z.string().trim().min(1).max(80), tested: z.number().min(1).max(20), potential: z.number().int().min(1).max(20).optional() })), [...inputs], "tested ratings");
+    if (list.length === 0) return [];
+    const rows = await skillsRepo.listForAgent(db, businessId, agentId);
+    const updates: { row: AgentSkill; input: UpsertAgentSkillInput; previousTested: number | null }[] = [];
+    for (const row of rows) {
+      const v = list.find((x) => x.skillKey === row.skillKey);
+      if (!v) continue;
+      const tested = clampRating(v.tested);
+      const proven = row.proven === null ? null : Number(row.proven);
+      const displayed = proven === null || row.nLive <= 0 ? tested : blendDisplayed(tested, proven, row.nLive);
+      const potential = Math.max(tested, v.potential ?? row.potential);
+      updates.push({ row, previousTested: row.tested === null ? null : Number(row.tested), input: { skillKey: row.skillKey, group: row.group, tested, proven, nLive: row.nLive, displayed, potential } });
+    }
+    if (updates.length === 0) return [];
+    const written = await skillsRepo.upsertForAgent(db, businessId, agentId, updates.map((u) => u.input));
+    return written.map((w, i) => ({ skillKey: w.skillKey, group: w.group, previousTested: updates[i]!.previousTested, tested: Number(w.tested), displayed: w.displayed, potential: w.potential }));
   },
 
   /** `upsertForAgent` for several agents in the same single statement (a whole team at commit). */

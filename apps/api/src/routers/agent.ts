@@ -148,7 +148,10 @@ export const agentRouter = router({
         // The business's own skills (custom, library, files) read under the name the founder gave or chose.
         const ownKeys = skills.filter((k) => !getSkillDefinition(k.skillKey)).map((k) => k.skillKey);
         const definitions = ownKeys.length ? (await repos.skills.listDefinitions(tx, ctx.businessId, { agentType: agent.agentType })).filter((d) => d.businessId === ctx.businessId && ownKeys.includes(d.skillKey)) : [];
-        const tested = skills.length ? skills.reduce((s, k) => s + Number(k.tested ?? 0), 0) / skills.length : null;
+        // The header's stars: the mean of the tested ratings, over the skills that have one (an untested library or
+        // file skill is not a zero), and the best potential.
+        const testedValues = skills.flatMap((k) => (k.tested === null ? [] : [Number(k.tested)]));
+        const tested = testedValues.length ? testedValues.reduce((s, v) => s + v, 0) / testedValues.length : null;
         const potential = skills.length ? Math.max(...skills.map((k) => k.potential)) : null;
         // One row per day with activity; review findings come only from the nightly roll-up, the rest from the rows.
         const metrics = daily.map((d) => {
@@ -264,14 +267,21 @@ export const agentRouter = router({
       });
       const publicTests: Record<string, number> = {};
       for (const s of skills) publicTests[s.skillKey] = await skillTestCount(ctx.db, ctx.businessId, agent.agentType, s.skillKey);
-      const results = (run.results ?? {}) as Record<string, { old: number; new: number }>;
-      const deltas = Object.entries(results).map(([skillKey, r]) => ({ skillKey, old: r.old, new: r.new, delta: r.new - r.old, drop: r.old - r.new > 1 }));
+      // `tests` 0: the run found no tests for the skill (a library or file skill), so it reads "No tests yet" and a
+      // promotion leaves its rating alone; null on runs from before the count was stored.
+      const deltas = Object.entries(run.results ?? {}).map(([skillKey, r]) => ({ skillKey, old: r.old, new: r.new, delta: r.new - r.old, drop: r.old - r.new > 1, tests: r.tests ?? null }));
       return { run, deltas, publicTestCounts: publicTests, coachSummaryMd: run.coachSummaryMd };
     }),
 
-    /** Make a trained version live. A version that grants tools the live one does not is an owner's or admin's to promote. */
+    /**
+     * Make a trained version live and write the run's scores onto the agent's ratings (`repos.training.decide`). A
+     * version that grants tools the live one does not is an owner's or admin's to promote. Written on the service
+     * connection after the team-write check, as hiring and skill reviews are: the ratings live in `agent_skills`, which
+     * app roles only read under RLS, and the promotion, its ratings, the event and the audit entry are one transaction.
+     */
     promote: write.input(z.object({ runId: Id })).mutation(({ ctx, input }) =>
-      ctx.rls(async (tx) => {
+      ctx.db.transaction(async (tx) => {
+        await repos.memberships.get(tx, ctx.businessId, ctx.userId);
         if (!isAdminRole(ctx)) {
           const pending = await repos.training.get(tx, ctx.businessId, input.runId);
           const agent = await repos.agents.get(tx, ctx.businessId, pending.agentId);
@@ -282,7 +292,7 @@ export const agentRouter = router({
         const run = await repos.training.decide(tx, ctx.businessId, input.runId, "promoted", { watchUntil });
         const version = await repos.agents.getVersion(tx, ctx.businessId, run.toVersionId!);
         await emit(tx, ctx, { type: "agent.promoted", payload: { agentId: run.agentId, trainingRunId: run.id, fromVersionId: run.fromVersionId, toVersionId: version.id, version: version.version, watchUntil: watchUntil.toISOString(), rollback: false } });
-        await audit(tx, ctx, { action: "agent.training.promote", target: { kind: "training_run", id: run.id }, details: { agentId: run.agentId, versionId: version.id } });
+        await audit(tx, ctx, { action: "agent.training.promote", target: { kind: "training_run", id: run.id }, details: { agentId: run.agentId, versionId: version.id, ratings: run.ratings.map((r) => ({ skillKey: r.skillKey, from: r.previousTested, to: r.tested, potential: r.potential })) } });
         return run;
       }),
     ),
@@ -311,21 +321,24 @@ export const agentRouter = router({
     }),
 
     /**
-     * One-click rollback to the previous live version (AC-11.10.6). It also ends the seven-day watch of the run that
-     * promoted the version being left, so no banner offers the same rollback again.
+     * One-click rollback to the previous live version and its skills (AC-11.10.6): the ratings the promotion of the
+     * version being left wrote go back to what they were (`repos.training.revertPromotion`). It also ends the seven-day
+     * watch of that run, so no banner offers the same rollback again. On the service connection, as `promote` is.
      */
     rollback: write.input(z.object({ agentId: Id })).mutation(({ ctx, input }) =>
-      ctx.rls(async (tx) => {
+      ctx.db.transaction(async (tx) => {
+        await repos.memberships.get(tx, ctx.businessId, ctx.userId);
         const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
         const versions = await repos.agents.listVersions(tx, ctx.businessId, agent.id);
         const current = versions.find((v) => v.id === agent.currentVersionId);
         const previous = versions.filter((v) => v.id !== agent.currentVersionId && v.state === "retired" && (!current || v.version < current.version)).sort((a, b) => b.version - a.version)[0];
         if (!previous) throw new ValidationError("No previous live version to roll back to");
         const rolled = await repos.agents.rollback(tx, ctx.businessId, agent.id, previous.id);
+        const restored = agent.currentVersionId ? await repos.training.revertPromotion(tx, ctx.businessId, agent.id, agent.currentVersionId) : [];
         const closed = await repos.training.closeWatch(tx, ctx.businessId, agent.id);
         const watchUntil = new Date(Date.now() + LIMITS.rollbackWatchDays * 86_400_000);
         await emit(tx, ctx, { type: "agent.promoted", payload: { agentId: agent.id, trainingRunId: null, fromVersionId: agent.currentVersionId, toVersionId: previous.id, version: previous.version, watchUntil: watchUntil.toISOString(), rollback: true } });
-        await audit(tx, ctx, { action: "agent.training.rollback", target: { kind: "agent", id: agent.id }, details: { from: agent.currentVersionId, to: previous.id, watchesClosed: closed.map((r) => r.id) } });
+        await audit(tx, ctx, { action: "agent.training.rollback", target: { kind: "agent", id: agent.id }, details: { from: agent.currentVersionId, to: previous.id, watchesClosed: closed.map((r) => r.id), ratingsRestored: restored.map((r) => ({ skillKey: r.skillKey, from: r.previousTested, to: r.tested })) } });
         return rolled;
       }),
     ),

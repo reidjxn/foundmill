@@ -7,8 +7,10 @@
  * the mock sandbox with mock tools only, deterministic checks run first and are authoritative, then the `skillGrader`
  * route scores the rubric. `finalizeTrainingRun` writes results, moves the run to awaiting_decision and emits
  * `training.completed`; `failTrainingRun` ends a run that could not start as failed, so no run stays queued. A run the
- * founder canceled (agent.training.cancel) stays canceled whatever lands later. The live version is never touched
- * here; Promote is the founder's button (apps/api).
+ * founder canceled (agent.training.cancel) stays canceled whatever lands later. The live version and the agent's
+ * ratings are never touched here; Promote is the founder's button (apps/api), and `repos.training.decide` writes the
+ * scores onto the ratings then. A skill with no tests (a library or file skill) is reported as "No tests yet"
+ * (`results[key].tests` 0) rather than scored at its baseline.
  *
  * Training spends model credits, so it honours the team-wide stop (0023) on its own, whether or not Stop all agents'
  * signal reached the workflow (a revoked key or used-up credits signal nothing): a run that loads while the team is
@@ -17,7 +19,7 @@
  */
 import { AgentInstructions, buildSystemPrompt, detectClubRuleViolation, getPrompt, getSkillDefinition, getSkillTests, isCustomSkillKey, ratingFromTested, runDeterministicChecks, skillDisplayName, skillTestFromStored, type AgentTemplate, type SkillTest } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
-import { ACTIVE_TRAINING_STATUSES, MICRO_PER_MINOR, microToMinor, repos } from "@foundmill/db";
+import { ACTIVE_TRAINING_STATUSES, MICRO_PER_MINOR, microToMinor, repos, type TrainingRun } from "@foundmill/db";
 import { SkillGradeOutput, resolveModel } from "@foundmill/models";
 import { MockSandboxProvider, RECORDINGS, type MockSandbox } from "@foundmill/sandbox";
 import { NotFoundError, countOf, formatCount, type AgentStopReason, type ModelKey } from "@foundmill/shared";
@@ -197,7 +199,9 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       const previous = (await repos.skills.listForAgent(db, input.businessId, agent.id)).find((s) => s.skillKey === input.skillKey);
       const previousTested = previous?.tested === null || previous?.tested === undefined ? null : Number(previous.tested);
       if (tests.length === 0) {
-        // Custom skills without a reviewed test set do not count yet (BUILD §11.10 "founder reviews before it counts").
+        // No tests yet: a custom skill without a reviewed test set (BUILD §11.10 "founder reviews before it counts"),
+        // or a library or file skill, which carries instructions and no tests. `testsRun` 0 tells `finalizeTrainingRun`
+        // to report "No tests yet" and a promotion to leave the rating alone; `tested` only fills the results' column.
         return { skillKey: input.skillKey, group, testsRun: 0, meanScore: 0, tested: previousTested ?? template.baselineRating, previousTested, costMinor: 0, costMicroMinor: 0, checksFailed: 0 };
       }
       const instructions = AgentInstructions.safeParse(draft.instructions);
@@ -286,12 +290,19 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
     async finalizeTrainingRun(input: TrainingRunInput & { agentId: string; draftVersionId: string; liveVersionId: string | null; outcomes: SkillTestsOutcome[]; clubRuleFlags: LoadedTrainingRun["clubRuleFlags"]; startedAt: string; status?: "failed" | "cancelled"; error?: string; retest?: LoadedTrainingRun["retest"] }): Promise<TrainingRunResult> {
       const { db } = deps;
       const run = await repos.training.get(db, input.businessId, input.trainingRunId);
-      const results: Record<string, { old: number; new: number }> = {};
+      const results: TrainingRun["results"] = {};
       const skillDeltas: TrainingRunResult["skillDeltas"] = [];
+      /** Skills the run found no tests for (a library or file skill): reported as such, never scored at the baseline. */
+      const noTests: string[] = [];
       const costMinor = Math.max(0, microToMinor(input.outcomes.reduce((a, o) => a + (o.costMicroMinor ?? o.costMinor * MICRO_PER_MINOR), 0)));
       for (const o of input.outcomes) {
         const before = Math.max(1, Math.min(20, Math.round(o.previousTested ?? o.tested)));
-        results[o.skillKey] = { old: before, new: o.tested };
+        if (o.testsRun === 0) {
+          results[o.skillKey] = { old: before, new: before, tests: 0 };
+          noTests.push(o.skillKey);
+          continue;
+        }
+        results[o.skillKey] = { old: before, new: o.tested, tests: o.testsRun };
         skillDeltas.push({ skillKey: o.skillKey, before, after: o.tested });
       }
       const drops = skillDeltas.filter((d) => d.before - d.after > 1);
@@ -302,19 +313,19 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       const flagNote = input.clubRuleFlags.length ? ` The draft tried to change ${input.clubRuleFlags.length} house rule${input.clubRuleFlags.length > 1 ? "s" : ""} (${input.clubRuleFlags.map((f) => f.ruleId).join(", ")}); those lines were ignored and the rules still apply.` : "";
       const intro = retest ? `Retest on ${MODEL_NAMES[retest.toModelKey]} after the model change from ${MODEL_NAMES[retest.fromModelKey]}: ` : "";
       const advice = !retest ? recommendation : recommendation === "promote" ? `promote, so the live version runs on ${MODEL_NAMES[retest.toModelKey]} too` : `discard, and change the model back to ${MODEL_NAMES[retest.fromModelKey]} (the agent works on ${MODEL_NAMES[retest.toModelKey]} until you do)`;
-      // Skills by their display names ("Prioritization", "Test automation"), never the stored keys; a custom skill
-      // reads under the name the founder gave it.
+      // Skills by their display names ("Prioritization", "Test automation"), never the stored keys; a skill the
+      // business added (custom, from the library or a file) reads under the name the founder gave or chose.
       const skillNames = new Map<string, string>();
-      if (!input.status && drops.some((d) => isCustomSkillKey(d.skillKey))) {
+      const named = [...drops.map((d) => d.skillKey), ...noTests].filter((key) => !getSkillDefinition(key));
+      if (!input.status && named.length) {
         const agentType = (await repos.agents.get(db, input.businessId, input.agentId)).agentType;
-        for (const d of drops) {
-          if (isCustomSkillKey(d.skillKey)) skillNames.set(d.skillKey, (await repos.skills.findDefinition(db, input.businessId, agentType, d.skillKey))?.name ?? skillDisplayName(d.skillKey));
-        }
+        for (const key of named) skillNames.set(key, (await repos.skills.findDefinition(db, input.businessId, agentType, key))?.name ?? skillDisplayName(key));
       }
       const skillName = (key: string) => skillNames.get(key) ?? skillDisplayName(key);
+      const noTestsNote = noTests.length ? ` No tests yet for ${noTests.map(skillName).join(", ")}: ${noTests.length === 1 ? "its rating stands" : "their ratings stand"} until the skill has tests (add it as a custom skill to have tests drafted for your review).` : "";
       const coachSummaryMd = input.status
         ? `Training ${input.status === "cancelled" ? "canceled" : "failed"}${input.error ? `: ${input.error}` : ""}.`
-        : `${intro}${countOf(input.outcomes.reduce((a, o) => a + o.testsRun, 0), "test")} across ${countOf(input.outcomes.length, "skill")}. ${countOf(gains.length, "skill")} up, ${formatCount(drops.length)} dropped by more than a point${drops.length ? ` (${drops.map((d) => `${skillName(d.skillKey)} ${d.before}→${d.after}`).join(", ")})` : ""}.${flagNote} Recommendation: ${advice} (Estimate from tested ratings; proven ratings follow live work).`;
+        : `${intro}${countOf(input.outcomes.reduce((a, o) => a + o.testsRun, 0), "test")} across ${countOf(skillDeltas.length, "skill")}. ${countOf(gains.length, "skill")} up, ${formatCount(drops.length)} dropped by more than a point${drops.length ? ` (${drops.map((d) => `${skillName(d.skillKey)} ${d.before}→${d.after}`).join(", ")})` : ""}.${noTestsNote}${flagNote} Recommendation: ${advice} (Estimate from tested ratings; proven ratings follow live work).`;
       // Only a run still in flight takes the outcome: a founder's cancel (agent.training.cancel) that landed while the
       // tests ran stands, and keeps what the tests cost.
       const moved = await repos.training.transition(db, input.businessId, run.id, ACTIVE_TRAINING_STATUSES, { status: input.status ?? "awaiting_decision", results, coachSummaryMd, costMinor, endedAt: deps.clock.now() });
