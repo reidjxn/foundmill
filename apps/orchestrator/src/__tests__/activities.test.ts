@@ -98,13 +98,17 @@ describe("training run (BUILD §11.10)", () => {
     expect(scored.testsRun).toBeGreaterThan(0);
     expect(untested).toMatchObject({ testsRun: 0, previousTested: null, costMinor: 0 });
 
-    const result = await acts.finalizeTrainingRun({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, liveVersionId: agent.currentVersionId, outcomes: [scored, untested], clubRuleFlags: [], startedAt: new Date().toISOString() });
+    // A custom skill whose drafted tests nobody reviewed yet is the other no-tests case: it is told to review them, not to add the skill again.
+    const pendingReview = { ...untested, skillKey: "custom_grant_writing" };
+    const result = await acts.finalizeTrainingRun({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, liveVersionId: agent.currentVersionId, outcomes: [scored, untested, pendingReview], clubRuleFlags: [], startedAt: new Date().toISOString() });
     expect(result.status).toBe("awaiting_decision");
     expect(result.skillDeltas.map((d) => d.skillKey)).toEqual([scoredKey]);
     const stored = await repos.training.get(t.db, t.businessId, run.id);
     expect(stored.results[scoredKey]).toEqual({ old: 10, new: scored.tested, tests: scored.testsRun });
     expect(stored.results.library_release_notes).toEqual({ old: 10, new: 10, tests: 0 });
-    expect(stored.coachSummaryMd).toMatch(/No tests yet for Release notes: its rating stands/);
+    expect(stored.results.custom_grant_writing).toEqual({ old: 10, new: 10, tests: 0 });
+    expect(stored.coachSummaryMd).toMatch(/No tests yet for Release notes: its rating stands until the skill has tests \(add it as a custom skill/);
+    expect(stored.coachSummaryMd).toMatch(/No reviewed tests yet for [^:]+: its rating stands until you review the tests drafted for it/);
     expect(stored.coachSummaryMd).toMatch(/across 1 skill\./);
     const completed = (await repos.events.list(t.db, t.businessId, { type: "training.completed", limit: 5 })).items.find((e) => (e.payload as { trainingRunId: string }).trainingRunId === run.id)!;
     expect((completed.payload as { skillDeltas: { skillKey: string }[] }).skillDeltas.map((d) => d.skillKey)).toEqual([scoredKey]);

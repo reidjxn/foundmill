@@ -322,7 +322,11 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
         for (const key of named) skillNames.set(key, (await repos.skills.findDefinition(db, input.businessId, agentType, key))?.name ?? skillDisplayName(key));
       }
       const skillName = (key: string) => skillNames.get(key) ?? skillDisplayName(key);
-      const noTestsNote = noTests.length ? ` No tests yet for ${noTests.map(skillName).join(", ")}: ${noTests.length === 1 ? "its rating stands" : "their ratings stand"} until the skill has tests (add it as a custom skill to have tests drafted for your review).` : "";
+      // A custom skill without reviewed tests is told apart from a library or file skill, which has none to review.
+      const pendingReview = noTests.filter((key) => isCustomSkillKey(key));
+      const withoutTests = noTests.filter((key) => !isCustomSkillKey(key));
+      const stands = (keys: string[]) => `${keys.map(skillName).join(", ")}: ${keys.length === 1 ? "its rating stands" : "their ratings stand"}`;
+      const noTestsNote = `${withoutTests.length ? ` No tests yet for ${stands(withoutTests)} until the skill has tests (add it as a custom skill to have tests drafted for your review).` : ""}${pendingReview.length ? ` No reviewed tests yet for ${stands(pendingReview)} until you review the tests drafted for it (Review tests on the agent's profile).` : ""}`;
       const coachSummaryMd = input.status
         ? `Training ${input.status === "cancelled" ? "canceled" : "failed"}${input.error ? `: ${input.error}` : ""}.`
         : `${intro}${countOf(input.outcomes.reduce((a, o) => a + o.testsRun, 0), "test")} across ${countOf(skillDeltas.length, "skill")}. ${countOf(gains.length, "skill")} up, ${formatCount(drops.length)} dropped by more than a point${drops.length ? ` (${drops.map((d) => `${skillName(d.skillKey)} ${d.before}→${d.after}`).join(", ")})` : ""}.${noTestsNote}${flagNote} Recommendation: ${advice} (Estimate from tested ratings; proven ratings follow live work).`;
