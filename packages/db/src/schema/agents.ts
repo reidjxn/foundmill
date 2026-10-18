@@ -244,6 +244,17 @@ export const agentSkills = pgTable(
 export type AgentSkill = typeof agentSkills.$inferSelect;
 export type NewAgentSkill = typeof agentSkills.$inferInsert;
 
+/**
+ * One skill's result on a training run (old → new tested rating). `tests` is how many tests scored it: 0 means the
+ * skill has no tests yet (a library or file skill), so `new` equals `old` and a promotion leaves its rating alone;
+ * absent on runs from before the count was stored, which were scored.
+ */
+export interface TrainingRunSkillResult {
+  old: number;
+  new: number;
+  tests?: number;
+}
+
 export const trainingRuns = pgTable(
   "training_runs",
   {
@@ -256,7 +267,7 @@ export const trainingRuns = pgTable(
     costMinor: minor("cost_minor").notNull().default(0),
     /** A training run's model cost: US cents (0024), the model price list's currency. */
     currency: usdCurrency(),
-    results: jsonb("results").$type<Record<string, { old: number; new: number }>>().notNull().default(emptyObject),
+    results: jsonb("results").$type<Record<string, TrainingRunSkillResult>>().notNull().default(emptyObject),
     coachSummaryMd: text("coach_summary_md").notNull().default(""),
     decision: text("decision", { enum: TRAINING_DECISIONS }),
     watchUntil: tstz("watch_until"),

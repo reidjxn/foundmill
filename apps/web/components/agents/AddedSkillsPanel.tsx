@@ -39,7 +39,7 @@ export function AddedSkillsPanel({ businessId, profile, onChanged }: AddedSkills
   const add = useMutation(
     trpc.agent.skills.add.mutationOptions({
       onSuccess: (rows) => {
-        toast({ title: rows.length === 1 ? `“${rows[0]!.name}” added` : `${rows.length} skills added`, description: "On the attributes now, untested until a training run scores it.", tone: "good" });
+        toast({ title: rows.length === 1 ? `“${rows[0]!.name}” added` : `${rows.length} skills added`, description: "On the attributes now, marked Untested. Library and file skills carry no tests, so a training run reports them as No tests yet; to have one scored, add it as a custom skill.", tone: "good" });
         refresh();
       },
     }),
@@ -78,7 +78,7 @@ export function AddedSkillsPanel({ businessId, profile, onChanged }: AddedSkills
             </Button>
           </span>
         }
-        empty={!addedQ.isLoading && added.length === 0 ? { icon: BookOpen, children: `Give ${agent.name} how-to skills from the library or a skill file (SKILL.md, .md or .txt). No tests to draft: they show on its attributes at once, untested until a training run scores them.` } : undefined}
+        empty={!addedQ.isLoading && added.length === 0 ? { icon: BookOpen, children: `Give ${agent.name} how-to skills from the library or a skill file (SKILL.md, .md or .txt). No tests to draft: they show on its attributes at once, marked Untested, and a training run reports them as No tests yet. To have a skill scored, add it as a custom skill and review the tests it drafts.` } : undefined}
         footer="A skill adds instructions after the house rules. It never changes the agent's tools, autonomy, spend caps or approvals."
         data-testid="added-skills"
       >

@@ -96,6 +96,27 @@ describe("skill rows", () => {
       ["Testing", 12, undefined],
     ]);
   });
+  it("once a promoted run has written its score, the skill shows the tested rating and the Untested chip is gone", () => {
+    const rows = toSkillRows(
+      [skill({ skillKey: "library_release_notes", tested: "12", displayed: 12, potential: 12, name: "Release notes", source: "library" } as never), skill({ skillKey: "library_newsletter_writing", tested: null, displayed: 8, potential: 8, name: "Newsletter writing", source: "library" } as never)],
+      [run({ decision: "promoted", results: { library_release_notes: { old: 10, new: 12, tests: 12 }, library_newsletter_writing: { old: 8, new: 8, tests: 0 } } })],
+    );
+    expect(rows[0]).toMatchObject({ name: "Release notes", value: 12, tested: 12, potential: 12, delta: 2 });
+    expect(rows[0]!.note).toBeUndefined();
+    // The run found no tests for the other one: nothing was written, so it is still Untested and shows no change.
+    expect(rows[1]).toMatchObject({ name: "Newsletter writing", value: 8, note: "Untested", delta: 0 });
+    expect(rows[1]!.tested).toBeUndefined();
+  });
+  it("reads a run's results under the skills' names and marks a skill the run found no tests for", () => {
+    const rows = toTrainingResults(
+      { run: run({}), deltas: [{ skillKey: "testing", old: 10, new: 13, delta: 3, drop: false, tests: 12 }, { skillKey: "library_release_notes", old: 10, new: 10, delta: 0, drop: false, tests: 0 }], publicTestCounts: { testing: 10, library_release_notes: 0 }, coachSummaryMd: "" } as never,
+      [skill({ skillKey: "testing", group: "craft" }), skill({ skillKey: "library_release_notes", group: "craft", name: "Release notes", source: "library" } as never)],
+    );
+    expect(rows[0]).toMatchObject({ id: "testing", name: "Testing", before: 10, after: 13, tests: { run: 10, passed: 7 } });
+    expect(rows[0]!.noTests).toBeUndefined();
+    expect(rows[1]).toMatchObject({ id: "library_release_notes", name: "Release notes", before: 10, after: 10, noTests: true });
+    expect(rows[1]!.tests).toBeUndefined();
+  });
   it("turns a 1–20 mean into 0–5 stars in halves", () => {
     expect(starsFor(14)).toBe(3.5);
     expect(starsFor(20)).toBe(5);

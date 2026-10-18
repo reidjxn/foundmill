@@ -196,6 +196,86 @@ describe("training idempotency (RA-13) and the watch after a rollback (TPD-20)",
   });
 });
 
+describe("a promoted run writes its scores to the agent's ratings (founder: 'Training doesn't update ratings')", () => {
+  const seedSkills = (agentId: string) =>
+    repos.skills.upsertForAgent(r.db, r.A.businessId, agentId, [
+      { skillKey: "testing", group: "craft", tested: 10, proven: null, nLive: 0, displayed: 10, potential: 10 },
+      { skillKey: "speed", group: "execution", tested: 10, proven: 14, nLive: 20, displayed: 12, potential: 10 },
+      { skillKey: "debugging", group: "craft", tested: 10, proven: null, nLive: 0, displayed: 10, potential: 10 },
+      { skillKey: "library_release_notes", group: "craft", tested: null, proven: null, nLive: 0, displayed: 10, potential: 10 },
+    ]);
+  const trained = async (agentId: string, currentVersionId: string | null, results: Record<string, { old: number; new: number; tests?: number }>) => {
+    const draft = await repos.agents.createVersion(r.db, r.A.businessId, agentId, { instructions: { role: "v2" }, state: "draft" });
+    const run = await repos.training.create(r.db, r.A.businessId, { agentId, fromVersionId: currentVersionId, toVersionId: draft.id, status: "awaiting_decision" });
+    return repos.training.update(r.db, r.A.businessId, run.id, { results });
+  };
+  const byKey = async (agentId: string) => new Map((await repos.skills.listForAgent(r.db, r.A.businessId, agentId)).map((s) => [s.skillKey, s]));
+
+  it("promote writes each tested skill's score (tested, re-blended displayed, potential); skills the run did not test, or that have no tests, keep their rows", async () => {
+    const { businessId } = r.A;
+    const a = await agent("Promote ratings", { initialVersion: { instructions: { role: "v1" } } });
+    await seedSkills(a.id);
+    // The run tested three skills (one up, one down, one legacy result without a test count) and found no tests for the library skill.
+    const run = await trained(a.id, a.currentVersionId, { testing: { old: 10, new: 13, tests: 12 }, speed: { old: 10, new: 8, tests: 12 }, debugging: { old: 10, new: 11 }, library_release_notes: { old: 10, new: 10, tests: 0 } });
+    const decided = await repos.training.decide(r.db, businessId, run.id, "promoted");
+    expect(decided.decision).toBe("promoted");
+    expect(decided.ratings.map((x) => x.skillKey).sort()).toEqual(["debugging", "speed", "testing"]);
+    const skills = await byKey(a.id);
+    expect(skills.get("testing")).toMatchObject({ tested: "13.000", displayed: 13, potential: 13 });
+    // Proven outcomes still weigh in: n = 20 → w = 0.5 → (8 + 14) / 2 = 11.
+    expect(skills.get("speed")).toMatchObject({ tested: "8.000", proven: "14.000", nLive: 20, displayed: 11 });
+    expect(skills.get("debugging")).toMatchObject({ tested: "11.000", displayed: 11, potential: 11 });
+    // Nothing was invented for a skill with no tests: it stays untested at the baseline.
+    expect(skills.get("library_release_notes")).toMatchObject({ tested: null, displayed: 10, potential: 10 });
+  });
+
+  it("potential is the best tested score across the agent's last five finished runs (BUILD §11.10)", async () => {
+    const { businessId } = r.A;
+    const a = await agent("Potential ratings", { initialVersion: { instructions: { role: "v1" } } });
+    await seedSkills(a.id);
+    const first = await trained(a.id, a.currentVersionId, { testing: { old: 10, new: 15, tests: 12 } });
+    await repos.training.decide(r.db, businessId, first.id, "promoted");
+    expect((await byKey(a.id)).get("testing")).toMatchObject({ tested: "15.000", potential: 15 });
+    // A later promoted run scores lower: the rating follows it, the potential remembers the 15.
+    const second = await trained(a.id, (await repos.agents.get(r.db, businessId, a.id)).currentVersionId, { testing: { old: 15, new: 12, tests: 12 } });
+    await repos.training.decide(r.db, businessId, second.id, "promoted");
+    expect((await byKey(a.id)).get("testing")).toMatchObject({ tested: "12.000", displayed: 12, potential: 15 });
+  });
+
+  it("a discarded run writes nothing, and a failed or canceled run cannot be decided", async () => {
+    const { businessId } = r.A;
+    const a = await agent("Discard ratings", { initialVersion: { instructions: { role: "v1" } } });
+    await seedSkills(a.id);
+    const before = await repos.skills.listForAgent(r.db, businessId, a.id);
+    const run = await trained(a.id, a.currentVersionId, { testing: { old: 10, new: 16, tests: 12 } });
+    const decided = await repos.training.decide(r.db, businessId, run.id, "discarded");
+    expect(decided.ratings).toEqual([]);
+    expect(await repos.skills.listForAgent(r.db, businessId, a.id)).toEqual(before);
+    for (const status of ["failed", "cancelled"] as const) {
+      const ended = await trained(a.id, a.currentVersionId, { testing: { old: 10, new: 16, tests: 12 } });
+      await repos.training.update(r.db, businessId, ended.id, { status });
+      await expect(repos.training.decide(r.db, businessId, ended.id, "promoted")).rejects.toThrow(/not awaiting a decision/);
+    }
+    expect(await repos.skills.listForAgent(r.db, businessId, a.id)).toEqual(before);
+  });
+
+  it("a rollback restores the ratings the promotion replaced (AC-11.10.6) and keeps the potential reached", async () => {
+    const { businessId } = r.A;
+    const a = await agent("Rollback ratings", { initialVersion: { instructions: { role: "v1" } } });
+    await seedSkills(a.id);
+    const run = await trained(a.id, a.currentVersionId, { testing: { old: 10, new: 14, tests: 12 }, library_release_notes: { old: 10, new: 10, tests: 0 } });
+    await repos.training.decide(r.db, businessId, run.id, "promoted");
+    const promoted = await repos.agents.get(r.db, businessId, a.id);
+    expect((await byKey(a.id)).get("testing")).toMatchObject({ tested: "14.000", potential: 14 });
+    const restored = await repos.training.revertPromotion(r.db, businessId, a.id, promoted.currentVersionId!);
+    expect(restored.map((x) => x.skillKey)).toEqual(["testing"]);
+    expect((await byKey(a.id)).get("testing")).toMatchObject({ tested: "10.000", displayed: 10, potential: 14 });
+    expect((await byKey(a.id)).get("library_release_notes")).toMatchObject({ tested: null });
+    // A version no promoted run made live has nothing to restore.
+    expect(await repos.training.revertPromotion(r.db, businessId, a.id, a.currentVersionId!)).toEqual([]);
+  });
+});
+
 describe("custom skill tests count once reviewed (AC-08)", () => {
   it("reviewTests keeps the chosen visible tests and every held-out one, archives the rest, and needs one visible test", async () => {
     const { businessId } = r.A;

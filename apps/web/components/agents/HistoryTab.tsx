@@ -31,7 +31,8 @@ export function historyEvents(profile: TabProps["profile"], currency: string): T
     });
   }
   for (const r of profile.trainingRuns) {
-    const n = Object.keys(r.results ?? {}).length;
+    // Skills the run scored: one it found no tests for (`tests` 0, a library or file skill) was not graded.
+    const n = Object.values(r.results ?? {}).filter((x) => x.tests !== 0).length;
     const kind = isRetestRun(r, profile.versions) ? "Retest" : "Training";
     events.push({
       id: `run-${r.id}`,

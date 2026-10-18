@@ -1,9 +1,10 @@
 /** training_runs — the Training screen lifecycle (BUILD §11.10; routers agent.training.*). */
 import { ConflictError, MODEL_KEYS, ValidationError } from "@foundmill/shared";
-import { and, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { TRAINING_DECISIONS, TRAINING_STATUSES, agentVersions, trainingRuns, type AgentVersion, type TrainingRun } from "../schema";
+import { TRAINING_DECISIONS, TRAINING_STATUSES, agentVersions, trainingRuns, type AgentVersion, type TrainingRun, type TrainingRunSkillResult } from "../schema";
 import { agentsRepo, type CreateAgentVersionInput } from "./agents";
+import { skillsRepo, type AppliedSkillRating, type TestedRatingInput } from "./skills";
 import { Currency, changes, defined, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
 
 export const CreateTrainingRunInput = z.object({
@@ -18,7 +19,17 @@ export const CreateTrainingRunInput = z.object({
 });
 export type CreateTrainingRunInput = z.input<typeof CreateTrainingRunInput>;
 
-export const SkillResult = z.object({ old: z.number(), new: z.number() });
+/** One skill's old → new on a run; `tests` 0 means the skill has no tests yet and was not scored (schema `TrainingRunSkillResult`). */
+export const SkillResult = z.object({ old: z.number(), new: z.number(), tests: z.number().int().min(0).optional() });
+
+/** True when the run scored the skill: a test count above zero, or a result from before the count was stored. */
+export const scoredOnRun = (r: TrainingRunSkillResult): boolean => r.tests === undefined || r.tests > 0;
+
+/** How many finished runs the potential looks back over (BUILD §11.10 "across the last 5 training runs"). */
+export const POTENTIAL_WINDOW_RUNS = 5;
+
+/** A decided run with the rating rows the decision wrote (empty for a discard). */
+export type DecidedTrainingRun = TrainingRun & { ratings: AppliedSkillRating[] };
 
 export const UpdateTrainingRunInput = z.object({
   status: z.enum(TRAINING_STATUSES).optional(),
@@ -188,15 +199,21 @@ export const trainingRepo = {
   },
 
   /**
-   * Founder decision after grading: `promoted` makes the candidate version live (and starts the watch window),
-   * `discarded` leaves the current version in place. Only runs awaiting a decision can be decided.
+   * Founder decision after grading: `promoted` makes the candidate version live (and starts the watch window) and
+   * writes the run's scores onto the agent's ratings; `discarded` leaves the current version and the ratings in place.
+   * Only runs awaiting a decision can be decided.
    *
    * Promoting changes the agent's model only for a model change's retest copy (`isModelRetestVersion`, which exists to
    * put the agent on that model). Any other draft keeps the model it was saved with, which can be one the agent has since
    * left (the model changed after the draft was saved, or the draft previewed another model): the agent keeps the model
    * it runs now (FU-T2-1).
+   *
+   * The ratings (BUILD §11.10 "never changes the live version until Promote"): every skill the run scored takes its
+   * new tested rating, its displayed rating is re-blended with the proven one, and its potential becomes the best
+   * tested score across the agent's last five finished runs, this one included. A skill with no tests yet (`tests` 0:
+   * a library or file skill) and a skill the run did not cover keep their rows, so no rating is ever invented.
    */
-  async decide(db: Executor, businessId: string, runId: string, decision: (typeof TRAINING_DECISIONS)[number], options: { watchUntil?: Date } = {}): Promise<TrainingRun> {
+  async decide(db: Executor, businessId: string, runId: string, decision: (typeof TRAINING_DECISIONS)[number], options: { watchUntil?: Date } = {}): Promise<DecidedTrainingRun> {
     const d = parseInput(z.enum(TRAINING_DECISIONS), decision, "training decision");
     return db.transaction(async (tx) => {
       const run = await trainingRepo.get(tx, businessId, runId);
@@ -212,12 +229,63 @@ export const trainingRepo = {
         .returning();
       const decided = claimed[0];
       if (!decided) throw new ValidationError("Training run already decided", { runId });
-      if (d === "promoted") {
-        const candidate = await agentsRepo.getVersion(tx, businessId, run.toVersionId!);
-        await agentsRepo.promoteVersion(tx, businessId, run.agentId, candidate.id, { keepAgentModel: !isModelRetestVersion(candidate) });
-      }
-      return decided;
+      if (d !== "promoted") return { ...decided, ratings: [] };
+      const candidate = await agentsRepo.getVersion(tx, businessId, run.toVersionId!);
+      await agentsRepo.promoteVersion(tx, businessId, run.agentId, candidate.id, { keepAgentModel: !isModelRetestVersion(candidate) });
+      const scored = Object.entries(decided.results).filter(([, r]) => scoredOnRun(r));
+      if (scored.length === 0) return { ...decided, ratings: [] };
+      const best = await trainingRepo.bestTestedInWindow(tx, businessId, run.agentId);
+      const ratings = await skillsRepo.applyTestedRatings(
+        tx,
+        businessId,
+        run.agentId,
+        scored.map(([skillKey, r]): TestedRatingInput => ({ skillKey, tested: r.new, potential: Math.max(r.new, best.get(skillKey) ?? r.new) })),
+      );
+      return { ...decided, ratings };
     });
+  },
+
+  /**
+   * The best tested score per skill across the agent's last `POTENTIAL_WINDOW_RUNS` finished runs with results, the
+   * potential of BUILD §11.10 ("best tested score reached ... across the last 5 training runs"). Canceled and failed
+   * runs are left out (their results are partial); a skill a run found no tests for does not count on that run.
+   */
+  async bestTestedInWindow(db: Executor, businessId: string, agentId: string): Promise<Map<string, number>> {
+    const rows = await db
+      .select({ results: trainingRuns.results })
+      .from(trainingRuns)
+      .where(and(eq(trainingRuns.businessId, businessId), eq(trainingRuns.agentId, agentId), isNull(trainingRuns.archivedAt), inArray(trainingRuns.status, ["done", "awaiting_decision"]), sql`${trainingRuns.results} <> '{}'::jsonb`))
+      .orderBy(desc(sql`coalesce(${trainingRuns.endedAt}, ${trainingRuns.createdAt})`), desc(trainingRuns.id))
+      .limit(POTENTIAL_WINDOW_RUNS);
+    const best = new Map<string, number>();
+    for (const row of rows) {
+      for (const [skillKey, r] of Object.entries(row.results)) {
+        if (!scoredOnRun(r)) continue;
+        best.set(skillKey, Math.max(best.get(skillKey) ?? 0, r.new));
+      }
+    }
+    return best;
+  },
+
+  /**
+   * A rollback leaving `versionId` restores the ratings its promotion replaced (AC-11.10.6 "restores the previous live
+   * version and its skills"): every skill that run scored takes its `old` tested rating back, displayed re-blended; the
+   * potential reached stays (it was reached). Nothing to restore (no promoted run made the version live, or it scored
+   * nothing) returns an empty list.
+   */
+  async revertPromotion(db: Executor, businessId: string, agentId: string, versionId: string): Promise<AppliedSkillRating[]> {
+    const rows = await db
+      .select()
+      .from(trainingRuns)
+      .where(and(eq(trainingRuns.businessId, businessId), eq(trainingRuns.agentId, agentId), eq(trainingRuns.toVersionId, versionId), eq(trainingRuns.decision, "promoted"), isNull(trainingRuns.archivedAt)))
+      .orderBy(desc(sql`coalesce(${trainingRuns.endedAt}, ${trainingRuns.createdAt})`), desc(trainingRuns.id))
+      .limit(1);
+    const run = rows[0];
+    if (!run) return [];
+    const restore = Object.entries(run.results)
+      .filter(([, r]) => scoredOnRun(r))
+      .map(([skillKey, r]): TestedRatingInput => ({ skillKey, tested: Math.max(1, Math.min(20, Math.round(r.old))) }));
+    return skillsRepo.applyTestedRatings(db, businessId, agentId, restore);
   },
 
   /**
