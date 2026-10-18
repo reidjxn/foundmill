@@ -25,7 +25,7 @@ import {
   chunkSections,
   describeFoundationsFailure,
   finaliseFoundations,
-  foundationsReadyNote,
+  foundationsSignoffNotes,
   progressEventPayload,
   readFoundationsProgress,
   readyEventPayload,
@@ -200,9 +200,10 @@ export function createFoundationsActivities(deps: OrchestratorDeps) {
       }
       const door = input.door ?? inputs.door;
       const res = await repos.foundations.apply(deps.db, input.businessId, input.attempt, draft, {
-        note: (stats) => foundationsReadyNote(draft, door, stats),
+        // The two sign-off notes (founder, 2026-10-18): the specification and the roadmap, each a decision from the Product lead.
+        signoffs: { spec: (stats) => foundationsSignoffNotes(draft, door, stats).spec, roadmap: (stats) => foundationsSignoffNotes(draft, door, stats).roadmap },
         model: input.model,
-        // The Inbox event goes through the outbox in the same transaction as the item (a retried apply writes neither).
+        // The Inbox events go through the outbox in the same transaction as the items (a retried apply writes neither).
         onInboxItem: async (tx, item) => {
           if (!item.fromAgentId) return;
           await emitEvent(tx, {
@@ -215,7 +216,7 @@ export function createFoundationsActivities(deps: OrchestratorDeps) {
         // Open tabs refetch on it and turn ready at once.
         onApplied: (tx) => emitEvent(tx, { businessId: input.businessId, type: "foundations.progressed", actor: inputs.authorAgentId ? agentActor(inputs.authorAgentId) : systemActor, payload: readyEventPayload(input.attempt, draft) }),
       });
-      return { applied: res.applied, inboxItemId: res.inboxItem?.id ?? null };
+      return { applied: res.applied, inboxItemId: res.inboxItems[0]?.id ?? null };
     },
 
     async failFoundations(input: BusinessFoundationsInput & { error: string }): Promise<{ failed: boolean }> {

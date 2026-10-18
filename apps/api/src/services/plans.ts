@@ -22,6 +22,7 @@ import { compileOptionPlan as compileOptionPlanRules, compilePlanRuleBased, PLAN
 import { agentAutonomy, agentPrincipal, evaluate, type EvaluateResult, type ToolCtxInput } from "@foundmill/policy";
 import { CHANNEL_KEYS, CHANNEL_META, CreatePlaybookParams, ForbiddenError, hasSectionAccess, MODEL_KEYS, planActionSection, planSectionWalls, TASK_KINDS, type ChannelKey, type ModelKey, type ModuleKey, type PlanActionType, type PolicyOutcome, type Section, type SectionMembership, type TaskKind } from "@foundmill/shared";
 import { changeAgentModels } from "./agent-model";
+import { DISTRIBUTION_NOT_STARTED } from "./engines";
 import type { TemporalService } from "./temporal";
 import { WORKFLOWS, workflowIds } from "./temporal";
 
@@ -365,10 +366,15 @@ const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is
  */
 export async function syncChannelEngines(ctx: { db: Executor; temporal: TemporalService; businessId: string; userId: string }, toggles: readonly ChannelToggle[]) {
   const results: { channelId: string; workflow: Awaited<ReturnType<TemporalService["start"]>> }[] = [];
+  // Before the founder has started distribution (0062) an enabled channel keeps its place on the board, but no engine
+  // starts and none is recorded: Start distribution starts them all.
+  const started = toggles.some((t) => t.enabled) ? await repos.businesses.distributionStarted(ctx.db, ctx.businessId) : true;
   for (const t of toggles) {
     const workflowId = workflowIds.engine(t.channelId);
     const workflow = t.enabled
-      ? await ctx.temporal.start(WORKFLOWS.channelEngine, { workflowId, args: [{ businessId: ctx.businessId, channelId: t.channelId, channelKey: t.channelKey }] })
+      ? started
+        ? await ctx.temporal.start(WORKFLOWS.channelEngine, { workflowId, args: [{ businessId: ctx.businessId, channelId: t.channelId, channelKey: t.channelKey }] })
+        : { queued: false, workflowId, reason: DISTRIBUTION_NOT_STARTED }
       : await ctx.temporal.signal(workflowId, "stop", { reason: "channel_disabled", by: ctx.userId });
     if (workflow.queued) await repos.channels.setEngineWorkflow(ctx.db, ctx.businessId, t.channelId, t.enabled ? workflowId : null);
     results.push({ channelId: t.channelId, workflow });

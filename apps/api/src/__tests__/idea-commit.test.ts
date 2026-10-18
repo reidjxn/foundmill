@@ -71,11 +71,20 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     const dashboards = await repos.dashboards.list(hz.db, bid, userId);
     expect(dashboards).toHaveLength(1);
 
-    // The Board's first decision in the Inbox, blocking Continue.
-    const inbox = await caller.inbox.list({ businessId: bid, tab: "respond" });
-    expect(inbox.items.some((i) => i.id === result.boardItem.id && i.type === "decision" && i.blocksContinue)).toBe(true);
-    expect(result.boardItem.fromAgentId).toBe(result.chiefOfStaffId);
-    expect(inbox.continueState).toEqual({ kind: "blocked", count: 1 });
+    // The first cycle starts groundwork only: no channel or code task at commit (founder, 2026-10-18).
+    const tasks = await repos.tasks.list(hz.db, bid, { limit: 100 });
+    expect(tasks.items.map((t) => t.kind).sort()).toEqual(seed.firstCycleTasks.map((t) => t.kind).sort());
+    expect(tasks.items.some((t) => t.kind === "channel" || t.kind === "code")).toBe(false);
+
+    // The Chief of Staff's welcome note in the Inbox: an Update that blocks nothing; no Board decision yet (it comes with
+    // Start distribution) and nothing asks the founder to decide before the foundations are drafted.
+    const inbox = await caller.inbox.list({ businessId: bid, limit: 50 });
+    expect(inbox.items.map((i) => ({ id: i.id, type: i.type, blocksContinue: i.blocksContinue }))).toEqual([{ id: result.firstItem.id, type: "update", blocksContinue: false }]);
+    expect(result.firstItem.fromAgentId).toBe(result.chiefOfStaffId);
+    expect(result.firstItem.subject).toBe("Your team is drafting the product foundations");
+    expect(result.firstItem.bodyMd).toContain("Nothing is spent on distribution until you start it");
+    expect(inbox.continueState).toEqual({ kind: "idle" });
+    expect((await caller.business.get({ businessId: bid })).productStage).toBe("drafting");
 
     // Event through the outbox + audit + idea stamped.
     const events = await repos.events.list(hz.db, bid, { type: "idea.committed" });
@@ -91,14 +100,14 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(result.cycle.queued).toBe(true);
     expect(temporal.starts.find((s) => s.type === "businessCycle")?.workflowId).toBe(`cycle:${bid}:1`);
 
-    // Every starter channel on the board runs its engine from the start, its id recorded on the channel (audit GTM-01).
+    // The starter channels are on the board, but no engine starts and none is recorded until the founder starts
+    // distribution (founder, 2026-10-18; audit GTM-01 still holds: the Board reads "Waiting for the product").
     const running = await repos.channels.list(hz.db, bid, { enabled: true });
     expect(running.map((c) => c.channelKey).sort()).toEqual([...seed.defaultChannels].sort());
-    for (const c of running) {
-      expect(temporal.starts.some((s) => s.type === "channelEngine" && s.workflowId === `engine:${c.id}`)).toBe(true);
-      expect(c.engineWorkflowId).toBe(`engine:${c.id}`);
-    }
-    expect(result.engines.map((e) => e.workflowId).sort()).toEqual(running.map((c) => `engine:${c.id}`).sort());
+    expect(temporal.starts.some((s) => s.type === "channelEngine" && s.workflowId.startsWith("engine:"))).toBe(false);
+    for (const c of running) expect(c.engineWorkflowId).toBeNull();
+    expect(result.engines).toEqual([]);
+    expect(business.distributionStartedAt).toBeNull();
 
     // The new owner can read the business and departments through the business procedures.
     const me = await caller.business.get({ businessId: bid });
@@ -122,7 +131,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     const created = first.alreadyCommitted ? second : first;
     const replay = first.alreadyCommitted ? first : second;
     expect(replay.business.name).toBe(created.business.name);
-    expect(replay.boardItem.id).toBe(created.boardItem.id);
+    expect(replay.firstItem.id).toBe(created.firstItem.id);
     expect(replay.chiefOfStaffId).toBe(created.chiefOfStaffId);
     expect(replay.taskIds).toEqual(created.taskIds);
     expect([...replay.departmentIds].sort()).toEqual([...created.departmentIds].sort());
@@ -131,7 +140,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
 
     // A retry after the fact answers the same way.
     const retry = await caller.idea.commit(input);
-    expect(retry).toMatchObject({ alreadyCommitted: true, business: { id: created.business.id }, boardItem: { id: created.boardItem.id } });
+    expect(retry).toMatchObject({ alreadyCommitted: true, business: { id: created.business.id }, firstItem: { id: created.firstItem.id } });
 
     // Exactly one business, one team, one Board item, one first cycle.
     const mine = (await repos.businesses.listForUser(hz.db, userId)).filter((b) => b.name.startsWith("Twice Walks"));
@@ -277,7 +286,7 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(survey.relevance).toMatchObject({ summary: "Two in three clinics still book by phone.", provenance: "Estimate", origin: { kind: "concept_card", ideaId: idea.id } });
   });
 
-  it("the Board's first item never promises that nothing is spent before the decision: the first cycle starts at commit (audit api-services-13)", async () => {
+  it("the Board's item never promises that nothing is spent before the decision: the first cycle starts at commit (audit api-services-13)", async () => {
     expect(BOARD_FIRST_DECISION_LINE).toMatch(/started on the basics/);
     expect(BOARD_FIRST_DECISION_LINE).not.toMatch(/spends anything/);
     const archetypeCopy = JSON.stringify(getArchetypeSeed("b2b_saas"));

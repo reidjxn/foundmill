@@ -1,12 +1,13 @@
 /**
- * product.foundations.* / product.spec.* / product.roadmap.* / product.proposals.* / product.sources.* (BUILD §11.1
- * first open, §11.5; AC-11.5.2, AC-11.5.3).
+ * product.foundations.* / product.signoff.* / product.spec.* / product.roadmap.* / product.proposals.* /
+ * product.sources.* (BUILD §11.1 first open, §11.5; AC-11.5.2, AC-11.5.3; founder 2026-10-18 sign-offs).
  */
-import { EditSpecBlockInput, UpsertRoadmapItemInput, repos, type AppliedHunk, type Executor, type ProposalDecisionResult } from "@foundmill/db";
+import { EditSpecBlockInput, UpsertRoadmapItemInput, repos, type AppliedHunk, type DbTx, type ProposalDecisionResult } from "@foundmill/db";
 import { HUNK_DECISIONS, SOURCE_KINDS, ValidationError, WRITE_ROLES } from "@foundmill/shared";
 import { z } from "zod";
 import { ensureFoundations, foundationsView, isStale, retryFoundations } from "../services/foundations";
 import { modelLimited } from "../services/model-limits";
+import { decideProductSignoff, reopenSpecSignoffAfterPublish, signoffViews } from "../services/signoff";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { Id, audit, businessProcedure, effectivePermission, emit, router, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 
@@ -43,12 +44,14 @@ function appliedDetails(applied: readonly AppliedHunk[]) {
  * same transaction (Development re-plans and Distribution reviews messaging from it) and audit the publish. Returns the
  * proposal with the version it published, if any.
  */
-async function settleResult(tx: Executor, ctx: Pick<BusinessContext, "businessId" | "userId">, result: ProposalDecisionResult) {
+async function settleResult(tx: DbTx, ctx: BusinessContext, result: ProposalDecisionResult) {
   const { applied: _applied, published, ...proposal } = result;
   if (published) {
     const { version, previousVersion, changedBlockIds, counts } = published;
     await emit(tx, ctx, { type: "spec.version_published", payload: { specVersionId: version.id, version: version.version, previousVersion, proposalId: proposal.id, changedBlockIds, changelog: version.changelogMd.slice(0, 4000), hunksAccepted: counts.accepted, hunksRejected: counts.rejected, hunksEdited: counts.edited } });
     await audit(tx, ctx, { action: "product.spec.publish", target: { kind: "spec_version", id: version.id }, details: { version: version.version, proposalId: proposal.id } });
+    // A specification the founder sent back and that was revised through proposals asks for sign-off again.
+    await reopenSpecSignoffAfterPublish(tx, ctx, version);
   }
   return { ...proposal, publishedVersion: published?.version ?? null };
 }
@@ -76,6 +79,19 @@ export const productRouter = router({
       const result = await retryFoundations({ db: ctx.db, models: ctx.models, temporal: ctx.temporal, log: ctx.log }, ctx.businessId, { userId: ctx.userId });
       if (!result.started && result.view.status !== "drafting") throw new ValidationError(result.view.status === "none" ? "This business has no drafting to retry" : `Nothing to retry: the drafting is ${result.view.status}`);
       return { ...result.view, started: result.started, stale: false };
+    }),
+  }),
+
+  /**
+   * The founder's sign-offs of the specification and the roadmap (founder, 2026-10-18): `get` is what the Product tabs
+   * show (the stage and each kind's latest round); `decide` is Approve / Request changes from the tabs, the same
+   * implementation the Inbox note's answer runs. Requesting changes needs the founder's words.
+   */
+  signoff: router({
+    get: read.query(({ ctx }) => ctx.rls((tx) => signoffViews(tx, ctx.businessId))),
+    decide: write.input(z.object({ kind: z.enum(["spec", "roadmap"]), decision: z.enum(["approve", "request_changes"]), notes: z.string().max(2000).nullish() })).mutation(async ({ ctx, input }) => {
+      const result = await decideProductSignoff(ctx, { kind: input.kind, decision: input.decision, notes: input.notes ?? null });
+      return { signoff: result.signoff, stage: result.stage, specVersion: result.specVersion, taskId: result.task?.id ?? null, followUpId: result.followUp?.id ?? null, build: result.build };
     }),
   }),
 
@@ -113,6 +129,8 @@ export const productRouter = router({
         const blocks = (version.snapshot as { blocks?: Array<{ id: string }> }).blocks ?? [];
         await emit(tx, ctx, { type: "spec.version_published", payload: { specVersionId: version.id, version: version.version, previousVersion, changedBlockIds: blocks.map((b) => b.id), changelog: input.changelogMd, hunksAccepted: 0, hunksRejected: 0, hunksEdited: 0 } });
         await audit(tx, ctx, { action: "product.spec.publish", target: { kind: "spec_version", id: version.id }, details: { version: version.version } });
+        // A specification the founder sent back asks for sign-off again once a revised version is published.
+        await reopenSpecSignoffAfterPublish(tx, ctx, version);
         return version;
       }),
     ),

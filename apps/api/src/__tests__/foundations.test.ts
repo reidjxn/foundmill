@@ -108,18 +108,26 @@ describe("product.foundations — Door A (Ideation Studio)", () => {
     expect(booked.every((u) => u.currency === PRICING_CURRENCY && (u.details as { label?: string }).label === "Estimate")).toBe(true);
   });
 
-  it("posts one Inbox update from the Product lead with the vision, and writes inbox.item_created", async () => {
+  it("posts the two sign-off notes from the Product lead (decisions that block Continue) and writes inbox.item_created for each", async () => {
     const inbox = await a.caller.inbox.list({ businessId: a.businessId, limit: 50 });
-    const notes = inbox.items.filter((i) => i.subject === "Vision, specification and roadmap drafted");
-    expect(notes).toHaveLength(1);
-    expect(notes[0]).toMatchObject({ type: "update", blocksContinue: false });
-    const words = notes[0]!.bodyMd.split(/\s+/).filter(Boolean).length;
-    expect(words).toBeGreaterThanOrEqual(60);
-    expect(words).toBeLessThanOrEqual(180);
-    const events = await repos.events.list(hz.db, a.businessId, { type: "inbox.item_created" });
-    expect(events.items.some((e) => (e.payload as { inboxItemId?: string }).inboxItemId === notes[0]!.id)).toBe(true);
-    // The Board's decision is still there and still blocks Continue.
-    expect(inbox.items.some((i) => i.id === a.result.boardItem.id && i.blocksContinue)).toBe(true);
+    const spec = inbox.items.filter((i) => i.subject === "Sign off the product specification");
+    const roadmap = inbox.items.filter((i) => i.subject === "Sign off the product roadmap");
+    expect(spec).toHaveLength(1);
+    expect(roadmap).toHaveLength(1);
+    for (const note of [spec[0]!, roadmap[0]!]) {
+      expect(note).toMatchObject({ type: "decision", blocksContinue: true });
+      const words = note.bodyMd.split(/\s+/).filter(Boolean).length;
+      expect(words).toBeGreaterThanOrEqual(60);
+      expect(words).toBeLessThanOrEqual(180);
+      const events = await repos.events.list(hz.db, a.businessId, { type: "inbox.item_created" });
+      expect(events.items.some((e) => (e.payload as { inboxItemId?: string }).inboxItemId === note.id)).toBe(true);
+      // Each note is tied to its round; nothing else is asked for.
+      expect(await repos.productSignoffs.forInboxItem(hz.db, a.businessId, note.id)).toMatchObject({ status: "pending", round: 1 });
+    }
+    expect(inbox.continueState).toEqual({ kind: "blocked", count: 2 });
+    // The welcome note from Take charge blocks nothing; the business waits for the founder's sign-off.
+    expect(inbox.items.some((i) => i.id === a.result.firstItem.id && !i.blocksContinue)).toBe(true);
+    expect((await a.caller.business.get({ businessId: a.businessId })).productStage).toBe("awaiting_signoff");
   });
 
   it("a business without foundations (committed before them, or seeded) reports none and starts nothing", async () => {
@@ -259,11 +267,9 @@ describe("product.foundations — Door B (Import)", () => {
       expect(relevance.imported).toBe(false);
     }
 
-    // The Board's first item carries the import's suggested first decisions.
-    expect(result.boardItem.subject).toBe("Where should the team start with what you imported?");
-    const decision = result.boardItem.decision as { options: { id: string; recommended: boolean }[] } | null;
-    expect(decision?.options.map((o) => o.id)).toEqual(report.firstDecisions.map((d) => d.id));
-    expect(decision?.options.filter((o) => o.recommended)).toHaveLength(1);
+    // The first note is the Chief of Staff's welcome; the import's first decisions arrive when the build starts.
+    expect(result.firstItem.subject).toBe("Your team is drafting the product foundations");
+    expect(result.firstItem.bodyMd).toContain("from the Import report");
 
     await f.caller.product.foundations.ensure({ businessId: bid });
     await settleFoundationRuns();
@@ -274,6 +280,19 @@ describe("product.foundations — Door B (Import)", () => {
     const roadmap = await repos.product.listRoadmap(hz.db, bid);
     expect(roadmap.some((i) => /issue #\d+|LIN-\d+/.test(i.descriptionMd ?? ""))).toBe(false);
     expect(view.summary).toMatchObject({ importedIssues: 0 });
+
+    // Door B's "Where should the team start with what you imported?" is posted when the build starts: after both
+    // sign-offs, with the import's suggested first decisions as its options (founder, 2026-10-18).
+    const inboxBefore = await f.caller.inbox.list({ businessId: bid, limit: 50 });
+    expect(inboxBefore.items.some((i) => i.subject === "Where should the team start with what you imported?")).toBe(false);
+    await f.caller.product.signoff.decide({ businessId: bid, kind: "spec", decision: "approve" });
+    const second = await f.caller.product.signoff.decide({ businessId: bid, kind: "roadmap", decision: "approve" });
+    expect(second.build?.importItemId).toBeTruthy();
+    const board = await f.caller.inbox.get({ businessId: bid, itemId: second.build!.importItemId! });
+    expect(board.item).toMatchObject({ type: "decision", subject: "Where should the team start with what you imported?", blocksContinue: true });
+    const decision = board.item.decision as { options: { id: string; recommended: boolean }[] } | null;
+    expect(decision?.options.map((o) => o.id)).toEqual(report.firstDecisions.map((d) => d.id));
+    expect(decision?.options.filter((o) => o.recommended)).toHaveLength(1);
   });
 
   it("refuses an Import job that is unsigned, someone else's, unfinished or another business's own (L1)", async () => {

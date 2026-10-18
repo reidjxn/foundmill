@@ -72,15 +72,19 @@ export function idleSummary(brief: BusinessBrief, waiting: readonly BriefTask[])
   const roadmap = brief.untaskedRoadmap ?? [];
   const byDeps = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && t.blocked).length;
   const approvals = waiting.filter((t) => t.awaitingApproval).length;
-  const retrying = waiting.length - approvals;
+  const held = waiting.filter((t) => channelDeferral(brief, t) !== null).length;
+  const retrying = waiting.length - approvals - held;
   const parts: string[] = [];
-  if (roadmap.length > 0) {
+  // Before the founder's sign-off nothing is planned beyond groundwork (founder, 2026-10-18).
+  if (brief.productStage === "awaiting_signoff") parts.push("The specification and roadmap are waiting for your sign-off in the Inbox; building starts when both are approved");
+  if (roadmap.length > 0 && brief.productStage !== "awaiting_signoff") {
     const names = roadmap.slice(0, 3).map((r) => r.title);
     parts.push(`${roadmap.length} roadmap item${roadmap.length === 1 ? " has" : "s have"} no tasks yet (${names.join(", ")}${roadmap.length > names.length ? ", …" : ""}). Open Development › Plan and choose Build a task graph to turn ${roadmap.length === 1 ? "it" : "them"} into work`);
   }
   if (approvals > 0) parts.push(`${approvals} task${approvals === 1 ? " waits" : "s wait"} for your approval in the Inbox`);
   if (retrying > 0) parts.push(`${retrying} task${retrying === 1 ? " is" : "s are"} waiting to be retried or need${retrying === 1 ? "s" : ""} you to start ${retrying === 1 ? "it" : "them"} from the Plan`);
   if (byDeps > 0) parts.push(`${byDeps} task${byDeps === 1 ? " waits" : "s wait"} on earlier tasks`);
+  if (held > 0) parts.push(`${held} channel task${held === 1 ? " waits" : "s wait"} until you start distribution from Distribution › Board`);
   const reason = parts.length > 0 ? `${parts.join("; ")}.` : "The board is clear.";
   return `Nothing is ready to start for ${brief.businessName}, so no cycle was planned. ${reason}`;
 }
@@ -96,8 +100,19 @@ export function approvalDeferral(task: BriefTask): string | null {
   return hold.outcome === "rejected" ? "the founder rejected its request; it runs again once started by hand" : "waiting for the founder's approval in the Inbox";
 }
 
-/** Why a dispatchable-looking task sits this cycle out (a retry not yet due, an approval), or null. */
-const deferralOf = (task: BriefTask): string | null => approvalDeferral(task) ?? retryDeferral(task);
+/** Why a channel task waits before the founder has started distribution (the mock planner uses the same words). */
+export const CHANNEL_WAITS_REASON = "distribution starts when you start it from Distribution › Board";
+
+/**
+ * Channel work is held back in code, not left to the model (founder, 2026-10-18): until the business sells, every
+ * channel task is deferred with the same reason. A brief from before the stage existed holds nothing back.
+ */
+export function channelDeferral(brief: Pick<BusinessBrief, "productStage">, task: Pick<BriefTask, "kind">): string | null {
+  return task.kind === "channel" && brief.productStage !== undefined && brief.productStage !== "selling" ? CHANNEL_WAITS_REASON : null;
+}
+
+/** Why a dispatchable-looking task sits this cycle out (a retry not yet due, an approval, distribution not started), or null. */
+const deferralOf = (task: BriefTask, brief: Pick<BusinessBrief, "productStage"> = {}): string | null => channelDeferral(brief, task) ?? approvalDeferral(task) ?? retryDeferral(task);
 
 function pickAssignee(task: BriefTask, brief: BusinessBrief, requested: string | null): BriefAgent | null {
   const byId = new Map(brief.agents.map((a) => [a.id, a]));
@@ -153,17 +168,19 @@ export function createCycleActivities(deps: OrchestratorDeps) {
       const chief = getTemplate("chief_of_staff");
       const system = buildSystemPrompt({ businessName: brief.businessName, appName: APP_NAME, template: chief, brief: brief.text, glossary: brief.glossary });
       const budgetText = brief.budgetRemainingMinor === null ? "the founder's own key (no credits)" : `${(brief.budgetRemainingMinor / 100).toFixed(2)} ${brief.creditsCurrency} of credits (Estimate)`;
-      const prompt = getPrompt("chief_of_staff_planner").render({ business_name: brief.businessName, max_agents: brief.maxAgents, budget: budgetText, capacity: brief.capacity });
-      const waiting = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && deferralOf(t) !== null);
-      const candidates = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && deferralOf(t) === null);
+      const productStage = brief.productStage ?? "selling";
+      const prompt = getPrompt("chief_of_staff_planner").render({ business_name: brief.businessName, max_agents: brief.maxAgents, budget: budgetText, capacity: brief.capacity, product_stage: productStage });
+      const waiting = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && deferralOf(t, brief) !== null);
+      const candidates = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && deferralOf(t, brief) === null);
       // Nothing can start: say why instead of paying for a plan that starts nothing (audit OL-10, BF-14).
       if (candidates.length === 0) {
-        return { summary: idleSummary(brief, waiting), timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: waiting.map((t) => ({ taskId: t.id, reason: deferralOf(t)! })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0, idle: true };
+        return { summary: idleSummary(brief, waiting), timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: waiting.map((t) => ({ taskId: t.id, reason: deferralOf(t, brief)! })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0, idle: true };
       }
       // The planner sees the most important and oldest tasks, identical ones folded; the payload never grows with the backlog.
       const shown = foldDuplicates(candidates).slice(0, PLAN_PAYLOAD_TASKS).map(({ task }) => task);
       const payload = {
         business_mode: brief.businessMode,
+        product_stage: productStage,
         trigger: input.trigger,
         cycle_number: input.cycleNumber,
         max_agents: brief.maxAgents,
@@ -210,7 +227,7 @@ export function createCycleActivities(deps: OrchestratorDeps) {
       }
       // The planner may leave dispatchable work out; nothing silently disappears — it is listed as deferred.
       for (const t of candidates) if (!seen.has(t.id) && !deferred.some((d) => d.taskId === t.id)) deferred.push({ taskId: t.id, reason: "not selected for this cycle" });
-      for (const t of waiting) deferred.push({ taskId: t.id, reason: deferralOf(t)! });
+      for (const t of waiting) deferred.push({ taskId: t.id, reason: deferralOf(t, brief)! });
       starts.sort((a, b) => a.priority - b.priority);
       return {
         summary: plan.summary,
