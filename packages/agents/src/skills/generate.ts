@@ -15,6 +15,7 @@ import { CORE_BLUEPRINTS } from "./blueprints/core";
 import { CHANNEL_BLUEPRINTS } from "./blueprints/channels";
 import { ENGINEERING_BLUEPRINTS } from "./blueprints/engineering";
 import { LEAD_BLUEPRINTS } from "./blueprints/leads";
+import { RESEARCH_BLUEPRINTS } from "./blueprints/research";
 import { SPECIALIST_BLUEPRINTS } from "./blueprints/specialists";
 import { UTILITY_BLUEPRINTS } from "./blueprints/utilities";
 import { fillScenario, fnv1a, SCENARIOS, type Scenario } from "./scenarios";
@@ -29,6 +30,7 @@ export const ALL_BLUEPRINTS: BlueprintSet = Object.freeze({
   ...ENGINEERING_BLUEPRINTS,
   ...CHANNEL_BLUEPRINTS,
   ...SPECIALIST_BLUEPRINTS,
+  ...RESEARCH_BLUEPRINTS,
   ...UTILITY_BLUEPRINTS,
 });
 

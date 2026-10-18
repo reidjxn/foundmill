@@ -683,18 +683,35 @@ function roadmapDescription(description: string, criteria: string[], sourceRef: 
  * messages can carry request ids and internal detail; the cause is logged by the caller.
  */
 export function describeFoundationsFailure(err: unknown): string {
+  return describeModelFailure(err, { subject: "The drafting", agent: "The drafting agent", refusalHint: "Check the idea and the imported sources, then try again." });
+}
+
+export interface ModelFailureWords {
+  /** The run, as a sentence subject ("The drafting", "The research plan"). */
+  subject: string;
+  /** Who was asked ("The drafting agent", "The Product Researcher"). */
+  agent: string;
+  /** What to check after a refusal. */
+  refusalHint: string;
+}
+
+/**
+ * The founder-readable reason a background model run failed (the foundations drafting, the research plan). Never the
+ * raw error: provider messages can carry request ids and internal detail; the cause is logged by the caller.
+ */
+export function describeModelFailure(err: unknown, words: ModelFailureWords): string {
   const e = err as { name?: string; code?: string; status?: number } | null;
-  if (e?.name === "ModelOutputError" && e.code === "max_tokens") return "The drafting agent ran out of room before it finished. Try again.";
-  if (e?.name === "ModelOutputError") return "The drafting agent's answer could not be read. Try again.";
+  if (e?.name === "ModelOutputError" && e.code === "max_tokens") return `${words.agent} ran out of room before it finished. Try again.`;
+  if (e?.name === "ModelOutputError") return `${words.agent}'s answer could not be read. Try again.`;
   // Before the rate-limit check: the tier's spend cap is a 429 too, and waiting a minute does not lift it.
   const billing = modelBillingFacts(err);
-  if (billing) return modelBillingMessage(billing, "The drafting");
+  if (billing) return modelBillingMessage(billing, words.subject);
   if (e?.name === "ModelRateLimitError" || e?.status === 429 || e?.code === "rate_limited") return "The model was busy. Try again in a minute.";
   if (e?.code === "auth" || e?.status === 401) return "The model key was refused. Check the Anthropic key in Settings, then try again.";
   if (e?.code === "unavailable") return "The model service did not answer. Try again in a few minutes.";
-  if (e?.code === "refusal") return "The drafting agent declined to answer. Check the idea and the imported sources, then try again.";
-  if (e?.name === "AbortError" || e?.name === "TimeoutError" || e?.code === "aborted" || /timed? ?out/i.test(String((err as Error)?.message ?? ""))) return "The drafting took too long and was stopped. Try again.";
-  return "The drafting did not finish. Try again.";
+  if (e?.code === "refusal") return `${words.agent} declined to answer. ${words.refusalHint}`;
+  if (e?.name === "AbortError" || e?.name === "TimeoutError" || e?.code === "aborted" || /timed? ?out/i.test(String((err as Error)?.message ?? ""))) return `${words.subject} took too long and was stopped. Try again.`;
+  return `${words.subject} did not finish. Try again.`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

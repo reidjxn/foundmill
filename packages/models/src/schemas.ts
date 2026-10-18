@@ -10,6 +10,7 @@ import {
   ExhibitKind,
   InboxItemType,
   PlanActionType,
+  ResearchArtifactKind,
   RoadmapHorizon,
   Severity,
   TaskKind,
@@ -562,6 +563,54 @@ export const FoundationsSkeletonOutput = z.object({
   roadmap: z.array(FoundationsSkeletonRoadmapItem).min(3).max(40),
 });
 export type FoundationsSkeletonOutput = z.infer<typeof FoundationsSkeletonOutput>;
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Product research plan (route `worker`, the Product Researcher; BUILD §11.5 Research tab)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** The artifact kinds a research plan drafts; `demo` and `findings` come later, from the tests themselves. */
+export const RESEARCH_PLAN_KINDS = ["interview_plan", "interview_script", "smoke_test", "survey", "demo_script"] as const satisfies readonly ResearchArtifactKind[];
+
+export const ResearchAssumption = z.object({
+  /** The claim the specification makes that would hurt most if wrong. */
+  assumption: z.string().min(1).max(400),
+  /** The specification section it comes from, spelled as in the outline. */
+  from_section: z.string().min(1).max(120),
+  why_it_matters: z.string().min(1).max(400),
+  /** The cheapest test that would move it. */
+  test_kind: ResearchArtifactKind,
+});
+export type ResearchAssumption = z.infer<typeof ResearchAssumption>;
+
+export const ResearchArtifactDraft = z.object({
+  kind: ResearchArtifactKind,
+  title: z.string().min(1).max(120),
+  summary: z.string().min(1).max(300),
+  /** Plain Markdown (headings, lists, paragraphs); no links, images, addresses or entity markup survive the finalizer. */
+  body_md: z.string().min(1).max(8000),
+});
+export type ResearchArtifactDraft = z.infer<typeof ResearchArtifactDraft>;
+
+export const ResearchFirstStep = z.object({
+  title: z.string().min(1).max(120),
+  goal: z.string().min(1).max(600),
+  acceptance: z.array(z.string().min(1).max(300)).min(1).max(4),
+});
+export type ResearchFirstStep = z.infer<typeof ResearchFirstStep>;
+
+/**
+ * The research plan: how the specification and the direction will be tested with the ICP before and while the product
+ * is built. One each of the five plan kinds is expected; the finalizer adds a placeholder for one the model left out.
+ */
+export const ResearchPlanOutput = z.object({
+  icp_summary: z.string().min(1).max(400),
+  riskiest_assumptions: z.array(ResearchAssumption).min(3).max(6),
+  artifacts: z.array(ResearchArtifactDraft).min(4).max(6),
+  /** The follow-up research tasks the cycles dispatch (recruit interviewees, run the smoke test …). */
+  first_steps: z.array(ResearchFirstStep).min(2).max(4),
+  open_questions: z.array(z.string().min(1).max(400)).max(6),
+});
+export type ResearchPlanOutput = z.infer<typeof ResearchPlanOutput>;
 
 // Founder ↔ agent conversation (route `conversation`): QuickReply, AgentReplyOutput and their limits.
 export * from "./conversation-schema";

@@ -1209,6 +1209,32 @@ const foundationsProgressed = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// Product research (BUILD §11.5 Research tab; the Product Researcher's plan)
+// ---------------------------------------------------------------------------------------------------
+
+const productResearchDrafted = declareEvent(
+  "product.research_drafted",
+  z.object({
+    researchId: Id,
+    /** The drafting attempt that wrote it. */
+    attempt: z.number().int().positive(),
+    /** The Product Researcher the plan is attributed to (null when the business has none hired). */
+    agentId: Id.nullable(),
+    /** The artifacts written (interview plan and script, smoke test, survey, demo script). */
+    artifactIds: z.array(Id).max(12),
+    /** The follow-up research tasks created for the cycles. */
+    taskIds: z.array(Id).max(8),
+    /** The researcher's Inbox note announcing the plan. */
+    inboxItemId: Id.nullable(),
+  }),
+  {
+    doc: "The Product Researcher's research plan is ready: artifacts on Product › Research, follow-up tasks on Development › Plan and one Inbox note. apps/stream pushes it so open tabs refetch `product.research.get`. Never narrated (the researcher posts the note itself).",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Founder ↔ agent conversations (audit-conversation §4)
 // ---------------------------------------------------------------------------------------------------
 
@@ -1341,6 +1367,7 @@ export const EVENTS = {
   "conversation.message_posted": conversationMessagePosted,
   "membership.changed": membershipChanged,
   "agent.message_sent": agentMessageSent,
+  "product.research_drafted": productResearchDrafted,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
 
 export type EventsRegistry = typeof EVENTS;
