@@ -34,7 +34,7 @@ export const CreateFoundationsInput = z.object({
 export type CreateFoundationsInput = z.input<typeof CreateFoundationsInput>;
 
 /** Plain text of a Tiptap document (one line per paragraph, heading or list item). */
-function pmText(doc: unknown): string {
+export function pmText(doc: unknown): string {
   const lines: string[] = [];
   const inline = (n: { text?: unknown; content?: unknown }): string => (typeof n.text === "string" ? n.text : Array.isArray(n.content) ? (n.content as object[]).map((c) => inline(c)).join("") : "");
   const walk = (n: unknown) => {

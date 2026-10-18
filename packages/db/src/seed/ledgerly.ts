@@ -18,6 +18,7 @@ import { addDays, addHours, atHour, mention, money, pct, quarterFacts, quarterKe
 import { seedFinance } from "./finance";
 import { seedJourney } from "./journey";
 import { seedLegal } from "./legal";
+import { seedLedgerlyResearch } from "./research";
 import { applyAgentStatuses, seedSquad } from "./squad";
 import type { SeededBusiness } from "./types";
 
@@ -184,6 +185,9 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
   // Signed off in the first days and selling since week three (founder, 2026-10-18): the channels keep running.
   await seedSignedOffAndSelling(ctx, businessId, specVersionId);
   const roadmapIds = await seedRoadmap(ctx, businessId, ROADMAP, specIds, squad);
+  // The Product Researcher's plan to test the specification with the ICP (Product › Research).
+  const research = await seedLedgerlyResearch(ctx, businessId, squad, specIds);
+  log(`research: ${research.artifacts} artifacts`);
   await repos.product.createSource(db, businessId, {
     kind: "doc",
     uri: `https://github.com/${LEDGERLY_GITHUB_REPO}`,

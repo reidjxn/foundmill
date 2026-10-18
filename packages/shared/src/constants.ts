@@ -246,6 +246,22 @@ export type SignoffStatus = (typeof SIGNOFF_STATUSES)[number];
 export const FOUNDATIONS_RUNNERS = ["temporal", "local"] as const;
 export type FoundationsRunner = (typeof FOUNDATIONS_RUNNERS)[number];
 
+/**
+ * Product research (BUILD §11.5 Research tab; the Product Researcher agent): the research plan a new business gets as
+ * soon as its foundations are ready, drafted once by the api (`product_research`, one row per business): pending until
+ * the foundations are ready, drafting while the plan is written, then ready or failed (a failed draft can be retried).
+ */
+export const RESEARCH_STATUSES = ["pending", "drafting", "ready", "failed"] as const;
+export type ResearchStatus = (typeof RESEARCH_STATUSES)[number];
+
+/** What the Product Researcher produces (`research_artifacts.kind`): the plan's parts first, then what the tests yield. */
+export const RESEARCH_ARTIFACT_KINDS = ["interview_plan", "interview_script", "smoke_test", "survey", "demo_script", "demo", "findings"] as const;
+export type ResearchArtifactKind = (typeof RESEARCH_ARTIFACT_KINDS)[number];
+
+/** An artifact's state: drafted by the agent, marked ready by the team, shared with participants (by the founder, never by an agent). */
+export const RESEARCH_ARTIFACT_STATUSES = ["draft", "ready", "shared"] as const;
+export type ResearchArtifactStatus = (typeof RESEARCH_ARTIFACT_STATUSES)[number];
+
 export const INTEGRATION_STATUSES = ["connected", "degraded", "expired", "disconnected", "mock"] as const;
 export type IntegrationStatus = (typeof INTEGRATION_STATUSES)[number];
 
@@ -304,6 +320,7 @@ export const EVENT_TYPES = [
   "agent.message_sent",
   "product.signoff_decided",
   "distribution.started",
+  "product.research_drafted",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

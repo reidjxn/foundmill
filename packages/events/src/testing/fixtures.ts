@@ -513,6 +513,13 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     channelIds: [fixtureId("channel")],
     boardItemId: fixtureId("board-item"),
     engines: 1,
+  "product.research_drafted": {
+    researchId: fixtureId("research"),
+    attempt: 1,
+    agentId: FIXTURE_AGENT_ID,
+    artifactIds: [fixtureId("artifact-1"), fixtureId("artifact-2")],
+    taskIds: [fixtureId("task-1")],
+    inboxItemId: fixtureId("inbox-item"),
   },
 };
 

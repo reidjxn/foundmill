@@ -24,6 +24,7 @@ const EXPECTED_KEYS = [
   "design_to_code",
   "docs_writer",
   "researcher",
+  "product_researcher",
   "review_agent",
   "integration_agent",
   "planner",

@@ -81,6 +81,9 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("business_logos", s.businessLogos, "service", () => ({ source: "upload", mime: "image/png", content: new Uint8Array([0x89, 0x50, 0x4e, 0x47]), sha256: "0".repeat(64), width: 512, height: 512 })),
   // 0018 business foundations (one row per business; written by the api's service role and the orchestrator)
   spec("business_foundations", s.businessFoundations, "service", () => ({ door: "ideation", status: "pending" })),
+  // 0063 product research: the plan row is service-written (one per business); its artifacts are the team's
+  spec("product_research", s.productResearch, "service", () => ({ status: "pending" })),
+  spec("research_artifacts", s.researchArtifacts, "member", (f) => ({ kind: "interview_plan", title: uniq("artifact"), createdByAgentId: f.agentId })),
   // 0013 workspaces (written by the orchestrator)
   spec("workspace_blobs", s.workspaceBlobs, "service", () => ({ sha256: crypto.randomUUID().replace(/-/g, "").padEnd(64, "0"), sizeBytes: 1, content: new Uint8Array([1]) })),
   spec("workspace_snapshots", s.workspaceSnapshots, "service", (f) => ({ taskId: f.taskId, files: [], fileCount: 0 })),

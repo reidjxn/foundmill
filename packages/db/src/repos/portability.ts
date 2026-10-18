@@ -41,6 +41,8 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   roadmap_items: t(s.roadmapItems, "product"),
   roadmap_dependencies: t(s.roadmapDependencies, "product"),
   sources: t(s.sources, "product"),
+  product_research: t(s.productResearch, "product"),
+  research_artifacts: t(s.researchArtifacts, "product"),
   ideas: t(s.ideas, "product"),
   idea_versions: t(s.ideaVersions, "product"),
   idea_comparisons: t(s.ideaComparisons, "product"),

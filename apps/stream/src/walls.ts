@@ -82,6 +82,8 @@ export const EVENT_WALLS = {
   "inbox.item_updated": { sections: ["inbox"] },
   "decision.made": { sections: ["inbox"], hide: freeText("freeText") },
   "foundations.progressed": { sections: ["product"] },
+  // The Product Researcher's plan is ready (ids only): the Research tab refetches `product.research.get`.
+  "product.research_drafted": { sections: ["product"] },
   "conversation.message_posted": { sections: conversationSections, hide: freeText("preview") },
   "membership.changed": { sections: [] },
   // Which Settings fields a save changed (names only, never values): every member's open tab refetches the business.

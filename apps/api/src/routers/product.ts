@@ -2,10 +2,11 @@
  * product.foundations.* / product.signoff.* / product.spec.* / product.roadmap.* / product.proposals.* /
  * product.sources.* (BUILD §11.1 first open, §11.5; AC-11.5.2, AC-11.5.3; founder 2026-10-18 sign-offs).
  */
-import { EditSpecBlockInput, UpsertRoadmapItemInput, repos, type AppliedHunk, type DbTx, type ProposalDecisionResult } from "@foundmill/db";
-import { HUNK_DECISIONS, SOURCE_KINDS, ValidationError, WRITE_ROLES } from "@foundmill/shared";
+import { EditSpecBlockInput, UpsertRoadmapItemInput, repos, type AppliedHunk, type DbTx, type Executor, type ProposalDecisionResult } from "@foundmill/db";
+import { HUNK_DECISIONS, RESEARCH_ARTIFACT_STATUSES, SOURCE_KINDS, ValidationError, WRITE_ROLES } from "@foundmill/shared";
 import { z } from "zod";
 import { ensureFoundations, foundationsView, isStale, retryFoundations } from "../services/foundations";
+import { ensureResearchPlan, loadResearchView, retryResearchPlan } from "../services/product-research";
 import { modelLimited } from "../services/model-limits";
 import { decideProductSignoff, reopenSpecSignoffAfterPublish, signoffViews } from "../services/signoff";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
@@ -92,6 +93,43 @@ export const productRouter = router({
     decide: write.input(z.object({ kind: z.enum(["spec", "roadmap"]), decision: z.enum(["approve", "request_changes"]), notes: z.string().max(2000).nullish() })).mutation(async ({ ctx, input }) => {
       const result = await decideProductSignoff(ctx, { kind: input.kind, decision: input.decision, notes: input.notes ?? null });
       return { signoff: result.signoff, stage: result.stage, specVersion: result.specVersion, taskId: result.task?.id ?? null, followUpId: result.followUp?.id ?? null, build: result.build };
+    }),
+  }),
+
+  /**
+   * The Product Researcher's plan to test the specification with the ICP (BUILD §11.5 Research tab): drafted once in
+   * the api as soon as the foundations are ready. `ensure` is what Home and the Research tab call once the foundations
+   * read ready (any member; idempotent: a member with product write claims a pending plan exactly once and never waits
+   * for the drafting); `retry` re-runs a failed one; the artifacts are the team's to mark ready or shared and to archive.
+   */
+  research: router({
+    get: read.query(({ ctx }) => ctx.rls((tx) => loadResearchView(tx, ctx.businessId))),
+    ensure: businessProcedure.mutation(async ({ ctx }) => {
+      const canStart = WRITE_ROLES.includes(ctx.role) && effectivePermission(ctx.membership, "product") === "write";
+      const { view, started } = await ensureResearchPlan({ db: ctx.db, models: ctx.models, log: ctx.log }, ctx.businessId, { userId: ctx.userId, canStart });
+      return { status: view.status, attempt: view.attempt, startedAt: view.startedAt, finishedAt: view.finishedAt, started };
+    }),
+    retry: write.use(modelLimited("research")).mutation(async ({ ctx }) => {
+      const result = await retryResearchPlan({ db: ctx.db, models: ctx.models, log: ctx.log }, ctx.businessId, { userId: ctx.userId });
+      if (!result.started && result.view.status !== "drafting") throw new ValidationError(result.view.status === "none" ? "This business has no research plan to retry" : `Nothing to retry: the research plan is ${result.view.status}`);
+      return { ...result.view, started: result.started, stale: false };
+    }),
+    artifacts: router({
+      /** Mark an artifact ready (reviewed by the team) or shared (the founder sent it); back to draft is allowed too. */
+      update: write.input(z.object({ artifactId: Id, status: z.enum(RESEARCH_ARTIFACT_STATUSES) })).mutation(({ ctx, input }) =>
+        ctx.rls(async (tx) => {
+          const artifact = await repos.research.updateArtifact(tx, ctx.businessId, input.artifactId, { status: input.status });
+          await audit(tx, ctx, { action: "product.research.artifact.update", target: { kind: "research_artifact", id: artifact.id }, details: { kind: artifact.kind, status: artifact.status } });
+          return artifact;
+        }),
+      ),
+      archive: write.input(z.object({ artifactId: Id })).mutation(({ ctx, input }) =>
+        ctx.rls(async (tx) => {
+          const artifact = await repos.research.archiveArtifact(tx, ctx.businessId, input.artifactId);
+          await audit(tx, ctx, { action: "product.research.artifact.archive", target: { kind: "research_artifact", id: artifact.id }, details: { kind: artifact.kind } });
+          return artifact;
+        }),
+      ),
     }),
   }),
 

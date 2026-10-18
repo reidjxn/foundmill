@@ -134,6 +134,8 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   "product.signoff_decided": ["business", "product.signoff", "inbox", "dev"],
   // Distribution started: the Board and the Channels table drop "Waiting for the product"; the Board question is in the Inbox.
   "distribution.started": ["business", "distribution", "inbox"],
+  // The Product Researcher's plan is ready: the Research tab's panel, the Inbox note and the first research tasks.
+  "product.research_drafted": ["product.research", "inbox", "dev"],
   // Someone's role or section permissions changed (maybe this reader's): the business carries the reader's own role
   // and walls, the Team the staff list. apps/stream has already re-checked the reader's open channels.
   "membership.changed": ["business", "team"],

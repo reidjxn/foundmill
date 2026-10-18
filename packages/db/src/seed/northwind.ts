@@ -15,6 +15,7 @@ import { addDays, atHour, mention, money, pct, proseDoc, type SeedCtx } from "./
 import { seedFinance } from "./finance";
 import { seedJourney } from "./journey";
 import { seedLegal } from "./legal";
+import { seedNorthwindResearch } from "./research";
 import { applyAgentStatuses, seedSquad } from "./squad";
 import type { SeededBusiness } from "./types";
 
@@ -256,6 +257,9 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     }),
   });
   log(`proposal: ${proposal.hunks.length} hunks from source ${interview.id}`);
+  // The Product Researcher's plan and the findings behind the proposal (Product › Research).
+  const research = await seedNorthwindResearch(ctx, businessId, squad, specIds, interview.id);
+  log(`research: ${research.artifacts} artifacts`);
 
   // --- tasks in mixed states ------------------------------------------------------------------------------------------
   const taskSpecs: TaskSpec[] = [

@@ -189,7 +189,7 @@ const b2bSaas = ArchetypeSeed.parse({
   archetype: "b2b_saas",
   assistantTemplateKey: "chief_of_staff",
   departments: departments([
-    { base: DEPARTMENT_DEFAULTS.product, members: ["researcher"] },
+    { base: DEPARTMENT_DEFAULTS.product, members: ["researcher", "product_researcher"] },
     { base: DEPARTMENT_DEFAULTS.development, members: [...CODING_CORE, "data_engineer", "infra_engineer", "docs_writer"] },
     { base: DEPARTMENT_DEFAULTS.distribution, members: channelMembers(["lead_generation", "email_automation", "seo", "content", "pr"]) },
     { base: DEPARTMENT_DEFAULTS.finance, members: [] },
@@ -271,7 +271,7 @@ const consumerApp = ArchetypeSeed.parse({
   archetype: "consumer_app",
   assistantTemplateKey: "chief_of_staff",
   departments: departments([
-    { base: DEPARTMENT_DEFAULTS.product, members: ["researcher"] },
+    { base: DEPARTMENT_DEFAULTS.product, members: ["researcher", "product_researcher"] },
     { base: DEPARTMENT_DEFAULTS.development, members: [...CODING_CORE, "design_to_code", "data_engineer", "infra_engineer"] },
     { base: DEPARTMENT_DEFAULTS.distribution, members: channelMembers(["paid_ads", "social", "influencer", "seo", "email_automation"]) },
     { base: DEPARTMENT_DEFAULTS.finance, members: [] },
@@ -349,7 +349,7 @@ const marketplace = ArchetypeSeed.parse({
   archetype: "marketplace",
   assistantTemplateKey: "chief_of_staff",
   departments: departments([
-    { base: DEPARTMENT_DEFAULTS.product, members: ["researcher"] },
+    { base: DEPARTMENT_DEFAULTS.product, members: ["researcher", "product_researcher"] },
     { base: DEPARTMENT_DEFAULTS.development, members: [...CODING_CORE, "data_engineer", "infra_engineer"] },
     { base: DEPARTMENT_DEFAULTS.distribution, members: channelMembers(["seo", "lead_generation", "content", "social", "affiliate", "email_automation"]) },
     { base: DEPARTMENT_DEFAULTS.finance, members: [] },
@@ -431,7 +431,7 @@ const dtcPhysical = ArchetypeSeed.parse({
   archetype: "dtc_physical",
   assistantTemplateKey: "chief_of_staff",
   departments: departments([
-    { base: DEPARTMENT_DEFAULTS.product, members: ["researcher"] },
+    { base: DEPARTMENT_DEFAULTS.product, members: ["researcher", "product_researcher"] },
     { base: DEPARTMENT_DEFAULTS.development, members: ["planner", "frontend_engineer", "backend_engineer", "qa_engineer", "review_agent", "integration_agent", "design_to_code"] },
     {
       base: OPERATIONS_DEPARTMENT,
@@ -530,7 +530,7 @@ const hardware = ArchetypeSeed.parse({
   archetype: "hardware",
   assistantTemplateKey: "chief_of_staff",
   departments: departments([
-    { base: DEPARTMENT_DEFAULTS.product, members: ["researcher"] },
+    { base: DEPARTMENT_DEFAULTS.product, members: ["researcher", "product_researcher"] },
     { base: DEPARTMENT_DEFAULTS.development, members: [...CODING_CORE, "infra_engineer", "docs_writer"] },
     { base: OPERATIONS_DEPARTMENT, members: ["sourcing_manufacturing", "certification", "packaging_design", "quality", "logistics", "costing"] },
     { base: DEPARTMENT_DEFAULTS.distribution, members: channelMembers(["content", "pr", "paid_ads", "events", "email_automation"]) },
@@ -624,7 +624,7 @@ const services = ArchetypeSeed.parse({
   archetype: "services",
   assistantTemplateKey: "chief_of_staff",
   departments: departments([
-    { base: DEPARTMENT_DEFAULTS.product, members: ["researcher"], name: "Service design" },
+    { base: DEPARTMENT_DEFAULTS.product, members: ["researcher", "product_researcher"], name: "Service design" },
     { base: DEPARTMENT_DEFAULTS.development, members: ["planner", "frontend_engineer", "backend_engineer", "qa_engineer", "review_agent", "integration_agent", "docs_writer"], budgetMinor: 30_000 },
     { base: DEPARTMENT_DEFAULTS.distribution, members: channelMembers(["lead_generation", "events", "email_automation", "seo", "pr"]) },
     { base: DEPARTMENT_DEFAULTS.finance, members: [] },
@@ -698,7 +698,7 @@ const contentMedia = ArchetypeSeed.parse({
   archetype: "content_media",
   assistantTemplateKey: "chief_of_staff",
   departments: departments([
-    { base: DEPARTMENT_DEFAULTS.product, members: ["researcher"], name: "Editorial" },
+    { base: DEPARTMENT_DEFAULTS.product, members: ["researcher", "product_researcher"], name: "Editorial" },
     { base: DEPARTMENT_DEFAULTS.development, members: ["planner", "frontend_engineer", "backend_engineer", "qa_engineer", "review_agent", "integration_agent"], budgetMinor: 30_000 },
     { base: DEPARTMENT_DEFAULTS.distribution, members: channelMembers(["content", "social", "email_automation", "seo", "geo", "affiliate"]) },
     { base: DEPARTMENT_DEFAULTS.finance, members: [] },

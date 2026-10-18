@@ -35,3 +35,4 @@ export { specDocumentName } from "./spec/contract";
 export * from "./types";
 export { FoundationsBanner, VisionPanels, useFoundations, foundationsBasis, foundationsDisplayState, foundationsSummary, FOUNDATIONS_INTERRUPTED, FOUNDATIONS_PATH, FOUNDATIONS_POLL_MS, type FoundationsBannerProps, type FoundationsQuery } from "./foundations";
 export { PlainDoc } from "./PlainDoc";
+export { ResearchPlanPanel, researchPlanState, resetResearchEnsured, RESEARCH_ENSURE_PATH, RESEARCH_PATH, type ResearchPlanState } from "./research/ResearchPlanPanel";
