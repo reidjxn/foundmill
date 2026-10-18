@@ -429,7 +429,36 @@ function DashboardGrid({ businessId, row, live, editable, editing, onEditingChan
  */
 function HomeFoundations() {
   const queryClient = useQueryClient();
-  const foundations = useFoundations(() => void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("inbox") as unknown[] }));
+  const trpc = useTRPC();
+  const { businessId, data } = useBusiness();
+  // The Product Researcher's plan starts as soon as the foundations are ready (the founder's 2026-10-18 request): Home
+  // asks `product.research.ensure` once per business per visit when they already read ready, and again the moment the
+  // drafting turns ready during the visit. Idempotent on the server (one claim per business); the Research tab shows it.
+  const ensureResearch = useMutation(
+    trpc.product.research.ensure.mutationOptions({
+      retry: 1,
+      onSuccess: (view) => {
+        if (view.started) void queryClient.invalidateQueries({ queryKey: trpc.product.research.get.queryKey({ businessId }) });
+      },
+    }),
+  );
+  const ensureFor = ensureResearch.mutate;
+  const ensuredFor = useRef<string | null>(null);
+  const ensureOnce = useCallback(() => {
+    if (ensuredFor.current === businessId) return;
+    ensuredFor.current = businessId;
+    ensureFor({ businessId });
+  }, [businessId, ensureFor]);
+  const foundationsStatus = data.foundationsStatus;
+  useEffect(() => {
+    if (foundationsStatus === "ready") ensureOnce();
+  }, [ensureOnce, foundationsStatus]);
+  const foundations = useFoundations(() => {
+    void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("inbox") as unknown[] });
+    void queryClient.invalidateQueries({ queryKey: trpc.business.get.queryKey({ businessId }) });
+    ensuredFor.current = null;
+    ensureOnce();
+  });
   return <FoundationsBanner foundations={foundations} showReady detail={{ vision: true, roadmap: true }} />;
 }
 

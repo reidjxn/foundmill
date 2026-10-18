@@ -18,6 +18,7 @@ import {
   LinkerOutput,
   ModerationOutput,
   PlanOutput,
+  ResearchPlanOutput,
   SkillGradeOutput,
   TaskGraphOutput,
   WorkerOutput,
@@ -25,6 +26,7 @@ import {
 
 /** Output schemas a golden task may demand, by key, so tasks stay plain data. */
 export const OUTPUT_SCHEMAS = {
+  research_plan: ResearchPlanOutput,
   composer: ComposerOutput,
   plan: PlanOutput,
   ideation: IdeationOutput,
