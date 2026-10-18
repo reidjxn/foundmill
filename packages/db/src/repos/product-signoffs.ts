@@ -83,6 +83,15 @@ const SeedApprovedInput = z.object({
 const scoped = (businessId: string, id: string) => and(eq(productSignoffs.businessId, businessId), eq(productSignoffs.id, id));
 
 export const productSignoffsRepo = {
+  /**
+   * One decision per business at a time (transaction-scoped advisory lock): the specification approved in one tab and
+   * the roadmap in another both read the other's committed decision, so exactly one of them sees "both approved" and
+   * starts the build. Take it before `latest` in a deciding transaction.
+   */
+  async lock(db: Executor, businessId: string): Promise<void> {
+    await db.execute(sql`select pg_advisory_xact_lock(hashtext('product_signoffs'), hashtext(${businessId}::text))`);
+  },
+
   /** The latest round per kind, in one statement (`distinct on`). */
   async latest(db: Executor, businessId: string): Promise<LatestSignoffs> {
     const rows = await db

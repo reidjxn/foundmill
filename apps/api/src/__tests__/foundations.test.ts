@@ -288,6 +288,9 @@ describe("product.foundations — Door B (Import)", () => {
     await f.caller.product.signoff.decide({ businessId: bid, kind: "spec", decision: "approve" });
     const second = await f.caller.product.signoff.decide({ businessId: bid, kind: "roadmap", decision: "approve" });
     expect(second.build?.importItemId).toBeTruthy();
+    // The build cycle starts on the sign-off; the import decision (which blocks Continue) is posted after it, never in its way.
+    expect(second.build?.cycle.started).toBe(true);
+    expect(second.build?.cycle.reason ?? "").not.toMatch(/Respond to/);
     const board = await f.caller.inbox.get({ businessId: bid, itemId: second.build!.importItemId! });
     expect(board.item).toMatchObject({ type: "decision", subject: "Where should the team start with what you imported?", blocksContinue: true });
     const decision = board.item.decision as { options: { id: string; recommended: boolean }[] } | null;

@@ -130,7 +130,7 @@ describe("sign-offs: the specification and the roadmap (founder, 2026-10-18)", (
     const note = (await bySubject(b.caller, b.businessId, `Building starts: ${build.plannedTaskIds.length} tasks planned`))[0];
     expect(note?.bodyMd).toContain("Distribution waits until you start it from Distribution › Board.");
     const events = await repos.events.list(hz.db, b.businessId, { type: "product.signoff_decided" });
-    const last = events.items[0]!.payload as { buildStarted: boolean; plannedTaskIds: string[]; cycle: { queued: boolean } | null };
+    const last = events.items[0]!.payload as { buildStarted: boolean; plannedTaskIds: string[]; cycle: { queued: boolean; workflowId: string } | null };
     expect(last.buildStarted).toBe(true);
     expect(last.plannedTaskIds).toEqual(build.plannedTaskIds);
     expect(last.cycle?.workflowId).toBe(`cycle:${b.businessId}:1`);
@@ -159,6 +159,8 @@ describe("sign-offs: the specification and the roadmap (founder, 2026-10-18)", (
     // A pending sign-off note cannot be filed away: it is answered.
     const roadmap = (await c.caller.product.signoff.get({ businessId: c.businessId })).roadmap!;
     await expect(c.caller.inbox.archive({ businessId: c.businessId, itemId: roadmap.inboxItemId! })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // An answered one (round 1, sent back; its answer is recorded) can: the open round lives on its own, newer note.
+    expect((await c.caller.inbox.archive({ businessId: c.businessId, itemId: first.spec!.inboxItemId! })).state).toBe("archived");
   });
 });
 

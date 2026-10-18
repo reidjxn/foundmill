@@ -15,7 +15,7 @@
  */
 import { CHANNEL_SCORING_TASK, getArchetypeSeed } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
-import { bothSignedOff, loadProductStage, repos, signoffDecisionBlock, type Decision, type DbTx, type InboxItem, type LatestSignoffs, type PlanWithActions, type ProductSignoff, type Task } from "@foundmill/db";
+import { bothSignedOff, loadProductStage, repos, signoffDecisionBlock, type Decision, type DbTx, type InboxItem, type PlanWithActions, type ProductSignoff, type Task } from "@foundmill/db";
 import { AppError, CHANNEL_META, ConflictError, ForbiddenError, ValidationError, type ProductStage, type SignoffKind, type SignoffStatus } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
@@ -175,6 +175,9 @@ export async function decideProductSignoff(ctx: BusinessContext, input: DecideSi
   if (input.decision === "request_changes" && !notes) throw new ValidationError("Say what should change, in a sentence or two, so the Product lead can revise it.", { route: "conversation", kind: input.kind });
 
   const written = await ctx.rls(async (tx) => {
+    // One decision at a time per business: the other kind approved in another tab at the same moment is seen committed
+    // here, so exactly one of the two decisions reads "both approved" and starts the build.
+    await repos.productSignoffs.lock(tx, ctx.businessId);
     const before = await repos.productSignoffs.latest(tx, ctx.businessId);
     const round = before[input.kind];
     if (!round) throw new ValidationError(`Nothing to sign off yet: ${words.the} is drafted when the business is first opened.`, { kind: input.kind });
@@ -229,7 +232,7 @@ export async function decideProductSignoff(ctx: BusinessContext, input: DecideSi
     const day = dayWords(new Date(), ctx.business.timeZone);
     let note: InboxItem | null = null;
     if (written.voice) {
-      if (build) note = await postUpdate(tx, ctx, written.voice.id, `Building starts: ${build.plannedTaskIds.length} task${build.plannedTaskIds.length === 1 ? "" : "s"} planned`, buildingStartsBody(build, written.after));
+      if (build) note = await postUpdate(tx, ctx, written.voice.id, `Building starts: ${build.plannedTaskIds.length} task${build.plannedTaskIds.length === 1 ? "" : "s"} planned`, buildingStartsBody(build));
       else if (input.decision === "approve") {
         const other = input.kind === "spec" ? "roadmap" : "specification";
         note = await postUpdate(tx, ctx, written.voice.id, `${words.tab} signed off`, `You approved ${words.the}${written.specVersion ? ` (version ${written.specVersion.version})` : ""} on ${day}. Sign off the ${other} and the build starts.`);
@@ -256,12 +259,11 @@ export async function decideProductSignoff(ctx: BusinessContext, input: DecideSi
   return { signoff: written.round, stage: followUp.stage, item: written.answered?.item ?? null, decision: written.answered?.decision ?? null, plan: written.answered?.plan ?? null, followUp: followUp.note, specVersion: written.specVersion, task: written.task, build };
 }
 
-function buildingStartsBody(build: BuildStart, after: LatestSignoffs): string {
-  const specVersion = after.spec?.specVersionId ? "" : "";
+function buildingStartsBody(build: BuildStart): string {
   const planned = build.planned.length ? `The Planner turned ${build.planned.map((t) => `“${t}”`).join(" and ")} into ${build.plannedTaskIds.length} task${build.plannedTaskIds.length === 1 ? "" : "s"} on Development › Plan.` : "Nothing was planned yet: open Development › Plan and build a task graph for the first roadmap item.";
   const failed = build.failed.length ? ` ${build.failed.map((f) => `“${f.title}” could not be planned (${f.reason}); plan it from Development › Plan.`).join(" ")}` : "";
   const cycle = build.cycle.started ? "The first build cycle is under way." : `Press Continue to start the first build cycle${build.cycle.reason ? `: ${build.cycle.reason}` : "."}`;
-  return `Signed off: the specification and the roadmap.${specVersion} ${planned}${failed} ${cycle} Distribution waits until you start it from Distribution › Board.`;
+  return `Signed off: the specification and the roadmap. ${planned}${failed} ${cycle} Distribution waits until you start it from Distribution › Board.`;
 }
 
 /**
@@ -290,6 +292,17 @@ export async function startBuilding(ctx: BusinessContext): Promise<BuildStart> {
     }
   }
 
+  // The next cycle first, the way Continue starts it: the build begins on the sign-off. Door B's import decision is
+  // posted after it (it blocks Continue, as the Board's question did at commit while the first cycle already ran).
+  let cycle: BuildStart["cycle"];
+  try {
+    const started: StartCycleResult = await startCycle(ctx);
+    cycle = { started: started.action !== "already_running" || started.status.running, mode: started.mode, workflowId: started.status.workflowId ?? started.workflow?.workflowId ?? null, reason: started.action === "already_running" ? "a cycle is already running" : null };
+  } catch (err) {
+    if (!(err instanceof AppError)) throw err;
+    cycle = { started: false, mode: null, workflowId: null, reason: err.message };
+  }
+
   // Door B: the import's first decisions, posted now that the product is signed off (once per business).
   const importItemId = await ctx.rls(async (tx) => {
     const foundations = await repos.foundations.get(tx, ctx.businessId);
@@ -316,15 +329,6 @@ export async function startBuilding(ctx: BusinessContext): Promise<BuildStart> {
     await emit(tx, ctx, { type: "inbox.item_created", idempotencyKey: key, actor: { kind: "agent", id: chief.id }, payload: { inboxItemId: item.id, type: "decision", fromAgentId: chief.id, subject: item.subject, blocksContinue: true, sourceEventIds: [], cost: null } });
     return item.id;
   });
-
-  let cycle: BuildStart["cycle"] = { started: false, mode: null, workflowId: null, reason: null };
-  try {
-    const started: StartCycleResult = await startCycle(ctx);
-    cycle = { started: started.action !== "already_running" || started.status.running, mode: started.mode, workflowId: started.status.workflowId ?? started.workflow?.workflowId ?? null, reason: started.action === "already_running" ? "a cycle is already running" : null };
-  } catch (err) {
-    if (!(err instanceof AppError)) throw err;
-    cycle = { started: false, mode: null, workflowId: null, reason: err.message };
-  }
   return { plannedTaskIds, planned, failed, cycle, importItemId };
 }
 

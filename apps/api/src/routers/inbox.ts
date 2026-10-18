@@ -87,7 +87,7 @@ export const inboxRouter = router({
       // A sign-off still waiting for the founder is answered, not filed away: the build starts on it (the Product tabs
       // also take the decision).
       const signoff = await repos.productSignoffs.forInboxItem(tx, ctx.businessId, input.itemId);
-      if (signoff && signoff.kind !== "ready_to_sell" && signoff.status !== "approved") throw new ValidationError("Approve this or ask for changes: building starts on your sign-off. You can also decide it on the Product tabs.", { itemId: input.itemId, signoffId: signoff.id });
+      if (signoff && signoff.kind !== "ready_to_sell" && signoff.status === "pending") throw new ValidationError("Approve this or ask for changes: building starts on your sign-off. You can also decide it on the Product tabs.", { itemId: input.itemId, signoffId: signoff.id });
       const item = await repos.inbox.archive(tx, ctx.businessId, input.itemId);
       // Other members' open Inbox refetches on it (audit RUI-09: they acted on an item that was already gone).
       await emit(tx, ctx, { type: "inbox.item_updated", payload: { inboxItemId: item.id, change: "archived" } });
