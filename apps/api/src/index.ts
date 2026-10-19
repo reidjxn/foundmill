@@ -13,7 +13,7 @@
  * SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3 "Redeploys and shutdown").
  */
 import { serve } from "@hono/node-server";
-import { closeDb, isMigrationLockTimeout, keepPoolWarm, migrateDb, type PoolWarmer } from "@foundmill/db";
+import { closeDb, isMigrationLockTimeout, keepPoolWarm, migrateDb, watchPoolOrExit, type PoolWarmer, type PoolWatchdog } from "@foundmill/db";
 import { loadEnv, servicePort } from "@foundmill/shared";
 import { drainHttpServer, flushLog, onShutdown } from "@foundmill/shared/shutdown";
 import { installTelemetry } from "@foundmill/shared/telemetry";
@@ -127,6 +127,7 @@ export async function main(): Promise<void> {
   let reconciler: { stop(): void } | null = null;
   let workerMonitor: WorkerMonitor | null = null;
   let warmer: PoolWarmer | null = null;
+  let watchdog: PoolWatchdog | null = null;
   // Fetched now and refreshed in the background: no request waits for Supabase's signing keys.
   const keys: KeyRefresher | null = deps.auth.keepKeysFresh?.({ onError: (err) => deps.log.warn({ err: (err as Error)?.message }, "fetching Supabase's signing keys failed; retrying in 5 minutes (a token with an unknown key fetches them at once)") }) ?? null;
   // Installed before the migration: a SIGTERM during boot still closes the pool (the migration transaction rolls back).
@@ -147,6 +148,7 @@ export async function main(): Promise<void> {
       { name: "stop workflow reconciler", run: () => reconciler?.stop() },
       { name: "stop key refresh", run: () => keys?.stop() },
       { name: "stop pool warmer", run: () => warmer?.stop() },
+      { name: "stop pool watchdog", run: () => watchdog?.stop() },
       { name: "stop outbox relay", run: () => relay?.stop() },
       { name: "stop worker monitor", run: () => workerMonitor?.stop() },
       { name: "close temporal", run: () => deps.temporal.close() },
@@ -166,9 +168,12 @@ export async function main(): Promise<void> {
   const migrated = await migrateOnBoot(deps);
   if (lifecycle.stopping) return;
   warmer = keepPoolWarm(deps.db, { connections: WARM_CONNECTIONS, onError: (err) => deps.log.warn({ err: (err as Error)?.message }, "warming the database pool failed; the next request opens its own connection") });
+  // A pool that stops answering while the database answers outside it exits the process, and Railway restarts it with a
+  // fresh pool (DECISIONS 2026-10-19 "The api's pool wedged for four hours"); its state is reported on /health.
+  watchdog = watchPoolOrExit({ db: deps.db, url: env.DATABASE_URL ?? null, log: deps.log, service: "api", exit: (code) => void flushLog(deps.log as Parameters<typeof flushLog>[0]).finally(() => process.exit(code)) });
   // The relay's state is reported on /health, so the supervisor exists before the app does.
   relay = superviseOutboxRelay(deps);
-  const app = createApp({ ...deps, relay });
+  const app = createApp({ ...deps, relay, poolWatchdog: watchdog });
   const port = servicePort(env, "API_PORT");
 
   server = await listen(app, port, deps);

@@ -9,7 +9,7 @@ import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import type { Context as HonoContext } from "hono";
 import { loadEnv, type Env } from "@foundmill/shared";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
-import type { Db } from "@foundmill/db";
+import type { Db, PoolWatchdog } from "@foundmill/db";
 import { createDb } from "@foundmill/db";
 import type { StreamRedis } from "@foundmill/events";
 import type { ModelClient } from "@foundmill/models";
@@ -60,6 +60,8 @@ export interface ApiDeps {
   };
   /** The outbox relay's supervisor (index.ts); absent in tests and the in-process caller. /health reports its state. */
   relay?: RelaySupervisor | null;
+  /** The pool watchdog (index.ts); absent in tests and the in-process caller. /health reports its state. */
+  poolWatchdog?: PoolWatchdog | null;
 }
 
 export interface Context extends ApiDeps {

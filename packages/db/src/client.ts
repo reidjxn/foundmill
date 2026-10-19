@@ -47,22 +47,40 @@ export interface CreateDbOptions {
   /** Seconds before an idle connection is closed. Default: never (a warm pool is the point, see `keepPoolWarm`). */
   idleTimeout?: number;
   /**
-   * Seconds a connection lives before it is replaced, busy or not; null: for good. Default: 6 hours plus up to one hour
-   * of jitter per connection (`DEFAULT_MAX_LIFETIME_S`), so connections are renewed now and then (DNS, credentials) but
-   * no longer every 30-60 minutes, postgres.js's default, which made the first page load after each renewal open a new
-   * TLS connection on every request (about +250 ms each in production, audit api-db F1).
+   * Seconds a connection lives before it is replaced, busy or not; null: for good. Default: for good on a direct
+   * connection, 6 hours plus up to one hour of jitter per connection (`DEFAULT_MAX_LIFETIME_S`) through a transaction
+   * pooler, whose own sessions come and go. postgres.js's default (30-60 minutes) made the first page load after each
+   * renewal open a new TLS connection on every request (about +250 ms each in production, audit api-db F1), and its
+   * renewal path loses the connection for good when the lifetime ends while the connection is in use
+   * (porsager/postgres#1255; the 2026-10-19 outage, docs/DECISIONS.md), so a direct connection is never renewed: a
+   * dropped one is noticed by TCP keep-alive and replaced on the next query.
    */
   maxLifetime?: number | null;
   /** Seconds a new connection may take before it fails (default 5; postgres.js waits 30): a stalled connect fails fast. */
   connectTimeout?: number;
   /** Supabase transaction pooler needs prepared statements off. Default: auto-detected from the URL. */
   prepare?: boolean;
+  /**
+   * Server-side ceiling on one statement, in milliseconds (`statement_timeout`); null: none. Default 5 minutes on a
+   * direct connection (a migration's backfill fits; a runaway query does not hold a pooled connection for good), none
+   * through a transaction pooler (startup parameters are not reliably passed on).
+   */
+  statementTimeoutMs?: number | null;
+  /**
+   * Server-side ceiling on a transaction left open without a statement, in milliseconds
+   * (`idle_in_transaction_session_timeout`); null: none. Default 2 minutes on a direct connection, none through a pooler.
+   */
+  idleInTransactionTimeoutMs?: number | null;
   logger?: boolean;
 }
 
-/** The default connection lifetime: 6 hours plus up to one hour, drawn per connection so they are not renewed together. */
+/** The lifetime through a transaction pooler: 6 hours plus up to one hour, drawn per connection so they are not renewed together. */
 export const DEFAULT_MAX_LIFETIME_S = (): number => 6 * 3600 + Math.round(Math.random() * 3600);
 export const DEFAULT_CONNECT_TIMEOUT_S = 5;
+export const DEFAULT_STATEMENT_TIMEOUT_MS = 5 * 60_000;
+export const DEFAULT_IDLE_IN_TRANSACTION_TIMEOUT_MS = 2 * 60_000;
+/** How long a warm-up `select 1` may go unanswered before it counts as a sign of a wedged pool. */
+export const WARM_PROBE_TIMEOUT_MS = 10_000;
 
 /**
  * Query parameters other clients (Prisma) put in a connection string. postgres.js sends every query parameter it does not
@@ -101,14 +119,22 @@ export function createDb(url: string, options: CreateDbOptions = {}): AnyDb {
   const pglite = parsePgliteUrl(url);
   if (pglite) return createPgliteDb(pglite, { logger: options.logger });
   const connection = postgresConnection(url);
+  const direct = !connection.transactionPooler;
   // postgres.js also takes a function here (its own default is one), drawn once per pooled connection; null is never.
-  const maxLifetime = (options.maxLifetime === undefined ? DEFAULT_MAX_LIFETIME_S : options.maxLifetime) as number | null;
+  const maxLifetime = (options.maxLifetime === undefined ? (direct ? null : DEFAULT_MAX_LIFETIME_S) : options.maxLifetime) as number | null;
+  const statementTimeout = options.statementTimeoutMs === undefined ? (direct ? DEFAULT_STATEMENT_TIMEOUT_MS : null) : options.statementTimeoutMs;
+  const idleInTransaction = options.idleInTransactionTimeoutMs === undefined ? (direct ? DEFAULT_IDLE_IN_TRANSACTION_TIMEOUT_MS : null) : options.idleInTransactionTimeoutMs;
+  // Startup parameters: the server applies them to every session of the pool.
+  const startup: Record<string, string> = {};
+  if (statementTimeout !== null) startup.statement_timeout = String(statementTimeout);
+  if (idleInTransaction !== null) startup.idle_in_transaction_session_timeout = String(idleInTransaction);
   const client = postgres(connection.url, {
     max: options.max ?? 10,
     idle_timeout: options.idleTimeout,
     max_lifetime: maxLifetime,
     connect_timeout: options.connectTimeout ?? DEFAULT_CONNECT_TIMEOUT_S,
-    prepare: options.prepare ?? !connection.transactionPooler,
+    prepare: options.prepare ?? direct,
+    ...(Object.keys(startup).length ? { connection: startup } : {}),
     // Array types are still fetched on each new connection (postgres.js `fetch_types`): raw `execute` results rely on
     // them to parse array columns, and a warm pool rarely opens one.
     onnotice: () => {},
@@ -116,19 +142,36 @@ export function createDb(url: string, options: CreateDbOptions = {}): AnyDb {
   return drizzle({ client, schema, logger: options.logger ?? false });
 }
 
+/** `fn()` raced against `ms`; the loser is left alone (a pooled query cannot be taken back). */
+export function withinMs<T>(ms: number, fn: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`no answer within ${ms} ms`)), ms);
+    timer.unref?.();
+    fn().then(
+      (v) => (clearTimeout(timer), resolve(v)),
+      (e) => (clearTimeout(timer), reject(e)),
+    );
+  });
+}
+
 /**
  * Opens, or keeps open, up to `connections` pooled connections of a postgres.js database: that many `select 1` at once
  * (postgres.js gives each to an idle connection, else opens a closed one). A no-op on PGlite (one in-process connection)
- * and on a database without a pool. Resolves to how many answered; never throws.
+ * and on a database without a pool. Resolves to how many answered; never throws. A probe that has not answered within
+ * `timeoutMs` (default `WARM_PROBE_TIMEOUT_MS`) counts as failed and is reported through `onError`: a healthy pool
+ * answers `select 1` in milliseconds, so an unanswered one means a pooled connection that will never answer
+ * (the 2026-10-19 outage, docs/DECISIONS.md), which the pool watchdog (`createPoolWatchdog`) acts on.
  */
-export async function warmPool(db: Db, connections: number, onError?: (err: unknown) => void): Promise<number> {
+export async function warmPool(db: Db, connections: number, onError?: (err: unknown) => void, timeoutMs: number = WARM_PROBE_TIMEOUT_MS): Promise<number> {
   if (isPgliteDb(db)) return 0;
   const client = (db as Partial<ServiceDb>).$client;
   if (!client || typeof client.unsafe !== "function" || connections <= 0) return 0;
   // Not a data query: it only opens connections (ARCHITECTURE §4).
-  const answers = await Promise.allSettled(Array.from({ length: Math.floor(connections) }, () => client.unsafe("select 1")));
+  const answers = await Promise.allSettled(Array.from({ length: Math.floor(connections) }, () => withinMs(timeoutMs, () => client.unsafe("select 1"))));
+  const unanswered = answers.filter((a) => a.status === "rejected" && /no answer within/.test(String((a as PromiseRejectedResult).reason?.message ?? ""))).length;
   const failed = answers.find((a): a is PromiseRejectedResult => a.status === "rejected");
-  if (failed) onError?.(failed.reason);
+  if (unanswered > 0) onError?.(new Error(`${unanswered} of ${answers.length} warm-up queries did not answer within ${timeoutMs} ms: a pooled connection may be wedged`));
+  else if (failed) onError?.(failed.reason);
   return answers.filter((a) => a.status === "fulfilled").length;
 }
 
@@ -141,10 +184,17 @@ export interface PoolWarmer {
 /**
  * Warms the pool now and again every `intervalMs` (default 60 s) on an unref'd timer, so the first request after a
  * deploy or a quiet spell finds open connections instead of paying a TLS and SCRAM handshake per connection, and a
- * connection the pooler or a NAT dropped is replaced before a request needs it. `stop()` in the service's shutdown.
+ * connection the pooler or a NAT dropped is replaced before a request needs it. A round still waiting when the next is
+ * due is left to finish first (its probes are bounded, so a wedged pool is reported, not buried under more probes).
+ * `stop()` in the service's shutdown.
  */
-export function keepPoolWarm(db: Db, options: { connections: number; intervalMs?: number; onError?: (err: unknown) => void }): PoolWarmer {
-  const warm = () => warmPool(db, options.connections, options.onError);
+export function keepPoolWarm(db: Db, options: { connections: number; intervalMs?: number; onError?: (err: unknown) => void; probeTimeoutMs?: number }): PoolWarmer {
+  let pending: Promise<number> | null = null;
+  const warm = () => {
+    if (pending) return pending;
+    pending = warmPool(db, options.connections, options.onError, options.probeTimeoutMs).finally(() => (pending = null));
+    return pending;
+  };
   const ready = warm();
   const timer = setInterval(() => void warm(), options.intervalMs ?? 60_000);
   timer.unref?.();

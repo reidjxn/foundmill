@@ -1,5 +1,6 @@
 // @foundmill/db — see docs/ARCHITECTURE.md §4
 export * from "./client";
+export * from "./pool-watchdog";
 export * from "./schema";
 export * from "./repos";
 export { BYOK_CONNECTOR_KEY, BYOK_CREDENTIAL_KIND, LEGACY_BYOK_CREDENTIAL_KIND, StoredApiKeySchema, loadByokApiKey, type ByokApiKey } from "./byok";

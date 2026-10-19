@@ -41,25 +41,36 @@ describe("createDb", () => {
     expect(options.connection).not.toHaveProperty("pgbouncer");
     await closeDb(db);
   });
-  it("keeps a connection for hours (each its own lifetime), never closes an idle one, and gives a connect five seconds", async () => {
+  it("never renews a direct connection, never closes an idle one, bounds statements and idle transactions server-side, and gives a connect five seconds", async () => {
     const db = createDb("postgres://user:pass@127.0.0.1:1/founder_manager", { max: 2 });
-    const options = (db.$client as unknown as { options: { max_lifetime: unknown; idle_timeout: unknown; connect_timeout: number } }).options;
+    const options = (db.$client as unknown as { options: { max_lifetime: unknown; idle_timeout: unknown; connect_timeout: number; connection: Record<string, string> } }).options;
     // Until 2026-10-15 postgres.js's defaults applied: 30-60 minutes, so a quiet half hour left every connection cold.
+    // Since 2026-10-19 a direct connection is never renewed at all: renewal during use lost the connection for good.
+    expect(options.max_lifetime).toBeNull();
+    expect(options.idle_timeout ?? null).toBeNull();
+    expect(options.connect_timeout).toBe(5);
+    expect(options.connection).toMatchObject({ statement_timeout: "300000", idle_in_transaction_session_timeout: "120000" });
+    await closeDb(db);
+    const custom = createDb("postgres://user:pass@127.0.0.1:1/founder_manager", { max: 1, maxLifetime: 3600, connectTimeout: 2, statementTimeoutMs: null, idleInTransactionTimeoutMs: 1000 });
+    const o = (custom.$client as unknown as { options: { max_lifetime: unknown; connect_timeout: number; connection: Record<string, string> } }).options;
+    expect(o.max_lifetime).toBe(3600);
+    expect(o.connect_timeout).toBe(2);
+    expect(o.connection).toMatchObject({ idle_in_transaction_session_timeout: "1000" });
+    expect(o.connection).not.toHaveProperty("statement_timeout");
+    await closeDb(custom);
+  });
+  it("through a transaction pooler, renews each connection after six to seven hours of its own and sends no startup parameters", async () => {
+    const db = createDb("postgres://user:pass@127.0.0.1:6543/founder_manager", { max: 2 });
+    const options = (db.$client as unknown as { options: { max_lifetime: unknown; connection: Record<string, string> } }).options;
     expect(typeof options.max_lifetime).toBe("function");
     const lifetimes = Array.from({ length: 50 }, () => (options.max_lifetime as () => number)());
     expect(Math.min(...lifetimes)).toBeGreaterThanOrEqual(6 * 3600);
     expect(Math.max(...lifetimes)).toBeLessThanOrEqual(7 * 3600);
     expect(new Set(lifetimes).size).toBeGreaterThan(1);
-    expect(options.idle_timeout ?? null).toBeNull();
-    expect(options.connect_timeout).toBe(5);
+    expect(options.connection).not.toHaveProperty("statement_timeout");
+    expect(options.connection).not.toHaveProperty("idle_in_transaction_session_timeout");
     await closeDb(db);
-    const forGood = createDb("postgres://user:pass@127.0.0.1:1/founder_manager", { max: 1, maxLifetime: null, connectTimeout: 2 });
-    const o = (forGood.$client as unknown as { options: { max_lifetime: unknown; connect_timeout: number } }).options;
-    expect(o.max_lifetime).toBeNull();
-    expect(o.connect_timeout).toBe(2);
-    await closeDb(forGood);
   });
-
   it("fails a connect that stalls after the connect timeout instead of hanging for 30 seconds", async () => {
     // A server that accepts the TCP connection and never answers the startup message (a stalled pooler).
     const sockets: Socket[] = [];
@@ -105,6 +116,38 @@ describe("warmPool / keepPoolWarm", () => {
     const db = createDb("pglite::memory:");
     expect(await warmPool(db, 4)).toBe(0);
     await closeDb(db);
+  });
+
+  it("a probe that never answers counts as failed after the timeout and is reported as a possibly wedged pool", async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const unsafe = vi.fn(() => (++calls % 2 === 0 ? new Promise<never>(() => undefined) : Promise.resolve([{}])));
+      const db = { $client: { unsafe } } as unknown as Db;
+      const errors: Error[] = [];
+      const round = warmPool(db, 4, (err) => errors.push(err as Error), 1_000);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(await round).toBe(2);
+      expect(errors.map((e) => e.message)).toEqual(["2 of 4 warm-up queries did not answer within 1000 ms: a pooled connection may be wedged"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not start a round while the previous one is still waiting", async () => {
+    vi.useFakeTimers();
+    try {
+      const unsafe = vi.fn(() => new Promise<never>(() => undefined));
+      const db = { $client: { unsafe } } as unknown as Db;
+      const warmer = keepPoolWarm(db, { connections: 2, intervalMs: 1_000, probeTimeoutMs: 5_000 });
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(unsafe).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(unsafe).toHaveBeenCalledTimes(4);
+      warmer.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("warms at once and again on every interval until stopped", async () => {
