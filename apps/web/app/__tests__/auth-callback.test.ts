@@ -5,10 +5,11 @@ import { classifyCallbackParams, classifyExchangeError, parseSignInError, signIn
 
 type ExchangeResult = { error: { name?: string; code?: string; message: string } | null };
 const exchangeCodeForSession = vi.fn<(code: string) => Promise<ExchangeResult>>();
+const verifyOtp = vi.fn<(params: { type: string; token_hash: string }) => Promise<ExchangeResult>>();
 let configured = true;
 
 vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(async () => (configured ? { auth: { exchangeCodeForSession } } : null)),
+  createClient: vi.fn(async () => (configured ? { auth: { exchangeCodeForSession, verifyOtp } } : null)),
 }));
 
 const { GET } = await import("../auth/callback/route");
@@ -24,6 +25,7 @@ const verifierMissing = { name: "AuthPKCECodeVerifierMissingError", code: "pkce_
 beforeEach(() => {
   configured = true;
   exchangeCodeForSession.mockReset();
+  verifyOtp.mockReset();
 });
 
 describe("/auth/callback", () => {
@@ -57,6 +59,24 @@ describe("/auth/callback", () => {
     expect((await callback("?code=x")).location).toBe("https://foundmill.com/login?error=expired");
     exchangeCodeForSession.mockResolvedValue({ error: { name: "AuthApiError", code: "unexpected_failure", message: "Database error <secret-ish detail>" } });
     expect((await callback("?code=x")).location).toBe("https://foundmill.com/login?error=failed");
+  });
+
+  it("a hand-made link (token_hash + type, no PKCE code) is verified server-side and signs in", async () => {
+    verifyOtp.mockResolvedValue({ error: null });
+    expect(await callback("?token_hash=h1&type=magiclink&next=%2Fb%2Fx%2Finbox")).toEqual({ status: 307, location: "https://foundmill.com/b/x/inbox" });
+    expect(verifyOtp).toHaveBeenCalledWith({ type: "magiclink", token_hash: "h1" });
+    expect(await callback("?token_hash=h2&type=invite")).toEqual({ status: 307, location: "https://foundmill.com/" });
+    expect(verifyOtp).toHaveBeenLastCalledWith({ type: "invite", token_hash: "h2" });
+    expect(exchangeCodeForSession).not.toHaveBeenCalled();
+  });
+
+  it("a used or expired hand-made link says so; an unknown type or a hash alone is an incomplete link", async () => {
+    verifyOtp.mockResolvedValue({ error: { name: "AuthApiError", code: "otp_expired", message: "Email link is invalid or has expired" } });
+    expect((await callback("?token_hash=h&type=magiclink")).location).toBe("https://foundmill.com/login?error=expired");
+    expect((await callback("?token_hash=h&type=recovery")).location).toBe("https://foundmill.com/login?error=missing_code");
+    expect((await callback("?token_hash=h")).location).toBe("https://foundmill.com/login?error=missing_code");
+    expect((await callback("?type=magiclink")).location).toBe("https://foundmill.com/login?error=missing_code");
+    expect(verifyOtp).toHaveBeenCalledTimes(1);
   });
 
   it("no code: Supabase's own refusal (otp_expired) or a bare visit", async () => {
