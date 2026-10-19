@@ -6,7 +6,7 @@
  * COLLAB_PORT) on host "::" with a 0.0.0.0
  * fallback → graceful shutdown flushes pending stores before closing.
  */
-import { closeDb, createServiceDb } from "@foundmill/db";
+import { closeDb, createServiceDb, watchPoolOrExit } from "@foundmill/db";
 import { admittedBy, loadEnv, parseSignupAllowlist, servicePort } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { createCollabAuthenticator } from "./auth";
@@ -31,6 +31,8 @@ export async function main(): Promise<void> {
   const db = createServiceDb();
   // PGlite boots + migrates here; a locked directory or an unreachable Postgres is one clear line and /health says db:false.
   const readiness = await prepareDb(db, log, { service: "collab" });
+  // A pool that stops answering while the database is fine exits the process; the platform restarts it (DECISIONS 2026-10-19).
+  const watchdog = watchPoolOrExit({ db, url: env.DATABASE_URL, log, service: "collab" });
   const auth = createCollabAuthenticator({
     appEnv: env.APP_ENV,
     supabaseUrl: env.SUPABASE_URL,
@@ -49,6 +51,7 @@ export async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     log.info({ signal }, "collab shutting down");
     keys?.stop();
+    watchdog.stop();
     try {
       await server.close();
     } finally {

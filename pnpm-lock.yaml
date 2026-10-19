@@ -592,7 +592,7 @@ catalogs:
       version: 5.0.15
 
 patchedDependencies:
-  postgres@3.4.9: 3a5c59ab5a2796b3a4b47e6f6342e6c81666ed82f6b0407f4b84c3696236e18a
+  postgres@3.4.9: 4404ef5fd1ed3cddf20d0e6118ebd0c529fae00031fc029a660f4c05ddf1b227
 
 importers:
 
@@ -678,7 +678,7 @@ importers:
         version: 11.19.0(typescript@5.9.3)
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9(patch_hash=3a5c59ab5a2796b3a4b47e6f6342e6c81666ed82f6b0407f4b84c3696236e18a))
+        version: 0.45.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9(patch_hash=4404ef5fd1ed3cddf20d0e6118ebd0c529fae00031fc029a660f4c05ddf1b227))
       hono:
         specifier: 'catalog:'
         version: 4.13.13
@@ -1353,13 +1353,13 @@ importers:
         version: 4.4.0
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9(patch_hash=3a5c59ab5a2796b3a4b47e6f6342e6c81666ed82f6b0407f4b84c3696236e18a))
+        version: 0.45.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9(patch_hash=4404ef5fd1ed3cddf20d0e6118ebd0c529fae00031fc029a660f4c05ddf1b227))
       nanoid:
         specifier: 'catalog:'
         version: 6.0.2
       postgres:
         specifier: 'catalog:'
-        version: 3.4.9(patch_hash=3a5c59ab5a2796b3a4b47e6f6342e6c81666ed82f6b0407f4b84c3696236e18a)
+        version: 3.4.9(patch_hash=4404ef5fd1ed3cddf20d0e6118ebd0c529fae00031fc029a660f4c05ddf1b227)
       seedrandom:
         specifier: 'catalog:'
         version: 3.0.5
@@ -1662,7 +1662,7 @@ importers:
         version: link:../shared
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9(patch_hash=3a5c59ab5a2796b3a4b47e6f6342e6c81666ed82f6b0407f4b84c3696236e18a))
+        version: 0.45.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9(patch_hash=4404ef5fd1ed3cddf20d0e6118ebd0c529fae00031fc029a660f4c05ddf1b227))
       ioredis:
         specifier: 'catalog:'
         version: 6.0.0(supports-color@8.1.1)
@@ -12907,10 +12907,10 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.15
 
-  drizzle-orm@0.45.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9(patch_hash=3a5c59ab5a2796b3a4b47e6f6342e6c81666ed82f6b0407f4b84c3696236e18a)):
+  drizzle-orm@0.45.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9(patch_hash=4404ef5fd1ed3cddf20d0e6118ebd0c529fae00031fc029a660f4c05ddf1b227)):
     optionalDependencies:
       '@electric-sql/pglite': 0.5.8
-      postgres: 3.4.9(patch_hash=3a5c59ab5a2796b3a4b47e6f6342e6c81666ed82f6b0407f4b84c3696236e18a)
+      postgres: 3.4.9(patch_hash=4404ef5fd1ed3cddf20d0e6118ebd0c529fae00031fc029a660f4c05ddf1b227)
 
   dunder-proto@1.0.1:
     dependencies:
@@ -14914,7 +14914,7 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.2
 
-  postgres@3.4.9(patch_hash=3a5c59ab5a2796b3a4b47e6f6342e6c81666ed82f6b0407f4b84c3696236e18a): {}
+  postgres@3.4.9(patch_hash=4404ef5fd1ed3cddf20d0e6118ebd0c529fae00031fc029a660f4c05ddf1b227): {}
 
   prelude-ls@1.2.1: {}
 

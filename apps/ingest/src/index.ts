@@ -14,7 +14,7 @@ import { serve, type ServerType } from "@hono/node-server";
 import { Redis } from "ioredis";
 import { APP_NAME, FLAGS } from "@foundmill/config";
 import { createDefaultRegistry, mockWebhooksAllowed, platformSecretsFromEnv, type BusinessResolver, type ConnectorRegistry } from "@foundmill/connectors";
-import { closeDb, createServiceDb, type Db } from "@foundmill/db";
+import { closeDb, createServiceDb, watchPoolOrExit, type Db } from "@foundmill/db";
 import { liveConnectorKeys, loadEnv, servicePort, type Env } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
@@ -235,6 +235,8 @@ export async function main(): Promise<void> {
     process.exit(1);
   }
   const db = createServiceDb();
+  // A pool that stops answering while the database is fine exits the process; the platform restarts it (DECISIONS 2026-10-19).
+  const watchdog = watchPoolOrExit({ db, url: env.DATABASE_URL, log, service: "ingest" });
   let running: RunningIngest | null = null;
   let nonces: NonceStore | null = null;
   let built: BuiltIngest | null = null;
@@ -261,6 +263,7 @@ export async function main(): Promise<void> {
       },
       { name: "close temporal", run: () => built?.workflows?.close() },
       { name: "close nonce store", run: () => nonces?.close?.() },
+      { name: "stop pool watchdog", run: () => watchdog.stop() },
       { name: "close database", run: () => closeDb(db) },
       { name: "flush telemetry", run: () => telemetry.shutdown() },
     ],

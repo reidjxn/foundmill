@@ -9,7 +9,7 @@
  * (docs/DEPLOY.md §3).
  */
 import { serve } from "@hono/node-server";
-import { createServiceDb, closeDb, keepPoolWarm, type PoolWarmer } from "@foundmill/db";
+import { createServiceDb, closeDb, keepPoolWarm, watchPoolOrExit, type PoolWarmer, type PoolWatchdog } from "@foundmill/db";
 import { createModelClient, effectiveModelMode, gateModelClient } from "@foundmill/models";
 import { loadEnv, servicePort } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
@@ -48,6 +48,7 @@ export async function main(): Promise<void> {
   let server: ReturnType<typeof serve> | null = null;
   let service: ReturnType<typeof createComposerService> | null = null;
   let warmer: PoolWarmer | null = null;
+  let watchdog: PoolWatchdog | null = null;
   const lifecycle = onShutdown({
     service: "composer",
     log,
@@ -63,6 +64,7 @@ export async function main(): Promise<void> {
       },
       { name: "drain buffer refills", run: () => service?.drain() },
       { name: "stop pool warmer", run: () => warmer?.stop() },
+      { name: "stop pool watchdog", run: () => watchdog?.stop() },
       { name: "close database", run: () => closeDb(db) },
       { name: "flush telemetry", run: () => telemetry.shutdown() },
     ],
@@ -70,6 +72,8 @@ export async function main(): Promise<void> {
   // PGlite boots + migrates here; a locked directory or an unreachable Postgres is one clear line and /health says db:false.
   const readiness = await prepareDb(db, log, { service: "composer" });
   warmer = keepPoolWarm(db, { connections: 4, onError: (err) => log.warn({ err: (err as Error)?.message }, "warming the database pool failed") });
+  // A pool that stops answering while the database is fine exits the process; the platform restarts it (DECISIONS 2026-10-19).
+  watchdog = watchPoolOrExit({ db, url: env.DATABASE_URL, log, service: "composer" });
   const platform = createModelClient({ mode: effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log), apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage: createUsageSink(db, log) });
   // The platform key's ceiling: no call for a business whose credits are used up (usage.ts `creditsGate`).
   const models = gateModelClient(platform, creditsGate(db, platform.mode === "live"));

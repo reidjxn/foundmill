@@ -1,5 +1,5 @@
 diff --git a/cf/src/connection.js b/cf/src/connection.js
-index 8e79170aeb13efe8c3c77ccede0cd3a115b5e1b5..65b7894e020bb402e129a771f586fc51fe420219 100644
+index 8e79170aeb13efe8c3c77ccede0cd3a115b5e1b5..74f09d9a7fa19f13aeb856e3421ccf1cececfa3d 100644
 --- a/cf/src/connection.js
 +++ b/cf/src/connection.js
 @@ -174,6 +174,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
@@ -42,8 +42,30 @@ index 8e79170aeb13efe8c3c77ccede0cd3a115b5e1b5..65b7894e020bb402e129a771f586fc51
    function write(x, fn) {
      chunk = chunk ? Buffer.concat([chunk, x]) : Buffer.from(x)
      if (fn || chunk.length >= 1024)
+@@ -385,6 +402,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+       return
+ 
+     errored(err)
++    // Foundmill patch (porsager/postgres#1246): the active query is rejected above; forget it here, or a socket
++    // reset (`error` before `close`) leaves it as the active query of the next connect, waiting for an answer that
++    // never comes, and the pool silently loses this connection for good.
++    query = null
+     while (sent.length)
+       queryError(sent.shift(), err)
+   }
+@@ -452,7 +473,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+     if (initial)
+       return reconnect()
+ 
+-    !hadError && (query || sent.length) && error(Errors.connection('CONNECTION_CLOSED', options, socket))
++    // Foundmill patch (porsager/postgres#1246): also after an error. A query accepted between the socket's `error` and
++    // `close` events was written to a dead socket; it is rejected here instead of never settling.
++    ;(query || sent.length) && error(Errors.connection('CONNECTION_CLOSED', options, socket))
+     closedTime = performance.now()
+     hadError && options.shared.retries++
+     delay = (typeof backoff === 'function' ? backoff(options.shared.retries) : backoff) * 1000
 diff --git a/cjs/src/connection.js b/cjs/src/connection.js
-index 07f6716702ac888215c86ad6e0071aaf55ae519c..96ba22fbd86a03aca00f5d7e91263376520ac5e7 100644
+index 07f6716702ac888215c86ad6e0071aaf55ae519c..ab73a1d5b10f16f32aa32aab32a4b48184167fa9 100644
 --- a/cjs/src/connection.js
 +++ b/cjs/src/connection.js
 @@ -172,6 +172,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
@@ -86,8 +108,30 @@ index 07f6716702ac888215c86ad6e0071aaf55ae519c..96ba22fbd86a03aca00f5d7e91263376
    function write(x, fn) {
      chunk = chunk ? Buffer.concat([chunk, x]) : Buffer.from(x)
      if (fn || chunk.length >= 1024)
+@@ -383,6 +400,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+       return
+ 
+     errored(err)
++    // Foundmill patch (porsager/postgres#1246): the active query is rejected above; forget it here, or a socket
++    // reset (`error` before `close`) leaves it as the active query of the next connect, waiting for an answer that
++    // never comes, and the pool silently loses this connection for good.
++    query = null
+     while (sent.length)
+       queryError(sent.shift(), err)
+   }
+@@ -450,7 +471,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+     if (initial)
+       return reconnect()
+ 
+-    !hadError && (query || sent.length) && error(Errors.connection('CONNECTION_CLOSED', options, socket))
++    // Foundmill patch (porsager/postgres#1246): also after an error. A query accepted between the socket's `error` and
++    // `close` events was written to a dead socket; it is rejected here instead of never settling.
++    ;(query || sent.length) && error(Errors.connection('CONNECTION_CLOSED', options, socket))
+     closedTime = performance.now()
+     hadError && options.shared.retries++
+     delay = (typeof backoff === 'function' ? backoff(options.shared.retries) : backoff) * 1000
 diff --git a/src/connection.js b/src/connection.js
-index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..70013412c924369655950a2bde274bf717f8c8a4 100644
+index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..be45019b0737e7539173ce505674c6170f103ff8 100644
 --- a/src/connection.js
 +++ b/src/connection.js
 @@ -172,6 +172,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
@@ -130,3 +174,25 @@ index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..70013412c924369655950a2bde274bf7
    function write(x, fn) {
      chunk = chunk ? Buffer.concat([chunk, x]) : Buffer.from(x)
      if (fn || chunk.length >= 1024)
+@@ -383,6 +400,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+       return
+ 
+     errored(err)
++    // Foundmill patch (porsager/postgres#1246): the active query is rejected above; forget it here, or a socket
++    // reset (`error` before `close`) leaves it as the active query of the next connect, waiting for an answer that
++    // never comes, and the pool silently loses this connection for good.
++    query = null
+     while (sent.length)
+       queryError(sent.shift(), err)
+   }
+@@ -450,7 +471,9 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+     if (initial)
+       return reconnect()
+ 
+-    !hadError && (query || sent.length) && error(Errors.connection('CONNECTION_CLOSED', options, socket))
++    // Foundmill patch (porsager/postgres#1246): also after an error. A query accepted between the socket's `error` and
++    // `close` events was written to a dead socket; it is rejected here instead of never settling.
++    ;(query || sent.length) && error(Errors.connection('CONNECTION_CLOSED', options, socket))
+     closedTime = performance.now()
+     hadError && options.shared.retries++
+     delay = (typeof backoff === 'function' ? backoff(options.shared.retries) : backoff) * 1000
