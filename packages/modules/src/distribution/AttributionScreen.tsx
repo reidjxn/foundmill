@@ -178,12 +178,13 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
             ) : (
               <ul className="flex flex-col gap-1">
                 {latest.map((w) => (
-                  <li key={w.id} className="flex items-center gap-2 text-small">
+                  // Wraps rather than squeezes: an amount is never truncated, whatever the date and chips beside it take.
+                  <li key={w.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-small">
                     <StatusPill tone={w.conversion.kind === "payment" ? "good" : "info"} icon={w.conversion.kind === "payment" ? Trophy : undefined} className="shrink-0 whitespace-nowrap">
                       {UPDATE_LEVEL_WORDS[w.matchdayLevel]}
                     </StatusPill>
                     <span className="shrink-0 tabular-nums text-secondary">{formatDate(w.conversion.occurredAt)}</span>
-                    <span className="min-w-0 truncate text-primary">{w.conversion.kind === "payment" ? formatMoney({ amountMinor: w.conversion.amountMinor, currency: w.conversion.currency || cur }) : (CONVERSION_WORDS[w.conversion.kind] ?? plainWords(w.conversion.kind))}</span>
+                    <span className="shrink-0 whitespace-nowrap tabular-nums text-primary">{w.conversion.kind === "payment" ? formatMoney({ amountMinor: w.conversion.amountMinor, currency: w.conversion.currency || cur }) : (CONVERSION_WORDS[w.conversion.kind] ?? plainWords(w.conversion.kind))}</span>
                     {w.partialJourney ? (
                       <Chip tone="warn" className="shrink-0 whitespace-nowrap">
                         Partial journey
