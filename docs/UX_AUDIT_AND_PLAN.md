@@ -432,14 +432,14 @@ Gate 3: a second external 30-minute test (protocol in §11) with the success cri
 
 ## 12. Decisions for the founder
 
-Decided by the founder on Oct 20, 2026: items 1 to 4 as recommended. Items 5 and 6 are open.
+Decided by the founder on Oct 20, 2026: items 1 to 5 as recommended; item 6 uses the product's existing band words (Excellent / Good / Average / Poor) under the retitled panel "Other roles it could take". The plan is being built in full.
 
 1. **Sidebar renames** (decided: yes to both): "CRM" → "Contacts" and moving "Anthropic key" into Settings. "Contacts" is what a student expects; operators find CRM in the palette and the tooltip.
 2. **The first contact with Continue** (decided: it stays red): keep red "Respond · 2" on day one (the grammar) with the coach mark and the clearer tooltip (recommended), or make the two foundations sign-offs non-blocking so the first Continue is green and the notes are "Needs your answer" without holding the cycle.
 3. **One rating scale per agent** (decided: one /20 scale everywhere): keep /10 in the table with its label, or show the same /20 mean everywhere (recommended: one scale, /20, with the band word; the sim nod is the 1–20 attribute, not the /10 average).
 4. **Guidance default for Exited and Operator profiles** (decided: off, with the toast): off (recommended, with the toast that says so), or on for everyone's first business.
-5. **An example business for signed-in founders** (open): the read-only demo membership (recommended, Phase 3), a richer "sandbox" business of their own seeded from an example (more work; cycles would cost credits), or none (the landing page's examples only).
-6. **Position map words** (open): keep "Natural / Accomplished / Competent / Unconvincing" with the legend, or "Excellent / Good / Adequate / Poor" (recommended: the legend first; revisit after the second test).
+5. **An example business for signed-in founders** (decided: the read-only demo membership): the read-only demo membership (recommended, Phase 3), a richer "sandbox" business of their own seeded from an example (more work; cycles would cost credits), or none (the landing page's examples only).
+6. **Position map words** (decided: the existing band words under "Other roles it could take"): keep "Natural / Accomplished / Competent / Unconvincing" with the legend, or "Excellent / Good / Adequate / Poor" (recommended: the legend first; revisit after the second test).
 
 Everything else in this plan is a judgment call recorded in DECISIONS.md and reversible.
 
