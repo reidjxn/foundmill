@@ -6,7 +6,7 @@ import { Meta } from "@storybook/addon-docs/blocks";
 
 This is the design system of Foundmill. **A broadcast control room at night, built for one founder**: dark slate, machined panels, condensed capitals, numbers that feel alive. Three words: composed, dense, alive.
 
-This Storybook holds the **foundation** layer: tokens, typography, and the primitives every heavier component (shell, data tables, journey, agents) is built from.
+This Storybook holds every layer: tokens and typography, the **Foundation** primitives, the **Shell**, **Data**, **Journey**, **Agents** and **Conversation** groups built from them, and the **Guidance** group that teaches without getting in the way.
 
 ## How to use it
 
@@ -27,31 +27,41 @@ The default Tailwind palette is removed: `bg-red-500` does not exist here, `bg-s
 | Text | `text-primary`, `text-secondary`, `text-link`, `text-disabled` |
 | Hairlines | `border-subtle`, `divide-subtle`, `hairline-50` |
 | Status | `text-status-good`, `bg-status-warn/12`, `StatusPill` |
-| Rating ramp | `text-rating-1` … `text-rating-4`, `ratingClass(n)` |
+| Rating ramp | `text-rating-1` … `text-rating-4`, `ratingClass(n)`, `ScaleLabel` |
 | Brand colors | `bg-kit-primary`, `text-kit-on-primary`, `border-kit-secondary` |
 | Departments | `bg-dept-1` … `bg-dept-8`, `deptColourVar("dept-3")` |
-| Type | `t-display-xl`, `t-display-lg`, `t-display-md`, `t-display-sm`, `t-tab`, `t-label`, `t-body`, `t-body-strong`, `t-reading`, `t-small`, `t-mono` |
-| Sizes | `h-control-sm` (28), `h-control-md` (32), `h-chip` (20), `h-row-compact` (28), `h-row-comfortable` (34), `w-sidebar`, `w-rail` |
+| Type | `t-display-xl`, `t-display-lg`, `t-display-md`, `t-display-sm`, `t-tab`, `t-label`, `t-data`, `t-body`, `t-body-strong`, `t-reading`, `t-small`, `t-mono` |
+| Sizes | `h-control-sm` (28), `h-control-md` (32), `h-chip` (22), `h-row-compact` (28), `h-row-comfortable` (34), `w-sidebar`, `w-rail` |
 | Motion | `ease-dugout`, `duration-micro`, `duration-panel`, `duration-view`, `animate-shimmer`, `animate-rise-in` |
+| Defined words | `Term`, `term-link`, `InfoTip`, `DefinitionCard` |
 
 ## Rules that are enforced here
 
 - **Tokens only.** No hex outside `tokens.css`. No arbitrary color values in class names (the compiled CSS is checked for leaked literals).
 - **Lucide only.** 16 px default, 14 px inline, 20 px in empty states, stroke 1.75 — `<Icon icon={Search} />` does this for you.
-- **Color is never the only signal.** Pills carry an icon and a word, ratings carry a number, deltas carry an arrow.
+- **Color is never the only signal.** Pills carry an icon and a word, ratings carry a number and a band word, deltas carry an arrow.
+- **Every number carries a word.** A 1–20 skill shows its band (`ScaleLabel`), a /10 average and stars map onto the same bands, Form gets a key (`FormKey`), Estimate and Forecast get a definition on hover and focus.
+- **Nothing below 11 px** except kbd glyphs. `t-data`, the only caps, is Barlow 600 11/14.
 - **Reduced motion** turns every animation into an instant state change. The global rule in `dugout.css` handles CSS; `usePrefersReducedMotion()` handles JS.
 - **Desktop only.** Reference 1440 px, minimum 1280 px.
 - **Brand colors with restraint.** `variant="primary"` on a Button is the brand color; use it only where DESIGN §5 allows.
+
+## The Guidance group
+
+One switch, `account_preferences.guidance`, read through `GuidanceProvider` (the app mounts one per signed-in layout with the definitions map; outside one, guidance reads as on with no terms). The rules:
+
+- **Dotted means something to learn.** A `Term` is the text's own color with a 1 px dotted underline at 40 % (the entity link's geometry); hover or focus opens its definition after 300 ms, Enter pins the card so "Learn more" is reachable. **Dashed means not measured**: the Estimate / Forecast chip keeps its dashed edge and never a dotted one.
+- **Guidance off hides tutoring, not information.** Off: `Term` underlines, `InfoTip`, `Explainer`, `ReassuranceLine` and `PlainFigure`'s line go. Always: `ConsequenceLine` (cost, reversibility, consequence), `ScaleLabel` (the band word), the Estimate / Forecast chip and its definition, and anything marked `always`.
+- **Structure never moves.** The `Explainer` sits inside a panel body and collapses to one line; nothing floats except overlays, and the definition card is the one hover surface that may hold a link.
+- **Comfortable text** (`data-text="comfortable"` on the root) grows body, small and chat type only; headers, rows, the sidebar and the rem base keep their sizes.
+- **Unknown parts are omitted, never "unknown".** A `ConsequenceLine` with no cost says nothing about cost.
 
 ## Library
 
 - `cn()` — clsx + tailwind-merge.
 - `format*` — numbers, compact numbers, percent, money (via `@foundmill/shared`), dates, relative time, durations, deltas, initials.
-- `ratingTone / ratingClass / ratingCells` — the 1–20 ramp.
+- `ratingTone / ratingClass / ratingCells / ratingBandLabel / toRating20 / scaleCaption` — the 1–20 ramp and the scales that map onto it.
 - `kitOnPrimary(hex)` — white or near-black by APCA Lc ≥ 75 (APCA 0.1.9 formula, tested against reference values).
 - `createRng(seed)` / `mulberry32` — deterministic randomness for business logos, avatars and mock data.
 - `usePrefersReducedMotion()`.
-
-## Second stage
-
-`shell`, `data`, `journey` and `agents` barrels are empty on purpose. The next wave of agents fills them with AppShell, DataTable, JourneyRibbon, AgentTile and friends, built from these primitives.
+- `consequenceText()` — the consequence line as a string, for a two-line button's description.

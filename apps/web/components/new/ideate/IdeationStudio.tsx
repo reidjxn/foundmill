@@ -1,25 +1,28 @@
 "use client";
 /**
  * /new/ideate — the Ideation Studio (BUILD §11.1 Door A; AC-11.1.2, AC-11.1.3). The brief and its generate control
- * (DIRECTION #14: the light slab "Draft concepts" / "Surprise me within my constraints"; while running the dark slab with
+ * (DIRECTION #14: the light slab "Draft concepts" / "Draft 6–12 ideas for me"; while running the dark slab with
  * the real count "2 of 12" and Stop beside it) → idea.draft, streamed (audit P2): the live run under the brief (steps,
  * one bar segment per concept, elapsed and time left, the slate's names) and the concepts named as the slate arrives,
  * each card filling its place the moment it is saved ("Just in"); existing cards stay visible (dimmed) meanwhile.
- * Steering chips ("Cheaper to start", "B2B instead", "More defensible") prefill the brief for the next set. Cards are 6–12 ConceptCards (Dugout profile cards: the initials mark
- * until a logo is chosen at Commit, stars, ten AttributeBars with evidence hover, citation count). Actions: Shortlist
- * (local), Merge / Fork / Ask (idea.*, each a new version; Ask is the Research agent's desk as a sheet, with starters and
- * quick replies), Discard (idea.discard; Restore in the tray and the notice's Undo are idea.restore). Shortlisted and
+ * Three example briefs sit above the textarea until the first card exists; the empty-brief control reads "Draft 6–12
+ * ideas for me" (A7). Steering chips ("Cheaper to start", "B2B instead", "More defensible") prefill the brief for the
+ * next set. Cards are 6–12 ConceptCards (Dugout profile cards: the initials mark until a logo is chosen at Commit,
+ * stars, ten attribute bars with evidence hover and a definition on every label, citation count), with a
+ * once-dismissable "How to read a card" line over the deck while guidance is on. Actions: Shortlist (local), Merge /
+ * "More like this" (a variant) / Ask (idea.*, each a new version; Ask is the Research agent's desk as a sheet, with
+ * starters and quick replies), Discard (idea.discard; Restore in the tray and the notice's Undo are idea.restore). Shortlisted and
  * restored cards older than the loaded pages are read by id (idea.listByIds) so they stay pinned and counted. Select
  * 2–4 cards → Compare. History opens every version. ⌘/Ctrl+Enter drafts from anywhere on the page.
  *
  * Ideation is private: no business exists yet, so there is no kit bar and nothing reaches Live.
  */
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Bookmark, CircleAlert, CircleCheck, Columns3, FileText, History, Info, Layers, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import { ArrowRight, Bookmark, BookOpen, CircleAlert, CircleCheck, Columns3, FileText, History, Info, Layers, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
-import { Button, Chip, BusinessLogo, ConceptCard, EmptyState, GenerateControl, IconButton, JustInTag, Kbd, Panel, SimpleSelect, Skeleton, SkeletonText, StatusPill, Textarea, Tooltip, cn, landedCardClass, useToast, useDateFormat, type ConceptAction, type QuickReplyItem } from "@foundmill/dugout";
+import { Button, Chip, BusinessLogo, ConceptCard, EmptyState, GenerateControl, IconButton, JustInTag, Kbd, Panel, SimpleSelect, Skeleton, SkeletonText, StatusPill, Textarea, Tooltip, cn, landedCardClass, useGuided, useToast, useDateFormat, type ConceptAction, type QuickReplyItem } from "@foundmill/dugout";
 import { useKeyboardMap } from "@/lib/keys";
 import { formatDayMonth } from "@/lib/format";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
@@ -41,7 +44,17 @@ export interface IdeationStudioProps {
   constraints?: string[];
 }
 
-const SURPRISE = "surprise me within my constraints";
+/**
+ * Three example briefs above the textarea while the deck is empty (docs/UX_AUDIT_AND_PLAN.md §7.5, A7): a chip fills
+ * the brief with its sentence; nothing is drafted until Draft is pressed. Hidden once a card exists.
+ */
+export const EXAMPLE_BRIEFS: readonly string[] = ["Help independent tutors send parents a weekly recap", "A subscription for refillable skincare", "AI playtesters for indie games"];
+
+/** The generate control's label with an empty brief: what will happen, in the founder's words (A7). */
+export const DRAFT_FOR_ME = "Draft 6–12 ideas for me";
+
+/** The browser key under which "How to read a card" stays dismissed (per browser; the guided layer stores it per account later). */
+export const HOW_TO_READ_CARD_KEY = "foundmill.ideate.how-to-read-card.dismissed";
 
 /** Steer the next set (DIRECTION #14): each chip adds one sentence to the brief; nothing is drafted until you press Draft. */
 export const STEERING_CHIPS: readonly { id: string; label: string; text: string }[] = [
@@ -63,7 +76,7 @@ type DraftInput = { prompt: string; archetypeHint?: Archetype };
  * every card stays reachable however large the deck grows, and the Studio paints quickly.
  */
 const DECK_PAGE = 48;
-const ARCHETYPE_OPTIONS = [{ value: "any", label: "Any archetype" }, ...ARCHETYPES.map((a) => ({ value: a, label: ARCHETYPE_LABELS[a] }))];
+const ARCHETYPE_OPTIONS = [{ value: "any", label: "Kind of business (optional)" }, ...ARCHETYPES.map((a) => ({ value: a, label: ARCHETYPE_LABELS[a] }))];
 
 type DialogKind = "ask" | "fork" | "merge" | "history" | null;
 
@@ -203,6 +216,24 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
   useEffect(() => {
     if (/Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent)) setModKey("⌘");
   }, []);
+  // Tutoring surfaces (kbd caps, "How to read a card", the shortcut tooltip) show only while guidance is on; the keys work regardless.
+  const guided = useGuided();
+  const [howToReadDismissed, setHowToReadDismissed] = useState(true);
+  useEffect(() => {
+    try {
+      setHowToReadDismissed(window.localStorage.getItem(HOW_TO_READ_CARD_KEY) === "1");
+    } catch {
+      setHowToReadDismissed(false);
+    }
+  }, []);
+  const dismissHowToRead = () => {
+    setHowToReadDismissed(true);
+    try {
+      window.localStorage.setItem(HOW_TO_READ_CARD_KEY, "1");
+    } catch {
+      // A browser that refuses storage shows the line again next time; nothing else depends on it.
+    }
+  };
 
   function onAction(action: ConceptAction, id: string) {
     const idea = deck.find((i) => i.id === id);
@@ -319,9 +350,23 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
               <p className="mt-2 max-w-reading text-body text-secondary">A concept, a problem, a market, or nothing at all. The Ideation agent drafts six to twelve cards and rates each on ten attributes, with the reasoning behind every rating. Ask the Research agent about any card to question its market, competitors or pricing.</p>
             </div>
           ) : null}
-          <Textarea id="ideation-prompt" aria-label="Brief" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={showHero ? 4 : 2} maxLength={4000} placeholder={`Leave empty to ${SURPRISE}.`} disabled={busy} autoGrow className={showHero ? "min-h-20" : "min-h-14"} />
+          {/* Example briefs while the deck is empty (A7): one press fills the brief; the founder still presses Draft. */}
+          {deck.length === 0 && !ideasQ.isLoading ? (
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Example briefs" data-testid="example-briefs">
+              <span className="t-data mr-1">Try one</span>
+              {EXAMPLE_BRIEFS.map((text) => (
+                <Chip key={text} onClick={busy ? undefined : () => {
+                  setPrompt(text);
+                  requestAnimationFrame(() => document.getElementById("ideation-prompt")?.focus());
+                }} selected={prompt.trim() === text} data-example-brief="">
+                  {text}
+                </Chip>
+              ))}
+            </div>
+          ) : null}
+          <Textarea id="ideation-prompt" aria-label="Brief" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={showHero ? 4 : 2} maxLength={4000} placeholder="A problem you have seen, a market you know, or nothing at all." disabled={busy} autoGrow className={showHero ? "min-h-20" : "min-h-14"} />
           <div className="flex flex-wrap items-center gap-2">
-            <SimpleSelect aria-label="Archetype hint" value={archetypeHint} onValueChange={setArchetypeHint} options={ARCHETYPE_OPTIONS} controlSize="sm" className="w-52" disabled={busy} />
+            <SimpleSelect aria-label="Kind of business" value={archetypeHint} onValueChange={setArchetypeHint} options={ARCHETYPE_OPTIONS} controlSize="sm" className="w-56" disabled={busy} />
             {constraints.length > 0 ? (
               <div className="flex flex-wrap items-center gap-1.5" aria-label="Your constraints">
                 <span className="t-data">Within</span>
@@ -361,13 +406,13 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
             )}
             <GenerateControl
               type="submit"
-              label={prompt.trim() ? "Draft concepts" : "Surprise me within my constraints"}
+              label={prompt.trim() ? "Draft concepts" : DRAFT_FOR_ME}
               runningLabel="Drafting concepts"
               running={busy}
               progress={busy && runTotal ? runDrafted / runTotal : undefined}
               count={busy && runTotal ? `${runDrafted} of ${runTotal}${run?.total === null ? "+" : ""}` : undefined}
               onStop={draft.stop}
-              kbd={`${modKey} ↵`}
+              kbd={guided ? `${modKey} ↵` : undefined}
               aria-keyshortcuts="Meta+Enter Control+Enter"
               data-testid="generate-button"
               wrapperClassName="ml-auto"
@@ -420,6 +465,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
         ) : (
           <>
             {notice && deck.length === 0 ? <NoticeLine notice={notice} onDismiss={() => setNotice(null)} className="mb-3" /> : null}
+            {guided && deck.length > 0 && !howToReadDismissed ? <HowToReadCard onDismiss={dismissHowToRead} /> : null}
             {deck.length > 0 ? (
               <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                 <span className="t-label tabular-nums" data-testid="deck-count">
@@ -431,8 +477,22 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
                   </Chip>
                 ) : null}
                 {notice ? <NoticeLine notice={notice} onDismiss={() => setNotice(null)} /> : null}
-                <span className="ml-auto flex items-center gap-2 text-small text-secondary">
-                  Tick 2–4 cards, then <Kbd>Space</Kbd> or Compare · <Kbd>Esc</Kbd> clears
+                <span className="ml-auto flex items-center gap-1.5 text-small text-secondary" data-testid="compare-hint">
+                  Pick 2–4 cards to compare them
+                  {guided ? (
+                    // TODO(guided-layer): InfoTip
+                    <Tooltip
+                      content={
+                        <span className="flex items-center gap-1.5">
+                          <Kbd>Space</Kbd> compares the picked cards · <Kbd>Esc</Kbd> clears the pick
+                        </span>
+                      }
+                    >
+                      <button type="button" className="inline-flex size-control-xs items-center justify-center rounded-sm text-tertiary transition-colors hover:text-primary focus-visible:shadow-ring" aria-label="Keyboard shortcuts for comparing" data-testid="compare-kbd-tip">
+                        <Info size={14} aria-hidden />
+                      </button>
+                    </Tooltip>
+                  ) : null}
                 </span>
               </div>
             ) : null}
@@ -557,7 +617,7 @@ const DeckCard = memo(function DeckCard({ idea, fresh, dimmed, selected, shortli
       <div className="mt-1.5 flex items-center gap-1.5">
         <Tooltip content="Every version of this card">
           <Button size="sm" variant="ghost" icon={History} onClick={() => onOpenHistory(idea.id)} data-testid="history-button">
-            History{concept.version && concept.version > 1 ? ` · v${concept.version}` : ""}
+            History{concept.version && concept.version > 1 ? ` · version ${concept.version}` : ""}
           </Button>
         </Tooltip>
         {fresh ? <JustInTag /> : null}
@@ -568,6 +628,26 @@ const DeckCard = memo(function DeckCard({ idea, fresh, dimmed, selected, shortli
     </div>
   );
 });
+
+/**
+ * "How to read a card": one line over the deck the first time cards are on screen, dismissed once per browser
+ * (`HOW_TO_READ_CARD_KEY`); guidance on only (§7.5, A6).
+ */
+// TODO(guided-layer): Explainer (per-account `explainers_seen` replaces the browser key).
+function HowToReadCard({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div className="mb-3 flex flex-wrap items-start gap-x-3 gap-y-2 rounded-md bg-surface-2 px-3 py-2" role="note" data-testid="how-to-read-card">
+      <BookOpen size={16} className="mt-0.5 shrink-0 text-kit-lift" aria-hidden />
+      <p className="min-w-0 flex-1 text-body text-pretty text-secondary">
+        <span className="text-primary">How to read a card: </span>
+        the stars are how strong the idea is now and how strong it could get. The ten bars rate it 1–20, higher is better; hover a label for what it measures. Citations are the sources behind the ratings.
+      </p>
+      <Button size="sm" variant="ghost" onClick={onDismiss} data-testid="how-to-read-card-dismiss">
+        Got it
+      </Button>
+    </div>
+  );
+}
 
 /** How long a deck notice stays (a new one replaces it at once). */
 const NOTICE_MS = 8_000;

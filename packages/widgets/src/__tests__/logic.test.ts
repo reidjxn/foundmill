@@ -16,7 +16,7 @@ import { formatDate } from "@foundmill/dugout";
 import { groupByHorizon, roadmapStatus, taskProgress } from "../widgets/roadmap-timeline";
 import { dayHourIn } from "@foundmill/shared/time-zone";
 import { sessionsToPulseCells, type SessionRow } from "../widgets/squad-pulse";
-import { boardWords, runwayTile, squadHealth, statusTiles } from "../widgets/status-strip";
+import { boardWords, runwayTile, squadHealth, statusTiles, teamHealthCaption } from "../widgets/status-strip";
 import { headlineMetric } from "../widgets/department-card";
 import { teamHealth, teamHealthCounts, teamHealthSummary } from "../shared/health";
 import { milestoneKey, trophyCards } from "../widgets/trophy-cabinet";
@@ -151,9 +151,24 @@ describe("status strip", () => {
   it("builds five tiles in Personal mode and six in LIVE, with Estimate on runway", () => {
     const base = { finance, ribbon: ribbon(14), departments, today: TODAY, currency: "EUR", loading: { finance: false, ribbon: false, departments: false, positions: false }, open: () => {} };
     const personal = statusTiles({ ...base, live: false });
-    expect(personal.map((t) => t.label)).toEqual(["Cash", "Runway", "Revenue this month", "Customers this week", "Business health"]);
+    expect(personal.map((t) => t.label)).toEqual(["Cash", "Runway", "Revenue this month", "Customers this week", "Team health"]);
     expect(personal[1]).toMatchObject({ value: "8.7", unit: "mo", estimate: "estimate" });
     expect(personal[3]!.value).toBe(2);
+    // Captions in words (UX plan B9, B10); the formula and the accounting basis sit in the provenance tooltip.
+    expect(personal[0]!.caption).toBe(`In the bank · ${finance.cash.accounts} accounts`);
+    expect(statusTiles({ ...base, live: false, finance: { ...finance, cash: { ...finance.cash, accounts: 1 } } })[0]!.caption).toBe("In the bank · 1 account");
+    expect(personal[1]!.caption).toBe(finance.runway.blocksContinue ? "Under 3 months of cash left: holds Continue" : finance.runway.months! < 9 ? "Under 9 months of cash left" : "Months of cash left at today's spending");
+    expect(personal[1]!.provenance?.source).toContain("Cash ÷ net burn");
+    expect(personal[2]!.caption).toBe("Money in this month");
+    expect(personal[2]!.provenance).toMatchObject({ note: finance.revenue.label });
+    expect(personal[3]!.caption).toBe("Paying customers, last 7 days");
+    expect(personal[4]!.caption).toBe("5 of 6 agents healthy");
+    for (const t of personal) expect(String(t.caption ?? "")).not.toMatch(/÷|Cash basis|Business health/);
+    // One agent, none, and a team that all needs the founder.
+    expect(teamHealthCaption(teamHealthCounts(["healthy"]))).toBe("1 of 1 agent healthy");
+    expect(teamHealthCaption(teamHealthCounts([]))).toBe("No agents hired yet");
+    expect(teamHealthCaption(teamHealthCounts(["failing", "injured"]))).toBe("0 of 2 agents healthy");
+    expect(statusTiles({ ...base, live: false, departments: [] })[4]).toMatchObject({ label: "Team health", value: "—", caption: "No agents hired yet" });
     const live = statusTiles({ ...base, live: true, positions: [{ ...leaderboardEntries[7]!, board: leaderboards[0]! }] });
     expect(live.length).toBe(6);
     expect(live[5]).toMatchObject({ label: "Leaderboard position", value: "#8" });

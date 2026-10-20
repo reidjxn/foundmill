@@ -53,6 +53,11 @@ describe("OverviewScreen", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <OverviewScreen {...props} />);
     expect(screen.getByRole("region", { name: "Finance metrics" })).toBeTruthy();
+    // One plain sentence above the tiles, from the same figures (UX plan §7.14, C6).
+    expect(screen.getByTestId("finance-summary").textContent).toBe("You have €150K in the bank and spend €20K more than you earn each month, so cash lasts about 8 months (Estimate).");
+    // Abbreviations are spelled out on first use.
+    expect(within(document.querySelector("[data-metric='mrr']") as HTMLElement).getByText("Monthly recurring revenue (MRR)")).toBeTruthy();
+    expect(within(document.querySelector("[data-metric='acquisitionCost']") as HTMLElement).getByText("Cost to win a customer")).toBeTruthy();
     const cash = document.querySelector("[data-metric='cash']")!;
     expect(cash.querySelector("[data-value]")!.getAttribute("data-value")).toBe(formatMoney({ amountMinor: 15_000_000, currency: "EUR" }, { compact: true }));
     expect(within(cash as HTMLElement).getByRole("button", { name: /Where this number comes from: Bank balances/ })).toBeTruthy();
@@ -85,6 +90,7 @@ describe("OverviewScreen", () => {
     const empty = createFakeSource({ businessId: BID, responses: emptyResponses });
     const { unmount } = renderScreen(empty, <OverviewScreen {...props} />);
     expect(screen.getByText("No bank or revenue data yet")).toBeTruthy();
+    expect(screen.queryByTestId("finance-summary")).toBeNull(); // the empty state says it; no second sentence
     fireEvent.click(screen.getByRole("button", { name: "Connect a bank" }));
     expect(empty.navigations[0]).toBe(`/b/${BID}/settings/integrations`);
     expect(screen.queryByRole("status", { name: "Runway warning" })).toBeNull();

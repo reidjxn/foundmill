@@ -86,6 +86,18 @@ export function toStaffRows(members: readonly MembershipRow[] | undefined, respo
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * What Invite sends (the same api as Settings › Members, `team.humans.invite`, which takes the sign-in email or the
+ * account ID): the account ID when one is typed, else the email, or null while neither is valid.
+ */
+export function inviteTarget(email: string, accountId: string): { userId: string; email?: string } | { email: string } | null {
+  const id = accountId.trim();
+  const mail = email.trim();
+  if (id) return UUID.test(id) ? { userId: id, ...(EMAIL.test(mail) ? { email: mail } : {}) } : null;
+  return EMAIL.test(mail) ? { email: mail } : null;
+}
 
 /* ---------- Dialogs ---------- */
 
@@ -127,7 +139,10 @@ export interface InviteDialogProps {
   onInvited: (membership: MembershipRow) => void;
 }
 
-/** Invite by Supabase user id (the e-mail invitation itself is sent by the web app's auth flow). */
+/**
+ * Invite by the email the person signs in with, or by their account ID as the fallback (C18: one flow, email first,
+ * the same `team.humans.invite` Settings › Members uses). No invitation email is sent: the person already has an account.
+ */
 export function InviteDialog({ open, onOpenChange, onInvited }: InviteDialogProps) {
   const id = useId();
   const action = useAction();
@@ -145,11 +160,12 @@ export function InviteDialog({ open, onOpenChange, onInvited }: InviteDialogProp
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset per opening
   }, [open]);
-  const validId = UUID.test(userId.trim());
+  const target = inviteTarget(email, userId);
+  const badEmail = email.trim().length > 0 && !EMAIL.test(email.trim());
+  const badId = userId.trim().length > 0 && !UUID.test(userId.trim());
   const confirm = async () => {
-    const input: Record<string, unknown> = { userId: userId.trim(), role, sectionPermissions: perms };
-    if (email.trim()) input.email = email.trim();
-    const m = await action.run<MembershipRow>("team.humans.invite", input, { key: "invite" });
+    if (!target) return;
+    const m = await action.run<MembershipRow>("team.humans.invite", { ...target, role, sectionPermissions: perms }, { key: "invite" });
     if (m) {
       onInvited(m);
       onOpenChange(false);
@@ -161,14 +177,14 @@ export function InviteDialog({ open, onOpenChange, onInvited }: InviteDialogProp
       <DialogContent size="lg" aria-describedby={`${id}-desc`} data-testid="invite-dialog">
         <DialogHeader>
           <DialogTitle>Invite staff</DialogTitle>
-          <DialogDescription id={`${id}-desc`}>A person with a {APP_NAME} account joins this business with a role and, where needed, per-section permissions. Ownership is never granted by invitation: an owner grants it from Role and permissions.</DialogDescription>
+          <DialogDescription id={`${id}-desc`}>Someone who already has a {APP_NAME} account joins this business with a role and, where needed, per-section permissions. They sign in with their own email; no invitation email is sent. Ownership is never granted by invitation: an owner grants it from Role and permissions.</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
-          <Field htmlFor={`${id}-user`} label="Account id" required hint="Find it in Settings › Members or on the person's profile." error={userId && !validId ? "That is not an account id; it has 36 letters, digits and dashes." : undefined}>
-            <Input id={`${id}-user`} value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="Paste the account id" className="font-mono text-mono" aria-invalid={!!userId && !validId} />
+          <Field htmlFor={`${id}-email`} label="Sign-in email" hint="The email they sign in to their account with." error={badEmail ? "That is not an email address." : undefined}>
+            <Input id={`${id}-email`} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" aria-invalid={badEmail} />
           </Field>
-          <Field htmlFor={`${id}-email`} label="E-mail" hint="Shown next to the name until the CRM entity is linked.">
-            <Input id={`${id}-email`} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" />
+          <Field htmlFor={`${id}-user`} label="Or add by account ID" hint="Shown on their founder profile and in Settings › Preferences." error={badId ? "That is not an account ID; it has 36 letters, digits and dashes." : undefined}>
+            <Input id={`${id}-user`} value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="00000000-0000-…" className="font-mono text-mono" aria-invalid={badId} />
           </Field>
           <Field htmlFor={`${id}-role`} label="Role" required>
             <SimpleSelect id={`${id}-role`} aria-label="Role" options={INVITABLE_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] }))} value={role} onValueChange={(v) => setRole(v as MembershipRole)} />
@@ -180,7 +196,7 @@ export function InviteDialog({ open, onOpenChange, onInvited }: InviteDialogProp
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button variant="primary" icon={UserRoundPlus} disabled={!validId} loading={action.pending !== null} onClick={() => void confirm()} data-testid="invite-confirm">
+          <Button variant="primary" icon={UserRoundPlus} disabled={!target} loading={action.pending !== null} onClick={() => void confirm()} data-testid="invite-confirm">
             Invite
           </Button>
         </DialogFooter>

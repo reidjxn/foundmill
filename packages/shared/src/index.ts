@@ -21,3 +21,4 @@ export * from "./autopilot";
 // envelope encryption (libsodium, AWS KMS) is "@foundmill/shared/crypto" and the pino logger "@foundmill/shared/logger".
 export * from "./vacation";
 export * from "./playbook";
+export * from "./terms";

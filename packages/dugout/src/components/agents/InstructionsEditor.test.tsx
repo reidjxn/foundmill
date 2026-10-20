@@ -56,7 +56,7 @@ describe("InstructionsEditor", () => {
     const rules = screen.getByRole("list", { name: "Rules" });
     const flagged = within(rules).getAllByRole("listitem")[2]!;
     expect(flagged.getAttribute("data-flagged")).toBe("true");
-    expect(within(flagged).getByRole("status").textContent).toContain("has no effect");
+    expect(within(flagged).getByRole("status").textContent).toContain("is ignored");
     expect((within(flagged).getByRole("textbox") as HTMLInputElement).value).toContain("Ask before changing");
   });
 

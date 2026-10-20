@@ -12,13 +12,18 @@ import { createFakeSource, renderScreen } from "./fake-source";
 const props = { businessId: BID, departmentId: DEPT_TEAM };
 
 describe("team rows", () => {
-  it("maps an API agent row onto Dugout's SquadRow (tools from keys or grants, rating from skills, wage estimate)", () => {
+  it("maps an API agent row onto Dugout's SquadRow (tools from keys or grants, the 1–20 mean from skills, wage estimate)", () => {
     const juno = agents.find((a) => a.id === AGENT_JUNO)!;
     const row = toSquadRow(juno, "EUR");
-    expect(row).toMatchObject({ id: AGENT_JUNO, name: "Juno", dept: "dept-2", role: "Frontend engineer", departments: ["Development"], status: "healthy", currentTask: { id: expect.any(String), title: "Add a bundle picker to the product page" }, rating: 6.5, tools: ["github", "e2b"], model: "sonnet", wage: { amountMinor: 18_000, currency: "EUR" } });
+    // One scale everywhere (founder, Oct 20, 2026): the 1–20 mean of the skills, as the profile header shows it.
+    expect(row).toMatchObject({ id: AGENT_JUNO, name: "Juno", dept: "dept-2", role: "Frontend engineer", departments: ["Development"], status: "healthy", currentTask: { id: expect.any(String), title: "Add a bundle picker to the product page" }, rating: 13, tools: ["github", "e2b"], model: "sonnet", wage: { amountMinor: 18_000, currency: "EUR" } });
     expect(row.latestUpdate).toEqual({ at: "2026-10-07T11:50:00.000Z", text: "Picker renders; writing the Playwright test" });
     expect(toolKeys({ tools: ["github", { connectorKey: "github" }, { connectorKey: "stripe" }] })).toEqual(["github", "stripe"]);
-    expect(skillRating({ rating: null, skills: [{ skillKey: "a", group: "craft", displayed: 10 }, { skillKey: "b", group: "craft", displayed: 20 }] })).toBe(7.5);
+    expect(skillRating({ rating: null, skills: [{ skillKey: "a", group: "craft", displayed: 10 }, { skillKey: "b", group: "craft", displayed: 20 }] })).toBe(15);
+    expect(skillRating({ rating: null, skills: [{ skillKey: "a", group: "craft", displayed: 14 }, { skillKey: "b", group: "craft", displayed: 17 }, { skillKey: "c", group: "craft", displayed: 12 }] })).toBe(14.3);
+    // The api's 1–10 figure is doubled only when the row carries no skills; nothing at all reads 0 (the cell shows "—").
+    expect(skillRating({ rating: 6.5, skills: [] })).toBe(13);
+    expect(skillRating({ rating: null, skills: [] })).toBe(0);
     const mara = toSquadRow(agents.find((a) => a.id === AGENT_MARA)!, "EUR");
     expect(mara.expectedReturnAt).toBe("2026-10-07T14:00:00.000Z");
   });
@@ -51,9 +56,16 @@ describe("SquadScreen", () => {
     renderScreen(fake, <SquadScreen {...props} />);
     const table = await screen.findByRole("grid", { name: "Agents" });
     expect(within(table).getAllByRole("row")).toHaveLength(agents.length + 1);
-    const headers = within(table).getAllByRole("columnheader").map((h) => h.textContent?.replace(/Resize.*$/, "").trim());
+    // The data columns (the table adds its own "…" actions column after them).
+    const headers = within(table).getAllByRole("columnheader").map((h) => h.textContent?.replace(/Resize.*$/, "").trim()).filter((h) => h !== "Actions");
     // The General view hides Tools and the latest update (reachable from the column chooser and the other views).
-    expect(headers).toEqual(["Agent", "Role", "Departments", "Status", "Current task", "Form", "Rating", "Model", "Wage"]);
+    expect(headers).toEqual(["Agent", "Role", "Departments", "Status", "Current task", "Form", "Rating /20", "Model", "AI cost (USD)"]);
+    // The rating is the 1–20 mean with its band word; an agent with no skills yet is not rated.
+    expect(within(table).getByLabelText("Rating 13.0 of 20, Good")).toBeTruthy();
+    expect(within(table).getAllByLabelText("Rating 17.0 of 20, Excellent")).toHaveLength(2);
+    expect(within(table).getByLabelText("Not rated yet")).toBeTruthy();
+    // The Form key sits under the column once (guidance is on outside a provider).
+    expect(screen.getByTestId("form-caption").textContent).toBe("Form: the last five tasks.");
     expect(within(table).getByRole("link", { name: "Juno" })).toBeTruthy();
     expect(within(table).getByText("Down")).toBeTruthy();
     expect(within(table).getByText(/expected back in 2 hr/)).toBeTruthy();
@@ -122,18 +134,18 @@ describe("SquadScreen", () => {
     expect(toModelOptions({ ...compareJuno, currency: undefined })[0]!.wageDelta).toEqual({ amountMinor: 72_000, currency: "USD" });
   });
 
-  it("offers right-click verbs: open profile, change model, clone, loan, release (not for the Chief of Staff)", async () => {
+  it("offers right-click verbs: open profile, change model, duplicate, lend, let go (not for the Chief of Staff)", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: () => ({ id: "new", name: "Juno II" }) });
     renderScreen(fake, <SquadScreen {...props} />);
     const table = await screen.findByRole("grid", { name: "Agents" });
     fireEvent.contextMenu(within(table).getByText("Chief of Staff"));
     const menu = await screen.findByRole("menu");
-    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Open profile", "Change model (Opus)", "Clone…", "Loan to department…", "Release"]);
-    expect(within(menu).getByRole("menuitem", { name: "Release" }).getAttribute("aria-disabled")).toBe("true");
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Open profile", "Change model (Opus)", "Duplicate…", "Lend to another department…", "Let go"]);
+    expect(within(menu).getByRole("menuitem", { name: "Let go" }).getAttribute("aria-disabled")).toBe("true");
     await user.keyboard("{Escape}");
     fireEvent.contextMenu(within(table).getByText("Frontend engineer"));
-    await user.click(await screen.findByRole("menuitem", { name: "Clone…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Duplicate…" }));
     const clone = await screen.findByTestId("clone-dialog");
     expect((within(clone).getByLabelText("Name", { exact: false }) as HTMLInputElement).value).toBe("Juno II");
     await user.click(within(clone).getByRole("checkbox", { name: "Distribution" }));
@@ -142,7 +154,7 @@ describe("SquadScreen", () => {
     await waitFor(() => expect(screen.getByTestId("model-notice").textContent).toBe("Juno II joined the team."));
   });
 
-  it("loans and releases from the context menu, keeping the dialog open on an API error", async () => {
+  it("lends and lets go from the context menu, keeping the dialog open on an API error", async () => {
     const user = userEvent.setup();
     let fail = true;
     const fake = createFakeSource({
@@ -156,18 +168,20 @@ describe("SquadScreen", () => {
     renderScreen(fake, <SquadScreen {...props} />);
     const table = await screen.findByRole("grid", { name: "Agents" });
     fireEvent.contextMenu(within(table).getByText("Email engine"));
-    await user.click(await screen.findByRole("menuitem", { name: "Loan to department…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Lend to another department…" }));
     const loan = await screen.findByTestId("loan-dialog");
+    expect(within(loan).getByRole("button", { name: "Lend" })).toBeTruthy();
     await user.click(within(loan).getByRole("combobox", { name: "To department" }));
     await user.click(await screen.findByRole("option", { name: "Development" }));
-    await user.click(within(loan).getByRole("checkbox", { name: /Move instead of loan/ }));
+    await user.click(within(loan).getByRole("checkbox", { name: /Move instead of lending/ }));
     await user.click(within(loan).getByTestId("loan-confirm"));
     await waitFor(() => expect(fake.mutations[0]).toEqual({ path: "team.agents.loan", input: { agentId: AGENT_MARA, departmentId: expect.any(String), move: true } }));
     await waitFor(() => expect(screen.getByTestId("model-notice").textContent).toBe("Mara moved to Development."));
 
     fireEvent.contextMenu(within(table).getByText("Frontend engineer"));
-    await user.click(await screen.findByRole("menuitem", { name: "Release" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Let go" }));
     const release = await screen.findByTestId("release-dialog");
+    expect(within(release).getByText("Let Juno go")).toBeTruthy();
     expect(within(release).getByText(/Currently working on/)).toBeTruthy();
     await user.click(within(release).getByTestId("release-confirm"));
     expect(await within(release).findByRole("alert")).toBeTruthy();

@@ -4,7 +4,7 @@
  * conversion and the two share-register exports. No React, no I/O; every function is deterministic so the
  * AC-11.8.1 / AC-11.8.4 fixtures can assert to the minor unit.
  */
-import { formatDate } from "@foundmill/dugout/lib/format";
+import { formatDate, formatMoney } from "@foundmill/dugout/lib/format";
 import type { DateFormatPrefs } from "@foundmill/dugout/lib/date-preferences";
 import { projectForecast, type ForecastProjection } from "@foundmill/shared/forecast";
 import { readVesting } from "@foundmill/shared/vesting";
@@ -121,19 +121,85 @@ export function ledgerPnlRows(pnl: Record<string, unknown>, depth = 0, prefix = 
 
 export type MetricKey = "cash" | "grossBurn" | "netBurn" | "runway" | "revenue" | "mrr" | "arr" | "grossMargin" | "acquisitionCost" | "payback";
 
-/** The hover-visible definitions of BUILD §11.8, word for word where the spec gives them. */
+/**
+ * The ten tiles' labels and hover definitions (BUILD §11.8; UX plan §7.14, C6): every abbreviation is spelled out on
+ * first use, every definition says what the number means in plain words, then the formula after a semicolon.
+ */
+// TODO(guided-layer): `PlainFigure` reads these from TERMS once the definitions source lands.
 export const METRIC_DEFINITIONS: Record<MetricKey, { label: string; definition: string }> = {
-  cash: { label: "Cash in bank", definition: "Sum of the latest balances of every connected account in the base currency at the latest ECB rate." },
-  grossBurn: { label: "Gross burn", definition: "Operating outflows per month, trailing 3-month average." },
-  netBurn: { label: "Net burn", definition: "Operating outflows minus operating inflows, trailing 3-month average, financing excluded." },
-  runway: { label: "Runway", definition: "Cash divided by net burn, plus the forecast-based runway from the Base scenario." },
-  revenue: { label: "Revenue", definition: "From the ledger when one is connected, otherwise Stripe/Shopify and bank inflows labeled cash basis. Trailing 3 months." },
-  mrr: { label: "MRR", definition: "Monthly recurring revenue: average monthly revenue over the trailing 3 months, cash basis." },
-  arr: { label: "ARR", definition: "Annual recurring revenue: MRR × 12." },
-  grossMargin: { label: "Gross margin", definition: "(Revenue − cost of sales) ÷ revenue over the trailing 3 months." },
-  acquisitionCost: { label: "Acquisition cost", definition: "Channel spend ÷ new customers, blended across channels (per channel in the tooltip)." },
-  payback: { label: "Payback", definition: "Acquisition cost ÷ monthly gross profit per customer." },
+  cash: { label: "Cash in bank", definition: "What is in every connected bank account today, added up in your currency; the latest balances, converted at the latest ECB rate." },
+  grossBurn: { label: "Gross burn (spending per month)", definition: "What the business spends in a typical month; operating outflows, trailing 3-month average." },
+  netBurn: { label: "Net burn (spending beyond income)", definition: "How much more you spend than you earn in a typical month; operating outflows minus operating inflows, trailing 3-month average, financing excluded." },
+  runway: { label: "Runway", definition: "How many months your cash lasts at today's spending; cash ÷ net burn, plus the Base forecast's own runway." },
+  revenue: { label: "Revenue", definition: "What customers paid you in the last 3 months; from the ledger when one is connected, otherwise Stripe, Shopify and bank inflows, counted when the cash moves." },
+  mrr: { label: "Monthly recurring revenue (MRR)", definition: "What you earn from customers in a typical month; average monthly revenue over the trailing 3 months, counted when the cash moves." },
+  arr: { label: "Annual recurring revenue (ARR)", definition: "What a year of today's monthly revenue adds up to; MRR × 12." },
+  grossMargin: { label: "Gross margin", definition: "The share of revenue left after the direct cost of what you sell; (revenue − cost of sales) ÷ revenue, trailing 3 months." },
+  acquisitionCost: { label: "Cost to win a customer", definition: "What it costs, on average, to win one new customer; channel spend ÷ new customers, blended across channels (per channel in the tooltip)." },
+  payback: { label: "Payback (months to earn back a customer's cost)", definition: "How many months a new customer takes to earn back what it cost to win them; cost to win a customer ÷ monthly gross profit per customer." },
 };
+
+/**
+ * The P&L's source label in plain words: the API's "Management P&L, unaudited, cash basis" reads "Management view,
+ * unaudited, counted when the cash moves (cash basis)"; any other label (a ledger's own) passes through.
+ */
+export const PNL_CASH_BASIS_LABEL = "Management P&L, unaudited, cash basis";
+export const PNL_CASH_BASIS_WORDS = "Management view, unaudited, counted when the cash moves (cash basis)";
+export function pnlLabelWords(label: string | null | undefined): string {
+  if (!label) return PNL_CASH_BASIS_WORDS;
+  return label.trim() === PNL_CASH_BASIS_LABEL ? PNL_CASH_BASIS_WORDS : label;
+}
+
+export interface FinanceSummaryInput {
+  /** Cash in bank, minor units. */
+  cashMinor: number;
+  /** Connected bank accounts; none means the figures are not known. */
+  accounts: number;
+  /** Net burn, minor units: positive when burning, negative when cash-flow positive. */
+  netBurnMinor: number;
+  /** Runway in months, null when it cannot be measured yet. */
+  runwayMonths: number | null;
+  currency: string;
+}
+
+/**
+ * Money as a sentence says it: "£72K", "£9K", "£1.5M", "£950" (whole thousands, one decimal from a million up), with the
+ * narrow symbol of the business's currency; the shared compact formatter keeps "£9,000" under ten thousand.
+ */
+export function sentenceMoney(amountMinor: number, currency: string): string {
+  const major = Math.abs(amountMinor) / 100;
+  try {
+    const compact = major >= 1000;
+    return new Intl.NumberFormat("en-US", { style: "currency", currency, currencyDisplay: "narrowSymbol", notation: compact ? "compact" : "standard", maximumFractionDigits: major >= 1_000_000 ? 1 : 0 }).format(major);
+  } catch {
+    return formatMoney({ amountMinor: Math.abs(Math.round(amountMinor)), currency }, { compact: true });
+  }
+}
+
+/** "about 8 months" / "about 1 month" / "under a month". */
+export function runwayPhrase(months: number): string {
+  if (months < 1) return "under a month";
+  const n = Math.round(months);
+  return `about ${n} month${n === 1 ? "" : "s"}`;
+}
+
+/**
+ * One plain sentence above the Finance tiles, composed from the same data (UX plan §7.14, C6): "You have £72K in the
+ * bank and spend £9K more than you earn each month, so cash lasts about 8 months (Estimate)." With no bank it says so;
+ * cash-flow positive and break-even businesses get their own sentence.
+ */
+export function financeSummarySentence(input: FinanceSummaryInput): string {
+  if (input.accounts <= 0) return "No bank is connected yet, so how much cash you have and how long it lasts are not known.";
+  const money = (minor: number) => sentenceMoney(minor, input.currency);
+  const cash = `You have ${money(input.cashMinor)} in the bank`;
+  if (input.netBurnMinor > 0) {
+    const burn = `spend ${money(input.netBurnMinor)} more than you earn each month`;
+    if (input.runwayMonths === null || !Number.isFinite(input.runwayMonths)) return `${cash} and ${burn}; how long it lasts is not known yet (Estimate).`;
+    return `${cash} and ${burn}, so cash lasts ${runwayPhrase(input.runwayMonths)} (Estimate).`;
+  }
+  if (input.netBurnMinor < 0) return `${cash} and earn ${money(input.netBurnMinor)} more than you spend each month, so cash is growing (Estimate).`;
+  return `${cash} and spend about what you earn each month, so cash holds steady (Estimate).`;
+}
 
 /** Cash at the end of each month, walked back from today's balance through the monthly net totals (oldest first). */
 export function cashHistory(cashNowMinor: number, monthly: readonly MonthlyTotal[], months: readonly string[]): number[] {

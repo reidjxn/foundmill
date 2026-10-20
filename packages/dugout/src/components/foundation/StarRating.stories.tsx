@@ -11,6 +11,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Current: Story = {};
+/** With a potential the caption reads "Now 2.5 · could reach 4.5" once, and the tooltip says the same. */
 export const CurrentAndPotential: Story = { args: { value: 2.5, potential: 4.5, showValue: true } };
 export const Ladder: Story = {
   render: () => (

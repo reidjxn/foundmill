@@ -117,10 +117,17 @@ function draftCard(ctx: MockContext, i: number, inputs: DraftInputs, usedNames: 
   const starsPotential = Math.max(starsCurrent, Math.min(5, starsCurrent + rng.int(0, 2)));
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const citationCount = rng.int(2, 3);
+  const topic = keyword ?? ARCHETYPE_LABELS[archetype].toLowerCase();
+  // What each source says, in one line, as the Research agent writes it; figures behind the card are estimates.
   const citations = Array.from({ length: citationCount }, (_, c) => ({
-    title: c === 0 ? `Market note: ${keyword ?? ARCHETYPE_LABELS[archetype].toLowerCase()} (${ARCHETYPE_LABELS[archetype]})` : c === 1 ? `Pricing comparables for ${audience}` : `Competitor scan: ${name}`,
+    title: c === 0 ? `Market note: ${topic} (${ARCHETYPE_LABELS[archetype]})` : c === 1 ? `Pricing comparables for ${audience}` : `Competitor scan: ${name}`,
     url: `https://research.mock.invalid/${slug}/${c + 1}`,
-    note: "Mock citation — replace with Research agent output in live mode. Labeled estimate.",
+    note:
+      c === 0
+        ? `Who buys ${topic} today, what they pay and where they look for help; the market figures are estimates.`
+        : c === 1
+          ? `Price points of comparable products for ${audience}, with the plan each one leads with.`
+          : `The closest competitors to ${name} and where each one is weak.`,
   }));
 
   return {
@@ -229,21 +236,21 @@ function evidenceFor(key: IdeaAttributeKey, value: number, archetype: Archetype,
   const n = rng.int(3, 40);
   switch (key) {
     case "market_pull":
-      return `Estimate — ${n} recent forum threads and job posts mention paying for ${topic}; pull looks ${strength} (mock research).`;
+      return `Estimate — ${n} recent forum threads and job posts mention paying for ${topic}; pull looks ${strength}.`;
     case "market_size":
-      return `Estimate — comparable ${ARCHETYPE_LABELS[archetype].toLowerCase()} companies report a serviceable market in the ${value >= 12 ? "hundreds of millions" : "tens of millions"} (mock research).`;
+      return `Estimate — comparable ${ARCHETYPE_LABELS[archetype].toLowerCase()} companies report a serviceable market in the ${value >= 12 ? "hundreds of millions" : "tens of millions"}.`;
     case "competition":
-      return `${n} competitors found; ${strength === "strong" ? "none" : strength === "mixed" ? "a few" : "several"} are well funded (mock research).`;
+      return `${n} competitors found; ${strength === "strong" ? "none" : strength === "mixed" ? "a few" : "several"} are well funded.`;
     case "speed_to_first_customer":
-      return `${archetype === "services" ? "A first paid engagement is realistic within weeks" : value >= 12 ? "A pilot customer is reachable within a quarter" : "Expect a long build before the first sale"} (estimate).`;
+      return `${archetype === "services" ? "A first paid engagement is realistic within weeks" : value >= 12 ? "A pilot customer is reachable within a quarter" : "Expect a long build before the first sale"} (Estimate).`;
     case "capital_intensity":
-      return value >= 14 ? "Software-only; no inventory or tooling needed up front (estimate)." : "Requires inventory, tooling or certification spend before revenue (estimate).";
+      return value >= 14 ? "Software-only; no inventory or tooling needed up front (Estimate)." : "Requires inventory, tooling or certification spend before revenue (Estimate).";
     case "agent_executability":
       return value >= 14 ? "Most of the build and distribution work can be run by the team with existing connectors." : "Key steps need humans: physical samples, licensed sign-off or in-person sales.";
     case "founder_fit":
       return `Based on the founder profile skills and constraints; fit reads ${strength}.`;
     case "defensibility":
-      return value >= 12 ? "Data network effects or switching costs plausible after the first cohort (estimate)." : "Easy to copy; defensibility would come from brand and distribution, not technology.";
+      return value >= 12 ? "Data network effects or switching costs plausible after the first cohort (Estimate)." : "Easy to copy; defensibility would come from brand and distribution, not technology.";
     case "regulatory_load":
       return value >= 14 ? "No licensing or sector regulation identified beyond standard consumer and data law." : "Sector rules apply (claims, safety or financial regulation); budget for compliance.";
     case "distribution_clarity":

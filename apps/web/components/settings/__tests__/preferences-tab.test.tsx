@@ -1,22 +1,52 @@
 // @vitest-environment happy-dom
 /**
  * Settings › Preferences: two sets of radio cards; a choice saves at once with a toast in the new format, and every
- * date on screen follows without a reload.
+ * date on screen follows without a reload. The Guidance section: the switch, the text size and the two resets save
+ * through the GuidanceHost the same way, and the guided layer elsewhere on the page follows at once.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ToastProvider, TooltipProvider, useFormatters, type DateFormatPrefs } from "@foundmill/dugout";
+import { ToastProvider, TooltipProvider, useFormatters, useGuidance, type DateFormatPrefs } from "@foundmill/dugout";
 import type * as SharedModule from "../shared";
 
+type Guidance = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null };
+type Change = Partial<DateFormatPrefs> & Partial<{ guidance: Guidance["guidance"]; textSize: Guidance["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; reset: true }>;
+
+const BUSINESS = "b1e5e5e5-0000-4000-8000-000000000001";
+const PREFS_KEY = [["founder", "preferences", "get"], { type: "query" }];
+const GUIDANCE_KEY = [["founder", "preferences", "guidance"], { type: "query" }];
+const guidanceDefaults = (): Guidance => ({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null });
+
 let stored: DateFormatPrefs = { date: "us", time: "12h" };
-const update = vi.fn(async (change: Partial<DateFormatPrefs>) => {
-  stored = { ...stored, ...change };
-  return stored;
-});
+let guidanceStored: Guidance = guidanceDefaults();
+async function serverUpdate(change: Change) {
+  const { date, time, guidance, textSize, explainersSeen, toursDone, checklistDismissed, reset } = change;
+  stored = { ...stored, ...(date ? { date } : {}), ...(time ? { time } : {}) };
+  const next: Guidance = { ...guidanceStored, explainersSeen: { ...guidanceStored.explainersSeen }, toursDone: { ...guidanceStored.toursDone } };
+  if (guidance) next.guidance = guidance;
+  if (textSize) next.textSize = textSize;
+  if (reset) Object.assign(next, { explainersSeen: {}, toursDone: {}, checklistDismissedAt: null });
+  for (const id of Object.keys(explainersSeen ?? {})) next.explainersSeen[id] = true;
+  for (const id of Object.keys(toursDone ?? {})) next.toursDone[id] = true;
+  if (checklistDismissed !== undefined) next.checklistDismissedAt = checklistDismissed ? "2026-10-20T15:45:00.000Z" : null;
+  guidanceStored = next;
+  return { ...stored, ...guidanceStored };
+}
+const update = vi.fn(serverUpdate);
+/** Holds the next request open until the returned function is called, so the optimistic state can be observed. */
+function holdNextUpdate(): () => void {
+  let release: () => void = () => undefined;
+  update.mockImplementationOnce(async (change) => {
+    await new Promise<void>((r) => (release = r));
+    return serverUpdate(change);
+  });
+  return () => release();
+}
 const saved = vi.fn();
 const failed = vi.fn();
 
+vi.mock("next/navigation", () => ({ usePathname: () => `/b/${BUSINESS}/settings/preferences`, useParams: () => ({ bid: BUSINESS }) }));
 vi.mock("@/lib/trpc-react", () => ({
   useTRPC: () => ({
     founder: {
@@ -28,49 +58,69 @@ vi.mock("@/lib/trpc-react", () => ({
       },
       preferences: {
         get: {
-          queryKey: () => [["founder", "preferences", "get"], { type: "query" }],
-          queryOptions: (_input: unknown, opts: Record<string, unknown>) => ({ queryKey: [["founder", "preferences", "get"], { type: "query" }], queryFn: async () => stored, ...opts }),
+          queryKey: () => PREFS_KEY,
+          queryOptions: (_input: unknown, opts: Record<string, unknown>) => ({ queryKey: PREFS_KEY, queryFn: async () => stored, ...opts }),
+        },
+        guidance: {
+          queryKey: () => GUIDANCE_KEY,
+          queryOptions: (_input: unknown, opts: Record<string, unknown>) => ({ queryKey: GUIDANCE_KEY, queryFn: async () => guidanceStored, ...opts }),
         },
         update: {
           mutationKey: () => [["founder", "preferences", "update"]],
-          mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["founder", "preferences", "update"]], mutationFn: (change: Partial<DateFormatPrefs>) => update(change), ...opts }),
+          mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["founder", "preferences", "update"]], mutationFn: (change: Change) => update(change), ...opts }),
         },
       },
     },
+    business: { get: { queryKey: (input: { businessId: string }) => [["business", "get"], { input, type: "query" }] } },
   }),
 }));
 vi.mock("../shared", async (importOriginal) => ({ ...(await importOriginal<typeof SharedModule>()), useSettingsToast: () => ({ saved, failed, info: vi.fn() }) }));
 
 import { DateFormatHost } from "@/components/providers/DateFormatHost";
-import { PreferencesTab, preferenceChange, savedLine } from "../PreferencesTab";
+import { GuidanceHost } from "@/components/providers/GuidanceHost";
+import { PreferencesTab, guidanceSavedLine, preferenceChange, resettable, savedLine } from "../PreferencesTab";
 
 /** Somewhere else on the page (the top bar, the Inbox): it must follow the choice without a reload. */
 function Elsewhere() {
   const { formatDate, formatTime } = useFormatters();
-  return <p data-testid="elsewhere">{`${formatDate(new Date(2026, 9, 7, 15, 45))} ${formatTime(new Date(2026, 9, 7, 15, 45))}`}</p>;
+  const { guidance, textSize } = useGuidance();
+  return (
+    <>
+      <p data-testid="elsewhere">{`${formatDate(new Date(2026, 9, 7, 15, 45))} ${formatTime(new Date(2026, 9, 7, 15, 45))}`}</p>
+      <p data-testid="elsewhere-guidance">{`${guidance} ${textSize}`}</p>
+    </>
+  );
 }
 
-afterEach(() => {
-  stored = { date: "us", time: "12h" };
-  update.mockClear();
-  saved.mockClear();
-  failed.mockClear();
-});
-
-describe("PreferencesTab", () => {
-  it("saves each choice at once, says so in the new format, and every date follows", async () => {
-    render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
-        <TooltipProvider>
-          <ToastProvider>
+function mount() {
+  return render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
+      <TooltipProvider>
+        <ToastProvider>
+          <GuidanceHost>
             <DateFormatHost initial={{ date: "us", time: "12h" }} owner="dev">
               <PreferencesTab />
               <Elsewhere />
             </DateFormatHost>
-          </ToastProvider>
-        </TooltipProvider>
-      </QueryClientProvider>,
-    );
+          </GuidanceHost>
+        </ToastProvider>
+      </TooltipProvider>
+    </QueryClientProvider>,
+  );
+}
+
+afterEach(() => {
+  stored = { date: "us", time: "12h" };
+  guidanceStored = guidanceDefaults();
+  update.mockClear();
+  saved.mockClear();
+  failed.mockClear();
+  document.documentElement.removeAttribute("data-text");
+});
+
+describe("PreferencesTab", () => {
+  it("saves each choice at once, says so in the new format, and every date follows", async () => {
+    mount();
     expect(screen.getByTestId("preferences-scope").textContent).toContain("Just for you");
     expect(screen.getByTestId("preferences-panel").textContent).toContain("in every business");
     expect(screen.getByTestId("preferences-panel").textContent).toContain("3 min ago");
@@ -93,23 +143,86 @@ describe("PreferencesTab", () => {
 
   it("says what failed and keeps the old choice when the save fails", async () => {
     update.mockRejectedValueOnce(new Error("offline"));
-    render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
-        <TooltipProvider>
-          <ToastProvider>
-            <DateFormatHost initial={{ date: "us", time: "12h" }} owner="dev">
-              <PreferencesTab />
-              <Elsewhere />
-            </DateFormatHost>
-          </ToastProvider>
-        </TooltipProvider>
-      </QueryClientProvider>,
-    );
+    mount();
     fireEvent.click(screen.getByRole("radio", { name: "ISO 8601" }));
     await waitFor(() => expect(failed).toHaveBeenCalledTimes(1));
     expect(failed.mock.calls[0]?.[1]).toBe("Preference not saved");
     expect(screen.getByTestId("elsewhere").textContent).toBe("Oct 7, 2026 3:45 PM");
     expect(screen.getByRole("radio", { name: "US" }).getAttribute("aria-checked")).toBe("true");
+  });
+});
+
+describe("PreferencesTab › Guidance", () => {
+  it("the switch and the text size save at once, with a toast, and the guided layer elsewhere follows", async () => {
+    mount();
+    const panel = screen.getByTestId("guidance-panel");
+    expect(panel.textContent).toContain("Guidance");
+    expect(panel.textContent).toContain("always show");
+    const sw = screen.getByRole("switch", { name: "Explain things as I go" });
+    expect(sw.getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("button", { name: "Standard" }).getAttribute("aria-pressed")).toBe("true");
+    // Nothing to reset yet: both buttons are off, and say so to the keyboard too.
+    expect(screen.getByTestId("show-checklist-again").getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByTestId("replay-tour").getAttribute("aria-disabled")).toBe("true");
+
+    // Optimistic: the switch and the rest of the page change while the request is still on its way.
+    const release = holdNextUpdate();
+    fireEvent.click(sw);
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ guidance: "off" }));
+    // The query cache notifies on its next tick; the request is still held open, so no toast yet.
+    await waitFor(() => expect(sw.getAttribute("aria-checked")).toBe("false"));
+    expect(screen.getByTestId("elsewhere-guidance").textContent).toBe("off standard");
+    expect(saved).not.toHaveBeenCalled();
+    await act(async () => release());
+    await waitFor(() => expect(saved).toHaveBeenCalledWith("Guidance off", expect.stringContaining("still show")));
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+
+    fireEvent.click(screen.getByRole("button", { name: "Comfortable" }));
+    await waitFor(() => expect(update).toHaveBeenLastCalledWith({ textSize: "comfortable" }));
+    await waitFor(() => expect(saved).toHaveBeenLastCalledWith("Comfortable text", expect.stringContaining("in every business")));
+    expect(screen.getByTestId("elsewhere-guidance").textContent).toBe("off comfortable");
+    expect(screen.getByRole("button", { name: "Comfortable" }).getAttribute("aria-pressed")).toBe("true");
+    await waitFor(() => expect(document.documentElement.getAttribute("data-text")).toBe("comfortable"));
+
+    fireEvent.click(sw);
+    await waitFor(() => expect(update).toHaveBeenLastCalledWith({ guidance: "on" }));
+    await waitFor(() => expect(saved).toHaveBeenLastCalledWith("Guidance on", expect.stringContaining("show as you go")));
+    fireEvent.click(screen.getByRole("button", { name: "Standard" }));
+    await waitFor(() => expect(saved).toHaveBeenLastCalledWith("Standard text", expect.any(String)));
+    await waitFor(() => expect(document.documentElement.getAttribute("data-text")).toBeNull());
+    // The date format never travels with a guidance change.
+    for (const call of update.mock.calls) expect(Object.keys(call[0])).not.toContain("date");
+    expect(failed).not.toHaveBeenCalled();
+  });
+
+  it("the resets wake once something was seen, put it back to the first day, and go quiet again", async () => {
+    guidanceStored = { ...guidanceDefaults(), explainersSeen: { home: true }, checklistDismissedAt: "2026-10-19T09:00:00.000Z" };
+    mount();
+    const checklist = screen.getByTestId("show-checklist-again");
+    const tour = screen.getByTestId("replay-tour");
+    await waitFor(() => expect(checklist.getAttribute("aria-disabled")).toBeNull());
+    expect(tour.getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(checklist);
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ reset: true }));
+    await waitFor(() => expect(saved).toHaveBeenCalledWith("Starting over", expect.stringContaining("show again")));
+    await waitFor(() => expect(checklist.getAttribute("aria-disabled")).toBe("true"));
+    expect(tour.getAttribute("aria-disabled")).toBe("true");
+    expect(update).toHaveBeenCalledTimes(1);
+    // Off buttons do nothing.
+    fireEvent.click(tour);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  it("says what failed and keeps the old choice when a guidance save fails", async () => {
+    mount();
+    const sw = screen.getByRole("switch", { name: "Explain things as I go" });
+    update.mockRejectedValueOnce(new Error("offline"));
+    fireEvent.click(sw);
+    await waitFor(() => expect(failed).toHaveBeenCalledTimes(1));
+    expect(failed.mock.calls[0]?.[1]).toBe("Preference not saved");
+    await waitFor(() => expect(sw.getAttribute("aria-checked")).toBe("true"));
+    expect(screen.getByTestId("elsewhere-guidance").textContent).toBe("on standard");
   });
 });
 
@@ -121,5 +234,22 @@ describe("helpers", () => {
   });
   it("words the toast in the new format", () => {
     expect(savedLine({ date: "iso", time: "24h" }, new Date(2026, 9, 7, 15, 45))).toEqual({ title: "ISO 8601 dates, 24-hour times", description: "Dates read 2026-10-07 and times 15:45, in every business." });
+  });
+  it("knows which resets have something to undo", () => {
+    expect(resettable(guidanceDefaults())).toEqual({ checklist: false, tour: false });
+    expect(resettable({ ...guidanceDefaults(), checklistDismissedAt: "2026-10-19T09:00:00.000Z" })).toEqual({ checklist: true, tour: false });
+    expect(resettable({ ...guidanceDefaults(), explainersSeen: { home: true } })).toEqual({ checklist: false, tour: true });
+    expect(resettable({ ...guidanceDefaults(), toursDone: { inbox: true } })).toEqual({ checklist: false, tour: true });
+  });
+  it("words the guidance toasts in sentence case, naming the choice", () => {
+    expect(guidanceSavedLine({ guidance: "on", textSize: "standard" }, "guidance").title).toBe("Guidance on");
+    expect(guidanceSavedLine({ guidance: "off", textSize: "standard" }, "guidance")).toEqual({ title: "Guidance off", description: "Consequences, provenance and Estimate labels still show. Turn it on again any time from here." });
+    expect(guidanceSavedLine({ guidance: "on", textSize: "comfortable" }, "textSize").title).toBe("Comfortable text");
+    expect(guidanceSavedLine({ guidance: "on", textSize: "standard" }, "textSize").title).toBe("Standard text");
+    expect(guidanceSavedLine({ guidance: "on", textSize: "standard" }, "reset")).toEqual({ title: "Starting over", description: "The intros, the first-week checklist and the tours show again." });
+    for (const line of [guidanceSavedLine({ guidance: "on", textSize: "standard" }, "guidance"), guidanceSavedLine({ guidance: "on", textSize: "standard" }, "reset")]) {
+      expect(line.title).not.toMatch(/!/);
+      expect(line.description).not.toMatch(/!/);
+    }
   });
 });

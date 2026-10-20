@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { APP_NAME } from "@foundmill/config";
-import { CLUB_RULES, HOUSE_STYLE, clubRulesPrompt } from "../prompts/club-rules";
+import { CLUB_RULES, HOUSE_RULES_FOUNDER_LINE, HOUSE_STYLE, clubRulesPrompt } from "../prompts/club-rules";
 import { CLUB_RULES_HEADER, INSTRUCTIONS_HEADER, buildSystemPrompt, detectClubRuleViolation, diffInstructions, flattenInstructions, hasClubRulesPrefix, renderInstructions } from "../club-rules";
 import { ALL_TEMPLATES, chiefOfStaff } from "../templates";
 import { type AgentInstructions } from "../types";
@@ -14,6 +14,22 @@ describe("house rules block (BUILD §12.1, §9.2)", () => {
     for (const r of CLUB_RULES) expect(text).toContain(`${r.id}. ${r.text.replace("{business_name}", BUSINESS)}`);
     expect(CLUB_RULES.length).toBe(7);
     expect(text).not.toContain("{business_name}");
+  });
+
+  it("carries the founder-facing one-liner the welcome note and the Chief of Staff's profile open with (UX plan §7.19, E5)", () => {
+    expect(HOUSE_RULES_FOUNDER_LINE).toBe("I'm your Chief of Staff. I run the team so you only read and decide. Some things are always yours: money, signatures, contracts, deleting things.");
+    // The founder's line is not an eighth rule: the agents' fixed block is unchanged.
+    expect(clubRulesPrompt.render({ business_name: BUSINESS, APP_NAME })).not.toContain(HOUSE_RULES_FOUNDER_LINE);
+    expect(chiefOfStaff.description.startsWith(HOUSE_RULES_FOUNDER_LINE)).toBe(true);
+  });
+
+  it("the Chief of Staff's 'What I do' speaks to the founder: first person, the business stake first, no plumbing (UX plan §7.19)", () => {
+    const shown = [chiefOfStaff.description, ...chiefOfStaff.instructions.goals, ...chiefOfStaff.instructions.playbook, ...chiefOfStaff.neverDoes].join("\n");
+    expect(chiefOfStaff.description).toMatch(/^I'm your Chief of Staff\./);
+    for (const banned of [/compile/i, /free-text/i, /typed Plans?/, /\bpolicy\b/i, /hard gates? routed/i, /\bhard gates?\b/i, /concurrency/i, /time box/i, /request_human_action/]) expect(shown, String(banned)).not.toMatch(banned);
+    expect(shown).toMatch(/agents working at once/);
+    expect(shown).toMatch(/time limit/);
+    expect(chiefOfStaff.description).toMatch(/Never does: spend, sign, accept terms or delete anything; those always come back to you\.$/);
   });
 
   it("tells every agent to write US English with US dates, after the seven rules and before the instructions", () => {

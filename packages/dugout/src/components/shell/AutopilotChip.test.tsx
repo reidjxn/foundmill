@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { AutopilotChip } from "./AutopilotChip";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
+import { AUTOPILOT_GUIDE_LINE, AutopilotChip } from "./AutopilotChip";
 
 describe("AutopilotChip", () => {
   it("says the state in words and shows the next planned cycle with the Estimate tag", () => {
@@ -29,5 +30,26 @@ describe("AutopilotChip", () => {
     rerender(<AutopilotChip state="waiting" label="Waiting for you" onClick={onClick} />);
     await userEvent.click(screen.getByRole("button", { name: "Autopilot: Waiting for you" }));
     expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("says in one sentence what Autopilot does and never does beside the chip, in guided mode only (UX plan B16)", () => {
+    const { container, unmount } = render(<AutopilotChip state="on" label="On" guide />);
+    const guide = container.querySelector("[data-autopilot-guide]");
+    expect(guide?.textContent).toBe(AUTOPILOT_GUIDE_LINE);
+    expect(AUTOPILOT_GUIDE_LINE).toBe("Autopilot presses Continue for you on a schedule. It never answers notes for you.");
+    // The sentence sits outside the chip, so the chip's name stays its state.
+    expect(screen.getByTestId("autopilot-chip").textContent).not.toContain("presses Continue");
+    unmount();
+    // Without `guide` (Settings › Mode) and with guidance off (an experienced founder) there is no sentence.
+    const { container: plain, unmount: unmountPlain } = render(<AutopilotChip state="on" label="On" />);
+    expect(plain.querySelector("[data-autopilot-guide]")).toBeNull();
+    unmountPlain();
+    const { container: off } = render(
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <AutopilotChip state="on" label="On" guide />
+      </GuidanceProvider>,
+    );
+    expect(off.querySelector("[data-autopilot-guide]")).toBeNull();
+    expect(screen.getByTestId("autopilot-chip")).toBeTruthy();
   });
 });

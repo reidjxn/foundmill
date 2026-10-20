@@ -39,12 +39,13 @@ export function firstBlockingItem(items: readonly ContinueInboxItem[] | undefine
 }
 
 /**
- * Where "Respond · N" goes: the first red item when the inbox page is loaded, else the Respond tab (the shell can
- * show the count from business.get before inbox.list has answered, so the fallback still lands on the waiting notes).
+ * Where "Respond · N" goes: the Inbox's Respond tab, open on the first red item when the inbox page is loaded (the
+ * tooltip says "Press to open the first"; the tab shows the rest). The shell can show the count from business.get
+ * before inbox.list has answered, so without the list it still lands on the tab that holds the waiting notes (B1).
  */
 export function respondHref(businessId: string, items: readonly ContinueInboxItem[] | undefined): string {
   const first = firstBlockingItem(items);
-  return first ? routes.inbox(businessId, first.id) : `${routes.inbox(businessId)}?tab=respond`;
+  return `${routes.inbox(businessId, first?.id)}?tab=respond`;
 }
 
 /**

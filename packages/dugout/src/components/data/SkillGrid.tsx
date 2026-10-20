@@ -4,8 +4,10 @@ import { Crosshair, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import { SKILL_GROUPS, type SkillGroup } from "@foundmill/shared/constants";
 import { cn } from "../../lib/cn";
 import { formatNumber } from "../../lib/format";
+import { RATING_MAX, ratingBandLabel } from "../../lib/rating";
 import { Chip } from "../foundation/Chip";
 import { Icon } from "../foundation/Icon";
+import { RatingBandPill } from "../foundation/SkillSlider";
 import { Tooltip } from "../foundation/Tooltip";
 import { RatingBar, RatingFigure } from "./RatingBar";
 import type { SkillRow } from "./types";
@@ -16,6 +18,13 @@ export const SKILL_GROUP_LABELS: Record<SkillGroup, string> = {
   execution: "Execution",
 };
 export const MAX_FOCUS_SKILLS = 3;
+
+/** What the grid's figures mean, in one line for a panel footer (UX plan §7.15). */
+export const SKILL_GRID_FOOTER = `Scores 1–${RATING_MAX}. 'Tested' is the result on practice tests, 'Proven' the result on real work; more real work makes Proven count for more.`;
+/** Why the scores matter, for guided mode. */
+export const SKILL_GRID_WHY = "Higher skills mean fewer failed tasks and fewer questions to you.";
+
+export type SkillGridDensity = "comfortable" | "compact";
 
 export interface SkillGridProps {
   skills: readonly SkillRow[];
@@ -29,6 +38,11 @@ export interface SkillGridProps {
   showPotential?: boolean;
   /** Dim rows outside the selection in focus mode. */
   dimUnselected?: boolean;
+  /**
+   * Comfortable (default) shows the band word as a pill beside each figure; compact, for a narrow column, keeps the
+   * word in the figure's tooltip and accessible name instead.
+   */
+  density?: SkillGridDensity;
   className?: string;
 }
 
@@ -86,15 +100,16 @@ function DeltaArrow({ delta }: { delta: number | undefined }) {
 }
 
 /**
- * Three columns (Craft, Judgement, Execution); each row: skill name, value in the ramp colour, 20-cell bar, delta arrow.
- * Hover reveals "Tested X · Proven Y · N tasks". Focus mode lets the founder pick up to three skills (DESIGN §8,
- * BUILD §5.4/§11.10). Drops larger than one point are flagged.
+ * Three columns (Craft, Judgment, Execution); each row: skill name, value in the ramp color with its band word, 20-cell
+ * bar, delta arrow. Hover reveals "Tested X · Proven Y · N tasks". Focus mode lets the founder pick up to three skills
+ * (DESIGN §8, BUILD §5.4/§11.10). Drops larger than one point are flagged.
  */
 export function SkillGrid({
   skills,
   focus,
   showPotential,
   dimUnselected = true,
+  density = "comfortable",
   className,
 }: SkillGridProps) {
   const groups = useMemo(
@@ -104,10 +119,12 @@ export function SkillGrid({
   const max = focus?.max ?? MAX_FOCUS_SKILLS;
   const selected = focus?.selected ?? [];
   const full = selected.length >= max;
+  const compact = density === "compact";
   return (
     <div
       className={cn("grid grid-cols-3 gap-gutter", className)}
       data-skill-grid
+      data-density={density}
       data-focus-mode={focus ? "on" : undefined}
     >
       {groups.map(({ group, rows }) => (
@@ -134,7 +151,9 @@ export function SkillGrid({
             {rows.map((s) => {
               const isSelected = selected.includes(s.id);
               const disabled = !!focus && !isSelected && full;
-              const hover = skillHoverText(s);
+              const band = ratingBandLabel(s.value);
+              // Compact rows keep the band word in the hover text, so it is never lost, only folded.
+              const hover = [compact ? `${band}` : "", skillHoverText(s)].filter(Boolean).join(" · ");
               const drop = s.delta !== undefined && s.delta < -1;
               const row = (
                 <li
@@ -177,7 +196,9 @@ export function SkillGrid({
                       </Chip>
                     ) : null}
                   </span>
-                  <RatingFigure value={s.value} className="w-6 text-right" />
+                  <RatingFigure value={s.value} className="w-6 text-right" title={compact ? `${s.value} of ${RATING_MAX} · ${band}` : undefined} aria-label={`${s.value} of ${RATING_MAX}, ${band}`} />
+                  {/* TODO(guided-layer): ScaleLabel replaces this pill once the guidance primitives land. */}
+                  {compact ? null : <RatingBandPill value={s.value} className="shrink-0" data-skill-band={band} />}
                   <span className="w-28 shrink-0">
                     <RatingBar
                       value={s.value}

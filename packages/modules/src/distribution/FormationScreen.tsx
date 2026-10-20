@@ -192,11 +192,11 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
             <>
               {rescoreSoon.pending ? (
                 <Chip tone="neutral" data-testid="rescore-pending">
-                  Local scores · re-scoring shortly
+                  Scores are being refreshed
                 </Chip>
               ) : null}
               <Button size="sm" variant="ghost" icon={rescoring ? RefreshCw : Sparkles} loading={rescoring} onClick={rescoreNow}>
-                {scored === 0 ? "Get recommendation" : "Re-score"}
+                {scored === 0 ? "Get recommendation" : "Score again"}
               </Button>
             </>
           }
@@ -209,9 +209,13 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
           }
           className="min-w-0 flex-1"
         >
+          {/* What the numbers mean, said once under the title (UX plan §7.13). TODO(guided-layer): "Fit" becomes a Term. */}
+          <p className="mb-2 max-w-reading text-small text-secondary" data-testid="board-caption">
+            Fit 1–20: how well a channel suits this business, scored by the Distribution Strategist. Closer to the center means a better fit.
+          </p>
           {hasData && scored === 0 ? (
             <p className="mb-2 text-small text-secondary" role="status">
-              {starters > 0 ? "No channel has been scored yet." : "All 15 channels are off the board."} The Distribution Strategist scores each one 1–20 for fit and puts 3 to 6 starters on the Board.
+              {starters > 0 ? "No channel has been scored yet." : "All 15 channels are off the board."} The Distribution Strategist scores each one 1–20 for fit and picks 3 to 6 channels to start with.
             </p>
           ) : null}
           <InlineError error={action.error} className="mb-2" />

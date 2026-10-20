@@ -60,15 +60,15 @@ export function generateCoach(ctx: MockContext): CoachOutput {
       after,
       expected_gain: ctx.rng.int(1, 3),
       rationale: result
-        ? `${skill}: tested ${result.tested ?? "n/a"}${result.proven !== undefined ? `, proven ${result.proven}` : ""}${gap !== undefined && gap < 0 ? "; live results trail the tests, so the playbook needs a concrete step" : "; a concrete instruction turns the intent into a habit"}. Estimate.`
-        : `${skill} is a focus skill with no recent results; the edit adds a concrete, checkable step. Estimate.`,
+        ? `${skill}: tested ${result.tested ?? "not yet"}${result.proven !== undefined ? `, proven ${result.proven}` : ""}${gap !== undefined && gap < 0 ? "; live results trail the tests, so the playbook needs a concrete step" : "; a concrete instruction turns the intent into a habit"}. The gain is an estimate until the next training run confirms it.`
+        : `${skill} is a focus skill with no recent results; the edit adds a concrete, checkable step. The gain is an estimate until the next training run confirms it.`,
     });
   }
 
   const summary =
     edits.length === 0
-      ? "No safe edits proposed: every candidate would have touched a house rule, so the instructions stay as they are."
-      : `${edits.length} edit${edits.length === 1 ? "" : "s"} targeting ${edits.map((e) => e.skill).join(", ")}; expected gains are estimates until the next training run confirms them. House rules are untouched.`;
+      ? "No edits proposed: each candidate would have loosened one of the rules every agent follows, so the instructions stay as they are."
+      : `${edits.length} edit${edits.length === 1 ? "" : "s"} targeting ${edits.map((e) => e.skill).join(", ")}; expected gains are estimates until the next training run confirms them. Every rule still applies.`;
   return { summary, edits };
 }
 

@@ -175,7 +175,7 @@ export function ResearchScreen({ businessId }: ModuleScreenProps) {
         error={err ?? (spec.error ? spec.error.message : undefined)}
         onRetry={list.refetch}
         empty={list.data && spec.data && coverage.length === 0 ? { icon: FileText, children: "Coverage appears once the spec has sections and sources are linked to them." } : undefined}
-        footer={<span>Sources linked to at least one block in each section. Sections at zero are the ones to interview for next.</span>}
+        footer={<span>Sources linked to at least one paragraph in each section. Sections at zero are the ones to interview for next.</span>}
       >
         {coverageMax === 0 && coverage.length ? <p className="mb-2 text-small text-secondary">No source is linked to a section yet; the Source Watcher links them as it reads.</p> : null}
         {/* A list rather than a chart: section names wrap in full and counts are whole numbers (no "0 0 0 1 1 1" ticks). */}
@@ -198,7 +198,7 @@ export function ResearchScreen({ businessId }: ModuleScreenProps) {
         loading={list.isLoading}
         error={err}
         onRetry={list.refetch}
-        empty={list.data && notes.length === 0 ? { icon: BookOpenText, title: "No research notes yet", children: "Interviews, feedback, documents and issues the team has read appear here with a summary and the spec blocks they touch." } : undefined}
+        empty={list.data && notes.length === 0 ? { icon: BookOpenText, title: "No research notes yet", children: "Interviews, feedback, documents and issues the team has read appear here with a summary and the specification paragraphs they touch." } : undefined}
         footer={<span className="tabular-nums">{notes.length} notes{unsummarised ? ` · ${unsummarised} waiting for a summary` : ""} · names link to the CRM</span>}
         flush
       >

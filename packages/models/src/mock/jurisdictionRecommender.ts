@@ -35,8 +35,8 @@ const DELAWARE: Card = {
   banking: "US business accounts are available remotely through Stripe Atlas partners.",
   investor_familiarity: 5,
   tax_notes: "A non-US founder may owe US tax on US-source income and has annual US filings; a tax professional should confirm.",
-  advantages: ["The standard structure for venture investors", "Stock option plans and SAFEs are well understood", "Fast online company formation"],
-  disadvantages: ["US annual filings and franchise tax", "Possible permanent-establishment questions for non-US founders"],
+  advantages: ["The standard structure for venture investors", "Stock option plans and SAFEs (simple agreements for future equity) are well understood", "Fast online company formation"],
+  disadvantages: ["US annual filings and franchise tax", "A non-US founder may face questions about where the company is really run from"],
   route: "stripe_atlas",
 };
 
@@ -49,8 +49,8 @@ const UK: Card = {
   time_to_form_days: 2,
   banking: "Online business banks open UK accounts in a few days with identity checks.",
   investor_familiarity: 4,
-  tax_notes: "Corporation tax and confirmation statements apply every year; investor relief schemes may be available.",
-  advantages: ["Low formation cost and quick registration", "Government-backed investor tax schemes (EIS and SEIS)", "Clear company law"],
+  tax_notes: "Corporation tax and a yearly confirmation statement (a short filing that confirms the company's details) apply; investor tax relief schemes may be available.",
+  advantages: ["Low formation cost and quick registration", "Government-backed tax relief for early investors (EIS and SEIS)", "Clear company law"],
   disadvantages: ["US investors may ask for a Delaware parent later", "Public register shows directors and addresses"],
   route: "companies_house_web",
 };

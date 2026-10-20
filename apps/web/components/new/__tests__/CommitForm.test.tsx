@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { CONCEPT_ATTRIBUTE_KEYS, TooltipProvider } from "@foundmill/dugout";
+import { CONCEPT_ATTRIBUTE_KEYS, GuidanceProvider, TooltipProvider } from "@foundmill/dugout";
 import { TRPCClientError } from "@trpc/client";
 import { domainCandidates } from "@foundmill/shared";
-import { CommitForm, archetypeParam, commitSteps, departmentColour, importHref, upgradeHrefOf, type CommitDomainApi, type CommitLogoApi } from "../commit/CommitScreen";
+import { CommitForm, WHAT_HAPPENS_NEXT, archetypeParam, commitSteps, departmentColour, importHref, includedCreditsLine, upgradeHrefOf, type CommitDomainApi, type CommitLogoApi } from "../commit/CommitScreen";
 import type { DomainCheck } from "../commit/naming";
 import { IMPORT_STEPS, STUDIO_STEPS } from "../StudioFrame";
 import { META_KIND, type IdeaLike } from "../ideate/concepts";
@@ -101,14 +101,60 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
         vi.advanceTimersByTime(500);
       });
       expect(document.querySelectorAll("[data-registry]")).toHaveLength(2);
-      expect(screen.getByTestId("trademark-screen").textContent).toMatch(/Trademark quick screen \(Estimate, not legal clearance\)/);
+      // One panel checks the name; each registry's acronym is expanded where it is read (A12).
+      expect(screen.getByTestId("name-checks-panel").textContent).toMatch(/Check the name \(domains and trademarks\)/);
+      expect(screen.getByTestId("trademark-screen").textContent).toMatch(/USPTO, the US trademark office/);
+      expect(screen.getByTestId("trademark-screen").textContent).toMatch(/EUIPO, the EU trademark office/);
       expect(screen.getByTestId("trademark-provenance").textContent).toMatch(/Estimate/);
       // "Ledgerly" starts like the known mark "ledger": said about that list, with the mark named (nothing invented).
       expect(document.querySelector("[data-registry]")?.textContent).toMatch(/LEDGER.*Close to a known mark/);
-      expect(screen.getByTestId("trademark-caveat").textContent).toMatch(/A heuristic.*not a registry search/);
+      expect(screen.getByTestId("trademark-caveat").textContent).toMatch(/A quick check.*not a registry search/);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("says what happens next in the real order, with the included credits and no card (A4, A10)", () => {
+    renderForm();
+    const next = screen.getByTestId("what-happens-next");
+    expect(WHAT_HAPPENS_NEXT).toEqual(["Your team is hired", "The Product lead drafts vision, specification and roadmap (a minute or two)", "Two notes ask you to sign them off", "Then building starts. Nothing is spent until you approve it."]);
+    for (const step of WHAT_HAPPENS_NEXT) expect(next.textContent).toContain(step);
+    expect(next.textContent).not.toMatch(/Board|three decisions|first cycle/);
+    expect(includedCreditsLine()).toBe("Starts with $5.00 of included credits this month. No card.");
+    expect(screen.getByTestId("commit-credits-line").textContent).toBe("Starts with $5.00 of included credits this month. No card.");
+    cleanup();
+    // When this month's pool already went elsewhere, the paused notice speaks instead; the credits line never contradicts it.
+    renderForm(vi.fn(), { creditsNotice: "This month's included credits ($5.00) already went to another business you took charge of." });
+    expect(screen.queryByTestId("commit-credits-line")).toBeNull();
+  });
+
+  it("gives every business mode an example line and says 'your limits', never 'caps' (§7.6)", () => {
+    renderForm();
+    const examples = Array.from(document.querySelectorAll("[data-mode-example]")).map((n) => n.textContent);
+    expect(examples).toHaveLength(3);
+    expect(examples[1]).toBe("Example: drafts the pricing page and publishes it; asks before paying for a domain.");
+    expect(screen.getByTestId("business-mode-panel").textContent).toMatch(/within your limits/);
+    expect(screen.getByTestId("business-mode-panel").textContent).not.toMatch(/\bcaps\b/);
+  });
+
+  it("reassures under Name, Logo, Archetype and Mode while guidance is on, and says nothing when it is off (§5.7, §5.9)", () => {
+    renderForm();
+    expect(screen.getByTestId("reassure-name").textContent).toBe("You can change this later in Settings › Business.");
+    expect(screen.getByTestId("reassure-logo").textContent).toBe("You can change this later in Settings › Business.");
+    expect(screen.getByTestId("reassure-archetype").textContent).toBe("You can change this later in Settings › Business.");
+    expect(screen.getByTestId("reassure-mode").textContent).toBe("You can change this later in Settings › Mode.");
+    cleanup();
+    render(
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <TooltipProvider>
+          <CommitForm idea={idea} viewer={{ email: null }} currency="EUR" onCommit={vi.fn()} logoApi={fakeLogoApi()} domainApi={fakeDomainApi()} />
+        </TooltipProvider>
+      </GuidanceProvider>,
+    );
+    for (const id of ["reassure-name", "reassure-logo", "reassure-archetype", "reassure-mode"]) expect(screen.queryByTestId(id)).toBeNull();
+    // Information stays: the credits line and the example lines are not tutoring.
+    expect(screen.getByTestId("commit-credits-line")).toBeTruthy();
+    expect(document.querySelectorAll("[data-mode-example]")).toHaveLength(3);
   });
   it("changes the default spend cap with the business mode until the founder edits it", () => {
     renderForm();
@@ -358,8 +404,8 @@ describe("CommitForm domain checker (audit #458: a real lookup, never a guess)",
       expect(rowFor("ledgerly.io").textContent).toMatch(/The registry is busy/);
       expect(rowFor("ledgerly.io").querySelector('[data-testid="domain-retry"]')).toBeTruthy();
       expect(rowFor("ledgerly.com").querySelector('[data-testid="domain-retry"]')).toBeNull();
-      // Registry answers: a "Registry" chip, no Estimate chip anywhere in the Domains column, and the time it was checked.
-      expect([...domainsBox().querySelectorAll('[data-testid="domain-provenance"]')].map((c) => c.textContent)).toEqual(["Registry"]);
+      // Registry answers: a "Domain registry" chip, no Estimate chip anywhere in the Domains column, and the time it was checked.
+      expect([...domainsBox().querySelectorAll('[data-testid="domain-provenance"]')].map((c) => c.textContent)).toEqual(["Domain registry"]);
       expect(domainsBox().querySelector('[data-provenance="estimate"]')).toBeNull();
       expect(domainsBox().textContent).not.toMatch(/Estimate/);
       expect(screen.getByTestId("domain-checked").textContent).toMatch(/^Checked \d{1,2}:\d{2} (AM|PM)\.\s*$/);
@@ -371,7 +417,7 @@ describe("CommitForm domain checker (audit #458: a real lookup, never a guess)",
     }
   });
 
-  it("a DNS answer reads 'DNS (Estimate)'; the mock reads 'Mock'", async () => {
+  it("a DNS answer reads 'DNS lookup (Estimate)'; the mock reads 'Mock'", async () => {
     vi.useFakeTimers();
     try {
       const domainApi = fakeDomainApi({
@@ -381,7 +427,7 @@ describe("CommitForm domain checker (audit #458: a real lookup, never a guess)",
       });
       renderForm(vi.fn(), { domainApi });
       await settle();
-      expect([...domainsBox().querySelectorAll('[data-testid="domain-provenance"]')].map((c) => c.textContent)).toEqual(["Registry", "DNS (Estimate)", "Mock"]);
+      expect([...domainsBox().querySelectorAll('[data-testid="domain-provenance"]')].map((c) => c.textContent)).toEqual(["Domain registry", "DNS lookup (Estimate)", "Mock"]);
       expect(rowFor("ledgerly.io").dataset.provenance).toBe("DNS");
       expect(rowFor("ledgerly.io").textContent).toMatch(/this is an estimate/);
     } finally {

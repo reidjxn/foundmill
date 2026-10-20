@@ -132,7 +132,7 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
             ))}
           </div>
         }
-        footer={<span>Generated from {flows.length} connected integration{flows.length === 1 ? "" : "s"}, the legal entity and the archetype on {formatDate(now)}. The published text is the "{POLICIES_SECTION}" section of the product spec; publishing or accepting hunks writes that block as you.</span>}
+        footer={<span>Generated from {flows.length} connected integration{flows.length === 1 ? "" : "s"}, the legal entity and the archetype on {formatDate(now)}. The published text is the "{POLICIES_SECTION}" section of the product spec; publishing or accepting changes writes that section as you.</span>}
       >
         {generated ? (
           current ? (
@@ -149,7 +149,7 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
                       Accept all
                     </Button>
                     <Button size="sm" variant="primary" icon={RefreshCw} loading={action.pending === active} disabled={!diff || diff.summary.accepted + diff.summary.edited === 0} onClick={() => void applyAccepted()}>
-                      Apply accepted hunks
+                      Apply the changes you accepted
                     </Button>
                   </>
                 ) : null}
@@ -167,7 +167,7 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
                 <Chip tone="warn" icon={FileText} className="whitespace-nowrap">
                   Not yet in the spec
                 </Chip>
-                <span className="t-small text-secondary">This preview is the generated text. Publishing adds it to the "{POLICIES_SECTION}" section of the product spec as you; later changes come back here as hunks to accept.</span>
+                <span className="t-small text-secondary">This preview is the generated text. Publishing adds it to the "{POLICIES_SECTION}" section of the product spec as you; later changes come back here for you to accept.</span>
                 <Button size="sm" variant="primary" icon={Send} loading={action.pending === `publish-${active}`} onClick={() => void publishFirst()}>
                   Publish to the spec
                 </Button>

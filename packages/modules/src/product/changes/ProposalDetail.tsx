@@ -75,8 +75,8 @@ function HunkCard({ hunk, index, blocks, roadmapItems, settled, onChanged, onOpe
           {pill.word}
         </StatusPill>
       </header>
-      {block?.pinned && hunk.decision === "pending" ? <p className="text-small text-secondary">This block is pinned (human-edited). Nothing changes unless you accept or edit this change.</p> : null}
-      {changedSince ? <p className="text-small text-secondary">This block changed after the proposal was drafted. Current shows it as it reads now; accepting keeps those edits and adds this change.</p> : null}
+      {block?.pinned && hunk.decision === "pending" ? <p className="text-small text-secondary">This paragraph is pinned (human-edited). Nothing changes unless you accept or edit this change.</p> : null}
+      {changedSince ? <p className="text-small text-secondary">This paragraph changed after the proposal was drafted. Current shows it as it reads now; accepting keeps those edits and adds this change.</p> : null}
       <DiffView
         title={null}
         original={sides.original}
@@ -194,7 +194,7 @@ export function ProposalDetail({ proposal, blocks, roadmapItems, sources, latest
         <Panel title="Result" className={cn(proposal.status === "rejected" && "opacity-90")}>
           <div className="flex flex-col gap-1 text-body text-primary">
             <p>
-              {proposal.status === "rejected" ? "Rejected: no block changed." : `${progress.accepted} accepted · ${progress.edited} edited · ${progress.rejected} rejected.`}
+              {proposal.status === "rejected" ? "Rejected: no paragraph changed." : `${progress.accepted} accepted · ${progress.edited} edited · ${progress.rejected} rejected.`}
             </p>
             {resultVersion ? (
               <p className="flex flex-wrap items-center gap-1">

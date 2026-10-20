@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PROFILE_LIMITS, addChip, profileSaveMessage, clampSkill, displayNameFromEmail, emptyProfileForm, formFromProfile, isProfileValid, parseBudgetMinor, profilePatch, profileSummary, removeChip, sectionStatus, toggleChip, validateProfileForm, type ProfileForm } from "../profile-form";
+import { FALLBACK_CURRENCY, PROFILE_LIMITS, addChip, currencyForCountry, currencyForLocale, defaultCurrency, profileSaveMessage, clampSkill, displayNameFromEmail, emptyProfileForm, formFromProfile, isProfileValid, parseBudgetMinor, profilePatch, profileSummary, removeChip, sectionStatus, toggleChip, validateProfileForm, type ProfileForm } from "../profile-form";
 
 function filled(): ProfileForm {
   return { ...emptyProfileForm("reid.jackson@example.com"), experience: "first_time", timeCommitment: "full_time", budget: "25k", currency: "EUR", targetMarkets: ["EU", "UK"], constraints: ["Bootstrapped, no outside funding"], riskAppetite: "medium" };
@@ -42,8 +42,49 @@ describe("founder profile form (BUILD §11.1, AC-11.1.1)", () => {
     expect(form.displayName).toBe("Sara");
     expect(form.skills).toEqual({ engineering: 18, sales: 7, design: 10, finance: 10, domain: 10 });
     expect(form.budget).toBe("10000");
+    expect(form.noBudget).toBe(false);
     expect(form.currency).toBe("SEK");
     expect(profilePatch(form).budgetMinor).toBe(1_000_000);
+    // A saved profile without a budget reads as the explicit choice.
+    const saved = formFromProfile({ displayName: "Sara", experience: null, skills: {}, timeCommitment: null, budgetMinor: null, currency: "", citizenship: null, residence: null, targetMarkets: [], constraints: [], riskAppetite: null });
+    expect(saved.noBudget).toBe(true);
+    expect(saved.currency).toBe(FALLBACK_CURRENCY);
+  });
+
+  it("'I have no budget yet' sends no budget, whatever was typed, and never fails validation (A11)", () => {
+    const form: ProfileForm = { ...filled(), budget: "abc", noBudget: true };
+    expect(validateProfileForm(form).budget).toBeUndefined();
+    expect(profilePatch(form).budgetMinor).toBeNull();
+    expect(profileSummary(form)).toBe("First-time founder · full time · EU, UK");
+    expect(emptyProfileForm().noBudget).toBe(false);
+  });
+
+  it("derives the currency from where the founder lives, then the browser, then US dollars (A11)", () => {
+    expect(currencyForCountry("United Kingdom")).toBe("GBP");
+    expect(currencyForCountry(" uk ")).toBe("GBP");
+    expect(currencyForCountry("GB")).toBe("GBP");
+    expect(currencyForCountry("United States")).toBe("USD");
+    expect(currencyForCountry("Germany")).toBe("EUR");
+    expect(currencyForCountry("Ireland")).toBe("EUR");
+    expect(currencyForCountry("Poland")).toBe("EUR");
+    expect(currencyForCountry("Sweden")).toBe("SEK");
+    expect(currencyForCountry("Switzerland")).toBe("CHF");
+    // A country whose currency the list does not offer says nothing, so the next source decides.
+    expect(currencyForCountry("Japan")).toBeNull();
+    expect(currencyForCountry("Atlantis")).toBeNull();
+    expect(currencyForCountry("")).toBeNull();
+    expect(currencyForLocale("en-GB")).toBe("GBP");
+    expect(currencyForLocale("sv-SE")).toBe("SEK");
+    expect(currencyForLocale("de")).toBe("EUR");
+    expect(currencyForLocale("en-US")).toBe("USD");
+    expect(currencyForLocale("ja-JP")).toBeNull();
+    expect(currencyForLocale("not a locale !!")).toBeNull();
+    expect(currencyForLocale(null)).toBeNull();
+    expect(defaultCurrency("United Kingdom", "en-US")).toBe("GBP");
+    expect(defaultCurrency("", "fr-FR")).toBe("EUR");
+    expect(defaultCurrency("Japan", "ja-JP")).toBe(FALLBACK_CURRENCY);
+    expect(defaultCurrency("", null)).toBe("USD");
+    expect(emptyProfileForm().currency).toBe("USD");
   });
 
   it("chips de-duplicate case-insensitively, trim, cap and toggle", () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { COMMENTARY_TONES } from "@foundmill/models";
 import { PLAN_ACTION_TYPES } from "@foundmill/shared";
-import { PROMPTS, PROMPT_LIST, getPrompt } from "../prompts";
+import { COMPOSER_PLUMBING_WORDS, PROMPTS, PROMPT_LIST, founderExperienceFrom, getPrompt } from "../prompts";
 import { PromptRenderError, definePrompt, extractPlaceholders, formatVariable } from "../prompts/template";
 import { ROUTE_DEFAULT_MODEL } from "../types";
 
@@ -75,8 +75,29 @@ describe("prompt templates (BUILD §12)", () => {
     expect(ROUTE_DEFAULT_MODEL.quarantinedReader).toBe("haiku");
     const composer = getPrompt("inbox_composer").render({ business_name: "Ledgerly", from_agent_name: "Nadia", from_agent_role: "Finance lead" });
     expect(composer).toContain("[[ent:<id>|Name]]");
-    expect(composer).toContain("60-180 words");
+    expect(composer).toContain("Under 180 words, no padding");
+    expect(composer).not.toContain("60-180 words");
     expect(composer).toContain("mark exactly one recommended");
+  });
+
+  it("the Inbox Composer learns who the founder is and carries the voice rules (UX plan §7.19, E2, E3)", () => {
+    const render = (founder_experience?: string) => getPrompt("inbox_composer").render({ business_name: "Ledgerly", from_agent_name: "Nadia", from_agent_role: "Finance lead", ...(founder_experience ? { founder_experience } : {}) } as never);
+    // Default: a first-time founder, so every term gets defined.
+    expect(render()).toContain("Founder experience: first_time.");
+    expect(render("operator")).toContain("Founder experience: operator.");
+    expect(() => render("veteran")).toThrow(PromptRenderError);
+    expect(founderExperienceFrom("Operator ")).toBe("operator");
+    expect(founderExperienceFrom("domain_expert")).toBe("domain_expert");
+    expect(founderExperienceFrom(null)).toBe("first_time");
+    expect(founderExperienceFrom("twenty years in retail")).toBe("first_time");
+    const text = render();
+    expect(text).toContain("Say what is at stake for the business before how the system handled it.");
+    expect(text).toContain("Define a term in the sentence the first time it appears, or use the plain phrase.");
+    expect(text).toContain("Never name the plumbing unless the founder did");
+    for (const p of COMPOSER_PLUMBING_WORDS) expect(text).toContain(p.word);
+    expect(text).toContain('Give the recommended option a "because"');
+    expect(text).toContain("a clear 40-word note beats a padded 60-word one");
+    expect(text).toContain("from the founder's seat");
   });
 
   it("the logo designer asks Opus for N modern marks as SVG, never a shield, and keeps the founder's brief out of the system prompt", () => {

@@ -37,6 +37,17 @@ describe("ChannelsScreen", () => {
     await user.click(await screen.findByRole("menuitemradio", { name: /^Running/ }));
     const table = screen.getByRole("grid", { name: "Channels" });
     await waitFor(() => expect(within(table).getAllByRole("row")).toHaveLength(5));
+    // The Running view carries the cost trend (the Board tokens' five-cell strip) with its words for assistive tech.
+    expect(within(table).getByRole("columnheader", { name: /Cost trend/ })).toBeTruthy();
+    expect(within(table).getAllByRole("list", { name: /cost trend, last five weeks/ }).length).toBeGreaterThan(0);
+    expect(within(table).queryByRole("columnheader", { name: /^Form$/ })).toBeNull();
+  });
+
+  it("the Score again button and the refresh chip read in plain words", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <ChannelsScreen {...props} />);
+    expect(screen.getByRole("button", { name: "Score again" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Re-score" })).toBeNull();
   });
 
   it("offers right-click verbs: move to bench → disable + re-score, pause → campaigns.setStatus, set budget → channels.budget", async () => {

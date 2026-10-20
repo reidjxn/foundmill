@@ -22,6 +22,7 @@ import {
   SimpleSelect,
   StatusPill,
   Textarea,
+  Tooltip,
   type DataTableColumn,
   type RowAction,
   type SavedView,
@@ -63,6 +64,9 @@ export type LeadColumnId = keyof typeof LEAD_FIT;
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
+/** What "lawful basis" means, said wherever the words appear (UX plan §7.13). TODO(guided-layer): a Term. */
+export const LAWFUL_BASIS_DEFINITION = "Your legal reason for contacting someone; suppressed means never contact.";
+
 export function leadColumns(businessId: string, agents: readonly AgentRow[] | undefined, sizes: Record<LeadColumnId, number> = fitColumns<LeadColumnId>(null, LEAD_FIT, [])): DataTableColumn<LeadRow>[] {
   const agentName = (id: string) => agents?.find((a) => a.id === id)?.name ?? "Agent";
   return [
@@ -83,7 +87,19 @@ export function leadColumns(businessId: string, agents: readonly AgentRow[] | un
       accessorFn: (r) => lawfulBasisLabel(r.lawfulBasis),
       header: "Lawful basis",
       size: sizes.lawfulBasis,
-      cell: ({ row }) => (row.original.lawfulBasis ? <Chip tone="good" icon={ScrollText} className="whitespace-nowrap">{lawfulBasisLabel(row.original.lawfulBasis)}</Chip> : <Chip tone="warn" icon={ScrollText} className="whitespace-nowrap">Not recorded</Chip>),
+      cell: ({ row }) => (
+        <Tooltip content={LAWFUL_BASIS_DEFINITION}>
+          {row.original.lawfulBasis ? (
+            <Chip tone="good" icon={ScrollText} className="whitespace-nowrap">
+              {lawfulBasisLabel(row.original.lawfulBasis)}
+            </Chip>
+          ) : (
+            <Chip tone="warn" icon={ScrollText} className="whitespace-nowrap">
+              Not recorded
+            </Chip>
+          )}
+        </Tooltip>
+      ),
       meta: { filter: "select", filterOptions: [{ value: "Not recorded", label: "Not recorded" }, ...LAWFUL_BASES] },
     },
     {
@@ -169,7 +185,7 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
         error={leads.error ? leads.error.message : undefined}
         onRetry={leads.refetch}
         meta={rows.length ? `${rows.length} lead${rows.length === 1 ? "" : "s"} · ${missingBasis} without a lawful basis · ${suppressed} suppressed` : undefined}
-        footer={<span>Engines skip suppressed leads and never cold-email EU consumers. Right-click a lead to record its lawful basis, add a note or end its lead role.</span>}
+        footer={<span>A lawful basis is your legal reason for contacting someone; suppressed means never contact. Engines skip suppressed leads and never cold-email EU consumers. Right-click a lead to record its lawful basis, add a note or end its lead role.</span>}
         flush
       >
         <InlineError error={action.error} className="px-panel-pad pt-2" />
@@ -213,7 +229,7 @@ function LawfulBasisDialog({ lead, action, onClose, onSaved }: { lead: LeadRow |
       <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Set lawful basis</DialogTitle>
-          <DialogDescription>{lead ? `${lead.displayName}. Outreach engines need a recorded basis before they contact a lead.` : ""}</DialogDescription>
+          <DialogDescription>{lead ? `${lead.displayName}. ${LAWFUL_BASIS_DEFINITION} Outreach engines need a recorded basis before they contact a lead.` : ""}</DialogDescription>
         </DialogHeader>
         <DialogBody>
           <label htmlFor={id} className="flex flex-col gap-1">

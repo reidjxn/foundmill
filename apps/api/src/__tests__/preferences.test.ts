@@ -1,7 +1,8 @@
 /**
- * founder.preferences.get/update: one signed-in person's date and time format (account_preferences, 0022). Any
- * signed-in account calls them (a member of any business, a viewer, or someone with no business or profile yet); a
- * second account never sees or changes the first one's choice; the input is validated.
+ * founder.preferences.get/guidance/update: one signed-in person's date and time format (account_preferences, 0022) and
+ * the guided layer's preferences (0064). Any signed-in account calls them (a member of any business, a viewer, or
+ * someone with no business or profile yet); a second account never sees or changes the first one's choice; the input
+ * is validated.
  */
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
@@ -24,53 +25,83 @@ const code = async (p: Promise<unknown>) => {
   }
 };
 
+/** The guided layer's defaults, until the person chooses. */
+const GUIDED = { guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null };
+
 describe("founder.preferences", () => {
   it("reads US dates and 12-hour times until the person chooses, without writing a row", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     expect(await owner.founder.preferences.get()).toEqual({ date: "us", time: "12h" });
+    expect(await owner.founder.preferences.guidance()).toEqual(GUIDED);
     expect(await hz.db.select().from(accountPreferences).where(eq(accountPreferences.userId, hz.A.ownerId))).toHaveLength(0);
   });
 
   it("saves one choice at a time and keeps the other", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
-    expect(await owner.founder.preferences.update({ date: "day_first" })).toEqual({ date: "day_first", time: "12h" });
-    expect(await owner.founder.preferences.update({ time: "24h" })).toEqual({ date: "day_first", time: "24h" });
+    expect(await owner.founder.preferences.update({ date: "day_first" })).toEqual({ date: "day_first", time: "12h", ...GUIDED });
+    expect(await owner.founder.preferences.update({ time: "24h" })).toEqual({ date: "day_first", time: "24h", ...GUIDED });
     expect(await owner.founder.preferences.get()).toEqual({ date: "day_first", time: "24h" });
-    expect(await owner.founder.preferences.update({ date: "iso", time: "12h" })).toEqual({ date: "iso", time: "12h" });
-    expect(await owner.founder.preferences.update({ date: "day_first", time: "24h" })).toEqual({ date: "day_first", time: "24h" });
+    expect(await owner.founder.preferences.update({ date: "iso", time: "12h" })).toMatchObject({ date: "iso", time: "12h" });
+    expect(await owner.founder.preferences.update({ date: "day_first", time: "24h" })).toMatchObject({ date: "day_first", time: "24h" });
+  });
+
+  it("the guided layer: the switch, the text size, marks that merge, the checklist and a reset", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    expect(await owner.founder.preferences.update({ guidance: "off", textSize: "comfortable" })).toMatchObject({ date: "day_first", time: "24h", guidance: "off", textSize: "comfortable" });
+    expect(await owner.founder.preferences.guidance()).toEqual({ ...GUIDED, guidance: "off", textSize: "comfortable" });
+    // The date format read is untouched by the guided layer.
+    expect(await owner.founder.preferences.get()).toEqual({ date: "day_first", time: "24h" });
+    expect(await owner.founder.preferences.update({ explainersSeen: { home: true } })).toMatchObject({ explainersSeen: { home: true }, toursDone: {} });
+    expect(await owner.founder.preferences.update({ explainersSeen: { inbox: true }, toursDone: { home: true }, checklistDismissed: true })).toMatchObject({
+      explainersSeen: { home: true, inbox: true },
+      toursDone: { home: true },
+      checklistDismissedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+    });
+    expect(await owner.founder.preferences.update({ checklistDismissed: false })).toMatchObject({ checklistDismissedAt: null, explainersSeen: { home: true, inbox: true } });
+    // "Show the first-week checklist again" / "Replay the tour": everything seen is forgotten; the choices stay.
+    expect(await owner.founder.preferences.update({ reset: true })).toEqual({ date: "day_first", time: "24h", ...GUIDED, guidance: "off", textSize: "comfortable" });
+    expect(await owner.founder.preferences.update({ guidance: "on", textSize: "standard" })).toEqual({ date: "day_first", time: "24h", ...GUIDED });
   });
 
   it("a second account cannot see or change the first one's choice", async () => {
     const other = hz.caller({ userId: hz.B.ownerId });
     // B reads its own defaults, not A's choice, and B's change leaves A's untouched.
     expect(await other.founder.preferences.get()).toEqual({ date: "us", time: "12h" });
-    expect(await other.founder.preferences.update({ date: "iso" })).toEqual({ date: "iso", time: "12h" });
+    expect(await other.founder.preferences.update({ date: "iso", guidance: "off" })).toMatchObject({ date: "iso", time: "12h", guidance: "off" });
     expect(await hz.caller({ userId: hz.A.ownerId }).founder.preferences.get()).toEqual({ date: "day_first", time: "24h" });
+    expect(await hz.caller({ userId: hz.A.ownerId }).founder.preferences.guidance()).toEqual(GUIDED);
     expect(await other.founder.preferences.get()).toEqual({ date: "iso", time: "12h" });
+    expect(await other.founder.preferences.guidance()).toMatchObject({ guidance: "off" });
     // There is no way to name another account: the procedures take no user id, and one passed is refused.
     expect(await code(other.founder.preferences.update({ date: "us", userId: hz.A.ownerId } as never))).toBe("BAD_REQUEST");
     const rows = await hz.db.select().from(accountPreferences).where(eq(accountPreferences.userId, hz.A.ownerId));
-    expect(rows.map((r) => [r.dateFormat, r.timeFormat])).toEqual([["day_first", "24h"]]);
+    expect(rows.map((r) => [r.dateFormat, r.timeFormat, r.guidance])).toEqual([["day_first", "24h", "on"]]);
   });
 
   it("is personal, not a business permission: a viewer and an account with no business or profile can both choose", async () => {
     const viewer = hz.caller({ userId: hz.A.viewerId });
-    expect(await viewer.founder.preferences.update({ time: "24h" })).toEqual({ date: "us", time: "24h" });
+    expect(await viewer.founder.preferences.update({ time: "24h" })).toMatchObject({ date: "us", time: "24h" });
     const fresh = await hz.h.createUser("fresh-preferences@test.local");
     const newcomer = hz.caller({ userId: fresh });
     expect((await newcomer.founder.profile.get()).complete).toBe(false);
-    expect(await newcomer.founder.preferences.update({ date: "iso" })).toEqual({ date: "iso", time: "12h" });
+    expect(await newcomer.founder.preferences.update({ date: "iso", textSize: "comfortable" })).toMatchObject({ date: "iso", time: "12h", textSize: "comfortable" });
     // Choosing a format never creates a founder profile (the onboarding gate stays where it was).
     expect((await newcomer.founder.profile.get()).complete).toBe(false);
   });
 
-  it("refuses signed-out callers, unknown formats and an empty change", async () => {
+  it("refuses signed-out callers, unknown formats or modes, a mark that is not true, and an empty change", async () => {
     expect(await code(hz.caller(null).founder.preferences.get())).toBe("UNAUTHORIZED");
+    expect(await code(hz.caller(null).founder.preferences.guidance())).toBe("UNAUTHORIZED");
     expect(await code(hz.caller(null).founder.preferences.update({ date: "us" }))).toBe("UNAUTHORIZED");
     const owner = hz.caller({ userId: hz.A.memberId });
     expect(await code(owner.founder.preferences.update({ date: "dmy" } as never))).toBe("BAD_REQUEST");
     expect(await code(owner.founder.preferences.update({ time: "24" } as never))).toBe("BAD_REQUEST");
+    expect(await code(owner.founder.preferences.update({ guidance: "quiet" } as never))).toBe("BAD_REQUEST");
+    expect(await code(owner.founder.preferences.update({ textSize: "large" } as never))).toBe("BAD_REQUEST");
+    expect(await code(owner.founder.preferences.update({ explainersSeen: { home: false } } as never))).toBe("BAD_REQUEST");
+    expect(await code(owner.founder.preferences.update({ reset: true, toursDone: { home: true } }))).toBe("BAD_REQUEST");
     expect(await code(owner.founder.preferences.update({}))).toBe("BAD_REQUEST");
     expect(await owner.founder.preferences.get()).toEqual({ date: "us", time: "12h" });
+    expect(await owner.founder.preferences.guidance()).toEqual(GUIDED);
   });
 });

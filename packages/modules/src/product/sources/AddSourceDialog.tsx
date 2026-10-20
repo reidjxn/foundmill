@@ -64,7 +64,7 @@ export function AddSourceDialog({ open, kind, onClose, onSaved }: { open: boolea
       <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Add a source</DialogTitle>
-          <DialogDescription>The Source Watcher reads it, scores its relevance to each spec block and raises a change proposal when it matters.</DialogDescription>
+          <DialogDescription>The Source Watcher reads it, scores its relevance to each specification paragraph and raises a change proposal when it matters.</DialogDescription>
         </DialogHeader>
         <DialogBody className="grid grid-cols-2 gap-3">
           <Field htmlFor="src-kind" label="Kind">

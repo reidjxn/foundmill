@@ -3,7 +3,7 @@
  * Training › Custom skills (BUILD §11.10 "Custom skills: founder adds name + description + optional examples; Opus
  * drafts a test set; founder reviews before it counts"). Add skill opens a form (`agent.skills.createCustom`: an Opus
  * call, its cost an Estimate); the drafted tests open for review at once, and the founder keeps the ones that measure
- * the skill (`agent.skills.review`) or discards the skill (`agent.skills.discard`). Held-out tests are never shown
+ * the skill (`agent.skills.review`) or discards the skill (`agent.skills.discard`). Half of the practice tests stay hidden
  * (AC-11.10.2), only counted. A reviewed skill joins the agent's skills and the next training run scores it.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

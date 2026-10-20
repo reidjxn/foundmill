@@ -1,21 +1,23 @@
 "use client";
 /**
- * Overview tab (BUILD §11.10 "Profile", DESIGN §9): "What I do", SkillGrid (Craft / Judgement / Execution, hover
- * tested/proven/n), position map derived from the template catalogue, trait chips, the Coach report in reading style,
- * the development chart (skill history with training sessions as diamonds) and the contract panel.
+ * Overview tab (BUILD §11.10 "Profile", DESIGN §9): "What I do", SkillGrid (Craft / Judgment / Execution, each figure
+ * with its band word, hover tested/proven/n), the other roles the agent could take (derived from the template
+ * catalogue), trait chips, the Coach report in reading style, the development chart (skill history with training
+ * sessions as diamonds) and the contract panel. The version and type live on the History tab.
  */
 import { useQuery } from "@tanstack/react-query";
 import { BookOpenText, CalendarClock, ShieldOff } from "lucide-react";
 import { useMemo } from "react";
 import { effectiveApprovalThresholdMinor } from "@foundmill/config";
-import { Chip, DevelopmentChart, Icon, KeyValueList, Markdown, Panel, PositionMap, ProvenanceChip, SkillGrid, TraitChips, formatMoney, formatRelative, useFormatters } from "@foundmill/dugout";
+import { Chip, DevelopmentChart, Icon, KeyValueList, Markdown, POSITION_MAP_BASIS, POSITION_MAP_TITLE, Panel, PositionMap, ProvenanceChip, SKILL_GRID_FOOTER, SKILL_GRID_WHY, SkillGrid, TraitChips, formatMoney, formatRelative, useFormatters, useGuided } from "@foundmill/dugout";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import type { TabProps } from "./AgentProfileScreen";
-import { autonomyFromAgent, currentVersion, departmentColour, developmentSeries, humaniseKey, latestPromotedRun, parseInstructions, positionFits, toSkillRows, traitsFor, trainingSessionMarks, wageLabel, whatIDo } from "./logic";
+import { autonomyFromAgent, currentVersion, departmentColour, developmentSeries, latestPromotedRun, parseInstructions, positionFits, toSkillRows, traitsFor, trainingSessionMarks, wageLabel, whatIDo } from "./logic";
 
 export function OverviewTab({ businessId, profile, currency }: TabProps) {
-  const { prefs: datePrefs, formatDateTime } = useFormatters();
+  const { prefs: datePrefs } = useFormatters();
+  const guided = useGuided();
   const business = useBusiness();
   const businessCurrency = useBusinessCurrency();
   const trpc = useTRPC();
@@ -84,13 +86,26 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
         <TraitChips traits={traits} />
       </Panel>
 
-      <Panel title="Skills" span={12} flush empty={skills.length === 0 ? { children: "Skills appear after the first training run. Press Train to start one." } : undefined} footer="Displayed = blend of tested and proven ratings weighted by live tasks. Hover a skill for Tested · Proven · tasks." data-testid="skills-panel">
+      {/* TODO(guided-layer): InfoTip on the title and Term on "Tested" / "Proven" once the guidance primitives land. */}
+      <Panel
+        title="Skills"
+        span={12}
+        flush
+        empty={skills.length === 0 ? { children: "Skills appear after the first training run. Press Train to start one." } : undefined}
+        footer={
+          <span data-testid="skills-footer">
+            {SKILL_GRID_FOOTER} Hover a skill for its tested and proven scores.
+            {guided ? <span data-testid="skills-why"> {SKILL_GRID_WHY}</span> : null}
+          </span>
+        }
+        data-testid="skills-panel"
+      >
         <div className="p-panel-pad">
           <SkillGrid skills={skills} showPotential />
         </div>
       </Panel>
 
-      <Panel title="Position map" span={6} loading={catalogueQ.isLoading && !catalogueQ.data} empty={!catalogueQ.isLoading && roles.length === 0 ? { children: "Roles this agent could play appear once the template catalog loads." } : undefined} footer="Fit per role from the agent's ratings over that role's skills. Estimate." data-testid="position-map">
+      <Panel title={POSITION_MAP_TITLE} span={6} loading={catalogueQ.isLoading && !catalogueQ.data} empty={!catalogueQ.isLoading && roles.length === 0 ? { children: "The roles this agent could take appear once the template catalog loads." } : undefined} footer={POSITION_MAP_BASIS} data-testid="position-map">
         <PositionMap roles={roles} currentRoleId={agent.agentType} columns={2} />
       </Panel>
 
@@ -102,22 +117,19 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
         <DevelopmentChart series={series} sessions={sessions} dept={departmentColour(profile)} width={820} height={240} aria-label={`${agent.name} development`} datePrefs={datePrefs} />
       </Panel>
 
-      <Panel title="Contract" span={4} data-testid="contract-panel">
+      {/* Negotiation has no runtime yet (AC-11.14.3): nothing about it until it ships, except the one line in the footer (C12). */}
+      <Panel title="Contract" span={4} footer={<span data-testid="negotiation-note">Negotiation arrives with LIVE deals.</span>} data-testid="contract-panel">
         <KeyValueList
           layout="rows"
           labelClassName="w-36"
           items={[
             // A wage cap caps the agent's metered cost, so it is in US dollars like that cost (`profile.wage.currency`).
-            { label: "Wage cap", value: agent.wageCapMinor === null ? "No cap" : formatMoney({ amountMinor: Number(agent.wageCapMinor), currency: profile.wage.currency }), numeric: true },
-            { label: wageLabel(profile.wage.period, undefined, datePrefs).replace(/^Wage/, "Spent"), value: <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: profile.wage.costMinor, currency: profile.wage.currency })} <ProvenanceChip kind="estimate" /></span>, numeric: true },
+            { label: "Wage cap (USD)", value: agent.wageCapMinor === null ? "No cap" : formatMoney({ amountMinor: Number(agent.wageCapMinor), currency: profile.wage.currency }), numeric: true },
+            { label: wageLabel(profile.wage.period, undefined, datePrefs).replace(/^AI cost/, "Spent"), value: <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: profile.wage.costMinor, currency: profile.wage.currency })} <ProvenanceChip kind="estimate" /></span>, numeric: true },
             { label: "Spend cap per action", value: money(autonomy.spendCapMinor), numeric: true },
-            { label: "Asks above", value: asksAbove, numeric: true },
+            { label: "Needs your OK above", value: asksAbove, numeric: true },
             { label: "Autonomy", value: autonomy.mode === "inherit" ? "Business mode" : autonomy.mode === "lower" ? "Asks more often" : "Acts more freely" },
-            // No negotiation runtime yet (AC-11.14.3): whatever was stored, nothing negotiates.
-            { label: "Negotiation", value: "Not available yet" },
             { label: "Schedule", value: schedule.cron ? <span className="font-mono text-mono">{schedule.cron}</span> : schedule.triggers?.length ? `${schedule.triggers.length} ${schedule.triggers.length === 1 ? "trigger" : "triggers"}` : <span className="inline-flex items-center gap-1 text-secondary"><Icon icon={CalendarClock} size="inline" /> On demand</span> },
-            { label: "Live version", value: current ? `v${current.version} · ${formatDateTime(current.createdAt)}` : "None", mono: true },
-            { label: "Type", value: humaniseKey(agent.agentType) },
           ]}
         />
       </Panel>

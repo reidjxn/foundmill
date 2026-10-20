@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCheck, FileDiff, FolderOpen, X } from "lucide-react";
-import { Chip, DataTable, EntityLink, Panel, StatusPill, useEntityLinkContext, type DataTableColumn, type SavedView } from "@foundmill/dugout";
+import { Chip, DataTable, EntityLink, Panel, StatusPill, useEntityLinkContext, useGuided, type DataTableColumn, type SavedView } from "@foundmill/dugout";
 import { PROPOSAL_STATUSES, SEVERITIES } from "@foundmill/shared";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
@@ -80,8 +80,12 @@ export function proposalColumns(currency: string): DataTableColumn<ProposalRow>[
   ];
 }
 
+/** What a proposal is, in one line under the title while guidance is on (UX plan §7.11). */
+export const CHANGES_LEDE = "An agent suggests an edit; nothing changes until you accept it.";
+
 export function ChangesScreen({ businessId }: ModuleScreenProps) {
   const { navigate, currency } = useWidgetData();
+  const guided = useGuided();
   const list = useWidgetQuery<ProposalsListResponse>("product.proposals.list", { limit: 200 });
   const spec = useWidgetQuery<SpecGetResponse>("product.spec.get", {});
   const roadmap = useWidgetQuery<RoadmapResponse>("product.roadmap.list", {});
@@ -137,6 +141,12 @@ export function ChangesScreen({ businessId }: ModuleScreenProps) {
         }
         flush
       >
+        {/* TODO(guided-layer): Explainer. */}
+        {guided ? (
+          <p className="px-panel-pad pb-1.5 pt-2 text-small text-secondary" data-testid="changes-lede">
+            {CHANGES_LEDE}
+          </p>
+        ) : null}
         <DataTable<ProposalRow>
           aria-label="Change proposals"
           data={rows}

@@ -115,10 +115,13 @@ describe("WageBillScreen", () => {
     const fake = createFakeSource({ businessId: BID, currency: "GBP", responses: { ...dataResponses, "finance.wages": { ...wages, currency: "USD" } } });
     renderScreen(fake, <WageBillScreen {...props} />);
     const strip = screen.getByRole("region", { name: "Payroll summary" });
-    expect(within(strip).getByText("Team payroll").parentElement!.parentElement!.textContent).toContain("$545.00");
+    // Metered in US dollars: the tile says what the figure is instead of calling it payroll in another currency (C21).
+    expect(within(strip).getByText("AI usage cost (USD)").parentElement!.parentElement!.textContent).toContain("$545.00");
+    expect(within(strip).queryByText("Team payroll")).toBeNull();
     expect(within(strip).getByText("Human payroll").parentElement!.parentElement!.textContent).toContain("£16K");
     // Never added across currencies: both parts, each in its own currency.
     expect(within(strip).getByText("Total payroll").parentElement!.parentElement!.textContent).toContain("$545 + £16K");
+    expect(screen.getByText(/AI usage metered in US dollars at list prices/)).toBeTruthy();
     const table = screen.getByRole("grid", { name: "Team payroll" });
     expect(within(table).getByText("$420.00")).toBeTruthy();
     // Atlas's wage cap caps metered cost, so it is in US dollars too and its share is shown.

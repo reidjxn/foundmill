@@ -33,6 +33,16 @@ export const WithPotential: Story = {
   ),
 };
 
+/** A narrow column (Training › Focus): the band word folds into each figure's tooltip instead of a pill. */
+export const Compact: Story = {
+  args: { skills: BACKEND_SKILLS, density: "compact" },
+  render: (args) => (
+    <div className="surface-panel w-[640px] p-panel-pad">
+      <SkillGrid {...args} />
+    </div>
+  ),
+};
+
 /** Training → Focus: pick up to three skills for the Coach to work on. */
 function FocusHarness(args: Story["args"]) {
   const [selected, setSelected] = useState<string[]>(["debug", "cost"]);
@@ -62,7 +72,7 @@ export const RatingBars: Story = {
   ),
 };
 
-/** Ideation Studio concept card: ten attributes with evidence on hover; outlined cells are the comparison concept. */
+/** Ideation Studio concept card: ten attributes with evidence on hover; outlined cells are the comparison concept. A row with a `hint` explains itself in a tooltip on its label (focusable), with or without evidence. */
 export const ConceptAttributes: Story = {
   args: { skills: [] },
   render: () => (

@@ -2,6 +2,7 @@ import { cn } from "../../lib/cn";
 import { FitText } from "../foundation/FitText";
 import { ProvenanceChip } from "../foundation/Chip";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../foundation/HoverCard";
+import { Tooltip } from "../foundation/Tooltip";
 import { RatingBar, RatingFigure } from "./RatingBar";
 import type { AttributeRow } from "./types";
 
@@ -30,8 +31,11 @@ function evidenceOf(
 
 /**
  * 1–20 attributes as label + 20-cell bars (DESIGN §9 Ideation Studio: "ten attributes as label + 20-cell bars,
- * evidence on hover"). `compare` draws a second value as outlined cells.
+ * evidence on hover"). `compare` draws a second value as outlined cells. A row with a `hint` gets a tooltip on its
+ * label saying what the attribute measures and which way it reads; the label is then a button, so the keyboard
+ * reaches the definition too, with or without evidence.
  */
+// TODO(guided-layer): Term — swap the label tooltip for the dotted Term with its hover card once the primitive lands.
 export function AttributeBars({
   attributes,
   labelClassName = "w-28",
@@ -56,8 +60,20 @@ export function AttributeBars({
             data-attribute={a.id}
             className="flex min-h-control-xs min-w-0 items-center gap-2 rounded-sm px-1.5 transition-colors duration-hover hover:bg-white/4"
           >
-            <dt className={cn("shrink-0 text-small text-secondary", labelClassName)} title={a.name}>
-              <FitText minPx={11}>{a.name}</FitText>
+            <dt className={cn("shrink-0 text-small text-secondary", labelClassName)} title={a.hint ? undefined : a.name}>
+              {a.hint ? (
+                <Tooltip content={a.hint} side="top" align="start">
+                  <button
+                    type="button"
+                    className="block w-full cursor-help rounded-xs text-left text-small text-secondary transition-colors duration-hover hover:text-primary focus-visible:shadow-ring"
+                    data-attribute-hint=""
+                  >
+                    <FitText minPx={11}>{a.name}</FitText>
+                  </button>
+                </Tooltip>
+              ) : (
+                <FitText minPx={11}>{a.name}</FitText>
+              )}
             </dt>
             <dd className="flex min-w-0 flex-1 items-center gap-2">
               {showValue ? (
@@ -80,6 +96,7 @@ export function AttributeBars({
             <HoverCardTrigger asChild>{row}</HoverCardTrigger>
             <HoverCardContent className="w-72" side="right">
               <p className="t-data mb-1">Evidence · {a.name}</p>
+              {a.hint ? <p className="mb-1 text-small text-secondary">{a.hint}</p> : null}
               <p className="text-body text-primary">{ev.summary}</p>
               {ev.sources.length > 0 ? (
                 <ul className="mt-2 flex flex-col gap-0.5 border-t border-line pt-2">

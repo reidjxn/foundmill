@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CommandPalette, filterPaletteItems, groupPaletteItems, kindsForFilter, matchScore, paletteSections, parseSearchQuery, type PaletteItem } from "./CommandPalette";
-import { PALETTE_ITEMS, RECENT_PALETTE_ITEMS } from "./fixtures";
+import { CommandPalette, KEYBOARD_SHORTCUTS_HELP_ITEM, filterPaletteItems, groupPaletteItems, helpPaletteRows, helpQuery, kindsForFilter, matchScore, paletteSections, parseSearchQuery, type PaletteItem } from "./CommandPalette";
+import { HELP_PALETTE_ITEMS, PALETTE_ITEMS, RECENT_PALETTE_ITEMS } from "./fixtures";
 
 beforeAll(() => {
   // cmdk scrolls the selected item into view; happy-dom has no layout.
@@ -63,6 +63,7 @@ describe("paletteSections", () => {
   it("leads with Ask and Generate while nothing is typed, commands last", () => {
     const groups = groupPaletteItems(PALETTE_ITEMS);
     expect(ids(paletteSections({ typed: false, ask, generate, business: null, recent: RECENT_PALETTE_ITEMS, groups }))).toEqual(["ask", "generate", "recent", "department", "agent", "screen", "inbox", "person", "organisation", "team_member", "community", "command"]);
+    expect(ids(paletteSections({ typed: false, ask, generate, business: null, recent: [], groups, help: helpPaletteRows([KEYBOARD_SHORTCUTS_HELP_ITEM], "") })).at(-1)).toBe("help");
   });
 
   it("puts what the query matched above Ask: the business, places and records, Generate, commands, then Ask", () => {
@@ -77,6 +78,25 @@ describe("paletteSections", () => {
 
   it("lets Ask lead when the query matches nothing else", () => {
     expect(ids(paletteSections({ typed: true, ask, generate: [], business: null, recent: RECENT_PALETTE_ITEMS, groups: [] }))).toEqual(["ask"]);
+  });
+
+  it("closes the list with Help: the keyboard shortcuts alone while nothing is typed, the matching terms once typed, before Ask (B12)", () => {
+    const all = [KEYBOARD_SHORTCUTS_HELP_ITEM, ...HELP_PALETTE_ITEMS];
+    const empty = helpPaletteRows(all, "");
+    expect(empty.map((r) => r.id)).toEqual([KEYBOARD_SHORTCUTS_HELP_ITEM.id]);
+    expect(empty[0]).toMatchObject({ kind: "help", label: "Keyboard shortcuts" });
+    expect(ids(paletteSections({ typed: false, ask, generate, business: null, recent: [], groups: groupPaletteItems(PALETTE_ITEMS), help: empty })).at(-1)).toBe("help");
+    // "what is runway" reaches the term; a word in the definition reaches it too; the rows carry the one-line meaning.
+    expect(helpQuery("What is the runway?")).toBe("runway");
+    expect(helpQuery("what does burn mean")).toBe("burn");
+    expect(helpQuery("define cycle")).toBe("cycle");
+    expect(helpPaletteRows(all, "what is runway")[0]).toMatchObject({ id: "help:runway", description: "How many months your cash lasts at today's spending.", href: "/b/northwind/d/finance/runway" });
+    expect(helpPaletteRows(all, "months")[0]?.id).toBe("help:runway");
+    expect(helpPaletteRows(all, "qqq")).toEqual([]);
+    // Typed, Help sits after the commands and before Ask, and counts as a match (Enter opens it, not Ask).
+    const typed = paletteSections({ typed: true, ask, generate: [], business: null, recent: [], groups: [], help: helpPaletteRows(all, "runway") });
+    expect(ids(typed)).toEqual(["help", "ask"]);
+    expect(typed[0]?.rows[0]?.value).toBe("help:help:runway");
   });
 });
 
@@ -100,13 +120,40 @@ describe("CommandPalette", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("shows the empty state and the operators hint, labels public profiles", async () => {
+  it("shows the empty state in plain words, the operators hint only once > or a colon is typed, and labels public profiles (B12)", async () => {
     const user = userEvent.setup();
     render(<CommandPalette open onOpenChange={() => {}} items={PALETTE_ITEMS} onSelect={() => {}} />);
-    expect(screen.getByTestId("palette-hints").textContent).toContain("kind:");
+    // No operators for a founder who has not reached for them.
+    expect(screen.getByTestId("palette-hints").textContent).not.toContain("kind:");
+    expect(screen.queryByTestId("palette-operators")).toBeNull();
     expect(screen.getByText(/On Foundmill/)).toBeTruthy();
-    await user.type(screen.getByRole("combobox"), "qqqq");
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Nothing matches"));
+    const input = screen.getByRole("combobox");
+    await user.type(input, "qqqq");
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Nothing matches. Try a person, a screen or an agent's name."));
+    await user.clear(input);
+    await user.type(input, ">");
+    await waitFor(() => expect(screen.getByTestId("palette-operators").textContent).toContain("kind:"));
+    await user.clear(input);
+    expect(screen.queryByTestId("palette-operators")).toBeNull();
+    await user.type(input, "kind:");
+    await waitFor(() => expect(screen.getByTestId("palette-operators")).toBeTruthy());
+  });
+
+  it("offers Help: the keyboard shortcuts row with its ? cap on the empty palette, and a term with its meaning once asked for", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(<CommandPalette open onOpenChange={() => {}} items={PALETTE_ITEMS} helpItems={[KEYBOARD_SHORTCUTS_HELP_ITEM, ...HELP_PALETTE_ITEMS]} onSelect={onSelect} />);
+    const headings = () => [...screen.getByTestId("command-palette").querySelectorAll("[cmdk-group-heading]")].map((h) => h.textContent);
+    expect(headings().at(-1)).toBe("Help");
+    const shortcuts = screen.getByRole("option", { name: /Keyboard shortcuts/ });
+    expect(shortcuts.querySelector("kbd")?.textContent).toBe("?");
+    // No definition on the empty palette (the Finance › Runway screen row is a screen, not Help).
+    expect(screen.queryByRole("option", { name: /How many months your cash lasts/ })).toBeNull();
+    await user.type(screen.getByRole("combobox"), "what is runway");
+    const runway = await screen.findByRole("option", { name: /Runway.*How many months your cash lasts/ });
+    expect(screen.queryByRole("option", { name: /Keyboard shortcuts/ })).toBeNull();
+    await user.click(runway);
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "help:runway", kind: "help", href: "/b/northwind/d/finance/runway" }));
   });
 
   it("leads with Ask and Generate: Ask carries the query and stays while typing, Generate follows it", async () => {

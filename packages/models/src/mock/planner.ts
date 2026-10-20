@@ -59,7 +59,7 @@ export function generatePlanner(ctx: MockContext): TaskGraphOutput {
       title: truncate(`Implement ${item.title}`, 80),
       goal: `Build ${item.title} on branch agent/t${base}.2 so the acceptance criteria pass.`,
       kind,
-      acceptance_criteria: [`The behavior described for ${item.title} works end to end in mock mode`, "Typecheck and lint pass", ui ? "The screen uses design-system components and tokens only" : "Repository functions take businessId first and RLS is respected"],
+      acceptance_criteria: [`The behavior described for ${item.title} works end to end against the test connectors`, "Typecheck and lint pass", ui ? "The screen uses design-system components and tokens only" : "Repository functions take businessId first and RLS is respected"],
       test_expectations: ["Unit tests cover the new module and its edge cases", ui ? "A Playwright test exercises the screen" : "Contract tests run against fixtures"],
       file_scope_hints: scope,
       depends_on: [design.id],

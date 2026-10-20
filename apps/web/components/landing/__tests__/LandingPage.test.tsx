@@ -3,12 +3,15 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { MotionGlobalConfig } from "motion/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
-import { TooltipProvider } from "@foundmill/dugout";
+import { GuidanceProvider, TooltipProvider } from "@foundmill/dugout";
 import { MONOGRAM_HEIGHT, MONOGRAM_WIDTH } from "@foundmill/dugout/brand";
 import { LandingPage } from "../LandingPage";
-import { DECK_CYCLE_MS } from "../CycleDeck";
+import { CONTINUE_CALLOUT, DECK_CYCLE_MS } from "../CycleDeck";
+import { INCLUDED_CREDITS_ASSURANCE } from "../Hero";
+import { FIRST_DAY_PANEL_TITLE, FIRST_DAY_SENTENCE, FIRST_DAY_SIGNOFFS } from "../HowItWorks";
 import { resetExampleCache } from "../examples";
 import { NORTHWIND } from "../examples/northwind";
+import { TUTORLANE } from "../examples/tutorlane";
 
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
 
@@ -57,6 +60,49 @@ describe("LandingPage (signed-out /)", () => {
     const starts = screen.getAllByRole("link", { name: /Start your business/ });
     expect(starts.length).toBeGreaterThanOrEqual(3);
     for (const a of [...starts, ...screen.getAllByRole("link", { name: "Sign in" })]) expect(a.getAttribute("href")).toBe("/login");
+  });
+
+  it("assures a first-timer on the hero (included credits, no card) and keeps the key assurance for You decide (A13)", () => {
+    renderPage();
+    const hero = screen.getByRole("heading", { level: 1 }).closest("section")!;
+    // The figure is the free plan's included credits, from packages/config, in credits' own currency.
+    expect(INCLUDED_CREDITS_ASSURANCE).toBe("Starts with $5.00 of included credits · no card");
+    expect(within(hero).getByText(INCLUDED_CREDITS_ASSURANCE)).toBeTruthy();
+    expect(within(hero).getByText("Nothing moves money or signs in your name without you")).toBeTruthy();
+    expect(within(hero).queryByText(/Anthropic key/)).toBeNull();
+    // The key assurance sits beside "Your key, sealed", and nowhere else.
+    const control = document.getElementById("control")!;
+    expect(within(control).getByText("Your key, sealed")).toBeTruthy();
+    expect(within(control).getByText(/^Bring your own Anthropic key, or stay on the included credits\./)).toBeTruthy();
+    expect(screen.getAllByText(/Bring your own Anthropic key/)).toHaveLength(1);
+  });
+
+  it("walks How it works in four beats, the last the real first day, every one labeled Example", () => {
+    renderPage();
+    const how = document.getElementById("how")!;
+    expect(within(how).getAllByTestId("step-title").map((h) => h.textContent)).toEqual(["Shape the idea", "Make it yours", "Press Continue", "Your first day"]);
+    expect(within(how).getAllByText(/^Step 0[1-4]$/)).toHaveLength(4);
+    expect(within(how).getAllByText("Example", { exact: true })).toHaveLength(4);
+    expect(within(how).getByText(FIRST_DAY_SENTENCE)).toBeTruthy();
+    // The foundations drafting panel as Home shows it, with the agents writing it named.
+    const panel = within(how).getByRole("region", { name: FIRST_DAY_PANEL_TITLE });
+    expect(within(panel).getByText("Vision, specification and roadmap")).toBeTruthy();
+    expect(within(panel).getByText("Drafting")).toBeTruthy();
+    expect(within(panel).getByText("Drafting your vision, specification and roadmap…")).toBeTruthy();
+    expect(within(panel).getByText(/^Iris, Product lead, writes it from your idea and your profile\. Orla, Chief of Staff, plans the first cycle from the roadmap\.$/)).toBeTruthy();
+    // Then the two sign-off notes in the Inbox, each tagged Respond, then Continue.
+    const inbox = within(how).getByRole("list", { name: "Inbox" });
+    // Each row: the Product lead's portrait (its name is text too), the subject, the Respond tag.
+    const rows = within(inbox).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    rows.forEach((li, i) => expect(li.textContent).toBe(`Iris${FIRST_DAY_SIGNOFFS[i]}Respond`));
+    const day = panel.parentElement!;
+    expect(within(day).getByText("Continue")).toBeTruthy();
+    const planned = TUTORLANE.howItWorks.firstCyclePlan.reduce((s, p) => s + p.tasks, 0);
+    expect(within(day).getByText(`Building starts: ${planned} tasks planned`)).toBeTruthy();
+    // The sequence reads in order: drafting, the notes, Continue.
+    expect(panel.compareDocumentPosition(inbox) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(inbox.compareDocumentPosition(within(day).getByText("Continue")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("anchors the header with the wordmark alone and never draws the FM monogram", () => {
@@ -109,10 +155,14 @@ describe("LandingPage (signed-out /)", () => {
       vi.advanceTimersByTime(10);
     });
     expect(document.activeElement).toBe(within(deck).getByRole("button", { name: "Continue" }));
+    // The callout under Continue says what the app's first-Continue callout says, until the visitor presses it.
+    expect(CONTINUE_CALLOUT).toBe("This is how you move forward. Press it when you have answered what needs you.");
+    expect(within(deck).getByTestId("deck-callout").textContent).toBe(CONTINUE_CALLOUT);
 
     // The visitor presses Continue: the next cycle brings a customer, and Continue turns gold.
     fireEvent.click(within(deck).getByRole("button", { name: "Continue" }));
     expect(deck.getAttribute("data-phase")).toBe("processing");
+    expect(within(deck).queryByTestId("deck-callout")).toBeNull();
     await act(async () => {
       vi.advanceTimersByTime(DECK_CYCLE_MS);
     });
@@ -124,6 +174,30 @@ describe("LandingPage (signed-out /)", () => {
     expect(within(deck).getByRole("button", { name: /Go to Journey/ })).toBeTruthy();
     fireEvent.click(within(win).getByRole("button", { name: /See the Customer Update/ }));
     expect(deck.getAttribute("data-phase")).toBe("idle");
+  });
+
+  it("keeps the deck's Continue callout off when guidance is off: tutoring, not information", async () => {
+    vi.useFakeTimers();
+    render(
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <TooltipProvider>
+          <LandingPage terminalRenderer="plain" />
+        </TooltipProvider>
+      </GuidanceProvider>,
+    );
+    const deck = screen.getByTestId("cycle-deck");
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(DECK_CYCLE_MS);
+    });
+    expect(deck.getAttribute("data-phase")).toBe("decision");
+    fireEvent.click(within(screen.getByTestId("deck-decision")).getByRole("button", { name: "Merge" }));
+    expect(deck.getAttribute("data-phase")).toBe("idle");
+    expect(within(deck).queryByTestId("deck-callout")).toBeNull();
+    // The deck itself, the decision it brought back and the Inbox stay: guidance off hides tutoring only.
+    expect(within(deck).getByText("Photo grading merged")).toBeTruthy();
   });
 
   it("shows each department lead with attribute ratings and the department's real screens", () => {

@@ -23,12 +23,12 @@ export function healthSummary(status: AgentStatus, details: HealthDetails = {}, 
   if (status === "injured") parts.push(details.expectedReturnAt ? `Expected back ${formatRelative(details.expectedReturnAt, now)}` : "Reconnect the integration to see an expected return");
   if (details.reason) parts.push(details.reason);
   if (details.loopDetected) parts.push("Loop detected on the last session");
-  if (details.errorRate !== undefined && details.errorRate !== null) parts.push(`Error rate ${formatPercent(details.errorRate, { digits: 1 })} over 24 h`);
-  if (details.lastHeartbeatAt) parts.push(`Last heartbeat ${formatRelative(details.lastHeartbeatAt, now)}`);
+  if (details.errorRate !== undefined && details.errorRate !== null) parts.push(`Failed sessions ${formatPercent(details.errorRate, { digits: 1 })} over 24 h`);
+  if (details.lastHeartbeatAt) parts.push(`Last active ${formatRelative(details.lastHeartbeatAt, now)}`);
   return parts.join(" · ");
 }
 
-/** Health (BUILD §9.10, §11.9): the status pill plus heartbeat, error rate, loop flag and, when down, the expected return. */
+/** Health (BUILD §9.10, §11.9): the status pill plus when it was last active, failed sessions, loop flag and, when down, the expected return. */
 export function HealthBadge({ status, details = {}, now = new Date(), inline, className }: HealthBadgeProps) {
   const summary = healthSummary(status, details, now);
   const pill = (

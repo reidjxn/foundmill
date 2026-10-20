@@ -10,10 +10,12 @@ const props = { businessId: BID, departmentId: "d1", animateEntrance: false, res
 const onMutate = (path: string) => (path === "distribution.recommend" ? recommendResponse : {});
 
 describe("FormationScreen", () => {
-  it("renders every channel as a token: starters on the Board, the rest off the board, with fit and recommendation", () => {
+  it("renders every channel as a token: the running ones on the Board, the rest off the board, with fit and recommendation", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <FormationScreen {...props} />);
     const board = screen.getByRole("region", { name: "Channel Board" });
+    // What fit is, once, under the title (UX plan §7.13).
+    expect(screen.getByTestId("board-caption").textContent).toBe("Fit 1–20: how well a channel suits this business, scored by the Distribution Strategist. Closer to the center means a better fit.");
     // Six channels carry a stored score; the other nine were never scored and say so instead of showing a default fit.
     expect(within(board).getAllByRole("button", { name: /fit \d+ of 20/ })).toHaveLength(6);
     expect(within(board).getAllByRole("button", { name: /not scored yet/ })).toHaveLength(9);
@@ -24,7 +26,8 @@ describe("FormationScreen", () => {
     expect(seo.getAttribute("aria-pressed")).toBe("false");
     expect(within(board).getByRole("group", { name: /^Off the board: All 15 channels are available/ })).toBeTruthy();
     expect(screen.getByText("4 of 15 running")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Re-score" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Score again" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Re-score" })).toBeNull();
   });
 
   it("never counts a channel without an engine as running: it reads 'starting' (audit GTM-01)", () => {
@@ -108,6 +111,8 @@ describe("FormationScreen", () => {
     const empty = createFakeSource({ businessId: BID, responses: emptyResponses, onMutate });
     renderScreen(empty, <FormationScreen {...props} />);
     expect(screen.getByRole("status").textContent).toContain("All 15 channels are off the board");
+    expect(screen.getByRole("status").textContent).toContain("picks 3 to 6 channels to start with");
+    expect(screen.getByRole("status").textContent).not.toMatch(/starters/);
     expect(screen.getByRole("region", { name: "Channel Board" })).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /not scored yet/ })).toHaveLength(15);
     await act(async () => {

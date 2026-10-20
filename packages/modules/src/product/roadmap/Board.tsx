@@ -173,7 +173,7 @@ function Card({ item, index, count, blocks, dependencies, titleById, moving, onM
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem disabled={linked.length === 0} onSelect={() => linked[0] && onOpenBlock(linked[0].id)}>
-          <Icon icon={FileText} size="inline" /> Open spec block
+          <Icon icon={FileText} size="inline" /> Open specification paragraph
         </ContextMenuItem>
         <ContextMenuItem onSelect={onOpenTasks}>
           <Icon icon={Workflow} size="inline" /> Open tasks in Development

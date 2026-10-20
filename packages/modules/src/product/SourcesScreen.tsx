@@ -104,7 +104,7 @@ export function sourceColumns(blocks: readonly SpecBlockRow[], onOpenBlock: (id:
     {
       id: "blocks",
       accessorFn: (r) => linkedBlocks(r).length,
-      header: "Spec blocks",
+      header: "Spec paragraphs",
       size: 180,
       cell: ({ row }) => {
         const linked = linkedBlocks(row.original)
@@ -120,7 +120,7 @@ export function sourceColumns(blocks: readonly SpecBlockRow[], onOpenBlock: (id:
             onClick={() => onOpenBlock(linked[0]!.blockId)}
             title={linked.map((l) => `${blockTitle(l.block!)} · relevance ${Math.round(l.score * 100)}%`).join("\n")}
           >
-            {linked.length === 1 ? "1 block" : `${linked.length} blocks`}
+            {linked.length === 1 ? "1 paragraph" : `${linked.length} paragraphs`}
           </Chip>
         );
       },
@@ -218,7 +218,7 @@ export function SourcesScreen({ businessId }: ModuleScreenProps) {
             </span>
           ) : null
         }
-        footer={<span className="tabular-nums">{plural(rows.length, "source")}{kind ? ` of kind ${SOURCE_KIND_META[kind].word}` : ""} · the Source Watcher scores relevance against every spec block and raises proposals from the Changes tab</span>}
+        footer={<span className="tabular-nums">{plural(rows.length, "source")}{kind ? ` of kind ${SOURCE_KIND_META[kind].word}` : ""} · the Source Watcher scores relevance against every specification paragraph and raises proposals from the Changes tab</span>}
         flush
       >
         <div role="group" aria-label="Filter by kind" className="flex flex-wrap items-center gap-1 border-b border-subtle px-panel-pad py-2">

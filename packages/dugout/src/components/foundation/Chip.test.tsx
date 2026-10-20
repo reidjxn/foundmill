@@ -82,20 +82,23 @@ describe("DeptChip", () => {
 });
 
 describe("ProvenanceChip", () => {
-  it("is the dashed 18 px chip with the word in full", () => {
+  it("is the dashed 18 px chip with the word in full, its meaning a real tooltip on hover and focus (no native title)", async () => {
     render(<ProvenanceChip kind="estimate" />);
     const word = screen.getByText("Estimate");
     const chip = word.closest("[data-provenance]") as HTMLElement;
     expect(chip.className).toContain("est-chip");
     expect(chip.getAttribute("data-provenance")).toBe("estimate");
-    expect(chip.getAttribute("title")).toMatch(/not a measurement/);
+    expect(chip.getAttribute("title")).toBeNull();
+    expect(chip.tagName).toBe("BUTTON");
     expect(chip.querySelector("svg")).toBeNull();
+    chip.focus();
+    expect((await screen.findByRole("tooltip")).textContent).toMatch(/not a measurement/);
     render(<ProvenanceChip kind="forecast" showIcon />);
     expect(screen.getByText("Forecast").closest("[data-provenance]")?.querySelector("svg")).not.toBeNull();
   });
   it("is the word alone in text-3 inside reading prose", () => {
     render(<ProvenanceChip kind="forecast" appearance="word" />);
-    const el = screen.getByText("Forecast");
+    const el = screen.getByRole("button", { name: "Forecast" });
     expect(el.className).toContain("text-tertiary");
     expect(el.className).not.toContain("est-chip");
   });

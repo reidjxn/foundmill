@@ -12,7 +12,7 @@ import { StatusPill } from "../foundation/StatusPill";
 import { AppShell, type AppShellProps } from "./AppShell";
 import { GridCell, PageGrid } from "./PageGrid";
 import { Panel } from "./Panel";
-import { DISTRIBUTION_TABS, FIXTURE_TODAY, NORTHWIND_KIT, NORTHWIND_SEGMENTS, NORTHWIND_SIDEBAR, PALETTE_ITEMS, RECENT_PALETTE_ITEMS } from "./fixtures";
+import { DISTRIBUTION_TABS, FIXTURE_TODAY, HELP_PALETTE_ITEMS, NORTHWIND_KIT, NORTHWIND_SEGMENTS, NORTHWIND_SIDEBAR, PALETTE_ITEMS, RECENT_PALETTE_ITEMS } from "./fixtures";
 import type { ContinueState, SidebarItem } from "./types";
 
 const meta = {
@@ -189,10 +189,10 @@ function Shell({ children, sidebar, tabs, rightRail, ...props }: Partial<AppShel
       date={FIXTURE_TODAY}
       runwayMonths={11}
       cash={{ amountMinor: 12800000, currency: "EUR" }}
-      continueButton={{ state: { kind: "idle" }, onContinue: () => note("Continue"), onRespond: () => note("Respond"), onPause: () => note("Pause"), onGoToJourney: () => note("Go to Journey"), onComeBack: () => note("Come back"), pulseKey }}
+      continueButton={{ state: { kind: "idle" }, cycleNumber: 3, onContinue: () => note("Continue"), onRespond: () => note("Respond"), onPause: () => note("Pause"), onGoToJourney: () => note("Go to Journey"), onComeBack: () => note("Come back"), pulseKey }}
       stopAll={{ onConfirm: () => new Promise<void>((r) => setTimeout(r, 900)), runningCount: 7 }}
-      processing={{ segments: NORTHWIND_SEGMENTS, active: true }}
-      search={{ items: PALETTE_ITEMS, recent: RECENT_PALETTE_ITEMS, onSelect: (item) => note(`Open ${item.label}`) }}
+      processing={{ segments: NORTHWIND_SEGMENTS, active: true, cycleNumber: 3 }}
+      search={{ items: PALETTE_ITEMS, recent: RECENT_PALETTE_ITEMS, helpItems: HELP_PALETTE_ITEMS, onSelect: (item) => note(`Open ${item.label}`) }}
       keyboard={{ onRefreshInbox: () => note("Refresh Inbox"), onEditLayout: () => note("Edit layout"), onNextInboxItem: () => note("Next item"), onPrevInboxItem: () => note("Previous item") }}
       onNavigate={navigate}
       viewportWidth={1440}
@@ -233,8 +233,9 @@ export const ContinueBlocked: Story = {
   render: (args) => <Shell {...args} />,
 };
 export const ContinueProcessing: Story = {
-  args: { ...baseArgs, continueButton: { state: { kind: "processing" } } },
-  render: (args) => <Shell {...args} />,
+  args: { ...baseArgs, continueButton: { state: { kind: "processing" }, cycleNumber: 3 } },
+  render: (args) => <Shell {...args} tabs={{ tabs: DISTRIBUTION_TABS, activeId: "formation" }} />,
+  parameters: { docs: { description: { story: "A cycle runs: Continue reads Pause (its tooltip “The team is working · cycle 3”), the strip travels, and while guidance is on the strip's sentence sits in words at the right end of the tab bar. The shell root carries data-coachmark-pause." } } },
 };
 export const ContinueCustomerUpdate: Story = {
   name: "Continue · Customer Update",

@@ -18,7 +18,7 @@
  * answers with the business the first commit created (`alreadyCommitted: true`), read back from that commit's audit row.
  */
 import { randomUUID } from "node:crypto";
-import { departmentTabs, getArchetypeSeed, getTemplate } from "@foundmill/agents";
+import { departmentTabs, getArchetypeSeed, getTemplate, prompts } from "@foundmill/agents";
 import { initialModelBilling } from "@foundmill/config";
 import { assertBusinessAllowance, autopilotChangedPayload, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
@@ -121,7 +121,8 @@ export function importBoardDecision(name: string, link: ImportLink): ReturnType<
 }
 
 /**
- * The Chief of Staff's welcome note at Take charge (non-blocking): the team is hired, the Product lead is drafting the
+ * The Chief of Staff's welcome note at Take charge (non-blocking): who the Chief of Staff is and what is always the
+ * founder's (the house rules' founder line, UX plan §7.19), the team is hired, the Product lead is drafting the
  * foundations, two sign-off notes follow, and nothing is spent on distribution until the founder starts it.
  */
 export function welcomeNote(input: { agents: number; departments: number; productLeadName: string | null; door: "ideation" | "import" }): { subject: string; bodyMd: string } {
@@ -130,6 +131,7 @@ export function welcomeNote(input: { agents: number; departments: number; produc
   return {
     subject: "Your team is drafting the product foundations",
     bodyMd: [
+      prompts.HOUSE_RULES_FOUNDER_LINE,
       `The team is hired: ${input.agents} agents in ${input.departments} departments.`,
       `${who} is drafting the vision, the specification and the roadmap from ${from}; you will get two notes asking you to sign off each. Building starts when both are approved.`,
       "Nothing is spent on distribution until you start it from Distribution › Board.",

@@ -14,6 +14,7 @@ import {
   METRIC_DEFINITIONS,
   acquisitionCost,
   cashHistory,
+  financeSummarySentence,
   formatMonth,
   monthKey,
   monthStart,
@@ -22,6 +23,7 @@ import {
   operatingInflow,
   operatingOutflow,
   paybackMonths,
+  pnlLabelWords,
   pnlTotals,
   readDrivers,
   readSeries,
@@ -84,7 +86,7 @@ export function overviewTiles(args: { overview: FinanceOverview; pnl: PnlRespons
   const fcRunway = forecastRunway(overview, now);
   const asOf = overview.cash.asOf ?? undefined;
   const bank = `${overview.cash.accounts} connected account${overview.cash.accounts === 1 ? "" : "s"}`;
-  const pnlSource = pnl?.label ?? "Management P&L, unaudited, cash basis";
+  const pnlSource = pnlLabelWords(pnl?.label);
   const prov = (key: MetricKey, source: string, query?: string, extra?: string): MetricProvenance => ({ source, asOf, query, note: extra ? `${METRIC_DEFINITIONS[key].definition} ${extra}` : METRIC_DEFINITIONS[key].definition });
 
   const perChannel = channels?.channels
@@ -147,6 +149,8 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
   const months = useMemo(() => trailingMonths(now, HISTORY), [now]);
   const cur = data?.cash.currency || currency;
   const hasData = !!data && (data.cash.accounts > 0 || (data.revenue.monthly?.length ?? 0) > 0);
+  // The one plain sentence above the tiles, from the same figures the tiles show (UX plan §7.14).
+  const summary = data && hasData ? financeSummarySentence({ cashMinor: data.cash.amountMinor, accounts: data.cash.accounts, netBurnMinor: data.burn.netBurnMinor, runwayMonths: data.runway.months, currency: cur }) : null;
 
   const cashSeries = useMemo(() => {
     if (!data) return [];
@@ -186,11 +190,18 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
             Connect a bank account (Tink or Plaid) or Stripe and the tiles fill with cash, burn, runway and revenue.
           </EmptyState>
         ) : (
-          <div role="list" className="grid grid-cols-5 gap-px overflow-hidden rounded-panel border border-subtle bg-subtle">
-            {(tiles ?? Array.from({ length: 10 }, (_, i) => ({ key: `loading-${i}`, label: Object.values(METRIC_DEFINITIONS)[i]?.label ?? "", value: null, loading: true }))).map(({ key, ...tile }) => (
-              <MetricTile key={key} role="listitem" data-metric={key} {...tile} />
-            ))}
-          </div>
+          <>
+            {summary ? (
+              <p className="mb-2 max-w-reading text-body text-primary" data-testid="finance-summary">
+                {summary}
+              </p>
+            ) : null}
+            <div role="list" className="grid grid-cols-5 gap-px overflow-hidden rounded-panel border border-subtle bg-subtle">
+              {(tiles ?? Array.from({ length: 10 }, (_, i) => ({ key: `loading-${i}`, label: Object.values(METRIC_DEFINITIONS)[i]?.label ?? "", value: null, loading: true }))).map(({ key, ...tile }) => (
+                <MetricTile key={key} role="listitem" data-metric={key} {...tile} />
+              ))}
+            </div>
+          </>
         )}
       </section>
       <Panel
@@ -216,7 +227,7 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
         onRetry={overview.refetch}
         actions={flow.length ? <ProvenanceChip kind="estimate" /> : undefined}
         empty={data && !hasData ? "Monthly inflows and outflows appear once transactions sync." : undefined}
-        footer={<span>{pnl.data?.label ?? "Management P&L, unaudited, cash basis"}</span>}
+        footer={<span>{pnlLabelWords(pnl.data?.label)}</span>}
       >
         {flow.length ? <BarChart label="Net cash change by month" data={flow} height={CHART_HEIGHT} format={(v) => fmtAxisMoney(v, cur)} showValues /> : null}
       </Panel>

@@ -58,6 +58,13 @@ export const CLUB_RULES: readonly ClubRule[] = Object.freeze([
 export const HOUSE_STYLE =
   "Write in US English: American spelling (color, organize, judgment, canceled, program) and US dates and times (Oct 7, 2026; Wed, Oct 7; Oct 7 – 21; 3:45 PM). A business's own facts keep their form: its currency and symbol, tax names and legal suffix (GBP and £, VAT, Ltd).";
 
+/**
+ * The house rules as the founder first meets them (UX plan §7.19, E5): one line in the Chief of Staff's voice, used by
+ * the welcome note at Take charge and by the Chief of Staff's profile. The seven rules above stay the agents' text; this
+ * is the founder's.
+ */
+export const HOUSE_RULES_FOUNDER_LINE = "I'm your Chief of Staff. I run the team so you only read and decide. Some things are always yours: money, signatures, contracts, deleting things.";
+
 export const ClubRulesVariables = z.object({
   business_name: z.string().min(1),
   APP_NAME: z.string().min(1),

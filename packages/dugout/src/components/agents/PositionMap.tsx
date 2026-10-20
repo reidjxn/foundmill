@@ -3,7 +3,15 @@ import { cn } from "../../lib/cn";
 import type { PositionLevel, PositionRole } from "./types";
 
 export const POSITION_LEVELS: readonly PositionLevel[] = ["natural", "accomplished", "competent", "unconvincing"];
-export const POSITION_LEVEL_LABELS: Record<PositionLevel, string> = { natural: "Natural", accomplished: "Accomplished", competent: "Competent", unconvincing: "Unconvincing" };
+/**
+ * The four levels read as the product's band words (founder, Oct 20, 2026: the same words a 1–20 skill shows), so a
+ * role cell and a skill figure speak one language. The enum keys keep their names.
+ */
+export const POSITION_LEVEL_LABELS: Record<PositionLevel, string> = { natural: "Excellent", accomplished: "Good", competent: "Average", unconvincing: "Poor" };
+/** The panel title the profile gives this map. */
+export const POSITION_MAP_TITLE = "Other roles it could take";
+/** What the map is based on, for the panel footer. */
+export const POSITION_MAP_BASIS = "Based on the skills each role needs. Estimate.";
 
 /** Tint per level in the rating ramp (DESIGN §9 Agent profile). */
 const LEVEL_CLASS: Record<PositionLevel, string> = {
@@ -13,7 +21,7 @@ const LEVEL_CLASS: Record<PositionLevel, string> = {
   unconvincing: "chip-tone tone-rating-1 text-rating-1",
 };
 
-/** Level from a 1–20 rating when the app has not classified the role. */
+/** Level from a 1–20 rating when the app has not classified the role (the same cut-offs as the rating ramp's bands). */
 export function positionLevelFor(rating: number): PositionLevel {
   if (rating >= 16) return "natural";
   if (rating >= 11) return "accomplished";
@@ -30,14 +38,15 @@ export interface PositionMapProps {
   className?: string;
 }
 
-/** Role cells tinted Natural / Accomplished / Competent / Unconvincing, each with the word (never colour alone). */
+/** Role cells tinted Excellent / Good / Average / Poor, each with the word (never color alone) and the 1–20 fit. */
 export function PositionMap({ roles, currentRoleId, onSelect, columns = 4, className }: PositionMapProps) {
   const ordered = roles.slice().sort((a, b) => POSITION_LEVELS.indexOf(a.level) - POSITION_LEVELS.indexOf(b.level) || (b.rating ?? 0) - (a.rating ?? 0));
   return (
     <div className={cn("flex flex-col gap-2", className)} data-position-map>
-      <ul role="list" aria-label="Position map" className={cn("grid gap-1.5", columns === 2 ? "grid-cols-2" : columns === 3 ? "grid-cols-3" : "grid-cols-4")}>
+      <ul role="list" aria-label={POSITION_MAP_TITLE} className={cn("grid gap-1.5", columns === 2 ? "grid-cols-2" : columns === 3 ? "grid-cols-3" : "grid-cols-4")}>
         {ordered.map((role) => {
           const current = role.id === currentRoleId;
+          // TODO(guided-layer): ScaleLabel renders the band word once the guidance primitives land.
           const content = (
             <>
               {/* Role names wrap to two lines (never cut mid-word); the full name is in the cell's tooltip. */}
@@ -50,14 +59,15 @@ export function PositionMap({ roles, currentRoleId, onSelect, columns = 4, class
             </>
           );
           const cls = cn("flex h-full min-h-control-xl w-full flex-col gap-1 rounded-md border p-2.5 text-left", LEVEL_CLASS[role.level], current && "ring-2 ring-kit-lift/70 ring-offset-2 ring-offset-surface-1");
+          const label = `${role.label}: ${POSITION_LEVEL_LABELS[role.level]}${role.rating !== undefined ? `, ${role.rating} of 20` : ""}`;
           return (
             <li key={role.id} data-level={role.level} aria-current={current ? "true" : undefined}>
               {onSelect ? (
-                <button type="button" onClick={() => onSelect(role)} title={role.label} className={cn(cls, "pressable hover:brightness-125 focus-visible:shadow-ring")} aria-label={`${role.label}: ${POSITION_LEVEL_LABELS[role.level]}${role.rating !== undefined ? `, ${role.rating} of 20` : ""}`}>
+                <button type="button" onClick={() => onSelect(role)} title={role.label} className={cn(cls, "pressable hover:brightness-125 focus-visible:shadow-ring")} aria-label={label}>
                   {content}
                 </button>
               ) : (
-                <div className={cls} title={role.label} role="img" aria-label={`${role.label}: ${POSITION_LEVEL_LABELS[role.level]}${role.rating !== undefined ? `, ${role.rating} of 20` : ""}`}>
+                <div className={cls} title={role.label} role="img" aria-label={label}>
                   {content}
                 </div>
               )}

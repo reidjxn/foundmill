@@ -8,16 +8,20 @@ import { BID, BLOCK, dataResponses, emptyResponses } from "./fixtures";
 const departments = [{ id: "d1", name: "Product", slug: "product", colourToken: "dept-1", position: 0, moduleKeys: ["product"], lead: null, squad: [], tabs: [{ id: "t1", slug: "specification", title: "Specification", position: 1 }, { id: "t2", slug: "roadmap", title: "Roadmap", position: 2 }] }];
 
 describe("VisionScreen", () => {
-  it("renders the narrative sections, pinned blocks, the glance facts and Now items", () => {
+  it("renders the narrative sections, pinned paragraphs, the specification summary line and Now items", () => {
     const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "department.list": departments } });
     renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />);
     const narrative = screen.getByRole("article");
     expect(within(narrative).getByText(/Freelancers chase late invoices/)).toBeTruthy();
     expect(within(narrative).getByRole("heading", { name: "Customers" })).toBeTruthy();
     expect(within(narrative).queryByText(/Monthly plan/)).toBeNull(); // Pricing is not narrative
-    const pinned = screen.getByRole("list", { name: "Pinned blocks" });
+    const pinned = screen.getByRole("list", { name: "Pinned paragraphs" });
     expect(within(pinned).getAllByRole("listitem")).toHaveLength(2);
-    expect(screen.getByText("Version 3 · published Oct 4, 2026 · 5 blocks · 2 pinned")).toBeTruthy();
+    // "Block" is "paragraph" in copy (UX plan §7.11, C13); the six-count strip is one summary line.
+    expect(screen.getByText("Version 3 · published Oct 4, 2026 · 5 paragraphs · 2 pinned")).toBeTruthy();
+    expect(screen.getByTestId("spec-summary").textContent).toBe("Specification: 5 sections · not signed off yet");
+    expect(screen.queryByText("Agent-written")).toBeNull();
+    expect(screen.queryByText(/\bblocks?\b/)).toBeNull();
     const now = screen.getByRole("list", { name: "Roadmap items in Now" });
     expect(within(now).getByText("Usage-based billing")).toBeTruthy();
     expect(within(now).getByText("In progress")).toBeTruthy();
@@ -35,7 +39,7 @@ describe("VisionScreen", () => {
   it("navigates to the block in the Specification tab from a pinned block", () => {
     const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "department.list": departments } });
     renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />);
-    fireEvent.click(within(screen.getByRole("list", { name: "Pinned blocks" })).getAllByRole("button")[0]!);
+    fireEvent.click(within(screen.getByRole("list", { name: "Pinned paragraphs" })).getAllByRole("button")[0]!);
     expect(fake.navigations[0]).toBe(`/b/${BID}/d/product/specification?block=${BLOCK.customers}`);
   });
 
@@ -60,6 +64,13 @@ describe("VisionScreen", () => {
     const loading = createFakeSource({ businessId: BID });
     const { container } = renderScreen(loading, <VisionScreen businessId={BID} departmentId="d1" />);
     expect(container.querySelectorAll("[aria-busy='true']").length).toBeGreaterThan(0);
+  });
+
+  it("says when the specification was signed off", () => {
+    const signed = { stage: "building", spec: { id: "s1", kind: "spec", round: 1, status: "approved", requestedAt: "2026-10-10T09:00:00Z", decidedAt: "2026-10-18T09:00:00Z", decidedBy: { kind: "user", id: "u1" }, notes: null, specVersion: 3 }, roadmap: null, readyToSell: null };
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "department.list": departments, "product.signoff.get": signed } });
+    renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />);
+    expect(screen.getByTestId("spec-summary").textContent).toBe("Specification: 5 sections · signed off Oct 18, 2026");
   });
 
   it("refetches the spec when a version is published", () => {

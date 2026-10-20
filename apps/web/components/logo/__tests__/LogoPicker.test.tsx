@@ -49,7 +49,8 @@ describe("LogoPicker", () => {
     await act(async () => {
       fireEvent.click(screen.getByTestId("logo-generate"));
     });
-    expect(screen.getByTestId("logo-cost").textContent).toBe("This set: under US$0.01");
+    // The cost line says where the money comes from: included credits, with the Estimate chip between (A13).
+    expect(screen.getByTestId("logo-cost").textContent).toMatch(/^This set: under US\$0\.01\s*Estimate\s*from your included credits$/);
     expect(screen.getByTestId("logo-options").textContent).toMatch(/Estimate/);
     expect(screen.getByTestId("logo-options").textContent).toMatch(/1 more set this hour/);
     expect(screen.getAllByTestId("logo-option")[0]!.getAttribute("aria-checked")).toBe("true");

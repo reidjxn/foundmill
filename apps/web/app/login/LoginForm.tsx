@@ -61,7 +61,7 @@ export function LoginForm({ nextParam = null, errorParam = null }: LoginFormProp
   }
 
   return (
-    <BrandFrame title="Sign in" footer={<span>Desktop only: built for screens 1280 px wide or more. No password to remember: {APP_NAME} emails you a sign-in link.</span>}>
+    <BrandFrame title="Sign in" footer={<span>Desktop only: built for screens 1280 px wide or more.</span>}>
       <div className="flex flex-col gap-4">
         {phase.kind === "sent" ? (
           <div className="flex flex-col gap-2" role="status" data-testid="login-sent">
@@ -85,8 +85,8 @@ export function LoginForm({ nextParam = null, errorParam = null }: LoginFormProp
                 <p className="text-body">{linkProblem.body}</p>
               </div>
             ) : null}
-            <Field htmlFor="login-email" label="Work email" hint={supabaseReady ? "We email you a one-time link. No password to remember." : "Email sign-in is not set up on this server yet."}>
-              <Input id="login-email" controlSize="lg" type="email" name="email" autoComplete="email" required icon={Mail} placeholder="founder@company.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={!supabaseReady || phase.kind === "sending"} />
+            <Field htmlFor="login-email" label="Email" hint={supabaseReady ? undefined : "Email sign-in is not set up on this server yet."}>
+              <Input id="login-email" controlSize="lg" type="email" name="email" autoComplete="email" required icon={Mail} placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={!supabaseReady || phase.kind === "sending"} />
             </Field>
             {phase.kind === "error" ? (
               <StatusPill tone="bad" role="alert">
@@ -96,6 +96,12 @@ export function LoginForm({ nextParam = null, errorParam = null }: LoginFormProp
             <Button type="submit" size="lg" variant="glass" icon={Send} loading={phase.kind === "sending"} disabled={!supabaseReady || email.trim().length === 0}>
               Send sign-in link
             </Button>
+            {supabaseReady ? (
+              // TODO(guided-layer): ReassuranceLine
+              <p className="text-small text-secondary" data-testid="login-reassurance">
+                No password, no card. We email you a link.
+              </p>
+            ) : null}
           </form>
         )}
         {devBypass ? (

@@ -15,6 +15,7 @@ import { Skeleton } from "../foundation/Skeleton";
 import { useFormatters } from "../foundation/DateFormatProvider";
 import { FitText } from "../foundation/FitText";
 import { Tooltip } from "../foundation/Tooltip";
+import { PlainFigure } from "../guidance/PlainFigure";
 import { Figure } from "./Figure";
 import type { MetricDelta, MetricProvenance, MetricValue } from "./types";
 
@@ -34,6 +35,12 @@ export interface MetricTileProps extends Omit<HTMLAttributes<HTMLDivElement>, "t
   estimate?: ProvenanceKind;
   /** Secondary line in small style. */
   caption?: ReactNode;
+  /**
+   * The figure in plain words, under it (PlainFigure, UX plan §6.2): "How many months your cash lasts at today's
+   * spending." Hidden when guidance is off. `metricId` reads the line from the definitions map instead.
+   */
+  plain?: ReactNode;
+  metricId?: string;
   loading?: boolean;
   /**
    * Makes the whole tile clickable: a button covers the tile (named by its label and value) and the provenance button
@@ -212,6 +219,8 @@ export const MetricTile = forwardRef<HTMLDivElement, MetricTileProps>(function M
     provenance,
     estimate,
     caption,
+    plain,
+    metricId,
     loading,
     onClick,
     size = "md",
@@ -269,19 +278,21 @@ export const MetricTile = forwardRef<HTMLDivElement, MetricTileProps>(function M
       {loading ? (
         <Skeleton className={cn("w-2/3", size === "lg" ? "h-10" : "h-8")} />
       ) : (
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <FitText
-            className={cn(size === "lg" ? "t-display-xl" : "t-display-lg", "text-primary")}
-            text={unit ? `${text} ${unit}` : text}
-            truncate={false}
-            fallback={fallback && unit ? `${fallback} ${unit}` : fallback}
-            tooltip={false}
-          >
-            <Figure id={`${id}-value`} value={text} unit={unit} data-value={text} />
-          </FitText>
-          {estimate ? <ProvenanceChip kind={estimate} className="relative z-10 ml-0.5" /> : null}
-          {delta ? <DeltaBadge delta={delta} id={`${id}-delta`} /> : null}
-        </div>
+        <PlainFigure plain={plain} metricId={metricId}>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <FitText
+              className={cn(size === "lg" ? "t-display-xl" : "t-display-lg", "text-primary")}
+              text={unit ? `${text} ${unit}` : text}
+              truncate={false}
+              fallback={fallback && unit ? `${fallback} ${unit}` : fallback}
+              tooltip={false}
+            >
+              <Figure id={`${id}-value`} value={text} unit={unit} data-value={text} />
+            </FitText>
+            {estimate ? <ProvenanceChip kind={estimate} className="relative z-10 ml-0.5" /> : null}
+            {delta ? <DeltaBadge delta={delta} id={`${id}-delta`} /> : null}
+          </div>
+        </PlainFigure>
       )}
       {caption ? (
         <span className="line-clamp-2 min-w-0 text-small text-secondary" title={typeof caption === "string" ? caption : undefined} data-metric-caption>

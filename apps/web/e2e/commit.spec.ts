@@ -75,8 +75,20 @@ test.describe("commit", () => {
     await expect(row).toContainText("Couldn't check");
     await expect(row.getByTestId("domain-retry")).toBeVisible();
     await expect(page.getByTestId("take-charge")).toBeEnabled();
-    // The trademark screen is labeled as an estimate, not clearance.
-    await expect(page.getByTestId("trademark-screen")).toContainText("Trademark quick screen (Estimate, not legal clearance)");
+    // The trademark screen is labeled as an estimate, not clearance, inside the one name-checks panel, acronyms expanded (A12).
+    await expect(page.getByTestId("name-checks-panel")).toContainText("Check the name (domains and trademarks)");
+    await expect(page.getByTestId("trademark-screen")).toContainText("USPTO, the US trademark office");
+    await expect(page.getByTestId("trademark-caveat")).toContainText("Screen, not legal clearance");
+  });
+
+  test("says what happens next in the real order, with an example per mode and a change-it-later line (A4, §7.6)", async ({ page }) => {
+    const next = page.getByTestId("what-happens-next");
+    await expect(next).toContainText("Your team is hired");
+    await expect(next).toContainText("Two notes ask you to sign them off");
+    await expect(next).not.toContainText("Board");
+    await expect(page.locator("[data-mode-example]")).toHaveCount(3);
+    await expect(page.locator('[data-option="assisted"]')).toContainText("Example: drafts the pricing page and publishes it; asks before paying for a domain.");
+    await expect(page.getByTestId("reassure-mode")).toContainText("You can change this later in Settings › Mode.");
   });
 
   test("logo: the initials mark until one is chosen; generate four marks and pick one; the contrast check reads the primary", async ({ page }) => {

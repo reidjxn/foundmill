@@ -341,8 +341,10 @@ export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, 
             {set && !drafting && !stopped ? (
               <div className="flex flex-wrap items-center gap-2 text-small text-secondary">
                 <Chip mono>Opus</Chip>
-                <span data-testid="logo-cost">This set: {formatCostEstimate(set.cost)}</span>
-                <ProvenanceChip kind="estimate" />
+                {/* The first cost a founder meets says where it comes from (A13): included credits, never a card. */}
+                <span data-testid="logo-cost" className="inline-flex flex-wrap items-center gap-1.5">
+                  This set: {formatCostEstimate(set.cost)} <ProvenanceChip kind="estimate" /> from your included credits
+                </span>
                 <span>· {set.remaining} more {set.remaining === 1 ? "set" : "sets"} this hour</span>
               </div>
             ) : null}

@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MOCK_COACH_EXPLANATION, mockTrainingResults } from "./mock";
-import { TrainingResults, summariseTraining } from "./TrainingResults";
+import { TrainingResults, coachWords, summariseTraining } from "./TrainingResults";
+
+describe("coachWords", () => {
+  it("reads the Coach's rule line in the product's words", () => {
+    expect(coachWords("Two edits targeting Testing. House rules are untouched.")).toBe("Two edits targeting Testing. Every rule still applies.");
+    expect(coachWords(MOCK_COACH_EXPLANATION)).toBe(MOCK_COACH_EXPLANATION);
+  });
+});
 
 describe("summariseTraining", () => {
   it("counts ups, downs, unchanged and drops over one point", () => {

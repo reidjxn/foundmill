@@ -26,6 +26,7 @@ import {
   cn,
   kitBarGradient,
   kitStyle,
+  useGuided,
   usePrefersReducedMotion,
   type ProcessingSegment,
 } from "@foundmill/dugout";
@@ -41,6 +42,11 @@ const DECK_CYCLE_MS_REDUCED = 900;
 const FEED_MAX = 6;
 /** A second click this soon after Continue is a double click, not a request to pause the cycle it just started. */
 const PAUSE_GRACE_MS = 800;
+/**
+ * The callout under Continue, in the words the app's first-Continue callout uses (docs/UX_AUDIT_AND_PLAN.md §5.1,
+ * §7.1), so the loop is taught with one voice.
+ */
+export const CONTINUE_CALLOUT = "This is how you move forward. Press it when you have answered what needs you.";
 
 export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
   const business = useExample();
@@ -152,11 +158,19 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
   );
 }
 
+/**
+ * The callout under Continue once the deck has run a cycle by itself and the visitor has not pressed it yet. A
+ * tutoring surface: hidden when guidance is off (`useGuided`), like the app's coach marks.
+ */
+// TODO(guided-layer): replace with the single-step `Callout` (Dugout firstrun/Coachmark) anchored to the deck's
+// `data-coachmark="continue"`, the same component the app's first Continue uses, with CONTINUE_CALLOUT as its body.
 function PressHint() {
+  const guided = useGuided();
+  if (!guided) return null;
   return (
-    <div aria-hidden className="pointer-events-none absolute right-3 top-16 z-10 flex animate-rise-in flex-col items-end">
+    <div aria-hidden className="pointer-events-none absolute right-3 top-16 z-10 flex animate-rise-in flex-col items-end" data-testid="deck-callout">
       <Icon icon={ArrowUp} size={16} className="mr-26 animate-bounce text-primary" />
-      <span className="rounded-chip border border-subtle bg-panel-alt px-2.5 py-1 text-small text-primary shadow-overlay">Press Continue to run the next cycle</span>
+      <span className="max-w-xs rounded-chip border border-subtle bg-panel-alt px-2.5 py-1 text-small text-primary shadow-overlay">{CONTINUE_CALLOUT}</span>
     </div>
   );
 }

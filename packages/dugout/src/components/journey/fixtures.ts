@@ -424,7 +424,7 @@ export function departmentCardFixtures(): DepartmentCardData[] {
         ["Quill", "Content", "sonnet", "idle", null],
       ]),
       now: ["Lifecycle sent 240 welcome emails; 38 opened", "Scout is drafting the wholesale sheet for [[ent:0f7c2d1e-4b1a-4c8e-9a3b-2d5f6e7a8b9c|Nordic Beauty AB]]", "Beacon paused the retinol campaign pending approval"],
-      metric: { label: "Blended cost per customer", value: "€41.20", series: series(52, -0.8), delta: "▼ 9.4%", deltaTone: "good", provenance: "estimate" },
+      metric: { label: "Cost to win a customer", value: "€41.20", series: series(52, -0.8), delta: "▼ 9.4%", deltaTone: "good", provenance: "estimate" },
       nextUp: "Retail listing proposal for Nordic Beauty (Thu)",
     },
     {
@@ -442,7 +442,7 @@ export function departmentCardFixtures(): DepartmentCardData[] {
         ["Mortar", "Infra", "sonnet", "idle", null],
       ]),
       now: ["Pixel merged the bundle picker; 14 tests green", "Forge is blocked on the subscriptions table change", "Probe found a flaky checkout test and quarantined it"],
-      metric: { label: "Tasks merged this week", value: "11", series: series(8, 0.3), delta: "▲ 3", deltaTone: "good" },
+      metric: { label: "Tasks finished this week", value: "11", series: series(8, 0.3), delta: "▲ 3", deltaTone: "good" },
       nextUp: "Subscription plans release (needs your approval)",
     },
     {
@@ -457,7 +457,7 @@ export function departmentCardFixtures(): DepartmentCardData[] {
         ["Tally", "Bookkeeping", "haiku", "injured", "Loop detected; stopped"],
       ]),
       now: ["Bank sync has failed three times since 6:10 AM", "Tink consent expired; a reconnect is waiting in your Inbox"],
-      metric: { label: "Runway", value: "7.5 mo", series: series(9, -0.12), delta: "▼ 0.4 mo", deltaTone: "bad", provenance: "estimate" },
+      metric: { label: "Months of cash left", value: "7.5 mo", series: series(9, -0.12), delta: "▼ 0.4 mo", deltaTone: "bad", provenance: "estimate" },
       nextUp: "Reconnect the bank (2 min) so the P&L closes",
     },
     {

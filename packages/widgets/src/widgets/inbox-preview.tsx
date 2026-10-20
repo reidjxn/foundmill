@@ -7,13 +7,13 @@ import { z } from "zod";
 import { Inbox } from "lucide-react";
 import { notePreview, type DeptColourToken } from "@foundmill/shared";
 import { APP_NAME } from "@foundmill/config";
-import { Avatar, Button, Chip, cn, formatRelative } from "@foundmill/dugout";
+import { Avatar, Button, Chip, Tooltip, cn, formatRelative } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { useDepartments } from "../shared/departments";
 import { WidgetFrame } from "../shared/frame";
 import { routes } from "../shared/routes";
-import { humanSender, NETWORK_SENDER, NOTE_TAG_ICONS, noteRowTag } from "../shared/note-tags";
+import { humanSender, NETWORK_SENDER, NOTE_TAG_ICONS, needsAnswerWords, noteRowTag, noteTagLegend } from "../shared/note-tags";
 import type { FounderProfileResponse, InboxListResponse } from "../shared/types";
 
 export const InboxPreviewSettings = z.object({
@@ -60,7 +60,7 @@ function InboxPreviewWidget({ settings }: WidgetProps<InboxPreviewSettings>) {
           Open
         </Button>
       }
-      footer={blocking > 0 ? <span className="text-status-bad">{blocking === 1 ? "1 note needs you" : `${blocking} notes need you`}</span> : <span>Latest {items.length}</span>}
+      footer={blocking > 0 ? <span className="text-status-bad">{needsAnswerWords(blocking)}</span> : <span>Latest {items.length}</span>}
     >
       {/* Rows never clip (DESIGN §9 Inbox rows): the subject wraps to two lines, the preview is one line that may end in
           an ellipsis (a list convention), and the state is a word with an icon, never a dot alone. */}
@@ -80,16 +80,18 @@ function InboxPreviewWidget({ settings }: WidgetProps<InboxPreviewSettings>) {
                   "flex w-full items-start gap-3 px-panel-pad py-2.5 text-left outline-none transition-colors duration-hover ease-out hover:bg-white/4 focus-visible:shadow-ring",
                   won && "row-edge-gold",
                 )}
-                aria-label={`${item.subject}${item.blocksContinue ? ", needs an answer" : ""}${won ? ", customer won" : ""}`}
+                aria-label={`${item.subject}${item.blocksContinue ? ", needs your answer" : ""}${won ? ", customer won" : ""}`}
               >
                 {agent ? <Avatar size={24} name={agent.name} agent={{ seed: agent.seed, dept: agent.dept }} /> : <Avatar size={24} name={item.fromUserId ? senderName(item.fromUserId) : APP_NAME} />}
                 <span className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className={cn("line-clamp-2 break-words text-body-strong", item.state === "unread" ? "text-primary" : "text-secondary")}>{item.subject}</span>
-                  {/* The same tag as the Inbox list (icon + word, one vocabulary), then the one-line preview. */}
+                  {/* The same tag as the Inbox list (icon + word, one vocabulary, the legend on hover), then the one-line preview. */}
                   <span className="flex min-w-0 items-center gap-1.5">
-                    <Chip tone={tag.tone} icon={NOTE_TAG_ICONS[tag.icon]} className="h-badge shrink-0" data-row-tag={tag.word}>
-                      {tag.word}
-                    </Chip>
+                    <Tooltip content={noteTagLegend(tag)}>
+                      <Chip tone={tag.tone} icon={NOTE_TAG_ICONS[tag.icon]} className="h-badge shrink-0" data-row-tag={tag.word}>
+                        {tag.word}
+                      </Chip>
+                    </Tooltip>
                     <span className="line-clamp-1 min-w-0 flex-1 break-all text-small text-secondary">{previewLine(item.bodyMd)}</span>
                   </span>
                 </span>

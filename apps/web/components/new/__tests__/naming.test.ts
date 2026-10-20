@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LIMITS } from "@foundmill/config";
-import { ARCHETYPE_CARDS, BUSINESS_MODE_CARDS, DEFAULT_KIT, DEFAULT_SPEND_CAP_MINOR, DOMAIN_NOTE, DOMAIN_STATUS_WORDS, commitInput, couldNotCheck, KNOWN_MARKS, TRADEMARK_STATUS_WORDS, domainCandidates, domainProvenanceWord, extractPalette, initialCommitForm, isValidKit, keywordsOf, kitContrast, nameSuggestions, normaliseHex, parseSpendCapMinor, trademarkScreen, validateCommitForm } from "../commit/naming";
+import { ARCHETYPE_CARDS, BUSINESS_MODE_CARDS, DEFAULT_KIT, DEFAULT_SPEND_CAP_MINOR, DOMAIN_NOTE, DOMAIN_STATUS_WORDS, commitInput, couldNotCheck, KNOWN_MARKS, TRADEMARK_REGISTRY_WORDS, TRADEMARK_STATUS_WORDS, domainCandidates, domainProvenanceWord, extractPalette, initialCommitForm, isValidKit, keywordsOf, kitContrast, nameSuggestions, normaliseHex, parseSpendCapMinor, trademarkScreen, validateCommitForm } from "../commit/naming";
 
 const IDEA = "11111111-1111-4111-8111-111111111111";
 
@@ -18,6 +18,7 @@ describe("commit screen: names, domains, trademarks", () => {
     expect(new Set(s.map((x) => x.toLowerCase())).size).toBe(s.length);
     expect(s[0]).toBe("Ledgerly");
     expect(nameSuggestions("Ledgerly (fork)", "", null)[0]).toBe("Ledgerly");
+    expect(nameSuggestions("Ledgerly (variant)", "", null)[0]).toBe("Ledgerly");
     expect(nameSuggestions("A × B", "", null)[0]).toBe("A");
     expect(keywordsOf("The quick brown foxes jump over lazy dogs")).toEqual(["quick", "brown", "foxes", "jump", "over", "lazy"]);
   });
@@ -31,8 +32,9 @@ describe("commit screen: names, domains, trademarks", () => {
     expect(rows.map((r) => r.status)).toEqual(["unknown", "unknown"]);
     expect(rows.every((r) => r.provenance === null && r.checkedAt === null && !r.estimate && r.reason)).toBe(true);
     expect(DOMAIN_STATUS_WORDS).toEqual({ available: "Available", taken: "Taken", unknown: "Couldn't check" });
-    expect(domainProvenanceWord("Registry")).toBe("Registry");
-    expect(domainProvenanceWord("DNS")).toBe("DNS (Estimate)");
+    // Acronyms carry their word (A12); the mock stays "Mock".
+    expect(domainProvenanceWord("Registry")).toBe("Domain registry");
+    expect(domainProvenanceWord("DNS")).toBe("DNS lookup (Estimate)");
     expect(domainProvenanceWord("Mock")).toBe("Mock");
     expect(DOMAIN_NOTE).toBe("Availability is a snapshot; registering the domain happens at a registrar. We never buy domains for you.");
   });
@@ -41,6 +43,9 @@ describe("commit screen: names, domains, trademarks", () => {
     const hits = trademarkScreen("Stripe Ledger");
     expect(hits).toHaveLength(2);
     expect(hits.map((h) => h.registry)).toEqual(["USPTO", "EUIPO"]);
+    // Each acronym is expanded where it is first read (A12).
+    expect(TRADEMARK_REGISTRY_WORDS.USPTO).toBe("USPTO, the US trademark office");
+    expect(TRADEMARK_REGISTRY_WORDS.EUIPO).toBe("EUIPO, the EU trademark office");
     expect(hits.every((h) => h.status === "conflict" && h.caveat === "Screen, not legal clearance" && h.provenance === "Estimate")).toBe(true);
     expect(hits[0]?.similar).toContain("STRIPE");
     const clear = trademarkScreen("Quartzwind Forge");
@@ -114,6 +119,12 @@ describe("commit screen: form (AC-11.1.6, AC-11.1.7)", () => {
     expect(form.spendCap).toBe(String(LIMITS.approvalThresholdMinorDefault / 100));
     expect(DEFAULT_SPEND_CAP_MINOR.assisted).toBe(LIMITS.approvalThresholdMinorDefault);
     expect(BUSINESS_MODE_CARDS.map((m) => m.value)).toEqual(["augmented", "assisted", "automated"]);
+    // Every mode card carries one concrete example and says "your limits", never "caps" (§7.6).
+    for (const m of BUSINESS_MODE_CARDS) {
+      expect(m.example).toMatch(/^Example: /);
+      expect([m.tagline, ...m.details, m.example].join(" ")).not.toMatch(/\bcaps?\b/);
+    }
+    expect(BUSINESS_MODE_CARDS[1]!.example).toBe("Example: drafts the pricing page and publishes it; asks before paying for a domain.");
     expect(ARCHETYPE_CARDS).toHaveLength(7);
   });
 

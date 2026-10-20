@@ -287,6 +287,25 @@ export const CONCEPT_ATTRIBUTE_LABELS: Record<ConceptAttributeKey, string> = {
   distribution_clarity: "Distribution clarity",
 };
 
+/**
+ * What each attribute measures and which way it reads, one sentence per attribute, shown as a tooltip on the label
+ * wherever a bar is drawn (docs/UX_AUDIT_AND_PLAN.md §7.5, A6). Every attribute is 1–20 and higher is always the
+ * better side for the business, so a "load" or an "intensity" reads inverted: a high Competition means a less
+ * crowded market, a high Capital intensity means less money needed before the first sale.
+ */
+export const CONCEPT_ATTRIBUTE_HINTS: Record<ConceptAttributeKey, string> = {
+  market_pull: "How strongly people already want this. Higher means more demand.",
+  market_size: "How many people or businesses could pay for it. Higher means a bigger market.",
+  competition: "How crowded the market is. Higher means less crowded.",
+  speed_to_first_customer: "How soon the first customer could pay. Higher means sooner.",
+  capital_intensity: "How much money it takes before the first sale. Higher means less money needed.",
+  agent_executability: "How much of the work your agent team can do on its own. Higher means more of it.",
+  founder_fit: "How well your skills and constraints match what this needs. Higher means a closer match.",
+  defensibility: "How hard it is for others to copy. Higher means harder to copy.",
+  regulatory_load: "How much regulation applies. Higher means fewer rules to deal with.",
+  distribution_clarity: "How clear the path to the first customers is. Higher means a clearer path.",
+};
+
 export interface ConceptEvidence {
   text: string;
   source?: string;

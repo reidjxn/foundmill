@@ -136,3 +136,121 @@ test.describe("settings › preferences: date and time format", () => {
     await expect(settingsScreen(page).getByTestId("preferences-panel")).toBeVisible({ timeout: LONG });
   });
 });
+
+/**
+ * Settings › Preferences › Guidance (docs/UX_AUDIT_AND_PLAN.md §6.3, founder, 2026-10-20): the guided layer's one
+ * switch, the text size and the two resets. Each saves at once with a toast; the choice survives a reload (the account's
+ * row, `founder.preferences.guidance`) and holds in another business. Comfortable text is stamped on the document
+ * (`<html data-text="comfortable">`, the tokens' hook). The dev founder is shared by every spec, so what was found before
+ * is put back after.
+ */
+type Guidance = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null };
+
+const GUIDANCE_DEFAULTS: Guidance = { guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null };
+
+test.describe("settings › preferences: guidance", () => {
+  let before: Guidance | null = null;
+
+  test.beforeAll(async ({ playwright }) => {
+    const api = await devApi(playwright);
+    const res = await api.get("/trpc/founder.preferences.guidance");
+    expect(res.ok(), `founder.preferences.guidance answered ${res.status()}`).toBe(true);
+    before = ((await res.json()) as { result: { data: { json: Guidance } } }).result.data.json;
+    // Every run starts from the defaults: guided, standard text, nothing seen.
+    const reset = await api.post("/trpc/founder.preferences.update", { data: { json: { guidance: "on", textSize: "standard", reset: true } } });
+    expect(reset.ok(), await reset.text()).toBe(true);
+    await api.dispose();
+  });
+
+  test.afterAll(async ({ playwright }) => {
+    const api = await devApi(playwright);
+    const b = before ?? GUIDANCE_DEFAULTS;
+    // Marks only ever merge, so the maps are cleared first and what was seen is marked again.
+    const put = await api.post("/trpc/founder.preferences.update", { data: { json: { guidance: b.guidance, textSize: b.textSize, reset: true } } });
+    expect(put.ok(), await put.text()).toBe(true);
+    const marks = {
+      ...(Object.keys(b.explainersSeen).length ? { explainersSeen: b.explainersSeen } : {}),
+      ...(Object.keys(b.toursDone).length ? { toursDone: b.toursDone } : {}),
+      ...(b.checklistDismissedAt ? { checklistDismissed: true } : {}),
+    };
+    if (Object.keys(marks).length) {
+      const again = await api.post("/trpc/founder.preferences.update", { data: { json: marks } });
+      expect(again.ok(), await again.text()).toBe(true);
+    }
+    await api.dispose();
+  });
+
+  test("the switch and the text size save at once with a toast, survive a reload and hold in another business", async ({ page }) => {
+    const hydration = watchHydration(page);
+    await openBusiness(page, "settings/preferences");
+    const screen = settingsScreen(page);
+    const panel = screen.getByTestId("guidance-panel");
+    await expect(panel).toBeVisible({ timeout: LONG });
+    await expect(panel).toContainText("always show");
+    const sw = screen.getByRole("switch", { name: "Explain things as I go" });
+    await expect(sw).toHaveAttribute("aria-checked", "true");
+    await expect(screen.getByRole("button", { name: "Standard", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("html")).not.toHaveAttribute("data-text", "comfortable");
+    // Nothing to reset yet: both buttons are off.
+    await expect(screen.getByTestId("show-checklist-again")).toHaveAttribute("aria-disabled", "true");
+    await expect(screen.getByTestId("replay-tour")).toHaveAttribute("aria-disabled", "true");
+
+    await sw.click();
+    await expect(sw).toHaveAttribute("aria-checked", "false");
+    await expect(toast(page, "Guidance off")).toBeVisible({ timeout: LONG });
+
+    await screen.getByRole("button", { name: "Comfortable", exact: true }).click();
+    await expect(toast(page, "Comfortable text")).toBeVisible({ timeout: LONG });
+    await expect(screen.getByRole("button", { name: "Comfortable", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("html")).toHaveAttribute("data-text", "comfortable");
+
+    // A reload reads the account's row again, with no hydration warning.
+    await page.reload();
+    await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+    await settled(page);
+    await expect(screen.getByRole("switch", { name: "Explain things as I go" })).toHaveAttribute("aria-checked", "false", { timeout: LONG });
+    await expect(screen.getByRole("button", { name: "Comfortable", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("html")).toHaveAttribute("data-text", "comfortable", { timeout: LONG });
+
+    // Another business: the choice is the person's, so it holds there.
+    await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/settings/preferences`);
+    await settled(page);
+    await expect(screen.getByRole("switch", { name: "Explain things as I go" })).toHaveAttribute("aria-checked", "false", { timeout: LONG });
+    await expect(page.locator("html")).toHaveAttribute("data-text", "comfortable", { timeout: LONG });
+
+    // Back to standard and on: the document and the switch follow each time.
+    await screen.getByRole("button", { name: "Standard", exact: true }).click();
+    await expect(toast(page, "Standard text")).toBeVisible({ timeout: LONG });
+    await expect(page.locator("html")).not.toHaveAttribute("data-text", "comfortable");
+    await screen.getByRole("switch", { name: "Explain things as I go" }).click();
+    await expect(toast(page, "Guidance on")).toBeVisible({ timeout: LONG });
+    await expect(screen.getByRole("switch", { name: "Explain things as I go" })).toHaveAttribute("aria-checked", "true");
+
+    expect(hydration, hydration.join("\n")).toEqual([]);
+  });
+
+  test("the resets wake once something was seen, put it back to the first day, and go quiet again", async ({ page, playwright }) => {
+    const api = await devApi(playwright);
+    const mark = await api.post("/trpc/founder.preferences.update", { data: { json: { explainersSeen: { home: true }, toursDone: { home: true }, checklistDismissed: true } } });
+    expect(mark.ok(), await mark.text()).toBe(true);
+    await openBusiness(page, "settings/preferences");
+    const screen = settingsScreen(page);
+    const checklist = screen.getByTestId("show-checklist-again");
+    const tour = screen.getByTestId("replay-tour");
+    await expect(checklist).toBeVisible({ timeout: LONG });
+    await expect(checklist).not.toHaveAttribute("aria-disabled", "true");
+    await expect(tour).not.toHaveAttribute("aria-disabled", "true");
+
+    await checklist.click();
+    await expect(toast(page, "Starting over")).toBeVisible({ timeout: LONG });
+    await expect(checklist).toHaveAttribute("aria-disabled", "true");
+    await expect(tour).toHaveAttribute("aria-disabled", "true");
+
+    // The account agrees: nothing seen, the checklist showing.
+    const res = await api.get("/trpc/founder.preferences.guidance");
+    expect(res.ok(), await res.text()).toBe(true);
+    const after = ((await res.json()) as { result: { data: { json: Guidance } } }).result.data.json;
+    expect(after).toMatchObject({ explainersSeen: {}, toursDone: {}, checklistDismissedAt: null });
+    await api.dispose();
+  });
+});

@@ -87,6 +87,22 @@ describe("AttributeBars", () => {
       screen.getByRole("img", { name: /Founder fit: 18 of 20, Excellent, compared with 9/ }),
     ).toBeTruthy();
   });
+
+  it("defines a labelled attribute in a tooltip on its label, focusable, with or without evidence (A6)", async () => {
+    const user = userEvent.setup();
+    render(<AttributeBars attributes={CONCEPT_ATTRIBUTES} />);
+    const hinted = CONCEPT_ATTRIBUTES.filter((a) => a.hint);
+    expect(document.querySelectorAll("[data-attribute-hint]")).toHaveLength(hinted.length);
+    // "Channel access" carries a hint and no evidence: the label is still a focusable trigger.
+    const channel = screen.getByRole("button", { name: "Channel access" });
+    channel.focus();
+    expect(document.activeElement).toBe(channel);
+    expect((await screen.findAllByText(/How clear the path to the first customers is/)).length).toBeGreaterThan(0);
+    // A row without a hint keeps its plain label and its title.
+    expect(screen.queryByRole("button", { name: "Timing" })).toBeNull();
+    expect(screen.getByTitle("Timing")).toBeTruthy();
+    await user.keyboard("{Escape}");
+  });
 });
 
 describe("DiffView", () => {
@@ -217,7 +233,10 @@ describe("MetricTile and StatusStrip", () => {
     // The provenance button is its own control: opening it does not open the tile.
     fireEvent.click(screen.getByRole("button", { name: /Where this number comes from: Bank balances/ }));
     expect(opened).toEqual(["cash", "runway"]);
-    expect(screen.getAllByRole("button")).toHaveLength(3);
+    // Two tile buttons, the provenance button, and the Estimate chip (a focusable word with its definition, guidance D3).
+    expect(screen.getAllByRole("button")).toHaveLength(4);
+    fireEvent.click(screen.getByRole("button", { name: "Estimate" }));
+    expect(opened).toEqual(["cash", "runway"]);
   });
   it("a clickable tile's name carries its change, and its info button is a 24 px target", () => {
     render(<StatusStrip tiles={[{ label: "Customers this week", value: 55, delta: { value: 19, label: "vs last week" }, provenance: { source: "Payments" }, onClick: () => {} }]} />);

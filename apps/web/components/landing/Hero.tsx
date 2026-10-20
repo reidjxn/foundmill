@@ -6,9 +6,9 @@
  */
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { ArrowRight, KeyRound, Monitor, Pause, Play, ShieldCheck, type LucideIcon } from "lucide-react";
-import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
-import { Button, Icon } from "@foundmill/dugout";
+import { ArrowRight, Coins, Monitor, Pause, Play, ShieldCheck, type LucideIcon } from "lucide-react";
+import { APP_NAME, APP_TAGLINE, CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
+import { Button, Icon, formatMoney } from "@foundmill/dugout";
 import { CycleDeck } from "./CycleDeck";
 import { ExamplePicker } from "./ExamplePicker";
 import { useExample } from "./examples/context";
@@ -16,6 +16,13 @@ import { Container, SIGN_IN, goToSection } from "./parts";
 
 /** The words the headline lights; the h1's text stays exactly the tagline. */
 const LIT = "real business";
+
+/**
+ * The first money a visitor reads about (docs/UX_AUDIT_AND_PLAN.md §7.1, A13): the free plan's included credits, read
+ * from packages/config so the figure stays true, in credits' own currency ("$5.00"). The key assurance lives in "You
+ * decide" (Control.tsx), beside "Your key, sealed".
+ */
+export const INCLUDED_CREDITS_ASSURANCE = `Starts with ${formatMoney({ amountMinor: includedCreditsMinor("free"), currency: CREDITS_CURRENCY }, { locale: "en-US" })} of included credits · no card`;
 
 export function Hero() {
   const business = useExample();
@@ -54,7 +61,7 @@ export function Hero() {
           </div>
           <ul className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-small text-secondary">
             <Assurance icon={ShieldCheck}>Nothing moves money or signs in your name without you</Assurance>
-            <Assurance icon={KeyRound}>Bring your own Anthropic key</Assurance>
+            <Assurance icon={Coins}>{INCLUDED_CREDITS_ASSURANCE}</Assurance>
             <Assurance icon={Monitor}>A desktop app, built for focus</Assurance>
           </ul>
         </div>

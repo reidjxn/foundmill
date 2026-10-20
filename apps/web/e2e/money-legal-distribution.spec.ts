@@ -49,7 +49,8 @@ test.describe("distribution, finance and legal read in plain words", () => {
     const table = page.getByRole("grid", { name: "Profit and loss" });
     await expect(table.getByText("Cost of sales", { exact: true }).first()).toBeVisible();
     await expect(table.getByText("cost_of_goods")).toHaveCount(0);
-    await expect(page.getByText("Management P&L, unaudited, cash basis")).toBeVisible();
+    // The API's "cash basis" label reads in plain words (UX plan §7.14).
+    await expect(page.getByText("Management view, unaudited, counted when the cash moves (cash basis)")).toBeVisible();
     const period = page.getByRole("group", { name: "Period" });
     await period.getByRole("button", { name: "6 months" }).click();
     await expect(period.getByRole("button", { name: "6 months" })).toHaveAttribute("aria-pressed", "true");
@@ -66,7 +67,8 @@ test.describe("distribution, finance and legal read in plain words", () => {
   test("finance: Payroll keeps the team's metered cost and its wage caps in US dollars, apart from staff payroll in pounds", async ({ page }) => {
     await openTab(page, "finance", "wage-bill");
     const strip = page.getByRole("region", { name: "Payroll summary" });
-    await expect(strip.getByText("Team payroll")).toBeVisible();
+    // Metered in US dollars: the tile says what the figure is (UX plan §7.14, C21), never "payroll" in another currency.
+    await expect(strip.getByText("AI usage cost (USD)")).toBeVisible();
     // Never added across currencies: the team in US dollars, staff in the business's pounds.
     await expect(strip).toContainText("$");
     await expect(strip).toContainText("£");
@@ -213,17 +215,25 @@ test.describe("distribution, finance and legal read in plain words", () => {
     }
   });
 
-  test("distribution: the model in use and the win count come from the whole history and agree with the replays", async ({ page }) => {
+  test("distribution: how credit is shared reads in plain words, the model sits under Technical detail, and the win count comes from the whole history", async ({ page }) => {
     await openTab(page, "distribution", "attribution");
-    const model = page.getByRole("region", { name: "Model in use" });
+    const model = page.getByRole("region", { name: "How credit is shared" });
     await expect(model).toBeVisible();
+    await expect(page.getByRole("region", { name: "Model in use" })).toHaveCount(0);
     const count = Number((await model.getByText(/^[\d,]+$/).first().innerText()).replace(/,/g, ""));
-    // Past 200 labeled conversions the model is data-driven (the replays say so), and no "more … before" countdown.
+    // The headline is a sentence, never an algorithm's name; the name waits behind the disclosure.
+    const headline = page.getByTestId("credit-headline");
+    await expect(headline).not.toContainText(/Markov|Position-based/);
+    const technical = page.getByTestId("credit-technical");
+    await technical.locator("summary").click();
+    // Past 200 labeled conversions the model is data-driven (the replays say so), and no "more to go" countdown.
     if (count >= 200) {
-      await expect(model).toContainText("Data-driven (Markov removal effect)");
-      await expect(model).not.toContainText("before the Markov removal-effect model takes over");
+      await expect(headline).toContainText("Each touch gets the credit it earned");
+      await expect(technical).toContainText("Data-driven (Markov removal effect)");
+      await expect(technical).not.toContainText("more to go");
     } else {
-      await expect(model).toContainText("Position-based 40/20/40");
+      await expect(headline).toContainText("Early touches get 40 %, the last touch 40 %, the middle 20 %.");
+      await expect(technical).toContainText("Position-based 40/20/40");
     }
   });
 
@@ -244,6 +254,10 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await openTab(page, "distribution", "formation");
     // A channel on the board without its engine yet reads "starting", never "running".
     await expect(page.getByText(/^\d+ of 15 running( · \d+ starting)?$/)).toBeVisible({ timeout: LONG });
+    // What fit is, once, under the title; the re-score button in plain words (UX plan §7.13, C9).
+    await expect(page.getByTestId("board-caption")).toContainText("Fit 1–20: how well a channel suits this business");
+    await expect(page.getByRole("button", { name: /^(Score again|Get recommendation)$/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Re-score" })).toHaveCount(0);
     // Northwind started distribution in its first weeks (the seed): no Start distribution banner.
     await expect(page.getByTestId("distribution-waiting")).toHaveCount(0);
     await openTab(page, "distribution", "channels");

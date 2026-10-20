@@ -2,8 +2,8 @@
 /**
  * Legal › Incorporate (BUILD §11.11): the jurisdiction recommender ("For your business, we recommend X or Y" with up
  * to six cards stamped with the date checked, always captioned "Information, not legal or tax advice"), the route
- * chooser (Stripe Atlas / Companies House / document pack) that starts the supervised session, and the session panel with the
- * workflow's status steps. The final review, submit and payment are founder-only buttons that only open the external
+ * chooser (Stripe Atlas / Companies House / document pack) whose "Prepare the paperwork" starts the supervised session,
+ * and the Progress panel with the workflow's status steps. The final review, submit and payment are founder-only buttons that only open the external
  * page (AC-11.11.4); "I submitted" records the founder's click.
  */
 import { useId, useMemo, useState } from "react";
@@ -283,25 +283,26 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
           <Field htmlFor={`${id}-name`} label="Legal name" hint="As it will appear on the register">
             <Input id={`${id}-name`} value={legalName} onChange={(e) => setLegalName(e.target.value)} disabled={active} maxLength={200} placeholder={entity?.legalName ?? "Northwind Skincare, Inc."} />
           </Field>
+          {/* What the button does comes before the button (UX plan §7.16, C17). */}
+          <p className="t-small text-secondary">Preparing the paperwork only drafts the documents. You sign in, verify your identity, review, submit and pay yourself; the team never handles passwords, identity documents or CAPTCHAs.</p>
           <div className="flex items-center gap-2">
             <Button type="submit" variant="primary" icon={Landmark} disabled={!canStart} loading={start.pending !== null}>
-              Start supervised session
+              Prepare the paperwork
             </Button>
             {active ? <Chip tone="info">An incorporation is in progress</Chip> : null}
             {!active && entity && entity.status === "active" ? <span className="t-small text-secondary">{entity.legalName} is already registered; start another only for a new company.</span> : null}
           </div>
           <InlineError error={start.error} />
-          <p className="t-small text-secondary">Starting prepares documents only. You sign in, verify your identity, review, submit and pay yourself; the team never handles passwords, identity documents or CAPTCHAs.</p>
         </form>
       </Panel>
 
       <Panel
-        title="Supervised session"
+        title="Progress"
         span={8}
         loading={status.isLoading}
         error={status.error ? status.error.message : undefined}
         onRetry={status.refetch}
-        empty={!status.isLoading && !incorporation ? { icon: MonitorPlay, children: "Start a route on the left; the session's steps, the live view and your takeover button appear here." } : undefined}
+        empty={!status.isLoading && !incorporation ? { icon: MonitorPlay, children: "Choose a route on the left and prepare the paperwork; the steps, the live view and your takeover button appear here." } : undefined}
         actions={incorporation ? <Pill {...INCORPORATION_PILL[incorporation.status]} /> : undefined}
         footer={incorporation ? <span>{routeMeta.who}</span> : undefined}
       >

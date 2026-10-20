@@ -36,7 +36,9 @@ describe("ProfitAndLossScreen", () => {
     expect(within(table).getByText("−€45,000.00")).toBeTruthy();
     expect(within(table).getByText("87.5%")).toBeTruthy();
     expect(within(table).getByText("Payroll").parentElement!.className).toContain("pl-4");
-    expect(screen.getByText("Management P&L, unaudited, cash basis")).toBeTruthy();
+    // The API's label, in plain words (UX plan §7.14): what "cash basis" means is said, the term kept in brackets.
+    expect(screen.getByText("Management view, unaudited, counted when the cash moves (cash basis)")).toBeTruthy();
+    expect(screen.queryByText("Management P&L, unaudited, cash basis")).toBeNull();
     expect(screen.getByText("Jul 2026 – Sep 2026")).toBeTruthy();
     expect(screen.getByText(/Uncategorized −€3,000/)).toBeTruthy();
     expect(within(table).getAllByLabelText("Needs categorizing")).toHaveLength(2); // header and line

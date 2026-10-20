@@ -34,6 +34,8 @@ export interface ContinueHandlers {
 
 export interface ContinueButtonProps extends ContinueHandlers {
   state: ContinueState;
+  /** The running cycle's number, for the processing tooltip ("The team is working · cycle 3"). */
+  cycleNumber?: number | null;
   /** Change this value (a cycle id, a timestamp) to fire the single pulse. */
   pulseKey?: string | number;
   /** Bind Space to the state's primary action (for use outside an AppShell, which binds Space through useKeyboardMap). */
@@ -93,6 +95,27 @@ export function holidayCaptionParts(state: Extract<ContinueState, { kind: "holid
   return { full: "On vacation", date: null, short: "On vacation" };
 }
 
+/**
+ * The tooltip's sentence per state (docs/UX_AUDIT_AND_PLAN.md §7.7, B1): what pressing does, in the business's words.
+ * Idle says the loop once; blocked counts the notes and says what the press opens; processing names the cycle; the
+ * Customer Update and vacation states keep their words. Exported for tests.
+ */
+// TODO(guided-layer): Term("cycle") in the idle sentence once the primitive lands.
+export function continueTooltip(state: ContinueState, cycleNumber?: number | null, prefs?: DateFormatPrefs | null): string {
+  switch (state.kind) {
+    case "idle":
+      return "Let the team work on their next tasks. Their notes land in the Inbox.";
+    case "blocked":
+      return `${state.count} ${state.count === 1 ? "note needs" : "notes need"} your answer before the team can carry on. Press to open the first.`;
+    case "processing":
+      return typeof cycleNumber === "number" && cycleNumber > 0 ? `The team is working · cycle ${cycleNumber}` : "The team is working";
+    case "matchday":
+      return "A customer was won";
+    case "holiday":
+      return holidayCaption(state, prefs);
+  }
+}
+
 /** The callback Space (and a click) should run for a state. */
 export function continueButtonAction(state: ContinueState, handlers: ContinueHandlers): (() => void) | undefined {
   switch (state.kind) {
@@ -116,7 +139,7 @@ export function continueButtonAction(state: ContinueState, handlers: ContinueHan
  * Vacation is neutral with the caption and "Come back". It keeps one width through its states, so the bar never jumps.
  */
 export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>(function ContinueButton(
-  { state, pulseKey, bindSpace = false, disabled, pending = false, size = "md", className, ...handlers },
+  { state, cycleNumber, pulseKey, bindSpace = false, disabled, pending = false, size = "md", className, ...handlers },
   ref,
 ) {
   const reduced = usePrefersReducedMotion();
@@ -190,6 +213,8 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
     "data-continue-state": state.kind,
     "data-pulsing": pulsing || undefined,
     "aria-keyshortcuts": "Space",
+    // The first-time callout (Coachmark, next wave) anchors here.
+    "data-coachmark": "continue",
   } as const;
 
   const pulseClass = pulsing ? "animate-ring-pulse" : "";
@@ -266,8 +291,9 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
   return (
     <Tooltip
       content={
-        <span className="inline-flex items-center gap-1.5">
-          {state.kind === "idle" ? "Advance a business cycle" : state.kind === "blocked" ? "Continue is blocked until you respond" : state.kind === "processing" ? "A cycle is running" : state.kind === "matchday" ? "A customer was won" : holidayCaption(state, datePrefs)}
+        <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
+          <span>{continueTooltip(state, cycleNumber, datePrefs)}</span>
+          {/* A control hint, like the search's ⌘K: it stays whatever the guidance setting. */}
           <Kbd>Space</Kbd>
         </span>
       }

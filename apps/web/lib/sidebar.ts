@@ -1,10 +1,12 @@
 /**
  * Sidebar items for the shell (BUILD §5.3, DESIGN §8): Home, Inbox (badge: items to respond to), departments in the
- * founder's order (badge: unread items from that department's agents), CRM, the LIVE block (Network in every mode,
- * badged with what waits for the founder), foot items.
+ * founder's order (badge: unread items from that department's agents), Contacts (the CRM: the slug and the fixed
+ * surface keep "crm", the label follows docs/UX_AUDIT_AND_PLAN.md §12), Milestones, the LIVE block (Network in every
+ * mode, badged with what waits for the founder; Communities and Leaderboards once LIVE), foot items (Settings, Sign
+ * out). The Anthropic key lives in Settings › Keys (reached from Settings and the palette), not in the foot (B13).
  * Pure and unit-tested; the layout feeds it `department.list` + `inbox.list`.
  */
-import { Globe, Home, Inbox, KeyRound, LogOut, Settings, Trophy, Users, Users2, type LucideIcon } from "lucide-react";
+import { Globe, Home, Inbox, LogOut, Medal, Settings, Trophy, Users, Users2, type LucideIcon } from "lucide-react";
 import type { SidebarBrand, SidebarItem } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -48,7 +50,10 @@ export interface SidebarInput {
   access?: Access;
 }
 
-export const SIDEBAR_IDS = { home: "home", inbox: "inbox", crm: "crm", milestones: "milestones", settings: "settings", keys: "keys", signOut: "sign-out", network: "network", communities: "communities", leaderboards: "leaderboards" } as const;
+export const SIDEBAR_IDS = { home: "home", inbox: "inbox", crm: "crm", milestones: "milestones", settings: "settings", signOut: "sign-out", network: "network", communities: "communities", leaderboards: "leaderboards" } as const;
+
+/** The CRM's display label (founder, 2026-10-20: "Contacts"); its slug, id and G chord keep "crm". */
+export const CRM_LABEL = "Contacts";
 
 /** The Foundmill wordmark closing the sidebar foot (DESIGN §8a). Not an item: Dugout draws it when the sidebar is expanded. */
 export const SIDEBAR_BRAND: SidebarBrand = { href: "/" };
@@ -89,18 +94,18 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
     if (!canOpenDepartment(access, d)) continue;
     items.push({ id: d.id, label: d.name, icon: iconByName(d.icon) as LucideIcon, href: departmentHref(bid, d), group: "department", dept: d.colourToken, shortcut: d.shortcut ?? null, badge: badges.get(d.id) || undefined });
   }
-  if (access.canRead("crm")) items.push({ id: SIDEBAR_IDS.crm, label: "CRM", icon: Users, href: routes.crm(bid), group: "main", fixed: "crm" });
+  if (access.canRead("crm")) items.push({ id: SIDEBAR_IDS.crm, label: CRM_LABEL, icon: Users, href: routes.crm(bid), group: "main", fixed: "crm" });
   items.push({ id: SIDEBAR_IDS.milestones, label: "Milestones", icon: Trophy, href: `/b/${bid}/milestones`, group: "main" });
   // Network is the founder's own (their connections, messages and invitations), so it is there in every mode with its
   // badge: a request or a message must reach a founder whichever business they have open. Communities and Leaderboards
-  // are about the business on the network, so they appear once it is LIVE.
+  // are about the business on the network, so they appear once it is LIVE (Leaderboards with its own Medal: the
+  // Trophy is Milestones', B22).
   items.push({ id: SIDEBAR_IDS.network, label: "Network", icon: Globe, href: "/network", group: "live", badge: input.network?.total || undefined });
   if (input.live) {
     items.push({ id: SIDEBAR_IDS.communities, label: "Communities", icon: Users2, href: "/communities", group: "live", badge: input.network?.moderation || undefined });
-    items.push({ id: SIDEBAR_IDS.leaderboards, label: "Leaderboards", icon: Trophy, href: "/leaderboards", group: "live" });
+    items.push({ id: SIDEBAR_IDS.leaderboards, label: "Leaderboards", icon: Medal, href: "/leaderboards", group: "live" });
   }
   items.push({ id: SIDEBAR_IDS.settings, label: "Settings", icon: Settings, href: routes.settings(bid, "business"), group: "foot" });
-  items.push({ id: SIDEBAR_IDS.keys, label: "Anthropic key", icon: KeyRound, href: routes.settings(bid, "keys"), group: "foot" });
   // A button, not a link: the shell signs out with a POST (lib/auth/sign-out.ts), so nothing can prefetch it.
   items.push({ id: SIDEBAR_IDS.signOut, label: "Sign out", icon: LogOut, group: "foot" });
   return items;
@@ -125,7 +130,7 @@ export function activeSidebarId(pathname: string, businessId: string, department
   if (rest.startsWith("/inbox")) return SIDEBAR_IDS.inbox;
   if (rest.startsWith("/crm")) return SIDEBAR_IDS.crm;
   if (rest.startsWith("/milestones") || rest.startsWith("/trophies")) return SIDEBAR_IDS.milestones;
-  if (rest.startsWith("/settings/keys")) return SIDEBAR_IDS.keys;
+  // Settings › Keys included: the key is a Settings tab, not a sidebar item.
   if (rest.startsWith("/settings")) return SIDEBAR_IDS.settings;
   const m = /^\/d\/([^/]+)/.exec(rest);
   if (m) return departments.find((d) => d.slug === m[1])?.id;

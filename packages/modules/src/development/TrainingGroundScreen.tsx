@@ -23,6 +23,7 @@ import {
   TileGrid,
   cn,
   sessionLengthMs,
+  useGuided,
   type AgentTileSession,
   type GroundView,
   type Nudge,
@@ -81,6 +82,10 @@ export function toGraphNodes(tasks: readonly TaskRow[], edges: readonly { fromTa
 }
 
 const GRID_HEIGHT = "calc(100vh - 232px)";
+/** The grid under the guided line ("Each tile is one agent on one task…"), which takes one 28 px row of the panel. */
+const GRID_HEIGHT_GUIDED = "calc(100vh - 260px)";
+/** The line a first-timer reads above the tiles while guidance is on (UX plan §7.12). */
+export const LIVE_SESSIONS_LEDE = "Each tile is one agent on one task. Nudge to give advice; Pause to hold it.";
 
 /**
  * Loads what a session streamed before this tab subscribed (`dev.sessions.replay`) into its tile: the stream only
@@ -109,6 +114,7 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
   const [view, setView] = useState<GroundView>(subView === "formation" ? "formation" : "tiles");
   const graph = useWidgetQuery<TasksListResponse>("dev.tasks.list", { limit: 500 }, { enabled: view === "formation" });
   const action = useAction();
+  const guided = useGuided();
 
   const refetchAll = useCallback(() => {
     tasks.refetch();
@@ -278,7 +284,13 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
             {graph.data && graphNodes.length === 0 ? <p className="mt-2 text-small text-secondary">No tasks yet. Plan work from the roadmap on the Plan tab.</p> : null}
           </div>
         ) : (
-          <div className="flex min-h-0 flex-col" style={{ height: GRID_HEIGHT, minHeight: 480 }}>
+          <div className="flex min-h-0 flex-col" style={{ height: guided ? GRID_HEIGHT_GUIDED : GRID_HEIGHT, minHeight: 480 }}>
+            {/* TODO(guided-layer): Explainer. */}
+            {guided ? (
+              <p className="shrink-0 px-panel-pad py-1.5 text-small text-secondary" data-testid="live-sessions-lede">
+                {LIVE_SESSIONS_LEDE}
+              </p>
+            ) : null}
             <TileGrid
               items={items}
               focusedId={focusedId}

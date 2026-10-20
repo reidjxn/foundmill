@@ -14,7 +14,7 @@ import { writeEventRow } from "./events";
 import { buildManifest, checkComposerText, type ManifestEntityInput } from "@foundmill/entity-linker";
 import { ComposerOutput, type ModelClient } from "@foundmill/models";
 import { APP_NAME, LIMITS } from "@foundmill/config";
-import { HOUSE_STYLE } from "@foundmill/agents";
+import { clubRulesPrompt, prompts } from "@foundmill/agents";
 import { AppError, futureDeadline, type EntityKind } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
 import { noteModelCall } from "./model-calls";
@@ -204,18 +204,36 @@ export interface LocalDecisionState {
   signups30d: number;
 }
 
+export interface LocalDecisionOption {
+  id: string;
+  label: string;
+  recommended: boolean;
+  consequence: string;
+  cost_minor: number;
+  reversible: boolean;
+  /** One sentence on why this option is recommended; on the recommended option only (UX plan §7.19). */
+  because?: string;
+}
+
 export interface LocalDecision {
   kind: "unblock_tasks" | "start_distribution" | "plan_next_cycle";
   title: string;
   facts: Record<string, number>;
-  options: Array<{ id: string; label: string; recommended: boolean; consequence: string; cost_minor: number; reversible: boolean }>;
+  options: LocalDecisionOption[];
   exhibit: { kind: "table" | "chart"; spec_ref: (typeof NAMED_QUERIES)[number]["id"] };
+}
+
+/** The option's "because" when it is recommended; absent otherwise, so the reason sits on one option only. */
+function option(seed: Omit<LocalDecisionOption, "because"> & { because: string }): LocalDecisionOption {
+  const { because, ...rest } = seed;
+  return seed.recommended ? { ...rest, because } : rest;
 }
 
 /**
  * The next-best decisions grounded in the current state, in priority order: the same candidates and wording as the
  * composer service (apps/composer/src/decisions.ts) for the state the in-process path can read. The last one always
- * applies, so Refresh still yields exactly one note (AC-11.3.2) and never a "nothing new" filler.
+ * applies, so Refresh still yields exactly one note (AC-11.3.2) and never a "nothing new" filler. Every consequence is
+ * written from the founder's seat and the recommended option says why (UX plan §7.19, voice guide §8.1).
  */
 export function localNextBestDecisions(s: LocalDecisionState): LocalDecision[] {
   const n = (k: string) => s.tasks[k] ?? 0;
@@ -226,9 +244,9 @@ export function localNextBestDecisions(s: LocalDecisionState): LocalDecision[] {
       title: "Blocked tasks need a call",
       facts: { blocked_tasks: n("blocked"), running_tasks: n("running") },
       options: [
-        { id: "review", label: "Review the blocked tasks now", recommended: true, consequence: "The team gets answers this cycle and work resumes.", cost_minor: 0, reversible: true },
-        { id: "reassign", label: "Reassign them to the department lead", recommended: false, consequence: "The lead triages and comes back only with hard gates.", cost_minor: 0, reversible: true },
-        { id: "park", label: "Park them until the next cycle", recommended: false, consequence: "Nothing moves on those tasks; dependents wait.", cost_minor: 0, reversible: true },
+        option({ id: "review", label: "Review the blocked tasks now", recommended: true, consequence: "You answer each stuck task now and the team picks the work back up this cycle.", cost_minor: 0, reversible: true, because: "Recommended because a few answers from you unblock the most work, and nothing is spent." }),
+        option({ id: "reassign", label: "Reassign them to the department lead", recommended: false, consequence: "The lead sorts them out and only brings you the ones that need your signature or money.", cost_minor: 0, reversible: true, because: "Recommended because it keeps the small calls off your desk." }),
+        option({ id: "park", label: "Park them until the next cycle", recommended: false, consequence: "Those tasks wait until the next cycle, and so does anything that depends on them.", cost_minor: 0, reversible: true, because: "Recommended because nothing is lost by waiting one cycle." }),
       ],
       exhibit: { kind: "table", spec_ref: "tasks_by_status" },
     });
@@ -239,8 +257,8 @@ export function localNextBestDecisions(s: LocalDecisionState): LocalDecision[] {
       title: "No distribution channel is live",
       facts: { channels_enabled: s.channelsEnabled, signups_30d: s.signups30d, customers_30d: s.customers30d },
       options: [
-        { id: "recommend", label: "Ask the strategist for a channel plan", recommended: true, consequence: "The Distribution Strategist scores all channels and proposes starters.", cost_minor: 0, reversible: true },
-        { id: "wait", label: "Hold until the product is further along", recommended: false, consequence: "No acquisition work; the pipeline stays empty.", cost_minor: 0, reversible: true },
+        option({ id: "recommend", label: "Ask the strategist for a channel plan", recommended: true, consequence: "The Distribution strategist scores every channel and proposes where to start; nothing is spent until you pick.", cost_minor: 0, reversible: true, because: "Recommended because it costs nothing and gives you a ranked list to choose from." }),
+        option({ id: "wait", label: "Hold until the product is further along", recommended: false, consequence: "No work on finding customers yet; nobody new hears about the product until you say so.", cost_minor: 0, reversible: true, because: "Recommended because the product is not ready for strangers yet." }),
       ],
       exhibit: { kind: "chart", spec_ref: "channel_cpa" },
     });
@@ -251,13 +269,20 @@ export function localNextBestDecisions(s: LocalDecisionState): LocalDecision[] {
     title: "Set the focus for the next cycle",
     facts: { planned_tasks: n("planned"), running_tasks: n("running"), done_tasks: n("done"), customers_30d: s.customers30d },
     options: [
-      { id: "product", label: "Lead with product work", recommended: quiet, consequence: "The next cycle starts from the roadmap's now items.", cost_minor: 0, reversible: true },
-      { id: "distribution", label: "Lead with distribution", recommended: !quiet, consequence: "The next cycle prioritizes enabled channels and follow-ups.", cost_minor: 0, reversible: true },
-      { id: "balanced", label: "Keep the current balance", recommended: false, consequence: "The Chief of Staff plans as usual within budget and capacity.", cost_minor: 0, reversible: true },
+      option({ id: "product", label: "Lead with product work", recommended: quiet, consequence: "The next cycle starts from the roadmap's Now items.", cost_minor: 0, reversible: true, because: "Recommended because nobody has signed up yet, so there is nothing for distribution to amplify." }),
+      option({ id: "distribution", label: "Lead with distribution", recommended: !quiet, consequence: "The next cycle puts the live channels and customer follow-ups first.", cost_minor: 0, reversible: true, because: "Recommended because customers are arriving, and following up on them is the cheapest growth there is." }),
+      option({ id: "balanced", label: "Keep the current balance", recommended: false, consequence: "I plan as usual within the budget and the limit on agents working at once.", cost_minor: 0, reversible: true, because: "Recommended because the current mix is working." }),
     ],
     exhibit: { kind: "table", spec_ref: "tasks_by_status" },
   });
   return out;
+}
+
+/** The owner's founder profile experience, as the Composer prompt reads it (UX plan §7.19, E3); first-time without a profile. */
+export async function loadFounderExperience(db: Db, businessId: string): Promise<prompts.FounderExperience> {
+  const owner = await repos.memberships.owner(db, businessId);
+  const profile = owner ? await repos.founders.get(db, owner.userId) : null;
+  return prompts.founderExperienceFrom(profile?.experience);
 }
 
 /** Compose one inbox item in-process (what the composer service does, without the buffer). */
@@ -288,10 +313,11 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
   const manifest = buildManifest(manifestInput, { strictKinds: false });
   const crmIds = new Set(crm.map((e) => e.id));
 
-  const [taskCounts, conversions, channels] = await Promise.all([
+  const [taskCounts, conversions, channels, founderExperience] = await Promise.all([
     repos.tasks.countByStatus(db, businessId),
     repos.journeys.countConversions(db, businessId, { from: new Date(Date.now() - 30 * 86_400_000) }),
     repos.channels.list(db, businessId, { enabled: true }),
+    loadFounderExperience(db, businessId),
   ]);
 
   const metrics = [
@@ -340,10 +366,15 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
       : {}),
   };
 
+  // The same two blocks the composer service sends (apps/composer/src/compose.ts systemPrompt): the house rules, then
+  // the Composer's rules, which know who the founder is.
   const result = await models.complete({
     route: "inboxComposer",
     schema: ComposerOutput,
-    system: `You are the Inbox Composer for ${business.name} on ${APP_NAME}. Write fact → why it matters → ask in 60-180 words. Mention entities only as [[ent:<id>|Name]] using manifest ids. ${HOUSE_STYLE}`,
+    system: [
+      clubRulesPrompt.render({ business_name: business.name, APP_NAME }),
+      prompts.inboxComposerPrompt.render({ business_name: business.name, from_agent_name: chief.name, from_agent_role: chief.role || "Chief of Staff", founder_experience: founderExperience }),
+    ],
     messages: [{ role: "user", content: "```json\n" + JSON.stringify(input) + "\n```" }],
     attribution: { businessId, kind: "inbox_composer" },
     cacheSystem: true,
@@ -407,7 +438,7 @@ const localDecisionKey = (c: LocalDecision): string => `local:${c.kind}`;
 function defaultDecision() {
   return {
     options: [
-      { id: "proceed", label: "Proceed as recommended", recommended: true, consequence: "The team continues with the recommended next step.", cost_minor: 0, reversible: true },
+      { id: "proceed", label: "Proceed as recommended", recommended: true, consequence: "The team carries on with the next step the note argues for.", cost_minor: 0, reversible: true, because: "Recommended because it is the step the note argues for, and you can stop it any time." },
       { id: "hold", label: "Hold for now", recommended: false, consequence: "Nothing changes until you decide.", cost_minor: 0, reversible: true },
     ],
     free_text: true,

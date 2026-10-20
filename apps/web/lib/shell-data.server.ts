@@ -45,6 +45,9 @@ export function startBusinessShell(server: ServerApi, businessId: string): Busin
       void queryClient.prefetchQuery(trpc.inbox.list.queryOptions(inputs.inbox));
       void queryClient.prefetchQuery(trpc.finance.overview.queryOptions(inputs.finance));
       void queryClient.prefetchQuery(trpc.cycle.status.queryOptions(inputs.cycle));
+      // The guided layer's preferences (components/providers/GuidanceHost.tsx reads them under this key): account-level,
+      // so they come with the page and the host asks nothing after hydration.
+      void queryClient.prefetchQuery(trpc.founder.preferences.guidance.queryOptions(undefined));
       return queryClient;
     },
   };

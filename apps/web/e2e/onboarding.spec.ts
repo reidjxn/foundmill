@@ -72,8 +72,13 @@ test.describe("onboarding", () => {
     await expect(page.getByRole("slider")).toHaveCount(5);
     await expect(page.locator("[data-section-link]")).toHaveCount(5);
     await expect(page.getByTestId("studio-frame")).toHaveAttribute("data-step", "profile");
-    // A co-founder joining someone else's business finds their account ID here, before any business exists (WEB-12).
-    await expect(page.getByTestId("profile-account-id").getByTestId("account-id")).toContainText(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+    // A co-founder joining someone else's business finds their account ID here, before any business exists (WEB-12),
+    // behind a disclosure so the first screen stays about the founder (A17).
+    const account = page.getByTestId("profile-account-id");
+    await account.locator("summary").click();
+    await expect(account.getByTestId("account-id")).toContainText(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+    // Empty is a choice: the "no budget" card sits beside the amount (A11).
+    await expect(page.getByLabel("I have no budget yet")).toBeVisible();
   });
 
   test("refuses values the API would reject, inline and in plain words (audit FR-14)", async ({ page }) => {

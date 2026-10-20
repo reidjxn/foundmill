@@ -55,6 +55,8 @@ export const Spans: Story = {
   ),
 };
 export const WithMeta: Story = { args: { title: "Journey", meta: "Aug 6 – Nov 8, 2026", actions: <ProvenanceChip kind="forecast" />, span: 12 } };
+/** A help tip after the meta (Guidance/InfoTip): one sentence about the panel, hidden when guidance is off. */
+export const WithHelp: Story = { args: { title: "Cash and runway", meta: "Last 30 days", help: "How long the money lasts at today's spending.", helpLearn: "finance/runway", span: 6 } };
 export const DepartmentGlow: Story = {
   name: "Department and brand light",
   render: () => (

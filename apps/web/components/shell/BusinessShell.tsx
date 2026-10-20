@@ -20,7 +20,7 @@ import { AppShell, Avatar, EntityLinkProvider, ShellLinkProvider, useToast, type
 import { ModuleEnvProvider, type ModuleEnv } from "@foundmill/modules/env";
 import { readWidgetEvent, type WidgetEvent } from "@foundmill/widgets/data";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { runwayWords } from "@foundmill/widgets/shared/runway";
+import { runwayFigure, runwayWords } from "@foundmill/widgets/shared/runway";
 import { agentsStoppedView } from "@/lib/agents-stopped";
 import { SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
 import { rememberLastBusiness } from "@/lib/auth/last-business";
@@ -36,7 +36,7 @@ import { shellQueryInputs } from "@/lib/shell-queries";
 import { useBusinessLogoSrc, useBusinessLogos } from "@/components/logo/useBusinessLogo";
 import { KeyboardRegistryProvider, createKeyboardRegistry, useRegisteredShortcuts } from "@/lib/keys";
 import { publicPaletteItems, publicSearchText } from "@/lib/public-search";
-import { entityPaletteItems, filterLocal, localPaletteItems, searchInputFor } from "@/lib/search";
+import { entityPaletteItems, filterLocal, helpPaletteItems, localPaletteItems, searchInputFor } from "@/lib/search";
 import { SIDEBAR_BRAND, SIDEBAR_IDS, activeSidebarId, buildSidebarItems, orderedVisibleDepartments } from "@/lib/sidebar";
 import { signOut } from "@/lib/auth/sign-out";
 import { useStreamSubscription } from "@/lib/stream-client";
@@ -170,10 +170,10 @@ type ContinueResult = RouterOutputs["business"]["continue"];
 
 /** The toast one press of Continue earns (BUILD §9.4): what happened, and where the new note is in local mode. */
 export function describeContinue(result: ContinueResult): { title: string; description: string; tone: "info" | "good" | "warn"; itemId: string | null } {
-  if (result.action === "already_running") return { title: "A cycle is already running", description: "The team is still working; the strip shows where.", tone: "info", itemId: null };
+  if (result.action === "already_running") return { title: "A cycle is already running", description: "The team is still working; the strip under the top bar shows where.", tone: "info", itemId: null };
   if (result.action === "resumed") return { title: "Cycle resumed", description: "Paused tasks pick up where they stopped.", tone: "good", itemId: null };
   if (result.mode === "local" && result.item) return { title: "One new note", description: result.item.subject, tone: "info", itemId: result.item.id };
-  return { title: "Cycle started", description: "The Chief of Staff is planning the next cycle.", tone: "info", itemId: null };
+  return { title: "Cycle started", description: "The team is at work. What they finish and what they need from you come back as notes in the Inbox.", tone: "info", itemId: null };
 }
 
 export function BusinessShell(props: BusinessShellProps) {
@@ -475,6 +475,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     () => localPaletteItems({ businessId, departments, inboxItems: inboxQ.data?.items, live, canEditLayout, businesses, access }),
     [businessId, departments, inboxQ.data?.items, live, canEditLayout, businesses, access],
   );
+  // The Help group: the defined terms in the business's own words, and the keyboard shortcuts (the shell opens them).
+  const helpItems = useMemo(() => helpPaletteItems(businessId, business.glossary), [businessId, business.glossary]);
   // A LIVE business also searches the public profiles ("On Foundmill"): founders and businesses found by name.
   const publicText = live && debounced ? publicSearchText(debounced.q) : null;
   const publicQ = useQuery(trpc.live.people.search.queryOptions({ q: publicText ?? "--", limit: 5 }, { enabled: publicText !== null, staleTime: 15_000, retry: false }));
@@ -551,9 +553,10 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const onMessageAgent = useCallback((a: AgentSummary) => deskApi.current?.open({ kind: "agent", id: a.id }, { persona: { name: a.name, role: a.role ?? "", avatarSeed: String(a.avatarSeed ?? a.id), dept: a.dept ?? "dept-1" }, text: null }), []);
   const entityLinks = useEntityResolver({ businessId, agents: agentSummaries, canReadCrm: access.canRead("crm"), navigate, onMessageAgent });
   // "Reconnecting…" / "Live updates paused" once the business's channel has been down a few seconds (audit RES-11).
+  // Nothing is lost: the team's work and notes are on the server; only this screen may be behind.
   const connectionState = useConnectionNotice(businessId);
   const connection = useMemo(
-    () => (connectionState ? { state: connectionState, detail: connectionState === "reconnecting" ? "The live connection dropped. What you see may be out of date; the Inbox and Continue refresh every 30 s until it is back." : "Live updates are paused. What you see may be out of date; the Inbox and Continue refresh every 30 s." } : null),
+    () => (connectionState ? { state: connectionState, detail: connectionState === "reconnecting" ? "The live connection dropped. Nothing is lost. What you see may be out of date; the Inbox and Continue refresh every 30 s until it is back." : "Live updates are paused. Nothing is lost. What you see may be out of date; the Inbox and Continue refresh every 30 s." } : null),
     [connectionState],
   );
   // Switch business: the pick is remembered at once and the other business opens in a transition, so this one stays
@@ -616,6 +619,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 connection={connection}
                 continueButton={{
                   state: continueState,
+                  cycleNumber: cycle.cycleNumber,
                   pulseKey,
                   // Pending, not disabled: Continue keeps keyboard focus while its own request is in flight.
                   pending: refreshInbox.isPending || endHoliday.isPending || continueCycle.isPending || pauseCycle.isPending,
@@ -634,7 +638,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                   disabled: stopAll.isPending || resumeAll.isPending,
                   stopped: stopped ? { ...stopped, onResume: () => resumeAll.mutateAsync({ businessId }).then(() => undefined) } : null,
                 }}
-                processing={{ segments, active: cycle.running }}
+                processing={{ segments, active: cycle.running, cycleNumber: cycle.cycleNumber }}
                 tabs={chrome.tabs}
                 breadcrumbs={chrome.breadcrumbs}
                 rightRail={chrome.rightRail}
@@ -650,12 +654,15 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                   ask: askItems,
                   generate: generateItems,
                   onAsk,
+                  helpItems,
                   placeholder: "Search, ask an agent or generate…",
                 }}
                 // The business's day, known only in the browser (null on the server, so hydration never disagrees).
                 date={today}
-                runwayMonths={financeQ.data?.runway.months ?? null}
-                // Without a figure the chip says what Home's tiles say ("No limit", "Not known yet") with the reason.
+                // A balance below zero shows its words, never a negative figure (runway.ts).
+                runwayMonths={runwayFigure(financeQ.data)}
+                // Without a figure the chip says what Home's tiles say ("No limit", "Not known yet", "Cash is below
+                // zero") with the reason.
                 runwayWords={runwayWords(financeQ.data)}
                 // A cash figure only when a bank account backs it (no account reads "Not known yet", never "Cash £0").
                 cash={financeQ.data && financeQ.data.cash.accounts > 0 ? { amountMinor: financeQ.data.cash.amountMinor, currency: financeQ.data.cash.currency } : undefined}

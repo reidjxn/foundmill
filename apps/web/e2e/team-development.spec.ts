@@ -40,14 +40,20 @@ for (const width of [1280, 1440]) {
       await page.setViewportSize({ width, height: 900 });
     });
 
-    test("Team: agents table fits with Wage, names end in an ellipsis, health groups and hierarchy render", async ({ page }) => {
+    test("Team: agents table fits with AI cost, names end in an ellipsis, health groups and hierarchy render", async ({ page }) => {
       await openBusiness(page);
       const team = await departmentBase(page, /^team$/i);
 
       await openTab(page, team, "squad", "team/squad");
       const agents = page.getByRole("grid", { name: "Agents" });
-      await expect(agents.getByRole("columnheader", { name: /wage/i })).toBeVisible({ timeout: LONG });
+      // The metered cost says it is US dollars (C19), and the rating column says its scale (C1).
+      await expect(agents.getByRole("columnheader", { name: /AI cost \(USD\)/i })).toBeVisible({ timeout: LONG });
+      await expect(agents.getByRole("columnheader", { name: /Rating \/20/ })).toBeVisible();
       expect(await headersInside(page, "Agents"), "every General column fits the panel").toEqual([]);
+      // Every rated agent shows the 1–20 mean with its band word, never a bare /10 figure.
+      await expect(agents.locator("[data-rating-cell]").first()).toHaveText(/^\d+\.\d(Poor|Average|Good|Excellent)$/, { timeout: LONG });
+      // The Form key sits under the column once while guidance is on.
+      await expect(page.getByTestId("form-caption")).toContainText("Form: the last five tasks");
       await expect(page.getByTestId("squad-summary")).toContainText(/\d+ agents?/);
       const overflow = await agents.locator("a[href*='/agents/']").first().evaluate((a) => getComputedStyle(a).textOverflow);
       expect(overflow, "a long agent name ends in an ellipsis instead of being cut").toBe("ellipsis");
@@ -55,6 +61,10 @@ for (const width of [1280, 1440]) {
       await openTab(page, team, "health", "team/health");
       await expect(page.getByRole("list", { name: "Agents by health" })).toBeVisible({ timeout: LONG });
       await expect(page.locator("[data-health-group]").first()).toBeVisible();
+      // The card figures read in words (C20): "Last active" and "Failed sessions, 24 h", never "Heartbeat" or "Errors 24 h".
+      await expect(page.locator("[data-health-group]").first()).toContainText("Last active");
+      await expect(page.locator("[data-health-group]").first()).toContainText("Failed sessions, 24 h");
+      await expect(page.getByTestId("module-screen")).not.toContainText(/Heartbeat|Errors 24 h/);
       // Each group says what its status means once, in its header; its cards never repeat that sentence.
       const repeats = await page.locator("[data-health-group]").evaluateAll((groups) =>
         groups.flatMap((g) => {
@@ -152,6 +162,16 @@ for (const width of [1280, 1440]) {
       await expect(catalogue.getByRole("row").nth(1)).toBeVisible();
       expect(await catalogue.getByRole("row").allTextContents(), "skills and departments read as words, never keys").not.toContainEqual(expect.stringMatching(/[a-z]_[a-z]/));
       expect(await headersInside(page, "Catalog")).toEqual([]);
+      // The catalog says what it is (C10), its kind column is "Kind", and the moves read lend / duplicate / let go.
+      await expect(page.getByTestId("catalogue-intro")).toHaveText("Ready-made agents. Hire one into a department and it starts next cycle.");
+      await expect(catalogue.getByRole("columnheader", { name: /^Kind/ })).toBeVisible();
+      await expect(catalogue.getByRole("columnheader", { name: /^Family/ })).toHaveCount(0);
+      await page.getByRole("grid", { name: "Team moves" }).getByRole("row").nth(1).click({ button: "right" });
+      await expect(page.getByRole("menuitem", { name: "Lend to another department…" })).toBeVisible();
+      await expect(page.getByRole("menuitem", { name: "Duplicate…" })).toBeVisible();
+      await expect(page.getByRole("menuitem", { name: "Let go" })).toBeVisible();
+      await expect(page.getByRole("menuitem", { name: /Loan|Clone|Release/ })).toHaveCount(0);
+      await page.keyboard.press("Escape");
     });
 
     test("Development: plan, pull requests, environments and specialists read as words and fit", async ({ page }) => {

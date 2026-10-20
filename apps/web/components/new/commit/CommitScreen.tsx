@@ -11,13 +11,14 @@
  * `domainApi`); `CommitScreen` loads the idea, wires those calls to tRPC and commits.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Check, Globe, Lock, RotateCw, Scale, SearchX, ThumbsUp } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Globe, Lock, RotateCw, Scale, SearchX, Settings, ThumbsUp } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype, type BusinessMode, type DeptColourToken, type GameMode } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { Avatar, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, Switch, cn, fieldDescribedBy, formatMoney, useDateFormat, useFormatters, useToast, type Kit } from "@foundmill/dugout";
-import { formatDate, plainWords, plural } from "@/lib/format";
+import { Avatar, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, Switch, cn, fieldDescribedBy, formatMoney, useDateFormat, useFormatters, useGuided, useToast, type Kit } from "@foundmill/dugout";
+import { formatDate, formatMoney as formatCredits, plainWords, plural } from "@/lib/format";
 import { useSingleFlight } from "@/lib/single-flight";
 import { errorMessage, tierLimitOf, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
@@ -36,6 +37,7 @@ import {
   DOMAIN_NOTE,
   DOMAIN_STATUS_WORDS,
   GAME_MODE_CARDS,
+  TRADEMARK_REGISTRY_WORDS,
   TRADEMARK_STATUS_WORDS,
   commitInput,
   couldNotCheck,
@@ -217,6 +219,23 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
 /** What the founder reads while Take charge runs (a few seconds in mock mode). */
 const SETTING_UP = "Setting up your business: departments, team and the first cycle. This takes a few seconds.";
 
+/**
+ * What happens after Take charge, in the order `apps/api/src/services/commit.ts` runs it (A4): the team is hired, the
+ * Product lead drafts the foundations, two sign-off notes land, then building starts. Nothing is spent before the
+ * founder approves it.
+ */
+export const WHAT_HAPPENS_NEXT: readonly string[] = [
+  "Your team is hired",
+  "The Product lead drafts vision, specification and roadmap (a minute or two)",
+  "Two notes ask you to sign them off",
+  "Then building starts. Nothing is spent until you approve it.",
+];
+
+/** "Starts with $5.00 of included credits this month. No card." — the free tier's grant, in credits' own currency (A10). */
+export function includedCreditsLine(): string {
+  return `Starts with ${formatCredits({ amountMinor: includedCreditsMinor("free"), currency: CREDITS_CURRENCY })} of included credits this month. No card.`;
+}
+
 export interface CommitFormProps {
   idea: IdeaLike;
   viewer: { email: string | null };
@@ -278,6 +297,8 @@ const DEBOUNCE_MS = 350;
 
 export function CommitForm({ idea, viewer, currency, initialName, suggestedArchetype, steps, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, creditsNotice, adultConfirmed = false, liveOpen = true, onCommit, logoApi, domainApi, back }: CommitFormProps) {
   const concept = useMemo(() => toConcept(idea), [idea]);
+  // Reassurance lines are tutoring: hidden when guidance is off (§5.9).
+  const guided = useGuided();
   // The idea's seed only picks the starting brand colours now; the logo is uploaded or generated.
   const ideaSeed = String(readMeta(idea.current?.research).crest_seed ?? idea.id);
   const [form, setForm] = useState<CommitFormValues>(() => {
@@ -389,7 +410,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
       title={form.name.trim() ? `Commit to ${form.name.trim()}` : "Commit"}
       // While the business is set up the header says so, beside the button that started it (the panel's own status line
       // sits at the foot of a long column, usually off screen).
-      lede={committing ? SETTING_UP : "Name it, give it a logo, choose how it is run. Taking charge seeds the departments and the team and starts the first cycle."}
+      lede={committing ? SETTING_UP : "Name it, give it a logo, choose how it is run. Taking charge hires the team, which starts by drafting your vision, specification and roadmap."}
       viewer={viewer}
       actions={
         <>
@@ -415,7 +436,14 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                   </Chip>
                 ))}
               </div>
-              <div className="grid grid-cols-2 gap-gutter border-t border-line pt-3">
+              <Reassurance guided={guided} where="Settings › Business" testId="reassure-name" />
+            </div>
+          </Panel>
+
+          {/* The two checks of the name in one panel, acronyms expanded where they are first read (A12). */}
+          <Panel title="Check the name (domains and trademarks)" data-testid="name-checks-panel">
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-2 gap-gutter">
                 <div data-testid="domain-checks" aria-busy={checkingDomains || undefined}>
                   <div className="mb-1.5 flex flex-wrap items-center gap-2">
                     <Globe size={14} className="text-secondary" aria-hidden />
@@ -462,7 +490,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                 <div data-testid="trademark-screen">
                   <div className="mb-1.5 flex items-center gap-2">
                     <Scale size={14} className="text-secondary" aria-hidden />
-                    <span className="t-label">Trademark quick screen (Estimate, not legal clearance)</span>
+                    <span className="t-label">Trademarks</span>
                     {(screened?.marks[0]?.provenance ?? "Estimate") === "Estimate" ? <ProvenanceChip kind="estimate" data-testid="trademark-provenance" /> : <Chip>{screened?.marks[0]?.provenance}</Chip>}
                   </div>
                   {screened && !screening ? (
@@ -470,7 +498,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                       {screened.marks.map((m) => (
                         <li key={m.registry} className="flex items-center justify-between gap-2 text-body" data-registry={m.registry} data-status={m.status}>
                           <span>
-                            {m.registry}
+                            {TRADEMARK_REGISTRY_WORDS[m.registry]}
                             {m.similar.length ? <span className="text-small text-secondary"> · {m.similar.join(", ")}</span> : null}
                           </span>
                           <StatusPill tone={m.status === "clear" ? "good" : m.status === "similar" ? "warn" : "bad"}>{TRADEMARK_STATUS_WORDS[m.status]}</StatusPill>
@@ -478,10 +506,10 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                       ))}
                     </ul>
                   ) : (
-                    <p className="text-small text-secondary">{form.name.trim() ? "Screening…" : "Type a name to screen it."}</p>
+                    <p className="text-small text-secondary">{form.name.trim() ? "Checking…" : "Type a name to check it."}</p>
                   )}
                   <p className="mt-1.5 text-small text-secondary" data-testid="trademark-caveat">
-                    A heuristic: the name is checked against a list of well-known marks, not a registry search. Screen, not legal clearance: a lawyer or an attorney search confirms it.
+                    A quick check against a list of well-known marks, not a registry search. Screen, not legal clearance: a lawyer or an attorney search confirms it.
                   </p>
                 </div>
               </div>
@@ -489,7 +517,10 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
           </Panel>
 
           <Panel title="Logo and brand colors" data-testid="logo-panel">
-            <LogoColoursEditor name={form.name} kit={form.kit} onKitChange={(kit: Kit) => set("kit", kit)} logo={form.logo} onLogoChange={(logo) => set("logo", logo)} logoActions={logoActions} error={show("kit")} />
+            <div className="flex flex-col gap-3">
+              <LogoColoursEditor name={form.name} kit={form.kit} onKitChange={(kit: Kit) => set("kit", kit)} logo={form.logo} onLogoChange={(logo) => set("logo", logo)} logoActions={logoActions} error={show("kit")} />
+              <Reassurance guided={guided} where="Settings › Business" testId="reassure-logo" />
+            </div>
           </Panel>
 
           <Panel title="Personal or live">
@@ -513,24 +544,27 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
           </Panel>
 
           <Panel title="Archetype" data-testid="archetype-panel">
-            <Field htmlFor="archetype-group" label="Seeds the departments, the team and the first roadmap" required error={show("archetype")}>
-              <RadioGroup id="archetype-group" value={form.archetype ?? ""} onValueChange={(v) => set("archetype", v as Archetype)} className="grid-cols-4" aria-label="Archetype">
-                {ARCHETYPE_CARDS.map((a) => (
-                  <ModeCardOption key={a.value} id={`arch-${a.value}`} value={a.value} label={a.label} tagline={a.tagline} details={[`First win: ${a.firstWin}`]} selected={form.archetype === a.value} badge={suggestedArchetype === a.value ? "From the import report" : !suggestedArchetype && idea.archetype === a.value ? "From the card" : undefined} />
-                ))}
-              </RadioGroup>
-            </Field>
+            <div className="flex flex-col gap-3">
+              <Field htmlFor="archetype-group" label="The kind of business: it decides which departments and agents you start with, and the first roadmap" required error={show("archetype")}>
+                <RadioGroup id="archetype-group" value={form.archetype ?? ""} onValueChange={(v) => set("archetype", v as Archetype)} className="grid-cols-4" aria-label="Archetype">
+                  {ARCHETYPE_CARDS.map((a) => (
+                    <ModeCardOption key={a.value} id={`arch-${a.value}`} value={a.value} label={a.label} tagline={a.tagline} details={[`First win: ${a.firstWin}`]} selected={form.archetype === a.value} badge={suggestedArchetype === a.value ? "From the import report" : !suggestedArchetype && idea.archetype === a.value ? "From the card" : undefined} />
+                  ))}
+                </RadioGroup>
+              </Field>
+              <Reassurance guided={guided} where="Settings › Business" testId="reassure-archetype" />
+            </div>
           </Panel>
 
           <Panel title="Business mode" data-testid="business-mode-panel">
             <div className="flex flex-col gap-3">
               <RadioGroup value={form.businessMode} onValueChange={(v) => chooseMode(v as BusinessMode)} className="grid-cols-3" aria-label="Business mode">
                 {BUSINESS_MODE_CARDS.map((m) => (
-                  <ModeCardOption key={m.value} id={`mode-${m.value}`} value={m.value} label={m.label} tagline={m.tagline} details={m.details} selected={form.businessMode === m.value} badge={m.value === "assisted" ? "Default" : undefined} />
+                  <ModeCardOption key={m.value} id={`mode-${m.value}`} value={m.value} label={m.label} tagline={m.tagline} details={m.details} example={m.example} selected={form.businessMode === m.value} badge={m.value === "assisted" ? "Default" : undefined} />
                 ))}
               </RadioGroup>
               <div className="grid grid-cols-12 items-start gap-gutter border-t border-line pt-3">
-                <Field htmlFor="spend-cap" label="Spend cap per action" hint="Above this every spend asks you first, whatever the mode. Empty means no cap." error={show("spendCap")} className="col-span-6">
+                <Field htmlFor="spend-cap" label="Spend cap per action" hint="Above this amount, every spend asks you first, whatever the mode. Leave it empty for no limit." error={show("spendCap")} className="col-span-6">
                   <MoneyInput
                     id="spend-cap"
                     controlSize="lg"
@@ -557,10 +591,11 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                 <div className="flex flex-col gap-1">
                   <Label htmlFor="run-on-autopilot">Run on autopilot</Label>
                   <p id="run-on-autopilot-hint" className="text-small text-secondary">
-                    Off by default. The team starts its own cycles, about every 4 hours, the way Continue does: every approval and hard gate still waits for you, and Autopilot pauses itself when credits run out or Inbox decisions are waiting. Change it any time in Settings › Mode.
+                    Off by default. The team starts its own cycles, about every 4 hours, the way Continue does: every approval and hard gate still waits for you, and Autopilot pauses itself when credits run out or Inbox decisions are waiting.
                   </p>
                 </div>
               </div>
+              <Reassurance guided={guided} where="Settings › Mode" testId="reassure-mode" />
             </div>
           </Panel>
 
@@ -609,15 +644,21 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                 </div>
               ) : null}
             </Panel>
-            <Panel title="What happens next">
+            <Panel title="What happens next" data-testid="what-happens-next">
               <ol className="flex flex-col gap-1.5 text-body">
-                {["Business, departments and team are created", "The logo and brand colors go on the top bar", "The first cycle starts", "The Board's first item lands in your Inbox: vision and three decisions"].map((s, i) => (
+                {WHAT_HAPPENS_NEXT.map((s, i) => (
                   <li key={s} className="flex items-start gap-2">
                     <span className="inline-flex size-badge shrink-0 items-center justify-center rounded-pill font-mono text-micro text-tertiary ring-1 ring-line-strong">{i + 1}</span>
                     <span>{s}</span>
                   </li>
                 ))}
               </ol>
+              {/* The first money a founder reads about: included credits, no card (A10). Not when this month's pool is spent: that notice says so below. */}
+              {creditsNotice ? null : (
+                <p className="mt-3 text-small text-secondary" data-testid="commit-credits-line">
+                  {includedCreditsLine()}
+                </p>
+              )}
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Chip tone={form.gameMode === "live" ? "kit" : "ink"} icon={form.gameMode === "live" ? Globe : Lock}>
                   {form.gameMode === "live" ? "Live" : "Personal"}
@@ -654,9 +695,24 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
   );
 }
 
-function ModeCardOption({ id, value, label, tagline, details, selected, badge, icon: Icon }: { id: string; value: string; label: string; tagline: string; details: string[]; selected: boolean; badge?: string; icon?: typeof Globe }) {
+/**
+ * "You can change this later in Settings › Business." under a first-run commitment (§5.7). A plain line now; hidden
+ * when guidance is off.
+ */
+// TODO(guided-layer): ReassuranceLine
+function Reassurance({ guided, where, testId }: { guided: boolean; where: string; testId: string }) {
+  if (!guided) return null;
+  return (
+    <p className="flex items-center gap-1.5 text-small text-tertiary" data-testid={testId}>
+      <Settings size={14} className="shrink-0" aria-hidden />
+      You can change this later in {where}.
+    </p>
+  );
+}
+
+function ModeCardOption({ id, value, label, tagline, details, example, selected, badge, icon: Icon }: { id: string; value: string; label: string; tagline: string; details: string[]; example?: string; selected: boolean; badge?: string; icon?: typeof Globe }) {
   // A radio card (DESIGN §8): the whole card is the target; the selected card takes the accent ring. A badge
-  // ("Default", "From the card") sits on its own line so it never squeezes the title.
+  // ("Default", "From the card") sits on its own line so it never squeezes the title; the example line closes the card.
   return (
     <div
       className={cn(
@@ -686,6 +742,11 @@ function ModeCardOption({ id, value, label, tagline, details, selected, badge, i
             </li>
           ))}
         </ul>
+        {example ? (
+          <span className="mt-1 border-t border-line-faint pt-1.5 text-small text-tertiary" data-mode-example="">
+            {example}
+          </span>
+        ) : null}
       </label>
     </div>
   );

@@ -54,6 +54,32 @@ test.describe("ideation studio", () => {
   test("the brief tells the truth about what the agents do", async ({ page }) => {
     // The hero only shows on an empty deck; its copy must never claim research grounding that does not run.
     await expect(page.getByTestId("prompt-box")).not.toContainText(/grounds each with competitors/);
+    // The kind-of-business select reads as a question, not as "archetype" (A7).
+    await expect(page.getByRole("combobox", { name: "Kind of business" })).toBeVisible();
+    // Example briefs show only while the deck is empty (A7).
+    const empty = (await page.getByTestId("concept-grid").locator("[data-concept]").count()) === 0;
+    await expect(page.getByTestId("example-briefs")).toHaveCount(empty ? 1 : 0);
+    if (empty) {
+      await page.getByTestId("example-briefs").getByRole("button", { name: "A subscription for refillable skincare" }).click();
+      await expect(page.getByRole("textbox", { name: "Brief" })).toHaveValue("A subscription for refillable skincare");
+      await page.getByRole("textbox", { name: "Brief" }).fill("");
+    }
+  });
+
+  test("the deck explains itself once: 'How to read a card' until Got it, then 'Pick 2–4 cards to compare them'", async ({ page }) => {
+    await needCards(page, 1);
+    const line = page.getByTestId("how-to-read-card");
+    // Dismissed once per browser (localStorage); a fresh context shows it.
+    if (await line.count()) {
+      await expect(line).toContainText("How to read a card");
+      await line.getByTestId("how-to-read-card-dismiss").click();
+    }
+    await expect(line).toHaveCount(0);
+    await page.reload();
+    await openStudio(page);
+    await expect(line).toHaveCount(0);
+    await expect(page.getByTestId("compare-hint")).toContainText("Pick 2–4 cards to compare them");
+    await expect(page.getByTestId("compare-hint")).not.toContainText("Tick");
   });
 
   test("AC-11.1.2: an empty brief drafts 6–12 cards, each with ten attributes and at least two citations", async ({ page }) => {
@@ -62,7 +88,7 @@ test.describe("ideation studio", () => {
     const generate = page.getByTestId("generate-button");
     // The generate control: the light slab at rest, its label saying what will happen.
     await expect(generate).toHaveAttribute("data-variant", "generate");
-    await expect(generate).toContainText("Surprise me within my constraints");
+    await expect(generate).toContainText("Draft 6–12 ideas for me");
     await generate.click();
     // The cards stream in at the top of the deck as each is saved; the status line names who drafted them.
     const status = page.getByTestId("draft-status");
@@ -207,19 +233,22 @@ test.describe("ideation studio", () => {
     await card.locator('[data-concept-action="fork"]').click();
     const fork = page.getByTestId("fork-dialog");
     await expect(fork).toBeVisible();
+    // "More like this" drafts a variant; the founder never reads "fork" (A14).
+    await expect(fork.getByRole("heading")).toContainText(/Draft a variant of/);
     await fork.getByLabel(/Name/).fill(variant);
-    await fork.getByRole("button", { name: "Create fork" }).click();
+    await fork.getByRole("button", { name: "Draft it" }).click();
     await expect(fork).toBeHidden({ timeout: LONG });
     await expect(cards).toHaveCount(before + 1, { timeout: LONG });
     await expect(grid.locator("[data-concept]", { has: page.getByRole("heading", { level: 3, name: variant, exact: true }) })).toHaveCount(1);
 
-    // The source carries a "forked" version in its history.
+    // The source carries a "forked" version in its history; versions read in words.
     const source = page.locator(`#concept-${id}`);
-    await expect(source.getByTestId("history-button")).toHaveText(/History · v2/);
+    await expect(source.getByTestId("history-button")).toHaveText(/History · version 2/);
     await source.getByTestId("history-button").click();
     const history = page.getByTestId("history-dialog");
     await expect(history).toBeVisible();
     await expect(history.locator("[data-version]")).toHaveCount(2);
+    await expect(history.locator("[data-version='2']")).toContainText("Version 2");
     // The version row reads exactly "Forked"; the lineage line below it reads "Forked to <name>".
     await expect(history.getByText("Forked", { exact: true })).toBeVisible();
     await history.getByRole("button", { name: "Older" }).click();

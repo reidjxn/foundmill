@@ -9,11 +9,11 @@
  * the mutation, the toast and the redirect.
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Check, Lock, Plus, UserRound } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, Lock, Plus, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { APP_NAME } from "@foundmill/config";
-import { Button, Chip, Field, Input, Kbd, MoneyInput, Panel, RadioCard, RadioGroup, RatingBandPill, SimpleSelect, SkillSlider, StatusPill, cn, ratingClass, useToast } from "@foundmill/dugout";
+import { Button, Chip, Field, Icon, Input, Kbd, MoneyInput, Panel, RadioCard, RadioGroup, RatingBandPill, SimpleSelect, SkillSlider, StatusPill, cn, ratingClass, useToast } from "@foundmill/dugout";
 import { errorMessage, trpcPathPrefix, validationIssues } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { currencyName, DISPLAY_LOCALE } from "@/lib/format";
@@ -32,6 +32,7 @@ import {
   SKILL_LABELS,
   TIME_OPTIONS,
   addChip,
+  defaultCurrency,
   formFromProfile,
   profilePatch,
   profileSaveMessage,
@@ -118,8 +119,18 @@ export function OnboardingForm({ profile, email, accountId = null, saving = fals
   const show = (key: keyof ProfileForm) => (touched ? errors[key] : undefined);
   const errorCount = Object.keys(errors).length;
   const doneCount = PROFILE_SECTIONS.filter((s) => status[s.id]).length;
-  const timeAnswered = (form.timeCommitment ? 1 : 0) + (form.budget.trim() ? 1 : 0);
+  // The budget is answered by an amount or by "I have no budget yet": empty is a choice (A11).
+  const timeAnswered = (form.timeCommitment ? 1 : 0) + (form.budget.trim() || form.noBudget ? 1 : 0);
   const inView = useSectionInView();
+
+  // The currency follows where the founder lives (then the browser's language, then US dollars) until they pick one
+  // themselves; a saved profile keeps its own (A11). Read after mount: the server does not know the browser's language.
+  const [currencyTouched, setCurrencyTouched] = useState(false);
+  useEffect(() => {
+    if (editing || currencyTouched) return;
+    const next = defaultCurrency(form.residence, typeof navigator === "undefined" ? null : navigator.language);
+    setForm((f) => (f.currency === next ? f : { ...f, currency: next }));
+  }, [editing, currencyTouched, form.residence]);
 
   return (
     <StudioFrame
@@ -159,15 +170,23 @@ export function OnboardingForm({ profile, email, accountId = null, saving = fals
             <Panel title="How the team reads you" data-testid="profile-summary">
               <p className={cn("text-body [overflow-wrap:anywhere]", summary ? "text-primary" : "text-secondary")}>{summary || "Pick your experience and time to see the one-line brief every agent starts from."}</p>
             </Panel>
-            {accountId ? (
-              <Panel title="Your account ID" data-testid="profile-account-id">
-                <AccountId accountId={accountId} />
-              </Panel>
-            ) : null}
             <p className="flex items-start gap-2 px-1 text-small text-secondary">
               <Lock size={14} className="mt-px shrink-0 text-tertiary" aria-hidden />
               Your profile is private. Agents read it as context; it is never shown on the network, even when a business goes live.
             </p>
+            {/* The account ID matters to a co-founder joining someone else's business, not to a first screen: behind a disclosure (A17). */}
+            {accountId ? (
+              <details className="group/account px-1" data-testid="profile-account-id">
+                <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm text-small text-secondary transition-colors duration-hover ease-out hover:text-primary focus-visible:shadow-ring [&::-webkit-details-marker]:hidden">
+                  <Icon icon={ChevronRight} size="inline" className="transition-transform duration-overlay ease-out group-open/account:rotate-90" />
+                  For a co-founder joining you
+                </summary>
+                <div className="mt-2">
+                  <p className="t-data mb-1.5">Your account ID</p>
+                  <AccountId accountId={accountId} />
+                </div>
+              </details>
+            ) : null}
           </div>
         </aside>
 
@@ -219,17 +238,39 @@ export function OnboardingForm({ profile, email, accountId = null, saving = fals
                 ))}
               </RadioGroup>
             </Field>
-            <div className="grid grid-cols-4 gap-gutter">
-              <Field htmlFor="profile-budget" label="Budget you can commit" hint="Your own money for the first year, before any revenue. Leave it empty if there is none; 25k works too." error={show("budget")} className="col-span-3">
-                <MoneyInput id="profile-budget" value={form.budget} onChange={(e) => set("budget", e.target.value)} placeholder="25000" invalid={Boolean(show("budget"))} currency={form.currency} />
+            <div className="grid grid-cols-4 items-start gap-gutter">
+              <Field htmlFor="profile-budget" label="Budget you can commit" hint="Your own money for the first year, before any revenue. A number like 25,000 or 25k." error={show("budget")} className="col-span-2">
+                <MoneyInput
+                  id="profile-budget"
+                  value={form.budget}
+                  onChange={(e) => setForm((f) => ({ ...f, budget: e.target.value, noBudget: false }))}
+                  placeholder="25000"
+                  invalid={Boolean(show("budget"))}
+                  currency={form.currency}
+                  disabled={form.noBudget}
+                />
               </Field>
+              {/* Empty is a choice (A11): the card beside the amount says so in words; typing an amount unpicks it. */}
+              <RadioGroup value={form.noBudget ? "none" : ""} onValueChange={(v) => v === "none" && setForm((f) => ({ ...f, noBudget: true, budget: "" }))} aria-label="No budget" className="pt-5" data-testid="profile-no-budget">
+                <RadioCard id="budget-none" value="none" label="I have no budget yet" description="Ideas assume no money up front." data-option="none" data-selected={form.noBudget || undefined} />
+              </RadioGroup>
               <Field htmlFor="profile-currency" label="Currency" error={show("currency")}>
-                <SimpleSelect id="profile-currency" controlSize="xl" value={form.currency} onValueChange={(v) => set("currency", v)} options={CURRENCIES.map((c) => ({ value: c, code: c, label: currencyName(c), textValue: c }))} aria-label="Currency" />
+                <SimpleSelect
+                  id="profile-currency"
+                  controlSize="xl"
+                  value={form.currency}
+                  onValueChange={(v) => {
+                    setCurrencyTouched(true);
+                    set("currency", v);
+                  }}
+                  options={CURRENCIES.map((c) => ({ value: c, code: c, label: currencyName(c), textValue: c }))}
+                  aria-label="Currency"
+                />
               </Field>
             </div>
           </Section>
 
-          <Section id="place" title="Where you operate" hint="Citizenship and residence drive the jurisdiction recommender; markets drive pricing, channels and compliance.">
+          <Section id="place" title="Where you operate" hint="Where you live decides which countries we suggest for registering the business. Your target markets shape pricing, channels and which rules apply.">
             <div className="grid grid-cols-2 gap-gutter">
               <Field htmlFor="profile-citizenship" label="Citizenship" error={show("citizenship")}>
                 <CountryInput id="profile-citizenship" value={form.citizenship} onChange={(v) => set("citizenship", v)} />
@@ -242,7 +283,7 @@ export function OnboardingForm({ profile, email, accountId = null, saving = fals
           </Section>
 
           <Section id="constraints" title="Constraints and risk">
-            <ChipField id="profile-constraints" label="Constraints" hint="Write your own or pick one below. The Ideation agent treats every constraint as a hard limit, even when it surprises you." values={form.constraints} suggestions={CONSTRAINT_SUGGESTIONS} maxLength={PROFILE_LIMITS.constraint} error={show("constraints")} onChange={(v) => set("constraints", v)} placeholder="Add a constraint and press Enter" />
+            <ChipField id="profile-constraints" label="Constraints" hint="Rules the ideas must respect, like 'no stock to buy' or 'keep my day job'. Write your own or pick one below; every one is a hard limit." values={form.constraints} suggestions={CONSTRAINT_SUGGESTIONS} maxLength={PROFILE_LIMITS.constraint} error={show("constraints")} onChange={(v) => set("constraints", v)} placeholder="Add a constraint and press Enter" />
             <Field htmlFor="profile-risk" label="Risk appetite" required error={show("riskAppetite")}>
               <RadioGroup id="profile-risk" value={form.riskAppetite} onValueChange={(v) => set("riskAppetite", v)} className="grid-cols-3" aria-label="Risk appetite">
                 {RISK_OPTIONS.map((o) => (
@@ -263,11 +304,12 @@ export function OnboardingForm({ profile, email, accountId = null, saving = fals
                   {errorCount} field{errorCount === 1 ? "" : "s"} to complete
                 </StatusPill>
               ) : (
-                <span>Everything can be changed later from Settings.</span>
+                // TODO(guided-layer): ReassuranceLine
+                <span>Everything here can be changed later in Settings.</span>
               )}
             </div>
             <Button type="submit" variant="primary" iconRight={ArrowRight} loading={saving} data-testid="profile-submit-bottom">
-              {editing ? "Save and continue" : "Continue to New business"}
+              {editing ? "Save and continue" : "Continue"}
             </Button>
           </div>
         </div>

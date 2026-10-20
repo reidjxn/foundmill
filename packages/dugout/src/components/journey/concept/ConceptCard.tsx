@@ -11,7 +11,7 @@ import { Icon, type IconComponent } from "../../foundation/Icon";
 import { IconButton } from "../../foundation/IconButton";
 import { StarRating } from "../../foundation/StarRating";
 import { Tooltip } from "../../foundation/Tooltip";
-import { CONCEPT_ATTRIBUTE_LABELS, type Concept, type ConceptAction } from "../types";
+import { CONCEPT_ATTRIBUTE_HINTS, CONCEPT_ATTRIBUTE_LABELS, type Concept, type ConceptAction } from "../types";
 import { AttributeBar } from "./AttributeBar";
 
 export interface ConceptCardProps {
@@ -45,7 +45,8 @@ export function conceptOverall(concept: Concept): number {
 /**
  * The Ideation Studio's profile card (BUILD §11.1, DESIGN §9, Mission): the logo (the initials mark until one is
  * chosen), name, archetype, current and potential stars, the pitch, the overall figure, ten attributes as 20-cell lit
- * bars with evidence on hover. Actions never clip: Shortlist, the "More like this" generate pill and Ask are visible
+ * bars with evidence on hover and, on every label, a tooltip saying what the attribute measures and which way it reads
+ * (`CONCEPT_ATTRIBUTE_HINTS`). Actions never clip: Shortlist, the "More like this" generate pill and Ask are visible
  * (icon buttons with tooltips in a narrow card), Merge and Discard sit in a "More" menu.
  */
 export function ConceptCard({ concept, onAction, shortlisted, selected, onToggleSelect, hideActions, className }: ConceptCardProps) {
@@ -68,7 +69,7 @@ export function ConceptCard({ concept, onAction, shortlisted, selected, onToggle
               {/* DIRECTION #15: step down, then two lines, and only then truncate (a long or forked name stays readable). */}
               <FitText minPx={15} lines={2}>{concept.name}</FitText>
             </h3>
-            {concept.version && concept.version > 1 ? <Chip mono className="shrink-0">v{concept.version}</Chip> : null}
+            {concept.version && concept.version > 1 ? <Chip className="shrink-0">Version {concept.version}</Chip> : null}
           </div>
           {concept.archetypeLabel ? <p className="text-small text-secondary">{concept.archetypeLabel}</p> : null}
           <div className="mt-1">
@@ -99,7 +100,7 @@ export function ConceptCard({ concept, onAction, shortlisted, selected, onToggle
         <ol className="flex flex-col gap-1.5 border-t border-line-faint pt-3" aria-label="Attributes">
           {concept.attributes.map((a) => (
             <li key={a.key}>
-              <AttributeBar label={CONCEPT_ATTRIBUTE_LABELS[a.key]} value={a.value} evidence={a.evidence} />
+              <AttributeBar label={CONCEPT_ATTRIBUTE_LABELS[a.key]} hint={CONCEPT_ATTRIBUTE_HINTS[a.key]} value={a.value} evidence={a.evidence} />
             </li>
           ))}
         </ol>

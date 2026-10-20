@@ -26,8 +26,23 @@ test.describe("agent profile", () => {
     for (const tab of ["Overview", "Training", "Autonomy", "Tools", "History", "Logs"]) await expect(page.getByRole("tab", { name: tab })).toBeVisible();
     await expect(page.getByTestId("what-i-do")).toBeVisible();
     await expect(page.getByTestId("skills-panel")).toBeVisible();
-    await expect(page.getByTestId("position-map")).toBeVisible();
-    await expect(page.getByTestId("contract-panel")).toBeVisible();
+    // One scale (founder, Oct 20, 2026): every skill figure carries its band word, and the footer says what the scores are.
+    await expect(page.getByTestId("skills-footer")).toContainText("Scores 1–20.");
+    await expect(page.getByTestId("skills-panel").locator("[data-skill-band]").first()).toBeVisible({ timeout: LONG });
+    // The stars read "Now 3.5 · could reach 4.5" once, in the header.
+    await expect(page.getByTestId("profile-header").locator("[data-stars-caption]")).toHaveText(/^Now [\d.]+ · could reach [\d.]+$/);
+    // The roles map uses the band words under its new title; the old sport words never show.
+    const roles = page.getByTestId("position-map");
+    await expect(roles).toBeVisible();
+    await expect(roles).toContainText("Other roles it could take");
+    await expect(roles).toContainText("Based on the skills each role needs.");
+    await expect(roles).not.toContainText(/Natural|Accomplished|Competent|Unconvincing|Position map/);
+    // The contract panel keeps the money and autonomy rows; the version and type moved to History (C12).
+    const contract = page.getByTestId("contract-panel");
+    await expect(contract).toBeVisible();
+    await expect(contract).toContainText("Needs your OK above");
+    await expect(contract).not.toContainText(/Live version|Asks above/);
+    await expect(contract.getByTestId("negotiation-note")).toContainText("Negotiation arrives with LIVE deals.");
   });
 
   test("model chip → picker → ApplyScopeDialog (AC-11.10.5)", async ({ page }) => {
@@ -109,8 +124,11 @@ test.describe("agent profile", () => {
     await page.getByTestId("train").click();
     await expect(page.getByTestId("train-dialog")).toBeVisible();
     await expect(page.getByTestId("train-dialog")).toContainText("Estimate");
+    await expect(page.getByTestId("train-dialog")).toContainText("half stay hidden");
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("train-dialog")).toBeHidden();
+    // The Training panel's footer says the rules in plain words (C5); the notice takes its place after a save.
+    await expect(page.getByTestId("agent-training")).not.toContainText(/Held-out|prepended by the runtime|Club rules/);
   });
 
   test("promoting a run writes its scores onto the attributes; a skill with no tests stays untested (founder: 'Training doesn't update ratings')", async ({ page }) => {
@@ -173,11 +191,11 @@ test.describe("agent profile", () => {
     await cap.click();
     await cap.press("ControlOrMeta+a");
     await cap.pressSequentially("1250");
-    await page.getByRole("textbox", { name: "Ask above" }).click();
+    await page.getByRole("textbox", { name: "Needs your OK above" }).click();
     await expect(cap).toHaveValue("1,250");
     // The seed gives some agents an approval threshold above a zero spend cap, which the form refuses to save; the
     // threshold field is part of the save path, so put it inside the cap first.
-    await page.getByRole("textbox", { name: "Ask above" }).fill("0");
+    await page.getByRole("textbox", { name: "Needs your OK above" }).fill("0");
     await expect(page.getByTestId("autonomy-error")).toHaveCount(0);
     await expect(page.getByTestId("save-autonomy")).toBeEnabled();
     await page.getByTestId("save-autonomy").click();
@@ -206,10 +224,12 @@ test.describe("agent profile", () => {
     await page.getByRole("tab", { name: "Autonomy" }).click();
     await expect(page.getByTestId("agent-autonomy")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("save-autonomy")).toHaveText(/Save autonomy/);
-    // Negotiation has no runtime yet (AC-11.14.3): the switch is off and cannot be turned on; limits save as "Save limits".
-    await expect(page.getByTestId("save-negotiation")).toHaveText(/Save limits/);
-    await expect(page.locator("#negotiation-enabled")).toBeDisabled();
-    await expect(page.getByTestId("negotiation-footer")).toContainText("not available yet");
+    // Negotiation has no runtime yet (AC-11.14.3): hidden until it ships, one line instead of a dead form (UX plan C12).
+    await expect(page.getByTestId("negotiation-note")).toContainText("Negotiation arrives with LIVE deals.");
+    await expect(page.getByTestId("save-negotiation")).toHaveCount(0);
+    await expect(page.locator("#negotiation-enabled")).toHaveCount(0);
+    // The caps read in plain words: "Needs your OK above", never "Ask above" or "denied outright".
+    await expect(page.getByTestId("agent-autonomy")).not.toContainText(/Ask above|denied outright/);
     // Tools by name in words, never "HARD GATE (BUILD §2.2)".
     await page.getByRole("tab", { name: "Tools" }).click();
     await expect(page.getByTestId("tool-grants")).toBeVisible({ timeout: LONG });
@@ -224,6 +244,9 @@ test.describe("agent profile", () => {
     await openSquadAgent(page);
     await page.getByRole("tab", { name: "History" }).click();
     await expect(page.getByTestId("history-timeline")).toBeVisible({ timeout: LONG });
+    // The live version and the agent's type live here now (C12), beside the timeline.
+    await expect(page.getByTestId("version-panel")).toContainText("Live version");
+    await expect(page.getByTestId("version-panel")).toContainText("Type");
     await page.getByRole("tab", { name: "Logs" }).click();
     await expect(page.getByTestId("agent-logs")).toBeVisible({ timeout: LONG });
     expect(page.url()).toContain(`/b/${NORTHWIND_BUSINESS_ID}/agents/`);

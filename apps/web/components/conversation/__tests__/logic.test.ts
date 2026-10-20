@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RETRY_REPLY_ID, STREAM_CUT_MESSAGE, bubbleNeedsMarkdown, deskFailureOf, deskMessagesOf, deskPersonaOf, failureQuickReplies, failureReply, openFailureLine, readReplyStream, roleBesideName, samePersonaWords, sayOf, voiceAck, withPlanId, withSent, withoutChoices, type ConversationView, type ReplyStreamEvent } from "../logic";
+import { CHOICE_SUBLINE, RETRY_REPLY_ID, STREAM_CUT_MESSAGE, bubbleNeedsMarkdown, deskFailureOf, deskMessagesOf, deskPersonaOf, failureQuickReplies, failureReply, openFailureLine, readReplyStream, roleBesideName, samePersonaWords, sayOf, voiceAck, withChoiceSubline, withChoiceSublines, withPlanId, withSent, withoutChoices, type ConversationView, type ReplyStreamEvent } from "../logic";
 import { agentOfAskItem, askPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "../palette";
 
 const persona = (over: Partial<ConversationView["persona"]> = {}): ConversationView["persona"] =>
@@ -178,6 +178,30 @@ describe("when a send fails (adversarial: api down, model error, limits, stale c
     expect(withoutChoices(msgs, false)).toEqual(msgs);
     expect(withoutChoices(msgs, true)[0]!.quickReplies!.map((q) => q.id)).toEqual(["thanks"]);
     expect(withoutChoices(msgs, true)[1]).toBe(msgs[1]);
+  });
+});
+
+describe("a Go with chip says it answers the note (UX plan B20)", () => {
+  it("adds the subline to a choose_option only, keeps the founder's words, and never adds it twice", () => {
+    const goWith = { id: "go_with", label: "Go with: Place the order", say: "Go with Place the order.", kind: "choose_option" as const, option_id: "order", recommended: true };
+    const ask = { id: "why", label: "Why that one?", kind: "ask" as const };
+    const sub = withChoiceSubline(goWith);
+    expect(sub.label).toBe(`Go with: Place the order · ${CHOICE_SUBLINE}`);
+    expect(sub.say).toBe("Go with Place the order.");
+    expect(sayOf(sub)).toBe("Go with Place the order.");
+    expect(withChoiceSubline(sub)).toBe(sub);
+    expect(withChoiceSubline(ask)).toBe(ask);
+    // A chip without `say` keeps its plain label as the founder's words, so the subline is never spoken.
+    const bare: { id: string; label: string; kind: "choose_option"; say?: string } = { id: "go_with", label: "Go with: A", kind: "choose_option" };
+    expect(withChoiceSubline(bare).say).toBe("Go with: A");
+    expect(withChoiceSublines([goWith, ask]).map((r) => r.label)).toEqual([`Go with: Place the order · ${CHOICE_SUBLINE}`, "Why that one?"]);
+  });
+
+  it("reaches the desk through the cached view and the failure replies", () => {
+    const view = { messages: [{ ...msg("m1", "agent", "Hello."), quickReplies: [{ id: "go_with", label: "Go with: A", say: "Go with A.", kind: "choose_option", option_id: "a", recommended: true }] }] } as unknown as ConversationView;
+    expect(deskMessagesOf(view)[0]!.quickReplies![0]!.label).toBe(`Go with: A · ${CHOICE_SUBLINE}`);
+    const before = [{ id: "go_with", label: "Go with: A", say: "Go with A.", kind: "choose_option" as const, option_id: "a", recommended: true }, { id: "why", label: "Why?", kind: "ask" as const }];
+    expect(failureQuickReplies(true, before, "why").map((r) => r.label)).toEqual(["Try again", `Go with: A · ${CHOICE_SUBLINE}`]);
   });
 });
 

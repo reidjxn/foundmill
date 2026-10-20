@@ -24,6 +24,8 @@ test.describe("stop and resume", () => {
 
     await page.getByTestId("stop-all-trigger").click();
     const stopDialog = page.getByRole("dialog", { name: "Stop all agents?" });
+    // The reassurance comes first (B6), then what stops and who brings it back.
+    await expect(stopDialog).toContainText(/Nothing is deleted\. (\d+ running sessions? stops? now|Every running session stops now)\./);
     await expect(stopDialog).toContainText("nothing starts again until an owner or admin resumes the agents");
     await stopDialog.getByRole("button", { name: "Stop all agents" }).click();
     await expect(page.getByTestId("resume-agents-trigger")).toBeVisible({ timeout: LONG });

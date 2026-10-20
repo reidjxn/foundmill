@@ -3,6 +3,7 @@ import { createContext, forwardRef, useContext, useMemo, type ComponentPropsWith
 import * as LabelPrimitive from "@radix-ui/react-label";
 import { CircleAlert } from "lucide-react";
 import { cn } from "../../lib/cn";
+import { InfoTip } from "../guidance/InfoTip";
 import { Icon } from "./Icon";
 
 export const Label = forwardRef<ElementRef<typeof LabelPrimitive.Root>, ComponentPropsWithoutRef<typeof LabelPrimitive.Root>>(
@@ -44,33 +45,53 @@ export interface FieldProps {
   hint?: ReactNode;
   error?: ReactNode;
   required?: boolean;
+  /**
+   * One sentence about the field, as an InfoTip beside the label (UX plan §6.2): why it is asked or what goes in it.
+   * A `hint` stays under the control for what is always worth reading; help is tutoring and hides with guidance off.
+   */
+  help?: ReactNode;
+  /** A "Learn more" target for `help`. */
+  helpLearn?: string;
   className?: string;
   children: ReactNode;
 }
 
 /**
  * Label + control + hint/error stack (DESIGN §8): the label in the label style (Inter 500 12, text-2, sentence case),
- * the required mark in the accent, the error with an icon so colour is never the only signal. The control whose id is
- * `htmlFor` (Input, MoneyInput, Textarea, a Select's trigger) gets aria-describedby (the error, else the hint),
- * aria-required and aria-invalid from the Field itself (`useFieldAria`).
+ * the required mark in the accent, an optional help tip beside the label, the error with an icon so colour is never
+ * the only signal. The control whose id is `htmlFor` (Input, MoneyInput, Textarea, a Select's trigger) gets
+ * aria-describedby (the error, else the hint), aria-required and aria-invalid from the Field itself (`useFieldAria`).
  */
-export function Field({ htmlFor, label, hint, error, required, className, children }: FieldProps) {
+export function Field({ htmlFor, label, hint, error, required, help, helpLearn, className, children }: FieldProps) {
   const hasError = Boolean(error);
   const hasHint = Boolean(hint);
   const control = useMemo<FieldControl>(
     () => ({ htmlFor, describedBy: fieldDescribedBy(htmlFor, { hint: hasHint, error: hasError }), required: Boolean(required), invalid: hasError }),
     [htmlFor, hasHint, hasError, required],
   );
+  const labelNode = (
+    <Label htmlFor={htmlFor}>
+      {label}
+      {required ? (
+        <span aria-hidden className="ml-0.5 text-accent">
+          *
+        </span>
+      ) : null}
+    </Label>
+  );
   return (
     <div className={cn("flex flex-col gap-1.5", className)} data-invalid={error ? true : undefined}>
-      <Label htmlFor={htmlFor}>
-        {label}
-        {required ? (
-          <span aria-hidden className="ml-0.5 text-accent">
-            *
-          </span>
-        ) : null}
-      </Label>
+      {help ? (
+        // The tip sits beside the label, not inside it: a button inside a <label> would also focus the control.
+        <div className="flex items-center gap-0.5">
+          {labelNode}
+          <InfoTip label={typeof label === "string" || typeof label === "number" ? String(label) : "this field"} learn={helpLearn} className="-my-1">
+            {help}
+          </InfoTip>
+        </div>
+      ) : (
+        labelNode
+      )}
       <FieldControlContext.Provider value={control}>{children}</FieldControlContext.Provider>
       {error ? (
         <p id={`${htmlFor}-error`} role="alert" className="flex items-start gap-1.5 text-small text-status-bad">

@@ -30,6 +30,8 @@ describe("CapTableScreen", () => {
     expect(within(strip).getByText(/800,000 of 1,000,000 unallocated/)).toBeTruthy();
     expect(within(strip).getByText("Convertibles").parentElement!.parentElement!.textContent).toContain("€100K");
     const holders = screen.getByRole("grid", { name: "Holders" });
+    // One line under the title while guidance is on (the default outside a provider): UX plan §7.14.
+    expect(screen.getByTestId("cap-table-lede").textContent).toBe("Who owns what share of the company.");
     expect(within(holders).getByRole("link", { name: /Mara Lindqvist/ }).getAttribute("href")).toBe(`/b/${BID}/crm/${ENTITY.mara}/overview`);
     expect(within(holders).getAllByText("48.91%")).toHaveLength(2);
     expect(within(holders).getAllByText("Common")).toHaveLength(2);

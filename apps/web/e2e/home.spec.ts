@@ -38,6 +38,30 @@ test.describe("home", () => {
     }
   });
 
+  test("the status strip and the department cards speak in words, with the formula kept for the provenance tooltip", async ({ page }) => {
+    const strip = page.getByRole("region", { name: "Status" });
+    await expect(strip).toBeVisible({ timeout: LONG });
+    // "Team health" with its count (UX plan B10), never "Business health"; runway captioned in words (B9).
+    await expect(strip.getByText("Team health", { exact: true })).toBeVisible({ timeout: LONG });
+    await expect(strip).not.toContainText("Business health");
+    await expect(strip).toContainText(/\d+ of \d+ \w+ healthy|No \w+ hired yet/, { timeout: LONG });
+    await expect(strip).toContainText(/Months of cash left|Under \d+ months of cash left|No limit|Not known yet/, { timeout: LONG });
+    await expect(strip).toContainText("Money in this month");
+    await expect(strip).toContainText(/Paying \w+, last 7 days/);
+    // The formula is the provenance tooltip's, not a caption: nothing on the strip reads "Cash ÷ net burn" or "Cash basis".
+    await expect(strip).not.toContainText("÷");
+    await expect(strip).not.toContainText("Cash basis");
+    await expect(strip.getByRole("button", { name: /Where this number comes from: Cash ÷ net burn/ })).toHaveCount(1);
+    // Department cards: "Working on now" and "Next" (E6), the team strip counting agents on a task (B19).
+    const card = page.locator("[data-department]").first();
+    await expect(card).toBeVisible({ timeout: LONG });
+    await expect(card).toContainText("Working on now");
+    await expect(card).toContainText("Next");
+    await expect(card).not.toContainText("Next up");
+    await expect(card).not.toContainText("Nothing queued");
+    await expect(card.locator("[data-team-strip-words]")).toHaveText(/^\d+ of \d+ working$|^\d+ agents?, |^No agents yet$/);
+  });
+
   test("the Team pulse hour labels fit their boxes at 1280 px, one every three hours", async ({ page }) => {
     // Each label's box spans three hour columns; at one column (about 24 px) "12 AM" spilled out (no-clip.spec, Oct 2026).
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -57,6 +81,8 @@ test.describe("home", () => {
   });
 
   test("E toggles Edit mode; the toolbar button mirrors it; Esc leaves it", async ({ page }) => {
+    // The shortcut works whether or not the key cap shows (it shows only when guidance is off, UX plan §7.7).
+    await expect(page.getByTestId("edit-layout")).toHaveAttribute("aria-keyshortcuts", "E");
     await page.keyboard.press("e");
     await expect(page.getByTestId("home-screen")).toHaveAttribute("data-editing", "true");
     await expect(page.getByTestId("edit-layout")).toHaveAttribute("aria-pressed", "true");

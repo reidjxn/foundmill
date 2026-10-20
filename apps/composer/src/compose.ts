@@ -13,7 +13,7 @@ import { clubRulesPrompt, prompts } from "@foundmill/agents";
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import type { ComposerItem, Event } from "@foundmill/db";
 import { checkComposerText, linkComposerText, stripMarkup, type LinkedText, type ValidationResult } from "@foundmill/entity-linker";
-import { ComposerOutput, ModelAbortedError, type ChatMessage, type CompleteResultWithJson, type ModelClient, type ModelLogger, type TokenUsage } from "@foundmill/models";
+import { ComposerOutput, ModelAbortedError, type ChatMessage, type CompleteResultWithJson, type ComposerOption, type ModelClient, type ModelLogger, type TokenUsage } from "@foundmill/models";
 import { AppError, futureDeadline, type InboxItemType } from "@foundmill/shared";
 import { businessBrief, type ComposeContext } from "./context";
 import type { NextBestDecision } from "./decisions";
@@ -80,18 +80,21 @@ export class ComposeTimeoutError extends AppError {
   }
 }
 
-/** Default options of a Customer Update (customer_won) decision when the model offers none. */
-export const CUSTOMER_UPDATE_OPTIONS = [
-  { id: "thank_you", label: "Send a thank-you", recommended: true, consequence: "A short, disclosed note goes out on behalf of the business.", cost_minor: 0, reversible: false },
-  { id: "review_14d", label: "Ask for a review in 14 days", recommended: false, consequence: "A scheduled, suppressible request after they have used the product.", cost_minor: 0, reversible: true },
-  { id: "annual_upgrade", label: "Offer an annual upgrade", recommended: false, consequence: "An upgrade offer is drafted for your approval first.", cost_minor: 0, reversible: true },
-  { id: "celebrate", label: "Just celebrate", recommended: false, consequence: "No outbound message; the replay opens.", cost_minor: 0, reversible: true },
-] as const;
+/**
+ * Default options of a Customer Update (customer_won) decision when the model offers none. Consequences are written from
+ * the founder's seat and the recommended option says why (UX plan §7.19).
+ */
+export const CUSTOMER_UPDATE_OPTIONS: readonly ComposerOption[] = Object.freeze([
+  { id: "thank_you", label: "Send a thank-you", recommended: true, consequence: "A short note goes out from the business, marked as written by an agent.", cost_minor: 0, reversible: false, because: "Recommended because it costs nothing and a quick thank-you keeps a new customer warm." },
+  { id: "review_14d", label: "Ask for a review in 14 days", recommended: false, consequence: "A review request goes out after they have used the product; they can opt out.", cost_minor: 0, reversible: true },
+  { id: "annual_upgrade", label: "Offer an annual upgrade", recommended: false, consequence: "An upgrade offer is drafted for you to approve before anything is sent.", cost_minor: 0, reversible: true },
+  { id: "celebrate", label: "Just celebrate", recommended: false, consequence: "No message goes out; the replay opens.", cost_minor: 0, reversible: true },
+]);
 
-export const DEFAULT_DECISION_OPTIONS = [
-  { id: "proceed", label: "Proceed as recommended", recommended: true, consequence: "The team continues with the recommended next step.", cost_minor: 0, reversible: true },
+export const DEFAULT_DECISION_OPTIONS: readonly ComposerOption[] = Object.freeze([
+  { id: "proceed", label: "Proceed as recommended", recommended: true, consequence: "The team carries on with the next step the note argues for.", cost_minor: 0, reversible: true, because: "Recommended because it is the step the note argues for, and you can stop it any time." },
   { id: "hold", label: "Hold for now", recommended: false, consequence: "Nothing changes until you decide.", cost_minor: 0, reversible: true },
-] as const;
+]);
 
 const RUNWAY_EVENT = "runway.threshold_crossed";
 
@@ -150,10 +153,11 @@ export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record
   }
 }
 
+/** The house rules, then the Composer's own rules, which know who the founder is (`founder_experience`, UX plan §7.19). */
 export function systemPrompt(ctx: ComposeContext): string[] {
   return [
     clubRulesPrompt.render({ business_name: ctx.business.name, APP_NAME }),
-    prompts.inboxComposerPrompt.render({ business_name: ctx.business.name, from_agent_name: ctx.voice.name, from_agent_role: ctx.voice.role || "Chief of Staff" }),
+    prompts.inboxComposerPrompt.render({ business_name: ctx.business.name, from_agent_name: ctx.voice.name, from_agent_role: ctx.voice.role || "Chief of Staff", founder_experience: ctx.founderExperience }),
   ];
 }
 
@@ -257,7 +261,8 @@ async function composeWithin(deps: ComposeDeps, ctx: ComposeContext, brief: Comp
     exhibit: brief.mode === "insight" ? sanitizeExhibit(brief.insight.exhibit) : brief.mode === "decision" ? sanitizeExhibit(brief.decision.exhibit) : sanitizeExhibit(out.exhibit),
     decision: decision
       ? {
-          options: decision.options.map((o) => ({ ...o, id: plain(o.id).slice(0, 40) || "option", label: plain(o.label).slice(0, 120) || "Option", consequence: plain(o.consequence) })),
+          // The option's "because" (why it is recommended) travels with it to the stored note and the DecisionBar.
+          options: decision.options.map(({ because, ...o }) => ({ ...o, id: plain(o.id).slice(0, 40) || "option", label: plain(o.label).slice(0, 120) || "Option", consequence: plain(o.consequence), ...(because && plain(because) ? { because: plain(because) } : {}) })),
           free_text: decision.free_text,
           // A deadline is a future ISO timestamp within a bounded horizon, or none (audit CML-13).
           expires_at: futureDeadline(decision.expires_at, ctx.now),

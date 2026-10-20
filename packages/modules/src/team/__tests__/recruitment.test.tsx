@@ -46,6 +46,11 @@ describe("RecruitmentScreen", () => {
     expect(within(table).getAllByRole("row")).toHaveLength(catalogue.length + 1);
     expect(within(table).getAllByText("Estimate").length).toBe(catalogue.length);
     expect(within(table).getByText("Newsletter writer")).toBeTruthy();
+    // The template's kind reads "Kind" (never "Family"), and the cap says it is US dollars.
+    expect(within(table).getByRole("columnheader", { name: /^Kind/ })).toBeTruthy();
+    expect(within(table).queryByRole("columnheader", { name: /^Family/ })).toBeNull();
+    expect(within(table).getByRole("columnheader", { name: /Wage cap \(USD\)/ })).toBeTruthy();
+    expect(screen.getByTestId("catalogue-intro").textContent).toBe("Ready-made agents. Hire one into a department and it starts next cycle.");
     expect(screen.getByTestId("catalogue-summary").textContent).toBe("7 templates · 5 in the team");
     const moves = screen.getByRole("grid", { name: "Team moves" });
     expect(within(moves).getAllByRole("row")).toHaveLength(agents.length + 1);
@@ -63,6 +68,8 @@ describe("RecruitmentScreen", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Hire…" }));
     const dialog = await screen.findByTestId("hire-dialog");
     expect(within(dialog).getByText("Hire Newsletter writer")).toBeTruthy();
+    expect(within(dialog).getByText("Kind")).toBeTruthy();
+    expect(within(dialog).getByText("Wage cap (USD)")).toBeTruthy();
     // A distribution template opened from Team › Recruitment starts in Distribution, not in the tab's own department.
     expect(within(dialog).getByRole("combobox", { name: "Department" }).textContent).toBe("Distribution");
     await user.click(within(dialog).getByRole("combobox", { name: "Department" }));
@@ -145,7 +152,7 @@ describe("RecruitmentScreen", () => {
     expect(within(table).queryByText("development")).toBeNull();
   });
 
-  it("clones, loans and releases from the team moves table; the Chief of Staff cannot be released", async () => {
+  it("duplicates, lends and lets go from the team moves table; the Chief of Staff cannot be let go", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: (path) => (path === "team.agents.clone" ? { id: "clone", name: "Juno II" } : {}) });
     renderScreen(fake, <RecruitmentScreen {...props} />);
@@ -153,29 +160,33 @@ describe("RecruitmentScreen", () => {
     const moves = screen.getByRole("grid", { name: "Team moves" });
     fireEvent.contextMenu(within(moves).getByText("Chief of Staff"));
     const cosMenu = await screen.findByRole("menu");
-    expect(within(cosMenu).getByRole("menuitem", { name: "Release" }).getAttribute("aria-disabled")).toBe("true");
+    // The founder's words: duplicate, lend, let go (the API keeps clone / loan / release).
+    expect(within(cosMenu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Open profile", "Duplicate…", "Lend to another department…", "Let go"]);
+    expect(within(cosMenu).getByRole("menuitem", { name: "Let go" }).getAttribute("aria-disabled")).toBe("true");
     await user.keyboard("{Escape}");
 
     fireEvent.contextMenu(within(moves).getByText("Frontend engineer"));
-    await user.click(await screen.findByRole("menuitem", { name: "Clone…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Duplicate…" }));
     const clone = await screen.findByTestId("clone-dialog");
+    expect(within(clone).getByText("Duplicate Juno")).toBeTruthy();
     await user.click(within(clone).getByTestId("clone-confirm"));
     await waitFor(() => expect(fake.mutations[0]).toEqual({ path: "team.agents.clone", input: { agentId: AGENT_JUNO, name: "Juno II", departmentIds: [DEPT_DEV] } }));
     await waitFor(() => expect(screen.getByTestId("recruitment-notice").textContent).toBe("Juno II joined the team."));
 
     fireEvent.contextMenu(within(moves).getByText("Engineering lead"));
-    await user.click(await screen.findByRole("menuitem", { name: "Loan to department…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Lend to another department…" }));
     const loan = await screen.findByTestId("loan-dialog");
     await user.click(within(loan).getByRole("combobox", { name: "To department" }));
     await user.click(await screen.findByRole("option", { name: "Team" }));
     await user.click(within(loan).getByTestId("loan-confirm"));
     await waitFor(() => expect(fake.mutations[1]).toEqual({ path: "team.agents.loan", input: { agentId: expect.any(String), departmentId: DEPT_TEAM, move: false } }));
-    await waitFor(() => expect(screen.getByTestId("recruitment-notice").textContent).toBe("Pike on loan to Team."));
+    await waitFor(() => expect(screen.getByTestId("recruitment-notice").textContent).toBe("Pike lent to Team."));
 
     fireEvent.contextMenu(within(moves).getByText("Entity linker"));
-    await user.click(await screen.findByRole("menuitem", { name: "Release" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Let go" }));
     await user.click(within(await screen.findByTestId("release-dialog")).getByTestId("release-confirm"));
     await waitFor(() => expect(fake.mutations[2]!.path).toBe("team.agents.release"));
+    await waitFor(() => expect(screen.getByTestId("recruitment-notice").textContent).toBe("Linker has left the team."));
     expect(fake.mutations.some((m) => m.input.agentId === AGENT_COS)).toBe(false);
   });
 

@@ -53,12 +53,14 @@ export const Cells: Story = {
           <FormCells form={["failure", "failure", "partial"]} />
           <FormCells form={[]} />
         </div>
-        <span className="t-label">Rating</span>
+        <span className="t-label">Rating /20</span>
         <div className="flex gap-4">
-          <RatingCell value={2.4} />
-          <RatingCell value={5.1} />
-          <RatingCell value={7.3} />
-          <RatingCell value={9.6} />
+          <RatingCell value={4.8} />
+          <RatingCell value={9.2} />
+          <RatingCell value={13.6} />
+          <RatingCell value={18.5} />
+          <RatingCell value={18.5} compact />
+          <RatingCell value={0} />
         </div>
         <span className="t-label">Model</span>
         <div className="flex gap-2">
@@ -73,10 +75,10 @@ export const Cells: Story = {
           <ToolIcons tools={["github", "e2b", "gmail", "stripe", "shopify", "notion", "google_drive"]} />
           <ToolIcons tools={[]} />
         </div>
-        <span className="t-label">Wage</span>
+        <span className="t-label">AI cost (USD)</span>
         <div className="flex gap-4">
-          <WageCell wage={{ amountMinor: 1_850_00, currency: "EUR" }} />
-          <WageCell wage={{ amountMinor: 92_40, currency: "EUR" }} />
+          <WageCell wage={{ amountMinor: 1_850_00, currency: "USD" }} />
+          <WageCell wage={{ amountMinor: 92_40, currency: "USD" }} />
         </div>
         <span className="t-label">Status</span>
         <div className="flex flex-wrap gap-3">

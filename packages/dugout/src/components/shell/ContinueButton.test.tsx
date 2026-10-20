@@ -1,10 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CONTINUE_PULSE_MS, ContinueButton, continueButtonAction, continueButtonLabel, holidayCaption, holidayCaptionParts, untilPhrase } from "./ContinueButton";
+import { CONTINUE_PULSE_MS, ContinueButton, continueButtonAction, continueButtonLabel, continueTooltip, holidayCaption, holidayCaptionParts, untilPhrase } from "./ContinueButton";
 import type { ContinueState } from "./types";
 
 describe("ContinueButton", () => {
+  it("says what pressing does, in the business's words, per state (B1)", async () => {
+    expect(continueTooltip({ kind: "idle" })).toBe("Let the team work on their next tasks. Their notes land in the Inbox.");
+    expect(continueTooltip({ kind: "blocked", count: 2 })).toBe("2 notes need your answer before the team can carry on. Press to open the first.");
+    expect(continueTooltip({ kind: "blocked", count: 1 })).toBe("1 note needs your answer before the team can carry on. Press to open the first.");
+    expect(continueTooltip({ kind: "processing" }, 3)).toBe("The team is working · cycle 3");
+    expect(continueTooltip({ kind: "processing" })).toBe("The team is working");
+    expect(continueTooltip({ kind: "matchday" })).toBe("A customer was won");
+    expect(continueTooltip({ kind: "holiday", until: "2026-10-14" })).toBe("On vacation until Oct 14, 2026");
+    const user = userEvent.setup();
+    render(<ContinueButton state={{ kind: "processing" }} cycleNumber={3} />);
+    const button = screen.getByRole("button", { name: "Pause the running cycle" });
+    // The next wave's first-time callout anchors on the button.
+    expect(button.getAttribute("data-coachmark")).toBe("continue");
+    await user.hover(button);
+    expect((await screen.findAllByText("The team is working · cycle 3")).length).toBeGreaterThan(0);
+  });
+
   it("labels every state (BUILD §5.4)", () => {
     expect(continueButtonLabel({ kind: "idle" })).toBe("Continue");
     expect(continueButtonLabel({ kind: "blocked", count: 3 })).toBe("Respond · 3");

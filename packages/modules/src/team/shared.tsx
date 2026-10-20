@@ -219,7 +219,7 @@ export const STATUS_DESCRIPTION: Record<AgentStatus, string> = {
   degraded: "Error rate above 10% over the last day. Still working, watch the next tasks.",
   paused: "Paused by Stop all agents, a revoked key, used-up credits or the agent's wage cap. Resume agents in the top bar; a wage cap lifts next month or when you raise it.",
   idle: "No task assigned. The Chief of Staff routes work on the next cycle.",
-  healthy: "Heartbeat on time, errors low, budget available.",
+  healthy: "Active recently, few failed sessions, budget available.",
 };
 
 export interface AgentStatusWordPillProps {
@@ -355,11 +355,16 @@ export function withLiveStatus(agents: readonly AgentRow[] | undefined, override
 
 /* ---------- AgentRow → SquadRow (dugout squad cells) ---------- */
 
+/**
+ * The agent's rating on the one scale the product uses (founder, Oct 20, 2026): the 1–20 mean of its displayed skills,
+ * to one decimal, as the profile header computes it. The API's `rating` is a 1–10 figure (`team.agents.list`); it is
+ * doubled only when the row carries no skills to average, and is due to be dropped.
+ */
 export function skillRating(agent: Pick<AgentRow, "rating" | "skills">): number {
-  if (typeof agent.rating === "number" && Number.isFinite(agent.rating)) return agent.rating;
   const skills = agent.skills ?? [];
-  if (!skills.length) return 0;
-  return Math.round((skills.reduce((s, k) => s + k.displayed, 0) / skills.length) * 5) / 10;
+  if (skills.length) return Math.round((skills.reduce((s, k) => s + k.displayed, 0) / skills.length) * 10) / 10;
+  if (typeof agent.rating === "number" && Number.isFinite(agent.rating) && agent.rating > 0) return Math.round(agent.rating * 2 * 10) / 10;
+  return 0;
 }
 
 /** `currency`: the business's own, for an agent stored without one. */
@@ -453,7 +458,8 @@ export function agentEntity(businessId: string, agent: AgentRow, currency: strin
     chips: [{ label: STATUS_WORD[agent.status], tone: agentStatusTone(agent.status).tone }, { label: MODEL_LABELS[agent.modelKey] ?? agent.modelKey }],
     facts: [
       { label: "Departments", value: (agent.departments ?? []).map((d) => d.name).join(", ") || "—" },
-      { label: "Wage (Estimate)", value: `${formatMoney({ amountMinor: wage, currency: agent.wage?.currency ?? agent.currency ?? currency }, { compact: true })}/mo` },
+      // Metered model, sandbox and tool spend: US dollars, whatever currency the business keeps its books in (C19).
+      { label: "AI cost (USD)", value: `${formatMoney({ amountMinor: wage, currency: agent.wage?.currency ?? agent.currency ?? currency }, { compact: true })}/mo · Estimate` },
       { label: "Current task", value: agent.currentTask?.title ?? "None" },
     ],
     verbs: ["open_profile", "message"],

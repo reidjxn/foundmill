@@ -397,7 +397,7 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, r
           <ListPanel title="Weaknesses" items={report.weaknesses} tone="bad" />
         </div>
         <div className="grid grid-cols-2 gap-gutter">
-          <Panel title="Suggested first decisions" footer={<span>These arrive in the Inbox as the Board's first item once you take charge.</span>} data-testid="first-decisions">
+          <Panel title="Suggested first decisions" footer={<span>Once you take charge, your team drafts the vision, specification and roadmap from this report, and these decisions come back to you as notes in the Inbox.</span>} data-testid="first-decisions">
             <ol className="flex flex-col divide-y divide-line-faint">
               {report.firstDecisions.map((d) => (
                 <li key={d.id} className="flex items-start gap-3 py-2 first:pt-0 last:pb-0" data-decision={d.id} data-recommended={d.recommended || undefined}>

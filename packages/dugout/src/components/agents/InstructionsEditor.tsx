@@ -20,7 +20,7 @@ export const SECTION_LABELS: Record<InstructionSection, string> = { role: "Role"
 export const SECTION_HINTS: Record<InstructionSection, string> = {
   role: "One or two sentences: who this agent is and what it owns.",
   goals: "Outcomes, in priority order.",
-  rules: "Hard constraints the agent follows every time. House rules are always prepended and cannot be changed here.",
+  rules: "Hard constraints the agent follows every time. The house rules always apply on top and cannot be changed here.",
   playbook: "The steps it takes on a typical task, in order.",
   tone: "How it writes: to customers, in pull requests, in notes.",
   examples: "Input and the output you expect. These shape behavior more than rules do.",
@@ -79,7 +79,7 @@ export interface InstructionsEditorProps {
   /** Live version to compare against; defaults to the `live` entry in `versions`. */
   previous?: AgentInstructions;
   versions?: readonly InstructionVersion[];
-  /** Club-rule flags from the detector (AC-11.10.4): shown next to the line, with no effect on the rule. */
+  /** House-rule flags from the detector (AC-11.10.4): shown next to the line, with no effect on the rule. */
   violations?: readonly InstructionViolation[];
   comments?: readonly InstructionComment[];
   onComment?: (text: string) => void;
@@ -134,7 +134,7 @@ function ListEditor({
                 {reason ? (
                   <p role="status" className="mt-0.5 flex items-center gap-1 text-small text-status-warn">
                     <Icon icon={ShieldAlert} size="inline" />
-                    Contradicts a house rule and has no effect: {reason}
+                    Contradicts a house rule and is ignored: {reason}
                   </p>
                 ) : null}
               </div>
@@ -174,7 +174,7 @@ function Section({ id, section, children }: { id: string; section: InstructionSe
 
 /**
  * Structured instructions editor (BUILD §11.10 Training "Instructions"): role, goals, rules, playbook steps, tone and
- * examples, with a version diff view (local line diff) and comments. Club-rule contradictions are flagged on the line.
+ * examples, with a version diff view (local line diff) and comments. House-rule contradictions are flagged on the line.
  */
 export function InstructionsEditor({ value, onChange, previous, versions = [], violations = [], comments = [], onComment, readOnly, mode: modeProp, defaultMode = "edit", onModeChange, className }: InstructionsEditorProps) {
   const id = useId();
@@ -237,7 +237,7 @@ export function InstructionsEditor({ value, onChange, previous, versions = [], v
             {flags("role").size > 0 ? (
               <p role="status" className="flex items-center gap-1 text-small text-status-warn">
                 <Icon icon={ShieldAlert} size="inline" />
-                Contradicts a house rule and has no effect: {flags("role").get(0)}
+                Contradicts a house rule and is ignored: {flags("role").get(0)}
               </p>
             ) : null}
           </Section>
@@ -266,7 +266,7 @@ export function InstructionsEditor({ value, onChange, previous, versions = [], v
                       <Field htmlFor={`${id}-ex-${i}-in`} label="Input">
                         <Textarea id={`${id}-ex-${i}-in`} value={ex.input} readOnly={readOnly} onChange={(e) => setExample(i, { input: e.target.value })} rows={2} autoGrow />
                       </Field>
-                      <Field htmlFor={`${id}-ex-${i}-out`} label="Output" error={reason ? `Contradicts a house rule and has no effect: ${reason}` : undefined}>
+                      <Field htmlFor={`${id}-ex-${i}-out`} label="Output" error={reason ? `Contradicts a house rule and is ignored: ${reason}` : undefined}>
                         <Textarea id={`${id}-ex-${i}-out`} value={ex.output} readOnly={readOnly} onChange={(e) => setExample(i, { output: e.target.value })} rows={2} autoGrow invalid={!!reason} />
                       </Field>
                     </div>

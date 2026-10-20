@@ -6,8 +6,9 @@
  * glossary), the way `DateFormatProvider` carries the date format. Outside a provider (signed-out pages, stories,
  * tests) guidance reads as on, text standard, no terms, and every action is a no-op.
  *
- * Guidance "off" hides tutoring (explainers, the checklist, coach marks, term underlines, kbd caps on buttons) and
- * never hides information (consequences, provenance, Estimate).
+ * Guidance "off" hides tutoring (explainers, the checklist, coach marks, term underlines) and never hides information
+ * (consequences, provenance, Estimate). Keyboard caps on buttons go the other way: they render only when guidance is
+ * off (an operator's affordance, noise to a first-timer); the shortcuts work in both states.
  */
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 

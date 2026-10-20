@@ -40,8 +40,11 @@ describe("InboxList (DESIGN §9 rows)", () => {
     );
     expect(r.getAllByRole("option")).toHaveLength(3);
     expect(r.getAllByTestId("row-tag").map((t) => t.getAttribute("data-row-tag"))).toEqual(["Update", "Respond", "Customer"]);
-    // Every tag carries an icon beside its word (colour is never the only signal).
+    // Every tag carries an icon beside its word (colour is never the only signal) and its legend sentence (UX plan B21).
     for (const t of r.getAllByTestId("row-tag")) expect(t.querySelector("svg")).toBeTruthy();
+    expect(r.getAllByTestId("row-tag").map((t) => t.getAttribute("data-tag-legend"))).toEqual(["Update: Progress from an agent, nothing to do", "Respond: Needs your answer before the team can carry on", "Customer: A new paying customer, with its Customer Update"]);
+    expect(r.container.querySelector("[data-inbox-row='i2']")?.getAttribute("aria-label")).toBe("Approve the launch budget. Respond");
+    expect(r.container.querySelector("[data-inbox-row='i3']")?.getAttribute("aria-label")).toBe("Approve the launch budget. Customer, needs your answer, customer won");
     for (const s of r.getAllByTestId("row-subject")) expect(s.className).not.toMatch(/\btruncate\b|line-clamp/);
     const won = r.container.querySelector("[data-inbox-row='i3']");
     expect(won?.className).toContain("row-edge-gold");
@@ -91,6 +94,10 @@ describe("InboxList (DESIGN §9 rows)", () => {
     a.unmount();
     const b = render(<InboxList rows={[]} selectedId={null} onSelect={vi.fn()} loading={false} hasMore={false} onLoadMore={vi.fn()} emptyText="Notes arrive here" />);
     expect(b.getByText("Notes arrive here")).toBeTruthy();
+    b.unmount();
+    // The screen may add key caps for operators: the empty line is a node, not only a string.
+    const c = render(<InboxList rows={[]} selectedId={null} onSelect={vi.fn()} loading={false} hasMore={false} onLoadMore={vi.fn()} emptyText={<span>Notes land here. <kbd>R</kbd> pulls one.</span>} />);
+    expect(c.container.querySelector("kbd")?.textContent).toBe("R");
   });
 });
 
@@ -112,14 +119,18 @@ describe("ConfirmPlanDialog ('Here is what will happen')", () => {
     );
     expect(r.getByText("Here is what will happen")).toBeTruthy();
     expect(r.getByTestId("confirm-plan-lines").querySelectorAll("li")).toHaveLength(3);
+    // Policy in plain words (UX plan B14): the reassurance first, then the three outcomes and the hard gate.
+    expect(r.getByText(/^Nothing runs until you say go\./)).toBeTruthy();
     expect(r.getByText("Needs your go-ahead")).toBeTruthy();
-    expect(r.getByText("You act")).toBeTruthy();
+    expect(r.getAllByText("Allowed on its own").length).toBe(2);
+    expect(r.getByText("Only you can do this")).toBeTruthy();
+    expect(r.queryByText(/Within policy|hard-gated|You act/)).toBeNull();
     expect(r.getAllByText("€500.00").length).toBeGreaterThanOrEqual(1);
     fireEvent.click(r.getByTestId("confirm-plan-go"));
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
-  it("says why an action asks, under the action, and only for an ask", () => {
+  it("says why an action asks in plain words, under the action, keeping the agent's own sentence, and only for an ask", () => {
     const r = render(
       <ConfirmPlanDialog
         open
@@ -130,12 +141,14 @@ describe("ConfirmPlanDialog ('Here is what will happen')", () => {
           { label: "Set budget for paid ads", outcome: "ask", hardGate: false, cost: { amountMinor: 50_000, currency: "USD" }, reasons: ["Please set up my spend allowance"] },
           { label: "Set budget for seo", outcome: "ask", hardGate: false, cost: null, reasons: [] },
           { label: "Enable channel paid ads", outcome: "allow", hardGate: false, cost: null, reasons: ["not shown"] },
+          { label: "Email a new lead", outcome: "ask", hardGate: false, cost: null, reasons: ["Recipient was first seen inside untrusted content and has not been verified"] },
         ]}
       />,
     );
     const reasons = r.getAllByTestId("confirm-plan-reason");
-    expect(reasons.map((x) => x.textContent)).toEqual(["Please set up my spend allowance"]);
+    expect(reasons.map((x) => x.textContent)).toEqual(["Needs your go-ahead because it spends money. Please set up my spend allowance.", "Needs your go-ahead because it contacts someone new."]);
     expect(r.getByTestId("confirm-plan-lines").querySelectorAll("li")[0]!.textContent).toContain("Set budget for paid ads");
+    expect(r.getByText(/^Nothing runs until you say go\. 3 actions need your go-ahead\.$/)).toBeTruthy();
   });
 
   it("shows a total per currency when the lines are in more than one (never '£300' lines under a '€300' total)", () => {

@@ -77,6 +77,7 @@ describe("journal", () => {
       "0061_skill_library_files",
       "0062_product_signoffs",
       "0063_product_research",
+      "0064_guidance_preferences",
     ]);
     // strictly increasing `when` so drizzle applies them in order
     const whens = ours.map((m) => m.when);

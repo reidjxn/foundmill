@@ -114,14 +114,34 @@ export function isDayOne(input: DayOneInput): boolean {
   return input.conversions === 0 && input.milestones === 0 && (input.cyclesCompleted ?? 0) === 0;
 }
 
+export interface DayOneState {
+  running: boolean;
+  cycleNumber: number | null;
+  blocking: number;
+}
+
 /**
  * The day-one line, true to the cycle's state: never "press Continue to start the first cycle" while that cycle is
  * already running, or while a note in Respond holds Continue.
  */
-export function dayOneLine(input: { running: boolean; cycleNumber: number | null; blocking: number }): string {
+export function dayOneLine(input: DayOneState): string {
   if (input.running) return `Cycle ${input.cycleNumber ?? 1} is under way: the team is on its first tasks. These are the milestones ahead; they light up as customers and revenue arrive.`;
   if (input.blocking > 0) return `The team is waiting on you: answer the ${input.blocking === 1 ? "note" : `${input.blocking} notes`} in Respond, then Continue starts the next cycle. These are the milestones ahead.`;
   return "Nothing has happened yet. These are the milestones ahead; press Continue to start the first cycle.";
+}
+
+/**
+ * The one step the day-one line links to (UX plan B4): while the first cycle runs, read what the team drafted (the
+ * Vision tab); while notes hold Continue, answer them (the Inbox's Respond tab, the first note that holds Continue);
+ * otherwise press Continue (the top bar's button takes focus). The same three states as `dayOneLine`, so the link
+ * never contradicts the sentence.
+ */
+export type DayOneStep = { kind: "vision"; label: string } | { kind: "respond"; label: string } | { kind: "continue"; label: string };
+
+export function dayOneStep(input: DayOneState): DayOneStep {
+  if (input.running) return { kind: "vision", label: "Read what the team drafted" };
+  if (input.blocking > 0) return { kind: "respond", label: input.blocking === 1 ? "Answer the note" : `Answer the ${input.blocking} notes` };
+  return { kind: "continue", label: "Press Continue" };
 }
 
 function describeTrophy(t: (typeof TROPHIES)[number], currency: string): string {

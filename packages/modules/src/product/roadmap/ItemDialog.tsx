@@ -104,8 +104,8 @@ export function ItemDialog({ open, item, horizon, blocks, onClose, onSaved }: { 
             <Textarea id="rm-desc" rows={3} value={draft.descriptionMd} onChange={(e) => setDraft({ ...draft, descriptionMd: e.target.value })} placeholder="What done looks like, in a sentence or two" />
           </Field>
           <fieldset className="col-span-2 min-w-0">
-            <legend className="t-label mb-1">Linked spec blocks</legend>
-            {groups.length === 0 ? <p className="text-small text-secondary">No spec blocks yet. Link blocks once the Specification has content.</p> : null}
+            <legend className="t-label mb-1">Linked specification paragraphs</legend>
+            {groups.length === 0 ? <p className="text-small text-secondary">No specification paragraphs yet. Link them once the Specification has content.</p> : null}
             <div className="max-h-48 overflow-auto rounded-panel border border-subtle bg-panel-alt p-2">
               {groups.map((g) => (
                 <div key={g.section} className="mb-2 last:mb-0">

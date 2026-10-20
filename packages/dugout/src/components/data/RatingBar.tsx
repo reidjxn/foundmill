@@ -81,8 +81,16 @@ export function RatingBar({
   );
 }
 
-/** The figure next to a bar: display-sm, ramp colour, tabular, weight 600 for 16–20. */
-export function RatingFigure({ value, className }: { value: number; className?: string }) {
+export interface RatingFigureProps extends Omit<HTMLAttributes<HTMLSpanElement>, "children"> {
+  /** 1–20. */
+  value: number;
+}
+
+/**
+ * The figure next to a bar: display-sm, ramp color, tabular, weight 600 for 16–20. Forwards `title` and `aria-*` so a
+ * host can put the band word on it where there is no room for the pill.
+ */
+export function RatingFigure({ value, className, ...rest }: RatingFigureProps) {
   const v = clampRating(value);
   const tone = ratingTone(v);
   const TEXT: Record<typeof tone, string> = {
@@ -92,7 +100,7 @@ export function RatingFigure({ value, className }: { value: number; className?: 
     "rating-4": "text-rating-4 font-semibold",
   };
   return (
-    <span className={cn("t-display-sm tabular-nums", TEXT[tone], className)} data-tone={tone} data-rating-figure>
+    <span className={cn("t-display-sm tabular-nums", TEXT[tone], className)} data-tone={tone} data-rating-figure {...rest}>
       {v}
     </span>
   );

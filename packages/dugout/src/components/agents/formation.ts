@@ -30,7 +30,28 @@ export const LINE_HINTS: Record<ChannelLine, string> = {
   wings: "Direct mail, print, broadcast, outdoor",
 };
 
-export const FORM_WORDS: Record<FormCell, string> = { good: "under cap", warn: "near cap", bad: "over cap", none: "no data" };
+/** A cost-trend cell in words: how the week's cost per customer sat against the channel's cost target. */
+export const FORM_WORDS: Record<FormCell, string> = { good: "under target", warn: "near target", bad: "over target", none: "no data" };
+
+/** The user-facing name of the five-cell strip (the identifier `form` stays). */
+export const COST_TREND_LABEL = "Cost trend";
+
+/**
+ * The key a founder reads on hover: "Last 5 weeks against the cost target: 4 under, 1 near". Weeks without data are
+ * left out of the count; with no data at all it says so.
+ */
+export function costTrendKey(form: readonly FormCell[]): string {
+  const cells = Array.from({ length: 5 }, (_, i) => form[form.length - 5 + i] ?? "none");
+  const count = (cell: FormCell) => cells.filter((c) => c === cell).length;
+  const parts = [
+    [count("good"), "under"],
+    [count("warn"), "near"],
+    [count("bad"), "over"],
+  ].filter(([n]) => (n as number) > 0) as [number, string][];
+  const lead = "Last 5 weeks against the cost target";
+  if (parts.length === 0) return `${lead}: no data yet`;
+  return `${lead}: ${parts.map(([n, word]) => `${n} ${word}`).join(", ")}`;
+}
 
 export function channelLabel(key: ChannelKey): string {
   return CHANNEL_META[key].label;
@@ -144,12 +165,12 @@ export function fitToT(fit: number): number {
   return T_MIN + 0.02 + ((20 - f) / 19) * (T_MAX - T_MIN - 0.04);
 }
 
-/** The four fit bands as rings (outer edge of each band), strongest first. */
+/** The four fit bands as rings (outer edge of each band), strongest first; the words are the rating ramp's own (`ratingBandLabel`). */
 export const FIT_RINGS: ReadonlyArray<{ band: string; range: string; t: number }> = [
   { band: "Excellent", range: "16–20", t: fitToT(15.5) },
   { band: "Good", range: "11–15", t: fitToT(10.5) },
-  { band: "Fair", range: "6–10", t: fitToT(5.5) },
-  { band: "Weak", range: "1–5", t: T_MAX + 0.02 },
+  { band: "Average", range: "6–10", t: fitToT(5.5) },
+  { band: "Poor", range: "1–5", t: T_MAX + 0.02 },
 ];
 
 export function polar(angleDeg: number, t: number): { x: number; y: number } {

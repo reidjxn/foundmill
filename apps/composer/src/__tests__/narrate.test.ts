@@ -55,8 +55,10 @@ describe("narrate — AC-11.3.1", () => {
       if (exhibit.kind !== "none") expect(isNamedQueryId(exhibit.spec_ref)).toBe(true);
       expect(r.item.subject.length).toBeLessThanOrEqual(80);
       expect(r.item.subject).not.toMatch(/\[\[ent:/);
+      // Under 180 words and never padded (UX plan §7.19): a short note is a whole note, not an empty one.
       const words = r.item.bodyMd.split(/\s+/).filter(Boolean).length;
-      expect(words).toBeGreaterThanOrEqual(40);
+      expect(words).toBeGreaterThanOrEqual(20);
+      expect(words).toBeLessThanOrEqual(180);
     }
     expect(linksSeen).toBeGreaterThan(0);
   }, 240_000);

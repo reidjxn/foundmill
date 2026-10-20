@@ -3,11 +3,14 @@
  * kind, name, aliases); named queries available for exhibits; glossary"). Everything here is read through repositories
  * with the business id first (ARCHITECTURE §4) so a note can never see another club's rows.
  */
+import { prompts } from "@foundmill/agents";
 import { repos, type Agent, type Business, type Event, type Executor } from "@foundmill/db";
 import { buildManifest, type Manifest, type ManifestEntityInput } from "@foundmill/entity-linker";
 import { getEventDeclaration } from "@foundmill/events";
 import { AppError, EVENT_TYPES, type EntityKind, type EventType } from "@foundmill/shared";
 import { loadMetricsSnapshot, statusMetrics, type MetricsSnapshot, type StatusMetric } from "./metrics";
+
+export type FounderExperience = prompts.FounderExperience;
 
 /** How many CRM entities (beyond the ones the events name) the manifest offers for linking. */
 export const MANIFEST_LIMIT = 300;
@@ -29,7 +32,19 @@ export interface ComposeContext {
   status: StatusMetric[];
   /** Un-narrated events, highest priority first (Refresh rule 1). */
   unnarrated: Event[];
+  /**
+   * Who the note is written to (UX plan §7.19, E3): the business owner's founder profile experience, read as one of
+   * the four profile answers; a first-time founder when the owner has no profile or wrote something else.
+   */
+  founderExperience: FounderExperience;
   now: Date;
+}
+
+/** The owner's founder profile experience, as the Composer prompt reads it. Never throws: no owner or no profile reads as first-time. */
+export async function loadFounderExperience(db: Executor, businessId: string): Promise<FounderExperience> {
+  const owner = await repos.memberships.owner(db, businessId);
+  const profile = owner ? await repos.founders.get(db, owner.userId) : null;
+  return prompts.founderExperienceFrom(profile?.experience);
 }
 
 export class NoAgentsError extends AppError {
@@ -49,13 +64,14 @@ export interface LoadContextOptions {
 export async function loadContext(db: Executor, businessId: string, options: LoadContextOptions = {}): Promise<ComposeContext> {
   const now = options.now ?? new Date();
   const business = await repos.businesses.get(db, businessId);
-  const [agentsPage, crm, named, metrics, unnarrated, chief] = await Promise.all([
+  const [agentsPage, crm, named, metrics, unnarrated, chief, founderExperience] = await Promise.all([
     repos.agents.list(db, businessId, { limit: 200 }),
     repos.entities.manifest(db, businessId, { limit: MANIFEST_LIMIT }),
     options.entityIds && options.entityIds.length > 0 ? repos.entities.manifest(db, businessId, { ids: options.entityIds }) : Promise.resolve([]),
     loadMetricsSnapshot(db, businessId, now),
     options.skipUnnarrated ? Promise.resolve([] as Event[]) : unnarratedNarratable(db, businessId),
     repos.agents.chiefOfStaff(db, businessId),
+    loadFounderExperience(db, businessId),
   ]);
   const agents = agentsPage.items;
   if (agents.length === 0) throw new NoAgentsError(businessId);
@@ -88,6 +104,7 @@ export async function loadContext(db: Executor, businessId: string, options: Loa
     metrics,
     status: statusMetrics(metrics),
     unnarrated,
+    founderExperience,
     now,
   };
 }

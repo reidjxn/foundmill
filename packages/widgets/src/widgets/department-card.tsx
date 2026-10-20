@@ -1,10 +1,11 @@
 "use client";
 /**
- * Department card widget (BUILD §11.2, DESIGN §9). One card per department: lead, health, squad strip, up to three
- * "Now" lines (entities linked), the module's headline metric with a sparkline, and "Next up". A quiet department (no
- * task in progress) gets one line from real data instead of a void: the note waiting for the founder, an unread note,
- * or the last task it finished (`quietLine`). Reacts to `agent.health_changed` and task events within the same render
- * (AC-11.2.3) and then refetches.
+ * Department card widget (BUILD §11.2, DESIGN §9). One card per department: lead, health, team strip, up to three
+ * "Working on now" lines (entities linked), the module's headline metric with a sparkline (captions in plain words,
+ * UX plan B9: "Tasks finished this week", "Cost to win a customer", "Months of cash left"), and "Next". A quiet
+ * department (no task in progress) gets one line from real data instead of a void: the note waiting for the founder,
+ * an unread note, or the last task it finished (`quietLine`). Reacts to `agent.health_changed` and task events within
+ * the same render (AC-11.2.3) and then refetches.
  */
 import { useMemo, useState } from "react";
 import { z } from "zod";
@@ -81,7 +82,7 @@ export function departmentHealth(squad: readonly SquadMember[], tasks: readonly 
   return { health: "good", word: "Healthy" };
 }
 
-/** "Now" lines: one per active task, the agent as an entity mention so it links to the profile. */
+/** "Working on now" lines: one per active task, the agent as an entity mention so it links to the profile. */
 export function nowLines(tasks: readonly TaskRow[], squad: readonly SquadMember[], max = 3): string[] {
   const byId = new Map(squad.map((m) => [m.id, m.name]));
   return tasks
@@ -183,6 +184,9 @@ const METRIC_SECTION: Partial<Record<DepartmentMetricKey, string>> = { roadmap_o
 
 const AT_RISK = new Set(["blocked", "at_risk", "late", "overdue"]);
 
+/** The Finance card's runway metric in words (UX plan B9); the status strip's tile keeps "Runway" and defines it in its caption. */
+export const RUNWAY_METRIC_LABEL = "Months of cash left";
+
 /**
  * The business's bank balance at the end of each of the last `months` months (oldest first; the current month as of
  * now), walked back from today's balance by each month's net cash flow (finance.overview, cash basis). Real figures,
@@ -232,7 +236,7 @@ function metricFigure(i: MetricInputs): DepartmentMetric {
     case "blended_cpa": {
       const b = i.channels?.blended;
       const cpa = b && b.customers > 0 ? Math.round(b.spendMinor / b.customers) : null;
-      return { label: "Cost per customer", value: cpa === null ? "—" : formatMoney({ amountMinor: cpa, currency: i.currency }), series: dailySeries(i.rows, i.days, (r) => r.spendMinor), provenance: "estimate" };
+      return { label: "Cost to win a customer", value: cpa === null ? "—" : formatMoney({ amountMinor: cpa, currency: i.currency }), series: dailySeries(i.rows, i.days, (r) => r.spendMinor), provenance: "estimate" };
     }
     case "runway": {
       const months = i.finance?.runway.months ?? null;
@@ -240,13 +244,13 @@ function metricFigure(i: MetricInputs): DepartmentMetric {
       const series = monthEndCash(i.finance);
       const seriesLabel = series.length ? `Cash at month end, last ${series.length} months` : undefined;
       // The shared runway words when there is no figure ("No limit" when cash-flow positive); Estimate only on a real estimate.
-      if (months === null) return { label: "Runway", value: runwayWords(i.finance)?.value ?? RUNWAY_WORDS.no_bank.value, series, seriesLabel };
-      return { label: "Runway", value: `${formatNumber(months, { maxDigits: 1 })} mo`, series, seriesLabel, provenance: "estimate" };
+      if (months === null) return { label: RUNWAY_METRIC_LABEL, value: runwayWords(i.finance)?.value ?? RUNWAY_WORDS.no_bank.value, series, seriesLabel };
+      return { label: RUNWAY_METRIC_LABEL, value: `${formatNumber(months, { maxDigits: 1 })} mo`, series, seriesLabel, provenance: "estimate" };
     }
     case "squad_health": {
-      // The one team-health definition (shared/health.ts), the figure the status strip's Business health also uses.
+      // The one team-health definition (shared/health.ts), the figure the status strip's Team health also uses.
       const share = teamHealth(i.squad.map((m) => m.status));
-      return { label: "Team health", value: share === null ? "—" : `${Math.round(share * 100)}%`, series: dailySeries(i.rows, i.days, (r) => r.agentHours), seriesLabel: "Agent hours per day, last 14 days" };
+      return { label: "Team health", value: share === null ? "—" : `${Math.round(share * 100)}%`, series: dailySeries(i.rows, i.days, (r) => r.agentHours), seriesLabel: "Hours of team work per day, last 14 days" };
     }
     case "next_filing": {
       const dues = [...(i.compliance?.deadlines ?? []), ...(i.compliance?.filings ?? []).filter((f) => !f.filedAt), ...(i.compliance?.events ?? [])]
@@ -262,7 +266,7 @@ function metricFigure(i: MetricInputs): DepartmentMetric {
     default: {
       const week = sumInRange(i.rows, weekFrom, i.today, (r) => r.tasksDone);
       const before = sumInRange(i.rows, prevFrom, prevTo, (r) => r.tasksDone);
-      return { label: "Tasks merged this week", value: formatNumber(week, { maxDigits: 0 }), series: dailySeries(i.rows, i.days, (r) => r.tasksDone), ...delta(week, before) };
+      return { label: "Tasks finished this week", value: formatNumber(week, { maxDigits: 0 }), series: dailySeries(i.rows, i.days, (r) => r.tasksDone), ...delta(week, before) };
     }
   }
 }
@@ -324,7 +328,7 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
   }, TASK_EVENTS);
 
   const taskItems = useMemo(() => tasks.data?.items ?? [], [tasks.data]);
-  // The open tasks failed to load (and none are cached): say so, never "Quiet", "Nothing queued" or a health word
+  // The open tasks failed to load (and none are cached): say so, never "Quiet", "Nothing planned yet" or a health word
   // computed from an empty list.
   const tasksFailed = failedWithoutData(tasks);
   // The headline metric's own query, when it failed with nothing cached.
@@ -352,8 +356,8 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
       quiet: tasksFailed ? TASKS_FAILED_LINE : now.length === 0 ? quietLine({ agentIds, departmentId: dept.id, inbox: inbox.data?.items, done: done.data?.items, today, datePrefs, squad }) : null,
       // The metric's caption in the business's words ("Team health" → "Crew health").
       metric: { ...metric, label: g(metric.label) },
-      // A short status, not an instruction: every quiet card would otherwise repeat the same sentence.
-      nextUp: tasksFailed ? "Couldn't load" : next ? next.title : "Nothing queued",
+      // A short status, not an instruction: every quiet card would otherwise repeat the same sentence (UX plan E6).
+      nextUp: tasksFailed ? "Couldn't load" : next ? next.title : "Nothing planned yet",
     };
   }, [dept, overrides, taskItems, tasksFailed, tasks.data, tasks.isLoading, inbox.data, done.data, metricKey, rows, roadmap.data, channels.data, finance.data, compliance.data, metricError, currency, today, datePrefs, g]);
 
@@ -401,10 +405,10 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
 export const departmentCardWidget = registerWidget<DepartmentCardSettings>({
   key: "department_card",
   title: "Department card",
-  description: "Lead, health, team, what is happening now, the headline metric and what is next for one department.",
+  description: "Lead, health, team, what it is working on now, the headline metric and what is next for one department.",
   icon: "layout-grid",
   surfaces: ["home", "department"],
-  // Sized to the card's content (header, team strip, three "Now" lines, the metric, "Next up"): a stored taller cell
+  // Sized to the card's content (header, team strip, three "Working on now" lines, the metric, "Next"): a stored taller cell
   // (the seeded and API presets keep h 30) is clamped here rather than drawn as an empty plate (DESIGN §9 Home).
   defaultSize: { w: 4, h: 12, minW: 3, minH: 10, maxH: 16 },
   settingsSchema: DepartmentCardSettings,

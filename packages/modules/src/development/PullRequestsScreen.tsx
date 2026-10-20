@@ -6,7 +6,7 @@
  */
 import { useMemo, useState } from "react";
 import { ExternalLink, GitMerge, GitPullRequest, MonitorPlay, Network, SearchCheck } from "lucide-react";
-import { Avatar, DataTable, EntityLink, FitText, Panel, StatusPill, formatNumber, type DataTableColumn, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
+import { Avatar, DataTable, EntityLink, FitText, Panel, StatusPill, formatNumber, useGuided, type DataTableColumn, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type WidgetEvent } from "@foundmill/widgets/data";
@@ -122,8 +122,12 @@ export function toMergedRows(merged: readonly MergedPrRow[], agents: Map<string,
   });
 }
 
+/** What a pull request is, for a first-timer, under the title while guidance is on (UX plan §7.12). */
+export const PULL_REQUESTS_LEDE = "A bundle of finished code waiting for review.";
+
 export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenProps) {
   const { navigate } = useWidgetData();
+  const guided = useGuided();
   const deptSlug = useDevDepartment(departmentId)?.slug ?? "development";
   const planHref = (taskId: string) => `${routes.department(businessId, deptSlug, "plan")}?task=${taskId}`;
   // Each column at its minimum; the tables share their spare width by the specs' weights themselves (`meta.grow`).
@@ -260,6 +264,12 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
         }
         footer={<span>Merges follow the business mode: automatic when the checks are green in Assisted and Automated, your approval in Augmented.</span>}
       >
+        {/* TODO(guided-layer): Explainer. */}
+        {guided ? (
+          <p className="px-panel-pad pb-1.5 pt-2 text-small text-secondary" data-testid="pull-requests-lede">
+            {PULL_REQUESTS_LEDE}
+          </p>
+        ) : null}
         <div className="min-w-0">
           <DataTable<OpenPrTableRow> data={openRows} columns={openColumns} {...openSavedViews} defaultViewId="open" rowActions={openActions} onRowOpen={(r) => navigate(planHref(r.taskId))} height={Math.min(320, Math.max(3, openRows.length) * 28 + 42)} exportFileName="open-pull-requests" empty={{ icon: GitPullRequest, children: "Pull requests appear here when an agent's task passes its acceptance tests and enters review.", action: { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } }} aria-label="Open pull requests" className="border-0" />
         </div>

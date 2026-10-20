@@ -7,7 +7,7 @@
  * consent-limited journeys, and the latest wins.
  */
 import { useCallback, useMemo } from "react";
-import { ExternalLink, Route, Trophy } from "lucide-react";
+import { ChevronRight, ExternalLink, Route, Trophy } from "lucide-react";
 import { Button, Chip, DataTable, FunnelChart, KeyValueList, Panel, ProvenanceChip, StatusPill, formatMoney, formatNumber, formatPercent, useFormatters, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { CHANNEL_LINES, CHANNEL_WINDOW_DAYS, type ChannelKey, type MatchdayLevel } from "@foundmill/shared/constants";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
@@ -37,6 +37,14 @@ const LATEST_WINS = 5;
 
 /** Conversion kinds as words; payments show their amount instead. */
 const CONVERSION_WORDS: Record<string, string> = { signup: "Signup", activation: "Activation", lead: "Lead", trial: "Trial started", order: "Order" };
+
+/**
+ * How credit for a win is shared, in one plain sentence per model (UX plan §7.13, C7). The model's name and its
+ * mechanics stay under "Technical detail".
+ */
+export function creditSharingHeadline(model: AttributionSummaryResponse["attributionModel"]): string {
+  return model === "data_driven_markov" ? "Each touch gets the credit it earned: the more wins depended on it, the bigger its share." : "Early touches get 40 %, the last touch 40 %, the middle 20 %.";
+}
 
 /** What each column's content needs and its share of the spare width: every view fits the 980 px table at 1280. */
 export const ATTRIBUTION_FIT = {
@@ -144,7 +152,7 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
   return (
     <Screen name="distribution/attribution">
       <Panel
-        title="Model in use"
+        title="How credit is shared"
         span={4}
         loading={summary.isLoading || journeys.isLoading}
         error={modelError ? modelError.message : undefined}
@@ -155,7 +163,10 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
       >
         {model ? (
         <div className="flex flex-col gap-3">
-          <p className="t-display-sm text-primary">{MODEL_LABELS[model.attributionModel]}</p>
+          {/* The business thing first (how a win's credit is split), the system thing (the model) behind a disclosure. */}
+          <p className="t-display-sm text-pretty text-primary" data-testid="credit-headline">
+            {creditSharingHeadline(model.attributionModel)}
+          </p>
           <KeyValueList
             dense
             layout="rows"
@@ -163,14 +174,27 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
             items={[
               { label: "Labeled conversions", value: formatNumber(model.conversionCount, { digits: 0 }), numeric: true },
               { label: "Paying customers", value: formatNumber(model.byKind.payment ?? 0, { digits: 0 }), numeric: true },
-              { label: "Data-driven from", value: `${formatNumber(model.threshold, { digits: 0 })} conversions`, numeric: true },
               { label: "Partial journeys", value: `${formatNumber(model.partialJourneys, { digits: 0 })} of ${formatNumber(model.journeys, { digits: 0 })}`, numeric: true },
             ]}
           />
-          <p className="text-small text-secondary">
-            {model.attributionModel === "position_based_40_20_40" ? `${formatNumber(model.remaining, { digits: 0 })} more labeled conversion${model.remaining === 1 ? "" : "s"} (signups, activations and first payments) before the Markov removal-effect model takes over.` : "Weights come from the removal effect over every recorded conversion path; the position-based model is the fallback for paths the model has not seen."}{" "}
-            {model.partialJourneys ? "Where consent was not granted, only first-party touches were weighted." : ""}
-          </p>
+          {model.partialJourneys ? <p className="text-small text-secondary">Where consent was not granted, only first-party touches were weighted.</p> : null}
+          {/* TODO(guided-layer): the Explainer / InfoTip primitives replace this native disclosure. */}
+          <details className="group/detail text-small" data-testid="credit-technical">
+            <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm text-secondary transition-colors duration-hover ease-out hover:text-primary [&::-webkit-details-marker]:hidden">
+              <ChevronRight size={14} aria-hidden className="transition-transform duration-overlay ease-out group-open/detail:rotate-90" />
+              Technical detail
+            </summary>
+            <div className="mt-1.5 flex flex-col gap-1 text-secondary">
+              <p>
+                <span className="text-body-strong text-primary">{MODEL_LABELS[model.attributionModel]}</span>
+              </p>
+              <p>
+                {model.attributionModel === "position_based_40_20_40"
+                  ? `The data-driven model takes over at ${formatNumber(model.threshold, { digits: 0 })} labeled conversions (signups, activations and first payments): ${formatNumber(model.remaining, { digits: 0 })} more to go.`
+                  : "Weights come from the removal effect over every recorded conversion path; the position-based model is the fallback for paths the model has not seen."}
+              </p>
+            </div>
+          </details>
           <section aria-label="Latest wins" className="flex flex-col gap-1 border-t border-subtle pt-2">
             <p className="t-title text-primary">Latest wins</p>
             {latest.length === 0 ? (

@@ -2,14 +2,14 @@ import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Button } from "../foundation/Button";
 import { Kbd } from "../foundation/Kbd";
-import { CommandPalette, filterPaletteItems, parseSearchQuery, type PaletteItem } from "./CommandPalette";
-import { PALETTE_ITEMS, RECENT_PALETTE_ITEMS } from "./fixtures";
+import { CommandPalette, KEYBOARD_SHORTCUTS_HELP_ITEM, filterPaletteItems, parseSearchQuery, type PaletteItem } from "./CommandPalette";
+import { HELP_PALETTE_ITEMS, PALETTE_ITEMS, RECENT_PALETTE_ITEMS } from "./fixtures";
 
 const meta = {
   title: "Shell/CommandPalette",
   component: CommandPalette,
-  parameters: { docs: { description: { component: "Universal search (BUILD §11.12) on cmdk, on the dialog glass. It leads with what the founder can do — Ask an agent (the query travels with it) and Generate — then recent items, then departments and agents before screens, the Inbox, the CRM and commands (settings among them). The business matches its own name. Rows carry a glyph tinted by their department; the selected row takes the brand plate and a lit edge. Operators kind:/role:/stage:/owner:/department: and > for commands, a hint row, ↑↓ ↵ Esc. Opens from the top bar, / or ⌘K." } } },
-  args: { open: true, onOpenChange: () => {}, items: PALETTE_ITEMS, recent: RECENT_PALETTE_ITEMS, onSelect: () => {} },
+  parameters: { docs: { description: { component: "Universal search (BUILD §11.12) on cmdk, on the dialog glass. It leads with what the founder can do — Ask an agent (the query travels with it) and Generate — then recent items, then departments and agents before screens, the Inbox, Contacts and commands (settings among them), and a Help group last: the keyboard shortcuts, and once asked for (“what is runway”) a defined term with its one-line meaning. The business matches its own name. Rows carry a glyph tinted by their department; the selected row takes the brand plate and a lit edge. Operators kind:/role:/stage:/owner:/department: and > for commands; their hint row appears once > or a colon is typed. ↑↓ ↵ Esc. Opens from the top bar, / or ⌘K." } } },
+  args: { open: true, onOpenChange: () => {}, items: PALETTE_ITEMS, recent: RECENT_PALETTE_ITEMS, helpItems: [KEYBOARD_SHORTCUTS_HELP_ITEM, ...HELP_PALETTE_ITEMS], onSelect: () => {} },
 } satisfies Meta<typeof CommandPalette>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -41,6 +41,8 @@ export const CommandsOnly: Story = { args: { query: "> " } };
 export const KindFilter: Story = { name: "kind:person", args: { query: "kind:person" } };
 export const Loading: Story = { args: { loading: true, items: [], recent: [] } };
 export const Empty: Story = { args: { query: "qwertyuiop", recent: [] } };
+/** "what is runway": the Help group answers with the term and its one-line meaning; Enter opens the screen that shows it. */
+export const HelpTerm: Story = { name: "Help: what is runway", args: { query: "what is runway", recent: [] } };
 function RemoteFrame(args: Story["args"]) {
   const [query, setQuery] = useState("");
     const [items, setItems] = useState<PaletteItem[]>(PALETTE_ITEMS);

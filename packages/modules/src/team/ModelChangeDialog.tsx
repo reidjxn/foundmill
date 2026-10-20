@@ -1,7 +1,7 @@
 "use client";
 /**
- * Change an agent's model from the squad table (BUILD §11.9 Model column, §11.10 AC-11.10.5): the picker shows the
- * predicted wage per model (Estimate, from `agent.model.compare`), locked routes with the reason, then ApplyScopeDialog
+ * Change an agent's model from the team table (BUILD §11.9 Model column, §11.10 AC-11.10.5): the picker shows the
+ * predicted cost per month per model (Estimate, from `agent.model.compare`), locked routes with the reason, then ApplyScopeDialog
  * asks "this agent / all of its type / all agents" and `agent.model.set` applies it; retests are queued by the API.
  */
 import { useEffect, useState } from "react";
@@ -89,7 +89,7 @@ export function ModelChangeDialog({ agent, onOpenChange, typeCount, allCount, on
         <DialogContent size="md" data-testid="model-dialog">
           <DialogHeader>
             <DialogTitle>Model for {agent?.name}</DialogTitle>
-            <DialogDescription>Predicted wages are estimates from this month's usage. A retest is queued after the change so the skills reflect the new model.</DialogDescription>
+            <DialogDescription>Cost per month is an estimate from this month's usage. Its skills are re-tested on the new model so the ratings stay honest.</DialogDescription>
           </DialogHeader>
           <DialogBody>
             {compare.isLoading ? <SkeletonText lines={3} /> : compare.error ? <InlineError error={errorMessage(compare.error)} /> : <ModelPicker options={options} value={current} onChange={(m) => m !== current && setCandidate(m)} disabled={action.pending !== null} />}

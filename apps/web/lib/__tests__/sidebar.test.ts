@@ -18,20 +18,24 @@ describe("sidebar items", () => {
     expect(departmentHref(BID, depts[0]!)).toBe(`/b/${BID}/d/development/training-ground`);
     expect(items.find((i) => i.id === "home")?.fixed).toBe("home");
     expect(items.find((i) => i.id === "inbox")?.fixed).toBe("inbox");
-    expect(items.find((i) => i.id === "crm")?.fixed).toBe("crm");
+    // The CRM reads "Contacts" (founder, 2026-10-20); its id, slug and G chord keep "crm".
+    expect(items.find((i) => i.id === "crm")).toMatchObject({ fixed: "crm", label: "Contacts", href: `/b/${BID}/crm` });
     // A Personal business keeps Network (the founder's own requests and messages) and nothing else of the LIVE block.
     expect(items.filter((i) => i.group === "live").map((i) => i.label)).toEqual(["Network"]);
-    // The Foundmill wordmark is not an item (no icon): Dugout draws it from `SIDEBAR_BRAND` while expanded.
-    expect(items.filter((i) => i.group === "foot").map((i) => i.label)).toEqual(["Settings", "Anthropic key", "Sign out"]);
+    // The Foundmill wordmark is not an item (no icon): Dugout draws it from `SIDEBAR_BRAND` while expanded. The
+    // Anthropic key is a Settings tab, not a foot item (B13).
+    expect(items.filter((i) => i.group === "foot").map((i) => i.label)).toEqual(["Settings", "Sign out"]);
+    expect(items.some((i) => i.label === "Anthropic key")).toBe(false);
     // Sign out is a button (no href), so no router prefetch can ever end the session.
     expect(items.find((i) => i.id === "sign-out")?.href).toBeUndefined();
     expect(items.some((i) => i.id === "brand")).toBe(false);
     expect(SIDEBAR_BRAND).toEqual({ href: "/" });
   });
 
-  it("adds the LIVE block in live mode", () => {
+  it("adds the LIVE block in live mode, Leaderboards with its own icon (the Trophy is Milestones', B22)", () => {
     const items = buildSidebarItems({ businessId: BID, departments: depts, live: true });
     expect(items.filter((i) => i.group === "live").map((i) => i.label)).toEqual(["Network", "Communities", "Leaderboards"]);
+    expect(items.find((i) => i.id === "leaderboards")?.icon).not.toBe(items.find((i) => i.id === "milestones")?.icon);
   });
 
   it("badges Network with what waits for the founder in every mode, and Communities with posts to moderate (audit #65)", () => {
@@ -73,7 +77,7 @@ describe("sidebar items", () => {
     expect(activeSidebarId(`/b/${BID}`, BID, depts)).toBe("home");
     expect(activeSidebarId(`/b/${BID}/inbox/123`, BID, depts)).toBe("inbox");
     expect(activeSidebarId(`/b/${BID}/d/development/plan`, BID, depts)).toBe("d-dev");
-    expect(activeSidebarId(`/b/${BID}/settings/keys`, BID, depts)).toBe("keys");
+    expect(activeSidebarId(`/b/${BID}/settings/keys`, BID, depts)).toBe("settings");
     expect(activeSidebarId(`/b/${BID}/settings/mode`, BID, depts)).toBe("settings");
     expect(activeSidebarId(`/b/${BID}/trophies`, BID, depts)).toBe("milestones");
     expect(activeSidebarId(`/b/other/home`, BID, depts)).toBeUndefined();

@@ -11,7 +11,10 @@ export interface StarRatingProps extends HTMLAttributes<HTMLSpanElement> {
   size?: number;
   /** Accessible label prefix, e.g. "Current ability". */
   label?: string;
-  /** Show the numeric value after the stars so colour is not the only signal. */
+  /**
+   * Show the value after the stars so color is not the only signal: with a potential, the caption "Now 3.5 · could
+   * reach 4.5" (UX plan §6.2 ScaleLabel); without one, the value alone.
+   */
   showValue?: boolean;
 }
 
@@ -23,6 +26,11 @@ function fills(value: number): Fill[] {
     const rem = v - i;
     return rem >= 1 ? "full" : rem >= 0.5 ? "half" : "empty";
   });
+}
+
+/** The caption under a star pair: "Now 3.5 · could reach 4.5" (or "Now 3.5" with no potential). */
+export function starsCaption(value: number, potential?: number): string {
+  return potential === undefined ? `Now ${value}` : `Now ${value} · could reach ${potential}`;
 }
 
 function StarGlyph({ fill, outlined, size }: { fill: Fill; outlined: boolean; size: number }) {
@@ -43,23 +51,31 @@ function StarGlyph({ fill, outlined, size }: { fill: Fill; outlined: boolean; si
 
 /**
  * 0–5 stars with halves (BUILD §5.4). Current stars are solid gold, potential stars are outlined gold, empties are
- * strong-hairline outlines; the value in mono text-3 ("3.5 → 4.5") so colour is never the only signal (DESIGN §8).
+ * strong-hairline outlines. With `showValue` the number sits after the stars so color is never the only signal
+ * (DESIGN §8): a star pair reads "Now 3.5 · could reach 4.5" once, and the tooltip says the same.
  */
 export function StarRating({ value, potential, size = 12, label = "Rating", showValue, className, ...rest }: StarRatingProps) {
   const current = fills(value);
   const pot = potential === undefined ? null : fills(potential);
   const text = potential === undefined ? `${label}: ${value} of 5` : `${label}: ${value} of 5, potential ${potential}`;
+  const caption = starsCaption(value, potential);
   return (
-    <span role="img" aria-label={text} title={text} className={cn("inline-flex items-center gap-px align-middle", className)} {...rest}>
+    <span role="img" aria-label={text} title={potential === undefined ? text : caption} className={cn("inline-flex items-center gap-px align-middle", className)} {...rest}>
       {current.map((f, i) => {
         const outlined = pot ? pot[i] !== "empty" : false;
         return <StarGlyph key={i} fill={f} outlined={outlined} size={size} />;
       })}
+      {/* TODO(guided-layer): ScaleLabel owns this caption once the guidance primitives land. */}
       {showValue ? (
-        <span className="ml-1.5 font-mono text-mono tabular-nums text-tertiary" aria-hidden>
-          {value}
-          {potential !== undefined ? ` → ${potential}` : ""}
-        </span>
+        potential === undefined ? (
+          <span className="ml-1.5 font-mono text-mono tabular-nums text-tertiary" aria-hidden>
+            {value}
+          </span>
+        ) : (
+          <span className="ml-1.5 whitespace-nowrap text-small tabular-nums text-secondary" aria-hidden data-stars-caption>
+            {caption}
+          </span>
+        )
       ) : null}
     </span>
   );

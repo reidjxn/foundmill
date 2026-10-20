@@ -1,17 +1,17 @@
 "use client";
 /**
- * History tab (BUILD §11.10 "History and logs"): one Timeline of everything that changed this agent — versions
- * (drafted, promoted, retired), training runs (queued → results → promoted / discarded / rolled back) and the
- * sessions it ran — plus a metrics strip over the last 30 days, computed by `agent.profile.get` from the agent's own
- * sessions, usage and approvals (`recent`), so it agrees with the sessions listed and with the wage.
+ * History tab (BUILD §11.10 "History and logs"): the live version and the agent's type (moved here from the Overview's
+ * contract panel, UX plan C12), one Timeline of everything that changed this agent — versions (drafted, promoted,
+ * retired), training runs (queued → results → promoted / discarded / rolled back) and the sessions it ran — plus a
+ * metrics strip over the last 30 days, computed by `agent.profile.get` from the agent's own sessions, usage and
+ * approvals (`recent`), so it agrees with the sessions listed and with the AI cost.
  */
 import { Dumbbell, FileClock, Play, Undo2 } from "lucide-react";
 import { useMemo } from "react";
-import { CREDITS_CURRENCY } from "@foundmill/config";
-import { Panel, StatusStrip, Timeline, formatMoney, type MetricTileProps, type TimelineEvent } from "@foundmill/dugout";
+import { KeyValueList, Panel, StatusStrip, Timeline, formatMoney, useFormatters, type MetricTileProps, type TimelineEvent } from "@foundmill/dugout";
 import type { TabProps } from "./AgentProfileScreen";
 import { MODEL_LABELS } from "@foundmill/dugout";
-import { RUN_PHASE_LABEL, isRetestRun, isRetestVersion, outcomeWord, sessionRows, toIso } from "./logic";
+import { RUN_PHASE_LABEL, currentVersion, humaniseKey, isRetestRun, isRetestVersion, outcomeWord, sessionRows, toIso } from "./logic";
 import { formatNumber } from "@/lib/format";
 
 /** "opus" → "Opus" (the model's display name). */
@@ -59,8 +59,10 @@ export function historyEvents(profile: TabProps["profile"], currency: string): T
 }
 
 export function HistoryTab({ profile, currency }: TabProps) {
+  const { formatDateTime } = useFormatters();
   const events = useMemo(() => historyEvents(profile, currency), [profile, currency]);
   const { metrics, recent } = profile;
+  const current = currentVersion(profile);
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="agent-history">
       <div className="col-span-12">
@@ -70,11 +72,21 @@ export function HistoryTab({ profile, currency }: TabProps) {
             { label: "Success rate", value: recent.successRate, format: "percent", caption: recent.sessions ? `${recent.tasksDone} of ${recent.sessions} sessions` : undefined },
             { label: "Review findings", value: recent.reviewFindings, format: "integer", delta: recent.reviewFindings ? { value: recent.reviewFindings, goodWhen: "down", label: "open" } : undefined },
             { label: "Approvals rejected", value: recent.approvalsRejected, format: "integer" },
-            { label: "Cost · 30 d", value: { amountMinor: recent.costMinor, currency: recent.currency }, estimate: "estimate", provenance: { source: "Model and tool usage, last 30 days (the usage ledger, as the wage)" } },
+            { label: "AI cost · 30 d (USD)", value: { amountMinor: recent.costMinor, currency: recent.currency }, estimate: "estimate", provenance: { source: "Model and tool usage, last 30 days (the usage ledger, as the profile's AI cost)" } },
           ] satisfies MetricTileProps[]}
         />
       </div>
-      <Panel title="History" span={12} empty={events.length === 0 ? { children: "Versions, training runs and sessions appear here as they happen." } : undefined} data-testid="history-timeline">
+      <Panel title="Version" span={4} className="self-start" data-testid="version-panel" footer="The live version is the instructions the agent works from now; a draft never changes it until you promote.">
+        <KeyValueList
+          layout="rows"
+          labelClassName="w-28"
+          items={[
+            { label: "Live version", value: current ? `v${current.version} · ${formatDateTime(current.createdAt)}` : "None", mono: true },
+            { label: "Type", value: humaniseKey(profile.agent.agentType) },
+          ]}
+        />
+      </Panel>
+      <Panel title="History" span={8} empty={events.length === 0 ? { children: "Versions, training runs and sessions appear here as they happen." } : undefined} data-testid="history-timeline">
         <Timeline events={events} absolute />
       </Panel>
     </div>

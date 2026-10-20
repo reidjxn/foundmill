@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { GridCell, PageGrid, snapSpan, spanClass } from "./PageGrid";
 import { Panel } from "./Panel";
 import { preloadPanelMenu } from "./PanelMenuButton";
@@ -115,6 +116,34 @@ describe("Panel", () => {
     expect(screen.getByText("Aug 6 – Nov 8, 2026").className).toContain("t-mono");
   });
 
+  it("carries a help tip after the meta, named for the panel, that hides when guidance is off", async () => {
+    const { rerender } = render(
+      <Panel title="Cash and runway" meta="Last 30 days" help="How long the money lasts at today's spending.">
+        x
+      </Panel>,
+    );
+    const tip = screen.getByRole("button", { name: "About Cash and runway" });
+    const header = screen.getByRole("region", { name: "Cash and runway" }).querySelector("[data-panel-header]")!;
+    expect(header.contains(tip)).toBe(true);
+    expect(screen.getByText("Last 30 days").nextElementSibling).toBe(tip);
+    tip.focus();
+    expect((await screen.findByRole("tooltip")).textContent).toContain("How long the money lasts");
+    rerender(
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <Panel title="Cash and runway" help="How long the money lasts at today's spending.">
+          x
+        </Panel>
+      </GuidanceProvider>,
+    );
+    expect(screen.queryByRole("button", { name: "About Cash and runway" })).toBeNull();
+    rerender(
+      <Panel title={<span>Cash</span>} help="A sentence.">
+        x
+      </Panel>,
+    );
+    expect(screen.getByRole("button", { name: "About this panel" })).toBeTruthy();
+  });
+
   it("lights the panel from its corner in a department colour or the brand", () => {
     const { rerender } = render(<Panel title="Product" glow="dept-1">x</Panel>);
     let section = screen.getByRole("region", { name: "Product" });
@@ -152,7 +181,10 @@ describe("PageGrid", () => {
 describe("ProcessingStrip", () => {
   it("reports the working departments and shimmers only when active", () => {
     expect(processingStatusText(NORTHWIND_SEGMENTS, false)).toBe("No cycle running");
-    expect(processingStatusText(NORTHWIND_SEGMENTS, true)).toBe("Cycle running: Product, Formulation Lab, Distribution, Operations");
+    expect(processingStatusText(NORTHWIND_SEGMENTS, true)).toBe("Product, Formulation Lab, Distribution and Operations are working");
+    expect(processingStatusText(NORTHWIND_SEGMENTS, true, 3)).toBe("Product, Formulation Lab, Distribution and Operations are working on cycle 3");
+    expect(processingStatusText(NORTHWIND_SEGMENTS.slice(0, 1), true, 3)).toBe("Product is working on cycle 3");
+    expect(processingStatusText(NORTHWIND_SEGMENTS.map((s) => ({ ...s, active: false })), true, 2)).toBe("The team is working on cycle 2");
     const { rerender } = render(<ProcessingStrip segments={NORTHWIND_SEGMENTS} active />);
     const strip = screen.getByRole("status");
     expect(strip.getAttribute("aria-label")).toContain("Formulation Lab");

@@ -13,7 +13,7 @@ describe("SpecificationScreen", () => {
     const outline = screen.getByRole("navigation", { name: "Spec outline" });
     expect(within(outline).getAllByRole("heading").map((h) => h.textContent)).toEqual(["Problem", "Customers", "Features", "Pricing", "Metrics"]);
     expect(within(outline).getByRole("button", { name: /Invoices go unpaid/ }).getAttribute("aria-current")).toBe("true");
-    const editor = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+    const editor = screen.getByLabelText("Paragraph text") as HTMLTextAreaElement;
     expect(editor.value).toContain("# Invoices go unpaid");
     expect(screen.getByText("Editing")).toBeTruthy();
     // The internal document name is not founder copy.
@@ -27,14 +27,14 @@ describe("SpecificationScreen", () => {
     fireEvent.keyDown(outline, { key: "ArrowDown" });
     expect(within(outline).getByRole("button", { name: /Solo consultants/ }).getAttribute("aria-current")).toBe("true");
     expect(screen.getAllByText("Pinned").length).toBeGreaterThan(0);
-    expect(screen.getByText(/agents cannot change this block without an accepted change proposal/)).toBeTruthy();
+    expect(screen.getByText(/agents cannot change this paragraph without an accepted change proposal/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Unpin/ })).toBeTruthy();
   });
 
   it("saves plain edits through product.spec.editBlock with ProseMirror content and refetches", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <SpecificationScreen businessId={BID} departmentId="d1" />);
-    const editor = screen.getByLabelText("Block text") as HTMLTextAreaElement;
+    const editor = screen.getByLabelText("Paragraph text") as HTMLTextAreaElement;
     fireEvent.change(editor, { target: { value: "# Invoices go unpaid\n\nNew paragraph" } });
     await act(async () => {
       fireEvent.keyDown(editor, { key: "s", ctrlKey: true });
@@ -120,7 +120,7 @@ describe("SpecificationScreen", () => {
     // The plain fallback editor is locked too.
     const plain = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(plain, <SpecificationScreen businessId={BID} departmentId="d1" />, { canWrite: () => false });
-    expect((screen.getAllByLabelText("Block text").at(-1) as HTMLTextAreaElement).readOnly).toBe(true);
+    expect((screen.getAllByLabelText("Paragraph text").at(-1) as HTMLTextAreaElement).readOnly).toBe(true);
   });
 
   it("offers Pin, Publish and Restore to writers and passes a writable editor", () => {
@@ -141,7 +141,7 @@ describe("SpecificationScreen", () => {
     const fake = createFakeSource({ businessId: BID, responses: emptyResponses });
     renderScreen(fake, <SpecificationScreen businessId={BID} departmentId="d1" />);
     expect(screen.getByText("No spec yet")).toBeTruthy();
-    expect(screen.getByText(/Pick a block in the outline/)).toBeTruthy();
+    expect(screen.getByText(/Pick a paragraph in the outline/)).toBeTruthy();
     expect(screen.getByText(/Versions appear when a change proposal is accepted/)).toBeTruthy();
     const failing = createFakeSource({ businessId: BID, responses: { ...emptyResponses, "product.spec.get": new Error("boom") } });
     renderScreen(failing, <SpecificationScreen businessId={BID} departmentId="d1" />);

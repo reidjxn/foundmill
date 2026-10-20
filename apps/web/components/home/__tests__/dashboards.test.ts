@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DASHBOARD_PRESET_IDS } from "@foundmill/widgets";
-import { dashboardActions, dashboardTabs, dayOneLine, editedElsewhere, ghostedMilestones, gridPresets, isDayOne, isOwnDashboard, nextDashboardName, pickDashboardId, resetPresetFor, sameLayout, shareHref, versionConflict, type DashboardSummary } from "../dashboards";
+import { dashboardActions, dashboardTabs, dayOneLine, dayOneStep, editedElsewhere, ghostedMilestones, gridPresets, isDayOne, isOwnDashboard, nextDashboardName, pickDashboardId, resetPresetFor, sameLayout, shareHref, versionConflict, type DashboardSummary } from "../dashboards";
 
 const d = (id: string, name: string, extra: Partial<DashboardSummary> = {}): DashboardSummary => ({ id, name, preset: "founder", version: 1, isActive: false, userId: "u1", ...extra });
 
@@ -114,6 +114,13 @@ describe("day one after commit (audit FR-19, IAE-19, OL-23)", () => {
     expect(dayOneLine({ running: false, cycleNumber: null, blocking: 1 })).toMatch(/answer the note in Respond/);
     expect(dayOneLine({ running: false, cycleNumber: null, blocking: 2 })).toMatch(/answer the 2 notes in Respond/);
     expect(dayOneLine({ running: false, cycleNumber: null, blocking: 0 })).toMatch(/press Continue to start the first cycle/);
+  });
+
+  it("links the one step that matches the line: the Vision tab, the Inbox's Respond tab, or Continue (UX plan B4)", () => {
+    expect(dayOneStep({ running: true, cycleNumber: 1, blocking: 1 })).toEqual({ kind: "vision", label: "Read what the team drafted" });
+    expect(dayOneStep({ running: false, cycleNumber: null, blocking: 1 })).toEqual({ kind: "respond", label: "Answer the note" });
+    expect(dayOneStep({ running: false, cycleNumber: null, blocking: 2 })).toEqual({ kind: "respond", label: "Answer the 2 notes" });
+    expect(dayOneStep({ running: false, cycleNumber: null, blocking: 0 })).toEqual({ kind: "continue", label: "Press Continue" });
   });
 });
 

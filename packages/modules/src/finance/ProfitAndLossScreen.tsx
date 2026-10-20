@@ -1,8 +1,9 @@
 "use client";
 /**
  * Finance › Profit and loss (BUILD §11.8, DESIGN §9): the management P&L as a DataTable with indented category lines,
- * subtotal rules and totals over a selectable period, labelled "Management P&L, unaudited, cash basis" when the
- * numbers come from categorised bank transactions (a connected ledger wins and is labelled as such). Selecting a line
+ * subtotal rules and totals over a selectable period, labelled "Management view, unaudited, counted when the cash
+ * moves (cash basis)" when the numbers come from categorised bank transactions (a connected ledger wins and is
+ * labelled as such). Selecting a line
  * lists its transactions; recategorising one through `finance.transactions.recategorise` can create a rule.
  */
 import { useMemo, useState } from "react";
@@ -13,7 +14,7 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
-import { PNL_SECTION_LABELS, buildPnl, categoryLabel, formatMonth, isUncategorised, ledgerPnlRows, monthStart, pnlTotals, type PnlRow } from "./metrics";
+import { PNL_SECTION_LABELS, buildPnl, categoryLabel, formatMonth, isUncategorised, ledgerPnlRows, monthStart, pnlLabelWords, pnlTotals, type PnlRow } from "./metrics";
 import { RecategoriseDialog } from "./RecategoriseDialog";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
 import { Screen, fitTableHeight, fmtMoney, fmtSigned, useCurrency, useNow } from "./shared";
@@ -175,7 +176,7 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
         error={pnl.error ? pnl.error.message : undefined}
         onRetry={pnl.refetch}
         empty={empty ? { icon: Landmark, title: "No transactions in this period", children: "Connect a bank account and the finance lead categorizes every transaction into the standard chart of accounts.", action: { label: "Connect a bank", icon: Landmark, onClick: () => navigate(routes.settings(businessId, "integrations")) } } : undefined}
-        meta={pnl.data ? (ledger ? `Ledger · ${ledger.basis} basis` : pnl.data.label) : undefined}
+        meta={pnl.data ? (ledger ? `Ledger · ${ledger.basis} basis` : pnlLabelWords(pnl.data.label)) : undefined}
         actions={<SegmentedControl<PnlPeriod> aria-label="Period" size="sm" value={period} onValueChange={setPeriod} options={PNL_PERIODS.map((p) => ({ value: p.value, label: p.short, title: p.label }))} />}
         footer={
           <>

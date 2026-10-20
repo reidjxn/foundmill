@@ -9,11 +9,13 @@ import {
   CircleX,
   Clock,
   Coins,
+  Ellipsis,
   ExternalLink,
   FlaskConical,
   GitMerge,
   Hourglass,
   ListTodo,
+  Megaphone,
   Pause,
   Play,
   SearchCheck,
@@ -26,14 +28,19 @@ import { formatCompact, formatMoney } from "../../lib/format";
 import { Avatar } from "../foundation/Avatar";
 import { FitText } from "../foundation/FitText";
 import { ProvenanceChip } from "../foundation/Chip";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "../foundation/DropdownMenu";
 import { Icon, type IconComponent } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";
 import { ProgressRing } from "../foundation/ProgressRing";
 import { StatusPill, type StatusTone } from "../foundation/StatusPill";
 import { Tooltip } from "../foundation/Tooltip";
+import { useGuided } from "../guidance/GuidanceProvider";
 import { elapsedLabel, etaLabel } from "./progress";
-import { ShoutMenu } from "./ShoutMenu";
+import { SHOUT_PRESETS, ShoutMenu } from "./ShoutMenu";
 import type { AgentTileSession, TileControls, TileTask } from "./types";
+
+/** The label of the model upgrade everywhere a tile or a task offers it (the API's `upgradeModel` moves the task to Opus). */
+export const STRONGEST_MODEL_LABEL = "Use the strongest model";
 
 export interface TileViewOption {
   id: string;
@@ -126,10 +133,13 @@ export interface TileFrameProps {
 /**
  * The AgentTile chrome (DESIGN §8): 32 px header (avatar 20 with status ring, name, task link, phase pill, progress
  * ring 16), body slot, 24 px small-style footer (elapsed, tokens, cost, ETA, last note) and hover controls
- * (Pause / Resume, Shout, Reassign, Upgrade to Opus, Stop). Shared by AgentTile and SpecialistTile.
+ * (Pause / Resume, Nudge, Reassign, Use the strongest model, Stop). While guidance is on the header also carries a
+ * visible "…" that opens the same actions as a menu, so hovering is never the only way to find them (UX plan §7.12).
+ * Shared by AgentTile and SpecialistTile.
  */
 export function TileFrame({ session, views, view, onViewChange, focused, compact, controls = {}, onFocus, onOpenTask, now, children, className }: TileFrameProps) {
   const id = useId();
+  const guided = useGuided();
   const pill = sessionPill(session);
   const pct = Math.round(session.progress * 100);
   // A queued session has not started for real: no clock runs and nothing pulses until a worker picks it up.
@@ -167,6 +177,8 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
 
   const pillToneText = PILL_TONE[pill.tone];
   const noteTone = session.lastNote?.level === "error" ? "text-status-bad" : session.lastNote?.level === "warn" ? "text-status-warn" : "text-primary";
+  const canUpgrade = !!controls.onUpgradeModel && session.agent.model !== "opus";
+  const hasControls = Boolean(controls.onPause || controls.onResume || controls.onShout || controls.onReassign || canUpgrade || controls.onOpenInClaudeCode || controls.onStop);
 
   return (
     <article
@@ -279,6 +291,70 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
               );
             })}
           </div>
+          {/* Guided: the same actions as the hover toolbar, behind a visible "…" (hover is never the only path). */}
+          {guided && hasControls ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <IconButton icon={Ellipsis} label={`More actions for ${session.agent.name}`} size="sm" variant="ghost" className="shrink-0" data-tile-actions="" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel>{session.agent.name}</DropdownMenuLabel>
+                {canResume ? (
+                  <DropdownMenuItem onSelect={() => controls.onResume?.(session.id)}>
+                    <Icon icon={Play} size="inline" className="text-secondary" />
+                    Resume
+                  </DropdownMenuItem>
+                ) : controls.onPause ? (
+                  <DropdownMenuItem disabled={!canPause} onSelect={() => controls.onPause?.(session.id)}>
+                    <Icon icon={Pause} size="inline" className="text-secondary" />
+                    Pause
+                  </DropdownMenuItem>
+                ) : null}
+                {controls.onShout ? (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger disabled={over}>
+                      <Icon icon={Megaphone} size="inline" className="text-secondary" />
+                      Nudge
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-64">
+                      {SHOUT_PRESETS.map((p) => (
+                        <DropdownMenuItem key={p.key} onSelect={() => controls.onShout?.(session.id, { preset: p.key, text: p.label })}>
+                          {p.label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                ) : null}
+                {controls.onReassign ? (
+                  <DropdownMenuItem disabled={over} onSelect={() => controls.onReassign?.(session.id)}>
+                    <Icon icon={UserRoundCog} size="inline" className="text-secondary" />
+                    Reassign
+                  </DropdownMenuItem>
+                ) : null}
+                {canUpgrade ? (
+                  <DropdownMenuItem disabled={over} onSelect={() => controls.onUpgradeModel?.(session.id)}>
+                    <Icon icon={ArrowUpCircle} size="inline" className="text-secondary" />
+                    {STRONGEST_MODEL_LABEL}
+                  </DropdownMenuItem>
+                ) : null}
+                {controls.onOpenInClaudeCode ? (
+                  <DropdownMenuItem onSelect={() => controls.onOpenInClaudeCode?.(session.id)}>
+                    <Icon icon={ExternalLink} size="inline" className="text-secondary" />
+                    Open in Claude Code
+                  </DropdownMenuItem>
+                ) : null}
+                {controls.onStop ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem variant="danger" disabled={over} onSelect={() => controls.onStop?.(session.id)}>
+                      <Icon icon={Square} size="inline" />
+                      Stop and discard
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </div>
       </header>
 
@@ -300,9 +376,7 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
           )}
           {controls.onShout ? <ShoutMenu target={session.agent.name} disabled={over} onShout={(s) => controls.onShout?.(session.id, s)} /> : null}
           {controls.onReassign ? <IconButton icon={UserRoundCog} label="Reassign" size="sm" disabled={over} onClick={() => controls.onReassign?.(session.id)} /> : null}
-          {controls.onUpgradeModel && session.agent.model !== "opus" ? (
-            <IconButton icon={ArrowUpCircle} label="Upgrade to Opus" size="sm" disabled={over} onClick={() => controls.onUpgradeModel?.(session.id)} />
-          ) : null}
+          {canUpgrade ? <IconButton icon={ArrowUpCircle} label={STRONGEST_MODEL_LABEL} size="sm" disabled={over} onClick={() => controls.onUpgradeModel?.(session.id)} /> : null}
           {controls.onOpenInClaudeCode ? <IconButton icon={ExternalLink} label="Open in Claude Code" size="sm" onClick={() => controls.onOpenInClaudeCode?.(session.id)} /> : null}
           {controls.onStop ? <IconButton icon={Square} label="Stop and discard" size="sm" variant="ghost" className="text-status-bad hover:bg-status-bad/12" disabled={over} onClick={() => controls.onStop?.(session.id)} /> : null}
         </div>

@@ -33,7 +33,7 @@ describe("IncorporateScreen", () => {
   it("shows the supervised session with status steps, a founder takeover that only opens the external page, and records 'I submitted' (AC-11.11.4)", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <IncorporateScreen {...props} />);
-    const session = screen.getByRole("region", { name: "Supervised session" });
+    const session = screen.getByRole("region", { name: "Progress" });
     expect(within(session).getAllByText("Waiting for you").length).toBeGreaterThan(0);
     const steps = within(session).getByRole("list", { name: "Session steps" });
     expect(Array.from(steps.querySelectorAll("li")).map((li) => li.getAttribute("data-state"))).toEqual(["done", "current", "todo", "todo", "todo"]);
@@ -46,7 +46,7 @@ describe("IncorporateScreen", () => {
     expect(fake.mutations).toHaveLength(0); // opening the page submits nothing
     // the route form is locked while an incorporation is in flight
     expect(screen.getByText("An incorporation is in progress")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Start supervised session" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Prepare the paperwork" }).hasAttribute("disabled")).toBe(true);
     fireEvent.click(within(session).getByRole("button", { name: "I submitted and paid" }));
     await waitFor(() => expect(fake.mutations).toHaveLength(1));
     expect(fake.mutations[0]).toEqual({ path: "legal.incorporate.founderSubmitted", input: { incorporationId: ENTITY.inc } });
@@ -58,9 +58,9 @@ describe("IncorporateScreen", () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: { ...emptyResponses, "legal.incorporate.status": statusEntityOnly }, onMutate: () => ({ entity: {}, incorporation: {}, workflow: { queued: true }, founderSubmits: true }) });
     renderScreen(fake, <IncorporateScreen {...props} />);
-    expect(screen.getByText(/Start a route on the left/)).toBeTruthy();
+    expect(screen.getByText(/Choose a route on the left/)).toBeTruthy();
     const form = screen.getByRole("form", { name: "Incorporation route" });
-    const start = within(form).getByRole("button", { name: "Start supervised session" });
+    const start = within(form).getByRole("button", { name: "Prepare the paperwork" });
     expect(start.hasAttribute("disabled")).toBe(true);
     expect(within(form).getByRole("radio", { name: /Stripe Atlas/ }).getAttribute("aria-checked")).toBe("true");
     fireEvent.change(within(form).getByLabelText("Jurisdiction"), { target: { value: "United Kingdom" } });
@@ -106,7 +106,7 @@ describe("IncorporateScreen", () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: () => ({ incorporation: { status: "abandoned" }, workflow: { queued: true } }) });
     renderScreen(fake, <IncorporateScreen {...props} />);
-    const session = screen.getByRole("region", { name: "Supervised session" });
+    const session = screen.getByRole("region", { name: "Progress" });
     await user.click(within(session).getByRole("button", { name: "Cancel incorporation" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(/Nothing has been filed/)).toBeTruthy();

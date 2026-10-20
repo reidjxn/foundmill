@@ -33,6 +33,9 @@ test.describe("inbox", () => {
     await expect(list).toBeVisible();
     expect((await list.boundingBox())?.width).toBe(380);
     await expect(page.getByTestId("reading-pane-empty")).toBeVisible();
+    await expect(page.getByTestId("reading-pane-empty")).toContainText("Pick a note on the left.");
+    // Refresh says what it is (one quick note, not a cycle; UX plan B17).
+    await expect(page.getByTestId("inbox-refresh")).toHaveAttribute("title", "Ask the team for one quick note (does not start a cycle)");
     for (const tab of ["Respond", "Customers", "Updates", "Archive"]) await expect(page.getByRole("tab", { name: new RegExp(`^${tab}`) })).toBeVisible();
   });
 
@@ -51,6 +54,9 @@ test.describe("inbox", () => {
     await expect(page).toHaveURL(first);
     await expect(page.getByTestId("inbox-item-header")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("type-pill")).toBeVisible();
+    // Every tag carries its legend (UX plan B21), and an open note that holds Continue says so in those words (B7).
+    await expect(page.getByTestId("type-pill")).toHaveAttribute("data-tag-legend", /^.+: .+/);
+    await expect(page.getByTestId("inbox-item-header")).not.toContainText(/Blocks Continue|Needs your call/);
     await expect(page.getByTestId("inbox-note")).toBeVisible();
     // The owner is walled from nothing: no figure or customer detail of the note is hidden (inbox.get item.redacted).
     await expect(page.getByTestId("redacted-notice")).toHaveCount(0);
@@ -71,8 +77,9 @@ test.describe("inbox", () => {
     // The 3 s debounce starts with the key press, before the api answers.
     await expect(page.getByTestId("inbox-refresh")).toHaveAttribute("data-wait-ms", /^\d+$/);
     await page.keyboard.press("r");
-    // Radix toasts render their title twice (once for the live region): the visible one is enough.
-    await expect(page.getByText("One note at a time").first()).toBeVisible();
+    // Radix toasts render their title twice (once for the live region): the visible one is enough. "One note at a
+    // time: wait 3 s." (UX plan B17).
+    await expect(page.getByText(/^One note at a time: wait \d+ s\.$/).first()).toBeVisible();
     // With new events it narrates them; with none it says so and offers the next call grounded in the current state.
     await expect(page.getByText(/^(One new note|Nothing new since your last note)$/).first()).toBeVisible({ timeout: LONG });
     await expect(rows).toHaveCount(before + 1, { timeout: LONG });
@@ -338,7 +345,12 @@ test.describe("inbox", () => {
     await request.click();
     const panel = page.getByTestId("approval-panel");
     await expect(panel).toBeVisible({ timeout: LONG });
+    // The business thing first (UX plan B5): one sentence from the agent, the tool and its arguments.
+    await expect(panel.getByTestId("approval-summary")).toHaveText(/^\S.+ wants to set the paid ads budget to £600\.00\.$/);
     await expect(panel.getByTestId("approval-agent")).toHaveAttribute("href", new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/agents/${UUID}/overview$`));
+    // The call's name and the raw arguments wait behind Details.
+    await expect(panel.getByTestId("approval-action")).toBeHidden();
+    await panel.getByTestId("approval-details").locator("summary").click();
     await expect(panel.getByTestId("approval-action")).toHaveText(/ › set budget$/);
     await expect(panel.getByTestId("approval-amount")).toHaveText("£600.00");
     const item = page.getByTestId("inbox-item");
@@ -417,7 +429,7 @@ test.describe("inbox", () => {
     await expect(page.locator(`[data-inbox-row="${itemId}"]`)).toHaveCount(0, { timeout: LONG });
   });
 
-  // The seeded Northwind decision with a spend option, a deadline five days after the seed and "Blocks Continue" (its id
+  // The seeded Northwind decision with a spend option, a deadline five days after the seed and "Holds Continue" (its id
   // is new with every seed, so it is read from the list).
   async function northwindDecisionId(page: Page): Promise<string> {
     await openInbox(page, "respond");

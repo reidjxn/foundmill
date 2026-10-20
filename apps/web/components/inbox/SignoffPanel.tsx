@@ -42,7 +42,7 @@ export function SignoffPanel({ signoff, notes, onNotesChange, answered, needsNot
   const open = !answered && (signoff.status === "pending" || signoff.status === "changes_requested");
   const ready = signoff.kind === "ready_to_sell";
   return (
-    <Panel title={ready ? "Your call" : "Your sign-off"} span={12} actions={<StatusPill tone={status.tone}>{status.word}</StatusPill>} data-testid="signoff-panel" data-signoff-kind={signoff.kind} data-signoff-status={signoff.status}>
+    <Panel title={ready ? "Your decision" : "Your sign-off"} span={12} actions={<StatusPill tone={status.tone}>{status.word}</StatusPill>} data-testid="signoff-panel" data-signoff-kind={signoff.kind} data-signoff-status={signoff.status}>
       <div className="flex flex-col gap-3">
         <p className="text-body text-secondary">
           {ready

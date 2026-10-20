@@ -44,6 +44,24 @@ export function deskPersonaOf(p: ConversationPersonaView, fallbackDept: DeptColo
   return { ...persona, role: roleBesideName(p.name, p.role) ?? "" };
 }
 
+/**
+ * The second line of a "Go with: …" quick reply (UX plan B20): a `choose_option` chip decides the note from the chat,
+ * and says so. QuickReplies wraps a label to two lines and never cuts it, so the subline travels in the label; the
+ * founder's own words (`say`) stay what they were.
+ */
+export const CHOICE_SUBLINE = "This answers the note";
+
+/** A quick reply with the subline on a `choose_option`, as is for every other kind. Idempotent. */
+export function withChoiceSubline<Q extends Pick<QuickReplyItem, "kind" | "label" | "say">>(reply: Q): Q {
+  if (reply.kind !== "choose_option" || reply.label.endsWith(CHOICE_SUBLINE)) return reply;
+  return { ...reply, say: reply.say?.trim() ? reply.say : reply.label, label: `${reply.label} · ${CHOICE_SUBLINE}` };
+}
+
+/** Every reply of a list, the `choose_option` ones with their subline. */
+export function withChoiceSublines<Q extends Pick<QuickReplyItem, "kind" | "label" | "say">>(replies: readonly Q[]): Q[] {
+  return replies.map(withChoiceSubline);
+}
+
 /** Server messages as desk messages (ids aliased so an optimistic bubble keeps its identity once the server has it). */
 export function deskMessagesOf(view: Pick<ConversationView, "messages">, alias: ReadonlyMap<string, string> = new Map()): DeskMessage[] {
   return view.messages.map((m) => ({
@@ -52,7 +70,7 @@ export function deskMessagesOf(view: Pick<ConversationView, "messages">, alias: 
     bubbles: m.bubbles,
     at: m.at,
     reaction: m.reaction,
-    quickReplies: m.quickReplies as readonly QuickReplyItem[],
+    quickReplies: withChoiceSublines(m.quickReplies as readonly QuickReplyItem[]),
     chosenQuickReplyId: m.chosenQuickReplyId,
     handOff: m.handOff,
     planId: m.planId,
@@ -200,7 +218,7 @@ export function openFailureLine(err: unknown): string {
  * falls back to the starters.
  */
 export function failureQuickReplies(retry: boolean, before: readonly QuickReplyItem[], failedReplyId: string | null, decided = false): QuickReplyItem[] {
-  const rest = before.filter((r) => r.id !== failedReplyId && r.id !== RETRY_REPLY_ID && r.kind !== "write" && !(decided && r.kind === "choose_option")).map((r) => ({ ...r, recommended: retry ? false : r.recommended }));
+  const rest = before.filter((r) => r.id !== failedReplyId && r.id !== RETRY_REPLY_ID && r.kind !== "write" && !(decided && r.kind === "choose_option")).map((r) => withChoiceSubline({ ...r, recommended: retry ? false : r.recommended }));
   const out = retry ? [{ id: RETRY_REPLY_ID, label: "Try again", say: "Try again", kind: "ask" as const, recommended: true }, ...rest] : rest;
   return out.slice(0, 4);
 }

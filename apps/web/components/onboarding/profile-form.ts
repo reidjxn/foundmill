@@ -61,6 +61,8 @@ export interface ProfileForm {
   timeCommitment: string;
   /** Major units as typed ("25000", "25 000", "25k" are all accepted). */
   budget: string;
+  /** "I have no budget yet": empty is a choice, not an omission (A11). Clears and disables the budget. */
+  noBudget: boolean;
   currency: string;
   citizenship: string;
   residence: string;
@@ -86,6 +88,116 @@ export interface ProfileLike {
 
 export const DEFAULT_SKILL = 10;
 
+/* ---------- currency from where the founder lives (A11) ---------- */
+
+/** The currency the profile starts on when neither the residence nor the browser's locale says otherwise. */
+export const FALLBACK_CURRENCY = "USD";
+
+const EURO_AREA = ["AT", "BE", "BG", "CY", "DE", "EE", "ES", "FI", "FR", "GR", "HR", "IE", "IT", "LT", "LU", "LV", "MT", "NL", "PT", "SI", "SK"] as const;
+/** EU members outside the euro whose own currency the list does not offer: the euro is the nearest it has. */
+const EU_WITHOUT_EURO = ["CZ", "HU", "PL", "RO"] as const;
+
+/** Region code → the currency the profile offers (`CURRENCIES`); regions without a listed currency are absent. */
+const REGION_CURRENCY: Record<string, string> = {
+  GB: "GBP",
+  US: "USD",
+  SE: "SEK",
+  NO: "NOK",
+  DK: "DKK",
+  CH: "CHF",
+  CA: "CAD",
+  AU: "AUD",
+  ...Object.fromEntries([...EURO_AREA, ...EU_WITHOUT_EURO].map((r) => [r, "EUR"])),
+};
+
+/** Country names as typed in Residence (the `COUNTRIES` list and the usual short forms) → region code. */
+const COUNTRY_REGION: Record<string, string> = {
+  "united kingdom": "GB",
+  uk: "GB",
+  "great britain": "GB",
+  britain: "GB",
+  england: "GB",
+  scotland: "GB",
+  wales: "GB",
+  "northern ireland": "GB",
+  "united states": "US",
+  "united states of america": "US",
+  usa: "US",
+  america: "US",
+  austria: "AT",
+  australia: "AU",
+  belgium: "BE",
+  bulgaria: "BG",
+  brazil: "BR",
+  canada: "CA",
+  croatia: "HR",
+  cyprus: "CY",
+  czechia: "CZ",
+  "czech republic": "CZ",
+  denmark: "DK",
+  estonia: "EE",
+  finland: "FI",
+  france: "FR",
+  germany: "DE",
+  greece: "GR",
+  hungary: "HU",
+  iceland: "IS",
+  india: "IN",
+  ireland: "IE",
+  israel: "IL",
+  italy: "IT",
+  japan: "JP",
+  latvia: "LV",
+  lithuania: "LT",
+  luxembourg: "LU",
+  malta: "MT",
+  mexico: "MX",
+  netherlands: "NL",
+  "the netherlands": "NL",
+  "new zealand": "NZ",
+  nigeria: "NG",
+  norway: "NO",
+  poland: "PL",
+  portugal: "PT",
+  romania: "RO",
+  singapore: "SG",
+  slovakia: "SK",
+  slovenia: "SI",
+  "south africa": "ZA",
+  "south korea": "KR",
+  spain: "ES",
+  sweden: "SE",
+  switzerland: "CH",
+  türkiye: "TR",
+  turkey: "TR",
+  ukraine: "UA",
+  "united arab emirates": "AE",
+};
+
+/** The currency for a residence as typed ("United Kingdom", "UK", "gb" → "GBP"; "Germany" → "EUR"); null when unknown or unlisted. */
+export function currencyForCountry(country: string | null | undefined): string | null {
+  const s = (country ?? "").trim().toLowerCase();
+  if (!s) return null;
+  const region = COUNTRY_REGION[s] ?? (/^[a-z]{2}$/.test(s) ? s.toUpperCase() : null);
+  return region ? (REGION_CURRENCY[region] ?? null) : null;
+}
+
+/** The currency for a browser locale ("en-GB" → "GBP", "sv-SE" → "SEK", "de" → "EUR"); null when it says nothing usable. */
+export function currencyForLocale(locale: string | null | undefined): string | null {
+  if (!locale) return null;
+  try {
+    const region = new Intl.Locale(locale).maximize().region;
+    return region ? (REGION_CURRENCY[region] ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Residence first, then the browser's locale, then US dollars (A11). */
+export function defaultCurrency(residence: string | null | undefined, locale?: string | null): string {
+  return currencyForCountry(residence) ?? currencyForLocale(locale) ?? FALLBACK_CURRENCY;
+}
+
 export function emptyProfileForm(email?: string | null): ProfileForm {
   return {
     displayName: email ? displayNameFromEmail(email) : "",
@@ -93,7 +205,8 @@ export function emptyProfileForm(email?: string | null): ProfileForm {
     skills: { engineering: DEFAULT_SKILL, sales: DEFAULT_SKILL, design: DEFAULT_SKILL, finance: DEFAULT_SKILL, domain: DEFAULT_SKILL },
     timeCommitment: "",
     budget: "",
-    currency: "EUR",
+    noBudget: false,
+    currency: FALLBACK_CURRENCY,
     citizenship: "",
     residence: "",
     targetMarkets: [],
@@ -128,7 +241,9 @@ export function formFromProfile(profile: ProfileLike | null | undefined, email?:
     skills,
     timeCommitment: profile.timeCommitment ?? "",
     budget: profile.budgetMinor === null || profile.budgetMinor === undefined ? "" : String(profile.budgetMinor / 100),
-    currency: profile.currency || "EUR",
+    // A saved profile without a budget made that choice: it reads as "I have no budget yet".
+    noBudget: profile.budgetMinor === null || profile.budgetMinor === undefined,
+    currency: profile.currency || FALLBACK_CURRENCY,
     citizenship: profile.citizenship ?? "",
     residence: profile.residence ?? "",
     targetMarkets: [...(profile.targetMarkets ?? [])],
@@ -168,7 +283,7 @@ export function validateProfileForm(form: ProfileForm): ProfileErrors {
   if (form.displayName.trim().length > PROFILE_LIMITS.displayName) errors.displayName = `Keep it under ${PROFILE_LIMITS.displayName} characters.`;
   if (!form.experience) errors.experience = "Pick the one that fits best.";
   if (!form.timeCommitment) errors.timeCommitment = "How much of your week does this get?";
-  const budget = parseBudgetMinor(form.budget);
+  const budget = form.noBudget ? null : parseBudgetMinor(form.budget);
   if (Number.isNaN(budget)) errors.budget = "Use a number, like 25000 or 25k.";
   else if (budget !== null && budget < 0) errors.budget = "The budget cannot be negative.";
   else if (budget !== null && budget / 100 > PROFILE_LIMITS.budgetMajor) errors.budget = `Use a budget below ${formatNumber(PROFILE_LIMITS.budgetMajor, { maximumFractionDigits: 0 })}.`;
@@ -202,7 +317,7 @@ export interface ProfilePatch {
 }
 
 export function profilePatch(form: ProfileForm): ProfilePatch {
-  const budget = parseBudgetMinor(form.budget);
+  const budget = form.noBudget ? null : parseBudgetMinor(form.budget);
   return {
     displayName: form.displayName.trim(),
     experience: form.experience || null,
@@ -291,7 +406,7 @@ export function profileSummary(form: ProfileForm): string {
   if (exp) parts.push(exp);
   const time = TIME_OPTIONS.find((o) => o.value === form.timeCommitment)?.label;
   if (time) parts.push(time.toLowerCase());
-  const budget = parseBudgetMinor(form.budget);
+  const budget = form.noBudget ? null : parseBudgetMinor(form.budget);
   if (budget !== null && !Number.isNaN(budget)) parts.push(`${form.currency} ${formatNumber(budget / 100, { maximumFractionDigits: 0 })}`);
   if (form.targetMarkets.length) parts.push(form.targetMarkets.join(", "));
   return parts.join(" · ");

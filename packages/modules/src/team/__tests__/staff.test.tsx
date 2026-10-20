@@ -2,7 +2,7 @@ import "./setup";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { STAFF_VIEWS, StaffScreen, toStaffRows } from "../StaffScreen";
+import { STAFF_VIEWS, StaffScreen, inviteTarget, toStaffRows } from "../StaffScreen";
 import { permissionSummary, readMe } from "../shared";
 import { BID, DEPT_TEAM, ME, USER_ADA, USER_BEN, dataResponses, emptyResponses, humans, me, responsibilities } from "./fixtures";
 import { createFakeSource, renderScreen } from "./fake-source";
@@ -42,7 +42,36 @@ describe("StaffScreen", () => {
     expect(screen.getByText("All staff")).toBeTruthy();
   });
 
-  it("invites a member by user id with a role and per-section permissions", async () => {
+  it("invites a member by the email they sign in with, with a role and per-section permissions (C18: one flow, email first)", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: (_p, input) => ({ id: "m-4", userId: input.userId ?? "90000000-0000-4000-8000-000000000009", role: input.role, sectionPermissions: input.sectionPermissions, email: input.email }) });
+    renderScreen(fake, <StaffScreen {...props} />);
+    await screen.findByRole("grid", { name: "Staff" });
+    await user.click(screen.getByRole("button", { name: "Invite" }));
+    const dialog = await screen.findByTestId("invite-dialog");
+    const confirm = within(dialog).getByTestId("invite-confirm");
+    expect(confirm.hasAttribute("disabled")).toBe(true);
+    // The email comes first; the account ID is the fallback ("Or add by account ID"), never required.
+    const fields = within(dialog).getAllByRole("textbox").map((f) => f.getAttribute("id"));
+    expect(fields[0]).toMatch(/-email$/);
+    expect(fields[1]).toMatch(/-user$/);
+    await user.type(within(dialog).getByLabelText(/Sign-in email/), "cal@northwind");
+    expect(within(dialog).getByText("That is not an email address.")).toBeTruthy();
+    expect(confirm.hasAttribute("disabled")).toBe(true);
+    await user.type(within(dialog).getByLabelText(/Sign-in email/), ".example");
+    expect(confirm.hasAttribute("disabled")).toBe(false);
+    await user.click(within(dialog).getByRole("combobox", { name: "Role" }));
+    await user.click(await screen.findByRole("option", { name: "Viewer" }));
+    await user.click(within(dialog).getByRole("combobox", { name: "Finance permission" }));
+    await user.click(await screen.findByRole("option", { name: "Write" }));
+    await user.click(confirm);
+    // The same api as Settings › Members: `team.humans.invite` with the email, no account ID.
+    await waitFor(() => expect(fake.mutations).toEqual([{ path: "team.humans.invite", input: { email: "cal@northwind.example", role: "viewer", sectionPermissions: { finance: "write" } } }]));
+    await waitFor(() => expect(screen.getByTestId("staff-notice").textContent).toBe("cal@northwind.example invited as Viewer."));
+    expect(fake.refetches["team.humans.list"]).toBe(1);
+  });
+
+  it("falls back to the account ID, validated, when there is no email", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: (_p, input) => ({ id: "m-4", userId: input.userId, role: input.role, sectionPermissions: input.sectionPermissions, email: input.email }) });
     renderScreen(fake, <StaffScreen {...props} />);
@@ -50,20 +79,18 @@ describe("StaffScreen", () => {
     await user.click(screen.getByRole("button", { name: "Invite" }));
     const dialog = await screen.findByTestId("invite-dialog");
     const confirm = within(dialog).getByTestId("invite-confirm");
+    await user.type(within(dialog).getByLabelText(/Or add by account ID/), "not-a-uuid");
+    expect(within(dialog).getByText("That is not an account ID; it has 36 letters, digits and dashes.")).toBeTruthy();
     expect(confirm.hasAttribute("disabled")).toBe(true);
-    await user.type(within(dialog).getByLabelText(/Account id/), "not-a-uuid");
-    expect(within(dialog).getByText("That is not an account id; it has 36 letters, digits and dashes.")).toBeTruthy();
-    await user.clear(within(dialog).getByLabelText(/Account id/));
-    await user.type(within(dialog).getByLabelText(/Account id/), "90000000-0000-4000-8000-000000000009");
-    await user.type(within(dialog).getByLabelText(/E-mail/), "cal@northwind.example");
-    await user.click(within(dialog).getByRole("combobox", { name: "Role" }));
-    await user.click(await screen.findByRole("option", { name: "Viewer" }));
-    await user.click(within(dialog).getByRole("combobox", { name: "Finance permission" }));
-    await user.click(await screen.findByRole("option", { name: "Write" }));
+    await user.clear(within(dialog).getByLabelText(/Or add by account ID/));
+    await user.type(within(dialog).getByLabelText(/Or add by account ID/), "90000000-0000-4000-8000-000000000009");
     await user.click(confirm);
-    await waitFor(() => expect(fake.mutations).toEqual([{ path: "team.humans.invite", input: { userId: "90000000-0000-4000-8000-000000000009", role: "viewer", sectionPermissions: { finance: "write" }, email: "cal@northwind.example" } }]));
-    await waitFor(() => expect(screen.getByTestId("staff-notice").textContent).toBe("cal@northwind.example invited as Viewer."));
-    expect(fake.refetches["team.humans.list"]).toBe(1);
+    await waitFor(() => expect(fake.mutations).toEqual([{ path: "team.humans.invite", input: { userId: "90000000-0000-4000-8000-000000000009", role: "member", sectionPermissions: {} } }]));
+    // What Invite sends: the account ID when one is typed (with the email beside it when valid), else the email.
+    expect(inviteTarget("cal@northwind.example", "")).toEqual({ email: "cal@northwind.example" });
+    expect(inviteTarget("cal@northwind.example", "90000000-0000-4000-8000-000000000009")).toEqual({ userId: "90000000-0000-4000-8000-000000000009", email: "cal@northwind.example" });
+    expect(inviteTarget("", "nope")).toBeNull();
+    expect(inviteTarget("nope", "")).toBeNull();
   });
 
   it("changes a role and permissions from the row menu, blocks removing the owner or yourself, removes an advisor", async () => {

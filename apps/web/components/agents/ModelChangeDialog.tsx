@@ -1,7 +1,7 @@
 "use client";
 /**
  * Model change from anywhere on the profile (header chip, Training › Model): `agent.model.compare` feeds the
- * ModelPicker with predicted wage deltas (Estimate), the Chief of Staff downgrade warning and the Inbox Composer lock
+ * ModelPicker with the predicted change in cost per month (Estimate), the Chief of Staff downgrade warning and the Inbox Composer lock
  * notice are shown before ApplyScopeDialog asks "this agent / all of its type / all agents", then `agent.model.set`
  * applies it and the API queues the retests (BUILD §11.10 "Model selection", AC-11.10.5).
  */
@@ -23,7 +23,7 @@ export interface ModelChangeDialogProps {
   /** Agents sharing the type and the whole squad, for the scope dialog's copy. */
   typeCount?: number;
   allCount?: number;
-  /** The wage deltas' currency: model costs are metered in US dollars (`CREDITS_CURRENCY`), never the business's. */
+  /** The cost deltas' currency: model costs are metered in US dollars (`CREDITS_CURRENCY`), never the business's. */
   currency?: string;
   /** Open straight at the warning/scope step for this model (Training › Model has its own picker). */
   preselect?: ModelKey | null;
@@ -86,7 +86,7 @@ export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typ
         <DialogContent size="md" data-testid="model-dialog">
           <DialogHeader>
             <DialogTitle>Model for {agent.name}</DialogTitle>
-            <DialogDescription>Predicted wages are estimates from this month's usage. A retest is queued after the change so the skills reflect the new model.</DialogDescription>
+            <DialogDescription>Cost per month is an estimate from this month's usage. Its skills are re-tested on the new model so the ratings stay honest.</DialogDescription>
           </DialogHeader>
           <DialogBody className="flex flex-col gap-3">
             {locked ? (

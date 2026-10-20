@@ -64,7 +64,7 @@ describe("product dates follow the person's date format", () => {
 
   it("Vision: the published version and Now items' target dates", () => {
     const { container } = renderAs(ISO_24H, <VisionScreen {...props} />);
-    expect(screen.getByText("Version 3 · published 2026-10-04 · 5 blocks · 2 pinned")).toBeTruthy();
+    expect(screen.getByText("Version 3 · published 2026-10-04 · 5 paragraphs · 2 pinned")).toBeTruthy();
     expect(screen.getByText("by 10-20")).toBeTruthy();
     expect(usDatesIn(container)).toEqual([]);
   });

@@ -37,6 +37,7 @@ import {
   ChevronsUpDown,
   Columns3,
   Download,
+  Ellipsis,
   EllipsisVertical,
   Rows3,
   Rows4,
@@ -139,8 +140,13 @@ export interface DataTableProps<T> {
   selectedIds?: readonly string[];
   onSelectionChange?: (ids: string[], rows: T[]) => void;
 
-  /** Right-click verbs for a row (BUILD §5.4 "right-click menu"). */
+  /**
+   * A row's verbs (BUILD §5.4 "right-click menu"). With them every row also ends in a visible "…" button (24 px,
+   * "Actions for <row>") that opens the same menu, so a right-click or Shift+F10 is never the only way in (D6).
+   */
   rowActions?: (row: T) => RowAction<T>[];
+  /** What the "…" button calls the row ("Actions for Summit Health"). Default: the row's first text cell. */
+  rowLabel?: (row: T) => string;
   /** Enter or double-click. */
   onRowOpen?: (row: T) => void;
   onRowClick?: (row: T, event: MouseEvent) => void;
@@ -187,6 +193,14 @@ export interface DataTableProps<T> {
 }
 
 const SELECT_COLUMN_ID = "__select";
+/** The visible "…" at the end of every row with actions. */
+export const ACTIONS_COLUMN_ID = "__actions";
+/** The 24 px button, the cell's padding on both sides and the row's end padding: never narrower, so it is never cut. */
+const ACTIONS_COLUMN_WIDTH = 44;
+const ACTIONS_BUTTON_SIZE = 24;
+const ACTIONS_BUTTON_STYLE: CSSProperties = { width: ACTIONS_BUTTON_SIZE, height: ACTIONS_BUTTON_SIZE };
+/** Columns the table adds itself: not data, so no CSV, no chooser, no content fit. */
+const OWN_COLUMNS = new Set([SELECT_COLUMN_ID, ACTIONS_COLUMN_ID]);
 const MIN_COLUMN_WIDTH = 48;
 const DEFAULT_COLUMN_WIDTH = 160;
 const NO_SIZES: Record<string, number> = {};
@@ -313,6 +327,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
     selectedIds,
     onSelectionChange,
     rowActions,
+    rowLabel,
     onRowOpen,
     onRowClick,
     rowClassName,
@@ -519,9 +534,13 @@ export function DataTable<T>(props: DataTableProps<T>) {
     });
   }, [chips, columns]);
 
+  // The "…" cell reaches the current row model and handlers through a ref, so the column definitions stay stable.
+  const rowMenu = useRef<{ open: (row: Row<T>, from: HTMLElement) => void; label: (row: Row<T>) => string }>({ open: () => {}, label: () => "" });
+
   const allColumns = useMemo<ColumnDef<T, unknown>[]>(() => {
-    if (!selectable) return columns;
-    const select: ColumnDef<T, unknown> = {
+    const out: ColumnDef<T, unknown>[] = [];
+    if (selectable) {
+      const select: ColumnDef<T, unknown> = {
       id: SELECT_COLUMN_ID,
       size: 36,
       minSize: 36,
@@ -551,9 +570,46 @@ export function DataTable<T>(props: DataTableProps<T>) {
           onDoubleClick={(e) => e.stopPropagation()}
         />
       ),
-    };
-    return [select, ...columns];
-  }, [columns, selectable]);
+      };
+      out.push(select);
+    }
+    out.push(...columns);
+    if (rowActions) {
+      // Always rendered, never only on hover: a visible way into the row's verbs (DESIGN §2 never clip; the column
+      // is as wide as the button needs and never grows, so the "…" sits at the row's end).
+      const actions: ColumnDef<T, unknown> = {
+        id: ACTIONS_COLUMN_ID,
+        size: ACTIONS_COLUMN_WIDTH,
+        minSize: ACTIONS_COLUMN_WIDTH,
+        maxSize: ACTIONS_COLUMN_WIDTH,
+        enableSorting: false,
+        enableResizing: false,
+        enableHiding: false,
+        meta: { locked: true, filter: false, align: "center", label: "Actions" },
+        header: () => <span className="sr-only">Actions</span>,
+        cell: ({ row }) => (
+          <IconButton
+            size="sm"
+            icon={Ellipsis}
+            label={`Actions for ${rowMenu.current.label(row)}`}
+            tooltip={false}
+            title="Actions"
+            className="text-tertiary"
+            // 24 px (the smallest pointer target, `--target-size`) inside a 28 px row; the small button is 28.
+            style={ACTIONS_BUTTON_STYLE}
+            data-row-actions=""
+            onClick={(e) => {
+              e.stopPropagation();
+              rowMenu.current.open(row, e.currentTarget);
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+          />
+        ),
+      };
+      out.push(actions);
+    }
+    return out;
+  }, [columns, selectable, !!rowActions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const table = useReactTable<T>({
     data: data as T[],
@@ -687,7 +743,9 @@ export function DataTable<T>(props: DataTableProps<T>) {
       target !== e.currentTarget &&
       (target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
-        target.getAttribute("role") === "separator")
+        target.getAttribute("role") === "separator" ||
+        // The row's "…" button: Enter and Space open its menu, nothing else.
+        target.hasAttribute("data-row-actions"))
     )
       return;
     const pageSize = Math.max(1, Math.floor(height / rowHeight) - 1);
@@ -805,6 +863,25 @@ export function DataTable<T>(props: DataTableProps<T>) {
     const box = target.getBoundingClientRect();
     target.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: box.left + 16, clientY: rowEl ? box.bottom : box.top }));
   };
+  /** The "…" button: the row's menu, opened under the button as a right-click there would. */
+  const openRowMenuFrom = (row: Row<T>, from: HTMLElement) => {
+    const index = rows.indexOf(row);
+    if (index < 0 || typeof window === "undefined") return;
+    const box = from.getBoundingClientRect();
+    // Bubbles through the row (which records it, as a right-click does) to the menu's trigger, which opens at the point.
+    from.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: box.left, clientY: box.bottom + 2 }));
+  };
+  /** What the "…" button calls its row: the caller's label, else the first text cell, else its number. */
+  const rowLabelOf = (row: Row<T>): string => {
+    if (rowLabel) return rowLabel(row.original);
+    for (const cell of row.getVisibleCells()) {
+      if (OWN_COLUMNS.has(cell.column.id)) continue;
+      const v = cell.getValue();
+      if (typeof v === "string" && v.trim() !== "") return v;
+    }
+    return `row ${rows.indexOf(row) + 1}`;
+  };
+  rowMenu.current = { open: openRowMenuFrom, label: rowLabelOf };
   const onGridContextMenu = (e: MouseEvent<HTMLTableElement>) => {
     // Only the keyboard's contextmenu reaches the grid itself (a screen reader's, or a browser's for the Menu key); a
     // right-click starts on a row's cell.
@@ -818,7 +895,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
   const exportCsvNow = () => {
     const cols: CsvColumn<Row<T>>[] = table
       .getVisibleLeafColumns()
-      .filter((c) => c.id !== SELECT_COLUMN_ID)
+      .filter((c) => !OWN_COLUMNS.has(c.id))
       .map((c) => ({
         header: columnLabel(table, c.id),
         value: (r) => (c.columnDef.meta?.csv ? c.columnDef.meta.csv(r.original) : r.getValue(c.id)),
@@ -865,7 +942,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
       return (Number.parseFloat(cs.paddingLeft) || 0) + (Number.parseFloat(cs.paddingRight) || 0);
     };
     for (const col of table.getVisibleLeafColumns()) {
-      if (col.id === SELECT_COLUMN_ID) continue;
+      if (OWN_COLUMNS.has(col.id)) continue;
       const meta = col.columnDef.meta;
       const always = !!meta?.numeric || !!meta?.fitContent;
       const sel = `td[data-col="${CSS.escape(col.id)}"]`;
@@ -914,11 +991,13 @@ export function DataTable<T>(props: DataTableProps<T>) {
   const visibleLeaf = table.getVisibleLeafColumns();
   const totalWidth = table.getTotalSize();
   // Spare width: the growing columns share it by weight, in the header and every row alike (one flex rule for both,
-  // so they always line up); with no growing column the last one takes it.
+  // so they always line up); with no growing column the last data column takes it (the "…" column keeps its width,
+  // so the button stays at the row's end).
   const anyGrow = visibleLeaf.some((c) => (c.columnDef.meta?.grow ?? 0) > 0);
-  const columnStyle = (id: string, size: number, last: boolean): CSSProperties => {
+  const fallbackGrowId = anyGrow ? null : ([...visibleLeaf].reverse().find((c) => c.id !== ACTIONS_COLUMN_ID)?.id ?? null);
+  const columnStyle = (id: string, size: number): CSSProperties => {
     const col = visibleLeaf.find((c) => c.id === id);
-    const grow = anyGrow ? Math.max(0, col?.columnDef.meta?.grow ?? 0) : last ? 1 : 0;
+    const grow = anyGrow ? Math.max(0, col?.columnDef.meta?.grow ?? 0) : id === fallbackGrowId ? 1 : 0;
     return grow > 0 ? { width: size, minWidth: size, flex: `${grow} 0 ${size}px` } : { width: size, flexShrink: 0 };
   };
   const rowIdAttr = (r: Row<T>) => `${tableId}-row-${r.id}`;
@@ -977,7 +1056,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                 last && "pr-3",
                 meta?.className,
               )}
-              style={columnStyle(cell.column.id, cell.column.getSize(), last)}
+              style={columnStyle(cell.column.id, cell.column.getSize())}
             >
               {/* Numbers never truncate: their column grows to fit them (see the content-fit effect). */}
               {/* Text cells: a row's long free text may end in an ellipsis (a list convention), with the whole value in a
@@ -1072,7 +1151,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                       hi === 0 && "pl-3",
                       last && "pr-3",
                     )}
-                    style={columnStyle(col.id, col.getSize(), last)}
+                    style={columnStyle(col.id, col.getSize())}
                   >
                     {header.isPlaceholder ? null : canSort ? (
                       <button
@@ -1109,7 +1188,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                           "t-data truncate",
                           col.id === SELECT_COLUMN_ID && "flex items-center",
                         )}
-                        title={col.id === SELECT_COLUMN_ID ? undefined : label}
+                        title={OWN_COLUMNS.has(col.id) ? undefined : label}
                         data-header-label=""
                       >
                         {flexRender(col.columnDef.header, header.getContext())}

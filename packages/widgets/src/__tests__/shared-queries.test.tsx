@@ -71,7 +71,7 @@ describe("queries Home shares", () => {
     const { fake } = recordingSource();
     mount(fake, [{ key: "department_card", settings: { departmentId: DEPT.development } }]);
     // Seven days × 2 tasks for Development (the other departments merge 5 a day).
-    expect(screen.getByText("Tasks merged this week")).toBeTruthy();
+    expect(screen.getByText("Tasks finished this week")).toBeTruthy();
     expect(screen.getByText("14")).toBeTruthy();
   });
 

@@ -4,6 +4,7 @@ import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { DeptColourToken } from "@foundmill/shared";
 import { APP_NAME } from "@foundmill/config";
 import { cn } from "../../lib/cn";
+import { buttonVariants } from "../foundation/Button";
 import { FitText } from "../foundation/FitText";
 import { Icon } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";
@@ -17,6 +18,14 @@ import type { SidebarBrand, SidebarItem } from "./types";
 export const SIDEBAR_BRAND_ID = "brand";
 /** Cap height of the wordmark in the sidebar foot, in px: the DESIGN §8a floor. */
 export const SIDEBAR_BRAND_HEIGHT = 12;
+/** The accessible name of the "?" cap in the foot, and its tooltip. */
+export const SIDEBAR_HELP_LABEL = "Keyboard shortcuts";
+
+/**
+ * A fixed surface whose display label changed while its old name stays a word people know: the collapsed tooltip
+ * keeps the old name in brackets ("Contacts (CRM)"), so a founder who looks for "CRM" still finds it (B13).
+ */
+const FIXED_SURFACE_ALIASES: Partial<Record<NonNullable<SidebarItem["fixed"]>, string>> = { crm: "CRM" };
 
 export interface SidebarProps extends Omit<HTMLAttributes<HTMLElement>, "onSelect"> {
   items: SidebarItem[];
@@ -29,12 +38,20 @@ export interface SidebarProps extends Omit<HTMLAttributes<HTMLElement>, "onSelec
    * 64 px the sidebar shows no brand at all (the FM monogram is reserved for the favicon). Omit to draw none.
    */
   brand?: SidebarBrand;
-  /** Render the LIVE block. Items with group "live" are hidden in Personal mode. */
+  /** Render the LIVE block. Items with group "live" are hidden when false. */
   showLive?: boolean;
+  /**
+   * The business is LIVE: the block's "Live" label is drawn over its items. In Personal mode the block still holds the
+   * founder's own Network item, under the hairline but without the label (it is not a LIVE feature). Defaults to
+   * `showLive`.
+   */
+  live?: boolean;
   /** Fired on click or Enter/Space, in addition to the link's own navigation. */
   onSelect?: (item: SidebarItem) => void;
   /** Hide the collapse toggle (the app owns the control). */
   hideToggle?: boolean;
+  /** Opens the keyboard shortcuts overlay: a ghost "?" cap beside the collapse toggle while expanded (B15). */
+  onHelp?: () => void;
 }
 
 /** Static class maps so Tailwind emits every variant: the tone the dot, the badge and their glows read. */
@@ -82,6 +99,13 @@ export function sidebarItemName(item: SidebarItem): string {
   return item.label;
 }
 
+/** The collapsed tooltip's words: the accessible name, plus the old name of a renamed fixed surface. Exported for tests. */
+export function sidebarItemTooltip(item: SidebarItem): string {
+  const alias = item.fixed ? FIXED_SURFACE_ALIASES[item.fixed] : undefined;
+  const name = sidebarItemName(item);
+  return alias && !item.label.includes(alias) ? `${name} (${alias})` : name;
+}
+
 function Badge({ item, collapsed }: { item: SidebarItem; collapsed: boolean }) {
   if (!item.badge || item.badge <= 0) return null;
   const text = item.badge > 99 ? "99+" : String(item.badge);
@@ -98,23 +122,26 @@ function Badge({ item, collapsed }: { item: SidebarItem; collapsed: boolean }) {
  * 32 px, 10 px in from the edges, sentence case: a 16 px icon in text-3 and an action-style label in text-2; hover adds a
  * 3.5 % plate. The active item takes a brand plate with a kit-lift ring and icon, and a lit 3 px edge with its glow at
  * the rail's edge. Department icons carry a small dot in their colour; badges are 18 px glowing pills in the department
- * colour. Groups: main (Home, Inbox, departments in the founder's order, CRM), a fading hairline, LIVE items, foot
- * (Settings, Anthropic key, the Foundmill wordmark). A long founder-defined label wraps to two lines and steps down to
- * fit, never silently clipped (its full text in a tooltip only as the last resort). Collapsed to 64 px it keeps icons,
- * dots and badges, shows labels and chords as tooltips and drops the wordmark. Arrow keys move focus; Enter or Space
- * activates.
+ * colour. Groups: main (Home, Inbox, departments in the founder's order, Contacts, Milestones), a fading hairline, the
+ * LIVE block (labelled "Live" only while the business is LIVE), foot (Settings, Sign out, then the "?" cap, the collapse
+ * toggle and the Foundmill wordmark). A long founder-defined label wraps to two lines and steps down to fit, never
+ * silently clipped (its full text in a tooltip only as the last resort). Collapsed to 64 px it keeps icons, dots and
+ * badges, shows labels and chords as tooltips and drops the wordmark and the "?" cap. Arrow keys move focus; Enter or
+ * Space activates.
  */
 export const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(
-  { items, activeId, collapsed, onCollapsedChange, brand, showLive = true, onSelect, hideToggle, className, ...rest },
+  { items, activeId, collapsed, onCollapsedChange, brand, showLive = true, live, onSelect, hideToggle, onHelp, className, ...rest },
   ref,
 ) {
   const visible = items.filter((it) => it.group !== "live" || showLive);
   const main = visible.filter((it) => it.group === "main" || it.group === "department");
-  const live = visible.filter((it) => it.group === "live");
+  const liveItems = visible.filter((it) => it.group === "live");
   const foot = visible.filter((it) => it.group === "foot");
-  const ordered = [...main, ...live, ...foot];
+  const ordered = [...main, ...liveItems, ...foot];
   const enabled = ordered.filter((it) => !it.disabled);
   const showBrand = !!brand && !collapsed;
+  const labelled = live ?? showLive;
+  const showHelp = !!onHelp && !collapsed;
   // Roving focus order: every enabled item, then the wordmark link while it is drawn.
   const focusOrder = [...enabled.map((it) => it.id), ...(showBrand ? [SIDEBAR_BRAND_ID] : [])];
   const focusable = activeId && enabled.some((it) => it.id === activeId) ? activeId : focusOrder[0];
@@ -201,7 +228,7 @@ export const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(
         side="right"
         content={
           <span className="inline-flex items-center gap-2">
-            <span>{name}</span>
+            <span>{sidebarItemTooltip(item)}</span>
             {item.keys ? <Keys keys={item.keys} /> : null}
           </span>
         }
@@ -228,21 +255,40 @@ export const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(
       {...rest}
     >
       <ul className="flex flex-col gap-0.5 pb-2 pt-3">{main.map(renderItem)}</ul>
-      {live.length > 0 ? (
+      {liveItems.length > 0 ? (
         <>
           <div role="separator" className="rail-rule" />
-          <div className={cn("flex items-center", collapsed ? "h-2" : "h-control-xs px-5")}>
-            <span className={cn("t-data", collapsed && "sr-only")}>Live</span>
-          </div>
-          <ul className="flex flex-col gap-0.5 pb-2">{live.map(renderItem)}</ul>
+          {/* The label belongs to a LIVE business; a Personal one keeps the hairline and its Network item only. */}
+          {labelled ? (
+            <div className={cn("flex items-center", collapsed ? "h-2" : "h-control-xs px-5")} data-live-label>
+              <span className={cn("t-data", collapsed && "sr-only")}>Live</span>
+            </div>
+          ) : null}
+          <ul className={cn("flex flex-col gap-0.5 pb-2", !labelled && "pt-2")}>{liveItems.map(renderItem)}</ul>
         </>
       ) : null}
       <div className="mt-auto flex flex-col pb-2">
         <div role="separator" className="rail-rule mt-0" />
         <ul className="flex flex-col gap-0.5 pb-1">{foot.map(renderItem)}</ul>
-        {showBrand || !hideToggle ? (
-          <div className={cn("flex items-center", collapsed ? "justify-center" : "pr-2.5")}>
+        {showBrand || !hideToggle || showHelp ? (
+          <div className={cn("flex items-center", collapsed ? "justify-center" : "gap-0.5 pr-2.5")}>
             {brand && showBrand ? renderBrand(brand) : null}
+            {showHelp ? (
+              <Tooltip content={SIDEBAR_HELP_LABEL}>
+                <button
+                  type="button"
+                  aria-label={SIDEBAR_HELP_LABEL}
+                  aria-keyshortcuts="?"
+                  onClick={onHelp}
+                  className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "w-control-sm shrink-0 px-0 text-tertiary", !showBrand && "ml-auto")}
+                  data-testid="sidebar-help"
+                >
+                  <kbd aria-hidden className="kbd-cap">
+                    ?
+                  </kbd>
+                </button>
+              </Tooltip>
+            ) : null}
             {hideToggle ? null : (
               <IconButton
                 icon={collapsed ? PanelLeftOpen : PanelLeftClose}
@@ -251,7 +297,7 @@ export const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(
                 variant="ghost"
                 aria-expanded={!collapsed}
                 onClick={() => onCollapsedChange(!collapsed)}
-                className={cn("text-tertiary", !showBrand && !collapsed && "ml-auto")}
+                className={cn("text-tertiary", !showBrand && !showHelp && !collapsed && "ml-auto")}
                 data-testid="sidebar-toggle"
               />
             )}

@@ -1,7 +1,8 @@
 /**
  * The one vocabulary for an Inbox note's status tag (DIRECTION #8, DESIGN §9 Inbox): an icon and a word, the tone a
  * second signal. The Inbox list, the reading pane and Home's Inbox preview all read it, so a note says the same thing
- * wherever it appears ("Respond", "Customer", "Milestone", never "Needs you" here and "Win" there).
+ * wherever it appears ("Respond", "Customer", "Milestone", never "Needs you" here and "Win" there). Every tag carries
+ * one legend sentence (UX plan B21), shown as the chip's tooltip.
  */
 import { Check, FileText, Flag, Mail, MessageSquareReply, RefreshCw, TriangleAlert, UserCheck, type LucideIcon } from "lucide-react";
 import type { InboxItemType, InboxState } from "@foundmill/shared";
@@ -26,6 +27,26 @@ export const NOTE_TAG_ICONS: Record<NoteTagIcon, LucideIcon> = {
   decided: Check,
 };
 
+/**
+ * The legend: one sentence per tag kind, the chip's tooltip wherever the tag appears (UX plan B21). Keyed by the icon,
+ * which names the kind, so the reading pane's fuller words ("Needs your answer", "Customer won") share it.
+ */
+export const NOTE_TAG_LEGEND: Record<NoteTagIcon, string> = {
+  win: "A new paying customer, with its Customer Update",
+  respond: "Needs your answer before the team can carry on",
+  warning: "Something to watch; it holds Continue only if cash is under 3 months",
+  update: "Progress from an agent, nothing to do",
+  milestone: "A first your business reached",
+  report: "A regular summary",
+  message: "A person wrote to you",
+  decided: "You answered this",
+};
+
+/** "Customer: A new paying customer, with its Customer Update": the chip's tooltip, the word first so the legend reads as one. */
+export function noteTagLegend(tag: Pick<NoteTag, "word" | "icon">): string {
+  return `${tag.word}: ${NOTE_TAG_LEGEND[tag.icon]}`;
+}
+
 export const RESPOND_TAG: NoteTag = { word: "Respond", tone: "bad", icon: "respond" };
 
 export const NOTE_TYPE_TAGS: Record<InboxItemType, NoteTag> = {
@@ -49,6 +70,11 @@ export function noteRowTag(item: { type: InboxItemType; state: InboxState; block
   const answered = item.state === "answered" || item.state === "archived";
   if (!answered && (item.blocksContinue || item.type === "decision")) return RESPOND_TAG;
   return NOTE_TYPE_TAGS[item.type];
+}
+
+/** "1 note needs your answer" / "3 notes need your answer": the one phrase for notes waiting on the founder (UX plan B7). */
+export function needsAnswerWords(count: number): string {
+  return count === 1 ? "1 note needs your answer" : `${count} notes need your answer`;
 }
 
 /** The name a note in another person's words goes under. (Network traffic is never filed in an Inbox: FU-S-2.) */

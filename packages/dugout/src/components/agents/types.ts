@@ -383,7 +383,7 @@ export interface SquadRow {
   currentTask: { id: string; title: string } | null;
   /** Last five outcomes, oldest first. */
   form: FormResult[];
-  /** 1–10 average. */
+  /** The 1–20 mean of the agent's skills (the scale the profile uses); 0 until the first training run. */
   rating: number;
   tools: string[];
   model: ModelKey;

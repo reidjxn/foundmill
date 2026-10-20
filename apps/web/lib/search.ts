@@ -1,14 +1,18 @@
 /**
  * Universal search (BUILD §11.12, §5.3): local palette items (screens, departments, commands, recent inbox items)
- * plus the API's hybrid `crm.search` results. The CommandPalette runs in `remote` mode: the app filters, the
- * palette only applies `kind:` and `>` locally. Pure helpers here; the shell wires the debounce and the query.
+ * plus the API's hybrid `crm.search` results, and the Help group (the defined terms of `TERMS` with the business
+ * glossary applied, and the keyboard shortcuts; docs/UX_AUDIT_AND_PLAN.md §7.7, B12). The CommandPalette runs in
+ * `remote` mode: the app filters, the palette only applies `kind:` and `>` locally and matches Help itself. Pure
+ * helpers here; the shell wires the debounce and the query.
  */
-import type { PaletteItem, SearchQuery } from "@foundmill/dugout";
-import type { DeptColourToken, EntityKind } from "@foundmill/shared";
+import { KEYBOARD_SHORTCUTS_HELP_ITEM, type PaletteHelpItem, type PaletteItem, type SearchQuery } from "@foundmill/dugout";
+import type { DeptColourToken, EntityKind, Glossary } from "@foundmill/shared";
+import { learnPath, termsWithGlossary } from "@foundmill/shared/terms";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { accountRoutes } from "./account-routes";
 import { canOpenDepartment, FULL_ACCESS, type Access } from "./access";
 import { entityHref } from "./entity-links";
+import { CRM_LABEL } from "./sidebar";
 
 export interface SearchDepartment {
   id: string;
@@ -67,7 +71,8 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
   const items: PaletteItem[] = [
     { id: "screen:home", kind: "screen", label: "Home", href: routes.home(bid), keywords: ["dashboard"], shortcut: ["G", "H"] },
     { id: "screen:inbox", kind: "screen", label: "Inbox", href: routes.inbox(bid), shortcut: ["G", "I"] },
-    ...(access.canRead("crm") ? [{ id: "screen:crm", kind: "screen" as const, label: "CRM", href: routes.crm(bid), keywords: ["contacts", "people", "organizations"], shortcut: ["G", "C"] }] : []),
+    // "Contacts" on screen; "crm" stays a keyword so the old name still finds it.
+    ...(access.canRead("crm") ? [{ id: "screen:crm", kind: "screen" as const, label: CRM_LABEL, href: routes.crm(bid), keywords: ["crm", "contacts", "people", "organizations"], shortcut: ["G", "C"] }] : []),
     { id: "screen:milestones", kind: "screen", label: "Milestones", href: `/b/${bid}/milestones` },
   ];
   for (const d of input.departments) {
@@ -94,7 +99,7 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
   if (access.canChange) items.push({ id: "command:refresh-inbox", kind: "command", label: "Refresh Inbox", description: "Pull one new note", shortcut: ["R"] });
   // Only where the screen on view has a layout: elsewhere the command did nothing (audit OL-29).
   if (input.canEditLayout) items.push({ id: "command:edit-layout", kind: "command", label: "Edit layout", description: "Rearrange the widgets on this screen", shortcut: ["E"] });
-  if (access.isAdmin) items.push({ id: "command:stop-all", kind: "command", label: "Stop all agents", description: "Kill switch: pause every workflow, engine and campaign" });
+  if (access.isAdmin) items.push({ id: "command:stop-all", kind: "command", label: "Stop all agents", description: "Pause the whole team. An owner can resume.", keywords: ["pause", "stop", "agents"] });
   items.push({ id: "command:sign-out", kind: "command", label: "Sign out", description: "End your session on this device", keywords: ["log out", "logout", "sign off"] });
   if (access.isAdmin) items.push({ id: "command:holiday", kind: "command", label: "Go on vacation", description: "Hand the business to the Chief of Staff", href: routes.settings(bid, "mode") });
   // Every other business the founder can open, a new one and the list of them all (audit IAE-08, WEB-13).
@@ -116,6 +121,17 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
     items.push({ id: "screen:leaderboards", kind: "screen", label: "Leaderboards", href: "/leaderboards" });
   }
   return items;
+}
+
+/**
+ * The palette's Help group: every defined term ("Runway" with its one-line meaning, opening the screen that shows it,
+ * in the business's own words through the glossary) after the keyboard shortcuts row, which the AppShell answers by
+ * opening the overlay. A term without a `learn` target is a row that reads and opens nothing.
+ */
+// TODO(guided-layer): open the DefinitionCard for a term without a learn target instead of just closing.
+export function helpPaletteItems(businessId: string, glossary?: Glossary | null): PaletteHelpItem[] {
+  const terms = Object.values(termsWithGlossary(glossary)).map((t): PaletteHelpItem => ({ id: `help:${t.id}`, title: t.word, line: t.short, href: t.learn ? learnPath(t.learn, businessId) : undefined }));
+  return [KEYBOARD_SHORTCUTS_HELP_ITEM, ...terms];
 }
 
 export interface EntityHit {

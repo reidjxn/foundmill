@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, within } from "@testing-library/react";
 import type { ReactElement } from "react";
-import { DateFormatProvider, formatDateShort } from "@foundmill/dugout";
+import { DateFormatProvider, GuidanceProvider, formatDateShort } from "@foundmill/dugout";
 import { WidgetDataProvider } from "../data";
 import { getWidget, listWidgets, parseWidgetSettings, type AnyWidgetDefinition } from "../registry";
 import { createFakeSource, type FakeResponse } from "../testing";
@@ -34,7 +34,7 @@ type Case = {
 const CASES: Case[] = [
   { key: "journey_ribbon", expectData: /^Forecast$/, expectEmpty: /journey starts on day one/ },
   { key: "department_card", expectData: /Beacon/, expectEmpty: /No department in this slot/, settings: { slot: 0 } },
-  { key: "squad_pulse", expectData: /agent hours over the last 7 days/, expectEmpty: /appear after the first cycle/ },
+  { key: "squad_pulse", expectData: /hours of team work over the last 7 days/, expectEmpty: /appear after the first cycle/ },
   { key: "inbox_preview", expectData: /Approve the schema change/, expectEmpty: /land here after each cycle/ },
   { key: "live_feed", expectData: /Done: Usage index/, expectEmpty: /Events appear here/ },
   { key: "status_strip", expectData: /Customers this week/, expectEmpty: /Finance figures appear once/ },
@@ -158,12 +158,48 @@ describe("a refused or failed query is never empty data", () => {
     expect(container.textContent).toContain("Couldn't load");
     expect(container.textContent).not.toMatch(/Connect a bank|Finance figures appear once/);
   });
-  it("department card: Finance's Runway says No access instead of 'Not known yet'", () => {
+  it("department card: Finance's Months of cash left says No access instead of 'Not known yet'", () => {
     const { container } = mount(getWidget("department_card")!, { ...dataResponses(), "finance.overview": forbidden }, { settings: { module: "finance" } });
     const metric = container.querySelector("[data-department-metric]")!;
-    expect(metric.textContent).toContain("Runway");
+    expect(metric.textContent).toContain("Months of cash left");
     expect(metric.textContent).toContain("No access");
     expect(metric.textContent).not.toContain("Not known yet");
+  });
+});
+
+describe("empty widgets in guided mode (UX plan §7.8)", () => {
+  const mountEmpty = (guidance: "on" | "off") => {
+    const fake = createFakeSource({ businessId: BID, responses: emptyResponses() });
+    const def = getWidget("inbox_preview")!;
+    const Component = def.Component;
+    return render(
+      <GuidanceProvider value={{ guidance }}>
+        <WidgetDataProvider source={fake.source}>
+          <Component businessId={BID} instanceId="inbox_preview-1" settings={parseWidgetSettings(def, {})} />
+        </WidgetDataProvider>
+      </GuidanceProvider>,
+    );
+  };
+  it("collapse to the icon and the one line on a plate that hugs them, keeping the text and the action", () => {
+    const { container } = mountEmpty("on");
+    const panel = container.querySelector("[data-widget='inbox_preview']")!;
+    expect(panel.getAttribute("data-empty")).toBe("collapsed");
+    expect(panel.getAttribute("data-state")).toBe("empty");
+    expect(panel.className).toContain("h-auto");
+    expect(panel.className).not.toContain("h-full");
+    const empty = panel.querySelector("[role='status']")!;
+    expect(empty.className).toContain("flex-row");
+    expect(empty.className).not.toContain("flex-col");
+    expect(empty.className).not.toContain("py-8");
+    expect(screen.getByText(/land here after each cycle/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open inbox" })).toBeTruthy();
+  });
+  it("keep the tall centred empty state when guidance is off", () => {
+    const { container } = mountEmpty("off");
+    const panel = container.querySelector("[data-widget='inbox_preview']")!;
+    expect(panel.getAttribute("data-empty")).toBeNull();
+    expect(panel.className).toContain("h-full");
+    expect(panel.querySelector("[role='status']")!.className).toContain("flex-col");
   });
 });
 

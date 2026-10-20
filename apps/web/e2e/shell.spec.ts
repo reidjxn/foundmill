@@ -122,6 +122,25 @@ test.describe("shell", () => {
     await expect(page.getByRole("option", { name: /Sign out/ }).first()).toBeVisible({ timeout: LONG });
   });
 
+  test("the command palette keeps its operators out of sight until > or a colon, answers \"what is runway\" from Help, and offers the keyboard shortcuts (B12)", async ({ page }) => {
+    await page.keyboard.press("Control+K");
+    const palette = page.getByTestId("command-palette");
+    await expect(palette).toBeVisible();
+    await expect(palette.getByTestId("palette-operators")).toHaveCount(0);
+    await expect(palette.getByRole("option", { name: /Keyboard shortcuts/ })).toBeVisible();
+    await page.keyboard.type("what is runway");
+    const term = palette.getByRole("option", { name: /Runway.*How many months your cash lasts/ });
+    await expect(term).toBeVisible({ timeout: LONG });
+    await expect(palette.getByTestId("palette-operators")).toHaveCount(0);
+    await page.getByRole("combobox").fill("qqqqzzzz");
+    await expect(palette.getByRole("status")).toHaveText("Nothing matches. Try a person, a screen or an agent's name.", { timeout: LONG });
+    await page.getByRole("combobox").fill(">");
+    await expect(palette.getByTestId("palette-operators")).toBeVisible();
+    await page.getByRole("combobox").fill("");
+    await palette.getByRole("option", { name: /Keyboard shortcuts/ }).click();
+    await expect(page.getByTestId("keyboard-help")).toBeVisible();
+  });
+
   test("the sidebar foot closes with the Foundmill wordmark alone: a link to /, aligned with the icons, hidden when collapsed, reachable by arrow keys (DESIGN §8a)", async ({ page }) => {
     const nav = page.getByRole("navigation", { name: "Primary" });
     const brand = nav.getByRole("link", { name: "Foundmill" });
@@ -158,16 +177,45 @@ test.describe("shell", () => {
     await expect(brand).toBeVisible();
   });
 
-  test("Continue reads Respond · N while notes wait for an answer and opens the first of them (AC-11.3.3)", async ({ page }) => {
+  test("Continue reads Respond · N while notes wait for an answer and opens the Inbox's Respond tab on the first of them (AC-11.3.3, B1)", async ({ page }) => {
     // The seed leaves Northwind with decisions waiting (inbox.list counts.respond ≥ 1), so Continue is blocked here;
     // the idle Continue → business.continue path is exercised on a fresh business in inbox.spec.ts.
     const respond = page.getByRole("button", { name: /^Respond to \d+ items?$/ });
     await expect(respond, "the seeded Northwind inbox has notes waiting for an answer; re-seed if none are left").toBeVisible({ timeout: LONG });
     await expect(respond).toHaveText(/^Respond · \d+$/);
+    // The tooltip counts the notes and says what the press opens.
+    await respond.hover();
+    await expect(page.getByRole("tooltip")).toContainText(/^\d+ notes? needs? your answer before the team can carry on\. Press to open the first\./, { timeout: LONG });
     await respond.click();
-    await page.waitForURL(/\/inbox\/[0-9a-f-]{36}/, { timeout: LONG });
+    await page.waitForURL(/\/inbox\/[0-9a-f-]{36}\?tab=respond/, { timeout: LONG });
+    await expect(page.getByTestId("inbox-screen")).toHaveAttribute("data-tab", "respond", { timeout: LONG });
     await expect(page.getByTestId("inbox-item")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-state", /unread|read/);
+  });
+
+  test("the sidebar calls the CRM Contacts, keeps the Anthropic key out of its foot, and its \"?\" cap opens the keyboard shortcuts (B13, B15)", async ({ page }) => {
+    const nav = page.getByRole("navigation", { name: "Primary" });
+    await expect(nav.getByRole("link", { name: "Contacts" })).toHaveAttribute("href", /\/crm$/);
+    await expect(nav.getByRole("link", { name: "CRM" })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: "Anthropic key" })).toHaveCount(0);
+    // Settings › Keys is still a Settings tab (its own spec covers the key), reached from Settings.
+    await expect(nav.getByRole("link", { name: "Settings" })).toBeVisible();
+    await nav.getByRole("button", { name: "Keyboard shortcuts" }).click();
+    await expect(page.getByTestId("keyboard-help")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("keyboard-help")).toHaveCount(0);
+  });
+
+  test("the top bar says what each control does: Continue, the mode chip, the runway chip and Stop all agents carry plain sentences (B1, B3, B8, B6)", async ({ page }) => {
+    const tooltip = page.getByRole("tooltip");
+    await page.getByRole("button", { name: /^Business mode: / }).hover();
+    await expect(tooltip).toContainText(/^(Assisted|Augmented|Automated) mode: the .*Change it in Settings › Mode\./, { timeout: LONG });
+    await page.getByTestId("kit-bar").locator("[data-runway-tone]").hover();
+    await expect(tooltip).toContainText("Runway: how many months your cash lasts", { timeout: LONG });
+    await page.getByTestId("stop-all-trigger").hover();
+    await expect(tooltip).toHaveText("Stop all agents (pauses everything, nothing is lost)", { timeout: LONG });
+    // The strip under the top bar has a sentence too, as its name.
+    await expect(page.getByTestId("kit-bar").locator("xpath=following-sibling::*[@role='status']")).toHaveAttribute("aria-label", /(are|is) working|No cycle running/);
   });
 
   test("shows NeedsLargerWindow below 1280 px (BUILD §2.1 rule 10)", async ({ page }) => {

@@ -15,12 +15,22 @@ import { FoundationsBanner, VisionPanels, useFoundations } from "./foundations";
 import { PlainDoc } from "./PlainDoc";
 import { pmExcerpt, pmWordCount } from "./prosemirror";
 import { computeRoadmapStatus, taskSummary } from "./roadmap-status";
-import { AuthorRef, Fact, PinnedChip, Screen, blockTitle, groupBySection } from "./shared";
+import { AuthorRef, PinnedChip, Screen, blockTitle, groupBySection } from "./shared";
 import { signoffSummaryLine, useSignoffs } from "./signoff";
-import type { RoadmapResponse, SpecGetResponse } from "./types";
+import type { RoadmapResponse, SignoffView, SpecGetResponse } from "./types";
 
 /** Sections that read as the vision narrative, in order; the rest live on the Specification tab. */
 export const NARRATIVE_SECTIONS = ["vision", "problem", "customers", "value proposition"] as const;
+
+/**
+ * The one line that replaces the six-count strip (UX plan §7.11, C13): "Specification: 11 sections · signed off
+ * Oct 18", or "· not signed off yet" while the founder's sign-off is pending (or was never asked for).
+ */
+export function specSummaryLine(sections: number, spec: SignoffView | null | undefined, formatDate: (d: string | Date) => string): string {
+  const count = `${formatNumber(sections, { maxDigits: 0 })} section${sections === 1 ? "" : "s"}`;
+  const signed = spec?.status === "approved" ? `signed off${spec.decidedAt ? ` ${formatDate(spec.decidedAt)}` : ""}` : "not signed off yet";
+  return `Specification: ${count} · ${signed}`;
+}
 
 export function VisionScreen({ businessId }: ModuleScreenProps) {
   const { formatDate, formatDateSmart } = useFormatters();
@@ -44,8 +54,6 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
   const groups = useMemo(() => groupBySection(spec.data?.blocks ?? []), [spec.data]);
   const narrative = groups.filter((g) => (NARRATIVE_SECTIONS as readonly string[]).includes(g.section.toLowerCase()));
   const pinned = (spec.data?.blocks ?? []).filter((b) => b.pinned);
-  const agentAuthored = (spec.data?.blocks ?? []).filter((b) => b.authoredByKind === "agent").length;
-  const words = (spec.data?.blocks ?? []).reduce((n, b) => n + pmWordCount(b.content), 0);
   const now = (roadmap.data?.items ?? []).filter((i) => i.horizon === "now").slice().sort((a, b) => a.position - b.position);
   // What comes after Now, so the panel shows the road ahead rather than a mostly empty box.
   const next = (roadmap.data?.items ?? []).filter((i) => i.horizon === "next").slice().sort((a, b) => a.position - b.position).slice(0, 4);
@@ -67,7 +75,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
         footer={
           spec.data ? (
             <span className="tabular-nums">
-              {spec.data.latestVersion ? `Version ${spec.data.latestVersion.version} · published ${formatDate(spec.data.latestVersion.publishedAt)}` : "No published version yet"} · {formatNumber(spec.data.blocks.length, { maxDigits: 0 })} blocks · {pinned.length} pinned
+              {spec.data.latestVersion ? `Version ${spec.data.latestVersion.version} · published ${formatDate(spec.data.latestVersion.publishedAt)}` : "No published version yet"} · {formatNumber(spec.data.blocks.length, { maxDigits: 0 })} paragraph{spec.data.blocks.length === 1 ? "" : "s"} · {pinned.length} pinned
             </span>
           ) : undefined
         }
@@ -102,17 +110,17 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
       </Panel>
 
       <Panel
-        title="Pinned blocks"
+        title="Pinned paragraphs"
         span={4}
         className="self-start"
         loading={spec.isLoading}
         error={spec.error ? spec.error.message : undefined}
         onRetry={spec.refetch}
-        empty={spec.data && pinned.length === 0 ? { icon: Lock, children: "Pinned blocks appear when a team member edits a block. Agents never change them without an accepted proposal." } : undefined}
-        footer={pinned.length ? <span>Agents change a pinned block only through a proposal you accept.</span> : undefined}
+        empty={spec.data && pinned.length === 0 ? { icon: Lock, children: "Pinned paragraphs appear when a team member edits a paragraph. Agents never change them without an accepted proposal." } : undefined}
+        footer={pinned.length ? <span>Agents change a pinned paragraph only through a proposal you accept.</span> : undefined}
         flush
       >
-        <ul className="flex flex-col divide-y divide-subtle/50" aria-label="Pinned blocks">
+        <ul className="flex flex-col divide-y divide-subtle/50" aria-label="Pinned paragraphs">
           {pinned.map((b) => (
             // The block opens from its own button; the author's link sits beside it, never inside it (a link inside a
             // button is unreachable for assistive tech, and its click would open the block instead of the agent).
@@ -133,26 +141,10 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
       </Panel>
 
       <Panel title="Spec at a glance" span={4} className="self-start" loading={spec.isLoading} error={spec.error ? spec.error.message : undefined} onRetry={spec.refetch} footer={signoffLine ? <span data-testid="signoff-summary">{signoffLine}</span> : undefined}>
-        <div className="grid grid-cols-3 gap-3">
-          <Fact label="Sections" numeric>
-            {groups.length}
-          </Fact>
-          <Fact label="Blocks" numeric>
-            {spec.data?.blocks.length ?? 0}
-          </Fact>
-          <Fact label="Pinned" numeric>
-            {pinned.length}
-          </Fact>
-          <Fact label="Agent-written" numeric>
-            {agentAuthored}
-          </Fact>
-          <Fact label="Words" numeric>
-            {formatNumber(words, { maxDigits: 0 })}
-          </Fact>
-          <Fact label="Versions" numeric>
-            {spec.data?.versionCount ?? 0}
-          </Fact>
-        </div>
+        {/* One summary line instead of six counts (UX plan §7.11): what matters is how big it is and whether it is signed off. */}
+        <p className="text-body text-primary tabular-nums" data-testid="spec-summary">
+          {specSummaryLine(groups.length, signoffs.data?.spec, formatDate)}
+        </p>
         {groups.length ? (
           // The outline as a quiet two-column list of section names (a count only where a section has several blocks).
           <nav aria-label="Spec outline" className="mt-3 border-t border-subtle/50 pt-3">

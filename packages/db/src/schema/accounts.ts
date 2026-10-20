@@ -29,14 +29,33 @@ export type FounderProfile = typeof founderProfiles.$inferSelect;
 export type NewFounderProfile = typeof founderProfiles.$inferInsert;
 
 /**
+ * 0064 — the guided layer's one switch (docs/UX_AUDIT_AND_PLAN.md §6.3): "on" shows tutoring (explainers, the
+ * first-week checklist, coach marks, term underlines, kbd caps), "off" hides it and never hides information.
+ */
+export const GUIDANCE_MODES = ["on", "off"] as const;
+export type GuidanceMode = (typeof GUIDANCE_MODES)[number];
+/** 0064 — the account's type size: comfortable grows body and small text (the structure keeps its sizes). */
+export const TEXT_SIZES = ["standard", "comfortable"] as const;
+export type TextSize = (typeof TEXT_SIZES)[number];
+/** Screen or tour ids remembered as done (`{ "home": true }`); the value is always true, a key is removed by a reset. */
+export type SeenMap = Record<string, true>;
+
+/**
  * 0022 — one row per signed-in account: how that person reads dates and times, in every business. Beside
  * founder_profiles (not on it) so a preference never creates a profile (the onboarding gate); no row reads the defaults.
+ * 0064 adds the guided layer's preferences: the guidance switch, the text size, the explainers seen, the tours done
+ * and when the first-week checklist was dismissed (null: showing).
  */
 export const accountPreferences = pgTable("account_preferences", {
   id: id(),
   userId: uuid("user_id").notNull().unique().references(() => authUsers.id, { onDelete: "cascade" }),
   dateFormat: text("date_format", { enum: DATE_FORMAT_PREFERENCES }).notNull().default("us"),
   timeFormat: text("time_format", { enum: TIME_FORMAT_PREFERENCES }).notNull().default("12h"),
+  guidance: text("guidance", { enum: GUIDANCE_MODES }).notNull().default("on"),
+  textSize: text("text_size", { enum: TEXT_SIZES }).notNull().default("standard"),
+  explainersSeen: jsonb("explainers_seen").$type<SeenMap>().notNull().default(emptyObject),
+  toursDone: jsonb("tours_done").$type<SeenMap>().notNull().default(emptyObject),
+  checklistDismissedAt: tstz("checklist_dismissed_at"),
   ...timestamps(),
 });
 export type AccountPreferences = typeof accountPreferences.$inferSelect;

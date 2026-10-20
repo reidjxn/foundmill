@@ -7,7 +7,7 @@
  */
 import { useId, useMemo, useState } from "react";
 import { Calculator, Download, ExternalLink, FileSpreadsheet, Landmark, PieChart, Users } from "lucide-react";
-import { Button, Chip, DataTable, cn, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, ProvenanceChip, StatusStrip, Textarea, formatPercent, useFormatters, type ChipTone, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Button, Chip, DataTable, cn, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, ProvenanceChip, StatusStrip, Textarea, formatPercent, useFormatters, useGuided, type ChipTone, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { EntityKind } from "@foundmill/shared";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -154,6 +154,7 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
   const { navigate } = useWidgetData();
   const departments = useDepartments();
   const id = useId();
+  const guided = useGuided();
   const cap = useWidgetQuery<CapTableResponse>("finance.capTable.get", {});
   // Saved per person, business and table (audit #204): they come back after a reload.
   const holderSavedViews = useSavedViews("finance.cap-table.holders", HOLDER_VIEWS, { defaultViewId: "all" });
@@ -226,6 +227,12 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
         <StatusStrip tiles={tiles.map((t) => ({ ...t, loading: cap.isLoading }))} />
       </section>
       <Panel title="Holders" span={8} flush loading={cap.isLoading} error={cap.error ? cap.error.message : undefined} onRetry={cap.refetch} empty={empty ? emptyState : undefined} footer={empty ? undefined : <span className="tabular-nums">{holders.length} holder{holders.length === 1 ? "" : "s"} · fully diluted over {fmtQuantity(data?.summary.totalQuantity ?? 0)} shares · right-click for CRM and issuances</span>}>
+        {/* TODO(guided-layer): Explainer. One line under the title while guidance is on (UX plan §7.14). */}
+        {guided ? (
+          <p className="px-panel-pad pb-2 pt-2 text-small text-secondary" data-testid="cap-table-lede">
+            Who owns what share of the company.
+          </p>
+        ) : null}
         <div className="min-w-0">
         <DataTable<HolderRow> aria-label="Holders" data={holders} columns={hColumns} getRowId={(r) => r.holderEntityId} {...holderSavedViews} defaultViewId="all" height={320} exportFileName="cap-table-holders" rowActions={holderActions} onRowOpen={(r) => navigate(routes.crm(businessId, r.holderEntityId))} rowClassName={(r) => (holderFilter === r.holderEntityId ? "bg-panel-alt" : undefined)} />
         </div>

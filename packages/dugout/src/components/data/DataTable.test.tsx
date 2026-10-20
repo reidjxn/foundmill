@@ -240,6 +240,60 @@ describe("DataTable", () => {
     expect(onMessage).toHaveBeenCalledWith(leads[1]);
   });
 
+  it("ends every row in a visible 24 px … button that opens the same menu as a right-click (D6)", async () => {
+    const user = userEvent.setup();
+    const onMessage = vi.fn();
+    const onRowClick = vi.fn();
+    const onRowOpen = vi.fn();
+    const onExportCsv = vi.fn();
+    render(
+      <DataTable
+        data={leads.slice(0, 3)}
+        columns={columns.slice(0, 3)}
+        aria-label="Leads"
+        onRowClick={onRowClick}
+        onRowOpen={onRowOpen}
+        onExportCsv={onExportCsv}
+        rowActions={(row) => [{ id: "msg", label: `Message ${row.name}`, icon: Mail, onSelect: onMessage }]}
+      />,
+    );
+    // One per row, named for the row, always in the DOM (never only on hover).
+    const buttons = screen.getAllByRole("button", { name: /^Actions for / });
+    expect(buttons).toHaveLength(3);
+    const second = screen.getByRole("button", { name: `Actions for ${leads[1]?.name}` });
+    expect(second.style.width).toBe("24px");
+    expect(second.style.height).toBe("24px");
+    // Its column: a named header, fixed width, at the end; the spare width still goes to the last data column.
+    expect(screen.getByRole("columnheader", { name: "Actions" }).style.flexShrink).toBe("0");
+    expect(screen.getByRole("columnheader", { name: /Stage/ }).style.flex).toBe("1 0 160px");
+    const headers = screen.getAllByRole("columnheader");
+    expect(headers[headers.length - 1]?.textContent).toBe("Actions");
+    await user.click(second);
+    await user.click(await screen.findByRole("menuitem", { name: `Message ${leads[1]?.name}` }));
+    expect(onMessage).toHaveBeenCalledWith(leads[1]);
+    // The button is not a row click or a row open.
+    expect(onRowClick).not.toHaveBeenCalled();
+    await user.dblClick(screen.getByRole("button", { name: `Actions for ${leads[0]?.name}` }));
+    expect(onRowOpen).not.toHaveBeenCalled();
+    // Not a data column: not in the chooser, not in the CSV.
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Choose columns" }));
+    expect(screen.queryByRole("menuitemcheckbox", { name: "Actions" })).toBeNull();
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Table menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Export CSV/ }));
+    expect((onExportCsv.mock.calls[0] as [string])[0].split("\r\n")[0]).toBe("Name,Company,Stage");
+  });
+
+  it("names the … button with the caller's row label, and has none without row actions", () => {
+    const { unmount } = render(<DataTable data={leads.slice(0, 2)} columns={columns} rowLabel={(r) => `${r.name} at ${r.company}`} rowActions={() => []} />);
+    expect(screen.getByRole("button", { name: `Actions for ${leads[0]?.name} at ${leads[0]?.company}` })).toBeTruthy();
+    unmount();
+    render(<DataTable data={leads.slice(0, 2)} columns={columns} />);
+    expect(screen.queryByRole("button", { name: /^Actions for / })).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: "Actions" })).toBeNull();
+  });
+
   it("opens the focused row's menu from the keyboard: Shift+F10, the Menu key, or a contextmenu at the grid", async () => {
     const user = userEvent.setup();
     const onMessage = vi.fn();

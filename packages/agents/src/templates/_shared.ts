@@ -71,7 +71,7 @@ export const WORKER_COMMON_RULES: string[] = [
 ];
 
 export const LEAD_COMMON_RULES: string[] = [
-  "Assign work through typed tasks with a goal, acceptance criteria, file or data scope and a time box; workers report, you decide.",
+  "Assign work through typed tasks with a goal, acceptance criteria, file or data scope and a time limit; workers report, you decide.",
   "Stay inside the department budget and the business mode; any commitment above the approval threshold, any contract and any message in the founder's name becomes an Inbox decision.",
   "Never let a worker skip tests or review to move faster; prefer smaller tasks over longer sessions.",
   "Report to the founder through the Inbox Composer with facts first, then why it matters, then the ask; cite record ids for every number.",

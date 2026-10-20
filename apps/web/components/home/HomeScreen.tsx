@@ -6,7 +6,8 @@
  * milestones.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, LayoutDashboard, Link2, Pencil, Plus, Share2, Star, Trash2, Trophy } from "lucide-react";
+import { ArrowRight, Copy, LayoutDashboard, Link2, Pencil, Plus, Share2, Star, Trash2, Trophy } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -32,15 +33,17 @@ import {
   Panel,
   TrophyCabinet,
   WidgetGrid,
+  useGuided,
   useToast,
   type WidgetLayout,
   type WidgetPreset,
 } from "@foundmill/dugout";
 import { FoundationsBanner, useFoundations } from "@foundmill/modules/product/foundations";
-import { DASHBOARD_PRESET_LIST, fromGridLayout, prepareLayout, routes, toGridLayout, toScreenLayout, type DashboardPresetId } from "@foundmill/widgets";
+import { DASHBOARD_PRESET_LIST, fromGridLayout, moduleHref, prepareLayout, routes, toGridLayout, toScreenLayout, type DashboardPresetId } from "@foundmill/widgets";
 import { useToday } from "@foundmill/widgets/data";
 import { WRITE_ROLES } from "@foundmill/shared/constants";
 import { recentRibbonInput } from "@foundmill/widgets/shared/ribbon";
+import { respondHref } from "@/lib/continue-state";
 import { usePageShortcuts } from "@/lib/keys";
 import { shellQueryInputs } from "@/lib/shell-queries";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
@@ -52,7 +55,7 @@ import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { HomeAutopilot } from "./HomeAutopilot";
-import { dashboardActions, dashboardTabs, dayOneLine, editedElsewhere, ghostedMilestones, gridPresets, isDayOne, isOwnDashboard, nextDashboardName, pickDashboardId, resetPresetFor, sameLayout, shareHref, versionConflict } from "./dashboards";
+import { dashboardActions, dashboardTabs, dayOneLine, dayOneStep, editedElsewhere, ghostedMilestones, gridPresets, isDayOne, isOwnDashboard, nextDashboardName, pickDashboardId, resetPresetFor, sameLayout, shareHref, versionConflict } from "./dashboards";
 import { isGuid } from "@/lib/ids";
 
 type DashboardRow = RouterOutputs["dashboard"]["get"];
@@ -99,6 +102,9 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
   // --- Edit mode (E) ----------------------------------------------------------------------------------------------
   const [editing, setEditing] = useState(false);
   const editable = actions.edit;
+  // The shortcut always works and the help overlay always lists it; the key cap on the button is a tutoring surface,
+  // so it shows only when guidance is off (UX plan §7.7).
+  const guided = useGuided();
   usePageShortcuts({ onEditLayout: editable ? () => setEditing((e) => !e) : undefined, onEscape: editing ? () => setEditing(false) : undefined });
   useEffect(() => {
     if (!editable) setEditing(false);
@@ -178,9 +184,9 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
     () => (
       <div className="flex items-center gap-1" data-testid="home-toolbar">
         {editable ? (
-          <Button size="sm" variant={editing ? "primary" : "ghost"} icon={Pencil} onClick={() => setEditing((e) => !e)} aria-pressed={editing} data-testid="edit-layout">
+          <Button size="sm" variant={editing ? "primary" : "ghost"} icon={Pencil} onClick={() => setEditing((e) => !e)} aria-pressed={editing} aria-keyshortcuts="E" data-testid="edit-layout">
             {editing ? "Done" : "Edit"}
-            <Kbd>E</Kbd>
+            {guided ? null : <Kbd>E</Kbd>}
           </Button>
         ) : actions.copy ? (
           <Button size="sm" variant="ghost" icon={Copy} onClick={() => void onCopyShared()} loading={create.isPending || update.isPending} data-testid="copy-dashboard">
@@ -227,7 +233,7 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
         ) : null}
       </div>
     ),
-    [editable, editing, row, actions.copy, actions.create, list.length, create.isPending, onCopyShared, onNew, update, businessId, invalidate],
+    [editable, editing, guided, row, actions.copy, actions.create, list.length, create.isPending, onCopyShared, onNew, update, businessId, invalidate],
   );
   useShellChrome({ title: "Home", tabs: tabs.length ? { tabs, activeId: row?.id ?? dashboardId ?? "", onChange: (id) => router.push(routes.home(businessId, id)), trailing, "aria-label": "Dashboards" } : undefined }, [tabs, row?.id, dashboardId, trailing]);
 
@@ -464,9 +470,23 @@ function HomeFoundations() {
 
 /* ---------- Day one ---------- */
 
+/** The top bar's Continue button (ContinueButton marks it `data-continue-state`): "Press Continue" puts the focus on it. */
+export function focusContinueButton(): boolean {
+  const button = typeof document === "undefined" ? null : document.querySelector<HTMLElement>("[data-continue-state]");
+  if (!button) return false;
+  button.focus();
+  return true;
+}
+
+/**
+ * The day-one panel's line (`dayOneLine`) with its one step as a plain link (UX plan B4): the Vision tab while the
+ * first cycle runs, the Inbox's Respond tab while notes hold Continue, the Continue button otherwise.
+ */
+// TODO(guided-layer): NextStep (`nextStepsFor` + the strip) replaces this line and link; the ghosted milestones stay.
 function DayOne({ businessId, currency }: { businessId: string; currency: string }) {
   const trpc = useTRPC();
-  const glossary = useBusiness().data.business.glossary;
+  const { data: business, departments } = useBusiness();
+  const glossary = business.business.glossary;
   const inputs = useMemo(() => shellQueryInputs(businessId), [businessId]);
   // The last 30 days, slim: the same query as the status strip and the department cards (one request for all of them).
   // In the business time zone (audit #196), so the key is the one the widgets ask for.
@@ -476,15 +496,35 @@ function DayOne({ businessId, currency }: { businessId: string; currency: string
   const cycleQ = useQuery(trpc.cycle.status.queryOptions(inputs.cycle, { staleTime: 10_000, retry: false }));
   const inboxQ = useQuery(trpc.inbox.list.queryOptions(inputs.inbox, { staleTime: 10_000 }));
   const dayOne = ribbon.data && cycleQ.data ? isDayOne({ conversions: ribbon.data.conversionCount, milestones: ribbon.data.milestones.length, cyclesCompleted: cycleQ.data.completedCount }) : false;
-  const cards = useMemo(() => ghostedMilestones(currency), [currency]);
+  const cards = useMemo(() => ghostedMilestones(currency, glossary), [currency, glossary]);
   if (!dayOne || !cycleQ.data) return null;
-  const line = dayOneLine({ running: cycleQ.data.running, cycleNumber: cycleQ.data.cycleNumber ?? null, blocking: inboxQ.data?.blocking ?? 0 });
+  const state = { running: cycleQ.data.running, cycleNumber: cycleQ.data.cycleNumber ?? null, blocking: inboxQ.data?.blocking ?? 0 };
+  const line = dayOneLine(state);
+  const step = dayOneStep(state);
+  const visionHref = moduleHref(businessId, departments, "product", "vision") ?? routes.department(businessId, "product", "vision");
+  const linkClass = "entity-link inline-flex items-center gap-1 text-primary";
   return (
     <Panel title="Day one" span={12} data-testid="day-one" footer={<span>Milestones light up as customers and revenue arrive; department cards show the staffed team and its first tasks.</span>}>
       <div className="flex flex-col gap-3">
         <p className="text-body text-secondary" data-testid="day-one-line">
           <Trophy className="mr-1 inline size-3.5 text-gold" aria-hidden />
-          {line}
+          {line}{" "}
+          {step.kind === "vision" ? (
+            <Link href={visionHref} className={linkClass} data-testid="day-one-step" data-step={step.kind}>
+              {step.label}
+              <ArrowRight className="size-3.5" aria-hidden />
+            </Link>
+          ) : step.kind === "respond" ? (
+            <Link href={respondHref(businessId, inboxQ.data?.items)} className={linkClass} data-testid="day-one-step" data-step={step.kind}>
+              {step.label}
+              <ArrowRight className="size-3.5" aria-hidden />
+            </Link>
+          ) : (
+            <button type="button" className={linkClass} onClick={focusContinueButton} data-testid="day-one-step" data-step={step.kind}>
+              {step.label}
+              <ArrowRight className="size-3.5" aria-hidden />
+            </button>
+          )}
         </p>
         <TrophyCabinet trophies={cards} columns={4} />
       </div>

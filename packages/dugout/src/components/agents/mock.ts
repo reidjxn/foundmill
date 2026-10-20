@@ -655,7 +655,8 @@ export function mockSquadRows(n = 14, seedKey = "squad"): SquadRow[] {
       status,
       currentTask: status === "idle" || status === "injured" ? null : { id: `task-${i + 1}`, title: TASKS[i % TASKS.length]! },
       form,
-      rating: Math.round((5.5 + rng.range(-1.5, 4)) * 10) / 10,
+      // The 1–20 mean of the agent's skills, one decimal (the scale the profile uses).
+      rating: Math.round((11 + rng.range(-3, 8)) * 10) / 10,
       tools: rng.shuffle(TOOLS).slice(0, rng.int(2, 6)),
       model: a.model,
       wage: { amountMinor: (a.model === "opus" ? 18_000 : a.model === "sonnet" ? 7_500 : 1_200) + rng.int(0, 4_000), currency: "EUR" },

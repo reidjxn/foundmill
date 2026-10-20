@@ -3,9 +3,12 @@
  * Training tab (BUILD §11.10 "Training screen tabs" and "Training session"; AC-11.10.1/4/5/6):
  *   Instructions (structured editor with versions, diffs, comments) · Focus (≤ 3 skills, Coach proposals with
  *   expected gains) · Model (Opus / Sonnet / Haiku with predicted deltas → preview run) · Tools (grants, retested).
- * Session flow: edit → Save draft (`agent.training.saveDraft`, club-rule conflicts flagged and ineffective) → Train
+ * Session flow: edit → Save draft (`agent.training.saveDraft`, house-rule conflicts flagged and ignored) → Train
  * with the cost estimate (`estimate` → `run`) → progress while the live version keeps working → TrainingResults
  * (old → new per skill) → Promote / Discard → 7-day watch banner with one-click rollback (`rollback`).
+ *
+ * TODO(guided-layer): Explainer — the dismissible three-step strip at the top ("1 Edit the instructions · 2 Train
+ * (practice tests, 2–5 min, nothing goes live) · 3 Promote if the scores improved") lands with the guidance primitives.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleStop, Dumbbell, Eye, FlaskConical, History, Save, Sparkles, Undo2 } from "lucide-react";
@@ -112,7 +115,7 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
         setSavedVersionId(r.version.id);
         setSavedSnapshot(instructions);
         setViolations(violationsToEditor(r.violations, instructions));
-        setNotice(r.flagged ? { tone: "warn", text: `Draft v${r.version.version} saved. ${r.violations.length} ${r.violations.length === 1 ? "line contradicts" : "lines contradict"} a house rule and will have no effect.` } : { tone: "good", text: `Draft v${r.version.version} saved. The live version is untouched until you promote.` });
+        setNotice(r.flagged ? { tone: "warn", text: `Draft v${r.version.version} saved. ${r.violations.length} ${r.violations.length === 1 ? "line contradicts" : "lines contradict"} a house rule and ${r.violations.length === 1 ? "is" : "are"} ignored.` } : { tone: "good", text: `Draft v${r.version.version} saved. The live version is untouched until you promote.` });
         void invalidateAgent();
       },
       onError: (err) => setNotice({ tone: "bad", text: errorMessage(err) }),
@@ -231,7 +234,7 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
               </span>
             </div>
             <span className="ml-auto inline-flex items-center gap-1 text-small text-secondary">
-              <Icon icon={FlaskConical} size="inline" /> Held-out tests are never shown
+              <Icon icon={FlaskConical} size="inline" /> Half of the practice tests stay hidden so the scores stay honest.
             </span>
             <Button size="sm" variant="ghost" icon={CircleStop} loading={cancel.isPending} onClick={() => cancel.mutate({ businessId, runId: flow.active!.id })} data-testid="cancel-training">
               Cancel run
@@ -282,7 +285,7 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
             </Button>
           </span>
         }
-        footer={notice ? <span data-testid="training-notice" data-tone={notice.tone} className={notice.tone === "bad" ? "text-status-bad" : notice.tone === "warn" ? "text-status-warn" : undefined}>{notice.text}</span> : <span>House rules are prepended by the runtime and cannot be edited here; a draft that contradicts one is flagged and the rule still applies.</span>}
+        footer={notice ? <span data-testid="training-notice" data-tone={notice.tone} className={notice.tone === "bad" ? "text-status-bad" : notice.tone === "warn" ? "text-status-warn" : undefined}>{notice.text}</span> : <span data-testid="training-footer">The house rules always apply; a draft line that contradicts one is flagged and ignored.</span>}
       >
         <TabBar tabs={subTabs} activeId={sub} onChange={(id) => setSub(id as TrainingSubTab)} aria-label="Training sections" className="px-2" />
         <div className="p-panel-pad">
@@ -305,7 +308,8 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
             <div className="grid grid-cols-12 gap-gutter">
               <div className="col-span-7">
                 <p className="mb-2 text-small text-secondary">Pick up to three skills to focus the next training run on. The Coach proposes instruction edits for each, with the expected gain.</p>
-                <SkillGrid skills={skills} focus={{ selected: focus, onChange: onFocusChange, max: 3 }} showPotential />
+                {/* A narrow column: the band word folds into each figure's tooltip (compact), never a pill cut at the edge. */}
+                <SkillGrid skills={skills} focus={{ selected: focus, onChange: onFocusChange, max: 3 }} showPotential density="compact" />
               </div>
               <div className="col-span-5 flex flex-col gap-2" data-testid="coach-proposals">
                 <h3 className="t-label flex items-center gap-1">
@@ -350,8 +354,8 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
                         { label: "Tests", value: estimateQ.data ? `${estimateQ.data.tests} across ${estimateQ.data.skills} skills` : "…", numeric: true },
                         { label: "Cost", value: estimateQ.data ? <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: estimateQ.data.costMinor, currency: estimateQ.data.currency })} <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
                         { label: "Duration", value: estimateQ.data ? `about ${estimateQ.data.durationMinutes} min` : "…", numeric: true },
-                        { label: "Wage delta", value: compareQ.data ? <span className="inline-flex items-center gap-1">{formatMoney(modelOptions(compareQ.data, CREDITS_CURRENCY).find((o) => o.key === previewModel)?.wageDelta ?? { amountMinor: 0, currency: CREDITS_CURRENCY })}/mo <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
-                        { label: "Skill deltas", value: "From the preview run" },
+                        { label: "Cost per month, change", value: compareQ.data ? <span className="inline-flex items-center gap-1">{formatMoney(modelOptions(compareQ.data, CREDITS_CURRENCY).find((o) => o.key === previewModel)?.wageDelta ?? { amountMinor: 0, currency: CREDITS_CURRENCY })}/mo <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
+                        { label: "Skill changes", value: "From the preview run" },
                       ]}
                     />
                     <div className="flex flex-wrap gap-2">
@@ -362,10 +366,10 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
                         Apply {MODEL_LABELS[previewModel]}…
                       </Button>
                     </div>
-                    <p className="text-small text-secondary">A preview saves a draft on {MODEL_LABELS[previewModel]} and trains it; the results show the predicted skill deltas. Apply changes the live model through the scope dialog and queues a retest.</p>
+                    <p className="text-small text-secondary">A preview saves a draft on {MODEL_LABELS[previewModel]} and trains it; the results show how each skill would change. Apply changes the live model through the scope dialog; its skills are re-tested on the new model so the ratings stay honest.</p>
                   </>
                 ) : (
-                  <p className="text-small text-secondary">Choose a candidate model to see the predicted wage delta and run preview tests. The agent runs on {MODEL_LABELS[agent.modelKey]} now.</p>
+                  <p className="text-small text-secondary">Choose a candidate model to see the change in cost per month and run preview tests. The agent runs on {MODEL_LABELS[agent.modelKey]} now.</p>
                 )}
               </div>
             </div>
@@ -400,7 +404,16 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
 
       {/* train dialog ----------------------------------------------------------------------------------------------- */}
       <Dialog open={trainOpen} onOpenChange={setTrainOpen}>
-        <DialogContent size="sm" data-testid="train-dialog">
+        <DialogContent
+          size="sm"
+          data-testid="train-dialog"
+          // Open on the confirm button, not on the Estimate chip in the cost row: a chip's tooltip would open with the
+          // dialog, and Esc would then close the tooltip instead of the dialog.
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            document.getElementById("train-confirm")?.focus();
+          }}
+        >
           <DialogHeader>
             <DialogTitle>Train {agent.name}</DialogTitle>
             <DialogDescription>{trainable ? "The saved draft is trained as is." : "Your edits are saved as a new draft first, then trained."}</DialogDescription>
@@ -408,19 +421,19 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
           <DialogBody>
             <KeyValueList
               items={[
-                { label: "Tests", value: estimateQ.data ? `${estimateQ.data.tests} across ${estimateQ.data.skills} skills (half held out)` : "…" },
+                { label: "Tests", value: estimateQ.data ? `${estimateQ.data.tests} across ${estimateQ.data.skills} skills (half stay hidden)` : "…" },
                 { label: "Cost", value: estimateQ.data ? <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: estimateQ.data.costMinor, currency: estimateQ.data.currency })} <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
                 { label: "Duration", value: estimateQ.data ? `about ${formatDuration(estimateQ.data.durationMinutes * 60_000)}` : "…", numeric: true },
                 { label: "Model", value: MODEL_LABELS[draftModel] },
               ]}
             />
-            <p className="mt-2 text-small text-secondary">Tests run in sandboxes against mock tools: no real email, no spend. The live version keeps working until you promote.</p>
+            <p className="mt-2 text-small text-secondary">Practice tests run in sandboxes against mock tools: no real email, no spend, nothing goes live. The live version keeps working until you promote.</p>
           </DialogBody>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setTrainOpen(false)}>
               Cancel
             </Button>
-            <Button variant="primary" icon={Dumbbell} loading={busy} onClick={() => (trainable ? trainSaved() : void saveAndTrain())} data-testid="train-confirm">
+            <Button id="train-confirm" variant="primary" icon={Dumbbell} loading={busy} onClick={() => (trainable ? trainSaved() : void saveAndTrain())} data-testid="train-confirm">
               {trainable ? "Train" : "Save draft and train"}
             </Button>
           </DialogFooter>

@@ -10,7 +10,7 @@ const STEPS: Record<string, string[]> = {
   specialist: ["Define the specification and quality criteria", "Shortlist suppliers and send structured RFQs", "Extract quotes through the quarantined reader and score them", "Request samples within the approved budget", "Prepare the purchase recommendation for the founder's approval"],
   legal: ["Identify the jurisdiction and the applicable rules", "Draft the document from the approved template", "Mark every item that needs a human signature or filing", "Prepare the kit for the founder", "Record the compliance deadline in the calendar"],
   finance: ["Pull the ledger or bank transactions through the connector", "Categorize and reconcile; flag anomalies", "Update the forecast with labeled estimates", "Draft the summary for the Finance overview", "Never initiate a payment; list anything that needs one as a human action"],
-  ops: ["Clarify the outcome and who it is for", "Break the work into checkable steps", "Do the work within policy caps", "Record what changed and where", "Report back with links to the artifacts"],
+  ops: ["Clarify the outcome and who it is for", "Break the work into checkable steps", "Do the work within the limits you were given", "Record what changed and where", "Report back with links to the artifacts"],
 };
 
 export function generateWorker(ctx: MockContext): WorkerOutput {

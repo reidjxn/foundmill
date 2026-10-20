@@ -3,7 +3,8 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { ChannelProfileCard } from "./ChannelProfileCard";
 import { FormGuide } from "./ChannelToken";
 import { FormationBoard } from "./FormationBoard";
-import { BOARD_H, BOARD_W, CAPTION_CORRIDOR, FAMILY_QUADRANT, HUB, RX, RY, TOKEN_DOWN, TOKEN_UP, WEDGE_HALF, benchChannels, hitsHub, boardLayout, channelLine, entranceOrder, fitShare, fitToT, halfWidth, pitchLines, signalPath, toggleChannel } from "./formation";
+import { BOARD_H, BOARD_W, CAPTION_CORRIDOR, FAMILY_QUADRANT, FIT_RINGS, HUB, RX, RY, TOKEN_DOWN, TOKEN_UP, WEDGE_HALF, benchChannels, costTrendKey, hitsHub, boardLayout, channelLine, entranceOrder, fitShare, fitToT, halfWidth, pitchLines, signalPath, toggleChannel } from "./formation";
+import { ratingBandLabel } from "../../lib/rating";
 import { mockChannels } from "./mock";
 
 const channels = mockChannels();
@@ -122,11 +123,33 @@ describe("boardLayout (the quadrant map)", () => {
   });
 });
 
-describe("FormGuide", () => {
-  it("renders five cells with words in the accessible name", () => {
-    render(<FormGuide form={["good", "bad"]} name="SEO form" />);
-    const list = screen.getByRole("list", { name: /SEO form, last five weeks: no data, no data, no data, under cap, over cap/ });
+describe("FormGuide (the cost trend)", () => {
+  it("renders five cells with words in the accessible name, against the cost target rather than a cap", () => {
+    render(<FormGuide form={["good", "bad"]} name="SEO cost trend" />);
+    const list = screen.getByRole("list", { name: /SEO cost trend, last five weeks: no data, no data, no data, under target, over target/ });
     expect(list.querySelectorAll("li")).toHaveLength(5);
+  });
+
+  it("names the strip 'Cost trend' by default and carries its key as a tooltip on hover and focus (UX plan C2)", () => {
+    render(<FormGuide form={["good", "good", "warn", "good", "good"]} />);
+    const list = screen.getByRole("list", { name: /^Cost trend, last five weeks/ });
+    // Focus opens a tooltip at once (hover waits the usual delay).
+    fireEvent.focus(list);
+    expect(screen.getAllByText("Last 5 weeks against the cost target: 4 under, 1 near").length).toBeGreaterThan(0);
+  });
+
+  it("costTrendKey counts the weeks in words and says when there is no data", () => {
+    expect(costTrendKey(["good", "good", "warn", "good", "good"])).toBe("Last 5 weeks against the cost target: 4 under, 1 near");
+    expect(costTrendKey(["bad", "none", "none", "good", "warn"])).toBe("Last 5 weeks against the cost target: 1 under, 1 near, 1 over");
+    expect(costTrendKey(["good"])).toBe("Last 5 weeks against the cost target: 1 under");
+    expect(costTrendKey([])).toBe("Last 5 weeks against the cost target: no data yet");
+  });
+});
+
+describe("fit bands", () => {
+  it("names the rings with the rating ramp's own words (Excellent / Good / Average / Poor), one word per number", () => {
+    expect(FIT_RINGS.map((r) => r.band)).toEqual(["Excellent", "Good", "Average", "Poor"]);
+    expect([18, 12, 7, 3].map(ratingBandLabel)).toEqual(FIT_RINGS.map((r) => r.band));
   });
 });
 
@@ -145,6 +168,18 @@ describe("FormationBoard", () => {
     expect(within(bench).getAllByRole("button")).toHaveLength(11);
     const paid = within(pitch).getByRole("button", { name: /Paid advertising, fit 17 of 20 \(Excellent\), recommended, on the board/ });
     expect(paid.getAttribute("aria-pressed")).toBe("true");
+    // The legend names the bands with the ramp's words; the screen above the board says what fit is.
+    expect(screen.getByText(/Rings mark the fit bands: Excellent 16–20, Good 11–15, Average 6–10, Poor 1–5/)).toBeTruthy();
+  });
+
+  it("a ghost says which channel it is and how to start it, on hover (UX plan §7.13)", () => {
+    const { container } = render(<FormationBoard channels={channels} onToggle={vi.fn()} animateEntrance={false} hoverCards={false} />);
+    const ghost = container.querySelector('[data-ghost="seo"]') as HTMLElement;
+    // Hoverable now (it used to swallow no pointer events), and a tooltip trigger.
+    expect(ghost.className).not.toContain("pointer-events-none");
+    expect(ghost.getAttribute("data-state")).toBe("closed");
+    fireEvent.focus(ghost);
+    expect(screen.getAllByText("SEO · not running · drag it onto the board to start").length).toBeGreaterThan(0);
   });
 
   it("Enter toggles a token between board and bench, O opens the channel", () => {

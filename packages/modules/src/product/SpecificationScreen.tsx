@@ -107,9 +107,9 @@ function EditorPanel({ businessId, block, canWrite, onChanged }: { businessId: s
 
   return (
     <Panel
-      title={block ? block.section : "Block"}
+      title={block ? block.section : "Paragraph"}
       span={6}
-      empty={!block ? { icon: FileText, children: "Pick a block in the outline to read or edit it." } : undefined}
+      empty={!block ? { icon: FileText, children: "Pick a paragraph in the outline to read or edit it." } : undefined}
       actions={
         block ? (
           <>
@@ -146,7 +146,7 @@ function EditorPanel({ businessId, block, canWrite, onChanged }: { businessId: s
           {block.pinned ? (
             <p className="mb-2 flex items-center gap-1.5 text-small text-secondary">
               <Icon icon={Lock} size="inline" className="text-status-info" />
-              Pinned: agents cannot change this block without an accepted change proposal.{canWrite ? " Your edits keep it pinned." : ""}
+              Pinned: agents cannot change this paragraph without an accepted change proposal.{canWrite ? " Your edits keep it pinned." : ""}
             </p>
           ) : null}
           <Editor
@@ -263,7 +263,7 @@ function HistoryPanel({ versions, canWrite, onRestored, onPublished }: { version
                   {v.changelogMd || "No changelog"}
                 </p>
                 <div className="mt-1 flex items-center gap-2 text-small text-secondary">
-                  <span className="tabular-nums">{v.snapshot?.blocks?.length ?? 0} blocks</span>
+                  <span className="tabular-nums">{v.snapshot?.blocks?.length ?? 0} paragraph{(v.snapshot?.blocks?.length ?? 0) === 1 ? "" : "s"}</span>
                   {v.publishedBy ? <AuthorRef kind="user" id={v.publishedBy} /> : <span>System</span>}
                   <span className="flex-1" />
                   {i !== 0 && canWrite ? (
@@ -316,7 +316,7 @@ function HistoryPanel({ versions, canWrite, onRestored, onPublished }: { version
         <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>Restore version {restoreTarget?.version}?</DialogTitle>
-            <DialogDescription>Every block returns to the state published {restoreTarget ? formatDate(restoreTarget.publishedAt) : ""}. Blocks added since are archived, not deleted; the current state stays comparable in history.</DialogDescription>
+            <DialogDescription>Every paragraph returns to the state published {restoreTarget ? formatDate(restoreTarget.publishedAt) : ""}. Paragraphs added since are archived, not deleted; the current state stays comparable in history.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <InlineError error={action.error} />
@@ -334,7 +334,7 @@ function HistoryPanel({ versions, canWrite, onRestored, onPublished }: { version
         <DialogContent size="md">
           <DialogHeader>
             <DialogTitle>Publish a spec version</DialogTitle>
-            <DialogDescription>Snapshots every block as the next immutable version. Development is told to re-plan when it matters.</DialogDescription>
+            <DialogDescription>Saves every paragraph as the next version, which never changes afterwards. Development is told to re-plan when it matters.</DialogDescription>
           </DialogHeader>
           <DialogBody>
             <label htmlFor="spec-changelog" className="t-label mb-1 block">
@@ -393,7 +393,7 @@ export function SpecificationScreen({ businessId }: ModuleScreenProps) {
         error={spec.error ? spec.error.message : undefined}
         onRetry={spec.refetch}
         empty={spec.data && spec.data.blocks.length === 0 ? { icon: FileText, title: "No spec yet", children: "The outline is seeded from the archetype when the business is created; the Product lead fills it in the first cycle." } : undefined}
-        footer={spec.data ? <span className="tabular-nums">{spec.data.blocks.length} blocks in {groups.length} sections · ↑↓ to move</span> : undefined}
+        footer={spec.data ? <span className="tabular-nums">{spec.data.blocks.length} paragraph{spec.data.blocks.length === 1 ? "" : "s"} in {groups.length} section{groups.length === 1 ? "" : "s"} · ↑↓ to move</span> : undefined}
         flush
       >
         <Outline groups={groups} selectedId={selectedId} onSelect={setSelectedId} />

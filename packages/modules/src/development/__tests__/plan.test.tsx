@@ -25,6 +25,9 @@ describe("PlanScreen", () => {
     expect(within(table).getByText("Specialist")).toBeTruthy();
     expect(within(table).queryByText("specialist")).toBeNull();
     expect(screen.getByTestId("plan-counts").textContent).toBe("3 in progress · 1 ready · 1 done");
+    // The footer names both paths to a task's actions, never right-click alone (D6).
+    expect(screen.getByText(/Use the … button or right-click a task for Start, Pause, Reassign, use the strongest model, Stop and Open in Claude Code/)).toBeTruthy();
+    expect(screen.queryByText("Hard")).toBeNull();
     expect(fake.queried.get("dev.tasks.list")).toEqual({ limit: 500 });
     expect(PLAN_VIEWS.map((v) => v.id)).toEqual(["all", "ready", "in-progress", "blocked", "done"]);
     expect(screen.getByText("All tasks")).toBeTruthy();
@@ -48,7 +51,7 @@ describe("PlanScreen", () => {
     const fake = createFakeSource({ responses: responses(), onMutate: () => ({ tasks: tasks.slice(0, 2), graph: { tasks: tasks.slice(0, 2), edges }, costMinor: 120, costLabel: "Estimate" }) });
     renderScreen(fake, <PlanScreen {...props} />);
     await screen.findByRole("grid", { name: "Tasks" });
-    const build = screen.getByRole("button", { name: "Build task graph" });
+    const build = screen.getByRole("button", { name: "Plan the tasks" });
     expect(build).toHaveProperty("disabled", true);
     await user.click(screen.getByRole("combobox", { name: "Roadmap item" }));
     await user.click(await screen.findByRole("option", { name: /Bundles and gifting/ }));
@@ -65,7 +68,7 @@ describe("PlanScreen", () => {
     renderScreen(fake, <PlanScreen {...props} />);
     await screen.findByRole("grid", { name: "Tasks" });
     await user.type(screen.getByLabelText("Objective"), "Rate-limit the public API");
-    await user.click(screen.getByRole("button", { name: "Build task graph" }));
+    await user.click(screen.getByRole("button", { name: "Plan the tasks" }));
     await waitFor(() => expect(fake.mutations).toContainEqual({ path: "dev.tasks.plan", input: { goal: "Rate-limit the public API" } }));
   });
 
@@ -79,7 +82,11 @@ describe("PlanScreen", () => {
     const graph = await screen.findByRole("application", { name: /Dependencies of Playwright coverage/ });
     expect(within(graph).getByRole("button", { name: /Add a bundle picker to the product page, Running/ })).toBeTruthy();
     expect(within(graph).queryByRole("button", { name: /Rate-limit the public API/ })).toBeNull();
-    expect(screen.getByText(`agent/${TASK_PLAYWRIGHT}`)).toBeTruthy();
+    // The branch and file scope are plumbing: they sit behind the "Technical" disclosure (UX plan §7.12, C11).
+    const technical = screen.getByTestId("task-technical");
+    expect(technical.querySelector("summary")!.textContent).toContain("Technical");
+    expect(within(technical).getByText(`agent/${TASK_PLAYWRIGHT}`)).toBeTruthy();
+    expect(within(technical).getByText("File scope")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Start" }));
     await waitFor(() => expect(fake.mutations).toContainEqual({ path: "dev.tasks.start", input: { taskId: TASK_PLAYWRIGHT } }));
   });
@@ -98,7 +105,8 @@ describe("PlanScreen", () => {
 
     fireEvent.contextMenu(within(table).getByText("Usage index for the Ledgerly dashboard", { selector: ".text-body-strong" }));
     const menu2 = await screen.findByRole("menu");
-    expect(within(menu2).getByRole("menuitem", { name: "Upgrade to Opus" }).getAttribute("aria-disabled")).toBe("true");
+    expect(within(menu2).getByRole("menuitem", { name: "Use the strongest model" }).getAttribute("aria-disabled")).toBe("true");
+    expect(within(menu2).queryByRole("menuitem", { name: "Upgrade to Opus" })).toBeNull();
     await user.click(within(menu2).getByRole("menuitem", { name: "Stop and discard" }));
     const dialog = await screen.findByRole("dialog", { name: "Stop and discard" });
     await user.click(within(dialog).getByRole("button", { name: "Stop and discard" }));

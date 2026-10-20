@@ -170,6 +170,30 @@ describe("archetype seeds (BUILD §11.1, AC-11.1.6)", () => {
     for (const seed of ARCHETYPE_SEED_LIST) for (const text of [seed.firstBuild.title, seed.firstBuild.goal, ...seed.firstBuild.acceptance]) expect(text, seed.archetype).not.toMatch(FOOTBALL);
   });
 
+  it("task titles and option labels the founder sees carry no jargon; the technical detail stays in the goals (UX plan §7.19, §8.2)", () => {
+    // The replace tier of the jargon table, as the Board's labels, the first build's title and the task titles reach the screen.
+    const JARGON = /\b(?:ICP|CPA|CAC|COGS|RLS|Cedar|named query|exhibit|request_human_action|concurrency|time box|counterparty|webhook|OAuth|BYOK|unit economics|hunk|triage|hard gate|engine|pipeline|vertical slice)\b/;
+    const titles: string[] = [CHANNEL_SCORING_TASK.title];
+    const labels: string[] = [];
+    for (const seed of ARCHETYPE_SEED_LIST) {
+      titles.push(seed.firstBuild.title, ...seed.firstCycleTasks.map((t) => t.title));
+      for (const o of seed.boardDecision.options) {
+        labels.push(o.label, o.consequence);
+        for (const a of o.actions) if (a.type === "create_task") titles.push(a.params.title as string);
+      }
+      labels.push(seed.boardDecision.subject, seed.boardDecision.bodyMd);
+    }
+    for (const text of [...titles, ...labels]) expect(text).not.toMatch(JARGON);
+    // The plain titles the plan asks for, with the engineering detail kept where the engineer agent reads it.
+    const b2b = ARCHETYPE_SEEDS.b2b_saas;
+    expect(b2b.firstBuild.title).toBe("Plan the first build: signup, first value, payment");
+    expect(b2b.firstBuild.goal).toContain("task graph");
+    expect(b2b.boardDecision.options[0]!.label).toBe("Reach the one kind of customer we target first");
+    expect(ARCHETYPE_SEEDS.consumer_app.boardDecision.options[0]!.label).toBe("Small paid test with a cost-per-customer limit");
+    const outboundGoals = b2b.boardDecision.options[0]!.actions.filter((a) => a.type === "create_task").map((a) => a.params.goal as string);
+    expect(outboundGoals.some((g) => /ideal customer profile/.test(g))).toBe(true);
+  });
+
   it("templateKeysForArchetype starts with the Chief of Staff, hires the utilities and never repeats a key", () => {
     for (const a of ARCHETYPES) {
       const keys = templateKeysForArchetype(a);

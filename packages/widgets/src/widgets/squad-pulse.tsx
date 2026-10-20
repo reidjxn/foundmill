@@ -1,8 +1,9 @@
 "use client";
 /**
- * Squad pulse widget (BUILD §11.2): a 7 × 24 heatmap of agent activity by hour and department over the last seven
- * days, built from `dev.sessions.list` (session start/end per agent → department via `department.list`). Days and hours
- * are the business's own (its time zone, audit #196), the same days Home's tiles and the top bar count in.
+ * Team pulse widget (BUILD §11.2): a 7 × 24 heatmap of agent activity ("hours of team work", never "agent-hours" where
+ * a person reads it, UX plan B16) by hour and department over the last seven days, built from `dev.sessions.list`
+ * (session start/end per agent → department via `department.list`). Days and hours are the business's own (its time
+ * zone, audit #196), the same days Home's tiles and the top bar count in.
  */
 import { useMemo } from "react";
 import { z } from "zod";
@@ -99,8 +100,8 @@ function SquadPulseWidget({ settings }: WidgetProps<SquadPulseSettings>) {
       title="Team pulse"
       data-widget="squad_pulse"
       queries={[departments, sessions]}
-      empty={empty ? { icon: Activity, text: "Agent hours by hour and department appear after the first cycle runs." } : null}
-      footer={<span>Last 7 days · agent hours from session logs</span>}
+      empty={empty ? { icon: Activity, text: "Hours of team work by hour and department appear after the first cycle runs." } : null}
+      footer={<span>Last 7 days · hours of team work from session logs</span>}
     >
       <SquadPulse departments={toRibbonDepartments(depts)} days={days} cells={cells} />
     </WidgetFrame>

@@ -22,7 +22,8 @@ const HOUSE_RULES: ReadonlyArray<{ icon: LucideIcon; text: string }> = [
 
 const CONTROLS: ReadonlyArray<{ icon: LucideIcon; title: string; text: string }> = [
   { icon: CircleStop, title: "Stop all agents", text: "One button in the top bar pauses every agent at once. They resume where they stopped." },
-  { icon: KeyRound, title: "Your key, sealed", text: "Bring your own Anthropic key. Credentials are encrypted per business and never sent into a sandbox." },
+  // The key assurance lives here, not on the hero (docs/UX_AUDIT_AND_PLAN.md §7.1, A13): the hero says what a founder starts with.
+  { icon: KeyRound, title: "Your key, sealed", text: "Bring your own Anthropic key, or stay on the included credits. A key is encrypted per business and never sent into a sandbox." },
 ];
 
 export function YourCall() {

@@ -52,3 +52,26 @@ export function ratingCells(value: number): boolean[] {
   const v = clampRating(value);
   return Array.from({ length: RATING_MAX }, (_, i) => i < v);
 }
+
+/**
+ * The scales a number is shown on (UX plan §5 "every number carries a word"): the 1–20 attribute, a /10 average, and
+ * stars out of 5. Every scale maps onto the 1–20 ramp for its band word and tone.
+ */
+export type RatingScale = 20 | 10 | 5;
+
+/** The caption beside a figure on a scale: "/20", "/10", "of 5". */
+export function scaleCaption(scale: RatingScale): "/20" | "/10" | "of 5" {
+  switch (scale) {
+    case 10:
+      return "/10";
+    case 5:
+      return "of 5";
+    default:
+      return "/20";
+  }
+}
+
+/** A value on any scale as its 1–20 rating (7.5/10 → 15, 3.5 of 5 → 14), clamped and rounded. */
+export function toRating20(value: number, scale: RatingScale = 20): number {
+  return clampRating(value * (RATING_MAX / scale));
+}

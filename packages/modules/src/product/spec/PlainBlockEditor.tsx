@@ -51,7 +51,7 @@ export function PlainBlockEditor({ blockId, initialContent, readOnly, onSaved, o
   return (
     <div className="flex h-full min-h-0 flex-col gap-2" data-plain-block-editor>
       <Textarea
-        aria-label="Block text"
+        aria-label="Paragraph text"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKeyDown}

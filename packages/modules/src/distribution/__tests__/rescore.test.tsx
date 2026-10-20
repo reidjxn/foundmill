@@ -53,7 +53,7 @@ describe("FormationScreen re-score after toggles", () => {
     const seo = within(board).getByRole("button", { name: /^SEO, fit 11/ });
     expect(seo.getAttribute("aria-pressed")).toBe("true");
     expect(seo.getAttribute("aria-label")).toContain("recommended");
-    expect(screen.getByTestId("rescore-pending").textContent).toMatch(/Local scores/);
+    expect(screen.getByTestId("rescore-pending").textContent).toBe("Scores are being refreshed");
     await act(async () => {
       fireEvent.keyDown(within(board).getByRole("button", { name: /^Content marketing, fit 12/ }), { key: " " });
     });
@@ -67,7 +67,7 @@ describe("FormationScreen re-score after toggles", () => {
     expect(recommends(fake)).toBe(1);
   }, 15_000);
 
-  it("Re-score runs at once and drops the waiting one; leaving the screen runs a waiting re-score", async () => {
+  it("Score again runs at once and drops the waiting one; leaving the screen runs a waiting re-score", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate });
     const view = renderScreen(fake, <FormationScreen businessId={BID} departmentId="d1" animateEntrance={false} rescoreDelayMs={10_000} />);
     const board = screen.getByRole("region", { name: "Channel Board" });
@@ -76,7 +76,7 @@ describe("FormationScreen re-score after toggles", () => {
     });
     expect(recommends(fake)).toBe(0);
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Re-score" }));
+      fireEvent.click(screen.getByRole("button", { name: "Score again" }));
     });
     await waitFor(() => expect(recommends(fake)).toBe(1));
     expect(screen.queryByTestId("rescore-pending")).toBeNull();

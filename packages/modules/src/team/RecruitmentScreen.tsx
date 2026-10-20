@@ -1,9 +1,10 @@
 "use client";
 /**
  * Team › Recruitment (BUILD §6.3, §11.9, §11.13): the catalogue of agent templates (team.agents.catalogue) with a
- * saved view per family and "Hire…" into a department (team.agents.hire); the agent builder entry (a sentence →
+ * saved view per kind and "Hire…" into a department (team.agents.hire); the agent builder entry (a sentence →
  * the closest templates, hired under a custom name with the template's instructions, tools and skills; training from
- * the profile tunes them); and team moves: release, clone, loan between departments.
+ * the profile tunes them); and team moves: let go, duplicate, lend to another department (the API paths keep
+ * release / clone / loan).
  */
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, Copy, ExternalLink, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
@@ -138,7 +139,8 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
           </span>
         ),
       },
-      { id: "family", accessorKey: "family", header: "Family", size: catalogueSizes.family, cell: ({ row }) => <Chip>{row.original.familyLabel}</Chip>, meta: { filter: "select", filterOptions: (Object.keys(FAMILY_LABELS) as TemplateRow["family"][]).map((f) => ({ value: f, label: FAMILY_LABELS[f] })) }, sortingFn: (a, b) => FAMILY_ORDER[a.original.family] - FAMILY_ORDER[b.original.family] },
+      // "Kind" to the founder (C10); the column id and the enum keep `family`.
+      { id: "family", accessorKey: "family", header: "Kind", size: catalogueSizes.family, cell: ({ row }) => <Chip>{row.original.familyLabel}</Chip>, meta: { filter: "select", filterOptions: (Object.keys(FAMILY_LABELS) as TemplateRow["family"][]).map((f) => ({ value: f, label: FAMILY_LABELS[f] })) }, sortingFn: (a, b) => FAMILY_ORDER[a.original.family] - FAMILY_ORDER[b.original.family] },
       { id: "module", accessorFn: (r) => moduleLabel(r, departments.data, agentsQuery.data?.agents), header: "Department", size: catalogueSizes.module, meta: { label: "Department" }, cell: ({ row }) => <span className={row.original.module ? "text-primary" : "text-secondary"}>{moduleLabel(row.original, departments.data, agentsQuery.data?.agents)}</span> },
       { id: "model", accessorKey: "modelKey", header: "Model", size: catalogueSizes.model, cell: ({ row }) => <ModelChip model={row.original.modelKey} /> },
       {
@@ -162,7 +164,8 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
       {
         id: "wage",
         accessorKey: "wageCapMinor",
-        header: "Wage cap",
+        // A wage cap caps metered model cost, so it is in US dollars whatever the business's currency (C19).
+        header: "Wage cap (USD)",
         size: catalogueSizes.wage,
         meta: { numeric: true, csv: (r) => r.wageCapMinor / 100 },
         cell: ({ row }) => (
@@ -215,10 +218,10 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
   );
   const movesActions = (agent: AgentRow): RowAction<AgentRow>[] => [
     { id: "open", label: "Open profile", icon: ExternalLink, onSelect: () => open(agent.id) },
-    // One Chief of Staff per business: it is never cloned, and the designated one is never released.
-    { id: "clone", label: "Clone…", icon: Copy, separatorBefore: true, disabled: isChiefOfStaffType(agent), onSelect: () => setClone(agent) },
-    { id: "loan", label: "Loan to department…", icon: ArrowLeftRight, onSelect: () => setLoan(agent) },
-    { id: "release", label: "Release", icon: UserRoundMinus, variant: "danger", separatorBefore: true, disabled: isChiefOfStaff(agent), onSelect: () => setRelease(agent) },
+    // One Chief of Staff per business: it is never duplicated, and the designated one is never let go.
+    { id: "clone", label: "Duplicate…", icon: Copy, separatorBefore: true, disabled: isChiefOfStaffType(agent), onSelect: () => setClone(agent) },
+    { id: "loan", label: "Lend to another department…", icon: ArrowLeftRight, onSelect: () => setLoan(agent) },
+    { id: "release", label: "Let go", icon: UserRoundMinus, variant: "danger", separatorBefore: true, disabled: isChiefOfStaff(agent), onSelect: () => setRelease(agent) },
   ];
 
   return (
@@ -299,8 +302,12 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
             </span>
           ) : undefined
         }
-        footer={notice ? <span data-testid="recruitment-notice" className="text-secondary">{notice}</span> : "Double-click or right-click a template to hire it into a department. Wage caps are estimates."}
+        footer={notice ? <span data-testid="recruitment-notice" className="text-secondary">{notice}</span> : "Double-click or right-click a template to hire it into a department. Wage caps are estimates, in US dollars."}
       >
+        {/* What the catalog is, in one line under its title (UX plan C10). TODO(guided-layer): Explainer. */}
+        <p className="border-b border-line-faint px-panel-pad py-2 text-small text-secondary" data-testid="catalogue-intro">
+          Ready-made agents. Hire one into a department and it starts next cycle.
+        </p>
         <div className="min-w-0">
           <DataTable<CatalogueRow> aria-label="Catalog" data={rows} columns={catalogueColumns} {...catalogueSavedViews} defaultViewId="all" rowActions={catalogueActions} onRowOpen={(row) => !readOnly && setHire({ template: row })} height={Math.min(480, Math.max(240, rows.length * 34 + 44))} density="comfortable" exportFileName="catalogue" className="border-0" />
         </div>
@@ -313,8 +320,8 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         loading={agentsQuery.isLoading && !agentsQuery.data}
         error={agentsQuery.error ? agentsQuery.error.message : undefined}
         onRetry={refetch}
-        empty={agentsQuery.data && team.length === 0 ? { icon: Users, children: "Hired agents appear here; right-click one to clone it, loan it to another department or release it." } : undefined}
-        footer="Release stops running tasks and keeps the history. Clone copies instructions, tools, model and skills. Loan adds a department; move replaces it."
+        empty={agentsQuery.data && team.length === 0 ? { icon: Users, children: "Hired agents appear here; right-click one to duplicate it, lend it to another department or let it go." } : undefined}
+        footer="Letting an agent go stops its running tasks and keeps its history. Duplicating copies instructions, tools, model and skills. Lending adds a department; moving replaces it."
       >
         <div className="min-w-0">
           <DataTable<AgentRow> aria-label="Team moves" data={team} columns={movesColumns} {...movesSavedViews} defaultViewId="all" rowActions={movesActions} onRowOpen={(a) => open(a.id)} height={Math.min(420, Math.max(200, team.length * 28 + 44))} exportFileName="team-moves" className="border-0" />
@@ -334,9 +341,9 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
           refetch();
         }}
       />
-      <ReleaseDialog agent={release} onOpenChange={(o) => !o && setRelease(null)} onReleased={(a) => { setNotice(`${a.name} released.`); refetch(); }} />
+      <ReleaseDialog agent={release} onOpenChange={(o) => !o && setRelease(null)} onReleased={(a) => { setNotice(`${a.name} has left the team.`); refetch(); }} />
       <CloneDialog agent={clone} onOpenChange={(o) => !o && setClone(null)} departments={departments.data} onCloned={(c) => { setNotice(`${c.name} joined the team.`); refetch(); }} />
-      <LoanDialog agent={loan} onOpenChange={(o) => !o && setLoan(null)} departments={departments.data} onLoaned={(a, deptId, move) => { setNotice(`${a.name} ${move ? "moved to" : "on loan to"} ${departments.data?.find((d) => d.id === deptId)?.name ?? "another department"}.`); refetch(); }} />
+      <LoanDialog agent={loan} onOpenChange={(o) => !o && setLoan(null)} departments={departments.data} onLoaned={(a, deptId, move) => { setNotice(`${a.name} ${move ? "moved to" : "lent to"} ${departments.data?.find((d) => d.id === deptId)?.name ?? "another department"}.`); refetch(); }} />
     </Screen>
   );
 }

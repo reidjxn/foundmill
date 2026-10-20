@@ -10,7 +10,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BookOpenText, CheckCircle2, FileText, FlaskConical, ListChecks, LoaderCircle, Mic, Presentation, RotateCcw, ScrollText, Share2, Target, type LucideIcon } from "lucide-react";
-import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, Markdown, Panel, StatusPill, cn, useFormatters, type ChipTone, type GridSpan } from "@foundmill/dugout";
+import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, Markdown, Panel, StatusPill, cn, useFormatters, useGuided, type ChipTone, type GridSpan } from "@foundmill/dugout";
 import type { ResearchArtifactKind, ResearchArtifactStatus } from "@foundmill/shared";
 import { failedWithoutData, isForbidden, moduleHref, routes, useBusinessEvents, useDepartments, useHostStreamOpen, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import { useCanWrite } from "../../env";
@@ -44,6 +44,11 @@ export const ARTIFACT_STATUS_META: Record<ResearchArtifactStatus, { word: string
 
 export type ResearchPlanState = "none" | "waiting" | "pending" | "drafting" | "ready" | "failed";
 
+/** The panel's title; what it tests and with whom is its meta line. */
+export const RESEARCH_PLAN_TITLE = "Research plan";
+/** What the plan is for, in one line under the title while guidance is on (UX plan §7.11). */
+export const RESEARCH_PLAN_LEDE = "Who we will talk to and what we will ask, before building more.";
+
 /**
  * The state the panel shows. The foundations gate it: until they are ready nothing can be drafted (`waiting`); a plan
  * past its window reads as failed, with Try again.
@@ -73,6 +78,7 @@ export interface ResearchPlanPanelProps {
 
 export function ResearchPlanPanel({ businessId, blocks, onOpenBlock, span = 12, className }: ResearchPlanPanelProps) {
   const { mutate, navigate } = useWidgetData();
+  const guided = useGuided();
   const canWrite = useCanWrite("product");
   const departments = useDepartments();
   const streamOpen = useHostStreamOpen();
@@ -117,8 +123,8 @@ export function ResearchPlanPanel({ businessId, blocks, onOpenBlock, span = 12, 
     });
 
   if (!r) {
-    if (failedWithoutData(research) && !isForbidden(research.error)) return <Panel span={span} title="Testing the specification" error={`The research plan could not be loaded. ${errorMessage(research.error)}`} onRetry={research.refetch} className={className} data-testid="research-plan" data-research-state="error" />;
-    return <Panel span={span} title="Testing the specification" loading className={className} data-testid="research-plan" data-research-state="loading" />;
+    if (failedWithoutData(research) && !isForbidden(research.error)) return <Panel span={span} title={RESEARCH_PLAN_TITLE} meta="Testing the specification" error={`The research plan could not be loaded. ${errorMessage(research.error)}`} onRetry={research.refetch} className={className} data-testid="research-plan" data-research-state="error" />;
+    return <Panel span={span} title={RESEARCH_PLAN_TITLE} meta="Testing the specification" loading className={className} data-testid="research-plan" data-research-state="loading" />;
   }
 
   const pill =
@@ -136,12 +142,13 @@ export function ResearchPlanPanel({ businessId, blocks, onOpenBlock, span = 12, 
       <StatusPill tone="neutral">Waiting</StatusPill>
     );
 
-  const title = state === "ready" || state === "drafting" || state === "pending" ? `Testing the specification with ${icp}` : "Testing the specification";
+  const meta = state === "ready" || state === "drafting" || state === "pending" ? `Testing the specification with ${icp}` : "Testing the specification";
   const agentName = r.agent?.name ?? "The Product Researcher";
 
   return (
     <Panel
-      title={title}
+      title={RESEARCH_PLAN_TITLE}
+      meta={meta}
       span={span}
       actions={pill}
       className={className}
@@ -149,6 +156,12 @@ export function ResearchPlanPanel({ businessId, blocks, onOpenBlock, span = 12, 
       data-research-state={state}
       footer={state === "ready" ? <span className="tabular-nums">{r.artifacts.length} artifacts · every threshold and sample size is an Estimate until it is measured · nothing is sent to anyone without your approval</span> : undefined}
     >
+      {/* TODO(guided-layer): Explainer. */}
+      {guided ? (
+        <p className="mb-2 text-small text-secondary" data-testid="research-plan-lede">
+          {RESEARCH_PLAN_LEDE}
+        </p>
+      ) : null}
       {state === "none" ? (
         <p className="max-w-reading text-body text-secondary">This business has no research plan: it was set up before its specification was drafted here, so there is nothing for the Product Researcher to test yet.</p>
       ) : null}

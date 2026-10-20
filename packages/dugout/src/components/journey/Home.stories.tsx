@@ -36,7 +36,8 @@ const busy = cards[0]!;
 
 /**
  * One grid row at Home's height (the department card is 16 grid rows, 368 px): a busy card sets the height and the
- * quiet ones fill "Now" with their one line instead of a void; the metric and "Next up" sit level across the row.
+ * quiet ones fill "Working on now" with their one line instead of a void; the metric and "Next" sit level across the
+ * row. The team strip counts agents on a task ("3 of 4 working") or says what the team is ("2 agents, all healthy").
  */
 export const QuietCards: Story = {
   name: "Department cards · quiet, in one row",

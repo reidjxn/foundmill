@@ -210,7 +210,7 @@ export function draftSteps(run: DraftRun): DraftStep[] {
     { id: "profile", label: "Read your profile", detail: "Skills, time, budget and markets", state: profile },
     { id: "slate", label: outlined ? `Slate of ${total} angles` : named ? `Slate of ${named}+ angles` : "Slate of angles", detail: outlined ? "One angle per card" : named ? `${plural(named, "angle")} named so far` : "Names each concept first", state: slate },
     { id: "cards", label: "Drafting cards", detail: drafted || writing ? `${drafted} landed${writing ? ` · ${writing} in progress` : ""}${failed ? ` · ${failed} not finished` : ""}` : "Each card lands as soon as it is written", state: cards },
-    { id: "compare", label: "Rank in Compare", detail: run.status === "done" ? "Tick 2–4 cards to rank them" : "When you pick 2–4 cards", state: "pending" },
+    { id: "compare", label: "Rank in Compare", detail: run.status === "done" ? "Pick 2–4 cards to rank them" : "When you pick 2–4 cards", state: "pending" },
   ];
 }
 

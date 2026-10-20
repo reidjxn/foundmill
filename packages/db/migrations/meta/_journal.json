@@ -365,6 +365,13 @@
       "when": 1795522320000,
       "tag": "0063_product_research",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1795608720000,
+      "tag": "0064_guidance_preferences",
+      "breakpoints": true
     }
   ]
 }

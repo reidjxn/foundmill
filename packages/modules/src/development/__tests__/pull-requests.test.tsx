@@ -22,6 +22,8 @@ describe("PullRequestsScreen", () => {
     expect(within(open).queryByText("Deploying…")).toBeNull();
     expect(within(open).getByRole("link", { name: "Pike" })).toBeTruthy();
     expect(screen.getByTestId("pr-counts").textContent).toBe("1 in review · 1 in the merge queue");
+    // Guidance on (the default outside a provider): what a pull request is, under the title (UX plan §7.12).
+    expect(screen.getByTestId("pull-requests-lede").textContent).toBe("A bundle of finished code waiting for review.");
 
     const merged = screen.getByRole("grid", { name: "Merged pull requests" });
     expect(within(merged).getByRole("link", { name: "#41" }).getAttribute("href")).toBe(mergedPrs[0]!.url);

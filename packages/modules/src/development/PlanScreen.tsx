@@ -5,8 +5,8 @@
  * a goal).
  */
 import { useId, useMemo, useState } from "react";
-import { ArrowUpCircle, Bot, ExternalLink, ListTree, Network, Pause, Play, Radio, Square } from "lucide-react";
-import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, TASK_STATUS_META, TaskGraph, Textarea, SimpleSelect, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { ArrowUpCircle, Bot, ChevronRight, ExternalLink, ListTree, Network, Pause, Play, Radio, Square } from "lucide-react";
+import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, STRONGEST_MODEL_LABEL, TASK_STATUS_META, TaskGraph, Textarea, SimpleSelect, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -139,7 +139,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
             </span>
             {row.original.priority && row.original.priority >= 10 ? (
               <Chip tone="warn" className="shrink-0">
-                Hard
+                High priority
               </Chip>
             ) : null}
           </span>
@@ -193,7 +193,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
       { id: "pause", label: "Pause", icon: Pause, disabled: !live, onSelect: (r) => void runTask("dev.tasks.pause", r) },
       { id: "resume", label: "Resume", icon: Play, disabled: row.status !== "paused", onSelect: (r) => void runTask("dev.tasks.resume", r) },
       { id: "reassign", label: "Reassign", icon: Bot, disabled: over, onSelect: (r) => setReassign(r) },
-      { id: "upgrade", label: "Upgrade to Opus", icon: ArrowUpCircle, disabled: over || row.agent?.modelKey === "opus", onSelect: (r) => void runTask("dev.tasks.upgradeModel", r) },
+      { id: "upgrade", label: STRONGEST_MODEL_LABEL, icon: ArrowUpCircle, disabled: over || row.agent?.modelKey === "opus", onSelect: (r) => void runTask("dev.tasks.upgradeModel", r) },
       { id: "claude", label: "Open in Claude Code", icon: ExternalLink, onSelect: (r) => setClaudeCode(r), separatorBefore: true },
       { id: "stop", label: "Stop and discard", icon: Square, variant: "danger", disabled: over || row.status === "stopped", onSelect: (r) => setStop(r) },
     ];
@@ -255,7 +255,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
             {(counts.running ?? 0) + (counts.paused ?? 0) + (counts.blocked ?? 0) + (counts.review ?? 0) + (counts.merging ?? 0)} in progress · {counts.ready ?? 0} ready · {counts.done ?? 0} done
           </span>
         }
-        footer={action.error ? <InlineError error={action.error} /> : <span>Right-click a task for Start, Pause, Reassign, Upgrade, Stop and Open in Claude Code. Enter shows its dependencies.</span>}
+        footer={action.error ? <InlineError error={action.error} /> : <span>Use the … button or right-click a task for Start, Pause, Reassign, {STRONGEST_MODEL_LABEL.toLowerCase()}, Stop and Open in Claude Code. Enter shows its dependencies.</span>}
       >
         <div className="min-w-0">
           <DataTable<PlanRow>
@@ -269,7 +269,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
             selectedIds={selected ? [selected.id] : []}
             height={520}
             exportFileName="tasks"
-            empty={{ icon: ListTree, children: "No tasks yet. Pick a roadmap item or write an objective on the right and the Planner builds the task graph." }}
+            empty={{ icon: ListTree, children: "No tasks yet. Pick a roadmap item or write an objective on the right and the Planner plans the tasks." }}
             aria-label="Tasks"
           />
         </div>
@@ -285,7 +285,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
           </Field>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             {/* A real model call (the Planner): the generate control, running while the plan is drafted. */}
-            <GenerateControl size="md" label="Build task graph" runningLabel="Planning the tasks" running={planner.pending === "plan"} disabled={!canPlan} onGenerate={runPlan} />
+            <GenerateControl size="md" label="Plan the tasks" runningLabel="Planning the tasks" running={planner.pending === "plan"} disabled={!canPlan} onGenerate={runPlan} />
             {planned ? (
               <span className="text-small text-secondary tabular-nums" role="status">
                 Planned {plural(planned.tasks.length, "task")}
@@ -321,13 +321,28 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
                   { label: "Status", value: <TaskStatusPill status={selected.status} /> },
                   { label: "Agent", value: selected.agentName },
                   { label: "Kind", value: kindLabel(selected.kind) },
-                  { label: "Branch", value: selected.kind === "code" ? agentBranch(selected.id) : "—", mono: true },
                   { label: "Depends on", value: selected.dependsOn.length ? selected.dependsOn.join(", ") : "Nothing" },
                   { label: "Unblocks", value: selected.blocks.length ? selected.blocks.join(", ") : "Nothing" },
-                  { label: "File scope", value: selected.fileScope?.length ? selected.fileScope.join(", ") : "Not set", mono: !!selected.fileScope?.length },
                   { label: "Acceptance", value: selected.acceptance?.length ? `${selected.acceptance.length} criteria` : "None recorded" },
                 ]}
               />
+              {/* The plumbing (branch, file scope) behind a disclosure: the business facts above read first (UX plan §7.12). */}
+              <details className="group/detail mt-2 text-small" data-testid="task-technical">
+                <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm text-secondary transition-colors duration-hover ease-out hover:text-primary [&::-webkit-details-marker]:hidden">
+                  <ChevronRight size={14} aria-hidden className="transition-transform duration-overlay ease-out group-open/detail:rotate-90" />
+                  Technical
+                </summary>
+                <div className="mt-1.5">
+                  <KeyValueList
+                    layout="stacked"
+                    dense
+                    items={[
+                      { label: "Branch", value: selected.kind === "code" ? agentBranch(selected.id) : "—", mono: true },
+                      { label: "File scope", value: selected.fileScope?.length ? selected.fileScope.join(", ") : "Not set", mono: !!selected.fileScope?.length },
+                    ]}
+                  />
+                </div>
+              </details>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button size="sm" icon={Play} disabled={!(selected.status === "planned" || selected.status === "ready") || !selected.assigneeAgentId} loading={action.pending === `dev.tasks.start:${selected.id}`} onClick={() => void runTask("dev.tasks.start", selected)}>
                   Start

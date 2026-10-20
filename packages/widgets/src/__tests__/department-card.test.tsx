@@ -32,21 +32,34 @@ describe("department card widget", () => {
     unmount();
     const { unmount: u2 } = mountCard({ module: "finance" });
     expect(screen.getByRole("heading", { name: "Finance" })).toBeTruthy();
-    expect(screen.getByText("Runway")).toBeTruthy();
+    // The card's runway metric in words (UX plan B9); the status strip's tile keeps the word "Runway" and defines it.
+    expect(screen.getByText("Months of cash left")).toBeTruthy();
     expect(screen.getByText("Estimate")).toBeTruthy();
     u2();
     mountCard({ departmentId: DEPT.development, slot: 2 });
     expect(screen.getByRole("heading", { name: "Development" })).toBeTruthy();
   });
 
-  it("shows the team, Now lines with the agent linked, the module metric and Next up", () => {
+  it("shows the team, Working on now lines with the agent linked, the module metric and Next", () => {
     const { container } = mountCard({ slot: 0 });
     expect(container.querySelectorAll("[data-squad-member]").length).toBe(3);
     expect(screen.getByText("Healthy")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Beacon" })).toBeTruthy();
     expect(screen.getByText(/is working on Invoice lines/)).toBeTruthy();
-    expect(screen.getByText("Tasks merged this week")).toBeTruthy();
+    expect(screen.getByText("Tasks finished this week")).toBeTruthy();
     expect(screen.getByText(/Seat invitations/)).toBeTruthy();
+    expect(screen.getByText("Working on now")).toBeTruthy();
+    expect(screen.getByText("Next")).toBeTruthy();
+    // Beacon (running) and Atlas (review) are on a task; Cove is idle: two of three working (UX plan B19).
+    expect(container.querySelector("[data-team-strip-words]")?.textContent).toBe("2 of 3 working");
+  });
+
+  it("says what the team is when nobody has a task, instead of '0 of 1 working' (UX plan B19)", () => {
+    const responses = { ...dataResponses(), "dev.tasks.list": () => ({ ...tasks, items: [] }) };
+    const { container } = mountCard({ module: "finance" }, createFakeSource({ businessId: BID, responses }));
+    expect(container.querySelector("[data-team-strip-words]")?.textContent).toBe("1 agent, healthy");
+    expect(screen.getByText("Nothing planned yet")).toBeTruthy();
+    expect(screen.queryByText("Nothing queued")).toBeNull();
   });
 
   it("updates an agent's status ring the moment agent.health_changed arrives, then refetches (AC-11.2.3)", () => {
@@ -110,7 +123,7 @@ describe("department card widget", () => {
     const { fake, container } = mountCard({ slot: 1 }, createFakeSource({ businessId: BID, responses }));
     expect(container.querySelector("[data-now-quiet]")).toBeNull();
     expect(container.querySelector("[data-now-quiet-line]")?.getAttribute("data-now-quiet-line")).toBe("error");
-    expect(screen.queryByText("Nothing queued")).toBeNull();
+    expect(screen.queryByText("Nothing planned yet")).toBeNull();
     // Distribution's lead is degraded: the word comes from the team alone.
     expect(screen.getByText("Degraded")).toBeTruthy();
     screen.getByRole("button", { name: /^Couldn't load: What this department is working on could not be loaded/ }).click();

@@ -8,6 +8,7 @@ import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { ArrowDownToLine, ArrowUpToLine, Coins, ExternalLink, Pause, Play, ThumbsUp } from "lucide-react";
 import {
   Button,
+  COST_TREND_LABEL,
   Chip,
   DataTable,
   Dialog,
@@ -18,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
   Field,
+  FormGuide,
   MoneyInput,
   Panel,
   ProvenanceChip,
@@ -47,19 +49,22 @@ import type { CampaignRow, ChannelMetricRow, ChannelsListResponse, Page, Recomme
 
 export const CHANNEL_VIEWS: SavedView[] = [
   { id: "all", name: "All channels", builtIn: true, columns: ["label", "line", "fit", "stars", "cpa", "budget", "status", "tracking"], sort: [{ id: "fit", desc: true }], filters: [] },
-  { id: "running", name: "Running", builtIn: true, columns: ["label", "fit", "budget", "status", "leads", "customers", "cpaActual"], sort: [{ id: "fit", desc: true }], filters: [{ id: "f-run", field: "enabled", op: "eq", value: true }] },
+  // Running: how each running channel is doing, so the cost trend sits where the figures are (the budget stays in All).
+  { id: "running", name: "Running", builtIn: true, columns: ["label", "fit", "form", "status", "leads", "customers", "cpaActual"], sort: [{ id: "fit", desc: true }], filters: [{ id: "f-run", field: "enabled", op: "eq", value: true }] },
   { id: "bench", name: "Off the board", builtIn: true, columns: ["label", "line", "fit", "stars", "cpa", "status"], sort: [{ id: "fit", desc: true }], filters: [{ id: "f-bench", field: "enabled", op: "eq", value: false }] },
   { id: "offline", name: "Offline tracking", builtIn: true, columns: ["label", "line", "fit", "budget", "status", "tracking"], sort: [{ id: "fit", desc: true }], filters: [{ id: "f-off", field: "tracking", op: "eq", value: true }] },
 ];
 
 /**
  * What each column's content needs (px, cell padding included) and its share of the spare width. The default view
- * sums to 966 px, inside the 980 px the table has at 1280; the Running view drops Family to fit its 35-day figures.
+ * sums to 966 px, inside the 980 px the table has at 1280; the Running view drops Family and the budget to fit its
+ * cost trend and 35-day figures (864 px).
  */
 export const CHANNEL_FIT = {
   label: { min: 170, grow: 3 },
   line: { min: 104, grow: 1 },
   fit: { min: 56 },
+  form: { min: 84 },
   stars: { min: 110 },
   cpa: { min: 146 },
   cpaActual: { min: 184 },
@@ -111,6 +116,16 @@ export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColum
       meta: { filter: "select", filterOptions: CHANNEL_LINES.map((l) => ({ value: LINE_LABELS[l], label: LINE_LABELS[l] })) },
     },
     { id: "fit", accessorFn: (r) => r.fit, header: "Fit", size: sizes.fit, cell: ({ row }) => (row.original.scored ? <RatingFigure value={row.original.fit} /> : <span className="text-secondary">—</span>), meta: { numeric: true } },
+    {
+      // The five-cell strip the Board's tokens carry: each week's cost per customer against the cost target; its key
+      // ("Last 5 weeks against the cost target: 4 under, 1 near") is the strip's tooltip. The identifier `form` stays.
+      id: "form",
+      accessorFn: (r) => r.form5.filter((c) => c === "good").length - r.form5.filter((c) => c === "bad").length,
+      header: COST_TREND_LABEL,
+      size: sizes.form,
+      cell: ({ row }) => (row.original.enabled ? <FormGuide form={row.original.form5} name={`${row.original.meta?.label ?? row.original.channelKey} ${COST_TREND_LABEL.toLowerCase()}`} /> : <span className="text-secondary">—</span>),
+      meta: { numeric: true, filter: false, fitContent: true, csv: (r) => r.form5.join(" ") },
+    },
     {
       id: "stars",
       accessorFn: (r) => r.stars,
@@ -285,11 +300,11 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
           <>
             {rescoreSoon.pending ? (
               <Chip tone="neutral" data-testid="rescore-pending">
-                Local scores · re-scoring shortly
+                Scores are being refreshed
               </Chip>
             ) : null}
             <Button size="sm" variant="ghost" loading={action.pending === "recommend"} onClick={rescoreNow}>
-              {scored === 0 ? "Get recommendation" : "Re-score"}
+              {scored === 0 ? "Get recommendation" : "Score again"}
             </Button>
           </>
         }

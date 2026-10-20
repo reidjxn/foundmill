@@ -138,7 +138,7 @@ export const CHANNEL_SCORING_TASK = task({
   kind: "channel",
   title: "Score the 15 channels and propose 3-6 starters",
   goal: "Score every channel 1-20 on fit for this business and propose the starting channels for the Channel Board with cost-per-customer ranges labeled Estimate.",
-  acceptance: ["All 15 channels scored with a reason", "3-6 starters with fit, potential, CPA range and a three-sentence why", "Budget split proposed within the monthly distribution budget"],
+  acceptance: ["All 15 channels scored with a reason", "3-6 starters with fit, potential, a cost-per-customer range and a three-sentence why", "Budget split proposed within the monthly distribution budget"],
   assigneeTemplateKey: "distribution_strategist",
   departmentSlug: "distribution",
 });
@@ -207,7 +207,7 @@ const b2bSaas = ArchetypeSeed.parse({
       "Recommendation labeled as a screen, not legal advice",
     ]),
   ],
-  firstBuild: FIRST_BUILD("Plan the first vertical slice", "Build the task graph for a signup → first value → payment slice with acceptance tests per task.", [
+  firstBuild: FIRST_BUILD("Plan the first build: signup, first value, payment", "Build the task graph for a signup → first value → payment slice with acceptance tests per task.", [
     "Task graph has goals, acceptance criteria and file scopes",
     "No two tasks share a file scope concurrently",
     "Every task under four hours",
@@ -216,23 +216,23 @@ const b2bSaas = ArchetypeSeed.parse({
     "b2b_saas",
     "Where should the first customer come from?",
     [
-      "Distribution has started: the channel engines on the board are starting and the Distribution strategist is scoring the channels while Development builds the first roadmap items.",
+      "Distribution has started: the starter channels on the board are warming up and the Distribution strategist is scoring the channels while the engineers build the first roadmap items.",
       "The Board asks for one decision before committing any budget: which route to the first paying customer should take priority this chapter?",
     ],
     [
       {
         id: "outbound",
-        label: "Outbound to a narrow ICP",
+        label: "Reach the one kind of customer we target first",
         recommended: true,
-        consequence: "Lead generation and email automation start first; Development builds the demo path they need.",
+        consequence: "Lead generation and email automation start first; the engineers build the demo path those emails point to.",
         costMinor: THRESHOLD * 2,
         reversible: true,
         actions: [
           enable("lead_generation"),
           budget("lead_generation", THRESHOLD * 2),
-          channelWork("lead_generation", "Build the narrow ICP prospect list", "Source the first prospect list for one narrow ICP (one segment, one buyer role), with the reason each account fits."),
+          channelWork("lead_generation", "Build the first prospect list", "Source the first prospect list for the one kind of customer we target first (the ideal customer profile: one segment, one buyer role), with the reason each account fits."),
           enable("email_automation"),
-          channelWork("email_automation", "Write the first outbound sequence", "Write the first outbound email sequence for the ICP list; every send goes through policy and the suppression list."),
+          channelWork("email_automation", "Write the first outbound sequence", "Write the first outbound email sequence for that prospect list; every send is checked against the founder's limits and the suppression list."),
           work("planner", "code", "Build the demo path outbound needs", "Plan and build the shortest demo path the outbound sequence sends prospects to, with acceptance tests."),
         ],
       },
@@ -298,21 +298,21 @@ const consumerApp = ArchetypeSeed.parse({
     "consumer_app",
     "Paid acquisition or organic first?",
     [
-      "Distribution has started and the Channel Board is ready; Development is building onboarding.",
+      "Distribution has started and the Channel Board is ready; the engineers are building onboarding.",
       "Consumer apps live or die on cost per activated user. The Board asks how the first budget should be spent.",
     ],
     [
       {
         id: "paid_test",
-        label: "Small paid test with a hard CPA cap",
+        label: "Small paid test with a cost-per-customer limit",
         recommended: true,
-        consequence: "Signal within two weeks; the engine pauses any campaign over cap for 48 hours.",
+        consequence: "You get a read within two weeks; any campaign that costs more per customer than the limit pauses itself for 48 hours.",
         costMinor: THRESHOLD * 2,
         reversible: true,
         actions: [
           enable("paid_ads"),
           budget("paid_ads", THRESHOLD * 2),
-          channelWork("paid_ads", "Small paid test with a hard CPA cap", "Run a small paid acquisition test with a hard CPA cap; pause any campaign over the cap for 48 hours and report the signal within two weeks."),
+          channelWork("paid_ads", "Small paid test with a cost-per-customer limit", "Run a small paid acquisition test with a hard cost-per-customer (CPA) limit; pause any campaign over the limit for 48 hours and report the signal within two weeks."),
         ],
       },
       {
@@ -465,7 +465,7 @@ const dtcPhysical = ArchetypeSeed.parse({
       "Jurisdiction recommendation with dated sources",
     ]),
   ],
-  firstBuild: FIRST_BUILD("Plan the storefront and order pipeline", "Build the task graph for the storefront, checkout through the commerce connector, and order webhooks into the journey model.", [
+  firstBuild: FIRST_BUILD("Plan the storefront and order flow", "Build the task graph for the storefront, checkout through the commerce connector, and order webhooks into the journey model.", [
     "Checkout uses the commerce connector in mock mode",
     "Order events reach the journey model with attribution",
     "No payment settings changed without a founder action",
@@ -570,7 +570,7 @@ const hardware = ArchetypeSeed.parse({
     "hardware",
     "Pre-orders before certification?",
     [
-      "Hardware carries the longest lead times in the game: certification, tooling and components. The Board asks whether to take pre-orders before certification is in hand.",
+      "Hardware carries the longest lead times of any business: certification, tooling and components. The Board asks whether to take pre-orders before certification is in hand.",
     ],
     [
       {

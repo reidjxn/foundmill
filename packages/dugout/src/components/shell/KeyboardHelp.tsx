@@ -19,7 +19,9 @@ export function groupShortcuts(list: readonly KeyboardShortcut[]): Array<{ group
 
 /**
  * The keyboard map overlay (BUILD §5.5): every shortcut with its keys, department chords included, in groups under data
- * labels, in two columns; each row reads the action on the left and its key caps on the right. Opens on "?".
+ * labels, in two columns; each row reads the action on the left and its key caps on the right. Opens on "?", from the
+ * sidebar foot's "?" cap and from the palette's Help row "Keyboard shortcuts" (B15). Always lists every shortcut,
+ * whatever the guidance setting.
  */
 export function KeyboardHelp({ open, onOpenChange, departments = [] }: KeyboardHelpProps) {
   const groups = useMemo(() => groupShortcuts(shortcutList(departments)), [departments]);

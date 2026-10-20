@@ -1,15 +1,19 @@
 "use client";
 /**
- * An agent's request to make one gated call (audit FR-01): who asks, for which task, the call, what it would send and
- * the amount, and where it stands. Approve and Reject are the note's DecisionBar; the optional reason here goes with
- * the answer (a rejection quotes it to the agent and in the Chief of Staff's note). The agent links to its profile;
- * the task, which is not a CRM record, links to the Plan with the same entity-link style Team › Agents uses for it.
+ * An agent's request to make one gated call (audit FR-01; UX plan B5): one plain sentence first ("Priya wants to set
+ * the LinkedIn Ads budget to £600 a week"), then who asks, for which task, the amount and why it asks; the call's name
+ * and the raw arguments wait behind "Details" on ink. Approve and Reject are the note's DecisionBar; the optional reason
+ * here goes with the answer (a rejection quotes it to the agent and in the Chief of Staff's note). The agent links to
+ * its profile; the task, which is not a CRM record, links to the Plan with the same entity-link style Team › Agents
+ * uses for it.
  */
+import { ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { EntityLink, Field, KeyValueList, Panel, StatusPill, Textarea, fieldDescribedBy, formatMoney, type KeyValueItem } from "@foundmill/dugout";
+import { EntityLink, Field, Icon, KeyValueList, Panel, StatusPill, Textarea, fieldDescribedBy, formatMoney, type KeyValueItem } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import type { RouterOutputs } from "@/lib/trpc";
 import { approvalLockedReason, approvalStatus, taskHref, type DepartmentForLinks } from "./logic";
+import { describeRequest } from "./request";
 
 type ApprovalView = NonNullable<RouterOutputs["inbox"]["get"]["approval"]>;
 
@@ -64,18 +68,35 @@ export function ApprovalPanel({ approval, businessId, departments, reason, onRea
           },
         ]
       : []),
-    { label: "Wants to run", value: <span data-testid="approval-action">{approval.action}</span> },
-    {
-      label: "What it sends",
-      value: approval.argsHidden ? HIDDEN : approval.args ? <span className="break-words font-mono text-mono" data-testid="approval-args">{approval.args}</span> : <span className="text-secondary">No arguments</span>,
-    },
     ...(approval.amount || approval.amountHidden ? [{ label: "Amount", value: approval.amount ? <span data-testid="approval-amount">{formatMoney(approval.amount)}</span> : HIDDEN, numeric: true }] : []),
     ...(approval.reasons.length ? [{ label: "Why it asks", value: approval.reasons.join("; ") }] : []),
   ];
   return (
     <Panel title="Agent request" span={12} actions={<StatusPill tone={status.tone}>{status.word}</StatusPill>} footer={<span data-testid="approval-status-detail">{status.detail}</span>} data-testid="approval-panel">
       <div className="flex flex-col gap-3">
+        {/* The business thing first (UX plan §5.2); the system's words wait behind Details. */}
+        <p className="text-body-strong text-pretty text-primary" data-testid="approval-summary">
+          {describeRequest(approval)}.
+        </p>
         <KeyValueList items={items} />
+        <details className="group/detail" data-testid="approval-details">
+          <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm px-1.5 text-small text-secondary transition-colors duration-hover ease-out hover:text-primary [&::-webkit-details-marker]:hidden">
+            <Icon icon={ChevronRight} size="inline" className="transition-transform duration-overlay ease-out group-open/detail:rotate-90" />
+            Details
+          </summary>
+          <dl className="mt-2 flex flex-col gap-2 rounded-sm border border-line-faint bg-ink p-3">
+            <div className="flex flex-col gap-0.5">
+              <dt className="t-data">The call</dt>
+              <dd className="text-body text-primary" data-testid="approval-action">
+                {approval.action}
+              </dd>
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <dt className="t-data">What it sends</dt>
+              <dd>{approval.argsHidden ? HIDDEN : approval.args ? <span className="break-words font-mono text-mono text-secondary" data-testid="approval-args">{approval.args}</span> : <span className="text-small text-secondary">No arguments</span>}</dd>
+            </div>
+          </dl>
+        </details>
         {open && !locked ? (
           <Field htmlFor={REASON_ID} label="Reason (optional)" hint="Sent with your answer. If you reject, the agent is told why.">
             <Textarea id={REASON_ID} value={reason} onChange={(e) => onReasonChange(e.target.value)} maxLength={2000} rows={2} aria-describedby={fieldDescribedBy(REASON_ID, { hint: true })} data-testid="approval-reason" />

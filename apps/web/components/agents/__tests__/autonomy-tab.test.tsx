@@ -56,18 +56,17 @@ describe("AutonomyTab money fields", () => {
     setNegotiation.mockReset().mockResolvedValue({ updated: [AGENT] });
   });
 
-  it("a member sees autonomy, caps and negotiation as an owner's or admin's to change (audit SECX-10)", () => {
+  it("a member sees autonomy and caps as an owner's or admin's to change (audit SECX-10)", () => {
     viewer.isAdmin = false;
     renderTab();
     expect((screen.getByTestId("save-autonomy") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId("save-negotiation") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("autonomy-footer").textContent).toContain("Only an owner or admin changes autonomy and spend caps");
   });
 
   it("keeps what is typed in every money field and saves it in minor units", async () => {
     renderTab();
     const cap = screen.getByRole("textbox", { name: "Spend cap per action" }) as HTMLInputElement;
-    const ask = screen.getByRole("textbox", { name: "Ask above" }) as HTMLInputElement;
+    const ask = screen.getByRole("textbox", { name: "Needs your OK above" }) as HTMLInputElement;
     type(cap, "25");
     expect(cap.value).toBe("25");
     type(cap, "150.50");
@@ -91,41 +90,26 @@ describe("AutonomyTab money fields", () => {
     expect(cap.value).toBe("1,250");
     fireEvent.focus(cap);
     expect(cap.value).toBe("1250");
-    expect((screen.getByRole("textbox", { name: "Ask above" }) as HTMLInputElement).value).toBe("12.50");
-    expect((screen.getByRole("textbox", { name: "Walk away at" }) as HTMLInputElement).value).toBe("80.50");
+    expect((screen.getByRole("textbox", { name: "Needs your OK above" }) as HTMLInputElement).value).toBe("12.50");
     type(cap, "lots");
     expect(cap.value).toBe("lots");
     expect(screen.getByTestId("autonomy-error").textContent).toMatch(/Enter the spend cap as an amount/);
     expect((screen.getByTestId("save-autonomy") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("negotiation limits keep what is typed too, and the max concession takes a decimal", async () => {
-    renderTab(undefined, { enabled: true, priceMinMinor: 10_000, walkAwayMinor: 8_000, topics: ["price"] });
-    const floor = screen.getByRole("textbox", { name: "Price floor" }) as HTMLInputElement;
-    const ceiling = screen.getByRole("textbox", { name: "Price ceiling" }) as HTMLInputElement;
-    const walk = screen.getByRole("textbox", { name: "Walk away at" }) as HTMLInputElement;
-    const concession = screen.getByRole("textbox", { name: "Max concession" }) as HTMLInputElement;
-    type(floor, "120");
-    type(ceiling, "1,500.25");
-    type(walk, "95.5");
-    type(concession, "12.5");
-    expect([floor.value, ceiling.value, walk.value, concession.value]).toEqual(["120", "1,500.25", "95.5", "12.5"]);
-    expect(screen.queryByTestId("negotiation-error")).toBeNull();
-
-    fireEvent.click(screen.getByTestId("save-negotiation"));
-    await act(async () => {
-      fireEvent.click(await screen.findByTestId("apply-scope-confirm"));
-    });
-    // No negotiation runtime exists yet (GLS2F-07): the limits are kept, always switched off, whatever was stored.
-    expect(setNegotiation.mock.calls[0]![0]).toMatchObject({ negotiation: { enabled: false, priceMinMinor: 12_000, priceMaxMinor: 150_025, walkAwayMinor: 9_550, maxConcessionPct: 12.5, topics: ["price"] } });
+  it("says what the caps do in plain words (UX plan C12)", () => {
+    renderTab();
+    expect(screen.getByText("Above this the agent is stopped; it cannot spend more in one go.")).toBeTruthy();
+    expect(screen.getByText("Spends above this become a decision in your Inbox.")).toBeTruthy();
+    expect(screen.queryByText(/denied outright|Ask above/)).toBeNull();
   });
 
-  it("negotiation cannot be switched on and says why (GLS2F-07)", () => {
-    renderTab(undefined, { enabled: true, priceMinMinor: 10_000, topics: [] });
-    const toggle = document.getElementById("negotiation-enabled") as HTMLButtonElement;
-    expect(toggle.getAttribute("aria-checked")).toBe("false");
-    expect(toggle.disabled).toBe(true);
-    expect(screen.getByTestId("negotiation-footer").textContent).toContain("not available yet");
-    expect(screen.getByTestId("save-negotiation").textContent).toContain("Save limits");
+  it("hides negotiation until it ships: one line, no form, nothing saved (GLS2F-07, UX plan C12)", () => {
+    renderTab(undefined, { enabled: true, priceMinMinor: 10_000, walkAwayMinor: 8_000, topics: ["price"] });
+    expect(screen.getByTestId("negotiation-note").textContent).toContain("Negotiation arrives with LIVE deals.");
+    expect(screen.queryByTestId("save-negotiation")).toBeNull();
+    expect(document.getElementById("negotiation-enabled")).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Price floor" })).toBeNull();
+    expect(setNegotiation).not.toHaveBeenCalled();
   });
 });

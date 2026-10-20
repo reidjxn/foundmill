@@ -27,9 +27,11 @@ test.describe("product", () => {
     await expect(page.getByRole("list", { name: "Roadmap items in Now" })).toBeVisible();
   });
 
-  test("Vision: a pinned block's author link opens the agent, and the block opens the Specification (audit #397)", async ({ page }) => {
+  test("Vision: a pinned paragraph's author link opens the agent, and the paragraph opens the Specification (audit #397)", async ({ page }) => {
     await openProductTab(page, "vision");
-    const pinned = page.getByRole("list", { name: "Pinned blocks" });
+    // "Block" reads "paragraph" everywhere a founder reads (UX plan §7.11, C13).
+    const pinned = page.getByRole("list", { name: "Pinned paragraphs" });
+    await expect(page.getByRole("list", { name: "Pinned blocks" })).toHaveCount(0);
     await expect(pinned).toBeVisible({ timeout: LONG });
     // Nothing interactive sits inside a block's button.
     expect(await pinned.locator("[data-pinned-block] a, [data-pinned-block] button").count()).toBe(0);

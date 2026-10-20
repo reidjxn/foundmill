@@ -28,6 +28,10 @@ describe("TrainingGroundScreen", () => {
     expect(screen.getByTestId("ground-counts").textContent).toBe("3 live · 2 running");
     expect(screen.getByText(/your plan runs 16 agents at once/)).toBeTruthy();
     expect(fake.queried.get("dev.tasks.list")).toMatchObject({ status: ["running", "paused", "blocked", "review", "merging"] });
+    // Guidance on (the default outside a provider): one line says what a tile is (UX plan §7.12).
+    expect(screen.getByTestId("live-sessions-lede").textContent).toBe("Each tile is one agent on one task. Nudge to give advice; Pause to hold it.");
+    // Every tile carries the visible "…" beside its hover toolbar.
+    expect(within(grid).getAllByRole("button", { name: /^More actions for/ })).toHaveLength(3);
   });
 
   it("gives every waiting tile its own words: a terminal shows its task's goal, a specialist with nothing yet its state and brief", async () => {
@@ -74,7 +78,7 @@ describe("TrainingGroundScreen", () => {
     const tile = within(grid).getByRole("article", { name: /Juno: Add a bundle picker/ });
     await user.click(within(tile).getByRole("button", { name: "Pause" }));
     expect(fake.mutations).toContainEqual({ path: "dev.tasks.pause", input: { taskId: TASK_BUNDLE } });
-    await user.click(within(tile).getByRole("button", { name: "Upgrade to Opus" }));
+    await user.click(within(tile).getByRole("button", { name: "Use the strongest model" }));
     expect(fake.mutations).toContainEqual({ path: "dev.tasks.upgradeModel", input: { taskId: TASK_BUNDLE } });
     // Stop asks for confirmation inside the page (no browser confirm).
     await user.click(within(tile).getByRole("button", { name: "Stop and discard" }));

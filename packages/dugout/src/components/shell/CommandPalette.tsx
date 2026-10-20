@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Command } from "cmdk";
-import { Bot, Building2, ChevronRight, CornerDownLeft, Fan, Globe, Inbox, LayoutGrid, MapPin, MessageCircle, Search, Terminal, UserCog, User, Users, type LucideIcon } from "lucide-react";
+import { Bot, Building2, ChevronRight, CircleHelp, CornerDownLeft, Fan, Globe, Inbox, LayoutGrid, MapPin, MessageCircle, Search, Terminal, UserCog, User, Users, type LucideIcon } from "lucide-react";
 import { APP_NAME } from "@foundmill/config";
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
@@ -13,9 +13,30 @@ import { Skeleton } from "../foundation/Skeleton";
 
 /**
  * What a palette row can be: a CRM entity kind (shared vocabulary), a screen, a department, an inbox item, a command,
- * or one of the lead rows: talk to an agent ("ask") or make something ("generate").
+ * one of the lead rows: talk to an agent ("ask") or make something ("generate"), or a Help row (a defined term, the
+ * keyboard shortcuts).
  */
-export type PaletteKind = EntityKind | "screen" | "department" | "inbox" | "command" | "ask" | "generate";
+export type PaletteKind = EntityKind | "screen" | "department" | "inbox" | "command" | "ask" | "generate" | "help";
+
+/**
+ * A Help row (docs/UX_AUDIT_AND_PLAN.md §7.7, B12): a defined term from `TERMS` ("Runway" with its one-line meaning,
+ * opening the screen that shows it) or the keyboard shortcuts. The app builds them (apps/web/lib/search.ts).
+ */
+export interface PaletteHelpItem {
+  id: string;
+  /** The word or the entry's name, sentence case: "Runway", "Keyboard shortcuts". */
+  title: string;
+  /** One line a student understands: "How many months your cash lasts at today's spending." */
+  line: string;
+  /** Where "learn more" goes; a row without one just reads. */
+  href?: string;
+}
+
+/** The Help row every palette has: the AppShell opens the keyboard overlay when it is chosen. */
+export const KEYBOARD_SHORTCUTS_HELP_ITEM: PaletteHelpItem = { id: "help:keyboard-shortcuts", title: "Keyboard shortcuts", line: "Every key the product listens for, from Space for Continue to G then a letter." };
+
+/** At most this many Help rows for a query, so a one-letter query never floods the list with definitions. */
+export const HELP_ROW_LIMIT = 6;
 
 export interface PaletteItem {
   id: string;
@@ -99,6 +120,10 @@ const KIND_ALIASES: Record<string, PaletteKind[]> = {
   ask: ["ask"],
   generate: ["generate"],
   draft: ["generate"],
+  help: ["help"],
+  term: ["help"],
+  terms: ["help"],
+  define: ["help"],
 };
 
 /** Kinds a `kind:` value selects; undefined when the value is unknown (then nothing is filtered out). */
@@ -135,14 +160,15 @@ export function filterPaletteItems(items: readonly PaletteItem[], query: SearchQ
 
 /**
  * Group order: talk and make first (Ask, Generate), then where to go — departments and agents before screens, the
- * Inbox and the CRM — and commands (settings among them) last.
+ * Inbox and the CRM — then commands (settings among them) and Help last.
  */
-export const PALETTE_KIND_ORDER: readonly PaletteKind[] = ["ask", "generate", "department", "agent", "screen", "inbox", "person", "organisation", "team_member", "platform_member", "community", "venue", "command"];
+export const PALETTE_KIND_ORDER: readonly PaletteKind[] = ["ask", "generate", "department", "agent", "screen", "inbox", "person", "organisation", "team_member", "platform_member", "community", "venue", "command", "help"];
 
 export const PALETTE_KIND_INFO: Record<PaletteKind, { label: string; icon: LucideIcon }> = {
   ask: { label: "Ask", icon: MessageCircle },
   generate: { label: "Generate", icon: Fan },
   command: { label: "Commands", icon: Terminal },
+  help: { label: "Help", icon: CircleHelp },
   screen: { label: "Screens", icon: LayoutGrid },
   department: { label: "Departments", icon: LayoutGrid },
   inbox: { label: "Inbox", icon: Inbox },
@@ -196,28 +222,60 @@ export interface PaletteSectionInput {
   recent: readonly PaletteItem[];
   /** The matched items by kind, in `PALETTE_KIND_ORDER`. */
   groups: readonly PaletteGroup[];
+  /** The Help rows that match (`helpPaletteRows`); last among the matches, before Ask. */
+  help?: readonly PaletteItem[];
 }
 
 const rowsOf = (items: readonly PaletteItem[], prefix: string): PaletteRow[] => items.map((item) => ({ item, value: `${prefix}${item.id}` }));
 
 /**
  * The palette's blocks in order (pure). With nothing typed it leads with what the founder can do (Ask, Generate), then
- * Recent, then where to go, commands last. Once the query matches something specific (the business, a department, a
- * screen, an Inbox note, a CRM record, a Generate row or a command) the matches lead: the business, then where to go,
- * then Generate and the commands, and Ask follows as the fallback that carries the query. Ask is the only block that
- * is always there, so ranking it first would make Enter ask an agent even when the founder typed a name to open. When
- * nothing specific matches, Ask leads and Enter asks.
+ * Recent, then where to go, commands, then Help. Once the query matches something specific (the business, a
+ * department, a screen, an Inbox note, a CRM record, a Generate row, a command or a Help entry) the matches lead: the
+ * business, then where to go, then Generate, the commands and Help, and Ask follows as the fallback that carries the
+ * query. Ask is the only block that is always there, so ranking it first would make Enter ask an agent even when the
+ * founder typed a name to open. When nothing specific matches, Ask leads and Enter asks.
  */
-export function paletteSections({ typed, ask, generate, business, recent, groups }: PaletteSectionInput): PaletteSection[] {
+export function paletteSections({ typed, ask, generate, business, recent, groups, help = [] }: PaletteSectionInput): PaletteSection[] {
   const askSection: PaletteSection = { id: "ask", heading: PALETTE_KIND_INFO.ask.label, rows: rowsOf(ask.map((it) => ({ ...it, kind: "ask" as const })), "ask:") };
   const generateSection: PaletteSection = { id: "generate", heading: PALETTE_KIND_INFO.generate.label, rows: rowsOf(generate, "generate:") };
   const businessSection: PaletteSection = { id: "business", heading: "Business", rows: business ? rowsOf([business], "business:") : [] };
   const recentSection: PaletteSection = { id: "recent", heading: "Recent", rows: typed ? [] : rowsOf(recent, "recent:") };
-  const places = groups.filter((g) => g.kind !== "command").map((g): PaletteSection => ({ id: g.kind, heading: g.label, rows: rowsOf(g.items, "") }));
+  const places = groups.filter((g) => g.kind !== "command" && g.kind !== "help").map((g): PaletteSection => ({ id: g.kind, heading: g.label, rows: rowsOf(g.items, "") }));
   const commands = groups.filter((g) => g.kind === "command").map((g): PaletteSection => ({ id: g.kind, heading: g.label, rows: rowsOf(g.items, "") }));
-  const specific = business !== null || groups.length > 0 || generate.length > 0;
-  const ordered = typed && specific ? [businessSection, ...places, generateSection, ...commands, askSection] : [askSection, generateSection, businessSection, recentSection, ...places, ...commands];
+  // Help rows the app put among `items` join the ones matched from `helpItems`.
+  const helpRows = [...groups.filter((g) => g.kind === "help").flatMap((g) => g.items), ...help.map((it) => ({ ...it, kind: "help" as const }))];
+  const helpSection: PaletteSection = { id: "help", heading: PALETTE_KIND_INFO.help.label, rows: rowsOf(helpRows, "help:") };
+  const specific = business !== null || groups.length > 0 || generate.length > 0 || help.length > 0;
+  const ordered = typed && specific ? [businessSection, ...places, generateSection, ...commands, helpSection, askSection] : [askSection, generateSection, businessSection, recentSection, ...places, ...commands, helpSection];
   return ordered.filter((s) => s.rows.length > 0);
+}
+
+/** The question words a founder may type before a term ("what is runway", "define burn"), dropped before matching. */
+const HELP_QUESTION_RE = /^(?:what(?:'s| is| are| does)|define|explain|meaning of|help(?: with| on)?)\s+/i;
+const HELP_ARTICLE_RE = /^(?:a|an|the|my|our)\s+/i;
+
+/** "what is the runway?" → "runway". Exported for tests. */
+export function helpQuery(text: string): string {
+  return text.trim().replace(HELP_QUESTION_RE, "").replace(HELP_ARTICLE_RE, "").replace(/\s*\??\s*(?:mean)?\s*\??$/i, "").trim();
+}
+
+/**
+ * The Help rows for a query (pure): nothing typed shows the keyboard shortcuts alone (so Help is always one row, never
+ * sixty); typed, the entries whose title or line the query matches, best first, at most `HELP_ROW_LIMIT`. Exported for
+ * tests.
+ */
+export function helpPaletteRows(items: readonly PaletteHelpItem[], text: string): PaletteItem[] {
+  const toRow = (it: PaletteHelpItem): PaletteItem => ({ id: it.id, kind: "help", label: it.title, description: it.line, href: it.href, keywords: [it.line] });
+  const q = helpQuery(text);
+  if (!q) return items.filter((it) => it.id === KEYBOARD_SHORTCUTS_HELP_ITEM.id).map(toRow);
+  // A question about a term ("what is runway") must not be out-scored by a plain substring; score the stripped query.
+  return items
+    .map((it, index) => ({ it, index, score: matchScore({ label: it.title, description: it.line }, q) }))
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, HELP_ROW_LIMIT)
+    .map((s) => toRow(s.it));
 }
 
 export interface CommandPaletteProps {
@@ -255,6 +313,12 @@ export interface CommandPaletteProps {
    * Northwind Skincare, opening `href`). AppShell fills this in from the business name and Home.
    */
   business?: { name: string; href?: string; description?: string; logo?: ReactNode; keywords?: string[] };
+  /**
+   * The Help group (B12): defined terms and the keyboard shortcuts, matched locally whatever `remote` says. Nothing typed
+   * shows the keyboard shortcuts row alone; "what is runway" finds the term. Choosing a row opens its `href` through
+   * `onSelect` (AppShell opens the keyboard overlay for `KEYBOARD_SHORTCUTS_HELP_ITEM`).
+   */
+  helpItems?: readonly PaletteHelpItem[];
 }
 
 /** Static class map so Tailwind emits every department tone for the row glyphs. */
@@ -280,8 +344,9 @@ const GROUP_CLASS =
  * The first row is selected and is what Enter runs, also when results arrive after the keystroke; once the founder
  * moves the selection (arrows, pointer) their row stays selected for that query. Rows carry a glyph tinted by their
  * department; the selected row takes the brand plate and a lit edge. Operators are parsed locally (`kind:`, `role:`,
- * `stage:`, `owner:`, `department:`, leading `>` for commands) and shown as a hint row. Arrow keys move, Enter opens,
- * Esc closes; `/` and ⌘K open it through the keyboard map.
+ * `stage:`, `owner:`, `department:`, leading `>` for commands); their hint row appears once the founder types `>` or a
+ * colon, never before (B12). A Help group (defined terms, the keyboard shortcuts) closes the list. Arrow keys move,
+ * Enter opens, Esc closes; `/` and ⌘K open it through the keyboard map.
  */
 export function CommandPalette({
   open,
@@ -294,12 +359,13 @@ export function CommandPalette({
   loading,
   onSelect,
   placeholder = "Search, ask or generate · type > for commands",
-  emptyText = "Nothing matches. Try fewer words, or an operator such as kind:person.",
+  emptyText = "Nothing matches. Try a person, a screen or an agent's name.",
   footer,
   ask = [],
   generate = [],
   onAsk,
   business,
+  helpItems = [],
 }: CommandPaletteProps) {
   const [internal, setInternal] = useState("");
   const raw = query ?? internal;
@@ -339,8 +405,12 @@ export function CommandPalette({
       ? { id: "business", kind: "screen", label: business.name, description: business.description ?? "Home", href: business.href, avatar: business.logo, icon: Building2 }
       : null;
   const activeFilters = (Object.entries(parsed.filters) as Array<[SearchOperator, string]>).filter(([k]) => k !== "kind" || !kindsForFilter(parsed.filters.kind));
-  const sections = paletteSections({ typed: parsed.text !== "", ask: askRows, generate: generateRows, business: businessRow, recent: showRecent ? recent : [], groups });
+  // Help rows: the keyboard shortcuts alone while nothing is typed, the matching terms once there is a query.
+  const helpRows = useMemo(() => (parsed.commandsOnly || (kinds && !kinds.includes("help")) ? [] : helpPaletteRows(helpItems, parsed.text)), [helpItems, parsed.text, parsed.commandsOnly, kinds]);
+  const sections = paletteSections({ typed: parsed.text !== "", ask: askRows, generate: generateRows, business: businessRow, recent: showRecent ? recent : [], groups, help: helpRows });
   const nothing = sections.length === 0;
+  // The operators are for people who already reach for them: the hint appears once a ">" or a colon is typed.
+  const showOperators = raw.includes(">") || raw.includes(":");
 
   // Selection (cmdk's controlled value): the founder's own pick while it is still listed, else the first row. cmdk alone
   // keeps a selected row even when rows arrive above it (the CRM answers after the keystroke), so Enter would run a row
@@ -391,6 +461,7 @@ export function CommandPalette({
 
   const renderRow = ({ item, value }: PaletteRow) => {
     const description = item.kind === "ask" && parsed.text ? `“${parsed.text}”` : item.description;
+    const shortcut = item.shortcut ?? (item.id === KEYBOARD_SHORTCUTS_HELP_ITEM.id ? ["?"] : undefined);
     return (
       <Command.Item
         key={value}
@@ -409,7 +480,7 @@ export function CommandPalette({
         </span>
         {item.dept && item.description && item.kind !== "ask" ? <DeptChip dept={item.dept}>{item.description}</DeptChip> : null}
         {item.public ? <Chip tone="info">On {APP_NAME}</Chip> : null}
-        {item.shortcut ? <Keys keys={item.shortcut} /> : null}
+        {shortcut ? <Keys keys={shortcut} /> : null}
         <Icon icon={item.kind === "ask" || item.kind === "generate" ? CornerDownLeft : ChevronRight} size={12} className="shrink-0 text-tertiary opacity-0 transition-opacity duration-hover ease-out group-aria-selected/item:opacity-100" />
       </Command.Item>
     );
@@ -477,15 +548,17 @@ export function CommandPalette({
             <span className="inline-flex items-center gap-1">
               <Kbd>↵</Kbd> open
             </span>
-            <span className="ml-auto inline-flex items-center gap-1" aria-label="Search operators">
-              <span>Operators</span>
-              {SEARCH_OPERATORS.map((op) => (
-                <code key={op} className="rounded-xs bg-white/5 px-1 font-mono text-micro text-secondary">
-                  {op}:
-                </code>
-              ))}
-              <code className="rounded-xs bg-white/5 px-1 font-mono text-micro text-secondary">&gt;</code>
-            </span>
+            {showOperators ? (
+              <span className="ml-auto inline-flex items-center gap-1" aria-label="Search operators" data-testid="palette-operators">
+                <span>Operators</span>
+                {SEARCH_OPERATORS.map((op) => (
+                  <code key={op} className="rounded-xs bg-white/5 px-1 font-mono text-micro text-secondary">
+                    {op}:
+                  </code>
+                ))}
+                <code className="rounded-xs bg-white/5 px-1 font-mono text-micro text-secondary">&gt;</code>
+              </span>
+            ) : null}
           </div>
         </Command>
       </DialogContent>

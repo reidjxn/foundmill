@@ -162,7 +162,8 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
                   { label: "Direct reports", value: reports, numeric: true },
                   { label: "Current task", value: selectedAgent.currentTask?.title ?? "None" },
                   {
-                    label: "Wage",
+                    // Metered model, sandbox and tool spend: US dollars, whatever currency the business keeps its books in.
+                    label: "AI cost (USD)",
                     value: (
                       <span className="inline-flex items-center gap-1.5 tabular-nums">
                         {formatMoney({ amountMinor: selectedAgent.wage?.costMinor ?? 0, currency: selectedAgent.wage?.currency ?? selectedAgent.currency ?? currency })}/mo <ProvenanceChip kind="estimate" />

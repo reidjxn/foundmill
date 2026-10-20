@@ -134,7 +134,7 @@ export interface PositionFit extends PositionRole {
 }
 
 /**
- * Position map (DESIGN §9): every template of the same family is a role the agent could play. Fit = mean of the
+ * "Other roles it could take" (DESIGN §9): every template of the same family is a role the agent could play. Fit = mean of the
  * agent's displayed ratings over the template's skills (missing skills count as 5, "untested"), weighted by how much of
  * the template's craft the agent covers. The agent's own template is always listed and marked current.
  */
@@ -915,14 +915,18 @@ export function ownerManagerLabel(profile: Pick<AgentProfile, "reportsToOwner">)
   return profile.reportsToOwner?.isViewer ? "You" : "Founder";
 }
 
-/** "2026-10" → "Wage this month" in October 2026, else "Wage in September 2026" ("Wage in 2026-09" for ISO `prefs`). */
+/**
+ * The label of an agent's metered cost (model, sandbox and tool spend, in US dollars, whatever currency the business
+ * keeps its books in; UX plan C19): "2026-10" → "AI cost this month" in October 2026, else "AI cost in September 2026"
+ * ("AI cost in 2026-09" for ISO `prefs`).
+ */
 export function wageLabel(period: string, now: Date = new Date(), prefs?: DateFormatPrefs | null): string {
   const m = /^(\d{4})-(\d{2})$/.exec(period);
-  if (!m) return "Wage";
+  if (!m) return "AI cost";
   const y = Number(m[1]);
   const mo = Number(m[2]) - 1;
-  if (y === now.getFullYear() && mo === now.getMonth()) return "Wage this month";
-  return `Wage in ${formatMonthYear(new Date(Date.UTC(y, mo, 1)), { long: true }, prefs)}`;
+  if (y === now.getFullYear() && mo === now.getMonth()) return "AI cost this month";
+  return `AI cost in ${formatMonthYear(new Date(Date.UTC(y, mo, 1)), { long: true }, prefs)}`;
 }
 
 /** A connector tool for the founder: "search_files" → "Search files", description without build references, hard gates flagged. */

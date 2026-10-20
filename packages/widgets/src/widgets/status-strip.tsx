@@ -1,8 +1,9 @@
 "use client";
 /**
  * Status strip widget (BUILD §11.2, DESIGN §9): six tiles under the Ribbon — cash, runway, revenue, customers this
- * week, business health and leaderboard position when LIVE. Display-lg figures with label captions; every non-measured
- * number carries Estimate.
+ * week, team health and leaderboard position when LIVE. Display-lg figures with captions in plain words (UX plan B9,
+ * B10: "Months of cash left at today's spending", "4 of 4 agents healthy"); the formula behind a figure lives in its
+ * provenance tooltip ("Cash ÷ net burn"), never in the caption. Every non-measured number carries Estimate.
  */
 import { useMemo } from "react";
 import { z } from "zod";
@@ -15,7 +16,7 @@ import { registerWidget, type WidgetProps } from "../registry";
 import { moduleHref, orderedDepartments, useDepartments } from "../shared/departments";
 import { WidgetFrame } from "../shared/frame";
 import { unavailableWords } from "../shared/errors";
-import { TEAM_HEALTH_SOURCE, teamHealth } from "../shared/health";
+import { TEAM_HEALTH_SOURCE, teamHealth, teamHealthCounts, type TeamHealthCounts } from "../shared/health";
 import { useRecentRibbon } from "../shared/ribbon";
 import { routes } from "../shared/routes";
 import { addDays, dailySeries, lastDays, monthKey, sumInRange } from "../shared/time";
@@ -46,15 +47,35 @@ export interface StatusStripInputs {
  * figure the Team department card shows, counting each agent once even when it sits in several departments.
  */
 export function squadHealth(departments: readonly DepartmentRow[] | undefined): number | null {
-  const seen = new Map<string, string>();
-  for (const d of departments ?? []) for (const a of d.squad) seen.set(a.id, a.status);
-  return teamHealth(seen.values());
+  return teamHealth(agentStatuses(departments));
 }
 
+/** Each agent's status once, even when it sits in several departments. */
+function agentStatuses(departments: readonly DepartmentRow[] | undefined): string[] {
+  const seen = new Map<string, string>();
+  for (const d of departments ?? []) for (const a of d.squad) seen.set(a.id, a.status);
+  return [...seen.values()];
+}
+
+/** The team's counts behind the Team health tile (the same definition as `squadHealth`), each agent counted once. */
+export function squadHealthCounts(departments: readonly DepartmentRow[] | undefined): TeamHealthCounts {
+  return teamHealthCounts(agentStatuses(departments));
+}
+
+/** "4 of 4 agents healthy" (UX plan B10): the Team health caption, the words the Team department card uses too. */
+export function teamHealthCaption(c: TeamHealthCounts): string {
+  if (c.total === 0) return "No agents hired yet";
+  return `${c.total - c.needsYou} of ${c.total} ${c.total === 1 ? "agent" : "agents"} healthy`;
+}
+
+/** The runway caption in words (UX plan B9); the formula stays in the provenance tooltip. */
+export const RUNWAY_CAPTION = "Months of cash left at today's spending";
+
 /**
- * The runway tile. With a burn model it is the figure in months with its Estimate chip; without one it says why in the
- * shared runway words (shared/runway.ts: "No limit" when cash-flow positive, "Not known yet" otherwise) with the reason
- * underneath, and no Estimate chip: nothing has been estimated yet.
+ * The runway tile. With a burn model it is the figure in months with its Estimate chip and a caption in words ("Months
+ * of cash left at today's spending", or the warning when it is short); without one it says why in the shared runway
+ * words (shared/runway.ts: "No limit" when cash-flow positive, "Not known yet" otherwise) with the reason underneath,
+ * and no Estimate chip: nothing has been estimated yet. The formula ("Cash ÷ net burn") is the provenance tooltip.
  */
 export function runwayTile(finance: FinanceOverview | undefined, loading: boolean, onClick: () => void): MetricTileProps {
   const months = finance?.runway.months ?? null;
@@ -69,7 +90,7 @@ export function runwayTile(finance: FinanceOverview | undefined, loading: boolea
     unit: "mo",
     estimate: "estimate",
     loading,
-    caption: finance?.runway.blocksContinue ? "Under 3 months: blocks Continue" : months < 9 ? "Under 9 months" : "Cash ÷ net burn",
+    caption: finance?.runway.blocksContinue ? "Under 3 months of cash left: holds Continue" : months < 9 ? "Under 9 months of cash left" : RUNWAY_CAPTION,
     provenance,
     onClick,
   };
@@ -103,22 +124,25 @@ export function statusTiles(i: StatusStripInputs): MetricTileProps[] {
   const revenueRow = i.finance?.revenue.monthly.find((m) => m.month === month);
   const revenueMonth = revenueRow ? monthRevenueMinor(revenueRow) : null;
   const revenueSeries = (i.finance?.revenue.monthly ?? []).slice(-6).map(monthRevenueMinor);
+  const healthCounts = squadHealthCounts(i.departments);
   const health = squadHealth(i.departments);
   const currency = i.finance?.cash.currency ?? i.currency;
+  // Captions in words (UX plan B9); the formula and the accounting basis stay in each tile's provenance tooltip.
+  // TODO(guided-layer): PlainFigure under each tile in guided mode (`plain` / `metricId` on MetricTile).
   const tiles: MetricTileProps[] = [
     financeError
       ? unavailableTile("Cash", financeError, "Finance", openFinance)
-      : { label: "Cash", value: i.finance ? { amountMinor: i.finance.cash.amountMinor, currency } : null, loading: i.loading.finance, caption: i.finance ? (i.finance.cash.accounts ? `${i.finance.cash.accounts} account${i.finance.cash.accounts === 1 ? "" : "s"}` : "Connect a bank in Settings") : undefined, provenance: { source: "Bank balances", asOf: i.finance?.cash.asOf ?? undefined }, onClick: openFinance },
+      : { label: "Cash", value: i.finance ? { amountMinor: i.finance.cash.amountMinor, currency } : null, loading: i.loading.finance, caption: i.finance ? (i.finance.cash.accounts ? `In the bank · ${i.finance.cash.accounts} account${i.finance.cash.accounts === 1 ? "" : "s"}` : "Connect a bank in Settings") : undefined, provenance: { source: "Bank balances", asOf: i.finance?.cash.asOf ?? undefined }, onClick: openFinance },
     financeError ? unavailableTile("Runway", financeError, "Finance", openFinance) : runwayTile(i.finance, i.loading.finance, openFinance),
     financeError
       ? unavailableTile("Revenue this month", financeError, "Finance", openFinance)
-      : { label: "Revenue this month", value: revenueMonth === null ? (i.loading.finance ? null : "—") : { amountMinor: revenueMonth, currency }, spark: revenueSeries, loading: i.loading.finance, caption: i.finance?.revenue.label ?? "Cash basis", provenance: { source: "Bank inflows, cash basis, financing and transfers excluded" }, onClick: openFinance },
+      : { label: "Revenue this month", value: revenueMonth === null ? (i.loading.finance ? null : "—") : { amountMinor: revenueMonth, currency }, spark: revenueSeries, loading: i.loading.finance, caption: "Money in this month", provenance: { source: "Bank inflows, cash basis, financing and transfers excluded", note: i.finance?.revenue.label }, onClick: openFinance },
     ribbonError
       ? unavailableTile("Customers this week", ribbonError, "The Journey", () => i.open("customers"))
-      : { label: "Customers this week", value: i.ribbon ? customersWeek : null, format: "integer", loading: i.loading.ribbon, delta: i.ribbon ? { value: customersWeek - customersPrev, label: "vs last week" } : undefined, spark: i.ribbon ? dailySeries(rows, lastDays(14, i.today), (r) => r.payments) : undefined, provenance: { source: "Payments (first payments count as customers)" }, onClick: () => i.open("customers") },
+      : { label: "Customers this week", value: i.ribbon ? customersWeek : null, format: "integer", loading: i.loading.ribbon, caption: "Paying customers, last 7 days", delta: i.ribbon ? { value: customersWeek - customersPrev, label: "vs last week" } : undefined, spark: i.ribbon ? dailySeries(rows, lastDays(14, i.today), (r) => r.payments) : undefined, provenance: { source: "Payments (first payments count as customers)" }, onClick: () => i.open("customers") },
     departmentsError
-      ? unavailableTile("Business health", departmentsError, "The team", () => i.open("team"))
-      : { label: "Business health", value: health === null ? (i.loading.departments ? null : "—") : health, format: "percent", loading: i.loading.departments, caption: health === null ? "No agents hired yet" : health >= 0.9 ? "Team healthy" : health >= 0.6 ? "Some agents need attention" : "Team in trouble", provenance: { source: TEAM_HEALTH_SOURCE }, onClick: () => i.open("team") },
+      ? unavailableTile("Team health", departmentsError, "The team", () => i.open("team"))
+      : { label: "Team health", value: health === null ? (i.loading.departments ? null : "—") : health, format: "percent", loading: i.loading.departments, caption: i.departments ? teamHealthCaption(healthCounts) : undefined, provenance: { source: TEAM_HEALTH_SOURCE }, onClick: () => i.open("team") },
   ];
   if (i.live) {
     const best = (i.positions ?? []).slice().sort((a, b) => a.position - b.position)[0];
@@ -191,7 +215,7 @@ function StatusStripWidget({ settings }: WidgetProps<StatusStripSettings>) {
 export const statusStripWidget = registerWidget<StatusStripSettings>({
   key: "status_strip",
   title: "Status strip",
-  description: "Cash, runway, revenue, customers this week, business health and leaderboard position once live.",
+  description: "Cash, runway, revenue, customers this week, team health and leaderboard position once live.",
   icon: "gauge",
   surfaces: ["home", "department"],
   defaultSize: { w: 12, h: 6, minW: 6, minH: 5, maxH: 8 },

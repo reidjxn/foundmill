@@ -1,15 +1,16 @@
 "use client";
 /**
- * Squad table cells (BUILD §11.9, DESIGN §9 Team): Form as five 8 px cells, Rating as display-sm, Model as a mono
- * chip, Tools as icons, Wage tabular, Status as a pill with the expected-back time when an agent is down. Each cell is a plain component
- * usable in any table; `squadColumns()` wires them into DataTable column definitions.
+ * Team table cells (BUILD §11.9, DESIGN §9 Team): Form as five 8 px cells with a hover key, Rating as the 1–20 mean in
+ * display-sm with its band word, Model as a mono chip, Tools as icons, AI cost tabular, Status as a pill with the
+ * expected-back time when an agent is down. Each cell is a plain component usable in any table; `squadColumns()` wires
+ * them into DataTable column definitions.
  */
 import type { HTMLAttributes, ReactNode } from "react";
 import { Bot, Calendar, Code2, Cpu, CreditCard, FileText, HardDrive, Mail, PenLine, Search, ShoppingBag, Wrench } from "lucide-react";
 import type { AgentStatus, ModelKey } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { formatMoney, formatNumber, formatRelative } from "../../lib/format";
-import { ratingClass } from "../../lib/rating";
+import { RATING_MAX, ratingBandLabel, ratingClass } from "../../lib/rating";
 import type { DataTableColumn } from "../data/DataTable";
 import type { SavedView } from "../data/types";
 import { Avatar } from "../foundation/Avatar";
@@ -24,7 +25,18 @@ import type { FormResult, SquadRow } from "./types";
 // ---------------------------------------------------------------------------------------------------------------------
 
 const FORM_CLASS: Record<FormResult, string> = { success: "cell-lit bg-status-good tone-status-good", partial: "cell-lit bg-status-warn tone-status-warn", failure: "cell-lit bg-status-bad tone-status-bad" };
-export const FORM_RESULT_WORD: Record<FormResult, string> = { success: "success", partial: "partial", failure: "failure" };
+export const FORM_RESULT_WORD: Record<FormResult, string> = { success: "went well", partial: "partly", failure: "failed" };
+
+/** The column head's one-line meaning, for the caption under it when guidance is on. */
+export const FORM_CAPTION = "Form: the last five tasks";
+
+/** The hover key for five form cells: "Last 5 tasks: 4 went well, 1 partly, 0 failed" (fewer than five: "Last 3 tasks: …"). */
+export function formKey(form: readonly FormResult[]): string {
+  const last = form.slice(-5);
+  if (last.length === 0) return "No tasks finished yet";
+  const count = (r: FormResult) => last.filter((x) => x === r).length;
+  return `Last ${last.length} ${last.length === 1 ? "task" : "tasks"}: ${count("success")} went well, ${count("partial")} partly, ${count("failure")} failed`;
+}
 
 export interface FormCellsProps {
   form: readonly FormResult[];
@@ -32,16 +44,22 @@ export interface FormCellsProps {
   className?: string;
 }
 
-/** Five 8 px cells (good / warn / bad) lit in their tone, oldest left; empty slots are a faint plate. */
+/**
+ * Five 8 px cells (good / warn / bad) lit in their tone, oldest left; empty slots are a faint plate. Hover or focus shows
+ * the key ("Last 5 tasks: 4 went well, 1 partly, 0 failed"), which is also the accessible name, so color is never the
+ * only signal.
+ */
 export function FormCells({ form, name = "Form", className }: FormCellsProps) {
   const cells = Array.from({ length: 5 }, (_, i) => form[form.length - 5 + i] ?? null);
-  const words = cells.map((c) => (c ? FORM_RESULT_WORD[c] : "none"));
+  const key = formKey(form);
   return (
-    <ol aria-label={`${name}, last five: ${words.join(", ")}`} className={cn("inline-flex gap-0.5 align-middle", className)}>
-      {cells.map((c, i) => (
-        <li key={i} aria-hidden data-result={c ?? "none"} className={cn("size-2.5 rounded-xs", c ? FORM_CLASS[c] : "cell-empty")} />
-      ))}
-    </ol>
+    <Tooltip content={key}>
+      <ol aria-label={`${name}: ${key}`} tabIndex={-1} className={cn("inline-flex gap-0.5 align-middle outline-none", className)} data-form-cells>
+        {cells.map((c, i) => (
+          <li key={i} aria-hidden data-result={c ?? "none"} className={cn("size-2.5 rounded-xs", c ? FORM_CLASS[c] : "cell-empty")} />
+        ))}
+      </ol>
+    </Tooltip>
   );
 }
 
@@ -51,14 +69,46 @@ export function formScore(form: readonly FormResult[]): number {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Rating (1–10 average)
+// Rating (the 1–20 mean of the agent's skills, the one scale the profile uses too)
 // ---------------------------------------------------------------------------------------------------------------------
 
-export function RatingCell({ value, className }: { value: number; className?: string }) {
-  const v = Math.max(0, Math.min(10, value));
+export const RATING_COLUMN_LABEL = `Rating /${RATING_MAX}`;
+export const RATING_COLUMN_TOOLTIP = `The average of this agent's skills, 1–${RATING_MAX}`;
+
+export interface RatingCellProps {
+  /** The 1–20 mean of the agent's skills; 0, negative or not a number reads "—" (no training run yet). */
+  value: number | null | undefined;
+  /** Hide the band word (the figure's accessible name and tooltip still carry it). */
+  compact?: boolean;
+  className?: string;
+}
+
+/**
+ * The 1–20 mean to one decimal in display-sm, in the ramp tone, with the band word beside it (Poor / Average / Good /
+ * Excellent), so a number never stands alone (UX plan §5.4).
+ */
+export function RatingCell({ value, compact, className }: RatingCellProps) {
+  if (value === null || value === undefined || !Number.isFinite(value) || value <= 0) {
+    return (
+      <span className={cn("text-small text-tertiary", className)} aria-label="Not rated yet" title="Rated after the first training run">
+        —
+      </span>
+    );
+  }
+  const v = Math.max(1, Math.min(RATING_MAX, value));
+  const figure = formatNumber(v, { digits: 1 });
+  // TODO(guided-layer): ScaleLabel takes over the band word once the guidance primitives land.
+  const band = ratingBandLabel(v);
   return (
-    <span className={cn("t-display-sm", ratingClass(v * 2), className)} aria-label={`Rating ${formatNumber(v, { digits: 1 })} of 10`}>
-      {formatNumber(v, { digits: 1 })}
+    <span className={cn("inline-flex items-baseline gap-1.5 whitespace-nowrap", className)} aria-label={`Rating ${figure} of ${RATING_MAX}, ${band}`} title={compact ? `${figure} of ${RATING_MAX} · ${band}` : undefined} data-rating-cell>
+      <span className={cn("t-display-sm", ratingClass(v))} aria-hidden>
+        {figure}
+      </span>
+      {compact ? null : (
+        <span className="text-small text-secondary" aria-hidden>
+          {band}
+        </span>
+      )}
     </span>
   );
 }
@@ -139,12 +189,15 @@ export function ToolIcons({ tools, max = 5, className }: ToolIconsProps) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Wage and status
+// AI cost and status
 // ---------------------------------------------------------------------------------------------------------------------
+
+/** The column head for an agent's metered cost: model, sandbox and tool spend, in US dollars (never the business's currency). */
+export const WAGE_COLUMN_LABEL = "AI cost (USD)";
 
 export function WageCell({ wage, className }: { wage: SquadRow["wage"]; className?: string }) {
   return (
-    <span className={cn("inline-flex items-baseline gap-1 tabular-nums", className)} title="Monthly cost estimate: tokens, sandbox minutes and tool costs">
+    <span className={cn("inline-flex items-baseline gap-1 tabular-nums", className)} title="This month's AI cost so far, in US dollars: tokens, sandbox minutes and tool calls. Estimate.">
       {formatMoney(wage)}
       <span className="t-unit">/mo</span>
     </span>
@@ -187,7 +240,7 @@ export interface SquadColumnOptions {
   renderTask?: (row: SquadRow) => ReactNode;
 }
 
-/** The squad table columns (BUILD §11.9) as DataTable column definitions. */
+/** The team table columns (BUILD §11.9) as DataTable column definitions. */
 export function squadColumns(opts: SquadColumnOptions = {}): DataTableColumn<SquadRow>[] {
   const now = opts.now ?? new Date();
   return [
@@ -196,11 +249,12 @@ export function squadColumns(opts: SquadColumnOptions = {}): DataTableColumn<Squ
     { id: "departments", accessorFn: (r) => r.departments.join(", "), header: "Departments", size: 140 },
     { id: "status", accessorKey: "status", header: "Status", size: 150, cell: ({ row }) => <StatusCell status={row.original.status} expectedReturnAt={row.original.expectedReturnAt} now={now} />, meta: { filter: "select", filterOptions: ["healthy", "degraded", "failing", "injured", "paused", "idle"].map((v) => ({ value: v, label: v })) } },
     { id: "currentTask", accessorFn: (r) => r.currentTask?.title ?? "", header: "Current task", size: 240, cell: ({ row }) => (opts.renderTask ? opts.renderTask(row.original) : <span className="truncate text-secondary">{row.original.currentTask?.title ?? "—"}</span>) },
-    { id: "form", accessorFn: (r) => formScore(r.form), header: "Form", size: 80, cell: ({ row }) => <FormCells form={row.original.form} name={`${row.original.name} form`} />, meta: { numeric: true } },
-    { id: "rating", accessorKey: "rating", header: "Rating", size: 80, cell: ({ getValue }) => <RatingCell value={getValue() as number} />, meta: { numeric: true } },
+    // The column head carries the key once; every row's cells carry it on hover.
+    { id: "form", accessorFn: (r) => formScore(r.form), header: () => <span title="The last five tasks, oldest left: green went well, amber partly, red failed">Form</span>, size: 80, cell: ({ row }) => <FormCells form={row.original.form} name={`${row.original.name} form`} />, meta: { numeric: true, label: "Form" } },
+    { id: "rating", accessorKey: "rating", header: () => <span title={RATING_COLUMN_TOOLTIP}>{RATING_COLUMN_LABEL}</span>, size: 112, cell: ({ getValue }) => <RatingCell value={getValue() as number} />, meta: { numeric: true, label: RATING_COLUMN_LABEL } },
     { id: "tools", accessorFn: (r) => r.tools.length, header: "Tools", size: 140, cell: ({ row }) => <ToolIcons tools={row.original.tools} />, meta: { numeric: true } },
     { id: "model", accessorKey: "model", header: "Model", size: 110, cell: ({ row }) => <ModelChip model={row.original.model} onClick={opts.onModelClick ? () => opts.onModelClick?.(row.original) : undefined} />, meta: { filter: "select", filterOptions: (["opus", "sonnet", "haiku"] as const).map((v) => ({ value: v, label: MODEL_LABELS[v] })) } },
-    { id: "wage", accessorFn: (r) => r.wage.amountMinor, header: "Wage", size: 110, cell: ({ row }) => <WageCell wage={row.original.wage} />, meta: { numeric: true, csv: (r) => r.wage.amountMinor / 100 } },
+    { id: "wage", accessorFn: (r) => r.wage.amountMinor, header: WAGE_COLUMN_LABEL, size: 120, cell: ({ row }) => <WageCell wage={row.original.wage} />, meta: { numeric: true, csv: (r) => r.wage.amountMinor / 100 } },
     { id: "latestUpdate", accessorFn: (r) => r.latestUpdate?.at ?? "", header: "Latest update", size: 260, cell: ({ row }) => (row.original.latestUpdate ? <span className="truncate text-secondary" title={row.original.latestUpdate.text} data-allow-truncate="">{formatRelative(row.original.latestUpdate.at, now)} · {row.original.latestUpdate.text}</span> : "—") },
   ];
 }

@@ -11,12 +11,15 @@
  * (`confirmation`), after a reload, from another tab or device, never from what this page remembers (audit OL-01).
  * Answered items show what was chosen, the plan's progress and follow-up links. Won customers open their Customer
  * Update (the replay). An agent's request to make a gated call (audit FR-01) shows the agent, the task, the call and its
- * amount above the DecisionBar's Approve and Reject, with an optional reason.
+ * amount above the DecisionBar's Approve and Reject, with an optional reason. While guidance is on, the exhibit and
+ * the Decided panel start folded under "Show the numbers" / "Show what happened" (UX plan B19), so the note, the
+ * conversation and the decision bar read as one story; a Decided panel that still asks for the go-ahead, or one for a
+ * decision just taken here, opens as it always did.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArrowRight, CirclePause, ExternalLink, EyeOff, Play, ShieldAlert, Trophy } from "lucide-react";
+import { Archive, ArrowRight, ChevronDown, ChevronRight, CirclePause, ExternalLink, EyeOff, Play, ShieldAlert, Trophy } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Avatar,
   Button,
@@ -29,9 +32,11 @@ import {
   Panel,
   StatusPill,
   StatusStrip,
+  Tooltip,
   formatRelative,
   isTypingTarget,
   useFormatters,
+  useGuided,
   useToast,
   type DecisionAnswer,
   type DecisionOption,
@@ -58,10 +63,11 @@ import { ApprovalPanel } from "./ApprovalPanel";
 import { ConfirmPlanDialog } from "./ConfirmPlanDialog";
 import { SIGNOFF_NOTES_ID, SignoffPanel } from "./SignoffPanel";
 import { Exhibit } from "./Exhibit";
+import { readExhibit } from "./exhibits";
 import { NoteTagChip } from "./InboxList";
 import {
+  actionStatusWord,
   agentIndex,
-  answerLabel,
   answeredFrom,
   askChip,
   confirmationLines,
@@ -73,6 +79,7 @@ import {
   goAheadState,
   hasAgentDesk,
   headerDates,
+  HOLDS_CONTINUE_HINT,
   noteOpener,
   headerTag,
   hiddenNotice,
@@ -147,6 +154,8 @@ interface BodyProps {
 function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps) {
   const { item, decisions, plan: storedPlan, confirmation, fromAgent, entities, approval, signoff } = data;
   const { businessId, data: biz, access } = useBusiness();
+  // Guidance on: the numbers and the decided plan fold away until asked for (UX plan B19).
+  const guided = useGuided();
   // A person's note: the founder's own ("You"), or someone else's, never "You".
   const sender = humanSender(item.fromUserId, biz.membership.userId);
   const senderName = sender === "self" ? "You" : sender === "other" ? NETWORK_SENDER : "Team";
@@ -356,6 +365,8 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const relatedEntities = entities.map((e) => ({ id: e.id, kind: e.kind as EntityKind, name: e.displayName, href: entityHref(businessId, e, (id) => agents.has(id)) }));
   // Parts of the note the reader's section permissions hide (inbox.get masks them on the server).
   const hidden = hiddenNotice(item.redacted);
+  // No exhibit, no region (and no fold): the body's gap never holds an empty slot.
+  const hasExhibit = useMemo(() => readExhibit(item.exhibit).kind !== "none", [item.exhibit]);
 
   return (
     <article className="flex min-h-0 flex-1 flex-col" data-testid="inbox-item" data-item-id={item.id} data-type={item.type} data-state={isAnswered ? "answered" : item.state}>
@@ -390,9 +401,11 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
         <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
           <NoteTagChip tag={headerTag(item.type, isAnswered, item.blocksContinue, pendingConfirmation)} size="header" testId="type-pill" />
           {item.blocksContinue && !isAnswered ? (
-            <Chip tone="neutral" icon={CirclePause} title="Continue waits until you answer this note">
-              Blocks Continue
-            </Chip>
+            <Tooltip content={HOLDS_CONTINUE_HINT}>
+              <Chip tone="neutral" icon={CirclePause} data-testid="holds-continue">
+                Holds Continue
+              </Chip>
+            </Tooltip>
           ) : null}
           {item.state !== "archived" && (isAnswered || !options.length) ? <Button size="sm" variant="ghost" icon={Archive} onClick={() => archive.mutate({ businessId, itemId: item.id })} loading={archive.isPending} data-testid="archive-item">Archive</Button> : null}
         </div>
@@ -442,10 +455,16 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
 
         {tiles.length ? <StatusStrip tiles={tiles} data-testid="status-strip" /> : null}
 
-        <Exhibit exhibit={item.exhibit} entityIds={item.entityIds} fromAgentId={item.fromAgentId} currency={currency} />
+        {hasExhibit ? (
+          <Folded folded={guided} show="Show the numbers" hide="Hide the numbers" testId="exhibit-fold">
+            <Exhibit exhibit={item.exhibit} entityIds={item.entityIds} fromAgentId={item.fromAgentId} currency={currency} />
+          </Folded>
+        ) : null}
 
         {isAnswered || plan ? (
-          <Panel title="Decided" span={12} actions={planLine ? <StatusPill tone={planLine.tone}>{planLine.word}</StatusPill> : undefined} footer={planLine ? <span>{planLine.detail}</span> : undefined} data-testid="answered-panel">
+          // A decision just taken here, or a plan still waiting for the go-ahead, stays open: there is something to see or do.
+          <Folded folded={guided && !result && !pendingConfirmation} show="Show what happened" hide="Hide what happened" testId="answered-panel">
+          <Panel title="Decided" span={12} actions={planLine ? <StatusPill tone={planLine.tone}>{planLine.word}</StatusPill> : undefined} footer={planLine ? <span>{planLine.detail}</span> : undefined} data-testid="decided-panel">
             <div className="flex flex-col gap-3">
               <KeyValueList
                 items={[
@@ -460,7 +479,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
                     const chip = askChip(plan, a);
                     return (
                       <li key={a.id} className="flex items-center gap-2" data-action-status={a.status}>
-                        <StatusPill tone={a.status === "done" ? "good" : a.status === "failed" || a.status === "denied" ? "bad" : a.status === "awaiting_approval" || a.status === "pending" ? "warn" : "info"}>{a.status.replace(/_/g, " ")}</StatusPill>
+                        <StatusPill tone={a.status === "done" ? "good" : a.status === "failed" || a.status === "denied" ? "bad" : a.status === "awaiting_approval" || a.status === "pending" ? "warn" : "info"}>{actionStatusWord(a.status)}</StatusPill>
                         <span className="truncate">{confirmationLines([{ action: { type: a.type, params: a.params as Record<string, unknown> | null }, outcome: a.policyOutcome ?? "allow" }], currency)[0]?.label}</span>
                         {chip ? <Chip tone={chip.tone} data-testid="ask-chip">{chip.word}</Chip> : null}
                       </li>
@@ -497,6 +516,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
               </div>
             </div>
           </Panel>
+          </Folded>
         ) : null}
 
         {showDesk ? (
@@ -529,6 +549,8 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           executing={decide.isPending || confirm.isPending}
           answered={answered}
           hotkeys={false}
+          // The shell's keyboard map owns 1–4 here; the caps say so to operators (guidance off hides nothing else).
+          keyHints
           note={
             readOnly && !isAnswered ? (
               <span className="inline-flex items-center gap-1 text-small text-secondary" data-testid="decision-read-only">
@@ -536,7 +558,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
               </span>
             ) : pastDeadline && !isAnswered ? (
               <span className="inline-flex items-center gap-1 text-small text-status-warn" data-testid="past-deadline">
-                This decision is past its deadline. The team is still waiting for your call, and Continue waits too.
+                This decision is past its deadline. The team still needs your answer, and Continue waits too.
               </span>
             ) : undefined
           }
@@ -555,6 +577,41 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
 }
 
 export { ConfirmPlanDialog, type ConfirmPlanDialogProps } from "./ConfirmPlanDialog";
+
+export interface FoldedProps {
+  /** Start folded (guidance on, nothing the reader has to act on). Read once, when the region mounts, so an answer given here never folds it. */
+  folded: boolean;
+  /** The ghost button's words while folded ("Show the numbers") and while open ("Hide the numbers"). */
+  show: string;
+  hide: string;
+  /** The wrapper's test id; the button carries `<testId>-toggle`. */
+  testId?: string;
+  children: ReactNode;
+}
+
+/**
+ * A region that starts folded under a ghost disclosure while guidance is on (UX plan B19): the button sits exactly
+ * where the content sits (DOM order unchanged), and opening it draws the content in place. Not folded: the content as
+ * is, no button. TODO(guided-layer): swap for the shared disclosure primitive once it lands.
+ */
+export function Folded({ folded, show, hide, testId, children }: FoldedProps) {
+  const [foldable] = useState(folded);
+  const [open, setOpen] = useState(false);
+  const bodyId = useId();
+  if (!foldable) return <div data-testid={testId}>{children}</div>;
+  return (
+    <div data-testid={testId} data-folded={!open || undefined}>
+      <Button size="sm" variant="ghost" icon={open ? ChevronDown : ChevronRight} aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((o) => !o)} data-testid={testId ? `${testId}-toggle` : undefined}>
+        {open ? hide : show}
+      </Button>
+      {open ? (
+        <div id={bodyId} className="mt-2">
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 /** The note body in the reading style. Dugout's Markdown keeps its own props, so the test id lives on this wrapper. */
 export function InboxNote({ bodyMd }: { bodyMd: string }) {

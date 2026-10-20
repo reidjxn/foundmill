@@ -41,7 +41,7 @@ export function healthDetails(agent: AgentRow): HealthDetails {
 /**
  * Why this agent is in its group, in one line: the expected return, the reason, a loop, or (degraded) the error rate.
  * Empty when there is nothing beyond what the group's own description and the card's figures already say, so a card
- * never repeats its panel header or its Heartbeat / Errors figures.
+ * never repeats its panel header or its Last active / Failed sessions figures.
  */
 export function healthReason(status: AgentStatus, details: HealthDetails, now: Date): string {
   const parts: string[] = [];
@@ -72,8 +72,8 @@ const TONE_CLASS: Record<AgentStatus, string> = { failing: "text-status-bad", in
 
 /** One short line under each count in the strip. */
 export const STATUS_CAPTION: Record<AgentStatus, string> = {
-  healthy: "Heartbeat on time",
-  degraded: "Errors above 10%",
+  healthy: "Active recently",
+  degraded: "Failed sessions above 10%",
   failing: "Sessions stopped",
   injured: "Back once reconnected",
   paused: "By you or a vacation",
@@ -130,13 +130,13 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
             </span>
           )
         }
-        footer="Statuses change as sessions start, end, fail or loop, and when a credential lapses or a wage cap is reached. Heartbeat is an agent's last activity; errors are the share of its sessions that failed over 24 h."
+        footer="Statuses change as sessions start, end, fail or loop, and when a credential lapses or a wage cap is reached. Last active is the last time the agent did anything; failed sessions is the share of its sessions that failed over the last 24 hours."
       >
         <StatusStrip tiles={tiles} className="rounded-none border-0" aria-label="Agents by health" />
       </Panel>
 
       {!loading && !error && agents.length === 0 ? (
-        <Panel span={12} title="Team" empty={{ icon: HeartPulse, title: "No agents to watch", children: "Each agent appears here under its health with heartbeat, error rate and, when down, the expected return.", action: { label: "Go to Recruitment", icon: UserRoundPlus, onClick: () => navigate(recruitHref) } }} />
+        <Panel span={12} title="Team" empty={{ icon: HeartPulse, title: "No agents to watch", children: "Each agent appears here under its health with when it was last active, its failed sessions and, when down, the expected return.", action: { label: "Go to Recruitment", icon: UserRoundPlus, onClick: () => navigate(recruitHref) } }} />
       ) : null}
 
       {groups.map((group) => (
@@ -165,11 +165,11 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
                   ) : null}
                   <dl className="flex min-w-0 gap-4">
                     <div className="flex shrink-0 flex-col gap-0.5">
-                      <dt className="t-data">Heartbeat</dt>
+                      <dt className="t-data">Last active</dt>
                       <dd className="whitespace-nowrap text-body text-primary tabular-nums">{details.lastHeartbeatAt ? formatRelative(details.lastHeartbeatAt, now) : <span className="text-tertiary">—</span>}</dd>
                     </div>
                     <div className="flex shrink-0 flex-col gap-0.5">
-                      <dt className="t-data">Errors 24 h</dt>
+                      <dt className="t-data">Failed sessions, 24 h</dt>
                       <dd className="whitespace-nowrap text-body text-primary tabular-nums">{typeof details.errorRate === "number" ? formatPercent(details.errorRate, { digits: 1 }) : <span className="text-tertiary">—</span>}</dd>
                     </div>
                     <div className="flex min-w-0 flex-1 flex-col gap-0.5">

@@ -10,7 +10,7 @@ import { Icon } from "../foundation/Icon";
 import { StarRating } from "../foundation/StarRating";
 import { RatingFigure } from "../data/RatingBar";
 import { FormGuide } from "./ChannelToken";
-import { CHANNEL_ICONS, LINE_LABELS, channelLine } from "./formation";
+import { CHANNEL_ICONS, COST_TREND_LABEL, LINE_LABELS, channelLine } from "./formation";
 import type { ChannelTokenData } from "./types";
 
 export interface ChannelProfileCardProps {
@@ -58,9 +58,9 @@ export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, 
           </div>
         ) : null}
         <div>
-          <dt className="t-label">Form</dt>
+          <dt className="t-label">{COST_TREND_LABEL}</dt>
           <dd className="pt-1">
-            <FormGuide form={channel.form} name={`${meta.label} form`} />
+            <FormGuide form={channel.form} name={`${meta.label} ${COST_TREND_LABEL.toLowerCase()}`} />
           </dd>
         </div>
         {channel.cpaRange && channel.cpaRange.high.amountMinor > 0 ? (

@@ -14,7 +14,7 @@ import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { failedWithoutData, unavailableWords } from "@foundmill/widgets/shared/errors";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
-import { capUsedPct, formatMonth, monthKey, monthStart, outputPerHundred, sectionOf, trailingMonths } from "./metrics";
+import { capUsedPct, formatMonth, monthKey, monthStart, outputPerHundred, pnlLabelWords, sectionOf, trailingMonths } from "./metrics";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
 import { Screen, fmtMoney, toDate, useCurrency, useNow } from "./shared";
 import type { MembershipRow, PnlResponse, TaskRow, TasksListResponse, TeamAgentRow, WageRow, WagesResponse } from "./types";
@@ -125,6 +125,15 @@ export const WAGE_FIT = {
 } satisfies Record<string, ColumnFit>;
 export type WageColumnId = keyof typeof WAGE_FIT;
 
+/**
+ * The team's cost tile: the figure is metered in US dollars (tokens, sandbox minutes, tool calls, training), so where
+ * it is, the tile says so instead of "payroll" in another currency (UX plan §7.14, C21). Any other currency keeps
+ * "Team payroll".
+ */
+export function teamCostLabel(currency: string): string {
+  return currency.toUpperCase() === "USD" ? "AI usage cost (USD)" : "Team payroll";
+}
+
 /** "Tasks per £100": output per 100 units of the business's own currency. */
 export function perHundredLabel(currency: string): string {
   const symbol = currencySymbol(currency);
@@ -220,18 +229,19 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
   const wagesFailed = failedWithoutData(wages);
   const pnlFailed = failedWithoutData(pnl);
   const unavailable = (label: string, error: Error | null): MetricTileProps => ({ label, ...unavailableWords(error, "Finance") });
+  const teamLabel = teamCostLabel(teamCurrency);
 
   const known: MetricTileProps[] = [
-    { label: "Team payroll", value: { amountMinor: squadMinor, currency: teamCurrency }, estimate: "estimate", provenance: { source: "Usage ledger: tokens, sandbox minutes, tool calls, training", query: "finance.wages", note: "Metered at list prices; the Anthropic invoice is the only real cost." }, caption: `${rows.filter((r) => r.costMinor > 0).length} agents with usage in ${formatMonth(period, datePrefs)}` },
-    { label: "Human payroll", value: { amountMinor: payrollMinor, currency }, estimate: "estimate", provenance: { source: pnl.data?.label ?? "Management P&L, unaudited, cash basis", query: "finance.pnl categories Payroll, Contractors", note: "Bank outflows categorized as payroll or contractors in the month." }, caption: `${staff.length} staff member${staff.length === 1 ? "" : "s"}` },
+    { label: teamLabel, value: { amountMinor: squadMinor, currency: teamCurrency }, estimate: "estimate", provenance: { source: "Usage ledger: tokens, sandbox minutes, tool calls, training", query: "finance.wages", note: "Metered at list prices; the Anthropic invoice is the only real cost." }, caption: `${rows.filter((r) => r.costMinor > 0).length} agents with usage in ${formatMonth(period, datePrefs)}` },
+    { label: "Human payroll", value: { amountMinor: payrollMinor, currency }, estimate: "estimate", provenance: { source: pnlLabelWords(pnl.data?.label), query: "finance.pnl categories Payroll, Contractors", note: "Bank outflows categorized as payroll or contractors in the month." }, caption: `${staff.length} staff member${staff.length === 1 ? "" : "s"}` },
     teamCurrency === currency
-      ? { label: "Total payroll", value: { amountMinor: squadMinor + payrollMinor, currency }, estimate: "estimate", provenance: { source: "Team payroll + human payroll", note: "Team and staff together for the month." }, caption: formatMonth(period, datePrefs) }
+      ? { label: "Total payroll", value: { amountMinor: squadMinor + payrollMinor, currency }, estimate: "estimate", provenance: { source: `${teamLabel} + human payroll`, note: "Team and staff together for the month." }, caption: formatMonth(period, datePrefs) }
       : // Never added across currencies (nothing is converted): both parts, each in its own currency.
-        { label: "Total payroll", value: `${fmtMoney(squadMinor, teamCurrency, { compact: true })} + ${fmtMoney(payrollMinor, currency, { compact: true })}`, estimate: "estimate", provenance: { source: "Team payroll + human payroll", note: "Kept apart: the team is metered in US dollars, staff are paid in the business's currency." }, caption: formatMonth(period, datePrefs) },
-    { label: perHundredLabel(teamCurrency), value: outputPerHundred(tasksDone, squadMinor) ?? "—", format: "decimal", estimate: outputPerHundred(tasksDone, squadMinor) === null ? undefined : "estimate", provenance: { source: "Tasks completed ÷ team payroll", query: "dev.tasks.list status=done", note: `Tasks marked done in the month for every ${perHundredLabel(teamCurrency).replace("Tasks per ", "")} of team cost.` }, caption: `${tasksDone} task${tasksDone === 1 ? "" : "s"} done` },
+        { label: "Total payroll", value: `${fmtMoney(squadMinor, teamCurrency, { compact: true })} + ${fmtMoney(payrollMinor, currency, { compact: true })}`, estimate: "estimate", provenance: { source: `${teamLabel} + human payroll`, note: "Kept apart: the team's AI usage is metered in US dollars, staff are paid in the business's currency." }, caption: formatMonth(period, datePrefs) },
+    { label: perHundredLabel(teamCurrency), value: outputPerHundred(tasksDone, squadMinor) ?? "—", format: "decimal", estimate: outputPerHundred(tasksDone, squadMinor) === null ? undefined : "estimate", provenance: { source: `Tasks completed ÷ ${teamLabel.toLowerCase()}`, query: "dev.tasks.list status=done", note: `Tasks marked done in the month for every ${perHundredLabel(teamCurrency).replace("Tasks per ", "")} of team cost.` }, caption: `${tasksDone} task${tasksDone === 1 ? "" : "s"} done` },
   ];
   const tiles: MetricTileProps[] = [
-    wagesFailed ? unavailable("Team payroll", wages.error) : known[0]!,
+    wagesFailed ? unavailable(teamLabel, wages.error) : known[0]!,
     pnlFailed ? unavailable("Human payroll", pnl.error) : known[1]!,
     wagesFailed || pnlFailed ? unavailable("Total payroll", wages.error ?? pnl.error) : known[2]!,
     wagesFailed ? unavailable(perHundredLabel(teamCurrency), wages.error) : known[3]!,
@@ -274,7 +284,7 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
             <SimpleSelect aria-label="Period" controlSize="sm" value={period} onValueChange={setPeriod} options={periods.map((p) => ({ value: p, label: formatMonth(p, datePrefs) }))} />
           </div>
         }
-        footer={wages.data ? <span className="tabular-nums">{rows.length} agents · {fmtMoney(squadMinor, teamCurrency)} in {formatMonth(period, datePrefs)} · Estimate: metered usage at list prices</span> : undefined}
+        footer={wages.data ? <span className="tabular-nums">{rows.length} agents · {fmtMoney(squadMinor, teamCurrency)} in {formatMonth(period, datePrefs)} · Estimate: {teamCurrency.toUpperCase() === "USD" ? "AI usage metered in US dollars at list prices" : "metered usage at list prices"}</span> : undefined}
       >
         <div className="min-w-0">
           <DataTable<WageBillRow> aria-label="Team payroll" data={rows} columns={columns} getRowId={(r) => r.agentId} {...savedViews} defaultViewId="all" height={480} exportFileName={`wage-bill-${period}`} rowActions={rowActions} onRowOpen={(r) => navigate(routes.agent(businessId, r.agentId))} />

@@ -68,7 +68,7 @@ function CompareBody({ ids, viewer }: { ids: string[]; viewer: { email: string |
     return (
       <StudioFrame step="compare" title="Compare concepts" lede="Side-by-side attributes, a radar and the agent verdict." viewer={viewer} actions={back}>
         <EmptyState icon={Columns3} title="Pick two to four cards first" action={{ label: "Open the studio", onClick: () => router.push("/new/ideate") }}>
-          Tick the compare box on each card in the Ideation Studio, then press Compare.
+          Pick two to four cards in the Ideation Studio (the Compare toggle on each card), then press Compare.
         </EmptyState>
       </StudioFrame>
     );
@@ -141,8 +141,12 @@ function CompareBody({ ids, viewer }: { ids: string[]; viewer: { email: string |
                     );
                   })}
               </ol>
-              <div className="mt-3">
+              <div className="mt-3 flex flex-col items-start gap-1.5">
                 <StatusPill tone="info">Verdict, not a decision</StatusPill>
+                {/* TODO(guided-layer): ReassuranceLine */}
+                <p className="text-small text-secondary" data-testid="compare-reassurance">
+                  Nothing is committed until you take charge.
+                </p>
               </div>
             </Panel>
           </div>

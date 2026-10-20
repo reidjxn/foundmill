@@ -416,6 +416,7 @@ export const CONCEPT_ATTRIBUTES: AttributeRow[] = [
     name: "Market size",
     value: 14,
     compare: 11,
+    hint: "How many people or businesses could pay for it. Higher means a bigger market.",
     evidence: {
       summary: "Nordic premium skincare grew 11% last year; 2.1M addressable households.",
       sources: ["Euromonitor 2025", "SCB household survey"],
@@ -441,6 +442,7 @@ export const CONCEPT_ATTRIBUTES: AttributeRow[] = [
     name: "Defensibility",
     value: 6,
     compare: 8,
+    hint: "How hard it is for others to copy. Higher means harder to copy.",
     evidence: "Formulation is replicable; brand and retail relationships are the moat.",
   },
   {
@@ -464,12 +466,14 @@ export const CONCEPT_ATTRIBUTES: AttributeRow[] = [
     compare: 9,
     evidence: "Five years in beauty retail buying; existing supplier relationships.",
   },
-  { id: "channel", name: "Channel access", value: 13, compare: 7 },
+  // A hint without evidence: the label still explains itself on hover and focus.
+  { id: "channel", name: "Channel access", value: 13, compare: 7, hint: "How clear the path to the first customers is. Higher means a clearer path." },
   {
     id: "regulatory",
     name: "Regulatory load",
     value: 8,
     compare: 14,
+    hint: "How much regulation applies. Higher means fewer rules to deal with.",
     evidence: "EU CPNP notification and a safety assessment per product.",
   },
   { id: "timing", name: "Timing", value: 15, compare: 15 },

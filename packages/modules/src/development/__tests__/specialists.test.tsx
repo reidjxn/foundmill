@@ -25,6 +25,8 @@ describe("SpecialistsScreen", () => {
     expect(fake.subscriberCount(`as:${SESSION_SOURCING}`)).toBe(1);
     expect(screen.getByTestId("specialist-counts").textContent).toBe("1 specialist · 1 task · 1 running · 0 reporting");
     expect(screen.getByText("Human gate on every purchase order")).toBeTruthy();
+    // The footer says where prices come from in plain words (C15), never "the quarantined reader".
+    expect(screen.getByText("Prices are read from supplier emails and are estimates until a supplier confirms them.")).toBeTruthy();
   });
 
   it("collapses finished specialists with no supplier records into one message and a list, never empty tiles", async () => {

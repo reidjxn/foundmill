@@ -17,8 +17,9 @@ const meta = {
 export default meta;
 type Story = StoryObj;
 
-/** Role cells tinted Natural / Accomplished / Competent / Unconvincing in the rating ramp, with the word and the rating. */
+/** "Other roles it could take": role cells tinted Excellent / Good / Average / Poor in the rating ramp, with the band word and the 1–20 fit. */
 export const Positions: Story = {
+  name: "Other roles it could take",
   render: () => (
     <div className="w-[760px]">
       <PositionMap roles={mockPositionRoles()} currentRoleId="frontend" onSelect={() => {}} />

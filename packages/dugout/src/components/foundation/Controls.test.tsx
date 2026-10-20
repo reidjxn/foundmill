@@ -134,9 +134,15 @@ describe("ProgressRing, Sparkline, StarRating", () => {
     expect(container.querySelectorAll("linearGradient stop")).toHaveLength(3);
     expect(container.querySelector("[data-sparkline-halo]")).not.toBeNull();
   });
-  it("draws empty stars on the strong hairline and shows current → potential", () => {
-    const { container } = render(<StarRating value={2} potential={3} showValue />);
+  it("draws empty stars on the strong hairline and captions now and potential in words", () => {
+    const { container } = render(<StarRating value={2} potential={3} showValue label="Ability" />);
     expect(container.querySelectorAll(".text-line-strong").length).toBeGreaterThan(0);
-    expect(container.textContent).toContain("2 → 3");
+    expect(container.textContent).toContain("Now 2 · could reach 3");
+    expect(container.querySelector("[role=img]")?.getAttribute("title")).toBe("Now 2 · could reach 3");
+    // The accessible name keeps the scale; a value alone stays a bare figure.
+    expect(container.querySelector("[role=img]")?.getAttribute("aria-label")).toBe("Ability: 2 of 5, potential 3");
+    const { container: alone } = render(<StarRating value={4} showValue label="Lead score" />);
+    expect(alone.textContent).toContain("4");
+    expect(alone.textContent).not.toContain("Now");
   });
 });

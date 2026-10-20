@@ -178,7 +178,22 @@ test.describe("keyboard and screen readers", () => {
     await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/settings/mode`);
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
     await settled(page);
-    await expect(page.getByRole("button", { name: /^Business mode: Automated, on vacation/ })).toBeVisible({ timeout: LONG });
+    const chip = page.getByRole("button", { name: /^Business mode: Automated, on vacation/ });
+    await expect(chip).toBeVisible({ timeout: LONG });
+    // The chip's word stays one word; its second phrase is a separate span the top bar may hide (KitBarFit).
+    await expect(chip.locator(".kitbar-chip-word").first()).toHaveText("Automated");
     await expect(settingsScreen(page).getByTestId("mode-in-force")).toContainText("Automated while on vacation");
+  });
+
+  test("the sidebar's \"?\" cap is a named button that opens the keyboard shortcuts and gives focus back on Esc (B15)", async ({ page }) => {
+    await openBusiness(page);
+    const cap = page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Keyboard shortcuts" });
+    await expect(cap).toHaveAttribute("aria-keyshortcuts", "?");
+    await cap.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("keyboard-help")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("keyboard-help")).toHaveCount(0);
+    await expect(cap).toBeFocused();
   });
 });
