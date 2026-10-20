@@ -63,7 +63,8 @@ vi.mock("@/lib/trpc-react", () => ({
   }),
 }));
 
-import { GuidanceHost, applyGuidancePatch, isSignedInPath, useGuidancePreferences, type GuidancePreferencesApi } from "../GuidanceHost";
+import { GuidanceHost, applyGuidancePatch, isSignedInPath, resolveLearn, termsFor, useGuidancePreferences, type GuidancePreferencesApi } from "../GuidanceHost";
+import { TEXT_SIZE_COOKIE, readTextSizeCookie } from "../text-size-cookie";
 
 let api: GuidancePreferencesApi | null = null;
 let guided: ReturnType<typeof useGuidance> | null = null;
@@ -80,15 +81,18 @@ function Probe() {
 }
 
 const client = () => new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-const mount = (queryClient = client(), initial?: Prefs) =>
+const mount = (queryClient = client(), initial?: Prefs, host: { textSizeOwner?: string; initialTextSize?: "standard" | "comfortable" | null } = {}) =>
   render(
     <QueryClientProvider client={queryClient}>
-      <GuidanceHost initial={initial}>
+      <GuidanceHost initial={initial} {...host}>
         <Probe />
       </GuidanceHost>
     </QueryClientProvider>,
   );
 const probe = () => screen.getByTestId("probe").textContent;
+const clearTextSizeCookie = () => {
+  document.cookie = `${TEXT_SIZE_COOKIE}=; path=/; max-age=0`;
+};
 
 beforeEach(() => {
   stored = defaults();
@@ -97,6 +101,7 @@ beforeEach(() => {
   api = null;
   guided = null;
   document.documentElement.removeAttribute("data-text");
+  clearTextSizeCookie();
 });
 afterEach(() => {
   read.mockClear();
@@ -205,6 +210,66 @@ describe("GuidanceHost", () => {
     });
     await new Promise((r) => setTimeout(r, 10));
     expect(probe()).toContain("Cost to win a client");
+  });
+});
+
+describe("GuidanceHost text size", () => {
+  it("mirrors the account's text size into the owner's cookie once the account has answered, and follows a save", async () => {
+    stored = { ...defaults(), textSize: "comfortable" };
+    mount(client(), undefined, { textSizeOwner: "dev" });
+    // Before the answer: the default, and no cookie written over a real choice.
+    expect(readTextSizeCookie(document.cookie)).toBeNull();
+    await waitFor(() => expect(probe()).toContain("comfortable"));
+    await waitFor(() => expect(readTextSizeCookie(document.cookie)).toBe("comfortable.dev"));
+    await act(async () => {
+      await api!.save({ textSize: "standard" });
+    });
+    await waitFor(() => expect(readTextSizeCookie(document.cookie)).toBe("standard.dev"));
+    await waitFor(() => expect(document.documentElement.getAttribute("data-text")).toBeNull());
+  });
+
+  it("keeps the size the server rendered with (the cookie) until the account answers, so nothing flashes", async () => {
+    stored = { ...defaults(), textSize: "comfortable" };
+    let release: () => void = () => undefined;
+    read.mockImplementationOnce(async () => {
+      await new Promise<void>((r) => (release = r));
+      return stored;
+    });
+    mount(client(), undefined, { textSizeOwner: "dev", initialTextSize: "comfortable" });
+    expect(probe()).toBe("on comfortable - - Cost to win a customer");
+    await waitFor(() => expect(document.documentElement.getAttribute("data-text")).toBe("comfortable"));
+    await act(async () => release());
+    await waitFor(() => expect(probe()).toBe("on comfortable - - Cost to win a customer"));
+    expect(document.documentElement.getAttribute("data-text")).toBe("comfortable");
+  });
+
+  it("writes no cookie without an owner or on a signed-out page", async () => {
+    stored = { ...defaults(), textSize: "comfortable" };
+    const r = mount();
+    await waitFor(() => expect(probe()).toContain("comfortable"));
+    expect(readTextSizeCookie(document.cookie)).toBeNull();
+    r.unmount();
+    pathname = "/login";
+    params = null;
+    mount(client(), undefined, { textSizeOwner: "dev" });
+    await new Promise((res) => setTimeout(res, 20));
+    expect(readTextSizeCookie(document.cookie)).toBeNull();
+  });
+});
+
+describe("GuidanceHost definitions and Learn more", () => {
+  it("resolves Learn more inside the business on screen and leaves slugs unlinked elsewhere", () => {
+    expect(resolveLearn("finance/runway", BUSINESS)).toBe(`/b/${BUSINESS}/d/finance/runway`);
+    expect(resolveLearn("team/agents", BUSINESS)).toBe(`/b/${BUSINESS}/d/team/squad`);
+    expect(resolveLearn("settings/mode", BUSINESS)).toBe(`/b/${BUSINESS}/settings/mode`);
+    expect(resolveLearn("https://example.com/help", null)).toBe("https://example.com/help");
+    expect(resolveLearn("finance/runway", null)).toBeUndefined();
+  });
+
+  it("hands the map as written outside a business, and the glossary's words inside one", () => {
+    expect(termsFor(null, { customer: "client" }).acquisition_cost?.word).toBe("Cost to win a customer");
+    expect(termsFor(BUSINESS, { customer: "client" }).acquisition_cost?.word).toBe("Cost to win a client");
+    expect(termsFor(BUSINESS, null).acquisition_cost?.word).toBe("Cost to win a customer");
   });
 });
 

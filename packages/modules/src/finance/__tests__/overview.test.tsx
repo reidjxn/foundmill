@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TooltipProvider, formatMoney } from "@foundmill/dugout";
+import { TERMS } from "@foundmill/shared/terms";
 import { OverviewScreen, forecastRunway, overviewTiles } from "../OverviewScreen";
 import { NOW, createFakeSource, renderScreen } from "./fake-source";
 import { BID, channels, dataResponses, emptyResponses, overview, overviewBlocking, pnl } from "./fixtures";
@@ -55,9 +56,12 @@ describe("OverviewScreen", () => {
     expect(screen.getByRole("region", { name: "Finance metrics" })).toBeTruthy();
     // One plain sentence above the tiles, from the same figures (UX plan §7.14, C6).
     expect(screen.getByTestId("finance-summary").textContent).toBe("You have €150K in the bank and spend €20K more than you earn each month, so cash lasts about 8 months (Estimate).");
-    // Abbreviations are spelled out on first use.
-    expect(within(document.querySelector("[data-metric='mrr']") as HTMLElement).getByText("Monthly recurring revenue (MRR)")).toBeTruthy();
-    expect(within(document.querySelector("[data-metric='acquisitionCost']") as HTMLElement).getByText("Cost to win a customer")).toBeTruthy();
+    // Abbreviations are spelled out on first use (the defined word is plain text while guidance is off).
+    expect(document.querySelector("[data-metric='mrr'] [data-metric-label]")!.textContent).toBe("Monthly recurring revenue (MRR)");
+    expect(document.querySelector("[data-metric='acquisitionCost'] [data-metric-label]")!.textContent).toBe("Cost to win a customer");
+    expect(screen.queryByRole("button", { name: "Runway" })).toBeNull();
+    expect(document.querySelector("[data-explainer]")).toBeNull();
+    expect(document.querySelector("[data-plain-line]")).toBeNull();
     const cash = document.querySelector("[data-metric='cash']")!;
     expect(cash.querySelector("[data-value]")!.getAttribute("data-value")).toBe(formatMoney({ amountMinor: 15_000_000, currency: "EUR" }, { compact: true }));
     expect(within(cash as HTMLElement).getByRole("button", { name: /Where this number comes from: Bank balances/ })).toBeTruthy();
@@ -75,6 +79,37 @@ describe("OverviewScreen", () => {
     expect(fake.queried.get("finance.pnl")).toEqual({ from: "2026-07-01T00:00:00.000Z", to: "2026-10-01T00:00:00.000Z" });
     expect(screen.getByRole("region", { name: "Cash" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Net cash change" })).toBeTruthy();
+  });
+
+  it("guidance on: the intro, the defined words on the tile labels and the plain line under each figure (UX plan §7.14)", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <OverviewScreen {...props} />, {}, { guidance: "on" });
+    const explainer = document.querySelector("[data-explainer='finance/overview']") as HTMLElement;
+    expect(within(explainer).getByText("Where the money is and how long it lasts.")).toBeTruthy();
+    expect(within(explainer).getByText("Numbers marked Estimate are worked out, not measured.")).toBeTruthy();
+    // The summary sentence stays above the tiles.
+    expect(screen.getByTestId("finance-summary")).toBeTruthy();
+    // Runway's label is a defined word; its plain line is the definitions map's sentence.
+    const runway = document.querySelector("[data-metric='runway']") as HTMLElement;
+    expect(within(runway).getByRole("button", { name: "Runway" }).className).toContain("term-link");
+    expect(runway.querySelector("[data-plain-line]")!.textContent).toBe(TERMS.runway.short);
+    expect(document.querySelector("[data-metric='mrr'] [data-metric-label]")!.textContent).toBe("Monthly recurring revenue (MRR)");
+    expect(within(document.querySelector("[data-metric='mrr']") as HTMLElement).getByRole("button", { name: "Monthly recurring revenue" })).toBeTruthy();
+    // A metric the map does not define keeps the plain half of its own definition.
+    expect(document.querySelector("[data-metric='cash'] [data-plain-line]")!.textContent).toBe("What is in every connected bank account today, added up in your currency.");
+    expect(document.querySelectorAll("[data-plain-line]")).toHaveLength(10);
+  });
+
+  it("a bank balance below zero reads 'Cash is below zero' with the Estimate tag, never a negative runway (UX plan B8)", () => {
+    const belowZero = { ...overview, cash: { ...overview.cash, amountMinor: -250_000 }, runway: { months: -1.2, label: "Estimate", warnings: [], blocksContinue: false } };
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "finance.overview": belowZero } });
+    renderScreen(fake, <OverviewScreen {...props} />);
+    const runway = document.querySelector("[data-metric='runway']") as HTMLElement;
+    expect(within(runway).getByText("Cash is below zero")).toBeTruthy();
+    expect(within(runway).getByText("Estimate")).toBeTruthy();
+    expect(within(runway).getByText("The bank balance is negative, so there is no runway to count")).toBeTruthy();
+    expect(within(runway).queryByText("-1.2")).toBeNull();
+    expect(screen.queryByRole("status", { name: "Runway warning" })).toBeNull();
   });
 
   it("turns the warning red and names the blocked Continue when runway is under 3 months (AC-11.8.3)", () => {

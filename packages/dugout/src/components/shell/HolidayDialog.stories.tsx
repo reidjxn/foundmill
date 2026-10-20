@@ -8,7 +8,7 @@ import { FIXTURE_TODAY } from "./fixtures";
 const meta = {
   title: "Shell/VacationDialog",
   component: HolidayDialog,
-  parameters: { docs: { description: { component: "BUILD §9.6: until (date / condition / until I return), the Chief of Staff's authority as decision types (hard gates locked), a budget ceiling and the events that wake the founder. Defaults: all non-gated types; kill switch, credential failure, legal deadline, runway warning." } } },
+  parameters: { docs: { description: { component: "BUILD §9.6: until (date / condition / until I return), the Chief of Staff's authority as decision types (hard gates locked), a budget ceiling and the events that wake the founder. Defaults: all non-gated types; Stop all agents pressed, a credential failing, a legal deadline, a runway warning." } } },
   args: { open: true, onOpenChange: () => {}, onSubmit: () => {}, today: FIXTURE_TODAY, currency: "EUR" },
 } satisfies Meta<typeof HolidayDialog>;
 export default meta;

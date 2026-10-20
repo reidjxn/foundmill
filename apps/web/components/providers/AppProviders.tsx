@@ -5,7 +5,8 @@
  * (GuidanceHost: the account's guidance preferences and the definitions map, read only on signed-in pages). Mounted
  * once in app/layout.tsx; everything below can call useTRPC()/useQuery()/useToast()/useGuidance(). Reads go to this
  * origin (`browserQueryUrl`), changes and streams to the API (lib/trpc.ts). The date format has its own host in each
- * signed-in layout (DateFormatHost), seeded from the server render.
+ * signed-in layout (DateFormatHost), seeded from the server render; the text size is seeded here, from the cookie the
+ * root layout read (`textSizeOwner`, `initialTextSize`), so the document's `data-text` holds from the first byte.
  */
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createContext, useContext, useState, type ReactNode } from "react";
@@ -16,6 +17,7 @@ import { browserQueryUrl, createApiClient, untypedClientOf, type UntypedApiClien
 import { TRPCProvider } from "@/lib/trpc-react";
 import { AuthLossWatcher } from "./AuthLossWatcher";
 import { GuidanceHost } from "./GuidanceHost";
+import type { TextSizeChoice } from "./text-size-cookie";
 
 const UntypedCtx = createContext<UntypedApiClient | null>(null);
 
@@ -26,7 +28,15 @@ export function useUntypedApi(): UntypedApiClient {
   return c;
 }
 
-export function AppProviders({ children }: { children: ReactNode }) {
+export interface AppProvidersProps {
+  /** Whose text-size cookie the browser may write (text-size-cookie.ts); "" when nobody is signed in. */
+  textSizeOwner?: string;
+  /** The text size the server rendered `<html data-text>` with, from that cookie; null when it held nothing. */
+  initialTextSize?: TextSizeChoice | null;
+  children: ReactNode;
+}
+
+export function AppProviders({ textSizeOwner = "", initialTextSize = null, children }: AppProvidersProps) {
   const queryClient = getQueryClient();
   const [trpcClient] = useState(() => createApiClient({ getToken: getRequestAccessToken, queryUrl: browserQueryUrl() }));
   const [untyped] = useState(() => untypedClientOf(trpcClient));
@@ -37,7 +47,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
           <TooltipProvider delayDuration={400} skipDelayDuration={300}>
             <ToastProvider>
               <AuthLossWatcher />
-              <GuidanceHost>{children}</GuidanceHost>
+              <GuidanceHost textSizeOwner={textSizeOwner} initialTextSize={initialTextSize}>
+                {children}
+              </GuidanceHost>
             </ToastProvider>
           </TooltipProvider>
         </UntypedCtx.Provider>

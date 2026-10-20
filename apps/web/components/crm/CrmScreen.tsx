@@ -45,7 +45,8 @@ export function CrmScreen() {
   const canCreate = access.canWrite("crm");
   const trpc = useTRPC();
   const router = useRouter();
-  useShellChrome({ title: "CRM" });
+  // "Contacts" is the word a first-timer expects (founder decision 2026-10-20, item 1); operators find CRM in the palette.
+  useShellChrome({ title: "Contacts" });
 
   // --- search box state ---------------------------------------------------------------------------------------------
   const [raw, setRaw] = useState("");

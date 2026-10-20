@@ -8,8 +8,10 @@
  * Three example briefs sit above the textarea until the first card exists; the empty-brief control reads "Draft 6–12
  * ideas for me" (A7). Steering chips ("Cheaper to start", "B2B instead", "More defensible") prefill the brief for the
  * next set. Cards are 6–12 ConceptCards (Dugout profile cards: the initials mark until a logo is chosen at Commit,
- * stars, ten attribute bars with evidence hover and a definition on every label, citation count), with a
- * once-dismissable "How to read a card" line over the deck while guidance is on. Actions: Shortlist (local), Merge /
+ * stars, ten attribute bars with evidence hover and a definition on every label, citation count), with the
+ * "How to read a card" Explainer over the deck while guidance is on (screen `ideate-cards`; "Got it" is remembered per
+ * account in `explainers_seen`). Key caps (the generate control's ⌘↵, the compare shortcuts tip) show only while
+ * guidance is off: an operator's affordance, the keys work either way (UX plan §5.9). Actions: Shortlist (local), Merge /
  * "More like this" (a variant) / Ask (idea.*, each a new version; Ask is the Research agent's desk as a sheet, with
  * starters and quick replies), Discard (idea.discard; Restore in the tray and the notice's Undo are idea.restore). Shortlisted and
  * restored cards older than the loaded pages are read by id (idea.listByIds) so they stay pinned and counted. Select
@@ -18,11 +20,11 @@
  * Ideation is private: no business exists yet, so there is no kit bar and nothing reaches Live.
  */
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Bookmark, BookOpen, CircleAlert, CircleCheck, Columns3, FileText, History, Info, Layers, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import { ArrowRight, Bookmark, CircleAlert, CircleCheck, Columns3, FileText, History, Info, Layers, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
-import { Button, Chip, BusinessLogo, ConceptCard, EmptyState, GenerateControl, IconButton, JustInTag, Kbd, Panel, SimpleSelect, Skeleton, SkeletonText, StatusPill, Textarea, Tooltip, cn, landedCardClass, useGuided, useToast, useDateFormat, type ConceptAction, type QuickReplyItem } from "@foundmill/dugout";
+import { Button, Chip, BusinessLogo, ConceptCard, EmptyState, Explainer, GenerateControl, IconButton, InfoTip, JustInTag, Kbd, Panel, SimpleSelect, Skeleton, SkeletonText, StatusPill, Term, Textarea, Tooltip, cn, landedCardClass, useGuided, useToast, useDateFormat, type ConceptAction, type QuickReplyItem } from "@foundmill/dugout";
 import { useKeyboardMap } from "@/lib/keys";
 import { formatDayMonth } from "@/lib/format";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
@@ -53,8 +55,16 @@ export const EXAMPLE_BRIEFS: readonly string[] = ["Help independent tutors send 
 /** The generate control's label with an empty brief: what will happen, in the founder's words (A7). */
 export const DRAFT_FOR_ME = "Draft 6–12 ideas for me";
 
-/** The browser key under which "How to read a card" stays dismissed (per browser; the guided layer stores it per account later). */
-export const HOW_TO_READ_CARD_KEY = "foundmill.ideate.how-to-read-card.dismissed";
+/**
+ * "How to read a card" over the deck (UX plan §7.5, A6): the Explainer for the `ideate-cards` screen. What a card is,
+ * what to do with it, and which way the numbers read; "Got it" is kept per account in `explainers_seen`.
+ */
+export const HOW_TO_READ_CARD = {
+  screenId: "ideate-cards",
+  purpose: "Each card is one business idea the Ideation agent drafted within your profile, rated on ten attributes.",
+  action: "Shortlist the ones you like, ask the Research agent about any card, then pick 2–4 to compare them.",
+  watchFor: "Every bar runs 1–20 and higher is always the better side; hover a label for what it measures. Stars are how strong the idea is now and could get.",
+} as const;
 
 /** Steer the next set (DIRECTION #14): each chip adds one sentence to the brief; nothing is drafted until you press Draft. */
 export const STEERING_CHIPS: readonly { id: string; label: string; text: string }[] = [
@@ -76,7 +86,8 @@ type DraftInput = { prompt: string; archetypeHint?: Archetype };
  * every card stays reachable however large the deck grows, and the Studio paints quickly.
  */
 const DECK_PAGE = 48;
-const ARCHETYPE_OPTIONS = [{ value: "any", label: "Kind of business (optional)" }, ...ARCHETYPES.map((a) => ({ value: a, label: ARCHETYPE_LABELS[a] }))];
+/** The archetype hint's options: "Any" first (the label beside the select is the defined word, `Term` archetype). */
+const ARCHETYPE_OPTIONS = [{ value: "any", label: "Any (optional)" }, ...ARCHETYPES.map((a) => ({ value: a, label: ARCHETYPE_LABELS[a] }))];
 
 type DialogKind = "ask" | "fork" | "merge" | "history" | null;
 
@@ -216,24 +227,9 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
   useEffect(() => {
     if (/Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent)) setModKey("⌘");
   }, []);
-  // Tutoring surfaces (kbd caps, "How to read a card", the shortcut tooltip) show only while guidance is on; the keys work regardless.
+  // Key caps (the generate control's ⌘↵, the compare shortcuts tip) are an operator's affordance: shown only while
+  // guidance is off; the keys work regardless (UX plan §5.9). The Explainer reads the switch itself.
   const guided = useGuided();
-  const [howToReadDismissed, setHowToReadDismissed] = useState(true);
-  useEffect(() => {
-    try {
-      setHowToReadDismissed(window.localStorage.getItem(HOW_TO_READ_CARD_KEY) === "1");
-    } catch {
-      setHowToReadDismissed(false);
-    }
-  }, []);
-  const dismissHowToRead = () => {
-    setHowToReadDismissed(true);
-    try {
-      window.localStorage.setItem(HOW_TO_READ_CARD_KEY, "1");
-    } catch {
-      // A browser that refuses storage shows the line again next time; nothing else depends on it.
-    }
-  };
 
   function onAction(action: ConceptAction, id: string) {
     const idea = deck.find((i) => i.id === id);
@@ -366,7 +362,11 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
           ) : null}
           <Textarea id="ideation-prompt" aria-label="Brief" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={showHero ? 4 : 2} maxLength={4000} placeholder="A problem you have seen, a market you know, or nothing at all." disabled={busy} autoGrow className={showHero ? "min-h-20" : "min-h-14"} />
           <div className="flex flex-wrap items-center gap-2">
-            <SimpleSelect aria-label="Kind of business" value={archetypeHint} onValueChange={setArchetypeHint} options={ARCHETYPE_OPTIONS} controlSize="sm" className="w-56" disabled={busy} />
+            {/* The defined word beside the select (A7, §7.5): "Kind of business" is what a founder reads; the card says it is the archetype. */}
+            <span className="t-data" data-testid="archetype-hint-label">
+              <Term id="archetype">Kind of business</Term>
+            </span>
+            <SimpleSelect aria-label="Kind of business" value={archetypeHint} onValueChange={setArchetypeHint} options={ARCHETYPE_OPTIONS} controlSize="sm" className="w-48" disabled={busy} />
             {constraints.length > 0 ? (
               <div className="flex flex-wrap items-center gap-1.5" aria-label="Your constraints">
                 <span className="t-data">Within</span>
@@ -412,7 +412,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
               progress={busy && runTotal ? runDrafted / runTotal : undefined}
               count={busy && runTotal ? `${runDrafted} of ${runTotal}${run?.total === null ? "+" : ""}` : undefined}
               onStop={draft.stop}
-              kbd={guided ? `${modKey} ↵` : undefined}
+              kbd={guided ? undefined : `${modKey} ↵`}
               aria-keyshortcuts="Meta+Enter Control+Enter"
               data-testid="generate-button"
               wrapperClassName="ml-auto"
@@ -465,7 +465,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
         ) : (
           <>
             {notice && deck.length === 0 ? <NoticeLine notice={notice} onDismiss={() => setNotice(null)} className="mb-3" /> : null}
-            {guided && deck.length > 0 && !howToReadDismissed ? <HowToReadCard onDismiss={dismissHowToRead} /> : null}
+            {deck.length > 0 ? <Explainer {...HOW_TO_READ_CARD} className="mb-3" data-testid="how-to-read-card" /> : null}
             {deck.length > 0 ? (
               <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                 <span className="t-label tabular-nums" data-testid="deck-count">
@@ -479,20 +479,16 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
                 {notice ? <NoticeLine notice={notice} onDismiss={() => setNotice(null)} /> : null}
                 <span className="ml-auto flex items-center gap-1.5 text-small text-secondary" data-testid="compare-hint">
                   Pick 2–4 cards to compare them
-                  {guided ? (
-                    // TODO(guided-layer): InfoTip
-                    <Tooltip
-                      content={
+                  {/* The key caps behind a tip (A19): an operator's affordance, so only while guidance is off; the keys work either way. */}
+                  {guided ? null : (
+                    <span data-testid="compare-kbd-tip">
+                      <InfoTip always label="Keyboard shortcuts for comparing">
                         <span className="flex items-center gap-1.5">
                           <Kbd>Space</Kbd> compares the picked cards · <Kbd>Esc</Kbd> clears the pick
                         </span>
-                      }
-                    >
-                      <button type="button" className="inline-flex size-control-xs items-center justify-center rounded-sm text-tertiary transition-colors hover:text-primary focus-visible:shadow-ring" aria-label="Keyboard shortcuts for comparing" data-testid="compare-kbd-tip">
-                        <Info size={14} aria-hidden />
-                      </button>
-                    </Tooltip>
-                  ) : null}
+                      </InfoTip>
+                    </span>
+                  )}
                 </span>
               </div>
             ) : null}
@@ -628,26 +624,6 @@ const DeckCard = memo(function DeckCard({ idea, fresh, dimmed, selected, shortli
     </div>
   );
 });
-
-/**
- * "How to read a card": one line over the deck the first time cards are on screen, dismissed once per browser
- * (`HOW_TO_READ_CARD_KEY`); guidance on only (§7.5, A6).
- */
-// TODO(guided-layer): Explainer (per-account `explainers_seen` replaces the browser key).
-function HowToReadCard({ onDismiss }: { onDismiss: () => void }) {
-  return (
-    <div className="mb-3 flex flex-wrap items-start gap-x-3 gap-y-2 rounded-md bg-surface-2 px-3 py-2" role="note" data-testid="how-to-read-card">
-      <BookOpen size={16} className="mt-0.5 shrink-0 text-kit-lift" aria-hidden />
-      <p className="min-w-0 flex-1 text-body text-pretty text-secondary">
-        <span className="text-primary">How to read a card: </span>
-        the stars are how strong the idea is now and how strong it could get. The ten bars rate it 1–20, higher is better; hover a label for what it measures. Citations are the sources behind the ratings.
-      </p>
-      <Button size="sm" variant="ghost" onClick={onDismiss} data-testid="how-to-read-card-dismiss">
-        Got it
-      </Button>
-    </div>
-  );
-}
 
 /** How long a deck notice stays (a new one replaces it at once). */
 const NOTICE_MS = 8_000;

@@ -35,7 +35,8 @@ export const SETTINGS_TABS = [
   { slug: "business", label: "Business" },
   { slug: "mode", label: "Mode" },
   { slug: "departments", label: "Departments" },
-  { slug: "glossary", label: "Glossary" },
+  // "Your words" on screen (docs/UX_AUDIT_AND_PLAN.md §7.17); the slug stays "glossary", and "glossary" stays a keyword.
+  { slug: "glossary", label: "Your words" },
   { slug: "members", label: "Members" },
   { slug: "integrations", label: "Integrations" },
   { slug: "keys", label: "Keys" },
@@ -85,18 +86,19 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
   }
   for (const t of SETTINGS_TABS) {
     if (t.slug === "preferences") continue;
-    items.push({ id: `command:settings:${t.slug}`, kind: "command", label: `Settings · ${t.label}`, href: routes.settings(bid, t.slug), keywords: ["settings", t.slug] });
+    items.push({ id: `command:settings:${t.slug}`, kind: "command", label: `Settings · ${t.label}`, href: routes.settings(bid, t.slug), keywords: ["settings", t.slug, ...(t.slug === "glossary" ? ["rename", "words", "nouns"] : [])] });
   }
+  // The person's own preferences (the date format, the guided layer's switch and the text size), found by what they change.
   items.push({
     id: "command:preferences",
     kind: "command",
     label: "Preferences",
-    description: "Your date and time format, in every business",
+    description: "Your date format, guidance and text size, in every business",
     href: routes.settings(bid, "preferences"),
-    keywords: ["settings", "date format", "time format", "24-hour", "12-hour", "clock", "day first", "ISO 8601"],
+    keywords: ["settings", "date format", "time format", "24-hour", "12-hour", "clock", "day first", "ISO 8601", "guidance", "explain", "text size", "comfortable", "checklist", "tour"],
   });
   // Commands a role cannot use are not offered (they would only answer with a refusal).
-  if (access.canChange) items.push({ id: "command:refresh-inbox", kind: "command", label: "Refresh Inbox", description: "Pull one new note", shortcut: ["R"] });
+  if (access.canChange) items.push({ id: "command:refresh-inbox", kind: "command", label: "Refresh Inbox", description: "Ask the team for one quick note (does not start a cycle)", shortcut: ["R"] });
   // Only where the screen on view has a layout: elsewhere the command did nothing (audit OL-29).
   if (input.canEditLayout) items.push({ id: "command:edit-layout", kind: "command", label: "Edit layout", description: "Rearrange the widgets on this screen", shortcut: ["E"] });
   if (access.isAdmin) items.push({ id: "command:stop-all", kind: "command", label: "Stop all agents", description: "Pause the whole team. An owner can resume.", keywords: ["pause", "stop", "agents"] });
@@ -126,9 +128,11 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
 /**
  * The palette's Help group: every defined term ("Runway" with its one-line meaning, opening the screen that shows it,
  * in the business's own words through the glossary) after the keyboard shortcuts row, which the AppShell answers by
- * opening the overlay. A term without a `learn` target is a row that reads and opens nothing.
+ * opening the overlay. A term without a `learn` target (Estimate, Vacation) is a row that reads and opens nothing: the
+ * definition is the row itself, the way the design system's `Term` shows the same `short` in its card. Opening the
+ * DefinitionCard from such a row needs the palette's help item to carry the definition (`PaletteHelpItem` holds a title,
+ * a line and an href today) and the shell to answer the choice; both live outside this module.
  */
-// TODO(guided-layer): open the DefinitionCard for a term without a learn target instead of just closing.
 export function helpPaletteItems(businessId: string, glossary?: Glossary | null): PaletteHelpItem[] {
   const terms = Object.values(termsWithGlossary(glossary)).map((t): PaletteHelpItem => ({ id: `help:${t.id}`, title: t.word, line: t.short, href: t.learn ? learnPath(t.learn, businessId) : undefined }));
   return [KEYBOARD_SHORTCUTS_HELP_ITEM, ...terms];

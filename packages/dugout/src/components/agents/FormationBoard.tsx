@@ -6,6 +6,7 @@ import { cn } from "../../lib/cn";
 import { usePrefersReducedMotion } from "../../lib/reducedMotion";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../foundation/HoverCard";
 import { Tooltip } from "../foundation/Tooltip";
+import { Term } from "../guidance/Term";
 import { ChannelProfileCard } from "./ChannelProfileCard";
 import { Icon } from "../foundation/Icon";
 import { ChannelToken } from "./ChannelToken";
@@ -476,8 +477,10 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
             )}
           </div>
 
-          {/* TODO(guided-layer): the four band words become Terms. */}
-          <p className="text-small text-secondary">Rings mark the fit bands: {FIT_RINGS.map((r) => `${r.band} ${r.range}`).join(", ")}. A moving line is a running channel; a dashed one is paused.</p>
+          {/* The key under the board: fit is the defined word; the four bands are the rating ramp's own words (ScaleLabel). */}
+          <p className="text-small text-secondary" data-board-key="">
+            Rings mark the <Term id="fit">fit</Term> bands: {FIT_RINGS.map((r) => `${r.band} ${r.range}`).join(", ")}. A moving line is a running channel; a dashed one is paused.
+          </p>
         </section>
       </LayoutGroup>
     </MotionConfig>

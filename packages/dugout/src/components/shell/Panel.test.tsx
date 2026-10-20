@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { GridCell, PageGrid, snapSpan, spanClass } from "./PageGrid";
@@ -126,6 +126,8 @@ describe("Panel", () => {
     const header = screen.getByRole("region", { name: "Cash and runway" }).querySelector("[data-panel-header]")!;
     expect(header.contains(tip)).toBe(true);
     expect(screen.getByText("Last 30 days").nextElementSibling).toBe(tip);
+    // Focus opens the tip only when a key brought it (guidance/keyboardFocus.ts): the Tab, then the focus it causes.
+    fireEvent.keyDown(document.body, { key: "Tab" });
     tip.focus();
     expect((await screen.findByRole("tooltip")).textContent).toContain("How long the money lasts");
     rerender(

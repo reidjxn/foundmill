@@ -1,7 +1,8 @@
 /**
- * Founder profile form logic (BUILD §11.1 "Founder profile", AC-11.1.1). Pure: option lists, the form ↔ API
- * mapping (`founder.profile.update` takes the FounderProfilePatch shape from packages/db), validation and chips.
- * The screen (OnboardingScreen.tsx) only renders this.
+ * Founder profile form logic (BUILD §11.1 "Founder profile", AC-11.1.1; docs/UX_AUDIT_AND_PLAN.md §7.3). Pure: option
+ * lists, the form ↔ API mapping (`founder.profile.update` takes the FounderProfilePatch shape from packages/db),
+ * validation (the four first-pass answers: name, experience and time are required, where you live derives the
+ * currency and the first market), the two-pass sections and chips. The screen (OnboardingScreen.tsx) only renders this.
  */
 import { formatNumber } from "@/lib/format";
 
@@ -198,6 +199,53 @@ export function defaultCurrency(residence: string | null | undefined, locale?: s
   return currencyForCountry(residence) ?? currencyForLocale(locale) ?? FALLBACK_CURRENCY;
 }
 
+/* ---------- the first market from where the founder lives (UX plan §7.3, two passes) ---------- */
+
+/** The region code for a residence as typed ("United Kingdom", "uk", "GB" → "GB"); null when unknown. */
+function regionOfCountry(country: string | null | undefined): string | null {
+  const s = (country ?? "").trim().toLowerCase();
+  if (!s) return null;
+  return COUNTRY_REGION[s] ?? (/^[a-z]{2}$/.test(s) ? s.toUpperCase() : null);
+}
+
+const NORDIC_REGIONS: readonly string[] = ["SE", "NO", "DK", "FI", "IS"];
+const DACH_REGIONS: readonly string[] = ["DE", "AT", "CH"];
+const BENELUX_REGIONS: readonly string[] = ["BE", "NL", "LU"];
+/** Region → market, in the suggestion list's own words, for the regions a group names. */
+const REGION_MARKET: Record<string, string> = {
+  GB: "UK",
+  US: "US",
+  CA: "Canada",
+  AU: "Australia",
+  FR: "France",
+  ...Object.fromEntries(NORDIC_REGIONS.map((r) => [r, "Nordics"])),
+  ...Object.fromEntries(DACH_REGIONS.map((r) => [r, "DACH"])),
+  ...Object.fromEntries(BENELUX_REGIONS.map((r) => [r, "Benelux"])),
+  ...Object.fromEntries([...EURO_AREA, ...EU_WITHOUT_EURO].filter((r) => !NORDIC_REGIONS.includes(r) && !DACH_REGIONS.includes(r) && !BENELUX_REGIONS.includes(r) && r !== "FR").map((r) => [r, "EU"])),
+};
+
+/** Region → the country's name as the `COUNTRIES` list spells it, for a residence outside every group ("JP" → "Japan"). */
+const REGION_COUNTRY_NAME: Record<string, string> = Object.fromEntries(COUNTRIES.map((name) => [COUNTRY_REGION[name.toLowerCase()] ?? "", name]).filter(([region]) => region));
+
+/**
+ * The market the ideas aim at first when the founder names none (UX plan §7.3: where you live derives a default
+ * market): the group a residence belongs to in the suggestion list's words ("United Kingdom" → "UK", "Germany" →
+ * "DACH", "Spain" → "EU", "Sweden" → "Nordics"), else the country itself ("Japan"); null when the residence is empty
+ * or unknown, so nothing is invented from a typo.
+ */
+export function defaultMarket(residence: string | null | undefined): string | null {
+  const region = regionOfCountry(residence);
+  if (!region) return null;
+  return REGION_MARKET[region] ?? REGION_COUNTRY_NAME[region] ?? null;
+}
+
+/** The markets the profile saves: the founder's own, or the one derived from where they live, or none. */
+export function effectiveTargetMarkets(form: Pick<ProfileForm, "targetMarkets" | "residence">): string[] {
+  if (form.targetMarkets.length > 0) return form.targetMarkets;
+  const derived = defaultMarket(form.residence);
+  return derived ? [derived] : [];
+}
+
 export function emptyProfileForm(email?: string | null): ProfileForm {
   return {
     displayName: email ? displayNameFromEmail(email) : "",
@@ -290,8 +338,8 @@ export function validateProfileForm(form: ProfileForm): ProfileErrors {
   if (form.citizenship.trim().length > PROFILE_LIMITS.place) errors.citizenship = `Keep it under ${PROFILE_LIMITS.place} characters.`;
   if (form.residence.trim().length > PROFILE_LIMITS.place) errors.residence = `Keep it under ${PROFILE_LIMITS.place} characters.`;
   if (!/^[A-Z]{3}$/.test(form.currency)) errors.currency = "Pick a currency.";
-  if (form.targetMarkets.length === 0) errors.targetMarkets = "Add at least one market.";
-  else if (form.targetMarkets.some((m) => m.length > PROFILE_LIMITS.place)) errors.targetMarkets = `Keep each market under ${PROFILE_LIMITS.place} characters.`;
+  // Markets are optional on the first pass: an empty list starts from where the founder lives (`effectiveTargetMarkets`).
+  if (form.targetMarkets.some((m) => m.length > PROFILE_LIMITS.place)) errors.targetMarkets = `Keep each market under ${PROFILE_LIMITS.place} characters.`;
   if (form.constraints.some((c) => c.length > PROFILE_LIMITS.constraint)) errors.constraints = `Keep each constraint under ${PROFILE_LIMITS.constraint} characters.`;
   if (!form.riskAppetite) errors.riskAppetite = "Pick a risk appetite.";
   return errors;
@@ -327,7 +375,7 @@ export function profilePatch(form: ProfileForm): ProfilePatch {
     currency: form.currency,
     citizenship: form.citizenship.trim() || null,
     residence: form.residence.trim() || null,
-    targetMarkets: form.targetMarkets,
+    targetMarkets: effectiveTargetMarkets(form),
     constraints: form.constraints,
     riskAppetite: form.riskAppetite || null,
   };
@@ -378,25 +426,72 @@ export function profileSaveMessage(issues: readonly { path?: readonly (string | 
   return `These answers were not accepted: ${names.join(", ")}. Shorten or correct them, then save again.`;
 }
 
+/**
+ * The two passes of the profile (UX plan §7.3, A1): four questions first (your name, experience, time, where you live),
+ * then one optional section, "Add detail", with skills, budget, target markets, constraints and risk. The rail lists
+ * the four and the optional section as one: "N of 5 done".
+ */
 export const PROFILE_SECTIONS = [
-  { id: "identity", label: "Who you are" },
-  { id: "skills", label: "Skills" },
-  { id: "time", label: "Time and budget" },
-  { id: "place", label: "Where you operate" },
-  { id: "constraints", label: "Constraints and risk" },
+  { id: "name", label: "Your name" },
+  { id: "experience", label: "Experience" },
+  { id: "time", label: "Time you can give" },
+  { id: "place", label: "Where you live" },
+  { id: "detail", label: "Add detail (optional)" },
 ] as const;
 export type ProfileSectionId = (typeof PROFILE_SECTIONS)[number]["id"];
 
-/** Which sections are complete, for the progress rail. */
+/** The optional section's title on the form. */
+export const DETAIL_SECTION_TITLE = "Add detail (optional, improves the ideas)";
+
+/** The experiences for which "Add detail" opens by default: a founder who has done this before has the answers ready. */
+export const DETAIL_OPEN_EXPERIENCES: readonly string[] = ["exited", "operator"];
+
+export function detailOpenByDefault(experience: string | null | undefined): boolean {
+  return typeof experience === "string" && DETAIL_OPEN_EXPERIENCES.includes(experience);
+}
+
+/** The browser key under which an account's own choice to open or close "Add detail" is kept (one per account). */
+export function detailStorageKey(accountId: string | null | undefined): string {
+  return `foundmill.profile.detail.${accountId ?? "account"}`;
+}
+
+/** True once the founder answered anything in "Add detail": a skill moved, a budget (or none) given, a market or a constraint added. */
+export function detailAnswered(form: ProfileForm): boolean {
+  return form.noBudget || form.budget.trim().length > 0 || form.targetMarkets.length > 0 || form.constraints.length > 0 || SKILL_KEYS.some((k) => form.skills[k] !== DEFAULT_SKILL);
+}
+
+/** Which sections are complete, for the progress rail: the four questions by their answers, the optional one once anything in it is answered. */
 export function sectionStatus(form: ProfileForm): Record<ProfileSectionId, boolean> {
   const errors = validateProfileForm(form);
   return {
-    identity: !errors.displayName && !errors.experience,
-    skills: true,
-    time: !errors.timeCommitment && !errors.budget && !errors.currency,
-    place: !errors.targetMarkets && !errors.citizenship && !errors.residence,
-    constraints: !errors.riskAppetite && !errors.constraints,
+    name: !errors.displayName,
+    experience: !errors.experience,
+    time: !errors.timeCommitment,
+    place: !errors.residence && !errors.citizenship && form.residence.trim().length > 0,
+    detail: detailAnswered(form) && !errors.budget && !errors.currency && !errors.targetMarkets && !errors.constraints && !errors.riskAppetite,
   };
+}
+
+/** The section that holds each answer, for scrolling to the first one that refuses to save. */
+const SECTION_OF_FIELD: Record<keyof ProfileErrors, ProfileSectionId> = {
+  displayName: "name",
+  experience: "experience",
+  timeCommitment: "time",
+  citizenship: "place",
+  residence: "place",
+  skills: "detail",
+  budget: "detail",
+  noBudget: "detail",
+  currency: "detail",
+  targetMarkets: "detail",
+  constraints: "detail",
+  riskAppetite: "detail",
+};
+
+/** The first section, in page order, with an answer that refuses to save; null when every answer is fine. */
+export function firstInvalidSection(errors: ProfileErrors): ProfileSectionId | null {
+  const sections = new Set((Object.keys(errors) as (keyof ProfileErrors)[]).map((k) => SECTION_OF_FIELD[k]));
+  return PROFILE_SECTIONS.find((s) => sections.has(s.id))?.id ?? null;
 }
 
 /** One line the Ideation Studio shows back: "First-time founder · full time · EUR 25,000 · EU, UK". */
@@ -408,6 +503,7 @@ export function profileSummary(form: ProfileForm): string {
   if (time) parts.push(time.toLowerCase());
   const budget = form.noBudget ? null : parseBudgetMinor(form.budget);
   if (budget !== null && !Number.isNaN(budget)) parts.push(`${form.currency} ${formatNumber(budget / 100, { maximumFractionDigits: 0 })}`);
-  if (form.targetMarkets.length) parts.push(form.targetMarkets.join(", "));
+  const markets = effectiveTargetMarkets(form);
+  if (markets.length) parts.push(markets.join(", "));
   return parts.join(" · ");
 }

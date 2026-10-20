@@ -6,14 +6,17 @@ import { useFormatters } from "../foundation/DateFormatProvider";
 import { StatusPill, type StatusTone } from "../foundation/StatusPill";
 import { Tooltip } from "../foundation/Tooltip";
 import { useGuided } from "../guidance/GuidanceProvider";
+import { Term } from "../guidance/Term";
 
 export type AutopilotChipState = "off" | "on" | "waiting" | "paused";
 
 /**
  * The one sentence that tells Autopilot apart from the founder's own Continue and from a vacation (UX plan B16): what
- * it does, and what it never does. Shown beside the chip in guided mode (`guide`).
+ * it does, and what it never does. Shown beside the chip in guided mode (`guide`), its first word a defined `Term`.
  */
 export const AUTOPILOT_GUIDE_LINE = "Autopilot presses Continue for you on a schedule. It never answers notes for you.";
+const GUIDE_WORD = "Autopilot";
+const GUIDE_REST = AUTOPILOT_GUIDE_LINE.slice(GUIDE_WORD.length);
 
 const STATE: Record<AutopilotChipState, { tone: StatusTone; icon: LucideIcon }> = {
   off: { tone: "neutral", icon: Power },
@@ -24,7 +27,7 @@ const STATE: Record<AutopilotChipState, { tone: StatusTone; icon: LucideIcon }> 
 
 export interface AutopilotChipProps {
   state: AutopilotChipState;
-  /** The word: On, Waiting for you, Paused: credits used up, Off. */
+  /** The word: On, Needs your answer, Paused: credits used up, Off. */
   label: string;
   /** One plain sentence, shown as the tooltip and read by assistive tech. */
   detail?: string;
@@ -85,13 +88,14 @@ export function AutopilotChip({ state, label, detail, nextAt, onClick, guide, cl
   const chip = detail ? <Tooltip content={detail}>{body}</Tooltip> : body;
   if (!guide || !guided) return chip;
   // The sentence sits beside the chip, outside its button, so the chip's name stays its state and the line is read as
-  // ordinary text. It wraps under the chip before it squeezes it (never clipped).
-  // TODO(guided-layer): Term on "Continue" and "notes" once the Markdown term rule lands.
+  // ordinary text; "Autopilot" is the defined word there (a Term inside the chip's own button would nest two buttons).
+  // It wraps under the chip before it squeezes it (never clipped).
   return (
     <span className="inline-flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1" data-autopilot-guided="">
       {chip}
       <span className="text-small text-secondary" data-autopilot-guide="">
-        {AUTOPILOT_GUIDE_LINE}
+        <Term id="autopilot">{GUIDE_WORD}</Term>
+        {GUIDE_REST}
       </span>
     </span>
   );

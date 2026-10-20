@@ -243,7 +243,8 @@ export const devRouter = router({
     /** Upgrade the task's agent to Opus for this task (model chip; the agent's default model is untouched). */
     upgradeModel: write.input(z.object({ taskId: Id })).mutation(async ({ ctx, input }) => {
       const task = await ctx.rls((tx) => repos.tasks.get(tx, ctx.businessId, input.taskId));
-      const workflow = await signalTask(ctx, task, SIGNALS.shout, { message: "Upgrade to Opus", modelKey: "opus", by: ctx.userId });
+      // The nudge the session records, in the words the tile's control uses (UX plan §7.12: never the model's name).
+      const workflow = await signalTask(ctx, task, SIGNALS.shout, { message: "Use the strongest model", modelKey: "opus", by: ctx.userId });
       await ctx.rls((tx) => audit(tx, ctx, { action: "dev.tasks.upgrade_model", target: { kind: "task", id: task.id }, details: { modelKey: "opus", queued: workflow.queued } }));
       return { task, workflow, modelKey: "opus" as const };
     }),

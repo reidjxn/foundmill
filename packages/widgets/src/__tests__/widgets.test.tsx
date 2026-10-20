@@ -48,6 +48,8 @@ const CASES: Case[] = [
   { key: "league_table", expectData: /Ledgerly/, expectEmpty: /No leaderboard is open/, live: true },
   { key: "community_feed", expectData: /annual-plan discounts/, expectEmpty: /Join a community/, live: true },
   { key: "custom_metric", expectData: /€1,250/, expectEmpty: /Pick a metric from the catalog/, settings: { mode: "query", queryId: "revenue_30d", label: "Revenue, last 30 days", format: "money" }, emptySettings: {} },
+  // Nothing done yet is the checklist's "empty": seven rows, none ticked.
+  { key: "first_week_checklist", expectData: /2 of 7 done/, expectEmpty: /0 of 7 done/ },
 ];
 
 function mount(def: AnyWidgetDefinition, responses: Record<string, FakeResponse>, opts: { settings?: Record<string, unknown>; live?: boolean; missing?: "loading" | "empty" } = {}) {
@@ -313,7 +315,7 @@ describe("navigation", () => {
   it("Channel performance's empty state opens the Channel Board by its name, not 'Formation'", () => {
     const { fake } = mount(getWidget("channel_form_guide")!, emptyResponses());
     expect(screen.queryByText(/Formation/)).toBeNull();
-    expect(screen.getByText(/Put starters on the Channel Board/)).toBeTruthy();
+    expect(screen.getByText(/Put the first channels on the Channel Board/)).toBeTruthy();
     screen.getByRole("button", { name: "Open Channel Board" }).click();
     expect(fake.navigations[0]).toMatch(/\/distribution\/formation$|\/home$/);
   });
@@ -350,5 +352,84 @@ describe("dates in the signed-in person's format", () => {
     expect(target).toMatch(/^\d{2}-\d{2}$/);
     expect(screen.getByText(`Target ${target}`)).toBeTruthy();
     expect(screen.queryByText(/^Target [A-Z][a-z]{2} \d/)).toBeNull();
+  });
+});
+
+/** The guided layer on Home's widgets (UX plan §7.8): terms on the strip's labels, plain words under every figure, the checklist. */
+function mountGuided(def: AnyWidgetDefinition, responses: Record<string, FakeResponse>, guidance: Partial<Parameters<typeof GuidanceProvider>[0]["value"] & object> = {}, opts: { editing?: boolean; actions?: Parameters<typeof GuidanceProvider>[0]["actions"] } = {}) {
+  const fake = createFakeSource({ businessId: BID, responses });
+  const Component = def.Component;
+  const utils = render(
+    <GuidanceProvider value={guidance} actions={opts.actions}>
+      <WidgetDataProvider source={fake.source}>
+        <Component businessId={BID} instanceId={`${def.key}-1`} settings={parseWidgetSettings(def, {})} editing={opts.editing} />
+      </WidgetDataProvider>
+    </GuidanceProvider>,
+  );
+  return { fake, ...utils };
+}
+
+const TERMS = {
+  runway: { id: "runway", word: "Runway", short: "How many months your cash lasts at today's spending." },
+  team_health: { id: "team_health", word: "Team health", short: "The share of agents not failing, down or degraded; idle and paused agents count as fine." },
+};
+
+describe("status strip in guided mode", () => {
+  it("defines Runway and Revenue on their labels and says every figure in plain words; guidance off keeps the figures alone", () => {
+    const { container, unmount } = mountGuided(getWidget("status_strip")!, dataResponses(), { terms: TERMS });
+    const runway = container.querySelector("[data-term='runway']");
+    expect(runway?.tagName).toBe("BUTTON");
+    expect(runway?.textContent).toBe("Runway");
+    // "Revenue" has no entry in the map yet: the strip defines it inline.
+    expect(container.querySelector("[data-term='revenue']")?.tagName).toBe("BUTTON");
+    const lines = [...container.querySelectorAll("[data-metric-tile] [data-plain-line]")].map((el) => el.textContent);
+    expect(lines).toEqual(["What is in the bank right now.", "How many months your cash lasts at today's spending.", "What customers paid you this month.", "People who paid you for the first time in the last 7 days.", "The share of agents not failing, down or degraded; idle and paused agents count as fine."]);
+    unmount();
+    const { container: off } = mountGuided(getWidget("status_strip")!, dataResponses(), { guidance: "off", terms: TERMS });
+    expect(off.querySelector("[data-plain-line]")).toBeNull();
+    expect(off.querySelector("[data-term='runway']")?.getAttribute("data-guided")).toBe("off");
+    expect(off.querySelector("button[data-term]")).toBeNull();
+  });
+});
+
+describe("first-week checklist widget", () => {
+  const def = () => getWidget("first_week_checklist")!;
+
+  it("lists the seven items with the done ones ticked, Go links to the product tabs and a Go button for running a cycle", () => {
+    const { container } = mountGuided(def(), dataResponses());
+    expect(screen.getByRole("region", { name: "Your first week" })).toBeTruthy();
+    expect(screen.getByText("2 of 7 done")).toBeTruthy();
+    expect(container.querySelectorAll("[data-first-week-item][data-done]").length).toBe(2);
+    expect(screen.getByRole("link", { name: "Go: Read a note from an agent" }).getAttribute("href")).toBe(`/b/${BID}/inbox`);
+    expect(screen.getByRole("link", { name: "Go: Connect a bank or Stripe" }).getAttribute("href")).toBe(`/b/${BID}/settings/integrations`);
+    expect(screen.getByRole("button", { name: "Go: Run a cycle" })).toBeTruthy();
+    // The query is scoped by the host (businessId merged in): the widget asks with no input of its own.
+    expect(container.querySelector("[data-widget='first_week_checklist']")).toBeTruthy();
+  });
+
+  it("Hide records the dismissal through the guided layer, and a dismissed checklist renders nothing outside Edit mode", () => {
+    const dismissChecklist = vi.fn();
+    const { unmount } = mountGuided(def(), dataResponses(), {}, { actions: { dismissChecklist } });
+    screen.getByRole("button", { name: "Hide" }).click();
+    expect(dismissChecklist).toHaveBeenCalledTimes(1);
+    unmount();
+    const { container, fake, unmount: u2 } = mountGuided(def(), dataResponses(), { checklistDismissedAt: "2026-10-20T10:00:00.000Z" });
+    expect(container.innerHTML).toBe("");
+    expect(fake.queried.has("business.firstWeek.get")).toBe(false);
+    u2();
+    const { container: editing } = mountGuided(def(), dataResponses(), { checklistDismissedAt: "2026-10-20T10:00:00.000Z" }, { editing: true });
+    expect(editing.textContent).toContain("Hidden: you closed the checklist");
+  });
+
+  it("records the dismissal once every item is done, and renders nothing when guidance is off", () => {
+    const dismissChecklist = vi.fn();
+    const allDone = Object.fromEntries(Object.keys(dataResponses()["business.firstWeek.get"] as object).map((k) => [k, true]));
+    const { container, unmount } = mountGuided(def(), { ...dataResponses(), "business.firstWeek.get": allDone }, {}, { actions: { dismissChecklist } });
+    expect(container.querySelector("[data-first-week-all-done]")).toBeTruthy();
+    expect(dismissChecklist).toHaveBeenCalledTimes(1);
+    unmount();
+    const { container: off, fake } = mountGuided(def(), dataResponses(), { guidance: "off" });
+    expect(off.innerHTML).toBe("");
+    expect(fake.queried.has("business.firstWeek.get")).toBe(false);
   });
 });

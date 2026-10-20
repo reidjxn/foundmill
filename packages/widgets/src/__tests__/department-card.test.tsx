@@ -5,7 +5,7 @@ import { WidgetDataProvider } from "../data";
 import { getWidget, parseWidgetSettings } from "../registry";
 import { createFakeSource } from "../testing";
 import "../widgets";
-import { formatDate, type DateFormatPrefs } from "@foundmill/dugout";
+import { GuidanceProvider, formatDate, type DateFormatPrefs } from "@foundmill/dugout";
 import { departmentHealth, headlineMetric, metricKeyFor, monthEndCash, nowLines, quietLine, toSquad } from "../widgets/department-card";
 import { addDays } from "../shared/time";
 import type { InboxItemRow } from "../shared/types";
@@ -52,6 +52,31 @@ describe("department card widget", () => {
     expect(screen.getByText("Next")).toBeTruthy();
     // Beacon (running) and Atlas (review) are on a task; Cove is idle: two of three working (UX plan B19).
     expect(container.querySelector("[data-team-strip-words]")?.textContent).toBe("2 of 3 working");
+  });
+
+  it("puts the metric in plain words under its figure while guidance is on: the definition for runway, the card's own line for tasks (UX plan §7.8)", () => {
+    const terms = { runway: { id: "runway", word: "Runway", short: "How many months your cash lasts at today's spending." } };
+    const Component = def.Component;
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses() });
+    const { container, unmount } = render(
+      <GuidanceProvider value={{ terms }}>
+        <WidgetDataProvider source={fake.source}>
+          <Component businessId={BID} instanceId="department_card-1" settings={parseWidgetSettings(def, { module: "finance" })} />
+          <Component businessId={BID} instanceId="department_card-2" settings={parseWidgetSettings(def, { slot: 0 })} />
+        </WidgetDataProvider>
+      </GuidanceProvider>,
+    );
+    const lines = [...container.querySelectorAll("[data-department-metric] [data-plain-line]")].map((el) => el.textContent);
+    expect(lines).toEqual(["How many months your cash lasts at today's spending.", "Tasks the team finished in the last 7 days."]);
+    unmount();
+    const { container: off } = render(
+      <GuidanceProvider value={{ guidance: "off", terms }}>
+        <WidgetDataProvider source={fake.source}>
+          <Component businessId={BID} instanceId="department_card-1" settings={parseWidgetSettings(def, { module: "finance" })} />
+        </WidgetDataProvider>
+      </GuidanceProvider>,
+    );
+    expect(off.querySelector("[data-plain-line]")).toBeNull();
   });
 
   it("says what the team is when nobody has a task, instead of '0 of 1 working' (UX plan B19)", () => {
@@ -108,7 +133,7 @@ describe("department card widget", () => {
     const { fake, container } = mountCard({ slot: 0 }, createFakeSource({ businessId: BID, responses }));
     expect(screen.getByText("Quiet", { selector: "[data-now-quiet]" })).toBeTruthy();
     expect(container.querySelector("[data-now-quiet-line]")?.getAttribute("data-now-quiet-line")).toBe("respond");
-    screen.getByRole("button", { name: "Waiting for you: Approve the schema change for usage index" }).click();
+    screen.getByRole("button", { name: "Needs your answer: Approve the schema change for usage index" }).click();
     expect(fake.navigations.at(-1)).toBe(`/b/${BID}/inbox/${inbox.items[0]!.id}`);
   });
 
@@ -201,7 +226,7 @@ describe("quiet department line", () => {
   const update = inbox.items[2]!;
 
   it("says what waits for the founder first, with how many more", () => {
-    expect(quietLine({ ...base, inbox: inbox.items, done: tasks.items })).toEqual({ kind: "respond", label: "Waiting for you", text: decision.subject, detail: undefined, inboxItemId: decision.id });
+    expect(quietLine({ ...base, inbox: inbox.items, done: tasks.items })).toEqual({ kind: "respond", label: "Needs your answer", text: decision.subject, detail: undefined, inboxItemId: decision.id });
     const older: InboxItemRow = { ...decision, id: "older", subject: "An older call", createdAt: `${addDays(TODAY, -3)}T08:00:00.000Z` };
     expect(quietLine({ ...base, inbox: [older, ...inbox.items], done: [] })).toMatchObject({ text: decision.subject, detail: "1 more in the Inbox" });
     // Another department's notes and the founder's own never count.

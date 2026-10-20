@@ -6,7 +6,7 @@
  */
 import { useId, useMemo, useState } from "react";
 import { ArrowUpCircle, Bot, ChevronRight, ExternalLink, ListTree, Network, Pause, Play, Radio, Square } from "lucide-react";
-import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, STRONGEST_MODEL_LABEL, TASK_STATUS_META, TaskGraph, Textarea, SimpleSelect, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, STRONGEST_MODEL_LABEL, TASK_STATUS_META, TaskGraph, Term, Textarea, SimpleSelect, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -17,7 +17,7 @@ import { fitColumns, fitToGrow, humanise, plural, type ColumnFit } from "../fit"
 import type { ModuleScreenProps } from "../registry";
 import { OpenInClaudeCodeDialog, ReassignDialog, StopDialog } from "./dialogs";
 import { useDevScreenOptions } from "./options";
-import { InlineError, Screen, TaskStatusPill, agentBranch, agentHref, progressValue, toDate, toTileAgent, useAction, useAgentIndex, useAgents, useDevDepartment } from "./shared";
+import { InlineError, SIMPLE_VIEW_ID, Screen, TaskStatusPill, agentBranch, agentHref, progressValue, toDate, toTileAgent, useAction, useAgentIndex, useAgents, useDefaultViewId, useDevDepartment } from "./shared";
 import { toGraphNodes } from "./TrainingGroundScreen";
 import type { AgentRow, PlanResponse, RoadmapListResponse, TaskRow, TasksListResponse } from "./types";
 
@@ -33,6 +33,8 @@ export interface PlanRow extends TaskRow {
 export const PLAN_VIEWS: SavedView[] = [
   // Every built-in view fits the Plan panel at 1280 (668 px) with its columns at their minimum widths (PLAN_FIT), so no
   // column hides past the panel's edge; Started, Depends on and Priority stay in the column chooser and other views.
+  // Simple (UX plan §7.10): Task, Status, Agent, Progress; the table opens on it while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["title", "status", "agentName", "progressNumber"], sort: [{ id: "priority", desc: true }], filters: [] },
   { id: "all", name: "All tasks", builtIn: true, columns: ["title", "status", "kind", "agentName", "progressNumber"], sort: [{ id: "priority", desc: true }], filters: [] },
   { id: "ready", name: "Ready to start", builtIn: true, columns: ["title", "agentName", "dependsOn", "priority"], sort: [{ id: "priority", desc: true }], filters: [{ id: "f-ready", field: "status", op: "in", value: ["ready", "planned"] }] },
   { id: "in-progress", name: "In progress", builtIn: true, columns: ["title", "status", "agentName", "progressNumber", "startedDate"], sort: [{ id: "startedDate", desc: true }], filters: [{ id: "f-live", field: "status", op: "in", value: ["running", "paused", "blocked", "review", "merging"] }] },
@@ -88,8 +90,9 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   const agentIndex = useAgentIndex(agents.data?.agents);
   const action = useAction();
   const planner = useAction();
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("development.plan", PLAN_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("development.plan", PLAN_VIEWS, { defaultViewId });
   useBusinessEvents(() => tasks.refetch(), ["task.started", "task.completed", "task.blocked", "pr.merged", "product.signoff_decided"]);
   // Building starts when the founder has signed off the specification and the roadmap (founder, 2026-10-18).
   const stage = useBusinessStage();
@@ -245,7 +248,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
       ) : null}
       <Panel
         span={8}
-        title="Task graph"
+        title={<Term id="task_graph">Task graph</Term>}
         flush
         loading={tasks.isLoading}
         error={tasks.error ? tasks.error.message : undefined}
@@ -262,22 +265,38 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
             data={rows}
             columns={columns}
             {...savedViews}
-            defaultViewId="all"
+            defaultViewId={defaultViewId}
             rowActions={rowActions}
             onRowOpen={(r) => setSelectedId(r.id)}
             onRowClick={(r) => setSelectedId(r.id)}
             selectedIds={selected ? [selected.id] : []}
             height={520}
             exportFileName="tasks"
-            empty={{ icon: ListTree, children: "No tasks yet. Pick a roadmap item or write an objective on the right and the Planner plans the tasks." }}
+            empty={{
+              icon: ListTree,
+              children: (
+                <>
+                  No tasks yet. Pick a roadmap item or write an objective on the right and the <Term id="planner">Planner</Term> plans the tasks.
+                </>
+              ),
+            }}
             aria-label="Tasks"
           />
         </div>
       </Panel>
 
-      <Panel span={4} title="Plan from the roadmap" glow="brand" footer={<span className="inline-flex items-center gap-1">Planner cost is metered per run <ProvenanceChip kind="estimate" /></span>}>
+      <Panel
+        span={4}
+        title="Plan from the roadmap"
+        glow="brand"
+        footer={
+          <span className="inline-flex items-center gap-1">
+            <Term id="planner">Planner</Term> cost is metered per run <ProvenanceChip kind="estimate" />
+          </span>
+        }
+      >
         <div className="flex flex-col gap-3">
-          <Field htmlFor={`${id}-roadmap`} label="Roadmap item">
+          <Field htmlFor={`${id}-roadmap`} label={<><Term id="roadmap">Roadmap</Term> item</>}>
             <SimpleSelect id={`${id}-roadmap`} aria-label="Roadmap item" options={roadmapOptions} value={roadmapItemId || undefined} onValueChange={setRoadmapItemId} placeholder={roadmap.isLoading ? "Loading roadmap…" : roadmapOptions.length ? "Choose an item" : "No roadmap items yet"} disabled={!roadmapOptions.length} />
           </Field>
           <Field htmlFor={`${id}-goal`} label="Objective" hint="Optional with a roadmap item; required without one. Sent to the Planner as its goal.">
@@ -299,6 +318,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
       <Panel
         span={12}
         title={selected ? `Dependencies · ${selected.title}` : "Dependencies"}
+        help="What must finish before a task can start, and what that task unblocks when it is done."
         flush
         empty={!selected ? { icon: Network, children: "Select a task (click or Enter) to see what it depends on and what it unblocks." } : undefined}
         actions={
@@ -323,7 +343,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
                   { label: "Kind", value: kindLabel(selected.kind) },
                   { label: "Depends on", value: selected.dependsOn.length ? selected.dependsOn.join(", ") : "Nothing" },
                   { label: "Unblocks", value: selected.blocks.length ? selected.blocks.join(", ") : "Nothing" },
-                  { label: "Acceptance", value: selected.acceptance?.length ? `${selected.acceptance.length} criteria` : "None recorded" },
+                  { label: <Term id="acceptance">Acceptance</Term>, value: selected.acceptance?.length ? `${selected.acceptance.length} criteria` : "None recorded" },
                 ]}
               />
               {/* The plumbing (branch, file scope) behind a disclosure: the business facts above read first (UX plan §7.12). */}
@@ -337,7 +357,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
                     layout="stacked"
                     dense
                     items={[
-                      { label: "Branch", value: selected.kind === "code" ? agentBranch(selected.id) : "—", mono: true },
+                      { label: <Term id="branch">Branch</Term>, value: selected.kind === "code" ? agentBranch(selected.id) : "—", mono: true },
                       { label: "File scope", value: selected.fileScope?.length ? selected.fileScope.join(", ") : "Not set", mono: !!selected.fileScope?.length },
                     ]}
                   />

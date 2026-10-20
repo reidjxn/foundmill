@@ -4,7 +4,7 @@ import { DevelopmentChart, chartDomain } from "./DevelopmentChart";
 import { HealthBadge, healthSummary } from "./HealthBadge";
 import { HIERARCHY_LAYOUT, HIERARCHY_MIN_NODE_WIDTH, HierarchyChart, fitHierarchyLayout, layoutHierarchy } from "./HierarchyChart";
 import { mockDevelopmentSeries, mockHierarchy, mockPositionRoles, mockTraits } from "./mock";
-import { POSITION_LEVEL_LABELS, POSITION_MAP_TITLE, PositionMap, positionLevelFor } from "./PositionMap";
+import { POSITION_LEVEL_LABELS, POSITION_MAP_TITLE, PositionMap, positionLevelFor, positionLevelValue } from "./PositionMap";
 import { TraitChips } from "./TraitChips";
 
 describe("PositionMap", () => {
@@ -25,6 +25,20 @@ describe("PositionMap", () => {
     expect(positionLevelFor(11)).toBe("accomplished");
     expect(positionLevelFor(6)).toBe("competent");
     expect(positionLevelFor(5)).toBe("unconvincing");
+  });
+
+  it("writes each cell's band word as a compact ScaleLabel in the cell's tint, from the fit or from the level's own band", () => {
+    render(<PositionMap roles={mockPositionRoles()} />);
+    const items = within(screen.getByRole("list", { name: POSITION_MAP_TITLE })).getAllByRole("listitem");
+    const labels = items.map((li) => li.querySelector("[data-scale-label]") as HTMLElement);
+    expect(labels.every((l) => l !== null && !l.className.includes("chip-plate"))).toBe(true);
+    expect(labels[0]!.textContent).toBe("Excellent");
+    expect(labels[0]!.getAttribute("data-tone")).toBe("rating-4");
+    expect(labels[labels.length - 1]!.textContent).toBe("Poor");
+    // A role classified without a fit figure, or whose figure disagrees with its level, reads the level's word.
+    expect(positionLevelValue({ level: "natural", rating: 17 })).toBe(17);
+    expect(positionLevelValue({ level: "accomplished" })).toBe(13);
+    expect(positionLevelValue({ level: "unconvincing", rating: 14 })).toBe(3);
   });
 });
 

@@ -4,7 +4,7 @@ import { EVENT_TYPES } from "@foundmill/shared/constants";
 import { EMPTY_CYCLE, cycleFromSnapshot } from "@/lib/cycle";
 import { trpcPathPrefix, trpcQueryKey } from "@/lib/trpc";
 import { SAFETY_POLL_MS } from "@/lib/stream-status";
-import { INVALIDATE_ON_EVENT, cycleReducer, describeContinue, shellPollIntervals } from "../BusinessShell";
+import { FIRST_CONTINUE_CALLOUT, INVALIDATE_ON_EVENT, cycleReducer, describeContinue, shellPollIntervals, wantsFirstContinueCallout } from "../BusinessShell";
 
 type ContinueResult = Parameters<typeof describeContinue>[0];
 
@@ -51,6 +51,19 @@ describe("shell cycle reducer", () => {
     expect(paused.paused).toBe(true);
     const done = cycleReducer(paused, { type: "event", event: { type: "cycle.completed", payload: { outcome: "completed" } }, agentDepartment: () => null });
     expect(done).toMatchObject({ running: false, paused: false, completedCount: 4 });
+  });
+});
+
+describe("the first-Continue callout (UX plan §7.7)", () => {
+  it("shows until the first cycle the founder starts has completed (commit runs cycle 1 itself), never for a read-only role", () => {
+    expect(wantsFirstContinueCallout({ completedCount: 0 }, true)).toBe(true);
+    expect(wantsFirstContinueCallout({ completedCount: 1 }, true)).toBe(true);
+    expect(wantsFirstContinueCallout({ completedCount: 2 }, true)).toBe(false);
+    expect(wantsFirstContinueCallout({ completedCount: 0 }, false)).toBe(false);
+  });
+
+  it("is anchored to the top bar's Continue and says the loop in one sentence", () => {
+    expect(FIRST_CONTINUE_CALLOUT).toEqual({ tourId: "first-continue", targetId: "continue", title: "This is how you move forward", body: "Press it when you have answered what needs you." });
   });
 });
 

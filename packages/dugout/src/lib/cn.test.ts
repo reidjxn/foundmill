@@ -40,6 +40,9 @@ describe("cn knows the design tokens (DIRECTION #17)", () => {
     expect(cn("p-panel-pad", "p-0")).toBe("p-0");
     expect(cn("max-w-reading", "max-w-none")).toBe("max-w-none");
     expect(cn("size-badge", "size-4")).toBe("size-4");
+    // The 24 px target token: a later `size-target` replaces a button's own width and height (DataTable's row "…").
+    expect(cn("h-control-sm w-control-sm", "size-target")).toBe("size-target");
+    expect(cn("size-target", "size-6")).toBe("size-6");
   });
   it("resolves token radii", () => {
     expect(cn("rounded-panel", "rounded-md")).toBe("rounded-md");

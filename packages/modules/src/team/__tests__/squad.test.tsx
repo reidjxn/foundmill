@@ -2,8 +2,9 @@ import "./setup";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { SQUAD_VIEWS } from "@foundmill/dugout";
-import { SquadScreen, TEAM_SQUAD_VIEWS, squadSummary } from "../SquadScreen";
+import { GuidanceProvider, SQUAD_VIEWS } from "@foundmill/dugout";
+import { termsWithGlossary } from "@foundmill/shared/terms";
+import { SIMPLE_VIEW_ID, SquadScreen, TEAM_SQUAD_VIEWS, squadSummary } from "../SquadScreen";
 import { toModelOptions, describeModelSet } from "../ModelChangeDialog";
 import { toSquadRow, toolKeys, skillRating } from "../shared";
 import { BID, AGENT_JUNO, AGENT_MARA, DEPT_TEAM, agents, compareJuno, dataResponses, emptyResponses } from "./fixtures";
@@ -21,19 +22,24 @@ describe("team rows", () => {
     expect(toolKeys({ tools: ["github", { connectorKey: "github" }, { connectorKey: "stripe" }] })).toEqual(["github", "stripe"]);
     expect(skillRating({ rating: null, skills: [{ skillKey: "a", group: "craft", displayed: 10 }, { skillKey: "b", group: "craft", displayed: 20 }] })).toBe(15);
     expect(skillRating({ rating: null, skills: [{ skillKey: "a", group: "craft", displayed: 14 }, { skillKey: "b", group: "craft", displayed: 17 }, { skillKey: "c", group: "craft", displayed: 12 }] })).toBe(14.3);
-    // The api's 1–10 figure is doubled only when the row carries no skills; nothing at all reads 0 (the cell shows "—").
+    // The api's `rating20` wins when it is there; the deprecated 1–10 figure is doubled only when the row carries no
+    // skills; nothing at all reads 0 (the cell shows "—").
+    expect(skillRating({ rating20: 15.5, rating: 7.8, skills: [{ skillKey: "a", group: "craft", displayed: 10 }] })).toBe(15.5);
+    expect(skillRating({ rating20: null, rating: 6.5, skills: [] })).toBe(13);
     expect(skillRating({ rating: 6.5, skills: [] })).toBe(13);
     expect(skillRating({ rating: null, skills: [] })).toBe(0);
     const mara = toSquadRow(agents.find((a) => a.id === AGENT_MARA)!, "EUR");
     expect(mara.expectedReturnAt).toBe("2026-10-07T14:00:00.000Z");
   });
 
-  it("uses the five BUILD §11.9 saved views and summarises statuses in the product vocabulary", () => {
-    expect(TEAM_SQUAD_VIEWS.map((v) => v.name)).toEqual(SQUAD_VIEWS.map((v) => v.name));
-    expect(TEAM_SQUAD_VIEWS.map((v) => v.name)).toEqual(["General", "Health", "Tools", "Cost", "Performance"]);
+  it("uses Simple plus the five BUILD §11.9 saved views and summarises statuses in the product vocabulary", () => {
+    expect(TEAM_SQUAD_VIEWS.map((v) => v.name)).toEqual(["Simple", ...SQUAD_VIEWS.map((v) => v.name)]);
+    expect(TEAM_SQUAD_VIEWS.map((v) => v.name)).toEqual(["Simple", "General", "Health", "Tools", "Cost", "Performance"]);
+    // Simple (UX plan §7.10): Agent, Status, Current task, Rating, built in so it cannot be deleted.
+    expect(TEAM_SQUAD_VIEWS[0]).toMatchObject({ id: SIMPLE_VIEW_ID, builtIn: true, columns: ["name", "status", "currentTask", "rating"] });
     // General carries Wage (DESIGN §9 Team); the latest update lives in the Health and Performance views.
-    expect(TEAM_SQUAD_VIEWS[0]!.columns).toEqual(["name", "role", "departments", "status", "currentTask", "form", "rating", "model", "wage"]);
-    expect(TEAM_SQUAD_VIEWS.slice(1)).toEqual(SQUAD_VIEWS.slice(1));
+    expect(TEAM_SQUAD_VIEWS[1]!.columns).toEqual(["name", "role", "departments", "status", "currentTask", "form", "rating", "model", "wage"]);
+    expect(TEAM_SQUAD_VIEWS.slice(2)).toEqual(SQUAD_VIEWS.slice(1));
     expect(squadSummary(agents)).toBe("5 agents · 2 healthy · 1 degraded · 1 down · 1 idle");
   });
 
@@ -50,22 +56,35 @@ describe("team rows", () => {
   });
 });
 
+/** The data column heads of the grid (the table adds its own "…" actions column after them). */
+const headersOf = (table: HTMLElement) => within(table).getAllByRole("columnheader").map((h) => h.textContent?.replace(/Resize.*$/, "").trim()).filter((h) => h !== "Actions");
+
+/** The grid row that holds an agent's name link. */
+const rowOf = (table: HTMLElement, name: string) => within(table).getByRole("link", { name }).closest("[role='row']") as HTMLElement;
+
+/** The definitions map the app hands the provider (the dotted words need an entry to render as Terms). */
+const TERMS = termsWithGlossary(null);
+
+/** The screen as an operator sees it: guidance off, so the General view opens with every column the tests reach for. */
+const operator = (el: ReturnType<typeof SquadScreen>) => <GuidanceProvider value={{ guidance: "off" }}>{el}</GuidanceProvider>;
+
 describe("SquadScreen", () => {
-  it("renders the team table with the exact columns, Down with expected return, and the saved views", async () => {
+  it("renders the team table with the exact General columns, Down with expected return, and the saved views", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
-    renderScreen(fake, <SquadScreen {...props} />);
+    // Guidance off: the operator's General view opens, with no explainer and no defined words under the table.
+    renderScreen(fake, operator(<SquadScreen {...props} />));
     const table = await screen.findByRole("grid", { name: "Agents" });
     expect(within(table).getAllByRole("row")).toHaveLength(agents.length + 1);
-    // The data columns (the table adds its own "…" actions column after them).
-    const headers = within(table).getAllByRole("columnheader").map((h) => h.textContent?.replace(/Resize.*$/, "").trim()).filter((h) => h !== "Actions");
     // The General view hides Tools and the latest update (reachable from the column chooser and the other views).
-    expect(headers).toEqual(["Agent", "Role", "Departments", "Status", "Current task", "Form", "Rating /20", "Model", "AI cost (USD)"]);
-    // The rating is the 1–20 mean with its band word; an agent with no skills yet is not rated.
+    expect(headersOf(table)).toEqual(["Agent", "Role", "Departments", "Status", "Current task", "Form", "Rating /20", "Model", "AI cost (USD)"]);
+    // The rating is the 1–20 mean with its band word (a compact ScaleLabel); an agent with no skills yet is not rated.
     expect(within(table).getByLabelText("Rating 13.0 of 20, Good")).toBeTruthy();
+    expect(within(table).getByLabelText("Rating 13.0 of 20, Good").querySelector("[data-scale-label]")?.textContent).toBe("Good");
     expect(within(table).getAllByLabelText("Rating 17.0 of 20, Excellent")).toHaveLength(2);
     expect(within(table).getByLabelText("Not rated yet")).toBeTruthy();
-    // The Form key sits under the column once (guidance is on outside a provider).
-    expect(screen.getByTestId("form-caption").textContent).toBe("Form: the last five tasks.");
+    expect(screen.queryByTestId("form-caption")).toBeNull();
+    expect(screen.queryByTestId("column-terms")).toBeNull();
+    expect(document.querySelector("[data-explainer='team-agents']")).toBeNull();
     expect(within(table).getByRole("link", { name: "Juno" })).toBeTruthy();
     expect(within(table).getByText("Down")).toBeTruthy();
     expect(within(table).getByText(/expected back in 2 hr/)).toBeTruthy();
@@ -76,6 +95,35 @@ describe("SquadScreen", () => {
     expect(fake.queried.get("team.agents.list")).toEqual({ includeArchived: false });
     fireEvent.click(within(table).getByRole("link", { name: "Juno" }));
     expect(fake.navigations[0]).toBe(`/b/${BID}/agents/${AGENT_JUNO}/overview`);
+  });
+
+  it("opens on the Simple view with the explainer and the defined column words while guidance is on (UX plan §7.10)", async () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    // Guidance is on by default; the provider carries the definitions the app hands it.
+    renderScreen(
+      fake,
+      <GuidanceProvider value={{ terms: TERMS }}>
+        <SquadScreen {...props} />
+      </GuidanceProvider>,
+    );
+    const table = await screen.findByRole("grid", { name: "Agents" });
+    expect(headersOf(table)).toEqual(["Agent", "Status", "Current task", "Rating /20"]);
+    expect(screen.getByRole("button", { name: "View: Simple" })).toBeTruthy();
+    // The intro sits inside the panel body, above the table, and names what the tab is for.
+    const explainer = document.querySelector("[data-explainer='team-agents']") as HTMLElement;
+    expect(explainer.getAttribute("data-state")).toBe("open");
+    expect(explainer.textContent).toContain("Everyone who works here. Agents have skills 1–20");
+    expect(explainer.querySelector("[data-term='rating']")).not.toBeNull();
+    expect(explainer.querySelector("[data-term='training']")).not.toBeNull();
+    // The Form key and the other column heads defined once, under the table (the heads sit in the sort buttons).
+    expect(screen.getByTestId("form-caption").textContent).toBe("Form: the last five tasks.");
+    expect(screen.getByTestId("form-caption").querySelector("[data-term='form']")).not.toBeNull();
+    expect(screen.getByTestId("column-terms").querySelector("[data-term='rating']")).not.toBeNull();
+    expect(screen.getByTestId("column-terms").querySelector("[data-term='model']")).not.toBeNull();
+    expect(document.querySelector("[data-term='wage']")).not.toBeNull();
+    // Rows, cells and the live status work the same in both states.
+    expect(within(table).getAllByRole("row")).toHaveLength(agents.length + 1);
+    expect(within(table).getByLabelText("Rating 13.0 of 20, Good")).toBeTruthy();
   });
 
   it("flips a row's status the moment agent.health_changed arrives and refetches once (AC-11.9.1)", async () => {
@@ -103,7 +151,8 @@ describe("SquadScreen", () => {
   it("changes the model through the picker and ApplyScopeDialog, then calls agent.model.set with the scope", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: (path) => (path === "agent.model.set" ? { updated: [AGENT_JUNO, "x"], skipped: [], warnings: [], retests: [{ runId: "r1" }, { runId: "r2" }] } : {}) });
-    renderScreen(fake, <SquadScreen {...props} />);
+    // The Model column is in the General view (Simple keeps four columns), so the operator's state.
+    renderScreen(fake, operator(<SquadScreen {...props} />));
     const table = await screen.findByRole("grid", { name: "Agents" });
     const junoRow = within(table).getByRole("link", { name: "Juno" }).closest("[role='row']") as HTMLElement;
     await user.click(within(junoRow).getByRole("button", { name: "Sonnet" }));
@@ -123,7 +172,7 @@ describe("SquadScreen", () => {
   it("shows predicted wage deltas in US dollars, the metered model cost's currency, on a business that keeps its books in pounds", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, currency: "GBP", responses: { ...dataResponses, "agent.model.compare": { ...compareJuno, currency: "USD" } } });
-    renderScreen(fake, <SquadScreen {...props} />);
+    renderScreen(fake, operator(<SquadScreen {...props} />));
     const table = await screen.findByRole("grid", { name: "Agents" });
     const junoRow = within(table).getByRole("link", { name: "Juno" }).closest("[role='row']") as HTMLElement;
     await user.click(within(junoRow).getByRole("button", { name: "Sonnet" }));
@@ -139,12 +188,14 @@ describe("SquadScreen", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: () => ({ id: "new", name: "Juno II" }) });
     renderScreen(fake, <SquadScreen {...props} />);
     const table = await screen.findByRole("grid", { name: "Agents" });
-    fireEvent.contextMenu(within(table).getByText("Chief of Staff"));
+    // The Simple view (guidance on) keeps the Agent column, so rows are found by name; the row itself is right-clicked
+    // (the name link has the entity's own menu).
+    fireEvent.contextMenu(rowOf(table, "Orla"));
     const menu = await screen.findByRole("menu");
     expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Open profile", "Change model (Opus)", "Duplicate…", "Lend to another department…", "Let go"]);
     expect(within(menu).getByRole("menuitem", { name: "Let go" }).getAttribute("aria-disabled")).toBe("true");
     await user.keyboard("{Escape}");
-    fireEvent.contextMenu(within(table).getByText("Frontend engineer"));
+    fireEvent.contextMenu(rowOf(table, "Juno"));
     await user.click(await screen.findByRole("menuitem", { name: "Duplicate…" }));
     const clone = await screen.findByTestId("clone-dialog");
     expect((within(clone).getByLabelText("Name", { exact: false }) as HTMLInputElement).value).toBe("Juno II");
@@ -167,22 +218,31 @@ describe("SquadScreen", () => {
     });
     renderScreen(fake, <SquadScreen {...props} />);
     const table = await screen.findByRole("grid", { name: "Agents" });
-    fireEvent.contextMenu(within(table).getByText("Email engine"));
+    fireEvent.contextMenu(rowOf(table, "Mara"));
     await user.click(await screen.findByRole("menuitem", { name: "Lend to another department…" }));
     const loan = await screen.findByTestId("loan-dialog");
     expect(within(loan).getByRole("button", { name: "Lend" })).toBeTruthy();
+    // The consequence follows the choice: lending keeps everything; moving changes the line manager. Both reversible.
+    expect(within(loan).getByTestId("loan-consequence").textContent).toBe("It joins the other department from the next cycle and keeps its tasks, skills, tools and model.·Reversible");
     await user.click(within(loan).getByRole("combobox", { name: "To department" }));
     await user.click(await screen.findByRole("option", { name: "Development" }));
     await user.click(within(loan).getByRole("checkbox", { name: /Move instead of lending/ }));
+    expect(within(loan).getByTestId("loan-consequence").textContent).toContain("the new department's lead becomes its line manager");
     await user.click(within(loan).getByTestId("loan-confirm"));
     await waitFor(() => expect(fake.mutations[0]).toEqual({ path: "team.agents.loan", input: { agentId: AGENT_MARA, departmentId: expect.any(String), move: true } }));
     await waitFor(() => expect(screen.getByTestId("model-notice").textContent).toBe("Mara moved to Development."));
 
-    fireEvent.contextMenu(within(table).getByText("Frontend engineer"));
+    fireEvent.contextMenu(rowOf(table, "Juno"));
     await user.click(await screen.findByRole("menuitem", { name: "Let go" }));
     const release = await screen.findByTestId("release-dialog");
     expect(within(release).getByText("Let Juno go")).toBeTruthy();
     expect(within(release).getByText(/Currently working on/)).toBeTruthy();
+    // What letting go does, and that there is no way back, under the action (UX plan §6.2 ConsequenceLine).
+    const consequence = within(release).getByTestId("release-consequence");
+    expect(consequence.textContent).toContain("Running tasks stop; history and logs stay on the profile. Nothing is deleted.");
+    expect(consequence.textContent).toContain("Not reversible");
+    // Focus opens on Keep, the safe choice, not on a defined word whose card would open with the dialog.
+    await waitFor(() => expect(document.activeElement?.textContent).toBe("Keep"));
     await user.click(within(release).getByTestId("release-confirm"));
     expect(await within(release).findByRole("alert")).toBeTruthy();
     expect(within(release).getByRole("alert").textContent).toBe("Running task must be stopped first");

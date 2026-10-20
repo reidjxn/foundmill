@@ -8,7 +8,7 @@
 import { useMemo } from "react";
 import { z } from "zod";
 import { Gauge } from "lucide-react";
-import { StatusStrip, formatNumber, type MetricTileProps } from "@foundmill/dugout";
+import { StatusStrip, Term, formatNumber, useTerm, type MetricTileProps, type TermDefinition } from "@foundmill/dugout";
 import { useBusinessEvents, useGlossary, useToday, useWidgetData, useWidgetQuery } from "../data";
 import { monthRevenueMinor } from "../shared/cash";
 import { RUNWAY_WORDS, runwayWords } from "../shared/runway";
@@ -72,20 +72,42 @@ export function teamHealthCaption(c: TeamHealthCounts): string {
 export const RUNWAY_CAPTION = "Months of cash left at today's spending";
 
 /**
+ * A tile of the strip: a MetricTile, plus the id of the definition its label is wrapped in (`Term`, UX plan §7.8:
+ * "Runway", "Revenue this month"). The plain-words line under the figure (`PlainFigure`) comes from `metricId` (the
+ * definitions map) or `plain` (tiles without a term); guidance off shows the figure alone.
+ */
+export type StatusTile = MetricTileProps & { termId?: string };
+
+/** The plain-words line under the tiles that have no definition of their own (UX plan §7.8). */
+export const PLAIN_LINES = {
+  cash: "What is in the bank right now.",
+  revenue: "What customers paid you this month.",
+  customers: "People who paid you for the first time in the last 7 days.",
+} as const;
+
+/**
+ * "Revenue" has no entry in the definitions map yet: the strip defines it inline until one lands (then the map's wins;
+ * see `revenueDefinition`).
+ */
+export const REVENUE_FALLBACK: TermDefinition = { id: "revenue", word: "Revenue", short: "Money customers paid you, counted on the day it arrives.", long: "Everything customers paid this month, on a cash basis: a sale counts when the money lands, not when it is invoiced. Money raised or moved between accounts is left out." };
+
+/**
  * The runway tile. With a burn model it is the figure in months with its Estimate chip and a caption in words ("Months
  * of cash left at today's spending", or the warning when it is short); without one it says why in the shared runway
  * words (shared/runway.ts: "No limit" when cash-flow positive, "Not known yet" otherwise) with the reason underneath,
  * and no Estimate chip: nothing has been estimated yet. The formula ("Cash ÷ net burn") is the provenance tooltip.
  */
-export function runwayTile(finance: FinanceOverview | undefined, loading: boolean, onClick: () => void): MetricTileProps {
+export function runwayTile(finance: FinanceOverview | undefined, loading: boolean, onClick: () => void): StatusTile {
   const months = finance?.runway.months ?? null;
   const provenance = finance ? { source: "Cash ÷ net burn (trailing 3 months)", note: finance.burn.definition } : undefined;
   if (months === null) {
     const words = runwayWords(finance);
-    return { label: "Runway", value: loading ? null : (words?.value ?? RUNWAY_WORDS.no_bank.value), loading, caption: words?.caption, provenance, onClick };
+    return { label: "Runway", termId: "runway", metricId: "runway", value: loading ? null : (words?.value ?? RUNWAY_WORDS.no_bank.value), loading, caption: words?.caption, provenance, onClick };
   }
   return {
     label: "Runway",
+    termId: "runway",
+    metricId: "runway",
     value: formatNumber(months, { maxDigits: 1 }),
     unit: "mo",
     estimate: "estimate",
@@ -104,12 +126,12 @@ export function boardWords(kind: string): string {
 }
 
 /** A tile whose query failed: what happened instead of a figure (shared/errors.ts). */
-function unavailableTile(label: string, error: Error, section: string, onClick: () => void): MetricTileProps {
+function unavailableTile(label: string, error: Error, section: string, onClick: () => void, termId?: string): StatusTile {
   const words = unavailableWords(error, section);
-  return { label, value: words.value, caption: words.caption, onClick };
+  return { label, termId, value: words.value, caption: words.caption, onClick };
 }
 
-export function statusTiles(i: StatusStripInputs): MetricTileProps[] {
+export function statusTiles(i: StatusStripInputs): StatusTile[] {
   const financeError = !i.finance ? (i.errors?.finance ?? null) : null;
   const ribbonError = !i.ribbon ? (i.errors?.ribbon ?? null) : null;
   const departmentsError = !i.departments ? (i.errors?.departments ?? null) : null;
@@ -127,27 +149,29 @@ export function statusTiles(i: StatusStripInputs): MetricTileProps[] {
   const healthCounts = squadHealthCounts(i.departments);
   const health = squadHealth(i.departments);
   const currency = i.finance?.cash.currency ?? i.currency;
-  // Captions in words (UX plan B9); the formula and the accounting basis stay in each tile's provenance tooltip.
-  // TODO(guided-layer): PlainFigure under each tile in guided mode (`plain` / `metricId` on MetricTile).
-  const tiles: MetricTileProps[] = [
+  // Captions in words (UX plan B9); the formula and the accounting basis stay in each tile's provenance tooltip. The
+  // plain-words line under each figure (`metricId` / `plain`) shows while guidance is on; the labels that are defined
+  // terms carry `termId` (the widget wraps them in a `Term`).
+  const tiles: StatusTile[] = [
     financeError
       ? unavailableTile("Cash", financeError, "Finance", openFinance)
-      : { label: "Cash", value: i.finance ? { amountMinor: i.finance.cash.amountMinor, currency } : null, loading: i.loading.finance, caption: i.finance ? (i.finance.cash.accounts ? `In the bank · ${i.finance.cash.accounts} account${i.finance.cash.accounts === 1 ? "" : "s"}` : "Connect a bank in Settings") : undefined, provenance: { source: "Bank balances", asOf: i.finance?.cash.asOf ?? undefined }, onClick: openFinance },
-    financeError ? unavailableTile("Runway", financeError, "Finance", openFinance) : runwayTile(i.finance, i.loading.finance, openFinance),
+      : { label: "Cash", plain: PLAIN_LINES.cash, value: i.finance ? { amountMinor: i.finance.cash.amountMinor, currency } : null, loading: i.loading.finance, caption: i.finance ? (i.finance.cash.accounts ? `In the bank · ${i.finance.cash.accounts} account${i.finance.cash.accounts === 1 ? "" : "s"}` : "Connect a bank in Settings") : undefined, provenance: { source: "Bank balances", asOf: i.finance?.cash.asOf ?? undefined }, onClick: openFinance },
+    financeError ? unavailableTile("Runway", financeError, "Finance", openFinance, "runway") : runwayTile(i.finance, i.loading.finance, openFinance),
     financeError
-      ? unavailableTile("Revenue this month", financeError, "Finance", openFinance)
-      : { label: "Revenue this month", value: revenueMonth === null ? (i.loading.finance ? null : "—") : { amountMinor: revenueMonth, currency }, spark: revenueSeries, loading: i.loading.finance, caption: "Money in this month", provenance: { source: "Bank inflows, cash basis, financing and transfers excluded", note: i.finance?.revenue.label }, onClick: openFinance },
+      ? unavailableTile("Revenue this month", financeError, "Finance", openFinance, "revenue")
+      : { label: "Revenue this month", termId: "revenue", plain: PLAIN_LINES.revenue, value: revenueMonth === null ? (i.loading.finance ? null : "—") : { amountMinor: revenueMonth, currency }, spark: revenueSeries, loading: i.loading.finance, caption: "Money in this month", provenance: { source: "Bank inflows, cash basis, financing and transfers excluded", note: i.finance?.revenue.label }, onClick: openFinance },
     ribbonError
       ? unavailableTile("Customers this week", ribbonError, "The Journey", () => i.open("customers"))
-      : { label: "Customers this week", value: i.ribbon ? customersWeek : null, format: "integer", loading: i.loading.ribbon, caption: "Paying customers, last 7 days", delta: i.ribbon ? { value: customersWeek - customersPrev, label: "vs last week" } : undefined, spark: i.ribbon ? dailySeries(rows, lastDays(14, i.today), (r) => r.payments) : undefined, provenance: { source: "Payments (first payments count as customers)" }, onClick: () => i.open("customers") },
+      : { label: "Customers this week", plain: PLAIN_LINES.customers, value: i.ribbon ? customersWeek : null, format: "integer", loading: i.loading.ribbon, caption: "Paying customers, last 7 days", delta: i.ribbon ? { value: customersWeek - customersPrev, label: "vs last week" } : undefined, spark: i.ribbon ? dailySeries(rows, lastDays(14, i.today), (r) => r.payments) : undefined, provenance: { source: "Payments (first payments count as customers)" }, onClick: () => i.open("customers") },
     departmentsError
       ? unavailableTile("Team health", departmentsError, "The team", () => i.open("team"))
-      : { label: "Team health", value: health === null ? (i.loading.departments ? null : "—") : health, format: "percent", loading: i.loading.departments, caption: i.departments ? teamHealthCaption(healthCounts) : undefined, provenance: { source: TEAM_HEALTH_SOURCE }, onClick: () => i.open("team") },
+      : { label: "Team health", metricId: "team_health", value: health === null ? (i.loading.departments ? null : "—") : health, format: "percent", loading: i.loading.departments, caption: i.departments ? teamHealthCaption(healthCounts) : undefined, provenance: { source: TEAM_HEALTH_SOURCE }, onClick: () => i.open("team") },
   ];
   if (i.live) {
     const best = (i.positions ?? []).slice().sort((a, b) => a.position - b.position)[0];
     tiles.push({
       label: "Leaderboard position",
+      metricId: "leaderboard",
       value: best ? `#${best.position}` : i.loading.positions ? null : "Not ranked",
       loading: i.loading.positions,
       delta: best && best.movement ? { value: best.movement, label: "places" } : undefined,
@@ -195,9 +219,30 @@ function StatusStripWidget({ settings }: WidgetProps<StatusStripSettings>) {
       }),
     [finance.data, finance.isLoading, finance.error, ribbon.data, ribbon.isLoading, ribbon.error, departments.data, departments.isLoading, departments.error, positions.data, positions.isLoading, live, today, currency, navigate, businessId],
   );
-  // Tile labels and captions in the business's words ("Customers this week" → "Clients this week").
+  // Tile labels, captions and plain lines in the business's words ("Customers this week" → "Clients this week"); a label
+  // that is a defined term becomes a `Term` (lifted above the tile's covering button), the map's definition first and
+  // the strip's own for "Revenue" until the map holds one.
   const g = useGlossary();
-  const glossed = useMemo(() => tiles.map((t) => ({ ...t, label: typeof t.label === "string" ? g(t.label) : t.label, caption: typeof t.caption === "string" ? g(t.caption) : t.caption })), [tiles, g]);
+  const revenueDefinition = useTerm("revenue") ? undefined : REVENUE_FALLBACK;
+  const glossed = useMemo<MetricTileProps[]>(
+    () =>
+      tiles.map(({ termId, ...t }) => {
+        const label = typeof t.label === "string" ? g(t.label) : t.label;
+        return {
+          ...t,
+          label: termId ? (
+            <Term id={termId} definition={termId === "revenue" ? revenueDefinition : undefined} className="relative z-10">
+              {label}
+            </Term>
+          ) : (
+            label
+          ),
+          caption: typeof t.caption === "string" ? g(t.caption) : t.caption,
+          plain: typeof t.plain === "string" ? g(t.plain) : t.plain,
+        };
+      }),
+    [tiles, g, revenueDefinition],
+  );
   const failed = finance.error && ribbon.error && departments.error;
   return (
     <WidgetFrame title="Status" data-widget="status_strip" error={failed ? (finance.error ?? undefined) : undefined} onRetry={failed ? () => [finance, ribbon, departments].forEach((q) => q.refetch()) : undefined} flush empty={null}>

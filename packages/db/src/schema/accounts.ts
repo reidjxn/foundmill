@@ -1,5 +1,5 @@
 /** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses); 0022 — account preferences; 0025 — the business currency. */
-import { AGENT_STOP_REASONS, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, GAME_MODES, MODEL_BILLING, PLAN_TIERS, TIME_FORMAT_PREFERENCES, VISIBILITY } from "@foundmill/shared";
+import { AGENT_STOP_REASONS, ARCHETYPES, AUTOPILOT_CADENCES, AUTOPILOT_PAUSE_REASONS, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, GAME_MODES, GUIDANCE_MODES, MODEL_BILLING, PLAN_TIERS, TEXT_SIZES, TIME_FORMAT_PREFERENCES, VISIBILITY } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { boolean, char, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
@@ -29,14 +29,12 @@ export type FounderProfile = typeof founderProfiles.$inferSelect;
 export type NewFounderProfile = typeof founderProfiles.$inferInsert;
 
 /**
- * 0064 — the guided layer's one switch (docs/UX_AUDIT_AND_PLAN.md §6.3): "on" shows tutoring (explainers, the
- * first-week checklist, coach marks, term underlines, kbd caps), "off" hides it and never hides information.
+ * 0064 — the guided layer's one switch and the account's type size (docs/UX_AUDIT_AND_PLAN.md §6.3). The tuples live
+ * beside DATE_FORMAT_PREFERENCES in @foundmill/shared (constants.ts) so the API's input schema, the design system and
+ * this column cannot drift; they are re-exported here for the repos and the migrations that read the schema.
  */
-export const GUIDANCE_MODES = ["on", "off"] as const;
-export type GuidanceMode = (typeof GUIDANCE_MODES)[number];
-/** 0064 — the account's type size: comfortable grows body and small text (the structure keeps its sizes). */
-export const TEXT_SIZES = ["standard", "comfortable"] as const;
-export type TextSize = (typeof TEXT_SIZES)[number];
+export { GUIDANCE_MODES, TEXT_SIZES } from "@foundmill/shared";
+export type { GuidanceMode, TextSize } from "@foundmill/shared";
 /** Screen or tour ids remembered as done (`{ "home": true }`); the value is always true, a key is removed by a reset. */
 export type SeenMap = Record<string, true>;
 

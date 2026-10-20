@@ -23,6 +23,7 @@ export function businessDocumentTitle(screen: string | null, businessName: strin
   return screen ? `${screen} · ${businessName} · ${appName}` : `${businessName} · ${appName}`;
 }
 
+/** "Members · Settings"; the label is the list's (so the glossary slug reads "Your words · Settings"), "Settings" alone for an unknown tab. */
 export function settingsTitle(tab: string): string {
   const label = SETTINGS_TABS.find((t) => t.slug === tab)?.label;
   return label ? `${label} · Settings` : "Settings";

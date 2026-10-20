@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from "react";
 import { ExternalLink, Network, UserRoundPlus } from "lucide-react";
-import { Avatar, Button, DeptChip, EntityLink, HierarchyChart, KeyValueList, ModelChip, Panel, ProvenanceChip, Switch, formatMoney, layoutHierarchy, type HierarchyKind, type HierarchyNode } from "@foundmill/dugout";
+import { Avatar, Button, DeptChip, EntityLink, HierarchyChart, KeyValueList, ModelChip, Panel, ProvenanceChip, Switch, Term, formatMoney, layoutHierarchy, type HierarchyKind, type HierarchyNode } from "@foundmill/dugout";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData } from "@foundmill/widgets/data";
@@ -109,12 +109,25 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
     <Screen name="team/hierarchy">
       <Panel
         span={selectedId ? 8 : 12}
-        title="Hierarchy"
+        title={<Term id="hierarchy">Hierarchy</Term>}
         flush
         loading={agentsQuery.isLoading && !agentsQuery.data}
         error={agentsQuery.error ? agentsQuery.error.message : undefined}
         onRetry={agentsQuery.refetch}
-        empty={agentsQuery.data && liveAgents.length === 0 ? { icon: Network, title: "Just you", children: "The chart grows as you hire: the Chief of Staff reports to you, leads to the Chief of Staff, workers to their department's lead.", action: { label: "Go to Recruitment", icon: UserRoundPlus, onClick: () => navigate(recruitHref) } } : undefined}
+        empty={
+          agentsQuery.data && liveAgents.length === 0
+            ? {
+                icon: Network,
+                title: "Just you",
+                children: (
+                  <>
+                    The chart grows as you hire: the <Term id="chief_of_staff">Chief of Staff</Term> reports to you, leads to the Chief of Staff, workers to their department's lead.
+                  </>
+                ),
+                action: { label: "Go to Recruitment", icon: UserRoundPlus, onClick: () => navigate(recruitHref) },
+              }
+            : undefined
+        }
         meta={
           liveAgents.length ? (
             <span data-testid="hierarchy-summary">
@@ -128,7 +141,11 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
             Show staff
           </label>
         }
-        footer="Reporting lines come from each agent's line manager; agents without one report to their department's lead. Change a line manager from the agent's profile."
+        footer={
+          <span>
+            Reporting lines come from each agent's <Term id="line_manager">line manager</Term>; agents without one report to their department's lead. Change a line manager from the agent's profile.
+          </span>
+        }
       >
         <div className="flex flex-col" style={{ height: `min(${treeHeight + 2}px, calc(100vh - 248px))`, minHeight: 240 }}>
           <HierarchyChart nodes={nodes} selectedId={selectedId} onSelect={(n) => setSelectedId(n.id === selectedId ? null : n.id)} className="min-h-0 flex-1" />
@@ -158,7 +175,7 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
               <KeyValueList
                 dense
                 items={[
-                  { label: "Reports to", value: nodes.find((n) => n.id === nodes.find((x) => x.id === selectedAgent.id)?.parentId)?.name ?? "—" },
+                  { label: <Term id="line_manager">Reports to</Term>, value: nodes.find((n) => n.id === nodes.find((x) => x.id === selectedAgent.id)?.parentId)?.name ?? "—" },
                   { label: "Direct reports", value: reports, numeric: true },
                   { label: "Current task", value: selectedAgent.currentTask?.title ?? "None" },
                   {

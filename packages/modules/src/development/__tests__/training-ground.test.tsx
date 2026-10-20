@@ -2,7 +2,7 @@ import "./setup";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { TrainingGroundScreen } from "../TrainingGroundScreen";
+import { LIVE_SESSIONS_LEDE, TrainingGroundScreen } from "../TrainingGroundScreen";
 import { shoutInput, toGraphNodes } from "../TrainingGroundScreen";
 import { BUSINESS_ID, createFakeSource, renderScreen } from "./fake-source";
 import { AGENT_JUNO, SESSION_BUNDLE, SESSION_INDEX, SESSION_SOURCING, TASK_BUNDLE, TASK_PLAYWRIGHT, bundleEvents, edges, emptyTasksResponse, rawFrame, tasks, trainingGroundResponses } from "./fixtures";
@@ -13,7 +13,7 @@ const props = { businessId: BUSINESS_ID, departmentId: "d-dev" };
 describe("TrainingGroundScreen", () => {
   it("renders one tile per live task, subscribes to each session and shows the concurrency hint", async () => {
     const fake = createFakeSource({ responses: trainingGroundResponses() });
-    renderScreen(fake, <TrainingGroundScreen {...props} />);
+    renderScreen(fake, <TrainingGroundScreen {...props} />, {}, { guidance: "on" });
     const grid = await screen.findByRole("region", { name: "Agent tiles" });
     const tiles = within(grid).getAllByRole("article");
     expect(tiles).toHaveLength(3);
@@ -28,10 +28,30 @@ describe("TrainingGroundScreen", () => {
     expect(screen.getByTestId("ground-counts").textContent).toBe("3 live · 2 running");
     expect(screen.getByText(/your plan runs 16 agents at once/)).toBeTruthy();
     expect(fake.queried.get("dev.tasks.list")).toMatchObject({ status: ["running", "paused", "blocked", "review", "merging"] });
-    // Guidance on (the default outside a provider): one line says what a tile is (UX plan §7.12).
-    expect(screen.getByTestId("live-sessions-lede").textContent).toBe("Each tile is one agent on one task. Nudge to give advice; Pause to hold it.");
+    // Guidance on: the department's intro says what a tile is (UX plan §7.10, §7.12), inside the panel's body.
+    const explainer = document.querySelector("[data-explainer='development/live-sessions']") as HTMLElement;
+    expect(explainer.getAttribute("data-state")).toBe("open");
+    expect(within(explainer).getByText(LIVE_SESSIONS_LEDE)).toBeTruthy();
+    expect(within(explainer).getByText("The team building it. Watch work live, see the plan, review finished code.")).toBeTruthy();
     // Every tile carries the visible "…" beside its hover toolbar.
     expect(within(grid).getAllByRole("button", { name: /^More actions for/ })).toHaveLength(3);
+  });
+
+  it("guidance off: no intro and no '…' on the tiles; the hover toolbar and the shortcuts stay", () => {
+    const fake = createFakeSource({ responses: trainingGroundResponses() });
+    renderScreen(fake, <TrainingGroundScreen {...props} />);
+    const grid = screen.getByRole("region", { name: "Agent tiles" });
+    expect(within(grid).getAllByRole("article")).toHaveLength(3);
+    expect(document.querySelector("[data-explainer]")).toBeNull();
+    expect(within(grid).queryAllByRole("button", { name: /^More actions for/ })).toHaveLength(0);
+    expect(within(grid).getAllByRole("toolbar", { name: /^Controls for/ })).toHaveLength(3);
+  });
+
+  it("nobody at work: the intro sits above the empty state in the panel's body, never in place of it", () => {
+    const fake = createFakeSource({ responses: { ...trainingGroundResponses(), "dev.tasks.list": emptyTasksResponse } });
+    renderScreen(fake, <TrainingGroundScreen {...props} />, {}, { guidance: "on" });
+    expect(screen.getByText("No agents are working right now")).toBeTruthy();
+    expect(document.querySelector("[data-explainer='development/live-sessions']")).toBeTruthy();
   });
 
   it("gives every waiting tile its own words: a terminal shows its task's goal, a specialist with nothing yet its state and brief", async () => {

@@ -79,3 +79,103 @@ describe("Markdown parser loading", () => {
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
   });
 });
+
+describe("defined terms in a note (docs/UX_AUDIT_AND_PLAN.md §6.2 Term, Markdown rule)", () => {
+  const TERMS = {
+    runway: { id: "runway", word: "Runway", short: "How many months your cash lasts at today's spending." },
+    net_burn: { id: "net_burn", word: "Net burn", short: "What the business spends in a month minus what it earns." },
+    burn: { id: "burn", word: "Burn", short: "How much cash the business uses up each month." },
+    cycle: { id: "cycle", word: "Cycle", short: "One round of work." },
+    mrr: { id: "mrr", word: "MRR", short: "Monthly recurring revenue." },
+  };
+
+  it("marks the first whole-word occurrence of each term once, case-insensitively, never inside code, links or mentions", async () => {
+    const { markTerms, unmarkTerms } = await import("./Markdown");
+    const text = `The runway is 7 months; runway again. Net burn fell, so burn is lower. \`runway\` and [runway](/x) and [[ent:${ID}|Runway Ltd]] stay. MRRX is not MRR. Cycles end.`;
+    const marked = markTerms(text, TERMS);
+    const marks = [...marked.matchAll(/([^]*)([^]*)/g)].map((m) => [m[1], m[2]]);
+    expect(marks).toEqual([
+      ["runway", "runway"],
+      ["net_burn", "Net burn"],
+      ["burn", "burn"],
+      ["mrr", "MRR"],
+      ["cycle", "Cycles"],
+    ]);
+    // The words stay where they were; only markers were added, and they strip back to the source.
+    expect(unmarkTerms(marked)).toBe(text);
+    expect(markTerms("No defined words here.", TERMS)).toBe("No defined words here.");
+    expect(markTerms("", TERMS)).toBe("");
+    // Inside a fenced block, an autolink, a bare URL or an HTML tag: never (the words between tags are text, and count).
+    expect(markTerms("```\nrunway\n```\n<https://runway.example> https://www.runway.example/mrr <runway>", TERMS)).not.toMatch(//);
+    expect(markTerms("<b>cycle</b>", TERMS)).toBe("<b>cyclecycle</b>");
+  });
+
+  it("renders a marked term as a Term with its definition, once per term, and nothing when guidance is off or terms are off", async () => {
+    vi.resetModules();
+    const { Markdown, preloadMarkdown } = await import("./Markdown");
+    const { GuidanceProvider } = await import("../guidance/GuidanceProvider");
+    await preloadMarkdown();
+    const text = `**Runway** is 7 months. The runway page: [runway](/x). Cycle 3 ran for [[ent:${ID}|Runway Ltd]].`;
+    const on = render(
+      <GuidanceProvider value={{ guidance: "on", terms: TERMS }}>
+        <Markdown variant="body" terms>
+          {text}
+        </Markdown>
+      </GuidanceProvider>,
+    );
+    const terms = Array.from(on.container.querySelectorAll("[data-term]"));
+    expect(terms.map((t) => [t.getAttribute("data-term"), t.textContent])).toEqual([
+      ["runway", "Runway"],
+      ["cycle", "Cycle"],
+    ]);
+    // The first "Runway" sits inside the strong, as a button with the term-link look; the link and the mention are untouched.
+    expect(terms[0]!.tagName).toBe("BUTTON");
+    expect(terms[0]!.closest("strong")).not.toBeNull();
+    expect(on.container.querySelector("a[href='/x']")?.textContent).toBe("runway");
+    expect(on.container.querySelector("[data-entity-id]")?.textContent).toBe("Runway Ltd");
+    expect(on.container.textContent).toBe("Runway is 7 months. The runway page: runway. Cycle 3 ran for Runway Ltd.");
+    expect(on.container.querySelector("[data-markdown]")?.getAttribute("data-terms")).toBe("true");
+    on.unmount();
+
+    const off = render(
+      <GuidanceProvider value={{ guidance: "off", terms: TERMS }}>
+        <Markdown variant="body" terms>
+          {text}
+        </Markdown>
+      </GuidanceProvider>,
+    );
+    expect(off.container.querySelector("[data-term]")).toBeNull();
+    expect(off.container.querySelector("[data-markdown]")?.getAttribute("data-terms")).toBeNull();
+    off.unmount();
+
+    const plain = render(
+      <GuidanceProvider value={{ guidance: "on", terms: TERMS }}>
+        <Markdown variant="body">{text}</Markdown>
+      </GuidanceProvider>,
+    );
+    expect(plain.container.querySelector("[data-term]")).toBeNull();
+  });
+
+  it("shows the words plain, without markers, while the parser loads", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    vi.resetModules();
+    vi.doMock("./MarkdownEngine", async () => {
+      await gate;
+      return vi.importActual<typeof EngineModule>("./MarkdownEngine");
+    });
+    const { Markdown } = await import("./Markdown");
+    const { GuidanceProvider } = await import("../guidance/GuidanceProvider");
+    const { container } = render(
+      <GuidanceProvider value={{ guidance: "on", terms: TERMS }}>
+        <Markdown variant="body" terms>
+          {"Runway is 7 months."}
+        </Markdown>
+      </GuidanceProvider>,
+    );
+    expect(container.querySelector("[data-markdown]")?.textContent).toBe("Runway is 7 months.");
+    expect(container.textContent).not.toMatch(/[-]/);
+    release();
+    await waitFor(() => expect(container.querySelector("[data-term='runway']")).not.toBeNull(), { timeout: 15_000 });
+  });
+});

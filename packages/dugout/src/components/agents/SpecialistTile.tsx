@@ -108,7 +108,7 @@ export function RfqFunnel({ stages }: { stages: readonly RfqStage[] }) {
 }
 
 export function QuoteTable({ quotes }: { quotes: readonly SupplierQuote[] }) {
-  if (quotes.length === 0) return <EmptyState icon={ReceiptText}>Quotes appear here once suppliers reply; prices are extracted through the quarantined reader.</EmptyState>;
+  if (quotes.length === 0) return <EmptyState icon={ReceiptText}>Quotes appear here once suppliers reply; prices are read from supplier emails.</EmptyState>;
   const sorted = quotes.slice().sort((a, b) => b.score - a.score);
   return (
     <div className="overflow-auto">

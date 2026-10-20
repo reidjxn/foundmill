@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { AttributeBars } from "./AttributeBars";
 import { DiffView } from "./DiffView";
 import { KeyValueList, MiniTable, Timeline } from "./Lists";
@@ -57,6 +58,19 @@ describe("SkillGrid", () => {
     expect(skillHoverText(BACKEND_SKILLS[0]!)).toBe(
       "Tested 14 · Proven 16 · 45 tasks · Potential 18",
     );
+    // Every figure carries its band word as a ScaleLabel pill (comfortable), on the 1–20 scale.
+    const bands = Array.from(document.querySelectorAll("[data-skill-band]"));
+    expect(bands).toHaveLength(BACKEND_SKILLS.length);
+    expect(bands.every((b) => b.hasAttribute("data-scale-label") && b.getAttribute("data-scale") === "20" && b.className.includes("chip-plate"))).toBe(true);
+    expect(document.querySelector("[data-skill='comm'] [data-skill-band]")?.textContent).toBe("Poor");
+  });
+
+  it("compact density folds the band word into the figure's tooltip and accessible name", () => {
+    render(<SkillGrid skills={BACKEND_SKILLS} density="compact" />);
+    expect(document.querySelectorAll("[data-skill-band]")).toHaveLength(0);
+    const figure = document.querySelector("[data-skill='comm'] [data-rating-figure]") as HTMLElement;
+    expect(figure.getAttribute("title")).toBe("4 of 20 · Poor");
+    expect(figure.getAttribute("aria-label")).toBe("4 of 20, Poor");
   });
   it("focus mode allows at most three skills", async () => {
     const user = userEvent.setup();
@@ -78,7 +92,7 @@ describe("SkillGrid", () => {
 });
 
 describe("AttributeBars", () => {
-  it("renders every attribute with a bar, figure and provenance chip where the evidence is not real", () => {
+  it("renders every attribute with a bar, figure, band word and provenance chip where the evidence is not real", () => {
     render(<AttributeBars attributes={CONCEPT_ATTRIBUTES} columns={2} />);
     expect(screen.getAllByRole("img")).toHaveLength(CONCEPT_ATTRIBUTES.length);
     expect(screen.getAllByText("Estimate")).toHaveLength(2);
@@ -86,18 +100,37 @@ describe("AttributeBars", () => {
     expect(
       screen.getByRole("img", { name: /Founder fit: 18 of 20, Excellent, compared with 9/ }),
     ).toBeTruthy();
+    // Every figure carries its word (ScaleLabel, compact): 18 reads Excellent, 6 reads Average.
+    const bands = Array.from(document.querySelectorAll("[data-scale-label]"));
+    expect(bands).toHaveLength(CONCEPT_ATTRIBUTES.length);
+    expect(bands.every((b) => !b.className.includes("chip-plate"))).toBe(true);
+    expect(document.querySelector("[data-attribute='fit'] [data-scale-label]")?.textContent).toBe("Excellent");
+    expect(document.querySelector("[data-attribute='moat'] [data-scale-label]")?.textContent).toBe("Average");
+    const { container: bare } = render(<AttributeBars attributes={CONCEPT_ATTRIBUTES.slice(0, 2)} showBand={false} />);
+    expect(bare.querySelectorAll("[data-scale-label]")).toHaveLength(0);
   });
 
-  it("defines a labelled attribute in a tooltip on its label, focusable, with or without evidence (A6)", async () => {
+  it("defines a labelled attribute as a Term on its label (the definition card on focus, kept with guidance off), with or without evidence (A6)", async () => {
     const user = userEvent.setup();
-    render(<AttributeBars attributes={CONCEPT_ATTRIBUTES} />);
+    render(
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <AttributeBars attributes={CONCEPT_ATTRIBUTES} />
+      </GuidanceProvider>,
+    );
     const hinted = CONCEPT_ATTRIBUTES.filter((a) => a.hint);
-    expect(document.querySelectorAll("[data-attribute-hint]")).toHaveLength(hinted.length);
-    // "Channel access" carries a hint and no evidence: the label is still a focusable trigger.
+    const terms = document.querySelectorAll("[data-term^='attribute:']");
+    expect(terms).toHaveLength(hinted.length);
+    // The definition is information, so the dotted learn underline stays even with guidance off (`always`).
+    expect(Array.from(terms).every((t) => t.className.includes("term-link"))).toBe(true);
+    // "Channel access" carries a hint and no evidence: the label is still a focusable trigger. The card opens when a
+    // key brings focus to it (the Tab, then the focus it causes), never on a script's focus (guidance/keyboardFocus.ts).
     const channel = screen.getByRole("button", { name: "Channel access" });
+    fireEvent.keyDown(document.body, { key: "Tab" });
     channel.focus();
     expect(document.activeElement).toBe(channel);
-    expect((await screen.findAllByText(/How clear the path to the first customers is/)).length).toBeGreaterThan(0);
+    const short = (await screen.findAllByText(/How clear the path to the first customers is/, {}, { timeout: 2000 }))[0]!;
+    expect(short.closest("[data-definition-card]")).not.toBeNull();
+    expect(screen.getByText("Channel access", { selector: "[data-definition-card] p" }).className).toContain("t-display-sm");
     // A row without a hint keeps its plain label and its title.
     expect(screen.queryByRole("button", { name: "Timing" })).toBeNull();
     expect(screen.getByTitle("Timing")).toBeTruthy();

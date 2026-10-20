@@ -1,12 +1,24 @@
-import { expect, test, type Page } from "@playwright/test";
-import { LONG, chooseTableView, openBusiness } from "./helpers";
+import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
+import { LONG, chooseTableView, devApi, openBusiness } from "./helpers";
 
 /**
  * Team and Development screens on the seeded Northwind business at the two desktop widths (1280, the minimum, and
  * 1440, the reference): every tab renders its panels, nothing is cut at the panel edge, raw identifiers never show,
  * and the founder's main actions on these tabs work (the generate action on Recruitment, the hard gate on
- * Responsibilities). The page-wide clipping guard is no-clip.spec.ts; this spec checks what is specific to these tabs.
+ * Responsibilities). The guided layer on Team (UX plan §7.10, §7.15): the Agents explainer and its Simple view, the
+ * defined words, the consequence lines in the dialogs, the key cap only for operators. The page-wide clipping guard is
+ * no-clip.spec.ts; this spec checks what is specific to these tabs.
  */
+
+/** The dev founder's guidance switch (Settings › Preferences): explainers and term underlines render only while it is on; key caps only while it is off. */
+async function guidanceOn(playwright: PlaywrightWorkerArgs["playwright"]): Promise<boolean> {
+  const api = await devApi(playwright);
+  const res = await api.get("/trpc/founder.preferences.guidance");
+  expect(res.ok(), `founder.preferences.guidance answered ${res.status()}`).toBe(true);
+  const body = (await res.json()) as { result: { data: { json: { guidance: "on" | "off" } } } };
+  await api.dispose();
+  return body.result.data.json.guidance === "on";
+}
 
 /** The department href for a sidebar label (department slugs are per business; names are labels over modules). */
 async function departmentBase(page: Page, label: RegExp): Promise<string> {
@@ -40,27 +52,66 @@ for (const width of [1280, 1440]) {
       await page.setViewportSize({ width, height: 900 });
     });
 
-    test("Team: agents table fits with AI cost, names end in an ellipsis, health groups and hierarchy render", async ({ page }) => {
+    test("Team: agents table fits with AI cost, names end in an ellipsis, health groups and hierarchy render", async ({ page, playwright }) => {
       await openBusiness(page);
+      const guided = await guidanceOn(playwright);
       const team = await departmentBase(page, /^team$/i);
 
       await openTab(page, team, "squad", "team/squad");
       const agents = page.getByRole("grid", { name: "Agents" });
+      const explainer = page.locator("[data-explainer='team-agents']");
+      await expect(page.getByRole("button", { name: /^View: / })).toBeVisible({ timeout: LONG });
+      if (guided) {
+        // Guided: the built-in Simple view (Agent, Status, Current task, Rating) is the tab's default (a view the dev
+        // founder left open, in this spec or another, still wins, so it is chosen here) with the explainer above the
+        // table and the column words defined once under it (UX plan §7.10); the General view is a click away.
+        await chooseTableView(page, "Simple");
+        await expect(agents.getByRole("columnheader", { name: /Rating \/20/ })).toBeVisible();
+        await expect(agents.getByRole("columnheader", { name: /^Role/ })).toHaveCount(0);
+        await expect(agents.getByRole("columnheader", { name: /AI cost/ })).toHaveCount(0);
+        expect(await headersInside(page, "Agents"), "every Simple column fits the panel").toEqual([]);
+        await expect(explainer).toBeVisible();
+        await expect(explainer).toContainText("Everyone who works here. Agents have skills 1–20");
+        await expect(page.getByTestId("form-caption")).toContainText("Form: the last five tasks");
+        await expect(page.getByTestId("form-caption").locator("[data-term='form']")).toHaveClass(/term-link/);
+        await expect(page.getByTestId("column-terms").locator("[data-term='rating']")).toBeVisible();
+      } else {
+        await expect(explainer).toHaveCount(0);
+        await expect(page.getByTestId("form-caption")).toHaveCount(0);
+        await expect(page.getByTestId("column-terms")).toHaveCount(0);
+      }
+      await chooseTableView(page, "General");
       // The metered cost says it is US dollars (C19), and the rating column says its scale (C1).
       await expect(agents.getByRole("columnheader", { name: /AI cost \(USD\)/i })).toBeVisible({ timeout: LONG });
       await expect(agents.getByRole("columnheader", { name: /Rating \/20/ })).toBeVisible();
       expect(await headersInside(page, "Agents"), "every General column fits the panel").toEqual([]);
-      // Every rated agent shows the 1–20 mean with its band word, never a bare /10 figure.
+      // Every rated agent shows the 1–20 mean with its band word (a compact ScaleLabel), never a bare /10 figure.
       await expect(agents.locator("[data-rating-cell]").first()).toHaveText(/^\d+\.\d(Poor|Average|Good|Excellent)$/, { timeout: LONG });
-      // The Form key sits under the column once while guidance is on.
-      await expect(page.getByTestId("form-caption")).toContainText("Form: the last five tasks");
+      await expect(agents.locator("[data-rating-cell] [data-scale-label]").first()).toBeVisible();
       await expect(page.getByTestId("squad-summary")).toContainText(/\d+ agents?/);
       const overflow = await agents.locator("a[href*='/agents/']").first().evaluate((a) => getComputedStyle(a).textOverflow);
       expect(overflow, "a long agent name ends in an ellipsis instead of being cut").toBe("ellipsis");
+      // Letting an agent go says what happens and that there is no way back (ConsequenceLine), and opens on Keep.
+      await agents.getByRole("row").nth(1).click({ button: "right" });
+      const letGo = page.getByRole("menuitem", { name: "Let go" });
+      await expect(letGo).toBeVisible();
+      if ((await letGo.getAttribute("aria-disabled")) === "true") {
+        await page.keyboard.press("Escape");
+      } else {
+        await letGo.click();
+        const release = page.getByTestId("release-dialog");
+        await expect(release).toBeVisible();
+        await expect(release.getByTestId("release-consequence")).toContainText("Running tasks stop; history and logs stay on the profile. Nothing is deleted.");
+        await expect(release.getByTestId("release-consequence")).toContainText("Not reversible");
+        await expect(release.getByRole("button", { name: "Keep" })).toBeFocused();
+        await page.keyboard.press("Escape");
+        await expect(release).toBeHidden();
+      }
 
       await openTab(page, team, "health", "team/health");
       await expect(page.getByRole("list", { name: "Agents by health" })).toBeVisible({ timeout: LONG });
       await expect(page.locator("[data-health-group]").first()).toBeVisible();
+      if (guided) await expect(page.getByTestId("module-screen").locator("[data-term='health']").first()).toHaveClass(/term-link/);
       // The card figures read in words (C20): "Last active" and "Failed sessions, 24 h", never "Heartbeat" or "Errors 24 h".
       await expect(page.locator("[data-health-group]").first()).toContainText("Last active");
       await expect(page.locator("[data-health-group]").first()).toContainText("Failed sessions, 24 h");
@@ -79,6 +130,7 @@ for (const width of [1280, 1440]) {
       await openTab(page, team, "hierarchy", "team/hierarchy");
       await expect(page.getByRole("tree", { name: "Team hierarchy" })).toBeVisible({ timeout: LONG });
       await expect(page.getByTestId("hierarchy-summary")).not.toContainText(/\b1 (agents|leads|workers)\b/);
+      if (guided) await expect(page.getByTestId("module-screen").locator("[data-term='hierarchy']").first()).toHaveClass(/term-link/);
       // The whole chart fits the panel's width at both widths: no sideways scroll, and no node text under 11 px.
       const chart = await page.locator("[data-scroll-region=diagram]").first().evaluate((el) => ({
         overflow: el.scrollWidth - el.clientWidth,
@@ -98,8 +150,9 @@ for (const width of [1280, 1440]) {
       await page.keyboard.press("Escape");
     });
 
-    test("Team: signing is never offered to agents, and Recruitment drafts an agent with the generate action", async ({ page }) => {
+    test("Team: signing is never offered to agents, and Recruitment drafts an agent with the generate action", async ({ page, playwright }) => {
       await openBusiness(page);
+      const guided = await guidanceOn(playwright);
       const team = await departmentBase(page, /^team$/i);
 
       await openTab(page, team, "responsibilities", "team/responsibilities");
@@ -140,6 +193,17 @@ for (const width of [1280, 1440]) {
       const draft = page.getByTestId("draft-agent");
       await expect(draft).toBeVisible({ timeout: LONG });
       await expect(draft).toBeDisabled();
+      // The tab's explainer sits in the builder panel while guided; the key cap on the generate button is for
+      // operators only (the shortcut works in both states).
+      const recruitExplainer = page.locator("[data-explainer='team-recruitment']");
+      if (guided) {
+        await expect(recruitExplainer).toBeVisible();
+        await expect(recruitExplainer).toContainText("Hire new agents");
+        await expect(draft.locator("kbd")).toHaveCount(0);
+      } else {
+        await expect(recruitExplainer).toHaveCount(0);
+        await expect(draft.locator("kbd")).toHaveText("⌘↵");
+      }
       // The builder puts the template the sentence names first (TPD-26).
       await page.getByRole("textbox", { name: "Describe the agent" }).fill("an agent who writes our product documentation and help center articles");
       await expect(page.getByRole("list", { name: "Suggested templates" }).getByRole("listitem").first()).toHaveAttribute("data-suggestion", "docs_writer");
@@ -156,6 +220,13 @@ for (const width of [1280, 1440]) {
       await expect(dialog.getByRole("heading", { name: /^Hire / })).toBeVisible();
       // No promise of a first training run that never happens (TPD-11).
       await expect(dialog).not.toContainText(/First training run/);
+      // What hiring does and what it can cost, under the form (ConsequenceLine, always); focus on the first field, not
+      // the Estimate chip, so Escape closes the dialog itself.
+      await expect(dialog.getByTestId("hire-consequence")).toContainText("Starts next cycle");
+      await expect(dialog.getByTestId("hire-consequence")).toContainText(/Up to \$[\d,.]+\/mo \(Estimate\)/);
+      await expect(dialog.getByRole("combobox", { name: "Department" })).toBeFocused();
+      if (guided) await expect(dialog.locator("[data-reassurance]")).toContainText("let it go later");
+      else await expect(dialog.locator("[data-reassurance]")).toHaveCount(0);
       await dialog.getByRole("button", { name: "Cancel" }).click();
       await expect(dialog).toBeHidden();
       const catalogue = page.getByRole("grid", { name: "Catalog" });
@@ -171,7 +242,16 @@ for (const width of [1280, 1440]) {
       await expect(page.getByRole("menuitem", { name: "Duplicate…" })).toBeVisible();
       await expect(page.getByRole("menuitem", { name: "Let go" })).toBeVisible();
       await expect(page.getByRole("menuitem", { name: /Loan|Clone|Release/ })).toHaveCount(0);
+      // Lending says what it does and that it can be undone (ConsequenceLine); moving changes the line.
+      await page.getByRole("menuitem", { name: "Lend to another department…" }).click();
+      const loan = page.getByTestId("loan-dialog");
+      await expect(loan).toBeVisible();
+      await expect(loan.getByTestId("loan-consequence")).toContainText("keeps its tasks, skills, tools and model");
+      await expect(loan.getByTestId("loan-consequence")).toContainText("Reversible");
+      await loan.getByRole("checkbox", { name: /Move instead of lending/ }).click();
+      await expect(loan.getByTestId("loan-consequence")).toContainText("the new department's lead becomes its line manager");
       await page.keyboard.press("Escape");
+      await expect(loan).toBeHidden();
     });
 
     test("Development: plan, pull requests, environments and specialists read as words and fit", async ({ page }) => {

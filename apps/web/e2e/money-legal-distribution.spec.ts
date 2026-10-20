@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, chooseTableView, openBusiness } from "./helpers";
 
 /**
  * Distribution, Finance and Legal on the seeded Northwind Skincare (its Distribution department is named "Retail
@@ -75,6 +75,26 @@ test.describe("distribution, finance and legal read in plain words", () => {
     const table = page.getByRole("grid", { name: "Team payroll" });
     await expect(table).toContainText("$");
     await expect(table).not.toContainText("£");
+  });
+
+  test("finance: the Overview carries the department's intro, a defined word on each tile label and a plain line under each figure (UX plan §7.14)", async ({ page }) => {
+    await openTab(page, "finance", "overview");
+    const metrics = page.getByRole("region", { name: "Finance metrics" });
+    await expect(metrics.locator("[data-metric-tile]").first()).toBeVisible({ timeout: LONG });
+    // Guidance on (the product default): the intro above the summary sentence, inside the metrics region.
+    const explainer = metrics.locator("[data-explainer='finance/overview']");
+    await expect(explainer).toContainText("Where the money is and how long it lasts.");
+    await expect(explainer).toContainText("Numbers marked Estimate are worked out, not measured.");
+    // The summary sentence stays, and the runway tile's label is a defined word with its plain line under the figure.
+    await expect(page.getByTestId("finance-summary")).toBeVisible();
+    const runway = page.locator("[data-metric='runway']");
+    await expect(runway.locator("[data-term='runway']")).toBeVisible();
+    await expect(runway.locator("[data-plain-line]")).toContainText("How many months your cash lasts at today's spending.");
+    expect(await metrics.locator("[data-plain-line]").count()).toBe(10);
+    // Hovering the defined word opens its definition card, with somewhere to go.
+    await runway.locator("[data-term='runway']").hover();
+    await expect(page.locator("[data-definition-card]")).toBeVisible({ timeout: LONG });
+    await expect(page.locator("[data-definition-card] [data-definition-learn]")).toHaveAttribute("href", /\/finance\/runway$/);
   });
 
   test("finance: payback divides by the whole paying base, never by the customers the channels just won", async ({ page }) => {
@@ -158,6 +178,23 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(cash.locator("..").getByText("Forecast", { exact: true })).toBeVisible();
     // The driver summary under the form says so too.
     await expect(page.locator("[data-driver-runway]").getByText("Forecast", { exact: true })).toBeVisible();
+  });
+
+  test("distribution: the Channels table carries a built-in Simple view (Channel, Fit, Status, Cost per customer) and the general view stays one click away (UX plan §7.10)", async ({ page }) => {
+    await openTab(page, "distribution", "channels");
+    const table = page.getByRole("grid", { name: "Channels" });
+    await expect(table.getByRole("row").nth(1)).toBeVisible({ timeout: LONG });
+    // The open view is saved per person (audit #204), so the test picks Simple itself rather than trusting the default.
+    await chooseTableView(page, "Simple");
+    const heads = (await table.getByRole("columnheader").allInnerTexts()).map((t) => t.trim()).filter(Boolean);
+    expect(heads.slice(0, 4)).toEqual(["Channel", "Fit", "Status", "Cost per customer"]);
+    await expect(table.getByRole("row").filter({ hasText: "Acquisition" })).toHaveCount(0);
+    // The panel's help tip (guidance on, the product default) and the footer's defined words.
+    await expect(page.getByRole("button", { name: "About Channels" })).toBeVisible();
+    await expect(page.locator("[data-term='acquisition_cost']").first()).toBeVisible();
+    // Back to the general view: Family returns, and the choice is what later tests expect.
+    await chooseTableView(page, "All channels");
+    await expect(table.getByRole("columnheader", { name: /Family/ })).toBeVisible();
   });
 
   test("distribution: channel names are never squeezed by the recommendation mark and £0 is not an estimate", async ({ page }) => {
@@ -258,6 +295,13 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(page.getByTestId("board-caption")).toContainText("Fit 1–20: how well a channel suits this business");
     await expect(page.getByRole("button", { name: /^(Score again|Get recommendation)$/ })).toBeVisible();
     await expect(page.getByRole("button", { name: "Re-score" })).toHaveCount(0);
+    // Guidance on (the product default): the department's intro inside the Board's body, Fit as a defined word in the
+    // caption, the panel's one-sentence help tip, and the key's defined word under the board (UX plan §7.10, §7.13).
+    const board = page.getByRole("region", { name: "Board" }).first();
+    await expect(board.locator("[data-explainer='distribution/board']")).toContainText("How customers will find you.");
+    await expect(page.getByTestId("board-caption").locator("[data-term='fit']")).toBeVisible();
+    await expect(board.getByRole("button", { name: "About Board" })).toBeVisible();
+    await expect(page.locator("[data-board-key] [data-term='fit']")).toBeVisible();
     // Northwind started distribution in its first weeks (the seed): no Start distribution banner.
     await expect(page.getByTestId("distribution-waiting")).toHaveCount(0);
     await openTab(page, "distribution", "channels");
@@ -296,6 +340,12 @@ test.describe("distribution, finance and legal read in plain words", () => {
     const facts = page.getByRole("region", { name: "Legal entity" });
     await expect(facts.getByText("Private limited company")).toBeVisible();
     await expect(facts.getByText("United Kingdom", { exact: true })).toBeVisible();
+    // Guidance on (the product default): the department's intro sits in the entity panel's body, above the facts, and
+    // Jurisdiction is a defined word (UX plan §7.10, §7.16).
+    const explainer = facts.locator("[data-explainer='legal/entity']");
+    await expect(explainer).toContainText("The company itself: where it is registered, what it must file, what it has signed.");
+    await expect(explainer).toContainText("Information, not legal advice.");
+    await expect(facts.locator("[data-term='jurisdiction']").first()).toBeVisible();
     await openTab(page, "legal", "policies");
     await expect(page.getByText(/private limited company, registration number \d+ \(United Kingdom\)/)).toBeVisible();
     // A UK company's policy cites the UK GDPR and is dated in words, never an ISO key.

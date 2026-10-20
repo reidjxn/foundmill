@@ -9,7 +9,9 @@
  *   times and dates written inside agent notes are not reformatted, and the help line says so.
  * - Guidance: "Explain things as I go" (the guided layer's one switch), the text size, and two ghost buttons that put the
  *   tutoring back to the first day ("Show the first-week checklist again", "Replay the tour"; both are one reset, so
- *   each is off when it has nothing to undo). They save through the GuidanceHost the same way, with a toast.
+ *   each is off when it has nothing to undo). They save through the GuidanceHost the same way, with a toast. An InfoTip
+ *   beside the switch says what guidance changes (shown in both states: it is information about the switch itself), and
+ *   a reassurance line under it says the choice can be switched any time (tutoring, so it hides with guidance off).
  *
  * Open to every member, whatever their role: it changes nothing of the business.
  */
@@ -22,7 +24,9 @@ import {
   DATE_FORMAT_LABELS,
   DATE_FORMAT_SAMPLE,
   DateFormatPicker,
+  InfoTip,
   Label,
+  ReassuranceLine,
   SegmentedControl,
   Switch,
   TIME_FORMAT_LABELS,
@@ -58,6 +62,12 @@ export const TEXT_SIZE_OPTIONS: readonly SegmentedOption<TextSize>[] = [
   { value: "standard", label: "Standard" },
   { value: "comfortable", label: "Comfortable" },
 ];
+
+/** What the switch changes, for the InfoTip beside it ("About what guidance changes"). */
+export const WHAT_GUIDANCE_CHANGES = "The intro on each screen, the first-week checklist, the coach marks and the dotted underline under defined words. Keyboard caps on buttons show only when it is off; the shortcuts work either way.";
+
+/** The reassurance under the switch; hidden with guidance off, like every reassurance line. */
+export const GUIDANCE_REASSURANCE = "You can switch this any time.";
 
 /** Which reset buttons have something to undo: the checklist once it was dismissed; the tour once a tour or an intro was seen. */
 export function resettable(prefs: Pick<GuidancePrefs, "explainersSeen" | "toursDone" | "checklistDismissedAt">): { checklist: boolean; tour: boolean } {
@@ -119,10 +129,17 @@ export function GuidanceSection() {
           data-testid="guidance-switch"
         />
         <div className="flex flex-col gap-1">
-          <Label htmlFor="guidance-switch">Explain things as I go</Label>
+          {/* The tip sits beside the label, never inside it: a button inside a <label> would also toggle the switch. */}
+          <div className="flex items-center gap-0.5">
+            <Label htmlFor="guidance-switch">Explain things as I go</Label>
+            <InfoTip label="what guidance changes" always className="-my-1">
+              {WHAT_GUIDANCE_CHANGES}
+            </InfoTip>
+          </div>
           <p id="guidance-switch-hint" className="text-small text-secondary">
             An intro on each screen, defined words you can hover, the first-week checklist and the tours.
           </p>
+          <ReassuranceLine data-testid="guidance-reassurance">{GUIDANCE_REASSURANCE}</ReassuranceLine>
         </div>
       </div>
       <div className="flex flex-col gap-1.5">

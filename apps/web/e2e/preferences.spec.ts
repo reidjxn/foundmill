@@ -127,10 +127,18 @@ test.describe("settings › preferences: date and time format", () => {
     await page.getByTestId("kitbar-search").click();
     const palette = page.getByTestId("command-palette");
     await expect(palette).toBeVisible({ timeout: LONG });
-    await page.getByRole("combobox").fill("24-hour");
+    const search = page.getByRole("combobox");
+    await search.fill("24-hour");
     const option = palette.getByRole("option", { name: /^Preferences/ }).first();
     await expect(option).toBeVisible({ timeout: LONG });
-    await expect(option).toContainText("Your date and time format, in every business");
+    await expect(option).toContainText("Your date format, guidance and text size, in every business");
+    // The guided layer's switch lives here too, so "guidance" and "text size" find the same row.
+    await search.fill("guidance");
+    await expect(palette.getByRole("option", { name: /^Preferences/ }).first()).toBeVisible({ timeout: LONG });
+    await search.fill("text size");
+    await expect(palette.getByRole("option", { name: /^Preferences/ }).first()).toBeVisible({ timeout: LONG });
+    await search.fill("24-hour");
+    await expect(option).toBeVisible({ timeout: LONG });
     await option.click();
     await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/settings/preferences`), { timeout: LONG });
     await expect(settingsScreen(page).getByTestId("preferences-panel")).toBeVisible({ timeout: LONG });
@@ -194,10 +202,19 @@ test.describe("settings › preferences: guidance", () => {
     // Nothing to reset yet: both buttons are off.
     await expect(screen.getByTestId("show-checklist-again")).toHaveAttribute("aria-disabled", "true");
     await expect(screen.getByTestId("replay-tour")).toHaveAttribute("aria-disabled", "true");
+    // The tip beside the switch says what guidance changes; the reassurance under it shows while guidance is on.
+    const tip = screen.getByRole("button", { name: "About what guidance changes" });
+    await expect(tip).toBeVisible();
+    await tip.hover();
+    await expect(page.getByRole("tooltip")).toContainText("Keyboard caps on buttons show only when it is off", { timeout: LONG });
+    await expect(screen.getByTestId("guidance-reassurance")).toHaveText("You can switch this any time.");
 
     await sw.click();
     await expect(sw).toHaveAttribute("aria-checked", "false");
     await expect(toast(page, "Guidance off")).toBeVisible({ timeout: LONG });
+    // Off: the reassurance line goes (tutoring); the tip stays (it says what the switch does).
+    await expect(screen.getByTestId("guidance-reassurance")).toHaveCount(0);
+    await expect(tip).toBeVisible();
 
     await screen.getByRole("button", { name: "Comfortable", exact: true }).click();
     await expect(toast(page, "Comfortable text")).toBeVisible({ timeout: LONG });
@@ -225,6 +242,7 @@ test.describe("settings › preferences: guidance", () => {
     await screen.getByRole("switch", { name: "Explain things as I go" }).click();
     await expect(toast(page, "Guidance on")).toBeVisible({ timeout: LONG });
     await expect(screen.getByRole("switch", { name: "Explain things as I go" })).toHaveAttribute("aria-checked", "true");
+    await expect(screen.getByTestId("guidance-reassurance")).toBeVisible();
 
     expect(hydration, hydration.join("\n")).toEqual([]);
   });

@@ -107,7 +107,10 @@ describe("/network", () => {
 
   it("opens a thread: messages oldest first, the counts refreshed once it is read, and Send replies in that thread", async () => {
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: /Ana Ruiz/ }));
+    // The thread row, by its list: the Connections table has a row for Ana too (its Avatar names her, and its "…" is
+    // "Actions for Ana Ruiz"), so the name alone matches more than one button.
+    const threads = await screen.findByRole("complementary", { name: "Message threads" });
+    fireEvent.click(await within(threads).findByRole("button", { name: /Ana Ruiz/ }));
     const log = await screen.findByRole("log", { name: "Conversation with Ana Ruiz" });
     await waitFor(() => expect(within(log).getAllByRole("listitem")).toHaveLength(3));
     const bodies = within(log).getAllByRole("listitem").map((li) => li.querySelector("p")!.textContent);

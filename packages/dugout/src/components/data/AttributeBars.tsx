@@ -2,7 +2,8 @@ import { cn } from "../../lib/cn";
 import { FitText } from "../foundation/FitText";
 import { ProvenanceChip } from "../foundation/Chip";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../foundation/HoverCard";
-import { Tooltip } from "../foundation/Tooltip";
+import { ScaleLabel } from "../guidance/ScaleLabel";
+import { Term } from "../guidance/Term";
 import { RatingBar, RatingFigure } from "./RatingBar";
 import type { AttributeRow } from "./types";
 
@@ -14,6 +15,8 @@ export interface AttributeBarsProps {
   columns?: 1 | 2;
   /** Figure next to each bar (default true). */
   showValue?: boolean;
+  /** The band word (ScaleLabel, compact) beside the figure (default: with the figure), so a number never stands alone. */
+  showBand?: boolean;
   className?: string;
 }
 
@@ -31,16 +34,19 @@ function evidenceOf(
 
 /**
  * 1–20 attributes as label + 20-cell bars (DESIGN §9 Ideation Studio: "ten attributes as label + 20-cell bars,
- * evidence on hover"). `compare` draws a second value as outlined cells. A row with a `hint` gets a tooltip on its
- * label saying what the attribute measures and which way it reads; the label is then a button, so the keyboard
- * reaches the definition too, with or without evidence.
+ * evidence on hover"). `compare` draws a second value as outlined cells. A row with a `hint` gets its label as a
+ * `Term` with an inline definition (the dotted learn underline and the definition card on hover or focus, Enter to
+ * pin it), saying what the attribute measures and which way it reads; the keyboard reaches it too, with or without
+ * evidence. The definition stays when guidance is off (`always`): an attribute's meaning is information, and the
+ * card is the only place that gives it. Each figure carries its band word (ScaleLabel, UX plan §5 principle 4).
+ * Server-safe itself: Term and HoverCard are the client boundaries.
  */
-// TODO(guided-layer): Term — swap the label tooltip for the dotted Term with its hover card once the primitive lands.
 export function AttributeBars({
   attributes,
   labelClassName = "w-28",
   columns = 1,
   showValue = true,
+  showBand = showValue,
   className,
 }: AttributeBarsProps) {
   return (
@@ -62,15 +68,16 @@ export function AttributeBars({
           >
             <dt className={cn("shrink-0 text-small text-secondary", labelClassName)} title={a.hint ? undefined : a.name}>
               {a.hint ? (
-                <Tooltip content={a.hint} side="top" align="start">
-                  <button
-                    type="button"
-                    className="block w-full cursor-help rounded-xs text-left text-small text-secondary transition-colors duration-hover hover:text-primary focus-visible:shadow-ring"
-                    data-attribute-hint=""
-                  >
-                    <FitText minPx={11}>{a.name}</FitText>
-                  </button>
-                </Tooltip>
+                <Term
+                  id={`attribute:${a.id}`}
+                  definition={{ id: `attribute:${a.id}`, word: a.name, short: a.hint }}
+                  always
+                  side="top"
+                  align="start"
+                  className="block w-full text-left text-small text-secondary transition-colors duration-hover hover:text-primary"
+                >
+                  <FitText minPx={11}>{a.name}</FitText>
+                </Term>
               ) : (
                 <FitText minPx={11}>{a.name}</FitText>
               )}
@@ -86,6 +93,8 @@ export function AttributeBars({
                 cellHeight={6}
                 className="flex-1"
               />
+              {/* A fixed width keeps the bars aligned across rows; wide enough for "Excellent" and its dot, so nothing is cut. */}
+              {showBand ? <ScaleLabel value={a.value} compact className="w-20 shrink-0" aria-hidden /> : null}
               {ev?.provenance ? <ProvenanceChip kind={ev.provenance} /> : null}
             </dd>
           </div>

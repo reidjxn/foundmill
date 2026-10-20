@@ -261,8 +261,10 @@ describe("DataTable", () => {
     const buttons = screen.getAllByRole("button", { name: /^Actions for / });
     expect(buttons).toHaveLength(3);
     const second = screen.getByRole("button", { name: `Actions for ${leads[1]?.name}` });
-    expect(second.style.width).toBe("24px");
-    expect(second.style.height).toBe("24px");
+    // The 24 px target token (`size-target`) replaces the small button's own 28 px width and height.
+    expect(second.className).toContain("size-target");
+    expect(second.className).not.toMatch(/\b[wh]-control-sm\b/);
+    expect(second.style.width).toBe("");
     // Its column: a named header, fixed width, at the end; the spare width still goes to the last data column.
     expect(screen.getByRole("columnheader", { name: "Actions" }).style.flexShrink).toBe("0");
     expect(screen.getByRole("columnheader", { name: /Stage/ }).style.flex).toBe("1 0 160px");

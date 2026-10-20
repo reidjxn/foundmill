@@ -10,7 +10,7 @@
  * when they turn ready the screen refetches what it shows; a failure offers Try again (`product.foundations.retry`),
  * which resumes from what was written. Businesses committed before foundations existed report "none" and show nothing.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CircleCheck, CircleDashed, Compass, LoaderCircle } from "lucide-react";
 import { Avatar, Chip, EntityLink, FoundationsStatus, Icon, LiveRun, Panel, ProvenanceChip, StatusPill, cn, foundationsNeedsAttention, useDateFormat, type GridSpan, type LiveRunItem, type LiveRunStep } from "@foundmill/dugout";
 import type { DeptColourToken, RoadmapHorizon } from "@foundmill/shared";
@@ -312,12 +312,16 @@ export function FoundationsProgressPanel({ progress: p, vision, state, span = 12
   );
 }
 
-/** The stored vision on the Vision tab: the statement with who it is for, the problem and why now, the principles, and the north-star metric. */
-export function VisionPanels({ vision }: { vision: FoundationsVision }) {
+/**
+ * The stored vision on the Vision tab: the statement with who it is for, the problem and why now, the principles, and
+ * the north-star metric. `intro` (the department's Explainer) sits at the top of the first panel's body.
+ */
+export function VisionPanels({ vision, intro }: { vision: FoundationsVision; intro?: ReactNode }) {
   const label = vision.northStar.label === "Forecast" ? "forecast" : "estimate";
   return (
     <>
       <Panel title="Vision" span={8} data-testid="vision-record">
+        {intro}
         <div className="flex max-w-reading flex-col gap-4">
           <p className="t-display-sm text-primary" data-vision-statement>
             {vision.statement}

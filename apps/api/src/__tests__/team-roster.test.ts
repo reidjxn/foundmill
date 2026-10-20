@@ -119,6 +119,25 @@ describe("team.agents (W19)", () => {
     expect(agents.find((x) => x.id === agentId)?.chiefOfStaff).toBe(true);
     expect(row.chiefOfStaff).toBe(false);
   });
+
+  it("team.agents.list rates each agent on the one /20 scale (`rating20`, one decimal) and keeps the deprecated /10 `rating` for one release", async () => {
+    const { businessId, ownerId } = hz.A;
+    const rated = await repos.agents.create(hz.db, businessId, { name: "Rated agent", agentType: "engineer" });
+    await repos.skills.upsertForAgent(hz.db, businessId, rated.id, [
+      { skillKey: "planning", group: "judgement", tested: 14, proven: null, nLive: 0, displayed: 14, potential: 18 },
+      { skillKey: "testing", group: "execution", tested: 17, proven: null, nLive: 0, displayed: 17, potential: 19 },
+    ]);
+    const unrated = await repos.agents.create(hz.db, businessId, { name: "Unrated agent", agentType: "engineer" });
+    const { agents } = await hz.caller({ userId: ownerId }).team.agents.list({ businessId });
+    const row = agents.find((x) => x.id === rated.id)!;
+    // (14 + 17) / 2 = 15.5 on the /20 scale; the deprecated field says the same thing out of 10.
+    expect(row.rating20).toBe(15.5);
+    expect(row.rating).toBe(7.8);
+    // No skills yet: not rated on either scale (the table shows "—").
+    const empty = agents.find((x) => x.id === unrated.id)!;
+    expect(empty.rating20).toBeNull();
+    expect(empty.rating).toBeNull();
+  });
 });
 
 describe("team.humans and team.responsibilities (W19)", () => {

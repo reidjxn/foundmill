@@ -109,6 +109,9 @@ export const TASKS_FAILED_LINE: DepartmentQuietLine = { kind: "error", label: "C
 /** The line plus what it opens: the note in the Inbox, the agent's profile, or the failed task on the Plan. */
 export type QuietLine = DepartmentQuietLine & { inboxItemId?: string; agentId?: string; taskId?: string };
 
+/** The kicker over a note that waits for the founder: the one "needs you" word (UX plan §5.5), the Autopilot chip's too. */
+export const NEEDS_ANSWER_LABEL = "Needs your answer";
+
 /** Milliseconds of a timestamp as the API sends it (a Date through superjson, an ISO string in fixtures); null if none. */
 function toMs(at: unknown): number | null {
   const ms = at instanceof Date ? at.getTime() : typeof at === "string" || typeof at === "number" ? new Date(at).getTime() : NaN;
@@ -130,7 +133,7 @@ const ATTENTION_WORDS: Record<(typeof NEEDS_ATTENTION_STATUSES)[number], { verb:
 /**
  * A quiet department's one line, from real data, the most useful first: an agent of its team that needs the founder
  * (failing, then down, then degraded, as Team › Health says it), else a note from its agents waiting for the founder's
- * answer ("Waiting for you", the same rule as the Inbox's "Respond" tag), else an unread note from them, else its last
+ * answer ("Needs your answer", the same rule as the Inbox's "Respond" tag), else an unread note from them, else its last
  * task when that one failed, else the last task it finished (with the day), else "All clear" once both the Inbox and
  * the finished tasks have answered. Null while that is not known, so the card never claims "nothing waiting" on
  * missing data, and never "All clear" next to a Failing pill.
@@ -149,7 +152,7 @@ export function quietLine(input: { agentIds: ReadonlySet<string>; departmentId: 
     .sort((a, b) => (toMs(b.createdAt) ?? 0) - (toMs(a.createdAt) ?? 0));
   const respond = notes.filter((n) => noteRowTag(n) === RESPOND_TAG);
   const waiting = respond[0];
-  if (waiting) return { kind: "respond", label: "Waiting for you", text: waiting.subject, detail: respond.length > 1 ? `${respond.length - 1} more in the Inbox` : undefined, inboxItemId: waiting.id };
+  if (waiting) return { kind: "respond", label: NEEDS_ANSWER_LABEL, text: waiting.subject, detail: respond.length > 1 ? `${respond.length - 1} more in the Inbox` : undefined, inboxItemId: waiting.id };
   const unread = notes.find((n) => n.state === "unread");
   if (unread) return { kind: "inbox", label: "New in your Inbox", text: unread.subject, inboxItemId: unread.id };
   const last = (input.done ?? [])
@@ -186,6 +189,20 @@ const AT_RISK = new Set(["blocked", "at_risk", "late", "overdue"]);
 
 /** The Finance card's runway metric in words (UX plan B9); the status strip's tile keeps "Runway" and defines it in its caption. */
 export const RUNWAY_METRIC_LABEL = "Months of cash left";
+
+/**
+ * The headline metric in plain words under its figure while guidance is on (PlainFigure, UX plan §7.8): the id of its
+ * definition where the map has one (runway, team health, the cost to win a customer), else one line of the card's own.
+ */
+export const METRIC_PLAIN: Record<DepartmentMetricKey, { metricId: string } | { plain: string }> = {
+  auto: { plain: "Tasks the team finished in the last 7 days." },
+  tasks_done: { plain: "Tasks the team finished in the last 7 days." },
+  roadmap_on_track: { plain: "Roadmap items due now that are not blocked or late." },
+  blended_cpa: { metricId: "acquisition_cost" },
+  runway: { metricId: "runway" },
+  squad_health: { metricId: "team_health" },
+  next_filing: { plain: "Days until the next filing or legal deadline is due." },
+};
 
 /**
  * The business's bank balance at the end of each of the last `months` months (oldest first; the current month as of
@@ -379,6 +396,7 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
             : undefined;
 
   if (card && dept) {
+    const plain = METRIC_PLAIN[metricKey];
     return (
       <DepartmentCard
         department={card}
@@ -388,6 +406,9 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
         onOpenEntity={openEntity}
         onOpenQuiet={openQuiet}
         entityKinds={entityKinds}
+        // The metric in plain words while guidance is on; never on a figure that says "No access" or "Couldn't load".
+        metricId={metricError ? undefined : "metricId" in plain ? plain.metricId : undefined}
+        metricPlain={metricError ? undefined : "plain" in plain ? g(plain.plain) : undefined}
       />
     );
   }

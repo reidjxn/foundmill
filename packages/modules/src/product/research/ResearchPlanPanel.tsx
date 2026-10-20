@@ -10,7 +10,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BookOpenText, CheckCircle2, FileText, FlaskConical, ListChecks, LoaderCircle, Mic, Presentation, RotateCcw, ScrollText, Share2, Target, type LucideIcon } from "lucide-react";
-import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, Markdown, Panel, StatusPill, cn, useFormatters, useGuided, type ChipTone, type GridSpan } from "@foundmill/dugout";
+import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Explainer, Icon, Markdown, Panel, StatusPill, cn, useFormatters, type ChipTone, type GridSpan } from "@foundmill/dugout";
 import type { ResearchArtifactKind, ResearchArtifactStatus } from "@foundmill/shared";
 import { failedWithoutData, isForbidden, moduleHref, routes, useBusinessEvents, useDepartments, useHostStreamOpen, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import { useCanWrite } from "../../env";
@@ -48,6 +48,13 @@ export type ResearchPlanState = "none" | "waiting" | "pending" | "drafting" | "r
 export const RESEARCH_PLAN_TITLE = "Research plan";
 /** What the plan is for, in one line under the title while guidance is on (UX plan §7.11). */
 export const RESEARCH_PLAN_LEDE = "Who we will talk to and what we will ask, before building more.";
+/** The panel's intro while guidance is on: the lede, what to do, what to watch for (the Explainer, UX plan §6.2). */
+export const RESEARCH_PLAN_EXPLAINER = {
+  screenId: "product/research",
+  purpose: RESEARCH_PLAN_LEDE,
+  action: "Read each artifact; mark it ready when it is, and shared once it has gone out.",
+  watchFor: "Nothing is sent to anyone without your approval; every threshold is an Estimate until it is measured.",
+} as const;
 
 /**
  * The state the panel shows. The foundations gate it: until they are ready nothing can be drafted (`waiting`); a plan
@@ -78,7 +85,6 @@ export interface ResearchPlanPanelProps {
 
 export function ResearchPlanPanel({ businessId, blocks, onOpenBlock, span = 12, className }: ResearchPlanPanelProps) {
   const { mutate, navigate } = useWidgetData();
-  const guided = useGuided();
   const canWrite = useCanWrite("product");
   const departments = useDepartments();
   const streamOpen = useHostStreamOpen();
@@ -156,12 +162,8 @@ export function ResearchPlanPanel({ businessId, blocks, onOpenBlock, span = 12, 
       data-research-state={state}
       footer={state === "ready" ? <span className="tabular-nums">{r.artifacts.length} artifacts · every threshold and sample size is an Estimate until it is measured · nothing is sent to anyone without your approval</span> : undefined}
     >
-      {/* TODO(guided-layer): Explainer. */}
-      {guided ? (
-        <p className="mb-2 text-small text-secondary" data-testid="research-plan-lede">
-          {RESEARCH_PLAN_LEDE}
-        </p>
-      ) : null}
+      {/* What the plan is for, in the panel's intro while guidance is on (UX plan §7.11). */}
+      <Explainer {...RESEARCH_PLAN_EXPLAINER} className="mb-3" />
       {state === "none" ? (
         <p className="max-w-reading text-body text-secondary">This business has no research plan: it was set up before its specification was drafted here, so there is nothing for the Product Researcher to test yet.</p>
       ) : null}

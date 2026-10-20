@@ -154,11 +154,14 @@ describe("decideAutopilot: it waits, it never decides for the founder", () => {
     expect(decideAutopilot(facts({ ...due, cycleOpen: true }))).toMatchObject({ action: "wait", why: "cycle_running" });
   });
 
-  it("an Inbox item that blocks Continue: Waiting for you, with the planned time kept", () => {
+  it("an Inbox item that blocks Continue: Needs your answer, with the planned time kept", () => {
     const d = decideAutopilot(facts({ ...due, blockingItems: 2 }));
     expect(d).toMatchObject({ action: "wait", why: "inbox" });
-    expect(autopilotView(d)).toMatchObject({ state: "waiting", label: "Waiting for you" });
-    expect(autopilotView(d).detail).toMatch(/2 Inbox items need your decision/);
+    expect(autopilotView(d)).toMatchObject({ state: "waiting", label: "Needs your answer" });
+    expect(autopilotView(d).detail).toBe("2 notes in the Inbox need your answer. Autopilot never answers them for you.");
+    expect(autopilotView(decideAutopilot(facts({ ...due, blockingItems: 1 }))).detail).toBe("1 note in the Inbox needs your answer. Autopilot never answers it for you.");
+    // One word for "needs you" everywhere a founder reads it (UX plan §5.5): never "Waiting for you".
+    expect(autopilotView(d).label).not.toMatch(/Waiting for you/);
   });
 
   it("the day's cycle cap waits until tomorrow (UTC)", () => {
@@ -197,7 +200,7 @@ describe("decideAutopilot: it waits, it never decides for the founder", () => {
 });
 
 describe("autopilotView: the chip", () => {
-  it("shows Off, On, Waiting for you and Paused with the reason", () => {
+  it("shows Off, On, Needs your answer and Paused with the reason", () => {
     expect(autopilotView({ action: "off" })).toMatchObject({ state: "off", label: "Off" });
     expect(autopilotView(decideAutopilot(facts({ stopReason: "kill_switch" })))).toMatchObject({ state: "paused", label: "Paused: agents stopped" });
     expect(autopilotView(decideAutopilot(facts({ creditsRemainingMinor: 0 })))).toMatchObject({ state: "paused", label: "Paused: credits used up" });

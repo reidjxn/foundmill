@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { CircleCheck, ExternalLink, FileCode, FolderGit2, GitBranch, Network, Search, Trash2, TriangleAlert } from "lucide-react";
-import { Avatar, Button, Chip, CodeViewer, DataTable, EmptyState, ErrorState, Icon, Input, Panel, SimpleSelect, StatusPill, cn, formatBytes, formatDate, formatNumber, formatRelative, useFormatters, type DataTableColumn, type DateFormatPrefs, type SelectOption } from "@foundmill/dugout";
+import { Avatar, Button, Chip, CodeViewer, DataTable, EmptyState, ErrorState, Icon, Input, Panel, SimpleSelect, StatusPill, Term, cn, formatBytes, formatDate, formatNumber, formatRelative, useFormatters, type DataTableColumn, type DateFormatPrefs, type SelectOption } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
@@ -23,7 +23,12 @@ const CODE_TOOLBAR_HEIGHT = 32;
 const FIRST_FILES = ["README.md", "readme.md", "package.json"];
 /** Above this many files the list gets a filter box. */
 const FILTER_FROM = 12;
-const SAVED_FOOTER = "Saved when each session ends, and pushed to the task's branch when GitHub is set up. The next session on a task starts from its latest save.";
+/** Where saved code comes from, under both Saved code panels: the terms are defined where a founder first meets them. */
+const SavedFooter = () => (
+  <span>
+    Saved when each <Term id="session">session</Term> ends, and pushed to the task's <Term id="branch">branch</Term> when GitHub is set up. The next session on a task starts from its latest save.
+  </span>
+);
 
 export interface CodeTaskTableRow extends CodeTaskRow {
   id: string;
@@ -269,7 +274,7 @@ export function CodeScreen({ businessId, departmentId }: ModuleScreenProps) {
           title="Saved code"
           actions={repoButton}
           empty={{ icon: FolderGit2, title: "No saved code yet", children: "When an agent's session on a code task ends, the files it wrote are saved here, and the next session on that task carries on from them.", action: { label: "Go to Plan", onClick: goToPlan } }}
-          footer={<span>{SAVED_FOOTER}</span>}
+          footer={<SavedFooter />}
         />
         {repoDialog}
       </Screen>
@@ -286,7 +291,7 @@ export function CodeScreen({ businessId, departmentId }: ModuleScreenProps) {
         loading={list.isLoading}
         error={list.error ? list.error.message : undefined}
         onRetry={list.refetch}
-        footer={<span>{SAVED_FOOTER}</span>}
+        footer={<SavedFooter />}
       >
         <DataTable<CodeTaskTableRow>
           data={rows}

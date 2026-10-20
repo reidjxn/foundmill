@@ -8,7 +8,7 @@ import { notePreview, type InboxItemType, type InboxState, type Money } from "@f
 import { monthRevenueMinor } from "@foundmill/widgets/shared/cash";
 import { applyGlossary } from "@foundmill/shared/glossary";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { runwayWords } from "@foundmill/widgets/shared/runway";
+import { runwayFigure, runwayWords } from "@foundmill/widgets/shared/runway";
 import { NOTE_TYPE_TAGS, noteRowTag, type NoteTag as SharedNoteTag, type NoteTagIcon, type NoteTagTone } from "@foundmill/widgets/shared/note-tags";
 import { formatNumber } from "@/lib/format";
 
@@ -487,10 +487,11 @@ function statusStripFigures(strip: readonly unknown[], sources: MetricSources): 
         case "cash":
           return { label: "Cash", value: f ? { amountMinor: f.cash.amountMinor, currency: f.cash.currency } : null, provenance: provenance(m, "Bank balances") };
         case "runway": {
-          // No figure: the shared runway words (Home, Finance and the note say the same), never a bare "—".
+          // No figure: the shared runway words (Home, Finance and the note say the same), never a bare "—"; a balance
+          // below zero reads "Cash is below zero" with its Estimate tag, never "No limit" (widgets/shared/runway).
           const words = runwayWords(f);
-          if (words) return { label: "Runway", value: words.value, caption: words.caption, provenance: provenance(m, "Cash ÷ net burn") };
-          return { label: "Runway", value: f?.runway.months ?? null, format: "decimal", unit: "months", estimate: "estimate", provenance: provenance(m, "Cash ÷ net burn") };
+          if (words) return { label: "Runway", value: words.value, caption: words.caption, estimate: words.estimate ? "estimate" : undefined, provenance: provenance(m, "Cash ÷ net burn") };
+          return { label: "Runway", value: runwayFigure(f), format: "decimal", unit: "months", estimate: "estimate", provenance: provenance(m, "Cash ÷ net burn") };
         }
         case "burn":
         case "net_burn":

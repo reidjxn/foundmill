@@ -6,8 +6,7 @@
  * milestones.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Copy, LayoutDashboard, Link2, Pencil, Plus, Share2, Star, Trash2, Trophy } from "lucide-react";
-import Link from "next/link";
+import { Copy, LayoutDashboard, Link2, Pencil, Plus, Share2, Star, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -30,9 +29,11 @@ import {
   IconButton,
   Input,
   Kbd,
+  NextStep,
   Panel,
   TrophyCabinet,
   WidgetGrid,
+  nextStepsFor,
   useGuided,
   useToast,
   type WidgetLayout,
@@ -55,7 +56,7 @@ import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { HomeAutopilot } from "./HomeAutopilot";
-import { dashboardActions, dashboardTabs, dayOneLine, dayOneStep, editedElsewhere, ghostedMilestones, gridPresets, isDayOne, isOwnDashboard, nextDashboardName, pickDashboardId, resetPresetFor, sameLayout, shareHref, versionConflict } from "./dashboards";
+import { dashboardActions, dashboardTabs, editedElsewhere, ghostedMilestones, gridPresets, isDayOne, isOwnDashboard, nextDashboardName, nextStepFacts, pickDashboardId, resetPresetFor, sameLayout, shareHref, unreadNotes, versionConflict, withContinueAction } from "./dashboards";
 import { isGuid } from "@/lib/ids";
 
 type DashboardRow = RouterOutputs["dashboard"]["get"];
@@ -246,13 +247,13 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
     );
   }
   if (loadFailed(dashboardQ)) return <ErrorPanel title="Home" message={errorMessage(dashboardQ.error)} onRetry={() => void dashboardQ.refetch()} />;
-  // Foundations, Autopilot and Day one start their reads at mount instead of after the dashboard (audit WEB-3): while it
-  // loads they mount out of sight, so their answers are in the cache when they take their place above the grid.
+  // Foundations, Autopilot and the next step start their reads at mount instead of after the dashboard (audit WEB-3):
+  // while it loads they mount out of sight, so their answers are in the cache when they take their place above the grid.
   const lead = (
     <>
       <HomeFoundations />
       <HomeAutopilot />
-      <DayOne businessId={businessId} currency={currency} />
+      <HomeLead businessId={businessId} currency={currency} />
     </>
   );
   if (!row) {
@@ -468,7 +469,7 @@ function HomeFoundations() {
   return <FoundationsBanner foundations={foundations} showReady detail={{ vision: true, roadmap: true }} />;
 }
 
-/* ---------- Day one ---------- */
+/* ---------- The next step and Day one ---------- */
 
 /** The top bar's Continue button (ContinueButton marks it `data-continue-state`): "Press Continue" puts the focus on it. */
 export function focusContinueButton(): boolean {
@@ -479,56 +480,51 @@ export function focusContinueButton(): boolean {
 }
 
 /**
- * The day-one panel's line (`dayOneLine`) with its one step as a plain link (UX plan B4): the Vision tab while the
- * first cycle runs, the Inbox's Respond tab while notes hold Continue, the Continue button otherwise.
+ * The next-step strip (UX plan §6.2 NextStep, §7.8, B4) from facts the shell already holds: on day one, three numbered
+ * rows inside the Day one panel (read what the team drafted, answer the notes, press Continue) above the ghosted
+ * milestones; after the first cycle, the single most relevant line on its own slim plate above the grid. The strip
+ * itself renders only while guidance is on; the Day one milestones stay either way (they are information).
  */
-// TODO(guided-layer): NextStep (`nextStepsFor` + the strip) replaces this line and link; the ghosted milestones stay.
-function DayOne({ businessId, currency }: { businessId: string; currency: string }) {
+function HomeLead({ businessId, currency }: { businessId: string; currency: string }) {
   const trpc = useTRPC();
   const { data: business, departments } = useBusiness();
   const glossary = business.business.glossary;
+  const guided = useGuided();
   const inputs = useMemo(() => shellQueryInputs(businessId), [businessId]);
   // The last 30 days, slim: the same query as the status strip and the department cards (one request for all of them).
   // In the business time zone (audit #196), so the key is the one the widgets ask for.
   const ribbon = useQuery(trpc.journey.ribbon.queryOptions({ businessId, ...recentRibbonInput(useToday()) }, { staleTime: 60_000, retry: false }));
   // The shell's own cycle and inbox reads (same keys, so no extra request): commit already starts cycle 1, and the
-  // opening Board decision blocks Continue, so the copy says what is actually true (audit FR-19, IAE-19, OL-23).
+  // opening Board decision blocks Continue, so the rows say what is actually true (audit FR-19, IAE-19, OL-23).
   const cycleQ = useQuery(trpc.cycle.status.queryOptions(inputs.cycle, { staleTime: 10_000, retry: false }));
   const inboxQ = useQuery(trpc.inbox.list.queryOptions(inputs.inbox, { staleTime: 10_000 }));
   const dayOne = ribbon.data && cycleQ.data ? isDayOne({ conversions: ribbon.data.conversionCount, milestones: ribbon.data.milestones.length, cyclesCompleted: cycleQ.data.completedCount }) : false;
   const cards = useMemo(() => ghostedMilestones(currency, glossary), [currency, glossary]);
-  if (!dayOne || !cycleQ.data) return null;
-  const state = { running: cycleQ.data.running, cycleNumber: cycleQ.data.cycleNumber ?? null, blocking: inboxQ.data?.blocking ?? 0 };
-  const line = dayOneLine(state);
-  const step = dayOneStep(state);
   const visionHref = moduleHref(businessId, departments, "product", "vision") ?? routes.department(businessId, "product", "vision");
-  const linkClass = "entity-link inline-flex items-center gap-1 text-primary";
+  const boardHref = moduleHref(businessId, departments, "distribution", "formation") ?? routes.department(businessId, "distribution", "formation");
+  const items = inboxQ.data?.items;
+  const blocking = inboxQ.data?.blocking ?? business.blockingItems ?? 0;
+  const steps = useMemo(() => {
+    if (!cycleQ.data) return [];
+    const facts = nextStepFacts({ foundationsStatus: business.foundationsStatus, blocking, unread: unreadNotes(items), cycle: cycleQ.data, distributionStartedAt: business.distributionStartedAt });
+    return withContinueAction(nextStepsFor(facts, { vision: visionHref, inboxRespond: respondHref(businessId, items), board: boardHref }), focusContinueButton);
+  }, [cycleQ.data, business.foundationsStatus, business.distributionStartedAt, blocking, items, visionHref, boardHref, businessId]);
+  if (!ribbon.data || !cycleQ.data) return null;
+  if (dayOne) {
+    return (
+      <Panel title="Day one" span={12} data-testid="day-one" footer={<span>Milestones light up as customers and revenue arrive; department cards show the staffed team and its first tasks.</span>}>
+        <div className="flex flex-col gap-3">
+          <NextStep steps={steps} data-testid="next-step" />
+          <TrophyCabinet trophies={cards} columns={4} />
+        </div>
+      </Panel>
+    );
+  }
+  if (!guided || steps.length === 0) return null;
   return (
-    <Panel title="Day one" span={12} data-testid="day-one" footer={<span>Milestones light up as customers and revenue arrive; department cards show the staffed team and its first tasks.</span>}>
-      <div className="flex flex-col gap-3">
-        <p className="text-body text-secondary" data-testid="day-one-line">
-          <Trophy className="mr-1 inline size-3.5 text-gold" aria-hidden />
-          {line}{" "}
-          {step.kind === "vision" ? (
-            <Link href={visionHref} className={linkClass} data-testid="day-one-step" data-step={step.kind}>
-              {step.label}
-              <ArrowRight className="size-3.5" aria-hidden />
-            </Link>
-          ) : step.kind === "respond" ? (
-            <Link href={respondHref(businessId, inboxQ.data?.items)} className={linkClass} data-testid="day-one-step" data-step={step.kind}>
-              {step.label}
-              <ArrowRight className="size-3.5" aria-hidden />
-            </Link>
-          ) : (
-            <button type="button" className={linkClass} onClick={focusContinueButton} data-testid="day-one-step" data-step={step.kind}>
-              {step.label}
-              <ArrowRight className="size-3.5" aria-hidden />
-            </button>
-          )}
-        </p>
-        <TrophyCabinet trophies={cards} columns={4} />
-      </div>
-    </Panel>
+    <div className="surface-panel flex min-h-control-md items-center px-panel-pad py-1.5" data-testid="next-step-strip">
+      <NextStep steps={steps} compact className="w-full" />
+    </div>
   );
 }
 

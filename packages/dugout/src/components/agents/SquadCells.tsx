@@ -18,6 +18,7 @@ import { Chip } from "../foundation/Chip";
 import { Icon, type IconComponent } from "../foundation/Icon";
 import { AgentStatusPill } from "../foundation/StatusPill";
 import { Tooltip } from "../foundation/Tooltip";
+import { FormKey, ScaleLabel, formKeySentence } from "../guidance/ScaleLabel";
 import type { FormResult, SquadRow } from "./types";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -30,12 +31,12 @@ export const FORM_RESULT_WORD: Record<FormResult, string> = { success: "went wel
 /** The column head's one-line meaning, for the caption under it when guidance is on. */
 export const FORM_CAPTION = "Form: the last five tasks";
 
-/** The hover key for five form cells: "Last 5 tasks: 4 went well, 1 partly, 0 failed" (fewer than five: "Last 3 tasks: …"). */
+/**
+ * The hover key for five form cells: "Last 5 tasks: 4 went well, 1 partly, 0 failed" (fewer than five: "Last 3 tasks:
+ * …"; none: "No tasks yet"). The guidance group's `formKeySentence`, over the last five results.
+ */
 export function formKey(form: readonly FormResult[]): string {
-  const last = form.slice(-5);
-  if (last.length === 0) return "No tasks finished yet";
-  const count = (r: FormResult) => last.filter((x) => x === r).length;
-  return `Last ${last.length} ${last.length === 1 ? "task" : "tasks"}: ${count("success")} went well, ${count("partial")} partly, ${count("failure")} failed`;
+  return formKeySentence(form.slice(-5));
 }
 
 export interface FormCellsProps {
@@ -46,14 +47,14 @@ export interface FormCellsProps {
 
 /**
  * Five 8 px cells (good / warn / bad) lit in their tone, oldest left; empty slots are a faint plate. Hover or focus shows
- * the key ("Last 5 tasks: 4 went well, 1 partly, 0 failed"), which is also the accessible name, so color is never the
- * only signal.
+ * the key (`FormKey`: "Last 5 tasks: 4 went well, 1 partly, 0 failed"), which is also the accessible name, so color is
+ * never the only signal.
  */
 export function FormCells({ form, name = "Form", className }: FormCellsProps) {
   const cells = Array.from({ length: 5 }, (_, i) => form[form.length - 5 + i] ?? null);
   const key = formKey(form);
   return (
-    <Tooltip content={key}>
+    <Tooltip content={<FormKey cells={cells} />}>
       <ol aria-label={`${name}: ${key}`} tabIndex={-1} className={cn("inline-flex gap-0.5 align-middle outline-none", className)} data-form-cells>
         {cells.map((c, i) => (
           <li key={i} aria-hidden data-result={c ?? "none"} className={cn("size-2.5 rounded-xs", c ? FORM_CLASS[c] : "cell-empty")} />
@@ -85,7 +86,8 @@ export interface RatingCellProps {
 
 /**
  * The 1–20 mean to one decimal in display-sm, in the ramp tone, with the band word beside it (Poor / Average / Good /
- * Excellent), so a number never stands alone (UX plan §5.4).
+ * Excellent) as the guidance group's ScaleLabel, compact for the table's 28 px rows, so a number never stands alone
+ * (UX plan §5 principle 4). `compact` here folds the word into the tooltip and the accessible name instead.
  */
 export function RatingCell({ value, compact, className }: RatingCellProps) {
   if (value === null || value === undefined || !Number.isFinite(value) || value <= 0) {
@@ -97,18 +99,13 @@ export function RatingCell({ value, compact, className }: RatingCellProps) {
   }
   const v = Math.max(1, Math.min(RATING_MAX, value));
   const figure = formatNumber(v, { digits: 1 });
-  // TODO(guided-layer): ScaleLabel takes over the band word once the guidance primitives land.
   const band = ratingBandLabel(v);
   return (
     <span className={cn("inline-flex items-baseline gap-1.5 whitespace-nowrap", className)} aria-label={`Rating ${figure} of ${RATING_MAX}, ${band}`} title={compact ? `${figure} of ${RATING_MAX} · ${band}` : undefined} data-rating-cell>
       <span className={cn("t-display-sm", ratingClass(v))} aria-hidden>
         {figure}
       </span>
-      {compact ? null : (
-        <span className="text-small text-secondary" aria-hidden>
-          {band}
-        </span>
-      )}
+      {compact ? null : <ScaleLabel value={v} scale={RATING_MAX} compact aria-hidden />}
     </span>
   );
 }
@@ -249,7 +246,9 @@ export function squadColumns(opts: SquadColumnOptions = {}): DataTableColumn<Squ
     { id: "departments", accessorFn: (r) => r.departments.join(", "), header: "Departments", size: 140 },
     { id: "status", accessorKey: "status", header: "Status", size: 150, cell: ({ row }) => <StatusCell status={row.original.status} expectedReturnAt={row.original.expectedReturnAt} now={now} />, meta: { filter: "select", filterOptions: ["healthy", "degraded", "failing", "injured", "paused", "idle"].map((v) => ({ value: v, label: v })) } },
     { id: "currentTask", accessorFn: (r) => r.currentTask?.title ?? "", header: "Current task", size: 240, cell: ({ row }) => (opts.renderTask ? opts.renderTask(row.original) : <span className="truncate text-secondary">{row.original.currentTask?.title ?? "—"}</span>) },
-    // The column head carries the key once; every row's cells carry it on hover.
+    // The column head carries the key once; every row's cells carry it on hover. The heads are plain words: the sort
+    // button holds them, and a Term is a button of its own, so the defined words sit in the screen's caption under
+    // the table (SquadScreen) until DataTable renders a `meta.term` beside the sort control.
     { id: "form", accessorFn: (r) => formScore(r.form), header: () => <span title="The last five tasks, oldest left: green went well, amber partly, red failed">Form</span>, size: 80, cell: ({ row }) => <FormCells form={row.original.form} name={`${row.original.name} form`} />, meta: { numeric: true, label: "Form" } },
     { id: "rating", accessorKey: "rating", header: () => <span title={RATING_COLUMN_TOOLTIP}>{RATING_COLUMN_LABEL}</span>, size: 112, cell: ({ getValue }) => <RatingCell value={getValue() as number} />, meta: { numeric: true, label: RATING_COLUMN_LABEL } },
     { id: "tools", accessorFn: (r) => r.tools.length, header: "Tools", size: 140, cell: ({ row }) => <ToolIcons tools={row.original.tools} />, meta: { numeric: true } },

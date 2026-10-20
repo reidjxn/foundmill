@@ -6,13 +6,13 @@
  */
 import { useEffect, useId, useMemo, useState } from "react";
 import { AlertTriangle, HelpCircle, Inbox, Save, TrendingUp, Undo2 } from "lucide-react";
-import { Button, Chip, Field, Input, KeyValueList, LineChart, MoneyInput, Panel, ProvenanceChip, SegmentedControl, StatusPill, useFormatters, type LineSeries, type SeriesTone } from "@foundmill/dugout";
+import { Button, Chip, Field, Input, KeyValueList, LineChart, MoneyInput, Panel, ProvenanceChip, SegmentedControl, StatusPill, Term, useFormatters, type LineSeries, type SeriesTone } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import type { ModuleScreenProps } from "../registry";
 import { FORECAST_SCENARIOS, type FinanceOverview, type ForecastDrivers, type ForecastRow, type ForecastScenario, type PnlResponse } from "./types";
-import { runwayWords } from "@foundmill/widgets/shared/runway";
+import { runwayFigure, runwayWords } from "@foundmill/widgets/shared/runway";
 import { RUNWAY_BLOCK_MONTHS, driversHint, forecastStartMonth, formatMonth, monthKey, monthStart, pnlTotals, projectForecast, readDrivers, runwayTone, runwayWarnings, runwayWord, scenarioRunway, seedDrivers, type ScenarioRunway } from "./metrics";
 import { InlineError, Screen, fmtAxisMoney, fmtMoney, fmtMonths, parseAmount, toDate, useAction, useCurrency, useNow } from "./shared";
 
@@ -32,7 +32,8 @@ export function scenarioHint(scenario: ForecastScenario, drivers: ForecastDriver
 export function runwayText(r: ScenarioRunway): { pill: string; tone: "good" | "warn" | "bad" | "neutral"; figure: string; caption: string | null } {
   switch (r.kind) {
     case "unknown":
-      return { pill: "Runway not known yet", tone: "neutral", figure: r.value, caption: r.caption };
+      // A balance below zero is not unknown: the figure's words are the judgment, so the pill repeats them, in red.
+      return r.value === "Cash is below zero" ? { pill: r.value, tone: "bad", figure: r.value, caption: r.caption } : { pill: "Runway not known yet", tone: "neutral", figure: r.value, caption: r.caption };
     case "months":
       return { pill: runwayWord(r.months), tone: runwayTone(r.months), figure: fmtMonths(r.months), caption: null };
     case "no_limit":
@@ -114,10 +115,11 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
   const stored = useMemo(() => latestByScenario(list.data), [list.data]);
   const storedDrivers = useMemo(() => Object.fromEntries(FORECAST_SCENARIOS.map((s) => [s, readDrivers(stored[s]?.drivers, seedDrivers(s, seeds))])) as Record<ForecastScenario, ForecastDrivers>, [stored, seeds]);
   // Without a bank (or with too little history) there is nothing to seed drivers from: runway is "Not known yet",
-  // the same words as Home's status strip, until the founder saves or types a forecast of their own.
+  // the same words as Home's status strip, until the founder saves or types a forecast of their own. A balance below
+  // zero has no runway to count either ("Cash is below zero"): `runwayFigure` is null, and the words stand in.
   const unknownRunway = useMemo(() => {
     const words = runwayWords(overview.data);
-    return words && words.value !== "No limit" ? words : null;
+    return words && runwayFigure(overview.data) === null && words.value !== "No limit" ? words : null;
   }, [overview.data]);
 
   const [drafts, setDrafts] = useState<Record<ForecastScenario, ForecastDrivers>>(storedDrivers);
@@ -207,7 +209,7 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
   return (
     <Screen name="finance/runway">
       <Panel
-        title="Cash forecast"
+        title={<>Cash <Term id="forecast" always>forecast</Term></>}
         menu={pinMenu}
         span={8}
         loading={loading}
@@ -222,7 +224,7 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
       >
         <LineChart label="Cash forecast by scenario" series={series} height={320} yFormat={(v) => fmtAxisMoney(v, cur)} zeroBased={false} markX={monthStart(now, 0)} markLabel="Now" />
       </Panel>
-      <Panel title="Runway warnings" span={4} loading={loading} error={error ? error.message : undefined} actions={<ProvenanceChip kind="forecast" />} footer={<span>Warnings at 12, 9 and 6 months; under {RUNWAY_BLOCK_MONTHS} months is red and blocks Continue until acknowledged in the Inbox.</span>}>
+      <Panel title={<><Term id="runway">Runway</Term> warnings</>} span={4} loading={loading} error={error ? error.message : undefined} actions={<ProvenanceChip kind="forecast" />} footer={<span>Warnings at 12, 9 and 6 months; under {RUNWAY_BLOCK_MONTHS} months is red and blocks Continue until acknowledged in the Inbox.</span>}>
         <ul className="flex flex-col gap-3" aria-label="Runway by scenario">
           {FORECAST_SCENARIOS.map((s) => {
             const months = projections[s].runwayMonths;
@@ -257,6 +259,7 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
       </Panel>
       <Panel
         title="Drivers"
+        help="The figures the forecast is worked out from: change one and the lines above move; save a scenario to keep it."
         span={12}
         loading={loading}
         actions={

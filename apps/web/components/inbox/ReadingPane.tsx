@@ -14,7 +14,10 @@
  * amount above the DecisionBar's Approve and Reject, with an optional reason. While guidance is on, the exhibit and
  * the Decided panel start folded under "Show the numbers" / "Show what happened" (UX plan B19), so the note, the
  * conversation and the decision bar read as one story; a Decided panel that still asks for the go-ahead, or one for a
- * decision just taken here, opens as it always did.
+ * decision just taken here, opens as it always did. The guided layer (UX plan §6.2, §7.9): the note body's defined
+ * terms get their definition on hover (Markdown `terms`), the header's status word and "Your decision" carry an
+ * InfoTip, the metric strip's captions and the Customer Update title are Terms, and the first decision an account
+ * ever meets shows one Callout on the first option ("Each option says what it costs and whether you can undo it").
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArrowRight, ChevronDown, ChevronRight, CirclePause, ExternalLink, EyeOff, Play, ShieldAlert, Trophy } from "lucide-react";
@@ -23,23 +26,28 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNod
 import {
   Avatar,
   Button,
+  Callout,
   Chip,
   DecisionBar,
   DeptChip,
   EntityLink,
+  InfoTip,
   KeyValueList,
   Markdown,
   Panel,
   StatusPill,
   StatusStrip,
+  Term,
   Tooltip,
   formatRelative,
   isTypingTarget,
   useFormatters,
   useGuided,
+  useTerm,
   useToast,
   type DecisionAnswer,
   type DecisionOption,
+  type MetricTileProps,
 } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
 import { humanSender, NETWORK_SENDER } from "@foundmill/widgets/shared/note-tags";
@@ -101,6 +109,52 @@ type DecideResult = RouterOutputs["inbox"]["decide"];
 
 const DAY_MS = 86_400_000;
 const dayKey = (d: Date): string => d.toISOString().slice(0, 10);
+
+/** The one-step tour on the first decision an account meets (UX plan §7.9 DecisionBar), marked done once per account. */
+export const FIRST_DECISION_TOUR = "first-decision";
+/** The `data-coachmark` value the pane puts on the DecisionBar's first option, where the callout points. */
+export const FIRST_DECISION_TARGET = "first-decision-option";
+export const FIRST_DECISION_TITLE = "Each option says what it costs and whether you can undo it";
+export const FIRST_DECISION_BODY = "The recommended one is marked.";
+
+/** The metric strip captions that are defined terms (TERMS ids), so the caption carries the definition on hover. */
+export const STRIP_TERM_IDS: Readonly<Record<string, string>> = { Runway: "runway", MRR: "mrr", "Net burn": "net_burn" };
+
+/** The strip's tiles with each defined caption wrapped in a Term (a label the glossary renamed is left as it is). */
+export function tilesWithTerms(tiles: readonly MetricTileProps[]): MetricTileProps[] {
+  return tiles.map((t) => (typeof t.label === "string" && STRIP_TERM_IDS[t.label] ? { ...t, label: <Term id={STRIP_TERM_IDS[t.label]!}>{t.label}</Term> } : t));
+}
+
+/** What the header's status word means, in one sentence, and the term whose "Learn more" explains it. */
+export function statusWordTip(word: string): { termId: string; text: string } | null {
+  if (word === "Needs your answer") return { termId: "cycle", text: "The team cannot carry on with this until you answer; the next cycle waits for it." };
+  if (word === "Needs your go-ahead") return { termId: "hard_gate", text: "You chose; the plan is written and nothing in it runs until you say go." };
+  return null;
+}
+
+/** An InfoTip beside the header's status word (hidden when guidance is off, like every InfoTip). */
+function StatusWordTip({ word }: { word: string }) {
+  const tip = statusWordTip(word);
+  const def = useTerm(tip?.termId ?? "");
+  if (!tip) return null;
+  return (
+    <InfoTip label={word} learn={def?.learn} side="bottom">
+      {tip.text}
+    </InfoTip>
+  );
+}
+
+/** Why this decision is the founder's: a hard gate's definition for an agent's request or a sign-off, the plain reason otherwise. */
+export const YOUR_DECISION_TIP = "This is yours to decide: the team carries on once you pick one, and nothing runs before that.";
+
+function YourDecisionTip({ gated }: { gated: boolean }) {
+  const hardGate = useTerm("hard_gate");
+  return (
+    <InfoTip label="Your decision" kind="why" learn={hardGate?.learn} side="top" className="-my-1.5">
+      {gated && hardGate ? hardGate.short : YOUR_DECISION_TIP}
+    </InfoTip>
+  );
+}
 
 export interface ReadingPaneProps {
   itemId: string;
@@ -191,14 +245,16 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const channelsQ = useQuery(trpc.distribution.channels.list.queryOptions({ businessId }, { enabled: needs.has("channels"), staleTime: 60_000, retry: false }));
   const tiles = useMemo(
     () =>
-      statusStripTiles(item.statusStrip, {
-        finance: financeQ.data ?? null,
-        trailingRevenueMinor: trailingRevenue,
-        conversions: ribbonQ.data?.conversions ?? null,
-        tasks: tasksQ.data?.items ?? null,
-        channelsEnabled: channelsQ.data ? channelsQ.data.channels.filter((c) => c.enabled).length : null,
-        glossary,
-      }).map((t) => ({ ...t, loading: (needs.has("finance") && (financeQ.isLoading || (wantsRevenue && pnlQ.isLoading))) || (needs.has("conversions") && ribbonQ.isLoading) || (needs.has("tasks") && tasksQ.isLoading) || (needs.has("channels") && channelsQ.isLoading) })),
+      tilesWithTerms(
+        statusStripTiles(item.statusStrip, {
+          finance: financeQ.data ?? null,
+          trailingRevenueMinor: trailingRevenue,
+          conversions: ribbonQ.data?.conversions ?? null,
+          tasks: tasksQ.data?.items ?? null,
+          channelsEnabled: channelsQ.data ? channelsQ.data.channels.filter((c) => c.enabled).length : null,
+          glossary,
+        }),
+      ).map((t) => ({ ...t, loading: (needs.has("finance") && (financeQ.isLoading || (wantsRevenue && pnlQ.isLoading))) || (needs.has("conversions") && ribbonQ.isLoading) || (needs.has("tasks") && tasksQ.isLoading) || (needs.has("channels") && channelsQ.isLoading) })),
     [item.statusStrip, financeQ.data, financeQ.isLoading, trailingRevenue, wantsRevenue, pnlQ.isLoading, ribbonQ.data, ribbonQ.isLoading, tasksQ.data, tasksQ.isLoading, channelsQ.data, channelsQ.isLoading, needs, glossary],
   );
 
@@ -367,6 +423,17 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const hidden = hiddenNotice(item.redacted);
   // No exhibit, no region (and no fold): the body's gap never holds an empty slot.
   const hasExhibit = useMemo(() => readExhibit(item.exhibit).kind !== "none", [item.exhibit]);
+  // The header's status word, with its tip while the note still asks for something.
+  const tag = headerTag(item.type, isAnswered, item.blocksContinue, pendingConfirmation);
+
+  // The first decision an account meets: one callout on the first option (the DecisionBar's buttons carry
+  // `data-option-id`; the pane marks the first as the callout's target, since the bar has no hook of its own).
+  const barRef = useRef<HTMLDivElement>(null);
+  const showCallout = options.length >= 2 && !isAnswered && !readOnly && item.state !== "archived";
+  useEffect(() => {
+    if (!showCallout) return;
+    barRef.current?.querySelector<HTMLElement>("[data-option-id]")?.setAttribute("data-coachmark", FIRST_DECISION_TARGET);
+  }, [showCallout, options]);
 
   return (
     <article className="flex min-h-0 flex-1 flex-col" data-testid="inbox-item" data-item-id={item.id} data-type={item.type} data-state={isAnswered ? "answered" : item.state}>
@@ -399,7 +466,8 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           </p>
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
-          <NoteTagChip tag={headerTag(item.type, isAnswered, item.blocksContinue, pendingConfirmation)} size="header" testId="type-pill" />
+          <NoteTagChip tag={tag} size="header" testId="type-pill" />
+          <StatusWordTip word={tag.word} />
           {item.blocksContinue && !isAnswered ? (
             <Tooltip content={HOLDS_CONTINUE_HINT}>
               <Chip tone="neutral" icon={CirclePause} data-testid="holds-continue">
@@ -437,7 +505,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
         </div>
 
         {won ? (
-          <Panel title="Customer Update" span={12} actions={<Chip tone="gold">Win</Chip>} data-testid="customer-update">
+          <Panel title={<Term id="customer_update">Customer Update</Term>} span={12} actions={<Chip tone="gold">Win</Chip>} data-testid="customer-update">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-body text-secondary">The replay shows the first touch, who was involved, the win moment and the debrief.</p>
               <Button variant="gold" icon={Play} onClick={openReplay} disabled={!journeyId} loading={journeysQ.isLoading} data-testid="open-replay">
@@ -539,6 +607,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
       {/* decision bar */}
       {options.length >= 2 ? (
         <DecisionBar
+          ref={barRef}
           options={options}
           onChoose={onChoose}
           onAsk={showDesk ? () => desk.current?.openWrite() : undefined}
@@ -551,6 +620,12 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           hotkeys={false}
           // The shell's keyboard map owns 1–4 here; the caps say so to operators (guidance off hides nothing else).
           keyHints
+          heading={
+            <span className="inline-flex items-center gap-1">
+              Your decision
+              <YourDecisionTip gated={!!approval || !!signoff} />
+            </span>
+          }
           note={
             readOnly && !isAnswered ? (
               <span className="inline-flex items-center gap-1 text-small text-secondary" data-testid="decision-read-only">
@@ -565,6 +640,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           data-testid="decision-bar"
         />
       ) : null}
+      {showCallout ? <Callout tourId={FIRST_DECISION_TOUR} targetId={FIRST_DECISION_TARGET} title={FIRST_DECISION_TITLE} body={FIRST_DECISION_BODY} side="top" /> : null}
 
       <ConfirmPlanDialog open={confirmOpen && pendingConfirmation} onOpenChange={setConfirmOpen} lines={lines} summary={plan?.summaryMd ?? ""} loading={confirm.isPending} onConfirm={() => plan && confirm.mutate({ businessId, planId: plan.id })} />
       {decide.isError || confirm.isError ? (
@@ -613,11 +689,15 @@ export function Folded({ folded, show, hide, testId, children }: FoldedProps) {
   );
 }
 
-/** The note body in the reading style. Dugout's Markdown keeps its own props, so the test id lives on this wrapper. */
+/**
+ * The note body in the reading style, with the first mention of each defined term carrying its definition on hover
+ * (Markdown `terms`; off while guidance is off). Dugout's Markdown keeps its own props, so the test id lives on this
+ * wrapper.
+ */
 export function InboxNote({ bodyMd }: { bodyMd: string }) {
   return (
     <div data-testid="inbox-note">
-      <Markdown variant="reading" className="t-reading">
+      <Markdown variant="reading" className="t-reading" terms>
         {bodyMd}
       </Markdown>
     </div>

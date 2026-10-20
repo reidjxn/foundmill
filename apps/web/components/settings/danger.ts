@@ -9,6 +9,16 @@ export const DELETION_DELAY_DAYS = 7;
 /** Where an archived business is listed for its owner (Restore, Export everything, Delete permanently): Your businesses. */
 export const ARCHIVED_HREF = "/businesses#archived";
 
+/**
+ * What each danger action does, in the words the ConsequenceLine shows under its button and in its dialog
+ * (docs/UX_AUDIT_AND_PLAN.md §6.2, principle 6): neither costs anything; archiving can be undone from Your businesses,
+ * permanent deletion cannot once it has run.
+ */
+export const DANGER_CONSEQUENCES = {
+  archive: { consequence: "Every agent stops and the business leaves your list. Restore it from Your businesses.", cost: "No cost", reversible: true },
+  delete: { consequence: `Everything is deleted after ${DELETION_DELAY_DAYS} days; cancel before then, not after.`, cost: "No cost", reversible: false },
+} as const;
+
 /** What `business.export` returns that the page needs to save the file and say what it holds. */
 export interface ExportedArchive {
   fileName: string;

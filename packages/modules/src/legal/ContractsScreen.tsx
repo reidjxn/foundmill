@@ -6,7 +6,7 @@
  */
 import { useId, useMemo, useState } from "react";
 import { ArrowRight, Ban, CheckCircle2, ExternalLink, FileSignature, FileText, Plus, UserRound } from "lucide-react";
-import { Button, Chip, DataTable, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, SimpleSelect, useFormatters, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Button, Chip, ConsequenceLine, DataTable, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, SimpleSelect, useFormatters, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
@@ -14,13 +14,15 @@ import type { ModuleScreenProps } from "../registry";
 import { CONTRACT_NEXT, CONTRACT_STATUS_WORD, contractKindLabel, isExternalHref, readObligations, type Obligation } from "./legal-data";
 import { DateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
-import { CONTRACT_PILL, FounderLinkOut, FounderOnlyChip, InlineError, Pill, Screen, fitTableHeight, fmtMoney, useAction, useCurrency, useNow } from "./shared";
+import { CONTRACT_PILL, FounderLinkOut, FounderOnlyChip, InlineError, Pill, SIMPLE_VIEW_ID, Screen, fitTableHeight, fmtMoney, useAction, useCurrency, useDefaultViewId, useNow } from "./shared";
 import type { BusinessGetResponse, ContractRow, ContractStatus, ContractsListResponse } from "./types";
 
 const CONTRACTS_INPUT = { limit: 200 } as const;
 const BUSINESS_INPUT: Record<string, unknown> = {};
 
 export const CONTRACT_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): the contract, who it is with, where it stands and when it ends; first while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["title", "counterparty", "status", "endsAt"], sort: [{ id: "updatedAt", desc: true }], filters: [] },
   { id: "active", name: "Active", builtIn: true, columns: ["title", "kind", "counterparty", "value", "endsAt", "obligations"], sort: [{ id: "endsAt", desc: false }], filters: [{ id: "f-act", field: "status", op: "in", value: ["signed", "active"] }] },
   { id: "signature", name: "Awaiting signature", builtIn: true, columns: ["title", "kind", "counterparty", "value", "status"], sort: [{ id: "updatedAt", desc: true }], filters: [{ id: "f-sig", field: "status", op: "eq", value: "awaiting_signature" }] },
   { id: "drafts", name: "Drafts and review", builtIn: true, columns: ["title", "kind", "counterparty", "status", "updatedAt"], sort: [{ id: "updatedAt", desc: true }], filters: [{ id: "f-dr", field: "status", op: "in", value: ["draft", "review"] }] },
@@ -61,6 +63,9 @@ const NEXT_LABEL: Partial<Record<ContractStatus, { label: string; icon: typeof A
   terminated: { label: "Terminate", icon: Ban, variant: "danger" },
 };
 
+/** What ending a contract does, under its button (UX plan §6.2 ConsequenceLine, principle 6); always shown. */
+export const TERMINATE_CONSEQUENCE = { consequence: "The contract ends here and its obligations stop being tracked; the counterparty is not told by the product.", reversible: false } as const;
+
 export function contractColumns(businessId: string, currency: string, now: Date, sizes: Record<ContractColumnId, number> = fitColumns<ContractColumnId>(null, CONTRACT_FIT, [])): DataTableColumn<ContractRow>[] {
   return [
     { id: "title", accessorFn: (r) => r.title || contractKindLabel(r.kind), header: "Contract", size: sizes.title, cell: ({ row }) => <span className="t-body-strong text-primary">{row.original.title || `${contractKindLabel(row.original.kind)} agreement`}</span>, meta: { locked: true } },
@@ -99,8 +104,9 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
   const id = useId();
   const list = useWidgetQuery<ContractsListResponse>("legal.contracts.list", CONTRACTS_INPUT);
   const business = useWidgetQuery<BusinessGetResponse>("business.get", BUSINESS_INPUT);
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("legal.contracts", CONTRACT_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("legal.contracts", CONTRACT_VIEWS, { defaultViewId });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const detail = useWidgetQuery<ContractRow>("legal.contracts.get", selectedId ? { contractId: selectedId } : undefined, { enabled: !!selectedId });
   const action = useAction();
@@ -227,7 +233,7 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
           </form>
         ) : null}
         <div className="min-w-0">
-          <DataTable<ContractRow> aria-label="Contracts" data={rows} columns={columns} {...savedViews} defaultViewId="all" hideEmptyColumns height={fitTableHeight(rows.length, { minRows: showForm ? 4 : 6, maxRows: 16 })} exportFileName="contracts" rowActions={rowActions} onRowOpen={(r) => setSelectedId(r.id)} rowClassName={(r) => (r.id === selectedId ? "row-selected" : undefined)} />
+          <DataTable<ContractRow> aria-label="Contracts" data={rows} columns={columns} {...savedViews} defaultViewId={defaultViewId} hideEmptyColumns height={fitTableHeight(rows.length, { minRows: showForm ? 4 : 6, maxRows: 16 })} exportFileName="contracts" rowActions={rowActions} onRowOpen={(r) => setSelectedId(r.id)} rowClassName={(r) => (r.id === selectedId ? "row-selected" : undefined)} />
         </div>
         <InlineError error={action.error} className="px-panel-pad py-1" />
       </Panel>
@@ -311,6 +317,8 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
                 );
               })}
           </div>
+          {/* Letting a contract go cannot be undone: the consequence sits under the buttons that offer it. */}
+          {CONTRACT_NEXT[selectedRow.status].includes("terminated") ? <ConsequenceLine {...TERMINATE_CONSEQUENCE} className="mt-2" data-testid="terminate-consequence" /> : null}
         </Panel>
       ) : null}
     </Screen>

@@ -54,6 +54,9 @@ export const DUGOUT_SPACING = [
   "icon",
   "icon-inline",
   "icon-empty",
+  // The smallest pointer target (`--target-size`, WCAG 2.5.8): `size-target` on info badges and row "…" buttons, so a
+  // later `size-target` replaces a button's own width and height.
+  "target",
   // Controls (controls.css): side padding, toggles, sliders, the generate core tile.
   "chip-x",
   "btn-sm",

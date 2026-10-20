@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarRange, Columns3, Map as MapIcon, Plus } from "lucide-react";
-import { Button, Panel, StatusPill, cn } from "@foundmill/dugout";
+import { Button, Panel, StatusPill, Term, cn } from "@foundmill/dugout";
 import type { RoadmapHorizon } from "@foundmill/shared";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
@@ -104,13 +104,26 @@ export function RoadmapScreen({ businessId, subView }: ModuleScreenProps) {
       <FoundationsBanner foundations={foundations} detail={{ roadmap: true }} />
       <SignoffBanner kind="roadmap" signoffs={signoffs} canWrite={canWrite} onDecided={() => roadmap.refetch()} />
       <Panel
-        title="Roadmap"
+        title={<Term id="roadmap">Roadmap</Term>}
         menu={pinMenu}
         span={12}
         loading={roadmap.isLoading}
         error={roadmap.error ? roadmap.error.message : undefined}
         onRetry={roadmap.refetch}
-        empty={empty ? { icon: MapIcon, title: "Nothing on the roadmap yet", children: "Items appear when the Product lead turns the spec into Now, Next and Later, or when you add one.", action: { label: "New item", icon: Plus, onClick: () => setDialog({ open: true, item: null, horizon: "now" }) } } : undefined}
+        empty={
+          empty
+            ? {
+                icon: MapIcon,
+                title: "Nothing on the roadmap yet",
+                children: (
+                  <>
+                    Items appear when the <Term id="product_lead">Product lead</Term> turns the spec into Now, Next and Later, or when you add one.
+                  </>
+                ),
+                action: { label: "New item", icon: Plus, onClick: () => setDialog({ open: true, item: null, horizon: "now" }) },
+              }
+            : undefined
+        }
         actions={
           <>
             <div role="tablist" aria-label="Roadmap view" className="flex items-center gap-0.5 rounded-panel bg-base p-0.5">

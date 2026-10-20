@@ -44,7 +44,7 @@ function renderRibbon(extra: Partial<React.ComponentProps<typeof JourneyRibbon>>
 }
 
 describe("JourneyRibbon", () => {
-  it("renders labelled rows (revenue, signups, paying customers, agent hours), the forecast, runway, Today and a summary label", () => {
+  it("renders labelled rows (revenue, signups, paying customers, hours of team work), the forecast, runway, Today and a summary label", () => {
     const { container } = renderRibbon();
     const root = screen.getByRole("group", { name: /Journey ribbon/ });
     expect(root.getAttribute("aria-label")).toContain("6 departments");
@@ -52,7 +52,11 @@ describe("JourneyRibbon", () => {
     expect(container.querySelector("[data-revenue-line]")).toBeTruthy();
     for (const kind of ["signups", "payments", "hours"]) expect(container.querySelector(`[data-track='${kind}']`)?.children.length).toBeGreaterThan(0);
     const labels = container.querySelector("[data-ribbon-labels]")!;
-    for (const name of ["Revenue", "New signups", "Paying customers", "Agent hours"]) expect(labels.textContent).toContain(name);
+    for (const name of ["Revenue", "New signups", "Paying customers", "Hours of team work"]) expect(labels.textContent).toContain(name);
+    // No "agent hours" anywhere a founder reads or hears (UX plan §8.2: the team's hours, in plain words).
+    expect(labels.textContent).not.toMatch(/agent hours/i);
+    expect(root.getAttribute("aria-label")).toMatch(/\d+ hours of team work/);
+    expect(root.getAttribute("aria-label")).not.toMatch(/agent hours/i);
     const legend = container.querySelector("[data-ribbon-legend]")!;
     for (const name of ["Revenue", "Forecast", "Milestones", "Planned"]) expect(legend.textContent).toContain(name);
     expect(container.querySelector("[data-forecast]")).toBeTruthy();
@@ -113,7 +117,7 @@ describe("JourneyRibbon", () => {
     // The label column and the live readout follow the keyboard's day.
     const readout = container.querySelector("[data-ribbon-day-readout]")!;
     expect(readout.getAttribute("aria-live")).toBe("polite");
-    expect(readout.textContent).toMatch(/new signups, .* paying customers, .* agent hours\.$/);
+    expect(readout.textContent).toMatch(/new signups, .* paying customers, .* hours of team work\.$/);
     expect(container.querySelector("[data-on-this-day]")).toBeTruthy();
     await user.keyboard("{Enter}");
     expect(onOpenDay.mock.calls.length + onOpenJourney.mock.calls.length).toBe(1);

@@ -207,10 +207,11 @@ test.describe("settings › business: the time zone", () => {
 });
 
 /**
- * Settings › Glossary (BUILD §11.13, AC-11.13.6, audit #206): a renamed noun reaches Home's captions and the Inbox tabs,
- * not only model prompts. The spec removes its rows again so Northwind keeps the product's words.
+ * Settings › Your words (BUILD §11.13, AC-11.13.6, audit #206; "Glossary" until UX plan §7.17, the slug stays
+ * `glossary`): a renamed noun reaches Home's captions and the Inbox tabs, not only model prompts. The spec removes its
+ * rows again so Northwind keeps the product's words.
  */
-test.describe("settings › glossary: the business's own words", () => {
+test.describe("settings › your words: the business's own words", () => {
   async function saveGlossary(page: Page, rows: [string, string][]): Promise<void> {
     // Scoped to the shell: while the page streams, React parks a second copy of the screen outside it (helpers.ts).
     const screen = await openSettings(page, "glossary");
@@ -227,7 +228,7 @@ test.describe("settings › glossary: the business's own words", () => {
     const save = screen.getByRole("button", { name: "Save changes" });
     if (await save.isEnabled()) {
       await save.click();
-      await expect(toast(page, "Glossary saved")).toBeVisible({ timeout: LONG });
+      await expect(toast(page, "Your words saved")).toBeVisible({ timeout: LONG });
     }
   }
 

@@ -11,7 +11,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const On: Story = {};
-export const WaitingForYou: Story = { args: { state: "waiting", label: "Waiting for you", detail: "Waiting for you: 2 Inbox items need your decision. Autopilot never decides for you." } };
+export const NeedsYourAnswer: Story = { args: { state: "waiting", label: "Needs your answer", detail: "2 notes in the Inbox need your answer. Autopilot never answers them for you." } };
 export const PausedCredits: Story = { args: { state: "paused", label: "Paused: credits used up", nextAt: null, detail: "This month's credits are used up, so Autopilot paused. Top up in Settings › Billing, then turn Autopilot back on." } };
 export const PausedStop: Story = { args: { state: "paused", label: "Paused: agents stopped", nextAt: null, detail: "Stop all agents was pressed, so Autopilot paused. Resume the agents, then turn Autopilot back on." } };
 export const Off: Story = { args: { state: "off", label: "Off", nextAt: null, detail: "Cycles start when you press Continue." } };

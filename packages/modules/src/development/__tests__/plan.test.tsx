@@ -29,8 +29,27 @@ describe("PlanScreen", () => {
     expect(screen.getByText(/Use the … button or right-click a task for Start, Pause, Reassign, use the strongest model, Stop and Open in Claude Code/)).toBeTruthy();
     expect(screen.queryByText("Hard")).toBeNull();
     expect(fake.queried.get("dev.tasks.list")).toEqual({ limit: 500 });
-    expect(PLAN_VIEWS.map((v) => v.id)).toEqual(["all", "ready", "in-progress", "blocked", "done"]);
+    expect(PLAN_VIEWS.map((v) => v.id)).toEqual(["simple", "all", "ready", "in-progress", "blocked", "done"]);
     expect(screen.getByText("All tasks")).toBeTruthy();
+  });
+
+  it("guidance on: opens on the Simple view (Task, Status, Agent, Progress) with the defined words on the panels (UX plan §7.10)", () => {
+    const fake = createFakeSource({ responses: responses() });
+    renderScreen(fake, <PlanScreen {...props} />, {}, { guidance: "on" });
+    const table = screen.getByRole("grid", { name: "Tasks" });
+    expect(screen.getByRole("button", { name: /^View: Simple/ })).toBeTruthy();
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Task", "Status", "Agent", "Progress", "Actions"]);
+    expect(within(table).getAllByRole("row")).toHaveLength(tasks.length + 1);
+    expect(screen.getByRole("button", { name: "Task graph" }).className).toContain("term-link");
+    expect(screen.getByRole("button", { name: "About Dependencies" })).toBeTruthy();
+  });
+
+  it("guidance off: opens on All tasks, the words are plain and the help tip is gone", () => {
+    const fake = createFakeSource({ responses: responses() });
+    renderScreen(fake, <PlanScreen {...props} />);
+    expect(screen.getByRole("button", { name: /^View: All tasks/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Task graph" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "About Dependencies" })).toBeNull();
   });
 
   it("reopens on the view the person left it on and saves a change of view (audit #204)", async () => {

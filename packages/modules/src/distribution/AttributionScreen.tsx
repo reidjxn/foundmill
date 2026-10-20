@@ -8,7 +8,7 @@
  */
 import { useCallback, useMemo } from "react";
 import { ChevronRight, ExternalLink, Route, Trophy } from "lucide-react";
-import { Button, Chip, DataTable, FunnelChart, KeyValueList, Panel, ProvenanceChip, StatusPill, formatMoney, formatNumber, formatPercent, useFormatters, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Button, Chip, DataTable, FunnelChart, KeyValueList, Panel, ProvenanceChip, StatusPill, Term, formatMoney, formatNumber, formatPercent, useFormatters, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { CHANNEL_LINES, CHANNEL_WINDOW_DAYS, type ChannelKey, type MatchdayLevel } from "@foundmill/shared/constants";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -18,10 +18,12 @@ import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import type { ModuleScreenProps } from "../registry";
 import { MODEL_LABELS, attributionRows, buildChannelViews, funnelStages, type AttributionRow } from "./channel-data";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
-import { EstimatedMoney, LINE_LABELS, Screen, channelLabel, fitTableHeight, herePath, plainWords, useAction } from "./shared";
+import { EstimatedMoney, LINE_LABELS, SIMPLE_VIEW_ID, Screen, channelLabel, fitTableHeight, herePath, plainWords, useAction, useDefaultViewId } from "./shared";
 import type { AttributionSummaryResponse, ChannelsListResponse, JourneyRow, Page } from "./types";
 
 export const ATTRIBUTION_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): who won the customers and what each one cost; the table opens on it while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["channel", "customers", "share", "cpa"], sort: [{ id: "customers", desc: true }], filters: [] },
   { id: "all", name: "All channels", builtIn: true, columns: ["channel", "line", "leads", "signups", "customers", "share", "spend", "cpa", "journey"], sort: [{ id: "customers", desc: true }], filters: [] },
   { id: "running", name: "Running only", builtIn: true, columns: ["channel", "line", "leads", "signups", "customers", "share", "cpa", "journey"], sort: [{ id: "customers", desc: true }], filters: [{ id: "f-run", field: "enabled", op: "eq", value: true }] },
   { id: "partial", name: "Partial journeys", builtIn: true, columns: ["channel", "line", "customers", "share", "journey"], sort: [{ id: "customers", desc: true }], filters: [{ id: "f-part", field: "partial", op: "eq", value: true }] },
@@ -29,6 +31,8 @@ export const ATTRIBUTION_VIEWS: SavedView[] = [
 
 /** Update levels brief / standard / featured (CLAUDE.md vocabulary over the stored `matchday_level` keys). */
 export const UPDATE_LEVEL_WORDS: Record<MatchdayLevel, string> = { friendly: "Brief", league: "Standard", cup: "Featured" };
+/** What each Customer Update level means, as the level pill's tooltip (UX plan §7.18, C24). */
+export const UPDATE_LEVEL_HINT = "Brief = signup, Standard = activation, Featured = first payment";
 
 /** The channel window in words, the same on every screen that shows channel figures. */
 const WINDOW_WORDS = `last ${CHANNEL_WINDOW_DAYS} days`;
@@ -116,8 +120,9 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
   const journeys = useWidgetQuery<Page<JourneyRow>>("journey.list", { limit: LATEST_WINS, orderBy: "converted" });
   const departments = useDepartments();
   const action = useAction();
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("distribution.attribution", ATTRIBUTION_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("distribution.attribution", ATTRIBUTION_VIEWS, { defaultViewId });
   useBusinessEvents(() => {
     channels.refetch();
     summary.refetch();
@@ -153,6 +158,7 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
     <Screen name="distribution/attribution">
       <Panel
         title="How credit is shared"
+        help="When a customer is won, every channel that touched them along the way gets a share of the credit."
         span={4}
         loading={summary.isLoading || journeys.isLoading}
         error={modelError ? modelError.message : undefined}
@@ -178,7 +184,8 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
             ]}
           />
           {model.partialJourneys ? <p className="text-small text-secondary">Where consent was not granted, only first-party touches were weighted.</p> : null}
-          {/* TODO(guided-layer): the Explainer / InfoTip primitives replace this native disclosure. */}
+          {/* The model's name is information an operator wants, so it stays behind a disclosure in both guidance states
+              (an InfoTip would hide it when guidance is off); the panel's help tip carries the one-sentence version. */}
           <details className="group/detail text-small" data-testid="credit-technical">
             <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-sm text-secondary transition-colors duration-hover ease-out hover:text-primary [&::-webkit-details-marker]:hidden">
               <ChevronRight size={14} aria-hidden className="transition-transform duration-overlay ease-out group-open/detail:rotate-90" />
@@ -204,7 +211,7 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
                 {latest.map((w) => (
                   // Wraps rather than squeezes: an amount is never truncated, whatever the date and chips beside it take.
                   <li key={w.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-small">
-                    <StatusPill tone={w.conversion.kind === "payment" ? "good" : "info"} icon={w.conversion.kind === "payment" ? Trophy : undefined} className="shrink-0 whitespace-nowrap">
+                    <StatusPill tone={w.conversion.kind === "payment" ? "good" : "info"} icon={w.conversion.kind === "payment" ? Trophy : undefined} className="shrink-0 whitespace-nowrap" title={UPDATE_LEVEL_HINT}>
                       {UPDATE_LEVEL_WORDS[w.matchdayLevel]}
                     </StatusPill>
                     <span className="shrink-0 tabular-nums text-secondary">{formatDate(w.conversion.occurredAt)}</span>
@@ -226,7 +233,7 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
         ) : null}
       </Panel>
       <Panel
-        title="Touch funnel"
+        title={<Term id="funnel">Touch funnel</Term>}
         menu={pinMenu}
         span={8}
         loading={channels.isLoading}
@@ -240,7 +247,7 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
         <FunnelChart stages={stages} label={`Touch funnel, ${(stages[0]?.label ?? "impressions").toLowerCase()} to customers`} />
       </Panel>
       <Panel
-        title="Channel attribution"
+        title={<Term id="attribution">Channel attribution</Term>}
         span={12}
         loading={channels.isLoading}
         error={channels.error ? channels.error.message : undefined}
@@ -256,7 +263,7 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
           columns={columns}
           getRowId={(r) => r.channelKey}
           {...savedViews}
-          defaultViewId="all"
+          defaultViewId={defaultViewId}
           rowActions={rowActions}
           onRowOpen={(r) => openChannel(r.channelKey)}
           height={fitTableHeight(rows.length, { minRows: 6, maxRows: 15 })}

@@ -4,10 +4,11 @@
  * owner or admin turns it on and chooses the cadence and the limits. The guard rails always win and are shown in plain
  * words: Stop all agents, used-up credits, an Inbox item that needs the founder, a vacation, the day's cycle and spend
  * limits, and failed or empty cycles in a row. Autopilot starts cycles exactly as Continue does and never approves anything.
+ * The switch's help line says so in one breath (docs/UX_AUDIT_AND_PLAN.md §7.17), and the title defines the word.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { AutopilotChip, Button, ErrorState, Field, Input, Label, MoneyInput, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, Switch } from "@foundmill/dugout";
+import { AutopilotChip, Button, ErrorState, Field, Input, Label, MoneyInput, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, Switch, Term } from "@foundmill/dugout";
 import { AUTOPILOT_LIMITS } from "@foundmill/shared/autopilot";
 import { CADENCE_OPTIONS, HOUR_OPTIONS, cyclesTodayLine, draftChanged, draftOf, parseDraft, type AutopilotDraft } from "@/lib/autopilot";
 import { formatMoney } from "@/lib/format";
@@ -18,6 +19,12 @@ import { useInvalidateRouters } from "./SettingsScreen";
 import { Hint, SettingsSection, useSettingsToast } from "./shared";
 
 type Status = RouterOutputs["business"]["autopilot"]["get"];
+
+/** The one-line help under the switch: what Autopilot does and what it never does. */
+export const AUTOPILOT_HELP = "Autopilot presses Continue for you on a schedule. It never answers notes for you.";
+
+/** The section's title, the word defined on first use; a string while it loads or fails, so nothing moves. */
+const TITLE = <Term id="autopilot">Autopilot</Term>;
 
 function SettingsForm({ businessId, status }: { businessId: string; status: Status }) {
   const trpc = useTRPC();
@@ -101,14 +108,14 @@ export function AutopilotSection() {
   );
   if (q.isPending) {
     return (
-      <SettingsSection title="Autopilot" data-testid="autopilot-section">
+      <SettingsSection title={TITLE} data-testid="autopilot-section">
         <Skeleton className="h-16 w-full" />
       </SettingsSection>
     );
   }
   if (q.error || !q.data) {
     return (
-      <SettingsSection title="Autopilot" data-testid="autopilot-section">
+      <SettingsSection title={TITLE} data-testid="autopilot-section">
         <ErrorState onRetry={() => void q.refetch()}>Autopilot could not be loaded: {errorMessage(q.error)}</ErrorState>
       </SettingsSection>
     );
@@ -116,16 +123,21 @@ export function AutopilotSection() {
   const s = q.data;
   const usd = (minor: number) => formatMoney({ amountMinor: minor, currency: "USD" });
   return (
-    <SettingsSection title="Autopilot" data-testid="autopilot-section">
+    <SettingsSection title={TITLE} data-testid="autopilot-section">
       <div className="flex flex-col gap-3">
         <AutopilotChip state={s.state} label={s.label} detail={s.detail} nextAt={s.nextAt} />
         <p className="text-body text-secondary" data-testid="autopilot-detail">
           {s.detail}
         </p>
       </div>
-      <div className="flex items-center gap-3">
-        <Switch id="autopilot-switch" checked={s.enabled && s.pausedReason === null} disabled={toggle.isPending} onCheckedChange={(enabled) => toggle.mutate({ businessId, enabled })} data-testid="autopilot-switch" />
-        <Label htmlFor="autopilot-switch">Run this business on Autopilot</Label>
+      <div className="flex items-start gap-3">
+        <Switch id="autopilot-switch" checked={s.enabled && s.pausedReason === null} disabled={toggle.isPending} onCheckedChange={(enabled) => toggle.mutate({ businessId, enabled })} aria-describedby="autopilot-help" data-testid="autopilot-switch" />
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="autopilot-switch">Run this business on Autopilot</Label>
+          <p id="autopilot-help" className="text-small text-secondary" data-testid="autopilot-help">
+            {AUTOPILOT_HELP}
+          </p>
+        </div>
       </div>
       {/* A paused Autopilot stays on until the founder decides: turn it back on with the switch, or off for good here. */}
       {s.enabled && s.pausedReason !== null ? (

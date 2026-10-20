@@ -136,6 +136,46 @@ describe("Coachmark", () => {
     await screen.findByRole("dialog", { name: "Your story on one line" });
   });
 
+  it("waits while any dialog is open, and starts once it closes", async () => {
+    function WithDialog() {
+      const [open, setOpen] = useState(true);
+      return (
+        <Page>
+          {open ? (
+            <div role="dialog" aria-label="Rename dashboard">
+              A dialog
+            </div>
+          ) : null}
+          <button type="button" onClick={() => setOpen(false)}>
+            Close the dialog
+          </button>
+          <Coachmark tourId="home" steps={steps} />
+        </Page>
+      );
+    }
+    render(<WithDialog />);
+    expect(isCoachmarkPaused()).toBe(true);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(screen.queryByRole("dialog", { name: "Your story on one line" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Close the dialog" }));
+    await screen.findByRole("dialog", { name: "Your story on one line" });
+  });
+
+  it("never starts when none of its targets is on the page, and nothing breaks", async () => {
+    render(
+      <GuidanceProvider>
+        <Coachmark tourId="nowhere" steps={[{ targetId: "no-such-target", title: "Never", body: "Never shown." }]} />
+      </GuidanceProvider>,
+    );
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.querySelector("[data-coachmark-ring]")).toBeNull();
+  });
+
   it("moves on when the current target leaves the page", async () => {
     function Vanishing() {
       const [shown, setShown] = useState(true);

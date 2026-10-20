@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CHOICE_SUBLINE, RETRY_REPLY_ID, STREAM_CUT_MESSAGE, bubbleNeedsMarkdown, deskFailureOf, deskMessagesOf, deskPersonaOf, failureQuickReplies, failureReply, openFailureLine, readReplyStream, roleBesideName, samePersonaWords, sayOf, voiceAck, withChoiceSubline, withChoiceSublines, withPlanId, withSent, withoutChoices, type ConversationView, type ReplyStreamEvent } from "../logic";
+import type { QuickReplyItem } from "@foundmill/dugout";
+import { CHOICE_SUBLINE, RETRY_REPLY_ID, STREAM_CUT_MESSAGE, TAKE_A_BREAK_ID, TAKE_A_BREAK_SUBLINE, bubbleNeedsMarkdown, deskFailureOf, deskMessagesOf, deskPersonaOf, failureQuickReplies, failureReply, openFailureLine, readReplyStream, roleBesideName, samePersonaWords, sayOf, voiceAck, withChoiceSubline, withChoiceSublines, withPlanId, withSent, withoutChoices, type ConversationView, type ReplyStreamEvent } from "../logic";
 import { agentOfAskItem, askPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "../palette";
 
 const persona = (over: Partial<ConversationView["persona"]> = {}): ConversationView["persona"] =>
@@ -182,26 +183,41 @@ describe("when a send fails (adversarial: api down, model error, limits, stale c
 });
 
 describe("a Go with chip says it answers the note (UX plan B20)", () => {
-  it("adds the subline to a choose_option only, keeps the founder's words, and never adds it twice", () => {
-    const goWith = { id: "go_with", label: "Go with: Place the order", say: "Go with Place the order.", kind: "choose_option" as const, option_id: "order", recommended: true };
-    const ask = { id: "why", label: "Why that one?", kind: "ask" as const };
+  it("sets the subline as the description of a choose_option only, keeps the label and the founder's words, and never adds it twice", () => {
+    const goWith: QuickReplyItem = { id: "go_with", label: "Go with: Place the order", say: "Go with Place the order.", kind: "choose_option", option_id: "order", recommended: true };
+    const ask: QuickReplyItem = { id: "why", label: "Why that one?", kind: "ask" };
     const sub = withChoiceSubline(goWith);
-    expect(sub.label).toBe(`Go with: Place the order · ${CHOICE_SUBLINE}`);
+    expect(sub.description).toBe(CHOICE_SUBLINE);
+    // The label is the label: the subline is drawn under it, never appended to it, and never spoken.
+    expect(sub.label).toBe("Go with: Place the order");
     expect(sub.say).toBe("Go with Place the order.");
     expect(sayOf(sub)).toBe("Go with Place the order.");
     expect(withChoiceSubline(sub)).toBe(sub);
     expect(withChoiceSubline(ask)).toBe(ask);
-    // A chip without `say` keeps its plain label as the founder's words, so the subline is never spoken.
+    // A chip without `say` keeps its plain label as the founder's words.
     const bare: { id: string; label: string; kind: "choose_option"; say?: string } = { id: "go_with", label: "Go with: A", kind: "choose_option" };
-    expect(withChoiceSubline(bare).say).toBe("Go with: A");
-    expect(withChoiceSublines([goWith, ask]).map((r) => r.label)).toEqual([`Go with: Place the order · ${CHOICE_SUBLINE}`, "Why that one?"]);
+    expect(sayOf(withChoiceSubline(bare))).toBe("Go with: A");
+    // A description the server wrote is kept as it is.
+    const described = { ...goWith, description: "Decides it now" };
+    expect(withChoiceSubline(described)).toBe(described);
+    expect(withChoiceSublines([goWith, ask]).map((r) => r.description)).toEqual([CHOICE_SUBLINE, undefined]);
+    expect(withChoiceSublines([goWith, ask]).map((r) => r.label)).toEqual(["Go with: Place the order", "Why that one?"]);
+  });
+
+  it("gives Take a break its consequence line (what it does, and that it can be undone)", () => {
+    const pause: QuickReplyItem = { id: TAKE_A_BREAK_ID, label: "Take a break", say: "Take a break", kind: "acknowledge" };
+    expect(withChoiceSubline(pause).description).toBe(TAKE_A_BREAK_SUBLINE);
+    expect(TAKE_A_BREAK_SUBLINE).toBe("Pauses the current task; resume it from Development. · Reversible");
+    expect(withChoiceSubline(pause).label).toBe("Take a break");
   });
 
   it("reaches the desk through the cached view and the failure replies", () => {
     const view = { messages: [{ ...msg("m1", "agent", "Hello."), quickReplies: [{ id: "go_with", label: "Go with: A", say: "Go with A.", kind: "choose_option", option_id: "a", recommended: true }] }] } as unknown as ConversationView;
-    expect(deskMessagesOf(view)[0]!.quickReplies![0]!.label).toBe(`Go with: A · ${CHOICE_SUBLINE}`);
-    const before = [{ id: "go_with", label: "Go with: A", say: "Go with A.", kind: "choose_option" as const, option_id: "a", recommended: true }, { id: "why", label: "Why?", kind: "ask" as const }];
-    expect(failureQuickReplies(true, before, "why").map((r) => r.label)).toEqual(["Try again", `Go with: A · ${CHOICE_SUBLINE}`]);
+    expect(deskMessagesOf(view)[0]!.quickReplies![0]).toMatchObject({ label: "Go with: A", description: CHOICE_SUBLINE });
+    const before: QuickReplyItem[] = [{ id: "go_with", label: "Go with: A", say: "Go with A.", kind: "choose_option", option_id: "a", recommended: true }, { id: "why", label: "Why?", kind: "ask" }];
+    const after = failureQuickReplies(true, before, "why");
+    expect(after.map((r) => r.label)).toEqual(["Try again", "Go with: A"]);
+    expect(after.map((r) => r.description)).toEqual([undefined, CHOICE_SUBLINE]);
   });
 });
 

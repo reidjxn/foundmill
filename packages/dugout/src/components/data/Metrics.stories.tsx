@@ -96,7 +96,7 @@ export const HomeStatusStrip: Story = {
           format: "integer",
           delta: { value: 7, label: "vs last week" },
         },
-        { label: "Business health", value: "Good", caption: "4 of 6 departments healthy" },
+        { label: "Team health", value: 4 / 6, format: "percent", caption: "4 of 6 agents healthy" },
         {
           label: "Leaderboard position",
           value: "14th",

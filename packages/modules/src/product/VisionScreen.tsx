@@ -8,14 +8,14 @@
  */
 import { useMemo } from "react";
 import { BookOpen, Lock, Map as MapIcon } from "lucide-react";
-import { Chip, Panel, StatusPill, formatNumber, formatRelative, useFormatters } from "@foundmill/dugout";
+import { Chip, EmptyState, Explainer, Panel, StatusPill, Term, formatNumber, formatRelative, useFormatters } from "@foundmill/dugout";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
 import { FoundationsBanner, VisionPanels, useFoundations } from "./foundations";
 import { PlainDoc } from "./PlainDoc";
 import { pmExcerpt, pmWordCount } from "./prosemirror";
 import { computeRoadmapStatus, taskSummary } from "./roadmap-status";
-import { AuthorRef, PinnedChip, Screen, blockTitle, groupBySection } from "./shared";
+import { AuthorRef, PRODUCT_EXPLAINER, PinnedChip, Screen, blockTitle, groupBySection } from "./shared";
 import { signoffSummaryLine, useSignoffs } from "./signoff";
 import type { RoadmapResponse, SignoffView, SpecGetResponse } from "./types";
 
@@ -60,18 +60,20 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
 
   const href = (tab: string, query?: string) => `${moduleHref(businessId, departments.data, "product", tab) ?? routes.department(businessId, "product", tab)}${query ?? ""}`;
   const openBlock = (blockId: string) => navigate(href("specification", `?block=${blockId}`));
+  // The department's intro sits in the first panel's body (the vision's when one is drafted, the narrative's before);
+  // the narrative's empty state sits under it there rather than in place of it (first-timers meet this tab empty).
+  const noNarrative = !!spec.data && narrative.length === 0;
 
   return (
     <Screen name="product/vision">
       <FoundationsBanner foundations={foundations} />
-      {vision ? <VisionPanels vision={vision} /> : null}
+      {vision ? <VisionPanels vision={vision} intro={<Explainer {...PRODUCT_EXPLAINER} className="mb-4" />} /> : null}
       <Panel
-        title={vision ? "From the specification" : "Vision"}
+        title={vision ? <>From the <Term id="specification">specification</Term></> : "Vision"}
         span={8}
         loading={spec.isLoading}
         error={spec.error ? spec.error.message : undefined}
         onRetry={spec.refetch}
-        empty={spec.data && narrative.length === 0 ? { icon: BookOpen, title: "No narrative yet", children: "The Problem, Customers and Value proposition sections appear here once the spec outline is seeded or written on the Specification tab." } : undefined}
         footer={
           spec.data ? (
             <span className="tabular-nums">
@@ -80,7 +82,13 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
           ) : undefined
         }
       >
-        <article className="flex max-w-reading flex-col gap-5" data-vision-narrative>
+        {vision ? null : <Explainer {...PRODUCT_EXPLAINER} className="mb-4" />}
+        {noNarrative ? (
+          <EmptyState icon={BookOpen} title="No narrative yet" className="py-6">
+            The Problem, Customers and Value proposition sections appear here once the spec outline is seeded or written on the Specification tab.
+          </EmptyState>
+        ) : null}
+        <article className="flex max-w-reading flex-col gap-5" data-vision-narrative hidden={noNarrative}>
           {narrative.map((g) => (
             <section key={g.section} aria-labelledby={`vision-${g.section}`}>
               <h3 id={`vision-${g.section}`} className="t-label mb-2">
@@ -143,7 +151,8 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
       <Panel title="Spec at a glance" span={4} className="self-start" loading={spec.isLoading} error={spec.error ? spec.error.message : undefined} onRetry={spec.refetch} footer={signoffLine ? <span data-testid="signoff-summary">{signoffLine}</span> : undefined}>
         {/* One summary line instead of six counts (UX plan §7.11): what matters is how big it is and whether it is signed off. */}
         <p className="text-body text-primary tabular-nums" data-testid="spec-summary">
-          {specSummaryLine(groups.length, signoffs.data?.spec, formatDate)}
+          <Term id="specification">Specification</Term>
+          {specSummaryLine(groups.length, signoffs.data?.spec, formatDate).slice("Specification".length)}
         </p>
         {groups.length ? (
           // The outline as a quiet two-column list of section names (a count only where a section has several blocks).
@@ -163,7 +172,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
       </Panel>
 
       <Panel
-        title="Now on the roadmap"
+        title={<>Now on the <Term id="roadmap">roadmap</Term></>}
         span={8}
         className="self-start"
         loading={roadmap.isLoading}

@@ -269,7 +269,7 @@ export function smokeThreshold(bodyMd: string): string | null {
 
 /**
  * The update the Product Researcher posts when the plan is ready (BUILD §11.3 note style: fact → why it matters →
- * ask; 60-180 words). Deterministic from the plan, so it needs no second model call and invents nothing.
+ * ask; under 180 words, no padding). Deterministic from the plan, so it needs no second model call and invents nothing.
  */
 export function researchPlanNote(plan: ResearchPlan, icp: string): { subject: string; bodyMd: string } {
   const md = (s: string) => escapeMarkdown(plainLine(s));

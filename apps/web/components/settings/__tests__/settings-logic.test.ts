@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { PRICE_TBA_LABEL } from "@foundmill/config";
+import { consequenceText } from "@foundmill/dugout";
+import { BUSINESS_MODES } from "@foundmill/shared/constants";
+import { SETTINGS_TABS } from "@/lib/search";
+import { BUSINESS_MODE_CARDS } from "@/components/new/commit/naming";
+import { AUTOPILOT_HELP } from "../AutopilotSection";
 import { checkoutNotice, includedCreditsFact, periodLabel, tierFacts, tierPriceLabel } from "../BillingTab";
 import { timeZoneOptions } from "../BusinessTab";
 import { glossaryRows, rowsToGlossary } from "../GlossaryTab";
 import { connectorDetail, formatSimulateResult, MANAGED_ON_KEYS_TAB, simulateInput, simulateRefusalMessage, SIMULATIONS } from "../IntegrationsTab";
-import { GAME_MODE_REVIEW } from "../ModeTab";
+import { REVOKE_CONSEQUENCE } from "../KeysTab";
+import { KEY_STATUS_WORDS, keyStatus } from "../key-status";
+import { businessModeExample, GAME_MODE_CONSEQUENCE, GAME_MODE_REVIEW, VACATION_CONSEQUENCE } from "../ModeTab";
 
 describe("settings logic", () => {
   it("renders Price to be announced for TBD tiers and Free for the free tier", () => {
@@ -67,6 +74,38 @@ describe("settings logic", () => {
   it("the game-mode review lists what changes both ways", () => {
     expect(GAME_MODE_REVIEW.live.length).toBeGreaterThan(2);
     expect(GAME_MODE_REVIEW.personal.join(" ")).toMatch(/15 minutes/);
+  });
+
+  it("the Settings list calls the glossary tab Your words and keeps its slug (§7.17)", () => {
+    expect(SETTINGS_TABS.find((t) => t.slug === "glossary")?.label).toBe("Your words");
+    expect(SETTINGS_TABS.map((t): string => t.label)).not.toContain("Glossary");
+  });
+
+  it("the Keys entry's chip reads the business row: connected on its own key, revoked while stopped for a revoked key, else none", () => {
+    expect(keyStatus({ modelBilling: "byok", agentsStoppedAt: null, agentsStoppedReason: null })).toBe("connected");
+    expect(keyStatus({ modelBilling: "credits", agentsStoppedAt: null, agentsStoppedReason: null })).toBe("none");
+    expect(keyStatus({ modelBilling: "credits", agentsStoppedAt: "2026-10-20T15:45:00Z", agentsStoppedReason: "key_revoked" })).toBe("revoked");
+    // Stopped for another reason (Stop all agents, used-up credits): the key itself is still on file.
+    expect(keyStatus({ modelBilling: "byok", agentsStoppedAt: "2026-10-20T15:45:00Z", agentsStoppedReason: "kill_switch" })).toBe("connected");
+    expect(keyStatus({})).toBe("none");
+    expect(KEY_STATUS_WORDS).toEqual({ connected: { word: "Connected", tone: "good" }, none: { word: "None", tone: "neutral" }, revoked: { word: "Revoked", tone: "bad" } });
+  });
+
+  it("each business mode card carries the example line Commit shows, and Autopilot's help says what it never does (§7.17)", () => {
+    for (const mode of BUSINESS_MODES) {
+      const example = businessModeExample(mode);
+      expect(example, mode).toBe(BUSINESS_MODE_CARDS.find((c) => c.value === mode)?.example);
+      expect(example, mode).toMatch(/^Example: /);
+      expect(example, mode).not.toMatch(/counterpart/i);
+    }
+    expect(AUTOPILOT_HELP).toBe("Autopilot presses Continue for you on a schedule. It never answers notes for you.");
+  });
+
+  it("going live, going on vacation and revoking the key each carry a consequence line that can be undone", () => {
+    expect(consequenceText(GAME_MODE_CONSEQUENCE.live)).toMatch(/visible on the network.* · Reversible$/);
+    expect(consequenceText(GAME_MODE_CONSEQUENCE.personal)).toMatch(/nothing is deleted\. · Reversible$/);
+    expect(consequenceText(VACATION_CONSEQUENCE)).toMatch(/hard gates still wait for you.* · Reversible$/);
+    expect(consequenceText(REVOKE_CONSEQUENCE)).toBe("Every agent stops until a new key is stored. · No cost · Reversible");
   });
 
   it("offers UTC first and every known zone for the business time zone, keeping a saved zone the browser does not list (audit #196)", () => {

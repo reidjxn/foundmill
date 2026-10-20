@@ -13,6 +13,8 @@ test.describe("milestones", () => {
     await expect(page.getByTestId("milestones-screen")).toBeVisible({ timeout: LONG });
     await expect(page.locator("[data-trophy]")).toHaveCount(8);
     await expect(page.getByTestId("milestones-timeline")).toBeVisible();
+    // Guidance on (the product default): the timeline panel's one-sentence help tip, named after its title.
+    await expect(page.getByTestId("milestones-timeline").getByRole("button", { name: "About Releases, decisions and launches" })).toBeVisible();
     // Two years of seeded wins light several milestones up.
     expect(await page.locator("[data-trophy][data-achieved]").count()).toBeGreaterThanOrEqual(1);
     await expect(page.getByTestId("milestones-screen")).toHaveAttribute("data-won", /^[1-8]$/);

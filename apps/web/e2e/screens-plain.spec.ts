@@ -89,5 +89,10 @@ test.describe("screens in plain words", () => {
     );
     expect(lefts.length, "the seed gives Northwind releases and decisions").toBeGreaterThan(1);
     expect(new Set(lefts).size, `title columns at ${[...new Set(lefts)].join(", ")}`).toBe(1);
+    // Estimate is a defined word on this screen in every guidance state (information, not tutoring: UX plan §7.18).
+    const estimate = page.getByTestId("trophy-cabinet-panel").locator("[data-term='estimate']");
+    await expect(estimate).toBeVisible();
+    await estimate.hover();
+    await expect(page.locator("[data-definition-card]")).toContainText(/worked out, not measured/i, { timeout: LONG });
   });
 });

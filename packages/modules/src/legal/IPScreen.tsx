@@ -12,7 +12,7 @@ import { useWidgetQuery } from "@foundmill/widgets/data";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
 import { DISTINCTIVENESS_WORD, screenTrademark, type TrademarkScreen } from "./legal-data";
-import { InformationNotice, Screen, archetypeLabel, useLegalStatus, useNow, useOpenExternal } from "./shared";
+import { InformationNotice, SIMPLE_VIEW_ID, Screen, archetypeLabel, useDefaultViewId, useLegalStatus, useNow, useOpenExternal } from "./shared";
 import type { BusinessGetResponse, IntegrationsListResponse } from "./types";
 import { DateText } from "../dates";
 
@@ -25,6 +25,8 @@ export interface ScreenedMark extends TrademarkScreen {
 }
 
 export const MARK_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): the mark, how strong it is and whether anything stands in its way; first while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["mark", "strength", "issues", "screenedAt"], sort: [{ id: "screenedAt", desc: true }], filters: [] },
   { id: "all", name: "All marks", builtIn: true, columns: ["mark", "distinctiveness", "strength", "issues", "screenedAt"], sort: [{ id: "screenedAt", desc: true }], filters: [] },
   { id: "strong", name: "Strong candidates", builtIn: true, columns: ["mark", "distinctiveness", "strength", "screenedAt"], sort: [{ id: "strength", desc: true }], filters: [{ id: "f-strong", field: "strength", op: "gte", value: 4 }] },
   { id: "problems", name: "With objections", builtIn: true, columns: ["mark", "distinctiveness", "issues", "screenedAt"], sort: [{ id: "issues", desc: true }], filters: [{ id: "f-prob", field: "issues", op: "gt", value: 0 }] },
@@ -49,8 +51,9 @@ export function IPScreen({ businessId: _businessId }: ModuleScreenProps) {
   const business = useWidgetQuery<BusinessGetResponse>("business.get", BUSINESS_INPUT);
   const status = useLegalStatus();
   const integrations = useWidgetQuery<IntegrationsListResponse>("integrations.list", INTEGRATIONS_INPUT);
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("legal.ip.marks", MARK_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("legal.ip.marks", MARK_VIEWS, { defaultViewId });
   const [input, setInput] = useState("");
   const [marks, setMarks] = useState<ScreenedMark[]>([]);
   const [current, setCurrent] = useState<ScreenedMark | null>(null);
@@ -169,7 +172,7 @@ export function IPScreen({ businessId: _businessId }: ModuleScreenProps) {
       </Panel>
 
       <Panel title="Marks screened" span={12} flush empty={marks.length === 0 ? { icon: Stamp, children: "Marks you screen are listed here with their strength and objections, so you can compare candidates." } : undefined} footer={<span className="tabular-nums">{marks.length} mark{marks.length === 1 ? "" : "s"} · right-click to search the registers · this list lives in this window</span>}>
-        <DataTable<ScreenedMark> aria-label="Marks screened" data={marks} columns={columns} {...savedViews} defaultViewId="all" height={240} exportFileName="trademark-screen" rowActions={rowActions} onRowOpen={(r) => setCurrent(r)} rowClassName={(r) => (r.id === current?.id ? "bg-panel-alt" : undefined)} />
+        <DataTable<ScreenedMark> aria-label="Marks screened" data={marks} columns={columns} {...savedViews} defaultViewId={defaultViewId} height={240} exportFileName="trademark-screen" rowActions={rowActions} onRowOpen={(r) => setCurrent(r)} rowClassName={(r) => (r.id === current?.id ? "bg-panel-alt" : undefined)} />
       </Panel>
     </Screen>
   );

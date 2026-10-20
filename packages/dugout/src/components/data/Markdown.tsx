@@ -1,6 +1,10 @@
+"use client";
 import { Children, isValidElement, lazy, Suspense, type ComponentPropsWithoutRef, type ReactNode } from "react";
 import type { Components } from "react-markdown";
+import { ENTITY_MARKUP_RE } from "@foundmill/shared/constants";
 import { cn } from "../../lib/cn";
+import { useGuidance, type TermDefinition } from "../guidance/GuidanceProvider";
+import { Term } from "../guidance/Term";
 import { EntityText, type EntityTextProps } from "./EntityText";
 import { entityNodesToPlain, hasEntityMarkup, parseEntityText } from "./entityMarkup";
 import type MarkdownEngineType from "./MarkdownEngine";
@@ -32,9 +36,104 @@ const LazyEngine = lazy(() => preloadMarkdown().then(() => ({ default: engine! }
 
 if (typeof window !== "undefined") void preloadMarkdown().catch(() => undefined);
 
+/* ---------- defined terms in a note (docs/UX_AUDIT_AND_PLAN.md §6.2 `Term`: "a Markdown rule that wraps the first occurrence of a defined term per note") ---------- */
+
+/**
+ * The first occurrence of each defined term is marked in the source before it is parsed, with private-use characters
+ * the parser carries through as text: `<id><words as written>`. The render side turns a mark into a
+ * `Term` and strips any stray marker. Marking the source (rather than wrapping at render time) keeps "first per note"
+ * exact whatever order or how many times React renders the parsed tree.
+ */
+const TERM_OPEN = "";
+const TERM_MID = "";
+const TERM_CLOSE = "";
+const TERM_MARK_RE = /([^-]*)([^-]*)/g;
+const TERM_MARKERS_RE = /[-]/g;
+
+/**
+ * Where a term is never wrapped: fenced and inline code, links and images (text and target), reference links and their
+ * definitions, autolinks and HTML tags, bare URLs and emails (GFM links), and entity mentions.
+ */
+const SKIP_PATTERNS: readonly RegExp[] = [
+  /```[\s\S]*?(?:```|$)/g,
+  /~~~[\s\S]*?(?:~~~|$)/g,
+  /`[^`\n]*`/g,
+  /!?\[[^\]\n]*\]\([^)\n]*\)/g,
+  /\[[^\]\n]*\]\[[^\]\n]*\]/g,
+  /^[ \t]*\[[^\]\n]+\]:[^\n]*$/gm,
+  /<[^<>\s][^<>]*>/g,
+  /\b(?:https?:\/\/|www\.)[^\s<>)]+/gi,
+  /[^\s@<>()]+@[^\s@<>()]+\.[a-z]{2,}/gi,
+  new RegExp(ENTITY_MARKUP_RE.source, "g"),
+];
+
+type Span = readonly [start: number, end: number, ...rest: unknown[]];
+
+function skipSpans(text: string): Span[] {
+  const out: Span[] = [];
+  for (const re of SKIP_PATTERNS) for (const m of text.matchAll(re)) if (m[0].length) out.push([m.index ?? 0, (m.index ?? 0) + m[0].length]);
+  return out;
+}
+
+const overlaps = (spans: readonly Span[], start: number, end: number): boolean => spans.some(([a, b]) => start < b && end > a);
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * A whole-word, case-insensitive match of the term's display word (a multi-word term matches on one line), with an
+ * optional plural ("cycles", "branches"). Word edges are letters, digits and underscores, so "runway" never matches
+ * inside "runways-end" and "MRR" never inside "MRRX".
+ */
+export function termRegExp(word: string): RegExp {
+  const body = word
+    .trim()
+    .split(/\s+/)
+    .map(escapeRe)
+    .join("[ \\t]+");
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${body}(?:s|es)?(?![\\p{L}\\p{N}_])`, "giu");
+}
+
+/**
+ * The source with the first occurrence of each defined term marked (one per term, never inside a link, code or an
+ * entity mention). Longer words are placed first, so "Net burn" is taken before "Burn" can claim its tail; a shorter
+ * term then takes its first occurrence outside any longer one. Pure; exported for tests.
+ */
+export function markTerms(text: string, terms: Readonly<Record<string, TermDefinition>>): string {
+  const defs = Object.values(terms).filter((d) => d.word.trim().length > 0);
+  if (!text || defs.length === 0) return text;
+  const skips = skipSpans(text);
+  const taken: Array<[start: number, end: number, id: string]> = [];
+  for (const def of [...defs].sort((a, b) => b.word.length - a.word.length)) {
+    for (const m of text.matchAll(termRegExp(def.word))) {
+      const start = m.index ?? 0;
+      const end = start + m[0].length;
+      if (overlaps(skips, start, end) || overlaps(taken, start, end)) continue;
+      taken.push([start, end, def.id]);
+      break;
+    }
+  }
+  if (taken.length === 0) return text;
+  taken.sort((a, b) => a[0] - b[0]);
+  let out = "";
+  let cursor = 0;
+  for (const [start, end, id] of taken) {
+    out += `${text.slice(cursor, start)}${TERM_OPEN}${id}${TERM_MID}${text.slice(start, end)}${TERM_CLOSE}`;
+    cursor = end;
+  }
+  return out + text.slice(cursor);
+}
+
+/** The text without any term marker (the words stay). */
+export function unmarkTerms(text: string): string {
+  return text.replace(TERM_MARK_RE, "$2").replace(TERM_MARKERS_RE, "");
+}
+
+const hasTermMarks = (text: string): boolean => text.includes(TERM_OPEN);
+
 /** Shown only while the parser loads: the text, plain (entity mentions by name when they would be linked). */
 function PlainFallback({ text, entities }: { text: string; entities: boolean }) {
-  return <p className="my-0 whitespace-pre-wrap">{entities ? entityNodesToPlain(parseEntityText(text)) : text}</p>;
+  const plain = unmarkTerms(text);
+  return <p className="my-0 whitespace-pre-wrap">{entities ? entityNodesToPlain(parseEntityText(plain)) : plain}</p>;
 }
 
 export interface MarkdownProps extends Pick<
@@ -59,24 +158,56 @@ export interface MarkdownProps extends Pick<
    * character reference could get around).
    */
   entities?: boolean;
+  /**
+   * Wrap the first occurrence of each defined term (the GuidanceProvider's map, `TERMS` through the business glossary)
+   * in a `Term` with its definition on hover (default false; the Inbox turns it on for note bodies). Whole word,
+   * case-insensitive, once per term per note, never inside a link, code or an entity mention. Off while guidance is off.
+   */
+  terms?: boolean;
 }
 
-/** Replace string children that carry entity markup with EntityText; leave everything else as is. */
-function linkify(
-  children: ReactNode,
-  handlers: Pick<EntityTextProps, "onResolveAmbiguous" | "onCreateDraft" | "onOpen">,
-): ReactNode {
+type Handlers = Pick<EntityTextProps, "onResolveAmbiguous" | "onCreateDraft" | "onOpen">;
+
+/** A string with entity markup → EntityText (when entities are on); anything else as is. Stray term markers are dropped. */
+function entityOrPlain(text: string, handlers: Handlers, entities: boolean): ReactNode {
+  const plain = unmarkTerms(text);
+  return entities && hasEntityMarkup(plain) ? <EntityText {...handlers}>{plain}</EntityText> : plain;
+}
+
+/**
+ * Replace string children that carry term marks or entity markup with `Term`s and `EntityText`; leave everything else
+ * as is.
+ */
+function inline(children: ReactNode, handlers: Handlers, entities: boolean): ReactNode {
   return Children.map(children, (child) => {
-    if (typeof child === "string") {
-      return hasEntityMarkup(child) ? <EntityText {...handlers}>{child}</EntityText> : child;
+    if (typeof child !== "string") return child;
+    if (!hasTermMarks(child)) return entityOrPlain(child, handlers, entities);
+    const parts: ReactNode[] = [];
+    let cursor = 0;
+    for (const m of child.matchAll(TERM_MARK_RE)) {
+      const start = m.index ?? 0;
+      if (start > cursor) parts.push(entityOrPlain(child.slice(cursor, start), handlers, entities));
+      parts.push(
+        <Term key={`${m[1]}-${start}`} id={m[1]!}>
+          {m[2]}
+        </Term>,
+      );
+      cursor = start + m[0].length;
     }
-    return child;
+    if (cursor < child.length) parts.push(entityOrPlain(child.slice(cursor), handlers, entities));
+    return <>{parts}</>;
   });
+}
+
+/** Plain text for the places a term never goes (links, code): the words without their markers. */
+function plain(children: ReactNode): ReactNode {
+  return Children.map(children, (child) => (typeof child === "string" ? unmarkTerms(child) : child));
 }
 
 /**
  * Markdown in the DESIGN §4 reading style (react-markdown + remark-gfm). Entity markup inside paragraphs, list items,
- * headings, table cells and emphasis renders through `EntityText`. Raw HTML is skipped.
+ * headings, table cells and emphasis renders through `EntityText`; with `terms`, the first occurrence of each defined
+ * term in those places renders through `Term`. Raw HTML is skipped.
  */
 export function Markdown({
   children,
@@ -85,12 +216,16 @@ export function Markdown({
   externalLinks = true,
   images = true,
   entities = true,
+  terms = false,
   onResolveAmbiguous,
   onCreateDraft,
   onOpen,
 }: MarkdownProps) {
   const handlers = { onResolveAmbiguous, onCreateDraft, onOpen };
-  const L = (c: ReactNode) => (entities ? linkify(c, handlers) : c);
+  const guidance = useGuidance();
+  // The source with its terms marked; a note shows no term while guidance is off (tutoring, UX plan §5 principle 9).
+  const source = terms && guidance.guidance === "on" ? markTerms(children, guidance.terms) : children;
+  const L = (c: ReactNode) => (entities || terms ? inline(c, handlers, entities) : c);
   const components: Components = {
     p: ({ children: c, ...rest }: ComponentPropsWithoutRef<"p">) => (
       <p className="my-0 [&+&]:mt-3 [&+ul]:mt-2 [&+ol]:mt-2" {...rest}>
@@ -161,7 +296,7 @@ export function Markdown({
     a: ({ children: c, href, ...rest }: ComponentPropsWithoutRef<"a">) => {
       // The parser blanks a URL it will not follow (javascript:, data:, vbscript:) to "". That is text, not a link: an
       // anchor with an empty href would look clickable and reload the page.
-      if (!href) return <span>{c}</span>;
+      if (!href) return <span>{plain(c)}</span>;
       const external = externalLinks && /^https?:/i.test(href);
       return (
         <a
@@ -170,7 +305,7 @@ export function Markdown({
           {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
           {...rest}
         >
-          {c}
+          {plain(c)}
           {external ? <span className="sr-only"> (opens in a new tab)</span> : null}
         </a>
       );
@@ -192,7 +327,7 @@ export function Markdown({
           )}
           {...rest}
         >
-          {c}
+          {plain(c)}
         </code>
       );
     },
@@ -256,12 +391,12 @@ export function Markdown({
     img: ({ alt, ...rest }: ComponentPropsWithoutRef<"img">) =>
       images ? (
         <img
-          alt={alt ?? ""}
+          alt={alt === undefined ? "" : unmarkTerms(alt)}
           className="my-2 max-w-full rounded-md border border-line"
           {...rest}
         />
       ) : alt ? (
-        <span className="text-secondary">{alt}</span>
+        <span className="text-secondary">{unmarkTerms(alt)}</span>
       ) : null,
   };
   // Once loaded, the parser renders at once (no Suspense round); before that, LazyEngine suspends to the fallback.
@@ -270,9 +405,10 @@ export function Markdown({
     <div
       className={cn(variant === "reading" ? "t-reading" : "t-body", "text-primary", className)}
       data-markdown
+      data-terms={source !== children || undefined}
     >
-      <Suspense fallback={<PlainFallback text={children} entities={entities} />}>
-        <Engine components={components}>{children}</Engine>
+      <Suspense fallback={<PlainFallback text={source} entities={entities} />}>
+        <Engine components={components}>{source}</Engine>
       </Suspense>
     </div>
   );

@@ -22,7 +22,8 @@ describe("LeadsScreen", () => {
     expect(within(table).getAllByText("Clear")).toHaveLength(2);
     expect(screen.getByText(/3 leads · 1 without a lawful basis · 1 suppressed/)).toBeTruthy();
     // "Lawful basis" is defined in the sentence where it first appears (UX plan §7.13).
-    expect(screen.getByText(/A lawful basis is your legal reason for contacting someone; suppressed means never contact\./)).toBeTruthy();
+    // The footer defines "lawful basis" (a Term, plain text while guidance is off), so the sentence spans two nodes.
+    expect(screen.getByRole("region", { name: "Leads" }).querySelector("footer")!.textContent).toContain("A lawful basis is your legal reason for contacting someone; suppressed means never contact.");
   });
 
   it("shows companies and owners in their own view", async () => {

@@ -7,14 +7,14 @@
  */
 import { useMemo, useState } from "react";
 import { CalendarDays, CalendarRange, Inbox, List, Repeat } from "lucide-react";
-import { Chip, DataTable, Panel, SegmentedControl, StatusStrip, cn, useFormatters, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Chip, DataTable, Panel, SegmentedControl, StatusStrip, Term, cn, useFormatters, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
 import { DUE_WINDOW_DAYS, calendarMonths, calendarRows, daysToNextDeadline, type CalendarRow } from "./legal-data";
-import { CALENDAR_PILL, Pill, Screen, fitTableHeight, humanise, useNow } from "./shared";
+import { CALENDAR_PILL, FILING_TERM, Pill, SIMPLE_VIEW_ID, Screen, fitTableHeight, humanise, useDefaultViewId, useNow } from "./shared";
 import type { ComplianceListResponse } from "./types";
 import { DateText } from "../dates";
 
@@ -26,6 +26,8 @@ export const COMPLIANCE_SUB_VIEWS = [
 ] as const;
 
 export const COMPLIANCE_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): what is due, when, how soon and where it stands; the open items, first while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["title", "dueAt", "daysLeft", "status"], sort: [{ id: "dueAt", desc: false }], filters: [{ id: "f-simple", field: "status", op: "in", value: ["upcoming", "due", "overdue"] }] },
   { id: "open", name: "Open", builtIn: true, columns: ["title", "kind", "dueAt", "daysLeft", "status", "recurrence"], sort: [{ id: "dueAt", desc: false }], filters: [{ id: "f-open", field: "status", op: "in", value: ["upcoming", "due", "overdue"] }] },
   { id: "overdue", name: "Overdue", builtIn: true, columns: ["title", "kind", "dueAt", "daysLeft", "ref"], sort: [{ id: "dueAt", desc: false }], filters: [{ id: "f-over", field: "status", op: "eq", value: "overdue" }] },
   { id: "filings", name: "Filings", builtIn: true, columns: ["title", "category", "dueAt", "status", "completedAt", "ref"], sort: [{ id: "dueAt", desc: false }], filters: [{ id: "f-fil", field: "kind", op: "eq", value: "filing" }] },
@@ -60,8 +62,9 @@ export function ComplianceScreen({ businessId, subView }: ModuleScreenProps) {
   const { navigate } = useWidgetData();
   const departments = useDepartments();
   const query = useWidgetQuery<ComplianceListResponse>("legal.compliance.list", COMPLIANCE_INPUT);
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("legal.compliance", COMPLIANCE_VIEWS, { defaultViewId: "open" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("open");
+  const savedViews = useSavedViews("legal.compliance", COMPLIANCE_VIEWS, { defaultViewId });
   const [mode, setMode] = useState<"list" | "calendar">(subView === "calendar" ? "calendar" : "list");
   const [highlight, setHighlight] = useState<string | null>(null);
 
@@ -75,11 +78,12 @@ export function ComplianceScreen({ businessId, subView }: ModuleScreenProps) {
   const doneThisYear = rows.filter((r) => r.status === "done" && r.completedAt && r.completedAt.slice(0, 4) === String(now.getUTCFullYear())).length;
   const empty = !query.isLoading && !query.error && rows.length === 0;
 
+  // Each tile's plain line while guidance is on (PlainFigure): what the figure is, before where it comes from.
   const tiles: MetricTileProps[] = [
-    { label: "Days to next deadline", value: next === null ? "—" : next, format: "integer", caption: next === null ? "No open deadline" : next < 0 ? "Past due" : "Open deadline", provenance: { source: "Soonest open compliance event or filing", query: "legal.compliance.list" } },
-    { label: "Overdue", value: overdue, format: "integer", provenance: { source: "Open items whose due date has passed" } },
-    { label: `Due within ${DUE_WINDOW_DAYS} days`, value: dueSoon, format: "integer", provenance: { source: `Open items due in the next ${DUE_WINDOW_DAYS} days` } },
-    { label: "Done this year", value: doneThisYear, format: "integer", provenance: { source: "Filings filed and compliance events completed this calendar year" } },
+    { label: "Days to next deadline", value: next === null ? "—" : next, format: "integer", plain: "The soonest filing or compliance date still open.", caption: next === null ? "No open deadline" : next < 0 ? "Past due" : "Open deadline", provenance: { source: "Soonest open compliance event or filing", query: "legal.compliance.list" } },
+    { label: "Overdue", value: overdue, format: "integer", plain: "Deadlines that have passed without being done.", provenance: { source: "Open items whose due date has passed" } },
+    { label: `Due within ${DUE_WINDOW_DAYS} days`, value: dueSoon, format: "integer", plain: "Deadlines coming up soon.", provenance: { source: `Open items due in the next ${DUE_WINDOW_DAYS} days` } },
+    { label: "Done this year", value: doneThisYear, format: "integer", plain: "Filings sent and compliance events completed since January.", provenance: { source: "Filings filed and compliance events completed this calendar year" } },
   ];
 
   const rowActions = (row: CalendarRow): RowAction<CalendarRow>[] => [
@@ -116,10 +120,14 @@ export function ComplianceScreen({ businessId, subView }: ModuleScreenProps) {
             ]}
           />
         }
-        footer={<span>Right-click a deadline to see it in the calendar, open the legal entity or the Inbox.</span>}
+        footer={
+          <span>
+            A <Term id="filing" definition={FILING_TERM}>filing</Term> is a form or report the company must send by a date; a compliance event is anything else it must do by one. Use the … button or right-click a deadline to see it in the calendar, open the legal entity or the Inbox.
+          </span>
+        }
       >
         {mode === "list" ? (
-          <DataTable<CalendarRow> aria-label="Deadlines" data={rows} columns={columns} getRowId={(r) => `${r.kind}-${r.id}`} {...savedViews} defaultViewId="open" height={fitTableHeight(rows.length, { minRows: 8, maxRows: 16 })} exportFileName="compliance-calendar" rowActions={rowActions} onRowOpen={(r) => { setHighlight(r.id); setMode("calendar"); }} rowClassName={(r) => (r.id === highlight ? "row-selected" : undefined)} />
+          <DataTable<CalendarRow> aria-label="Deadlines" data={rows} columns={columns} getRowId={(r) => `${r.kind}-${r.id}`} {...savedViews} defaultViewId={defaultViewId} height={fitTableHeight(rows.length, { minRows: 8, maxRows: 16 })} exportFileName="compliance-calendar" rowActions={rowActions} onRowOpen={(r) => { setHighlight(r.id); setMode("calendar"); }} rowClassName={(r) => (r.id === highlight ? "row-selected" : undefined)} />
         ) : (
           <ol aria-label="Twelve-month calendar" className="grid grid-cols-4 gap-gutter">
             {months.map((m) => (

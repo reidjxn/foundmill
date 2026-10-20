@@ -52,7 +52,7 @@ export const DISTRIBUTION_TABS: TabItem[] = [
 
 export const PALETTE_ITEMS: PaletteItem[] = [
   { id: "cmd-continue", kind: "command", label: "Continue", description: "Let the team work on their next tasks", shortcut: ["Space"] },
-  { id: "cmd-refresh", kind: "command", label: "Refresh Inbox", description: "One new note", shortcut: ["R"] },
+  { id: "cmd-refresh", kind: "command", label: "Refresh Inbox", description: "Ask the team for one quick note (does not start a cycle)", shortcut: ["R"] },
   { id: "cmd-stop", kind: "command", label: "Stop all agents", description: "Pause the whole team. An owner can resume." },
   { id: "cmd-holiday", kind: "command", label: "Go on vacation", description: "Hand the business to the Chief of Staff" },
   { id: "cmd-edit", kind: "command", label: "Edit layout", shortcut: ["E"] },

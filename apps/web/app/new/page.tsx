@@ -22,5 +22,7 @@ export default async function NewBusinessPage() {
   if (!viewer.complete) redirect("/onboarding");
   // The business the founder came from (Switch business › Create a new business): the doors offer the way back to it.
   const last = pickCurrentBusiness(await getLastBusinessId(), viewer.businesses);
-  return <Doors viewer={{ email: viewer.email }} profileLine={profileLineOf(viewer.profile)} businessCount={viewer.businesses.length} backTo={last ? { id: last.id, name: last.name } : null} />;
+  // The experience comes with the page (the profile is already read here), so Door A's "Recommended for you" tag for a
+  // first-time founder paints with the page instead of after a second read of the profile (§7.4).
+  return <Doors viewer={{ email: viewer.email }} profileLine={profileLineOf(viewer.profile)} experience={viewer.profile?.experience ?? null} businessCount={viewer.businesses.length} backTo={last ? { id: last.id, name: last.name } : null} />;
 }

@@ -384,3 +384,16 @@ export interface DateFormatPrefs {
 
 /** What everyone reads until they choose: US dates, 12-hour times (also the signed-out pages). */
 export const DEFAULT_DATE_FORMAT_PREFS: Readonly<DateFormatPrefs> = Object.freeze({ date: "us", time: "12h" });
+
+/**
+ * The guided layer's one switch (docs/UX_AUDIT_AND_PLAN.md §6.3; `account_preferences.guidance`, 0064): "on" shows
+ * tutoring (explainers, the first-week checklist, coach marks, term underlines), "off" hides it and never hides
+ * information (consequences, provenance, Estimate). Keyboard caps on buttons go the other way: they show only when it is
+ * off. A personal preference of the account, applied in every business, like the date format.
+ */
+export const GUIDANCE_MODES = ["on", "off"] as const;
+export type GuidanceMode = (typeof GUIDANCE_MODES)[number];
+
+/** The account's type size (`account_preferences.text_size`, 0064): comfortable grows body and small text; the structure keeps its sizes. */
+export const TEXT_SIZES = ["standard", "comfortable"] as const;
+export type TextSize = (typeof TEXT_SIZES)[number];

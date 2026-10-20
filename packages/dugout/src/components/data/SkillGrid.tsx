@@ -7,8 +7,8 @@ import { formatNumber } from "../../lib/format";
 import { RATING_MAX, ratingBandLabel } from "../../lib/rating";
 import { Chip } from "../foundation/Chip";
 import { Icon } from "../foundation/Icon";
-import { RatingBandPill } from "../foundation/SkillSlider";
 import { Tooltip } from "../foundation/Tooltip";
+import { ScaleLabel } from "../guidance/ScaleLabel";
 import { RatingBar, RatingFigure } from "./RatingBar";
 import type { SkillRow } from "./types";
 
@@ -39,8 +39,9 @@ export interface SkillGridProps {
   /** Dim rows outside the selection in focus mode. */
   dimUnselected?: boolean;
   /**
-   * Comfortable (default) shows the band word as a pill beside each figure; compact, for a narrow column, keeps the
-   * word in the figure's tooltip and accessible name instead.
+   * Comfortable (default) shows the band word as a ScaleLabel pill beside each figure; compact, for a narrow column,
+   * keeps the word in the figure's tooltip and accessible name instead (UX plan §6.2: density folds the pill into the
+   * tooltip).
    */
   density?: SkillGridDensity;
   className?: string;
@@ -197,8 +198,7 @@ export function SkillGrid({
                     ) : null}
                   </span>
                   <RatingFigure value={s.value} className="w-6 text-right" title={compact ? `${s.value} of ${RATING_MAX} · ${band}` : undefined} aria-label={`${s.value} of ${RATING_MAX}, ${band}`} />
-                  {/* TODO(guided-layer): ScaleLabel replaces this pill once the guidance primitives land. */}
-                  {compact ? null : <RatingBandPill value={s.value} className="shrink-0" data-skill-band={band} />}
+                  {compact ? null : <ScaleLabel value={s.value} scale={RATING_MAX} className="shrink-0" data-skill-band={band} />}
                   <span className="w-28 shrink-0">
                     <RatingBar
                       value={s.value}

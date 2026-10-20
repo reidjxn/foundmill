@@ -9,7 +9,7 @@
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, Copy, ExternalLink, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { Button, Chip, DataTable, DeptChip, ModelChip, Panel, ProvenanceChip, Textarea, formatMoney, formatPercent, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Button, Chip, DataTable, DeptChip, Explainer, ModelChip, Panel, ProvenanceChip, Term, Textarea, formatMoney, formatPercent, useGuided, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
@@ -18,7 +18,7 @@ import type { ModuleKey } from "@foundmill/shared/constants";
 import { useModuleEnv } from "../env";
 import { fitColumns, fitToGrow, humanise, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
-import { CloneDialog, HireDialog, LoanDialog, ReleaseDialog } from "./dialogs";
+import { CloneDialog, HireDialog, LoanDialog, RELEASE_CONSEQUENCE, ReleaseDialog } from "./dialogs";
 import { AgentCell, AgentStatusWordPill, FAMILY_LABELS, Screen, agentDept, agentEntity, agentHref, isChiefOfStaff, isChiefOfStaffType, suggestTemplates, useAgents, useNow } from "./shared";
 import type { AgentRow, TemplateRow } from "./types";
 
@@ -89,6 +89,18 @@ export function moduleLabel(template: Pick<TemplateRow, "module" | "family" | "k
 
 const FAMILY_ORDER: Record<TemplateRow["family"], number> = { assistant: 0, lead: 1, worker: 2, channel: 3, specialist: 4, utility: 5 };
 
+/** What the Recruitment tab is for (UX plan §6.2 Explainer, C10), with the wage cap defined on first use. */
+export const TEAM_RECRUITMENT_EXPLAINER = {
+  screenId: "team-recruitment",
+  purpose: "Hire new agents: describe one in a sentence, or pick a ready-made template from the catalog.",
+  action: "Say what the agent should do and press Draft this agent; or right-click a template and choose Hire…. It joins a department and starts next cycle.",
+  watchFor: (
+    <>
+      The <Term id="wage_cap">wage cap</Term>: the most an agent may cost per month, in US dollars (Estimate).
+    </>
+  ),
+} as const;
+
 export function toCatalogueRows(catalogue: readonly TemplateRow[] | undefined, agents: readonly AgentRow[] | undefined): CatalogueRow[] {
   const hiredBy = new Map<string, number>();
   for (const a of agents ?? []) if (a.agentType && !a.archivedAt) hiredBy.set(a.agentType, (hiredBy.get(a.agentType) ?? 0) + 1);
@@ -99,6 +111,7 @@ export function toCatalogueRows(catalogue: readonly TemplateRow[] | undefined, a
 
 export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProps) {
   const { navigate, currency } = useWidgetData();
+  const guided = useGuided();
   const now = useNow();
   const catalogue = useWidgetQuery<TemplateRow[]>("team.agents.catalogue", {});
   const agentsQuery = useAgents();
@@ -228,6 +241,8 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
     <Screen name="team/recruitment">
       <Panel span={12} title="Agent builder" glow="brand" footer="The closest template gives the new agent its description, instructions, skills and tools; train it from its profile to tune them. Hiring needs no approval; the wage cap is an estimate until the first month closes.">
         <div className="flex flex-col gap-3">
+          {/* The per-screen intro (UX plan §6.2): inside the first panel's body, never floating; nothing with guidance off. */}
+          <Explainer {...TEAM_RECRUITMENT_EXPLAINER} />
           <Textarea
             value={sentence}
             onChange={(e) => setSentence(e.target.value)}
@@ -243,7 +258,8 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
             maxLength={400}
           />
           <div className="flex flex-wrap items-center gap-3">
-            <Button variant="generate" size="md" disabled={!best} kbd="⌘↵" onClick={draft} data-testid="draft-agent">
+            {/* The key cap is an operator's affordance: shown only with guidance off; the shortcut works in both states. */}
+            <Button variant="generate" size="md" disabled={!best} kbd={guided ? undefined : "⌘↵"} onClick={draft} data-testid="draft-agent">
               Draft this agent
             </Button>
             <span className="min-w-0 text-small text-secondary" role="status">
@@ -302,9 +318,19 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
             </span>
           ) : undefined
         }
-        footer={notice ? <span data-testid="recruitment-notice" className="text-secondary">{notice}</span> : "Double-click or right-click a template to hire it into a department. Wage caps are estimates, in US dollars."}
+        footer={
+          notice ? (
+            <span data-testid="recruitment-notice" className="text-secondary">
+              {notice}
+            </span>
+          ) : (
+            <span>
+              Double-click or right-click a template to hire it into a department. <Term id="wage_cap">Wage caps</Term> are estimates, in US dollars.
+            </span>
+          )
+        }
       >
-        {/* What the catalog is, in one line under its title (UX plan C10). TODO(guided-layer): Explainer. */}
+        {/* What the catalog is, in one line under its title (UX plan C10): information, so it stays in both guidance states; the tab's Explainer is on the builder above. */}
         <p className="border-b border-line-faint px-panel-pad py-2 text-small text-secondary" data-testid="catalogue-intro">
           Ready-made agents. Hire one into a department and it starts next cycle.
         </p>
@@ -321,7 +347,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         error={agentsQuery.error ? agentsQuery.error.message : undefined}
         onRetry={refetch}
         empty={agentsQuery.data && team.length === 0 ? { icon: Users, children: "Hired agents appear here; right-click one to duplicate it, lend it to another department or let it go." } : undefined}
-        footer="Letting an agent go stops its running tasks and keeps its history. Duplicating copies instructions, tools, model and skills. Lending adds a department; moving replaces it."
+        footer={`Letting an agent go: ${RELEASE_CONSEQUENCE} Duplicating copies instructions, tools, model and skills. Lending adds a department; moving replaces it.`}
       >
         <div className="min-w-0">
           <DataTable<AgentRow> aria-label="Team moves" data={team} columns={movesColumns} {...movesSavedViews} defaultViewId="all" rowActions={movesActions} onRowOpen={(a) => open(a.id)} height={Math.min(420, Math.max(200, team.length * 28 + 44))} exportFileName="team-moves" className="border-0" />

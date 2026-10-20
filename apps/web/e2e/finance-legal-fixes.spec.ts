@@ -75,6 +75,11 @@ test.describe("finance fixes", () => {
     const text = await page.getByTestId("module-screen").innerText();
     expect(text).not.toContain("€");
     expect(text).not.toMatch(/\b(team_member|organisation)\b/);
+    // Guidance on (the product default): the tab's intro says who owns what, inside the Holders panel (UX plan §7.14),
+    // and SAFE is a defined word wherever the screen first says it.
+    const holders = page.getByRole("region", { name: "Holders" });
+    await expect(holders.locator("[data-explainer='finance/cap-table']")).toContainText("Who owns what share of the company.");
+    await expect(page.locator("[data-term='safe']").first()).toBeVisible();
     for (const row of await page.getByRole("grid", { name: "Holders" }).getByRole("row").all()) {
       const cells = (await row.innerText()).toLowerCase();
       // a holder of SAFEs alone has no percentage: it says it has not converted
@@ -138,6 +143,20 @@ test.describe("legal fixes", () => {
     const text = await page.getByTestId("module-screen").innerText();
     expect(text).not.toContain("Send for signature");
     expect(text).not.toContain("DocuSign");
+  });
+
+  test("contracts: letting a contract go says it cannot be undone, under the button that offers it (UX plan §6.2)", async ({ page }) => {
+    await openTab(page, "legal", "contracts");
+    const grid = page.getByRole("grid", { name: "Contracts" });
+    const rows = grid.getByRole("row");
+    if ((await rows.count()) < 2) return; // the seed may hold no contract; the empty state is its own test
+    await rows.nth(1).dblclick();
+    const terminate = page.getByRole("button", { name: "Terminate" });
+    if (!(await terminate.count())) return; // an expired or terminated contract offers no way on
+    const consequence = page.getByTestId("terminate-consequence");
+    await expect(consequence).toBeVisible({ timeout: LONG });
+    await expect(consequence).toContainText("Not reversible");
+    await expect(consequence.locator("[data-consequence-reversible='false']")).toBeVisible();
   });
 
   test("regulatory: sector suggestions read whole words (a lab team is not tea)", async ({ page }) => {

@@ -128,7 +128,15 @@ describe("archetype seeds (BUILD §11.1, AC-11.1.6)", () => {
       }
       const recommended = d.options.find((o) => o.recommended)!;
       expect(recommended.reversible).toBe(true);
+      // The recommended option says why, in one plain sentence from the founder's seat (UX plan §7.19 "because").
+      expect(recommended.because, seed.archetype).toMatch(/^Recommended because .+\.$/);
+      expect(recommended.because!.length).toBeLessThanOrEqual(400);
+      for (const o of d.options) if (!o.recommended) expect(o.because, `${seed.archetype}/${o.id}`).toBeUndefined();
     }
+    // The shape refuses a recommended option without its reason.
+    const seed = ARCHETYPE_SEED_LIST[0]!;
+    const stripped = { ...seed, boardDecision: { ...seed.boardDecision, options: seed.boardDecision.options.map((o) => (o.recommended ? { ...o, because: undefined } : o)) } };
+    expect(ArchetypeSeed.safeParse(stripped).success).toBe(false);
   });
 
   it("every Board option runs typed actions its own team can carry out, and budgets exactly what it costs (audit IAE-20, AC-01, FR-10)", () => {

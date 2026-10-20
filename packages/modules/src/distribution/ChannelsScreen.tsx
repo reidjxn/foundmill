@@ -26,6 +26,7 @@ import {
   RatingFigure,
   StarRating,
   StatusPill,
+  Term,
   formatMoney,
   formatNumber,
   type DataTableColumn,
@@ -44,10 +45,12 @@ import { buildChannelViews, channelStatus, CHANNEL_STATUS_WORDS, resumeStatus, s
 import { METRICS_WINDOW_DAYS } from "./FormationScreen";
 import { localScores, RESCORE_DEBOUNCE_MS, useDebouncedRun } from "./rescore";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
-import { EstimatedMoney, InlineError, LINE_LABELS, OFFLINE_TRACKING_LABEL, Screen, fitTableHeight, parseMajor, searchParam, useAction } from "./shared";
+import { EstimatedMoney, InlineError, LINE_LABELS, OFFLINE_TRACKING_LABEL, SIMPLE_VIEW_ID, Screen, fitTableHeight, parseMajor, searchParam, useAction, useDefaultViewId } from "./shared";
 import type { CampaignRow, ChannelMetricRow, ChannelsListResponse, Page, RecommendResponse, RecommendationRow } from "./types";
 
 export const CHANNEL_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): the four columns a first-timer needs; the table opens on it while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["label", "fit", "status", "cpa"], sort: [{ id: "fit", desc: true }], filters: [] },
   { id: "all", name: "All channels", builtIn: true, columns: ["label", "line", "fit", "stars", "cpa", "budget", "status", "tracking"], sort: [{ id: "fit", desc: true }], filters: [] },
   // Running: how each running channel is doing, so the cost trend sits where the figures are (the budget stays in All).
   { id: "running", name: "Running", builtIn: true, columns: ["label", "fit", "form", "status", "leads", "customers", "cpaActual"], sort: [{ id: "fit", desc: true }], filters: [{ id: "f-run", field: "enabled", op: "eq", value: true }] },
@@ -211,8 +214,9 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
   const metrics = useWidgetQuery<ChannelMetricRow[]>("distribution.channels.metrics", { from: addDays(today, -(METRICS_WINDOW_DAYS - 1)) });
   const departments = useDepartments();
   const action = useAction();
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("distribution.channels", CHANNEL_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("distribution.channels", CHANNEL_VIEWS, { defaultViewId });
   const [recommendation, setRecommendation] = useState<RecommendationRow[] | null>(null);
   const [highlight] = useState<string | null>(() => searchParam("channel"));
   const [budgetFor, setBudgetFor] = useState<ChannelView | null>(null);
@@ -291,6 +295,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
     <Screen name="distribution/channels">
       <Panel
         title="Channels"
+        help="Fit is how well a channel suits this business, scored 1–20; the cost trend is the last five weeks against the cost target."
         menu={pinMenu}
         span={12}
         loading={channels.isLoading}
@@ -311,7 +316,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
         meta={`${rows.filter((r) => r.enabled).length} on the board · ${scored} of 15 scored`}
         footer={
           <span className="inline-flex flex-wrap items-center gap-1.5">
-            <RecommendedMark /> marks the Distribution Strategist's picks. Cost per customer is an <ProvenanceChip kind="estimate" /> until the conversion API confirms it. Right-click a channel to move it on or off the board, pause it or set its budget.
+            <RecommendedMark /> marks the <Term id="distribution_strategist">Distribution Strategist</Term>'s picks. <Term id="acquisition_cost">Cost per customer</Term> is an <ProvenanceChip kind="estimate" /> until the conversion API confirms it. Use the … button or right-click a channel to move it on or off the board, pause it or set its budget.
           </span>
         }
         flush
@@ -324,7 +329,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
           columns={columns}
           getRowId={(r) => r.channelKey}
           {...savedViews}
-          defaultViewId="all"
+          defaultViewId={defaultViewId}
           rowActions={rowActions}
           onRowOpen={(r) => openProfile(r.channelKey)}
           rowClassName={(r) => (r.channelKey === highlight ? "bg-white/4" : undefined)}

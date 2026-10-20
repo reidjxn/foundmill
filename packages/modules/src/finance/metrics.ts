@@ -123,21 +123,29 @@ export type MetricKey = "cash" | "grossBurn" | "netBurn" | "runway" | "revenue" 
 
 /**
  * The ten tiles' labels and hover definitions (BUILD §11.8; UX plan §7.14, C6): every abbreviation is spelled out on
- * first use, every definition says what the number means in plain words, then the formula after a semicolon.
+ * first use, every definition says what the number means in plain words, then the formula after a semicolon. `term`
+ * is the definitions map's id for the label (a `Term`) and the tile's plain line (`PlainFigure` reads `TERMS[term].short`
+ * while guidance is on); a metric the map does not define (cash, revenue) keeps `plainLine` for its line instead.
  */
-// TODO(guided-layer): `PlainFigure` reads these from TERMS once the definitions source lands.
-export const METRIC_DEFINITIONS: Record<MetricKey, { label: string; definition: string }> = {
+export const METRIC_DEFINITIONS: Record<MetricKey, { label: string; definition: string; term?: string }> = {
   cash: { label: "Cash in bank", definition: "What is in every connected bank account today, added up in your currency; the latest balances, converted at the latest ECB rate." },
-  grossBurn: { label: "Gross burn (spending per month)", definition: "What the business spends in a typical month; operating outflows, trailing 3-month average." },
-  netBurn: { label: "Net burn (spending beyond income)", definition: "How much more you spend than you earn in a typical month; operating outflows minus operating inflows, trailing 3-month average, financing excluded." },
-  runway: { label: "Runway", definition: "How many months your cash lasts at today's spending; cash ÷ net burn, plus the Base forecast's own runway." },
+  grossBurn: { label: "Gross burn (spending per month)", definition: "What the business spends in a typical month; operating outflows, trailing 3-month average.", term: "gross_burn" },
+  netBurn: { label: "Net burn (spending beyond income)", definition: "How much more you spend than you earn in a typical month; operating outflows minus operating inflows, trailing 3-month average, financing excluded.", term: "net_burn" },
+  runway: { label: "Runway", definition: "How many months your cash lasts at today's spending; cash ÷ net burn, plus the Base forecast's own runway.", term: "runway" },
   revenue: { label: "Revenue", definition: "What customers paid you in the last 3 months; from the ledger when one is connected, otherwise Stripe, Shopify and bank inflows, counted when the cash moves." },
-  mrr: { label: "Monthly recurring revenue (MRR)", definition: "What you earn from customers in a typical month; average monthly revenue over the trailing 3 months, counted when the cash moves." },
-  arr: { label: "Annual recurring revenue (ARR)", definition: "What a year of today's monthly revenue adds up to; MRR × 12." },
-  grossMargin: { label: "Gross margin", definition: "The share of revenue left after the direct cost of what you sell; (revenue − cost of sales) ÷ revenue, trailing 3 months." },
-  acquisitionCost: { label: "Cost to win a customer", definition: "What it costs, on average, to win one new customer; channel spend ÷ new customers, blended across channels (per channel in the tooltip)." },
-  payback: { label: "Payback (months to earn back a customer's cost)", definition: "How many months a new customer takes to earn back what it cost to win them; cost to win a customer ÷ monthly gross profit per customer." },
+  mrr: { label: "Monthly recurring revenue (MRR)", definition: "What you earn from customers in a typical month; average monthly revenue over the trailing 3 months, counted when the cash moves.", term: "mrr" },
+  arr: { label: "Annual recurring revenue (ARR)", definition: "What a year of today's monthly revenue adds up to; MRR × 12.", term: "arr" },
+  grossMargin: { label: "Gross margin", definition: "The share of revenue left after the direct cost of what you sell; (revenue − cost of sales) ÷ revenue, trailing 3 months.", term: "gross_margin" },
+  acquisitionCost: { label: "Cost to win a customer", definition: "What it costs, on average, to win one new customer; channel spend ÷ new customers, blended across channels (per channel in the tooltip).", term: "acquisition_cost" },
+  payback: { label: "Payback (months to earn back a customer's cost)", definition: "How many months a new customer takes to earn back what it cost to win them; cost to win a customer ÷ monthly gross profit per customer.", term: "payback" },
 };
+
+/** The plain-words half of a definition (before the formula's semicolon), as a tile's line under its figure. */
+export function plainLine(key: MetricKey): string {
+  const text = METRIC_DEFINITIONS[key].definition;
+  const i = text.indexOf(";");
+  return i < 0 ? text : `${text.slice(0, i).trim()}.`;
+}
 
 /**
  * The P&L's source label in plain words: the API's "Management P&L, unaudited, cash basis" reads "Management view,
@@ -191,6 +199,8 @@ export function runwayPhrase(months: number): string {
 export function financeSummarySentence(input: FinanceSummaryInput): string {
   if (input.accounts <= 0) return "No bank is connected yet, so how much cash you have and how long it lasts are not known.";
   const money = (minor: number) => sentenceMoney(minor, input.currency);
+  // A balance below zero has no runway to count (the tile reads "Cash is below zero"): say so, never "you have €2.5K".
+  if (input.cashMinor < 0) return `Your bank balance is ${money(input.cashMinor)} below zero, so there is no runway to count (Estimate).`;
   const cash = `You have ${money(input.cashMinor)} in the bank`;
   if (input.netBurnMinor > 0) {
     const burn = `spend ${money(input.netBurnMinor)} more than you earn each month`;

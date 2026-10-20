@@ -24,6 +24,10 @@ test.describe("journey", () => {
     await expect(screen).toHaveAttribute("data-speed", "full");
     await expect(page.locator("[data-stepper]")).toBeVisible();
     await expect(page.getByTestId("journey-crm-link")).toBeVisible();
+    // Guidance on (the product default): one line at the top says what the replay is (UX plan §7.18), and the title's
+    // first words are defined.
+    await expect(page.getByTestId("journey-lede")).toHaveText("How this customer was won, step by step.");
+    await expect(page.getByTestId("journey-toolbar").locator("[data-term='customer_update']")).toBeVisible();
     // A win that cost nothing to acquire says so in words; a zero never carries an Estimate chip.
     const cost = page.getByTestId("acquisition-cost");
     if (await cost.count()) await expect(cost).not.toContainText(/\b0\.00\b/);

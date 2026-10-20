@@ -1,6 +1,6 @@
 "use client";
 /**
- * Home's Autopilot chip (business.autopilot.get): On, Waiting for you, Paused: reason or Off, with the next planned cycle
+ * Home's Autopilot chip (business.autopilot.get): On, Needs your answer, Paused: reason or Off, with the next planned cycle
  * (an Estimate) and one plain sentence as its tooltip; in guided mode one sentence beside it says what Autopilot does
  * and never does (UX plan B16, `AutopilotChip`'s `guide`). It opens Settings › Mode. When Autopilot is on and not paused it
  * also asks the API to make sure its workflow is running (`business.autopilot.ensure`, idempotent), so an Autopilot

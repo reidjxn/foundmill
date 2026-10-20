@@ -38,7 +38,20 @@ const CLIENT_LIBS = [
 ];
 
 /** Files that re-export other modules. They must never carry the directive. */
-export const BARRELS = ["index.ts", "lib/index.ts", "components/foundation.ts", "components/shell.ts", "components/data.ts", "components/journey.ts", "components/agents.ts", "components/conversation.ts", "brand.ts"];
+export const BARRELS = [
+  "index.ts",
+  "lib/index.ts",
+  "components/foundation.ts",
+  "components/shell.ts",
+  "components/data.ts",
+  "components/journey.ts",
+  "components/agents.ts",
+  "components/conversation.ts",
+  // The guided layer (UX plan §6): the definitions primitives and the first-run pieces.
+  "components/guidance.ts",
+  "components/firstrun.ts",
+  "brand.ts",
+];
 
 /** Server-safe exports a Server Component is expected to use directly (ARCHITECTURE §14, DESIGN §4). */
 export const SERVER_SAFE_FILES = [
@@ -94,6 +107,13 @@ export const SERVER_SAFE_FILES = [
   "components/conversation/LiveRun.tsx",
   "components/conversation/DraftingCard.tsx",
   "components/conversation/NudgeAck.tsx",
+  // The guided layer (UX plan §6): the consequence line and the scale word are information a server component can
+  // render; the next-step rules are pure; the fixture map and the keyboard-focus tracker hold no React at all.
+  "components/guidance/ConsequenceLine.tsx",
+  "components/guidance/ScaleLabel.tsx",
+  "components/guidance/fixtures.ts",
+  "components/guidance/keyboardFocus.ts",
+  "components/firstrun/nextSteps.ts",
 ];
 
 export function listSourceFiles(root = SRC): string[] {
@@ -113,9 +133,14 @@ export function listSourceFiles(root = SRC): string[] {
   return out.sort();
 }
 
+/** What may come right before a `/` that opens a regex literal (anything else makes it division). */
+const REGEX_PRECEDERS = /(?:^|[(,=:[!&|?{};+\-*%<>~^]|\breturn|\btypeof|\bcase|\bdo|\belse|\bin|\bof|\bvoid|\bnew|\bdelete|\bthrow|\byield|\bawait)\s*$/;
+
 /**
  * Remove comments and string literals so hook names inside fixtures or prose do not count. A small scanner rather
- * than regexes: template literals nest (`${cond ? `x` : "y"}`) and a regex cannot pair their backticks.
+ * than regexes: template literals nest (`${cond ? `x` : "y"}`) and a regex cannot pair their backticks. Regex
+ * literals are skipped too (as `//`), since one may hold a quote or a backtick (a Markdown rule for inline code) that
+ * would otherwise open a string and swallow the code after it.
  */
 export function stripCommentsAndStrings(src: string): string {
   let out = "";
@@ -126,6 +151,27 @@ export function stripCommentsAndStrings(src: string): string {
   while (i < n) {
     const ch = src[i]!;
     const next = src[i + 1];
+    if (ch === "/" && next !== "/" && next !== "*" && (!tpl.length || tpl[tpl.length - 1] !== -1) && REGEX_PRECEDERS.test(out.slice(-12))) {
+      // A regex literal: to the closing unescaped `/` outside a character class, then its flags.
+      let j = i + 1;
+      let inClass = false;
+      while (j < n && src[j] !== "\n") {
+        const c = src[j]!;
+        if (c === "\\") j += 2;
+        else if (inClass) {
+          if (c === "]") inClass = false;
+          j++;
+        } else if (c === "[") {
+          inClass = true;
+          j++;
+        } else if (c === "/") break;
+        else j++;
+      }
+      while (j + 1 < n && /[a-z]/i.test(src[j + 1]!)) j++;
+      out += "/re/";
+      i = j + 1;
+      continue;
+    }
     if (tpl.length && tpl[tpl.length - 1] === -1) {
       // Inside template text.
       if (ch === "\\") i += 2;
@@ -274,6 +320,14 @@ describe("client boundaries", () => {
     expect(classify('export function B({ onClick }: { onClick?: () => void }) { return <button onClick={onClick} />; }').needsClient).toBe(false);
     expect(classify("export function C({ go }: { go: (k: string) => void }) { return <button onClick={() => go('x')} />; }").needsClient).toBe(true);
     expect(classify('import { useId, useMemo } from "react"; export function D() { const id = useId(); return useMemo(() => id, [id]); }').needsClient).toBe(false);
+  });
+
+  it("detector: skips regex literals, so a quote or a backtick inside one never swallows the code after it", () => {
+    const code = 'const INLINE = /`[^`\\n]*`/g; const Q = /"[^"]*"/; export function A() { const [v] = useState(1); return v / 2; }';
+    expect(stripCommentsAndStrings(code)).toContain("useState(1)");
+    expect(stripCommentsAndStrings(code)).toContain("v / 2");
+    expect(classify(code).needsClient).toBe(true);
+    expect(classify("const half = total / 2 / count; export const x = half;").needsClient).toBe(false);
   });
 
   it("detector: strips nested template literals without swallowing the code after them", () => {

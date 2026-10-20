@@ -4,8 +4,23 @@
  */
 import { useSyncExternalStore, type ReactElement, type ReactNode } from "react";
 import { render } from "@testing-library/react";
+import { GuidanceProvider, type GuidanceMode } from "@foundmill/dugout";
+import { TERMS } from "@foundmill/shared/terms";
 import { WidgetDataProvider, type QueryOptions, type QueryState, type WidgetDataSource } from "@foundmill/widgets";
 import { ModuleEnvProvider, type ModuleEnv } from "../../env";
+
+/**
+ * The guided layer in tests: off by default, so a screen renders the operator's view (the general saved view, plain
+ * words, no explainer) the assertions were written against; "on" renders it as a first-timer sees it, with the
+ * definitions map, so Terms are buttons and the Simple view opens first.
+ */
+export interface RenderOptions {
+  guidance?: GuidanceMode;
+}
+
+export function guidanceValue(guidance: GuidanceMode = "off") {
+  return guidance === "on" ? { guidance, terms: TERMS } : { guidance };
+}
 
 export const LOADING = Symbol("loading");
 export type FakeResponse = unknown | ((input: Record<string, unknown> | undefined) => unknown) | Error | typeof LOADING;
@@ -115,11 +130,13 @@ export function createFakeSource(opts: { businessId?: string; responses?: Record
 }
 
 /** Render a screen inside the data provider and module env. */
-export function renderScreen(fake: FakeSource, ui: ReactNode, env: Partial<ModuleEnv> = {}) {
+export function renderScreen(fake: FakeSource, ui: ReactNode, env: Partial<ModuleEnv> = {}, opts: RenderOptions = {}) {
   const el: ReactElement = (
-    <ModuleEnvProvider value={env}>
-      <WidgetDataProvider source={fake.source}>{ui}</WidgetDataProvider>
-    </ModuleEnvProvider>
+    <GuidanceProvider value={guidanceValue(opts.guidance)}>
+      <ModuleEnvProvider value={env}>
+        <WidgetDataProvider source={fake.source}>{ui}</WidgetDataProvider>
+      </ModuleEnvProvider>
+    </GuidanceProvider>
   );
   return render(el);
 }

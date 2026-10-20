@@ -8,10 +8,10 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Globe, Lock, Palmtree } from "lucide-react";
 import { useEffect, useState } from "react";
-import { BUSINESS_MODE_INFO, Button, Checkbox, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, HolidayDialog, KeyValueList, Label, MoneyInput, RadioCard, RadioGroup, StatusPill, useFormatters, type HolidaySettings } from "@foundmill/dugout";
+import { BUSINESS_MODE_INFO, Button, Checkbox, Chip, ConsequenceLine, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, HolidayDialog, KeyValueList, Label, MoneyInput, RadioCard, RadioGroup, StatusPill, Term, useFormatters, type HolidaySettings } from "@foundmill/dugout";
 import { BUSINESS_MODES, type BusinessMode, type GameMode } from "@foundmill/shared/constants";
 import { vacationUntilLabel } from "@foundmill/shared";
-import { parseSpendCapMinor } from "@/components/new/commit/naming";
+import { BUSINESS_MODE_CARDS, parseSpendCapMinor } from "@/components/new/commit/naming";
 import { formatMoney, plainWords } from "@/lib/format";
 import { toStartHolidayInput } from "@/lib/holiday";
 import { useTRPC } from "@/lib/trpc-react";
@@ -25,6 +25,20 @@ export const GAME_MODE_REVIEW: Record<GameMode, string[]> = {
   live: ["Your business profile and logo become visible on the network.", "Verified metrics can rank on leaderboards; self-reported numbers never rank.", "Connections, communities and human messages open up.", "Search also shows public profiles, labeled with the product name.", "The network is for people 18 or older: you confirm that before going live."],
   personal: ["The business leaves search and leaderboards within 15 minutes.", "Connections and communities are hidden; nothing is deleted.", "Agents keep working exactly as before."],
 };
+
+/** The consequence line under the game-mode button: what the switch to `target` does, and that it can be undone. */
+export const GAME_MODE_CONSEQUENCE: Record<GameMode, { consequence: string; reversible: true }> = {
+  live: { consequence: "Your profile and logo become visible on the network; switch back to Personal any time.", reversible: true },
+  personal: { consequence: "The business leaves search and leaderboards within 15 minutes; nothing is deleted.", reversible: true },
+};
+
+/** The consequence line under Go on vacation (docs/UX_AUDIT_AND_PLAN.md §6.2 names Vacation among the actions that carry one). */
+export const VACATION_CONSEQUENCE = { consequence: "The Chief of Staff decides inside the authority you set; hard gates still wait for you. Come back ends it.", reversible: true } as const;
+
+/** One concrete day in a business mode, from the Commit cards ("Example: drafts the pricing page and publishes it; asks before paying for a domain."). */
+export function businessModeExample(mode: BusinessMode): string | undefined {
+  return BUSINESS_MODE_CARDS.find((c) => c.value === mode)?.example;
+}
 
 /**
  * The business's "Spend cap per action" (first set on Commit; business.setSpendCap): above it every spend asks first,
@@ -100,10 +114,13 @@ export function ModeTab() {
           <p className="text-body text-secondary">{b.gameMode === "live" ? "Visible on the network and eligible for leaderboards." : "Private: only members of this business can see it."}</p>
         </div>
         {data.liveOpen ? (
-          <div>
-            <Button variant="default" onClick={() => setReviewTarget(b.gameMode === "live" ? "personal" : "live")} data-testid="switch-game-mode">
-              {b.gameMode === "live" ? "Switch to Personal" : "Go live"}
-            </Button>
+          <div className="flex flex-col gap-1.5">
+            <div>
+              <Button variant="default" onClick={() => setReviewTarget(b.gameMode === "live" ? "personal" : "live")} data-testid="switch-game-mode">
+                {b.gameMode === "live" ? "Switch to Personal" : "Go live"}
+              </Button>
+            </div>
+            <ConsequenceLine {...GAME_MODE_CONSEQUENCE[b.gameMode === "live" ? "personal" : "live"]} data-testid="game-mode-consequence" />
           </div>
         ) : (
           <p className="text-body text-secondary" data-testid="live-closed-note">Live is not open yet. When it opens, you can list this business on the network from here.</p>
@@ -137,11 +154,30 @@ export function ModeTab() {
         </Dialog>
       </SettingsSection>
 
-      <SettingsSection title="Business mode">
+      <SettingsSection title={<Term id="business_mode">Business mode</Term>}>
         <RadioGroup value={b.businessMode} onValueChange={(v) => setBusinessMode.mutate({ businessId, businessMode: v as BusinessMode, reason: "settings" })} aria-label="Business mode" className="grid grid-cols-3 gap-2" disabled={setBusinessMode.isPending}>
-          {BUSINESS_MODES.map((m) => (
-            <RadioCard key={m} id={`mode-${m}`} value={m} label={BUSINESS_MODE_INFO[m].word} description={BUSINESS_MODE_INFO[m].summary} />
-          ))}
+          {BUSINESS_MODES.map((m) => {
+            const example = businessModeExample(m);
+            return (
+              <RadioCard
+                key={m}
+                id={`mode-${m}`}
+                value={m}
+                label={BUSINESS_MODE_INFO[m].word}
+                description={
+                  <>
+                    <span>{BUSINESS_MODE_INFO[m].summary}</span>
+                    {/* One concrete day in the mode, the line the Commit cards carry: the business thing, then the example. */}
+                    {example ? (
+                      <span className="mt-1 block border-t border-line-faint pt-1.5" data-mode-example="">
+                        {example}
+                      </span>
+                    ) : null}
+                  </>
+                }
+              />
+            );
+          })}
         </RadioGroup>
         {holiday ? (
           // The mode in force while away is Automated (BUILD §9.6); the choice above is the one that comes back.
@@ -152,7 +188,9 @@ export function ModeTab() {
             {b.businessMode === "automated" ? null : <span>{BUSINESS_MODE_INFO[b.businessMode].word} again when you come back.</span>}
           </p>
         ) : null}
-        <Hint>Hard gates (money, signatures, filings, legal terms, permanent deletion, security settings, acting on untrusted content) always need you, whatever the mode.</Hint>
+        <Hint>
+          <Term id="hard_gate">Hard gates</Term> (money, signatures, filings, legal terms, permanent deletion, security settings, acting on untrusted content) always need you, whatever the mode.
+        </Hint>
       </SettingsSection>
 
       <AutopilotSection />
@@ -161,7 +199,7 @@ export function ModeTab() {
         <SpendCapForm businessId={businessId} capMinor={b.spendCapMinor} currency={currency} />
       </SettingsSection>
 
-      <SettingsSection title="Vacation">
+      <SettingsSection title={<Term id="vacation">Vacation</Term>}>
         {holiday ? (
           <div className="flex flex-col gap-3" data-testid="holiday-active">
             <StatusPill tone="info" icon={Palmtree}>
@@ -183,10 +221,13 @@ export function ModeTab() {
         ) : (
           <div className="flex flex-col gap-3">
             <p className="text-body text-secondary">Hand the business to the Chief of Staff: cycles run on their own, decisions within the authority you set, gated items queue in the Inbox.</p>
-            <div>
-              <Button variant="default" icon={Palmtree} onClick={() => setHolidayOpen(true)} data-testid="start-holiday">
-                Go on vacation
-              </Button>
+            <div className="flex flex-col gap-1.5">
+              <div>
+                <Button variant="default" icon={Palmtree} onClick={() => setHolidayOpen(true)} data-testid="start-holiday">
+                  Go on vacation
+                </Button>
+              </div>
+              <ConsequenceLine {...VACATION_CONSEQUENCE} data-testid="vacation-consequence" />
             </div>
           </div>
         )}

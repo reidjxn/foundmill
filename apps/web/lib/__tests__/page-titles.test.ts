@@ -91,6 +91,8 @@ describe("page titles", () => {
   it("names settings sections, department tabs, agents and entities", () => {
     expect(settingsTitle("members")).toBe("Members · Settings");
     expect(settingsTitle("danger")).toBe("Danger zone · Settings");
+    // The glossary slug stays; the tab reads "Your words" (docs/UX_AUDIT_AND_PLAN.md §7.17).
+    expect(settingsTitle("glossary")).toBe("Your words · Settings");
     expect(settingsTitle("nope")).toBe("Settings");
     expect(departmentTitle(DEPARTMENTS, "finance", "cash")).toBe("Cash · Finance");
     expect(departmentTitle(DEPARTMENTS, "finance", "nope")).toBe("Finance");

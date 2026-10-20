@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, Copy, Cpu, ExternalLink, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
-import { Button, DataTable, FORM_CAPTION, FormCells, MODEL_LABELS, Panel, SQUAD_VIEWS, formatRelative, squadColumns, useGuided, type DataTableColumn, type RowAction, type SavedView, type SquadRow } from "@foundmill/dugout";
+import { Button, DataTable, Explainer, FormCells, MODEL_LABELS, Panel, SQUAD_VIEWS, Term, formatRelative, squadColumns, useGuided, type DataTableColumn, type RowAction, type SavedView, type SquadRow } from "@foundmill/dugout";
 import { AGENT_STATUSES } from "@foundmill/shared/constants";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { useWidgetData } from "@foundmill/widgets/data";
@@ -21,11 +21,34 @@ import { ModelChangeDialog, describeModelSet } from "./ModelChangeDialog";
 import { AgentCell, AgentStatusWordPill, InlineError, STATUS_WORD, Screen, agentEntity, agentHref, agentTypeNoun, isChiefOfStaff, isChiefOfStaffType, taskHref, toSquadRow, useAgents, useLiveAgentStatus, useNow, useTeamOptions, withLiveStatus } from "./shared";
 import type { AgentRow } from "./types";
 
+/** The built-in "Simple" saved view (UX plan §7.10): the four columns a first-timer needs, the table's default while guidance is on. */
+export const SIMPLE_VIEW_ID = "simple";
+
 /**
- * The five BUILD §11.9 views. General shows the AI cost (DESIGN §9 Team) and fits the panel at 1280 and 1440; Tools
- * and the latest update are in the Tools, Health and Performance views and the column chooser.
+ * Simple first, then the five BUILD §11.9 views. Simple (UX plan §7.10) is Agent, Status, Current task, Rating and
+ * opens by default while guidance is on; General shows the AI cost (DESIGN §9 Team) and fits the panel at 1280 and
+ * 1440; Tools and the latest update are in the Tools, Health and Performance views and the column chooser.
  */
-export const TEAM_SQUAD_VIEWS: SavedView[] = SQUAD_VIEWS.map((v) => (v.id === "general" ? { ...v, columns: ["name", "role", "departments", "status", "currentTask", "form", "rating", "model", "wage"] } : v));
+export const TEAM_SQUAD_VIEWS: SavedView[] = [
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["name", "status", "currentTask", "rating"], sort: [{ id: "rating", desc: true }], filters: [] },
+  ...SQUAD_VIEWS.map((v) => (v.id === "general" ? { ...v, columns: ["name", "role", "departments", "status", "currentTask", "form", "rating", "model", "wage"] } : v)),
+];
+
+/** What the Agents tab is for (UX plan §7.10, the Team sentence), with the words a founder meets here defined on first use. */
+export const TEAM_AGENTS_EXPLAINER = {
+  screenId: "team-agents",
+  purpose: (
+    <>
+      Everyone who works here. Agents have skills 1–20 (their <Term id="rating">rating</Term>) that improve with <Term id="training">training</Term>.
+    </>
+  ),
+  action: (
+    <>
+      Open an agent to see its skills and train it. Right-click a row, or use its … button, to change its <Term id="model">model</Term>, lend it to another department or let it go.
+    </>
+  ),
+  watchFor: "An agent that is Down or Failing needs you: its row says what to reconnect or what went wrong.",
+} as const;
 
 /**
  * Column minimums (what each cell needs at 13 px, padding included) and how the extra width is shared. The rating
@@ -71,8 +94,10 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
   const agents = useMemo(() => withLiveStatus(agentsQuery.data?.agents, live).filter((a) => !a.archivedAt), [agentsQuery.data, live]);
   const byId = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
   const rows = useMemo(() => agents.map((a) => toSquadRow(a, currency)), [agents, currency]);
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("team.agents", TEAM_SQUAD_VIEWS, { defaultViewId: "general" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance
+  // is on (UX plan §7.10); a view the person left open still wins.
+  const defaultViewId = guided ? SIMPLE_VIEW_ID : "general";
+  const savedViews = useSavedViews("team.agents", TEAM_SQUAD_VIEWS, { defaultViewId });
   const [modelAgent, setModelAgent] = useState<AgentRow | null>(null);
   const [release, setRelease] = useState<AgentRow | null>(null);
   const [clone, setClone] = useState<AgentRow | null>(null);
@@ -169,9 +194,24 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
         }
         footer={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            {/* The Form key once, under its column (UX plan C2); hidden when guidance is off. TODO(guided-layer): ScaleLabel. */}
-            {guided ? <span data-testid="form-caption">{FORM_CAPTION}.</span> : null}
-            <span>AI cost is this month's model, sandbox and tool spend so far, in US dollars (Estimate). Status updates arrive live.</span>
+            {/*
+              The column heads defined once, under the table, while guidance is on (UX plan §7.10 "column heads that
+              are terms become Terms"): the heads themselves sit inside the table's sort buttons, so the dotted words
+              live here until DataTable renders a `meta.term` beside the sort control. The Form key (C2) is the first.
+            */}
+            {guided ? (
+              <span data-testid="form-caption">
+                <Term id="form">Form</Term>: the last five tasks.
+              </span>
+            ) : null}
+            {guided ? (
+              <span data-testid="column-terms">
+                <Term id="rating">Rating</Term> is the 1–20 mean of the agent's skills. <Term id="model">Model</Term> is the AI it runs on.
+              </span>
+            ) : null}
+            <span>
+              <Term id="wage">AI cost</Term> is this month's model, sandbox and tool spend so far, in US dollars (Estimate). Status updates arrive live.
+            </span>
             {liveNote ? <span data-testid="live-note">{liveNote}</span> : null}
             {notice ? (
               <span data-testid="model-notice" className="text-secondary">
@@ -181,13 +221,17 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
           </span>
         }
       >
+        {/* The per-screen intro (UX plan §6.2): inside the first panel's body, on surface-2, never floating; nothing with guidance off. */}
+        <div className="px-panel-pad pt-panel-pad empty:hidden">
+          <Explainer {...TEAM_AGENTS_EXPLAINER} />
+        </div>
         <div className="min-w-0">
           <DataTable<SquadRow>
             aria-label="Agents"
             data={rows}
             columns={columns}
             {...savedViews}
-            defaultViewId="general"
+            defaultViewId={defaultViewId}
             rowActions={rowActions}
             onRowOpen={(row) => open(row.id)}
             height={typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 264)}

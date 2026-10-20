@@ -1,5 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
-import { LONG, openStudio, signIn } from "./helpers";
+import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
+import { LONG, devApi, openStudio, signIn } from "./helpers";
 
 /**
  * /new, /new/ideate, /new/compare — Door A (BUILD §11.1; AC-11.1.2, AC-11.1.3, AC-11.1.4). MODEL_MODE=mock returns
@@ -9,6 +9,16 @@ import { LONG, openStudio, signIn } from "./helpers";
  */
 const gridOf = (page: Page) => page.getByTestId("concept-grid");
 const cardsOf = (page: Page) => gridOf(page).locator("[data-concept]");
+
+/** The dev founder's guidance switch (Settings › Preferences): explainers and term underlines render only while it is on; key caps only while it is off. */
+async function guidanceOn(playwright: PlaywrightWorkerArgs["playwright"]): Promise<boolean> {
+  const api = await devApi(playwright);
+  const res = await api.get("/trpc/founder.preferences.guidance");
+  expect(res.ok(), `founder.preferences.guidance answered ${res.status()}`).toBe(true);
+  const body = (await res.json()) as { result: { data: { json: { guidance: "on" | "off" } } } };
+  await api.dispose();
+  return body.result.data.json.guidance === "on";
+}
 
 /**
  * The deck is paged, newest first (idea.list, 48 a page): "Show older concepts" loads the next page. Counting tests load
@@ -34,12 +44,21 @@ async function needCards(page: Page, minimum: number): Promise<void> {
 }
 
 test.describe("doors", () => {
-  test("offers Door A and Door B", async ({ page }) => {
+  test("offers Door A and Door B, and recommends Door A to a first-time founder with the page (§7.4)", async ({ page, playwright }) => {
     await signIn(page);
     await page.goto("/new");
     await expect(page.getByTestId("doors")).toBeVisible();
     await expect(page.getByTestId("door-ideate")).toHaveAttribute("href", "/new/ideate");
     await expect(page.getByTestId("door-import")).toHaveAttribute("href", "/new/import");
+    // The experience travels with the page (apps/web/app/new/page.tsx): the tag is in the server's HTML or not at all.
+    const api = await devApi(playwright);
+    const res = await api.get("/trpc/founder.profile.get");
+    expect(res.ok()).toBe(true);
+    const body = (await res.json()) as { result: { data: { json: { profile: { experience: string | null } | null } } } };
+    await api.dispose();
+    const firstTime = body.result.data.json.profile?.experience === "first_time";
+    await expect(page.locator('[data-door="ideate"][data-recommended]')).toHaveCount(firstTime ? 1 : 0);
+    await expect(page.getByTestId("door-recommended")).toHaveCount(firstTime ? 1 : 0);
     await page.getByTestId("door-ideate").click();
     await expect(page).toHaveURL(/\/new\/ideate$/);
   });
@@ -51,11 +70,17 @@ test.describe("ideation studio", () => {
     await openStudio(page);
   });
 
-  test("the brief tells the truth about what the agents do", async ({ page }) => {
+  test("the brief tells the truth about what the agents do", async ({ page, playwright }) => {
     // The hero only shows on an empty deck; its copy must never claim research grounding that does not run.
     await expect(page.getByTestId("prompt-box")).not.toContainText(/grounds each with competitors/);
-    // The kind-of-business select reads as a question, not as "archetype" (A7).
+    // The kind-of-business select reads as a question, not as "archetype" (A7); the word beside it is the defined term.
     await expect(page.getByRole("combobox", { name: "Kind of business" })).toBeVisible();
+    const label = page.getByTestId("archetype-hint-label");
+    await expect(label).toHaveText("Kind of business");
+    await expect(label.locator('[data-term="archetype"]')).toBeVisible();
+    // Key caps are an operator's affordance (UX plan §5.9): the generate control's ⌘↵ shows only while guidance is off.
+    const guided = await guidanceOn(playwright);
+    await expect(page.getByTestId("generate-button").locator("kbd")).toHaveCount(guided ? 0 : 1);
     // Example briefs show only while the deck is empty (A7).
     const empty = (await page.getByTestId("concept-grid").locator("[data-concept]").count()) === 0;
     await expect(page.getByTestId("example-briefs")).toHaveCount(empty ? 1 : 0);
@@ -66,18 +91,32 @@ test.describe("ideation studio", () => {
     }
   });
 
-  test("the deck explains itself once: 'How to read a card' until Got it, then 'Pick 2–4 cards to compare them'", async ({ page }) => {
+  test("the deck explains itself: the 'How to read a card' Explainer collapses on Got it and stays so per account; 'Pick 2–4 cards to compare them'", async ({ page, playwright }) => {
     await needCards(page, 1);
-    const line = page.getByTestId("how-to-read-card");
-    // Dismissed once per browser (localStorage); a fresh context shows it.
-    if (await line.count()) {
-      await expect(line).toContainText("How to read a card");
-      await line.getByTestId("how-to-read-card-dismiss").click();
+    const guided = await guidanceOn(playwright);
+    const explainer = page.locator('[data-explainer="ideate-cards"]');
+    const kbdTip = page.getByTestId("compare-kbd-tip");
+    if (guided) {
+      // The Explainer (UX plan §6.2): three labels and Got it while open; one line with a chevron once seen, and the
+      // account remembers it (explainers_seen), so a reload keeps it collapsed.
+      await expect(explainer).toBeVisible();
+      await expect(explainer).toHaveAttribute("data-testid", "how-to-read-card");
+      if ((await explainer.getAttribute("data-state")) === "open") {
+        await expect(explainer).toContainText("What this screen is for");
+        await expect(explainer).toContainText("Every bar runs 1–20 and higher is always the better side");
+        await explainer.getByRole("button", { name: "Got it" }).click();
+      }
+      await expect(explainer).toHaveAttribute("data-state", "collapsed");
+      await expect(explainer.getByRole("button", { name: "Show more about this screen" })).toBeVisible();
+      await page.reload();
+      await openStudio(page);
+      await expect(explainer).toHaveAttribute("data-state", "collapsed", { timeout: LONG });
+      // Key caps are for operators: the shortcuts tip is not there while guidance is on.
+      await expect(kbdTip).toHaveCount(0);
+    } else {
+      await expect(explainer).toHaveCount(0);
+      await expect(kbdTip.getByRole("button", { name: "About Keyboard shortcuts for comparing" })).toBeVisible();
     }
-    await expect(line).toHaveCount(0);
-    await page.reload();
-    await openStudio(page);
-    await expect(line).toHaveCount(0);
     await expect(page.getByTestId("compare-hint")).toContainText("Pick 2–4 cards to compare them");
     await expect(page.getByTestId("compare-hint")).not.toContainText("Tick");
   });

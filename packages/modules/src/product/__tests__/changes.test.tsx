@@ -9,6 +9,18 @@ const departments = [{ id: "d1", name: "Product", slug: "product", colourToken: 
 const responses = { ...dataResponses, "department.list": departments };
 
 describe("ChangesScreen", () => {
+  it("guidance on: the intro says what a proposal is, the list opens on Simple and the words are defined (UX plan §7.11)", () => {
+    const fake = createFakeSource({ businessId: BID, responses });
+    renderScreen(fake, <ChangesScreen businessId={BID} departmentId="d1" />, {}, { guidance: "on" });
+    const explainer = document.querySelector("[data-explainer='product/changes']") as HTMLElement;
+    expect(within(explainer).getByText("An agent suggests an edit; nothing changes until you accept it.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^View: Simple/ })).toBeTruthy();
+    const table = screen.getByRole("grid", { name: "Change proposals" });
+    expect(within(table).getByText("Offer an annual plan")).toBeTruthy();
+    expect(within(table).queryByText("Drop SSO from Next")).toBeNull(); // Simple keeps to the open ones too
+    expect(screen.getByRole("button", { name: "proposals" }).className).toContain("term-link");
+  });
+
   it("lists proposals in the Open view and shows the selected one with rationale, evidence, impact estimates and hunks", () => {
     const fake = createFakeSource({ businessId: BID, responses });
     renderScreen(fake, <ChangesScreen businessId={BID} departmentId="d1" />);

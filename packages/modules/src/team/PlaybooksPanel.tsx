@@ -7,7 +7,7 @@
  */
 import { useId, useState } from "react";
 import { ListChecks, Power, PowerOff, Trash2, X } from "lucide-react";
-import { Button, Chip, Field, IconButton, Input, Panel, SimpleSelect, Textarea, formatRelative } from "@foundmill/dugout";
+import { Button, Chip, Field, IconButton, Input, Panel, SimpleSelect, Term, Textarea, formatRelative } from "@foundmill/dugout";
 import { describePlaybook, type FlowLike } from "@foundmill/shared/playbook-words";
 import { useWidgetQuery } from "@foundmill/widgets/data";
 import { InlineError, useAction } from "./shared";
@@ -138,7 +138,9 @@ export function PlaybooksPanel() {
       meta={<span data-testid="playbooks-summary">{rows.length === 0 ? "None yet" : `${rows.length} · ${rows.filter((r) => r.enabled).length} on`}</span>}
       footer={
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span>A playbook is off until you turn it on. Its steps follow the same approvals and hard gates as any decision; signing, money movement and filings always stay with you.</span>
+          <span>
+            A <Term id="playbook">playbook</Term> is off until you turn it on. Its steps follow the same approvals and <Term id="hard_gate">hard gates</Term> as any decision; signing, money movement and filings always stay with you.
+          </span>
           <InlineError error={action.error} />
         </span>
       }

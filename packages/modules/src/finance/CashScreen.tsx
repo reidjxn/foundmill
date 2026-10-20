@@ -16,7 +16,7 @@ import { PNL_CATEGORY_OPTIONS, categoryLabel, monthStart, plainWords, sectionOf,
 import { RecategoriseDialog } from "./RecategoriseDialog";
 import { DateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
-import { Screen, fmtMoney, fmtSigned, toDate, useCurrency, useNow } from "./shared";
+import { SIMPLE_VIEW_ID, Screen, fmtMoney, fmtSigned, toDate, useCurrency, useDefaultViewId, useNow } from "./shared";
 import type { AccountRow, AccountsListResponse, CategorySource, TransactionRow, TransactionsListResponse } from "./types";
 
 export const CONSENT_WARN_DAYS = 7;
@@ -51,6 +51,8 @@ export function CategoryChip({ category, source }: { category: string | null; so
 }
 
 export const TRANSACTION_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): when, who, what for and how much; the table opens on it while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["bookedAt", "counterparty", "category", "amount"], sort: [{ id: "bookedAt", desc: true }], filters: [] },
   { id: "all", name: "All transactions", builtIn: true, columns: ["bookedAt", "counterparty", "description", "category", "amount", "account"], sort: [{ id: "bookedAt", desc: true }], filters: [] },
   { id: "uncategorised", name: "Uncategorized", builtIn: true, columns: ["bookedAt", "counterparty", "description", "category", "amount"], sort: [{ id: "bookedAt", desc: true }], filters: [{ id: "f-unc", field: "categoryText", op: "eq", value: "Uncategorized" }] },
   { id: "in", name: "Money in", builtIn: true, columns: ["bookedAt", "counterparty", "category", "amount", "account"], sort: [{ id: "amount", desc: true }], filters: [{ id: "f-in", field: "amount", op: "gt", value: 0 }] },
@@ -154,8 +156,9 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
   const accountsQ = useWidgetQuery<AccountsListResponse>("finance.accounts.list", {});
   const [accountId, setAccountId] = useState<string | null>(null);
   const txQ = useWidgetQuery<TransactionsListResponse>("finance.transactions.list", accountId ? { accountId, limit: 500 } : { limit: 500 });
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("finance.cash", TRANSACTION_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("finance.cash", TRANSACTION_VIEWS, { defaultViewId });
   const [search, setSearch] = useState("");
   const [recat, setRecat] = useState<TransactionRow | null>(null);
 
@@ -236,7 +239,7 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
           data={rows}
           columns={columns}
           {...savedViews}
-          defaultViewId="all"
+          defaultViewId={defaultViewId}
           height={520}
           globalFilter={search}
           exportFileName="transactions"

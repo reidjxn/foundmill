@@ -7,14 +7,14 @@
  * with the cost estimate (`estimate` → `run`) → progress while the live version keeps working → TrainingResults
  * (old → new per skill) → Promote / Discard → 7-day watch banner with one-click rollback (`rollback`).
  *
- * TODO(guided-layer): Explainer — the dismissible three-step strip at the top ("1 Edit the instructions · 2 Train
- * (practice tests, 2–5 min, nothing goes live) · 3 Promote if the scores improved") lands with the guidance primitives.
+ * The three-step strip at the top is the guided layer's Explainer (UX plan §7.15 C5): dismissible with "Got it",
+ * remembered per account, never rendered with guidance off.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleStop, Dumbbell, Eye, FlaskConical, History, Save, Sparkles, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, InstructionsEditor, KeyValueList, MODEL_LABELS, ModelPicker, Panel, ProgressRing, ProvenanceChip, SkillGrid, TabBar, TrainingResults, formatDuration, formatMoney, formatRelative, instructionsEqual, useDateFormat, type AgentInstructions, type InstructionComment, type InstructionViolation, type TabItem } from "@foundmill/dugout";
+import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Explainer, Icon, InstructionsEditor, KeyValueList, MODEL_LABELS, ModelPicker, Panel, ProgressRing, ProvenanceChip, SkillGrid, TabBar, Term, TrainingResults, formatDuration, formatMoney, formatRelative, instructionsEqual, useDateFormat, type AgentInstructions, type InstructionComment, type InstructionViolation, type TabItem } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -52,6 +52,14 @@ import {
   type ToolGrant,
   type TrainingSubTab,
 } from "./logic";
+
+/** The Training tab's three steps (UX plan §7.15 C5), as the per-screen Explainer: what it is for, what to do, what to watch. */
+export const AGENT_TRAINING_EXPLAINER = {
+  screenId: "agent-training",
+  purpose: "Training tries new instructions on practice tests; nothing goes live until you promote it.",
+  action: "1 Edit the instructions · 2 Train (2–5 minutes) · 3 Promote if the scores improved",
+  watchFor: "A drop of more than one point is highlighted; the Coach explains it.",
+} as const;
 
 export function TrainingTab({ businessId, profile, refetch }: TabProps) {
   // Viewers and advisors read the instructions and the results; saving a draft and training are changes (RUI-05).
@@ -270,7 +278,7 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
 
       {/* editor ----------------------------------------------------------------------------------------------------- */}
       <Panel
-        title="Training"
+        title={<Term id="training">Training</Term>}
         span={12}
         flush
         actions={
@@ -287,6 +295,10 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
         }
         footer={notice ? <span data-testid="training-notice" data-tone={notice.tone} className={notice.tone === "bad" ? "text-status-bad" : notice.tone === "warn" ? "text-status-warn" : undefined}>{notice.text}</span> : <span data-testid="training-footer">The house rules always apply; a draft line that contradicts one is flagged and ignored.</span>}
       >
+        {/* The three-step strip (C5): inside the panel body, above the sections; nothing with guidance off. */}
+        <div className="px-panel-pad pt-panel-pad empty:hidden">
+          <Explainer {...AGENT_TRAINING_EXPLAINER} />
+        </div>
         <TabBar tabs={subTabs} activeId={sub} onChange={(id) => setSub(id as TrainingSubTab)} aria-label="Training sections" className="px-2" />
         <div className="p-panel-pad">
           {sub === "instructions" ? (
@@ -313,7 +325,7 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
               </div>
               <div className="col-span-5 flex flex-col gap-2" data-testid="coach-proposals">
                 <h3 className="t-label flex items-center gap-1">
-                  <Icon icon={Sparkles} size={12} /> Coach proposals
+                  <Icon icon={Sparkles} size={12} /> <Term id="coach">Coach</Term> proposals
                 </h3>
                 {proposals.length === 0 ? <p className="text-small text-secondary">Choose a focus skill to see proposals.</p> : null}
                 {proposals.map((p) => {
@@ -407,8 +419,8 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
         <DialogContent
           size="sm"
           data-testid="train-dialog"
-          // Open on the confirm button, not on the Estimate chip in the cost row: a chip's tooltip would open with the
-          // dialog, and Esc would then close the tooltip instead of the dialog.
+          // Open on the primary button (the first input there is none of), not on the Estimate chip in the cost row or
+          // the defined word in the note: their cards would open with the dialog, and Esc would close them first.
           onOpenAutoFocus={(e) => {
             e.preventDefault();
             document.getElementById("train-confirm")?.focus();
@@ -427,7 +439,9 @@ export function TrainingTab({ businessId, profile, refetch }: TabProps) {
                 { label: "Model", value: MODEL_LABELS[draftModel] },
               ]}
             />
-            <p className="mt-2 text-small text-secondary">Practice tests run in sandboxes against mock tools: no real email, no spend, nothing goes live. The live version keeps working until you promote.</p>
+            <p className="mt-2 text-small text-secondary">
+              Practice tests run in sandboxes against mock tools: no real email, no spend, nothing goes live. The live version keeps working until you promote. The cost comes out of your <Term id="credits">credits</Term>.
+            </p>
           </DialogBody>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setTrainOpen(false)}>

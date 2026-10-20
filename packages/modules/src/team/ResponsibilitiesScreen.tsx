@@ -6,7 +6,7 @@
  */
 import { useEffect, useId, useMemo, useState } from "react";
 import { ArrowLeftRight, Bot, Lock, ScrollText, Undo2, UserRound, UserRoundPlus } from "lucide-react";
-import { Avatar, Button, Chip, DataTable, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, IconButton, MiniTable, Panel, RadioCard, RadioGroup, SimpleSelect, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Avatar, Button, Chip, DataTable, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, IconButton, MiniTable, Panel, RadioCard, RadioGroup, SimpleSelect, Term, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { DECISION_TYPES, type DecisionType } from "@foundmill/shared/constants";
 import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -360,7 +360,9 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
         }
         footer={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span>Delegating changes who receives the approvals for that decision; every change is logged. Signing stays a hard gate: no agent can ever hold it.</span>
+            <span>
+              Delegating changes who receives the approvals for that decision; every change is logged. Signing stays a <Term id="hard_gate">hard gate</Term>: no agent can ever hold it.
+            </span>
             {notice ? (
               <span data-testid="responsibilities-notice" className="text-secondary">
                 {notice}

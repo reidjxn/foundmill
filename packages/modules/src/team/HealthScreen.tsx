@@ -6,7 +6,7 @@
  */
 import { useMemo } from "react";
 import { Activity, CircleCheck, ExternalLink, HeartPulse, TriangleAlert, UserRoundPlus } from "lucide-react";
-import { Avatar, Button, Chip, DeptChip, EntityLink, Panel, StatusPill, StatusStrip, cn, formatPercent, formatRelative, type HealthDetails, type MetricTileProps } from "@foundmill/dugout";
+import { Avatar, Button, Chip, DeptChip, EntityLink, Panel, StatusPill, StatusStrip, Term, cn, formatPercent, formatRelative, type HealthDetails, type MetricTileProps } from "@foundmill/dugout";
 import { AGENT_STATUSES, type AgentStatus } from "@foundmill/shared/constants";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { teamHealthCounts, teamHealthSummary } from "@foundmill/widgets/shared/health";
@@ -58,11 +58,13 @@ export function healthReason(status: AgentStatus, details: HealthDetails, now: D
 }
 
 /**
- * The Health headline when nobody needs the founder: how many agents are working (healthy) out of the team. All idle
- * is not "everyone is working".
+ * The Health headline when nobody needs the founder: how many agents are working out of the team. "Working" is having
+ * a task right now, the rule Home's team strip uses (`teamStripWords` in @foundmill/dugout: "3 of 4 working" counts
+ * the agents on a task, never the healthy ones), so a healthy idle agent is not working and all idle is never
+ * "everyone is working".
  */
-export function healthSummary(agents: readonly Pick<AgentRow, "status">[]): { text: string; tone: "good" | "neutral" } {
-  const working = agents.filter((a) => a.status === "healthy").length;
+export function healthSummary(agents: readonly Pick<AgentRow, "status" | "currentTask">[]): { text: string; tone: "good" | "neutral" } {
+  const working = agents.filter((a) => !!a.currentTask).length;
   if (working === 0) return { text: "No agent is working right now", tone: "neutral" };
   if (working === agents.length) return { text: "Everyone is working", tone: "good" };
   return { text: `${working} of ${agents.length} working`, tone: "good" };
@@ -111,7 +113,7 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
     <Screen name="team/health">
       <Panel
         span={12}
-        title="Health"
+        title={<Term id="health">Health</Term>}
         flush
         loading={loading}
         error={error}

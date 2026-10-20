@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Flag } from "lucide-react";
 import { Chip, DeptChip, ProvenanceChip, hasFixedHeight } from "./Chip";
@@ -91,6 +91,8 @@ describe("ProvenanceChip", () => {
     expect(chip.getAttribute("title")).toBeNull();
     expect(chip.tagName).toBe("BUTTON");
     expect(chip.querySelector("svg")).toBeNull();
+    // Focus opens the tip only when a key brought it (guidance/keyboardFocus.ts): the Tab, then the focus it causes.
+    fireEvent.keyDown(document.body, { key: "Tab" });
     chip.focus();
     expect((await screen.findByRole("tooltip")).textContent).toMatch(/not a measurement/);
     render(<ProvenanceChip kind="forecast" showIcon />);

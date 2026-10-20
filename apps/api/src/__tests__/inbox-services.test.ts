@@ -10,7 +10,7 @@ import { createBusinessFixture, type BusinessFixture } from "@foundmill/db/__tes
 import { MockModelClient, type CompleteRequest, type ModelClient } from "@foundmill/models";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { importBoardDecision } from "../services/commit";
+import { importBoardDecision, importBoardDecisionFromReport } from "../services/commit";
 import { buildScoutingReport } from "../services/import";
 import { compilePlan, evaluatePlan, ownAgentsOnly, planAgents, redispatchPlans, SPEND_ALLOWANCE_ASK, SPEND_ALLOWANCE_POLICY_ID, type PlanContext } from "../services/plans";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
@@ -76,7 +76,7 @@ async function boardItem(t: Team, archetype: "b2b_saas" | "consumer_app" | "cont
     body_md: seed.boardDecision.bodyMd,
     status_strip: [],
     exhibit: { kind: "none", spec_ref: null },
-    decision: { options: seed.boardDecision.options.map((o) => ({ id: o.id, label: o.label, recommended: o.recommended, consequence: o.consequence, cost_minor: o.costMinor, reversible: o.reversible, actions: o.actions })), free_text: true, expires_at: null },
+    decision: { options: seed.boardDecision.options.map((o) => ({ id: o.id, label: o.label, recommended: o.recommended, consequence: o.consequence, ...(o.because ? { because: o.because } : {}), cost_minor: o.costMinor, reversible: o.reversible, actions: o.actions })), free_text: true, expires_at: null },
     blocks_continue: true,
     source_event_ids: [],
     entity_ids: [],
@@ -89,6 +89,10 @@ describe("choosing a costed option (audit FR-10, OL-11)", () => {
   it("carries the cost into the plan as a budget policy checks, and asks before anything runs", async () => {
     const t = await team("costed-option");
     const item = await boardItem(t, "b2b_saas");
+    // The Board's recommended option keeps its reason ("because", UX plan §7.19) through the Composer schema; the others have none.
+    const options = (item.decision as { options: { recommended: boolean; because?: string }[] }).options;
+    expect(options.find((o) => o.recommended)?.because).toMatch(/^Recommended because /);
+    expect(options.filter((o) => !o.recommended).every((o) => o.because === undefined)).toBe(true);
     const r = await owner(t).inbox.decide({ businessId: t.businessId, itemId: item.id, chosenOption: "outbound" });
 
     const budget = r.plan.actions.find((a) => a.type === "set_budget");
@@ -130,7 +134,7 @@ describe("option clicks run what the option says (audit IAE-20, AC-01, FR-20, VA
     await owner(t).plan.confirm({ businessId: t.businessId, planId: pending.plan.id });
 
     const tasks = (await repos.tasks.list(hz.db, t.businessId, { limit: 200 })).items;
-    const prospects = tasks.find((x) => x.title === "Build the narrow ICP prospect list");
+    const prospects = tasks.find((x) => x.title === "Build the first prospect list");
     // The Lead Generation Engine, never whichever role has "Lead" in its title (the Product Lead).
     expect(prospects?.assigneeAgentId).toBe(t.leadGen);
     expect(prospects?.assigneeAgentId).not.toBe(t.productLead);
@@ -194,6 +198,13 @@ describe("the import's first decisions run what they say (audit IAE-20, SOAK-11)
     const task = (await repos.tasks.list(hz.db, t.businessId, { limit: 50 })).items.find((x) => x.title === "Rebuild the specification from the imported sources");
     expect(task?.assigneeAgentId).toBe(t.productLead);
     expect((await repos.tasks.list(hz.db, t.businessId, { limit: 50 })).items.some((x) => /^you review it/i.test(x.title))).toBe(false);
+  });
+
+  it("a first decision's reason travels with its option when the report wrote one, and is left out when it did not (UX plan §7.19)", () => {
+    const decision = (id: string, recommended: boolean, because?: string) => ({ id, label: `Option ${id}`, recommended, consequence: "Something happens.", reversible: true, ...(because !== undefined ? { because } : {}) });
+    const board = importBoardDecisionFromReport("Ledgerly", { summary: "Two sources read.", firstDecisions: [decision("a", true, "  Recommended because the code is already there.  "), decision("b", false), decision("c", false, "")] }, 2)!;
+    expect(board.options.map((o) => o.because)).toEqual(["Recommended because the code is already there.", undefined, undefined]);
+    expect(board.options.map((o) => "because" in o)).toEqual([true, false, false]);
   });
 });
 
@@ -476,7 +487,7 @@ describe("confirming a plan twice (audit api-services-05)", () => {
     expect(confirmations).toHaveLength(1);
     const followUps = (await repos.inbox.list(hz.db, t.businessId, { limit: 100 })).items.filter((i) => i.subject.startsWith("Decided:"));
     expect(followUps).toHaveLength(1);
-    const budgets = (await repos.tasks.list(hz.db, t.businessId, { kind: "channel", limit: 50 })).items.filter((x) => x.title === "Build the narrow ICP prospect list");
+    const budgets = (await repos.tasks.list(hz.db, t.businessId, { kind: "channel", limit: 50 })).items.filter((x) => x.title === "Build the first prospect list");
     expect(budgets).toHaveLength(1);
   });
 });

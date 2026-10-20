@@ -5,13 +5,15 @@
  * The button is a 24 px target (WCAG 2.5.8) named "About <label>". Hidden when guidance is off, except with
  * `always` (provenance is information, not tutoring).
  */
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { CircleHelp, Info } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { Icon } from "../foundation/Icon";
 import { Tooltip } from "../foundation/Tooltip";
 import { DefinitionCard } from "./DefinitionCard";
 import { useGuided } from "./GuidanceProvider";
+import { trackKeyboardFocus } from "./keyboardFocus";
+import { withKeyboardFocusOnly } from "./ProvenanceTip";
 
 export interface InfoTipProps {
   /** What the tip is about; the button reads "About <label>". */
@@ -34,6 +36,7 @@ export const INFO_TIP_BUTTON_CLASS =
 
 export function InfoTip({ label, children, learn, kind = "tip", always, side = "top", align = "center", className }: InfoTipProps) {
   const guided = useGuided();
+  useEffect(trackKeyboardFocus, []);
   if (!guided && !always) return null;
   const button = (
     <button type="button" aria-label={`About ${label}`} data-info-tip={kind} className={cn(INFO_TIP_BUTTON_CLASS, className)}>
@@ -46,9 +49,10 @@ export function InfoTip({ label, children, learn, kind = "tip", always, side = "
         {button}
       </DefinitionCard>
     );
+  // A dialog's auto-focus must not open the tip (keyboardFocus.ts): Tab, the arrows and the pointer still do.
   return (
     <Tooltip content={children} side={side} align={align}>
-      {button}
+      {withKeyboardFocusOnly(button)}
     </Tooltip>
   );
 }

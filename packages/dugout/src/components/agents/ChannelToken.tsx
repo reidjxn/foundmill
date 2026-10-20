@@ -27,9 +27,10 @@ export interface FormGuideProps {
 
 /**
  * The cost trend: five 8 px cells, oldest left, newest right, each a week's cost per customer against the channel's
- * cost target. Each cell carries a word for assistive tech and the strip carries its key as a tooltip.
+ * cost target. Each cell carries a word for assistive tech and the strip carries its key as a tooltip (`costTrendKey`:
+ * weeks against a cost target, so the guidance group's FormKey, which counts an agent's task results, is not the
+ * sentence here). Always shown: the key is information, not tutoring (UX plan §6.2 ScaleLabel).
  */
-// TODO(guided-layer): ScaleLabel carries the key once it lands; the Tooltip is the Phase 0 form.
 export function FormGuide({ form, name = COST_TREND_LABEL, tooltip = true, className }: FormGuideProps) {
   const cells = Array.from({ length: 5 }, (_, i) => form[form.length - 5 + i] ?? "none");
   const strip = (

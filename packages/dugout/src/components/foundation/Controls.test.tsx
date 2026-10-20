@@ -137,9 +137,11 @@ describe("ProgressRing, Sparkline, StarRating", () => {
   it("draws empty stars on the strong hairline and captions now and potential in words", () => {
     const { container } = render(<StarRating value={2} potential={3} showValue label="Ability" />);
     expect(container.querySelectorAll(".text-line-strong").length).toBeGreaterThan(0);
-    expect(container.textContent).toContain("Now 2 · could reach 3");
-    expect(container.querySelector("[role=img]")?.getAttribute("title")).toBe("Now 2 · could reach 3");
-    // The accessible name keeps the scale; a value alone stays a bare figure.
+    // The caption carries the scale (`scaleCaption`) and the band word sits beside it (ScaleLabel, UX plan §6.2).
+    expect(container.textContent).toContain("Now 2 of 5 · could reach 3");
+    expect(container.querySelector("[role=img]")?.getAttribute("title")).toBe("Now 2 of 5 · could reach 3");
+    expect(container.querySelector("[data-stars-band]")?.textContent).toBe("Average");
+    // The accessible name keeps the scale; a value alone stays a bare figure with its scale.
     expect(container.querySelector("[role=img]")?.getAttribute("aria-label")).toBe("Ability: 2 of 5, potential 3");
     const { container: alone } = render(<StarRating value={4} showValue label="Lead score" />);
     expect(alone.textContent).toContain("4");

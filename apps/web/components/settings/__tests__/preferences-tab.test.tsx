@@ -164,6 +164,9 @@ describe("PreferencesTab › Guidance", () => {
     // Nothing to reset yet: both buttons are off, and say so to the keyboard too.
     expect(screen.getByTestId("show-checklist-again").getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByTestId("replay-tour").getAttribute("aria-disabled")).toBe("true");
+    // The tip beside the switch says what guidance changes; the reassurance under it is tutoring and shows while it is on.
+    expect(screen.getByRole("button", { name: "About what guidance changes" })).toBeTruthy();
+    expect(screen.getByTestId("guidance-reassurance").textContent).toContain("You can switch this any time.");
 
     // Optimistic: the switch and the rest of the page change while the request is still on its way.
     const release = holdNextUpdate();
@@ -176,6 +179,9 @@ describe("PreferencesTab › Guidance", () => {
     await act(async () => release());
     await waitFor(() => expect(saved).toHaveBeenCalledWith("Guidance off", expect.stringContaining("still show")));
     expect(sw.getAttribute("aria-checked")).toBe("false");
+    // Off: the reassurance line goes; the tip stays, since it says what the switch does (information, not tutoring).
+    expect(screen.queryByTestId("guidance-reassurance")).toBeNull();
+    expect(screen.getByRole("button", { name: "About what guidance changes" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Comfortable" }));
     await waitFor(() => expect(update).toHaveBeenLastCalledWith({ textSize: "comfortable" }));
@@ -187,6 +193,7 @@ describe("PreferencesTab › Guidance", () => {
     fireEvent.click(sw);
     await waitFor(() => expect(update).toHaveBeenLastCalledWith({ guidance: "on" }));
     await waitFor(() => expect(saved).toHaveBeenLastCalledWith("Guidance on", expect.stringContaining("show as you go")));
+    await waitFor(() => expect(screen.getByTestId("guidance-reassurance")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Standard" }));
     await waitFor(() => expect(saved).toHaveBeenLastCalledWith("Standard text", expect.any(String)));
     await waitFor(() => expect(document.documentElement.getAttribute("data-text")).toBeNull());

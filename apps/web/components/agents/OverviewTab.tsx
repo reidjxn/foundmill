@@ -9,11 +9,33 @@ import { useQuery } from "@tanstack/react-query";
 import { BookOpenText, CalendarClock, ShieldOff } from "lucide-react";
 import { useMemo } from "react";
 import { effectiveApprovalThresholdMinor } from "@foundmill/config";
-import { Chip, DevelopmentChart, Icon, KeyValueList, Markdown, POSITION_MAP_BASIS, POSITION_MAP_TITLE, Panel, PositionMap, ProvenanceChip, SKILL_GRID_FOOTER, SKILL_GRID_WHY, SkillGrid, TraitChips, formatMoney, formatRelative, useFormatters, useGuided } from "@foundmill/dugout";
+import { Chip, DevelopmentChart, Icon, KeyValueList, Markdown, POSITION_MAP_BASIS, POSITION_MAP_TITLE, Panel, PositionMap, ProvenanceChip, RATING_MAX, SKILL_GRID_WHY, SkillGrid, Term, TraitChips, formatMoney, formatRelative, useFormatters, useGuided, type TermDefinition } from "@foundmill/dugout";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import type { TabProps } from "./AgentProfileScreen";
 import { autonomyFromAgent, currentVersion, departmentColour, developmentSeries, latestPromotedRun, parseInstructions, positionFits, toSkillRows, traitsFor, trainingSessionMarks, wageLabel, whatIDo } from "./logic";
+
+/**
+ * "Tested" and "Proven" defined where the founder meets them (UX plan §7.15 C3). Inline definitions until the
+ * definitions map (packages/shared/src/terms.ts) carries `tested` and `proven`; the ids are the ones it will use.
+ */
+export const SKILL_SCORE_TERMS: Record<"tested" | "proven", TermDefinition> = {
+  tested: { id: "tested", word: "Tested", short: "The score on practice tests: what the agent does on held-back examples, 1 to 20.", long: "Half of the practice tests stay hidden so the score stays honest. A training run re-tests every skill and the Coach compares the results with the live version.", learn: "team/agents" },
+  proven: { id: "proven", word: "Proven", short: "The score on real work: how the agent's finished tasks went, 1 to 20.", long: "More real work makes Proven count for more in the displayed score; a new skill shows its tested score alone until the agent has used it.", learn: "team/agents" },
+};
+
+/** What the Skills panel is about, for its "About Skills" tip (InfoTip through Panel `help`; hidden with guidance off). */
+export const SKILLS_HELP = `Each skill is scored 1–${RATING_MAX} and always shows its band word: Poor, Average, Good or Excellent. Training can move it.`;
+
+/** The Skills panel footer (UX plan §7.15 C3): what the scores are, with Tested and Proven as defined words, and why they matter while guided. */
+export function SkillsFooter({ guided }: { guided: boolean }) {
+  return (
+    <span data-testid="skills-footer">
+      Scores 1–{RATING_MAX}. <Term id="tested" definition={SKILL_SCORE_TERMS.tested}>Tested</Term> is the result on practice tests, <Term id="proven" definition={SKILL_SCORE_TERMS.proven}>Proven</Term> the result on real work; more real work makes Proven count for more. Hover a skill for its tested and proven scores.
+      {guided ? <span data-testid="skills-why"> {SKILL_GRID_WHY}</span> : null}
+    </span>
+  );
+}
 
 export function OverviewTab({ businessId, profile, currency }: TabProps) {
   const { prefs: datePrefs } = useFormatters();
@@ -86,18 +108,14 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
         <TraitChips traits={traits} />
       </Panel>
 
-      {/* TODO(guided-layer): InfoTip on the title and Term on "Tested" / "Proven" once the guidance primitives land. */}
       <Panel
         title="Skills"
+        help={SKILLS_HELP}
+        helpLearn="team/agents"
         span={12}
         flush
         empty={skills.length === 0 ? { children: "Skills appear after the first training run. Press Train to start one." } : undefined}
-        footer={
-          <span data-testid="skills-footer">
-            {SKILL_GRID_FOOTER} Hover a skill for its tested and proven scores.
-            {guided ? <span data-testid="skills-why"> {SKILL_GRID_WHY}</span> : null}
-          </span>
-        }
+        footer={<SkillsFooter guided={guided} />}
         data-testid="skills-panel"
       >
         <div className="p-panel-pad">
@@ -105,11 +123,21 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
         </div>
       </Panel>
 
-      <Panel title={POSITION_MAP_TITLE} span={6} loading={catalogueQ.isLoading && !catalogueQ.data} empty={!catalogueQ.isLoading && roles.length === 0 ? { children: "The roles this agent could take appear once the template catalog loads." } : undefined} footer={POSITION_MAP_BASIS} data-testid="position-map">
+      <Panel title={<Term id="position_map">{POSITION_MAP_TITLE}</Term>} span={6} loading={catalogueQ.isLoading && !catalogueQ.data} empty={!catalogueQ.isLoading && roles.length === 0 ? { children: "The roles this agent could take appear once the template catalog loads." } : undefined} footer={POSITION_MAP_BASIS} data-testid="position-map">
         <PositionMap roles={roles} currentRoleId={agent.agentType} columns={2} />
       </Panel>
 
-      <Panel title="Coach report" span={6} actions={coachRun ? <Chip tone="neutral">{formatRelative(coachRun.endedAt ?? coachRun.createdAt)}</Chip> : undefined} empty={!coachRun?.coachSummaryMd ? { icon: BookOpenText, children: "The Coach writes a report after each training run: what improved, what dropped and the instruction edits it recommends." } : undefined} data-testid="coach-report">
+      <Panel
+        title={
+          <>
+            <Term id="coach">Coach</Term> report
+          </>
+        }
+        span={6}
+        actions={coachRun ? <Chip tone="neutral">{formatRelative(coachRun.endedAt ?? coachRun.createdAt)}</Chip> : undefined}
+        empty={!coachRun?.coachSummaryMd ? { icon: BookOpenText, children: "The Coach writes a report after each training run: what improved, what dropped and the instruction edits it recommends." } : undefined}
+        data-testid="coach-report"
+      >
         {coachRun?.coachSummaryMd ? <Markdown variant="reading">{coachRun.coachSummaryMd}</Markdown> : null}
       </Panel>
 
@@ -124,11 +152,11 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
           labelClassName="w-36"
           items={[
             // A wage cap caps the agent's metered cost, so it is in US dollars like that cost (`profile.wage.currency`).
-            { label: "Wage cap (USD)", value: agent.wageCapMinor === null ? "No cap" : formatMoney({ amountMinor: Number(agent.wageCapMinor), currency: profile.wage.currency }), numeric: true },
+            { label: <Term id="wage_cap">Wage cap (USD)</Term>, value: agent.wageCapMinor === null ? "No cap" : formatMoney({ amountMinor: Number(agent.wageCapMinor), currency: profile.wage.currency }), numeric: true },
             { label: wageLabel(profile.wage.period, undefined, datePrefs).replace(/^AI cost/, "Spent"), value: <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: profile.wage.costMinor, currency: profile.wage.currency })} <ProvenanceChip kind="estimate" /></span>, numeric: true },
             { label: "Spend cap per action", value: money(autonomy.spendCapMinor), numeric: true },
             { label: "Needs your OK above", value: asksAbove, numeric: true },
-            { label: "Autonomy", value: autonomy.mode === "inherit" ? "Business mode" : autonomy.mode === "lower" ? "Asks more often" : "Acts more freely" },
+            { label: <Term id="autonomy">Autonomy</Term>, value: autonomy.mode === "inherit" ? "Business mode" : autonomy.mode === "lower" ? "Asks more often" : "Acts more freely" },
             { label: "Schedule", value: schedule.cron ? <span className="font-mono text-mono">{schedule.cron}</span> : schedule.triggers?.length ? `${schedule.triggers.length} ${schedule.triggers.length === 1 ? "trigger" : "triggers"}` : <span className="inline-flex items-center gap-1 text-secondary"><Icon icon={CalendarClock} size="inline" /> On demand</span> },
           ]}
         />

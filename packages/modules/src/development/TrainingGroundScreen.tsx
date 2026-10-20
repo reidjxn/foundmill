@@ -12,6 +12,8 @@ import { TIERS } from "@foundmill/config";
 import {
   AgentTile,
   Button,
+  EmptyState,
+  Explainer,
   GroundViewToggle,
   NudgeMenu,
   Panel,
@@ -20,10 +22,10 @@ import {
   ShoutMenu,
   SpecialistTile,
   TaskGraph,
+  Term,
   TileGrid,
   cn,
   sessionLengthMs,
-  useGuided,
   type AgentTileSession,
   type GroundView,
   type Nudge,
@@ -82,10 +84,15 @@ export function toGraphNodes(tasks: readonly TaskRow[], edges: readonly { fromTa
 }
 
 const GRID_HEIGHT = "calc(100vh - 232px)";
-/** The grid under the guided line ("Each tile is one agent on one task…"), which takes one 28 px row of the panel. */
-const GRID_HEIGHT_GUIDED = "calc(100vh - 260px)";
-/** The line a first-timer reads above the tiles while guidance is on (UX plan §7.12). */
+/** The line a first-timer reads above the tiles while guidance is on (UX plan §7.12); the Explainer's "what to do". */
 export const LIVE_SESSIONS_LEDE = "Each tile is one agent on one task. Nudge to give advice; Pause to hold it.";
+/** The department's intro, on its first tab while guidance is on (UX plan §7.10): the tile grid flexes under it. */
+export const DEVELOPMENT_EXPLAINER = {
+  screenId: "development/live-sessions",
+  purpose: "The team building it. Watch work live, see the plan, review finished code.",
+  action: LIVE_SESSIONS_LEDE,
+  watchFor: "A tile that reads Waiting: that agent needs an answer from you in the Inbox.",
+} as const;
 
 /**
  * Loads what a session streamed before this tab subscribed (`dev.sessions.replay`) into its tile: the stream only
@@ -114,7 +121,6 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
   const [view, setView] = useState<GroundView>(subView === "formation" ? "formation" : "tiles");
   const graph = useWidgetQuery<TasksListResponse>("dev.tasks.list", { limit: 500 }, { enabled: view === "formation" });
   const action = useAction();
-  const guided = useGuided();
 
   const refetchAll = useCallback(() => {
     tasks.refetch();
@@ -226,6 +232,9 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
   const reassignTask = reassign ? taskOf(reassign) : null;
   const stopTask = stop ? taskOf(stop) : null;
   const claudeTask = claudeCode ? taskOf(claudeCode) : null;
+  // Nobody at work: the empty state sits in the body under the department's intro (the intro is for first-timers,
+  // who meet this tab before any task has started), never in place of it.
+  const nobody = !!tasks.data && live.length === 0;
 
   return (
     <Screen name="development/training-ground" className="h-full">
@@ -234,14 +243,13 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
       ))}
       <Panel
         span={12}
-        title="Live sessions"
+        title={<Term id="session">Live sessions</Term>}
         flush
         className="h-full"
         bodyClassName="flex min-h-0 flex-col"
         loading={tasks.isLoading || (sessions.isLoading && !sessions.data)}
         error={tasks.error ? tasks.error.message : sessions.error ? sessions.error.message : undefined}
         onRetry={refetchAll}
-        empty={tasks.data && live.length === 0 ? { icon: Radio, title: "No agents are working right now", children: "Tiles appear here as soon as a task starts. Plan work from the roadmap or start a ready task on the Plan tab.", action: { label: "Go to Plan", onClick: () => navigate(planHref) } } : undefined}
         actions={
           <div className="flex items-center gap-2">
             <span className="text-small text-secondary tabular-nums" data-testid="ground-counts">
@@ -283,14 +291,17 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
             {graph.isLoading ? <p className="mt-2 text-small text-secondary">Loading the task graph…</p> : null}
             {graph.data && graphNodes.length === 0 ? <p className="mt-2 text-small text-secondary">No tasks yet. Plan work from the roadmap on the Plan tab.</p> : null}
           </div>
+        ) : nobody ? (
+          <div className="flex min-h-0 flex-col">
+            <Explainer {...DEVELOPMENT_EXPLAINER} className="m-panel-pad shrink-0" />
+            <EmptyState icon={Radio} title="No agents are working right now" action={{ label: "Go to Plan", onClick: () => navigate(planHref) }} className="py-6">
+              Tiles appear here as soon as a task starts. Plan work from the roadmap or start a ready task on the Plan tab.
+            </EmptyState>
+          </div>
         ) : (
-          <div className="flex min-h-0 flex-col" style={{ height: guided ? GRID_HEIGHT_GUIDED : GRID_HEIGHT, minHeight: 480 }}>
-            {/* TODO(guided-layer): Explainer. */}
-            {guided ? (
-              <p className="shrink-0 px-panel-pad py-1.5 text-small text-secondary" data-testid="live-sessions-lede">
-                {LIVE_SESSIONS_LEDE}
-              </p>
-            ) : null}
+          <div className="flex min-h-0 flex-col" style={{ height: GRID_HEIGHT, minHeight: 480 }}>
+            {/* The department's intro while guidance is on; the grid flexes under it (UX plan §7.10, §7.12). */}
+            <Explainer {...DEVELOPMENT_EXPLAINER} className="m-panel-pad mb-0 shrink-0" />
             <TileGrid
               items={items}
               focusedId={focusedId}

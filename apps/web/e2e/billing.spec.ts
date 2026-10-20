@@ -23,6 +23,8 @@ test.describe("billing", () => {
     // Credits are US dollars.
     await expect(screen.getByRole("combobox", { name: "Top-up amount" })).toContainText("$50.00");
     await expect(screen).toContainText("This server simulates payments");
+    // "Credits" is defined where the founder first meets it, on the panel's title (a dotted word with guidance on).
+    await expect(screen.locator('[data-term="credits"]').first()).toBeVisible();
 
     await topUp.click();
     await expect(page).toHaveURL(new RegExp(`${BILLING}\\?checkout=${UUID}$`), { timeout: LONG });

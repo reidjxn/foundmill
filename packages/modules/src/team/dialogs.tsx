@@ -7,7 +7,7 @@
 import { useEffect, useId, useState } from "react";
 import { ArrowLeftRight, Copy, UserRoundMinus, UserRoundPlus } from "lucide-react";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { Button, Checkbox, Chip, MODEL_LABELS, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, ProvenanceChip, SimpleSelect, formatMoney } from "@foundmill/dugout";
+import { Button, Checkbox, Chip, ConsequenceLine, MODEL_LABELS, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, ProvenanceChip, ReassuranceLine, SimpleSelect, Term, formatMoney } from "@foundmill/dugout";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 import { humanise } from "../fit";
 import { FAMILY_LABELS, InlineError, isChiefOfStaff, useAction } from "./shared";
@@ -21,6 +21,15 @@ function departmentOptions(departments: readonly DepartmentRow[] | undefined) {
     .sort((a, b) => a.position - b.position)
     .map((d) => ({ value: d.id, label: d.name }));
 }
+
+/* ---------- Consequences (UX plan §6.2 ConsequenceLine, always shown) ---------- */
+
+/** Letting an agent go: what happens, said the same way in the dialog and the Team moves footer. */
+export const RELEASE_CONSEQUENCE = "Running tasks stop; history and logs stay on the profile. Nothing is deleted.";
+/** Lending: the agent gains a department. Moving: it leaves its current ones and follows the new lead. */
+export const LOAN_CONSEQUENCE = { lend: "It joins the other department from the next cycle and keeps its tasks, skills, tools and model.", move: "It leaves its current departments; the new department's lead becomes its line manager." } as const;
+/** Hiring: the agent starts next cycle; its wage cap is the most it can cost. */
+export const HIRE_CONSEQUENCE = "Starts next cycle with the template's instructions, tools and skills, plus any you add here.";
 
 /* ---------- Hire ---------- */
 
@@ -113,11 +122,11 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
               items={[
                 { label: "Role", value: template.role },
                 { label: "Kind", value: FAMILY_LABELS[template.family] },
-                { label: "Model", value: MODEL_LABELS[template.modelKey] ?? template.modelKey },
+                { label: <Term id="model">Model</Term>, value: MODEL_LABELS[template.modelKey] ?? template.modelKey },
                 { label: "Skills", value: template.skills.length ? template.skills.map(humanise).join(", ") : "None yet; train it from its profile" },
                 {
                   // A wage cap caps metered model cost: US dollars, whatever the business's currency (C19).
-                  label: "Wage cap (USD)",
+                  label: <Term id="wage_cap">Wage cap (USD)</Term>,
                   value: (
                     <span className="inline-flex items-center gap-1.5 tabular-nums">
                       {formatMoney({ amountMinor: template.wageCapMinor, currency })}/mo <ProvenanceChip kind="estimate" />
@@ -134,7 +143,9 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
             <Input id={`${id}-name`} value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={template?.name} />
           </Field>
           <SkillsStep value={skills} onChange={setSkills} disabled={action.pending !== null} />
-          <p className="text-small text-secondary">The agent starts with the template's instructions, tools and skills, plus any you add here, and appears in the team table straight away. Train it from its profile to tune them.</p>
+          {/* What hiring does, what it can cost and that it can be undone, always shown; the reassurance only while guided. */}
+          <ConsequenceLine consequence={HIRE_CONSEQUENCE} cost={template ? `Up to ${formatMoney({ amountMinor: template.wageCapMinor, currency })}/mo (Estimate)` : undefined} reversible data-testid="hire-consequence" />
+          <ReassuranceLine>Train it from its profile to tune its skills; lend it or let it go later from Team › Agents.</ReassuranceLine>
           <InlineError error={action.error} />
         </DialogBody>
         <DialogFooter>
@@ -173,19 +184,36 @@ export function ReleaseDialog({ agent, onOpenChange, onReleased }: ReleaseDialog
   };
   return (
     <Dialog open={!!agent} onOpenChange={onOpenChange}>
-      <DialogContent size="sm" aria-describedby={`${id}-desc`} data-testid="release-dialog">
+      <DialogContent
+        size="sm"
+        aria-describedby={`${id}-desc`}
+        data-testid="release-dialog"
+        // Open on Keep, the safe choice, never on a defined word in the description (its card would open with the dialog).
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          document.getElementById(`${id}-keep`)?.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Let {agent?.name} go</DialogTitle>
           <DialogDescription id={`${id}-desc`}>
-            {cos ? "The Chief of Staff plans every cycle and cannot be let go." : `${agent?.name} leaves the team. Running tasks stop and its history and logs stay on the profile. Nothing is deleted.`}
+            {cos ? (
+              <>
+                The <Term id="chief_of_staff">Chief of Staff</Term> plans every cycle and cannot be let go.
+              </>
+            ) : (
+              `${agent?.name} leaves the team.`
+            )}
           </DialogDescription>
         </DialogHeader>
-        <DialogBody>
+        <DialogBody className="flex flex-col gap-2">
+          {/* What letting go does and that there is no way back, always shown (UX plan §6.2 ConsequenceLine). */}
+          {cos ? null : <ConsequenceLine consequence={RELEASE_CONSEQUENCE} reversible={false} data-testid="release-consequence" />}
           {agent?.currentTask ? <p className="text-small text-status-warn">Currently working on “{agent.currentTask.title}”; that task returns to ready.</p> : null}
-          <InlineError error={action.error} className="mt-2" />
+          <InlineError error={action.error} />
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+          <Button id={`${id}-keep`} variant="ghost" onClick={() => onOpenChange(false)}>
             Keep
           </Button>
           <Button variant="danger" icon={UserRoundMinus} disabled={cos} loading={action.pending !== null} onClick={() => void confirm()} data-testid="release-confirm">
@@ -325,6 +353,8 @@ export function LoanDialog({ agent, onOpenChange, departments, onLoaned }: LoanD
               Move instead of lending (leaves the current departments)
             </label>
           </div>
+          {/* What lending or moving does, and that either can be undone, always shown (UX plan §6.2 ConsequenceLine). */}
+          <ConsequenceLine consequence={move ? LOAN_CONSEQUENCE.move : LOAN_CONSEQUENCE.lend} reversible data-testid="loan-consequence" />
           <InlineError error={action.error} />
         </DialogBody>
         <DialogFooter>

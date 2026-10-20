@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CONCEPT_ATTRIBUTE_KEYS, isHexColour, kitOnPrimaryDetail } from "@foundmill/dugout";
 import { STEERING_CHIPS, steerBrief } from "../ideate/IdeationStudio";
-import { COMPARE_MAX, EMPTY_STUDIO_STATE, META_KIND, attributeChanges, buildDeck, citationsOf, commitHref, compareHref, costLabel, discardLocally, kitFromSeed, lineageOf, orderDeck, parseCompareIds, parseStudioState, pinnedIdsToLoad, qaBubbles, qaOf, readMeta, restoreLocally, settlePinned, toConcept, toggleSelection, versionToConcept, withPinned, type IdeaLike, type IdeaVersionLike } from "../ideate/concepts";
+import { COMPARE_MAX, EMPTY_STUDIO_STATE, META_KIND, attributeChanges, attributeTerm, attributeTermId, buildDeck, citationsOf, commitHref, compareHref, costLabel, discardLocally, kitFromSeed, lineageOf, orderDeck, parseCompareIds, parseStudioState, pinnedIdsToLoad, qaBubbles, qaOf, readMeta, restoreLocally, settlePinned, toConcept, toggleSelection, versionToConcept, withPinned, type IdeaLike, type IdeaVersionLike } from "../ideate/concepts";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -178,6 +178,11 @@ describe("Ask history and version changes", () => {
     expect(attributeChanges(before, { market_size: { value: 14 }, competition: { value: 9 } })).toEqual([{ key: "market_size", label: "Market size", from: 12, to: 14 }]);
     expect(attributeChanges(before, before)).toEqual([]);
     expect(attributeChanges(null, before)).toEqual([]);
+    // Every attribute is a defined word with its direction (A6): the Term id is attr_<key>, the sentence its hint.
+    expect(attributeTermId("market_pull")).toBe("attr_market_pull");
+    expect(attributeTerm("competition")).toEqual({ id: "attr_competition", word: "Competition", short: "How crowded the market is. Higher means less crowded." });
+    expect(attributeTerm("distribution_clarity")?.id).toBe("attr_distribution_clarity");
+    expect(attributeTerm("not_an_attribute")).toBeUndefined();
   });
 });
 

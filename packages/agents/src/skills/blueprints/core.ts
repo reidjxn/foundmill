@@ -290,11 +290,11 @@ export const CORE_BLUEPRINTS: BlueprintSet = {
   communication: [
     bp(
       "Inbox-style update for {business}",
-      "Write the update to {founder} about this week at {business}: {metric}; the {channel} test produced 14 leads at {currency} 31 each (attribution record att_77); the {integration} connector was down for 6 hours on Tuesday (incident inc_9). 60-180 words: fact, why it matters, the ask. Cite record ids.",
+      "Write the update to {founder} about this week at {business}: {metric}; the {channel} test produced 14 leads at {currency} 31 each (attribution record att_77); the {integration} connector was down for 6 hours on Tuesday (incident inc_9). Under 180 words, no padding: fact, why it matters, the ask. Cite record ids.",
       [
         "Leads with the most important fact, then why it matters, then a clear ask.",
         "Uses only the numbers given and cites the record ids.",
-        "Plain, specific, no hype, 60-180 words.",
+        "Plain, specific, no hype, under 180 words, no padding.",
       ],
       { checks: [CHECK.words(60, 180), CHECK.cites()] },
     ),

@@ -25,11 +25,25 @@ describe("AutopilotChip", () => {
 
   it("is a labeled group, or a button when it opens Settings", async () => {
     const onClick = vi.fn();
-    const { rerender } = render(<AutopilotChip state="waiting" label="Waiting for you" detail="Two Inbox items need your decision." />);
-    expect(screen.getByRole("group", { name: "Autopilot: Waiting for you. Two Inbox items need your decision." })).toBeTruthy();
-    rerender(<AutopilotChip state="waiting" label="Waiting for you" onClick={onClick} />);
-    await userEvent.click(screen.getByRole("button", { name: "Autopilot: Waiting for you" }));
+    const { rerender } = render(<AutopilotChip state="waiting" label="Needs your answer" detail="2 notes in the Inbox need your answer." />);
+    expect(screen.getByRole("group", { name: "Autopilot: Needs your answer. 2 notes in the Inbox need your answer." })).toBeTruthy();
+    rerender(<AutopilotChip state="waiting" label="Needs your answer" onClick={onClick} />);
+    await userEvent.click(screen.getByRole("button", { name: "Autopilot: Needs your answer" }));
     expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("defines the word Autopilot in the guided sentence, never inside the chip's own button", () => {
+    const terms = { autopilot: { id: "autopilot", word: "Autopilot", short: "The business starts its own cycles on a schedule instead of waiting for you to press Continue." } };
+    const { container } = render(
+      <GuidanceProvider value={{ terms }}>
+        <AutopilotChip state="on" label="On" guide onClick={() => {}} />
+      </GuidanceProvider>,
+    );
+    const term = container.querySelector("[data-term='autopilot']");
+    expect(term?.textContent).toBe("Autopilot");
+    expect(term?.closest("[data-autopilot-guide]")).toBeTruthy();
+    expect(screen.getByTestId("autopilot-chip").querySelector("[data-term]")).toBeNull();
+    expect(container.querySelector("[data-autopilot-guide]")?.textContent).toBe(AUTOPILOT_GUIDE_LINE);
   });
 
   it("says in one sentence what Autopilot does and never does beside the chip, in guided mode only (UX plan B16)", () => {

@@ -55,6 +55,14 @@ describe("nextStepsFor: day one", () => {
     expect(steps[2]).toMatchObject({ label: "Cycle 1 is running · 4 agents at work", done: true });
   });
 
+  it("skips the draft rows for a business that has no first draft (imported or seeded): the notes, then Continue", () => {
+    const steps = nextStepsFor({ ...dayOne, foundationsStatus: "none", blockingNotes: 1 }, routes);
+    expect(steps.map((s) => s.id)).toEqual(["answer-notes", "press-continue"]);
+    expect(steps[0]).toMatchObject({ label: "Answer the 1 note in the Inbox", href: routes.inboxRespond });
+    expect(nextStepsFor({ ...dayOne, foundationsStatus: "none", blockingNotes: 0 }, routes)).toEqual([{ id: "press-continue", label: "Press Continue" }]);
+    expect(nextStepsFor({ ...dayOne, foundationsStatus: "none", blockingNotes: 0, cycleRunning: true, agentsWorking: 2 }, routes)).toEqual([{ id: "press-continue", label: "Cycle 1 is running · 2 agents at work", done: true }]);
+  });
+
   it("takes the routes from a callback too", () => {
     const steps = nextStepsFor(dayOne, (key) => `#${key}`);
     expect(steps[0]?.href).toBe("#vision");

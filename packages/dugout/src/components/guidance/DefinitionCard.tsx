@@ -7,12 +7,17 @@
  * Tooltips are labels, so a link inside one is unreachable by keyboard (finding D2). Here the card *persists on
  * Enter* (or Space, or a click): it stays open, focus lands on "Learn more" (or on the card when there is no link),
  * Escape closes it and gives focus back to the word, and a click or Tab away closes it. Hover alone never pins it.
+ *
+ * Focus opens the card only when the person moved focus with a key (`openOnFocus="keyboard"`, the default; see
+ * keyboardFocus.ts): a dialog's auto-focus on a Term or an Estimate chip must not open it, or the next Escape would
+ * close the card instead of the dialog.
  */
 import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactElement, type ReactNode } from "react";
 import { ArrowRight } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { Button } from "../foundation/Button";
 import { HOVER_CARD_OPEN_DELAY, HoverCard, HoverCardContent, HoverCardTrigger } from "../foundation/HoverCard";
+import { isKeyboardFocus, trackKeyboardFocus } from "./keyboardFocus";
 import { isExternalLearnHref, useLearnHref } from "./LearnLink";
 
 export interface DefinitionCardProps {
@@ -35,17 +40,23 @@ export interface DefinitionCardProps {
   align?: "start" | "center" | "end";
   /** Hover and focus delay in ms (default 300, DESIGN §7). */
   openDelay?: number;
+  /**
+   * When focus opens the card: "keyboard" (default) only after a key that moves focus, never on a script's focus (a
+   * dialog's auto-focus, focus handed back after Escape); "always" on every focus, as Radix does by itself.
+   */
+  openOnFocus?: "keyboard" | "always";
   /** Classes for the card. */
   className?: string;
 }
 
 const ACTIVATION_KEYS = new Set(["Enter", " "]);
 
-export function DefinitionCard({ children, word, short, long, fact, factLabel = "In this business", learn, learnLabel = "Learn more", side = "bottom", align = "start", openDelay = HOVER_CARD_OPEN_DELAY, className }: DefinitionCardProps) {
+export function DefinitionCard({ children, word, short, long, fact, factLabel = "In this business", learn, learnLabel = "Learn more", side = "bottom", align = "start", openDelay = HOVER_CARD_OPEN_DELAY, openOnFocus = "keyboard", className }: DefinitionCardProps) {
   const id = useId();
   const href = useLearnHref(learn);
   const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
+  useEffect(trackKeyboardFocus, []);
   // Read synchronously in Radix's callbacks, which fire between renders.
   const pinnedRef = useRef(false);
   const focusInside = useRef(false);
@@ -92,6 +103,11 @@ export function DefinitionCard({ children, word, short, long, fact, factLabel = 
     if (next && (e.currentTarget.contains(next) || trigger.current?.contains(next))) return;
     unpin(false);
   };
+  // Radix composes this before its own focus handler and skips opening when the event was default-prevented: a
+  // script's focus (a dialog landing on the word, focus handed back after Escape) leaves the card closed.
+  const onTriggerFocus = (e: FocusEvent<HTMLElement>) => {
+    if (openOnFocus === "keyboard" && !isKeyboardFocus()) e.preventDefault();
+  };
 
   return (
     <HoverCard
@@ -112,6 +128,7 @@ export function DefinitionCard({ children, word, short, long, fact, factLabel = 
         aria-controls={open ? `${id}-card` : undefined}
         onKeyDown={onTriggerKeyDown}
         onClick={onTriggerClick}
+        onFocus={onTriggerFocus}
       >
         {children}
       </HoverCardTrigger>

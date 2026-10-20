@@ -37,6 +37,13 @@ export const TERMS = {
     long: "Cash in the bank divided by what you spend more than you earn each month. It is an Estimate until a bank is connected; under 9 months it turns amber, under 6 red.",
     learn: "finance/runway",
   },
+  revenue: {
+    id: "revenue",
+    word: "Revenue",
+    short: "Money customers paid you, counted on the day it arrives.",
+    long: "Everything customers paid this month, on a cash basis: a sale counts when the money lands, not when it is invoiced. Money raised or moved between accounts is left out.",
+    learn: "finance/overview",
+  },
   burn: {
     id: "burn",
     word: "Burn",
@@ -228,6 +235,22 @@ export const TERMS = {
     long: "It proposes the Channel Board, sets each channel's cost target and reviews the campaigns. It starts work only after you start distribution.",
     learn: "distribution/board",
   },
+  cost_trend: {
+    id: "cost_trend",
+    word: "Cost trend",
+    short: "The last five weeks against the channel's cost target: under, near or over it.",
+    long: "Each cell is one week of cost per customer compared with the target the Distribution strategist set. A run of weeks over the target is the sign to pause the channel or change its creative.",
+    learn: "distribution/channels",
+  },
+
+  // ---- Contacts (the CRM, founder decision 2026-10-20 item 1) ----------------------------------------------------
+  contacts: {
+    id: "contacts",
+    word: "Contacts",
+    short: "Everyone the business knows: customers, leads, partners and suppliers, with their notes and every touch on record.",
+    long: "The same screen operators call the CRM, and the search still answers to that name. Agents link every person and company they mention, so a name in a note opens its record.",
+    learn: "crm",
+  },
 
   // ---- Product -------------------------------------------------------------------------------------------------
   specification: {
@@ -277,6 +300,70 @@ export const TERMS = {
     short: "The lead that keeps the specification and the roadmap, and proposes changes to them.",
     long: "Every edit to the specification goes through it. It also speaks for the Source watcher when a source suggests a change.",
     learn: "product/specification",
+  },
+
+  // ---- Concept attributes (the Ideation Studio's ten scores, 1 to 20; UX plan §7.5 A6) ------------------------
+  // The sentence is CONCEPT_ATTRIBUTE_HINTS (packages/dugout journey/types.ts) with its direction; the ids are
+  // `attr_<key>` as the Studio's `attributeTermId` builds them.
+  attr_market_pull: {
+    id: "attr_market_pull",
+    word: "Market pull",
+    short: "How strongly people already want this; higher means more demand.",
+    long: "One of the ten scores on a concept card, from 1 to 20, with the evidence behind it. Compare puts the same score side by side across concepts.",
+  },
+  attr_market_size: {
+    id: "attr_market_size",
+    word: "Market size",
+    short: "How many people or businesses could pay for it; higher means a bigger market.",
+    long: "One of the ten scores on a concept card, from 1 to 20, with the evidence behind it. A big market with no pull is a crowd that is not looking for you yet.",
+  },
+  attr_competition: {
+    id: "attr_competition",
+    word: "Competition",
+    short: "How crowded the market is; higher means less crowded.",
+    long: "One of the ten scores on a concept card, from 1 to 20. It reads the way the other scores do: a high score is good news, here an open field.",
+  },
+  attr_speed_to_first_customer: {
+    id: "attr_speed_to_first_customer",
+    word: "Speed to first customer",
+    short: "How soon the first customer could pay; higher means sooner.",
+    long: "One of the ten scores on a concept card, from 1 to 20. Weeks scores high, a year of building before anyone can pay scores low.",
+  },
+  attr_capital_intensity: {
+    id: "attr_capital_intensity",
+    word: "Capital intensity",
+    short: "How much money it takes before the first sale; higher means less money needed.",
+    long: "One of the ten scores on a concept card, from 1 to 20. It reads the way the other scores do: a high score is good news, here a business that starts cheap.",
+  },
+  attr_agent_executability: {
+    id: "attr_agent_executability",
+    word: "Agent-executability",
+    short: "How much of the work your agent team can do on its own; higher means more of it.",
+    long: "One of the ten scores on a concept card, from 1 to 20. Software, content and online sales score high; anything that needs hands, trucks or a license scores lower.",
+  },
+  attr_founder_fit: {
+    id: "attr_founder_fit",
+    word: "Founder fit",
+    short: "How well your skills and constraints suit what this needs; higher means a closer fit.",
+    long: "One of the ten scores on a concept card, from 1 to 20, worked out from your profile. Change the profile and the score changes with it.",
+  },
+  attr_defensibility: {
+    id: "attr_defensibility",
+    word: "Defensibility",
+    short: "How hard it is for others to copy; higher means harder to copy.",
+    long: "One of the ten scores on a concept card, from 1 to 20. Data, relationships, a brand or a license that others cannot get quickly all raise it.",
+  },
+  attr_regulatory_load: {
+    id: "attr_regulatory_load",
+    word: "Regulatory load",
+    short: "How much regulation applies; higher means fewer rules to deal with.",
+    long: "One of the ten scores on a concept card, from 1 to 20. It reads the way the other scores do: a high score is good news, here few permits, licenses or filings.",
+  },
+  attr_distribution_clarity: {
+    id: "attr_distribution_clarity",
+    word: "Distribution clarity",
+    short: "How clear the path to the first customers is; higher means a clearer path.",
+    long: "One of the ten scores on a concept card, from 1 to 20. A known channel with a known cost scores high; 'we will see' scores low.",
   },
 
   // ---- Development ---------------------------------------------------------------------------------------------
@@ -453,6 +540,20 @@ export const TERMS = {
     long: "Each skill has one, and the agent's overall rating is the average. Poor is 1 to 5, Average 6 to 10, Good 11 to 15, Excellent 16 to 20; training can move it.",
     learn: "team/agents",
   },
+  tested: {
+    id: "tested",
+    word: "Tested",
+    short: "The score on practice tests: what the agent does on held-back examples, 1 to 20.",
+    long: "Half of the practice tests stay hidden so the score stays honest. A training run re-tests every skill and the Coach compares the results with the live version.",
+    learn: "team/agents",
+  },
+  proven: {
+    id: "proven",
+    word: "Proven",
+    short: "The score on real work: how the agent's finished tasks went, 1 to 20.",
+    long: "More real work makes Proven count for more in the displayed score. A new skill shows its tested score alone until the agent has used it.",
+    learn: "team/agents",
+  },
   potential: {
     id: "potential",
     word: "Potential",
@@ -580,6 +681,13 @@ export const TERMS = {
     short: "The legal reason you are allowed to hold and use someone's personal data.",
     long: "Consent, a contract with them or a legitimate interest are the common ones. Every place the product stores personal data names its basis in the privacy policy.",
     learn: "legal/policies",
+  },
+  filing: {
+    id: "filing",
+    word: "Filing",
+    short: "A form or report the company must send to a registry or tax office by a set date.",
+    long: "Annual accounts, a confirmation statement, a tax return. Legal › Compliance lists each one with its deadline and who files it; a compliance event is anything else the company must do by a date.",
+    learn: "legal/compliance",
   },
 } as const satisfies Record<string, TermDefinition>;
 

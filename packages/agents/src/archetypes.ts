@@ -225,6 +225,7 @@ const b2bSaas = ArchetypeSeed.parse({
         label: "Reach the one kind of customer we target first",
         recommended: true,
         consequence: "Lead generation and email automation start first; the engineers build the demo path those emails point to.",
+        because: "Recommended because it is the fastest way to find out whether anyone will pay, and you can pause it any time.",
         costMinor: THRESHOLD * 2,
         reversible: true,
         actions: [
@@ -307,6 +308,7 @@ const consumerApp = ArchetypeSeed.parse({
         label: "Small paid test with a cost-per-customer limit",
         recommended: true,
         consequence: "You get a read within two weeks; any campaign that costs more per customer than the limit pauses itself for 48 hours.",
+        because: "Recommended because a small, capped test tells you what a customer costs before you spend more.",
         costMinor: THRESHOLD * 2,
         reversible: true,
         actions: [
@@ -384,6 +386,7 @@ const marketplace = ArchetypeSeed.parse({
         label: "Recruit supply by hand, then open demand",
         recommended: true,
         consequence: "Lead generation sources 50 suppliers; demand channels start when 20 listings are live.",
+        because: "Recommended because buyers leave an empty marketplace, so the listings have to come first.",
         costMinor: THRESHOLD,
         reversible: true,
         actions: [
@@ -483,6 +486,7 @@ const dtcPhysical = ArchetypeSeed.parse({
         label: "Samples and costing first, storefront in parallel at low priority",
         recommended: true,
         consequence: "The first money goes to samples; the storefront is ready when the formula is.",
+        because: "Recommended because samples take weeks and a storefront takes days, so the slow part starts first.",
         costMinor: THRESHOLD * 4,
         reversible: true,
         actions: [
@@ -578,6 +582,7 @@ const hardware = ArchetypeSeed.parse({
         label: "Waitlist now, pre-orders after certification plan is costed",
         recommended: true,
         consequence: "No money taken before the risk is known; demand is measured through the waitlist.",
+        because: "Recommended because taking money before the certification is costed could mean refunds you cannot afford.",
         costMinor: THRESHOLD,
         reversible: true,
         actions: [
@@ -659,6 +664,7 @@ const services = ArchetypeSeed.parse({
         label: "One fixed-price package",
         recommended: true,
         consequence: "Simpler sales and delivery checklists; agents can run most of the process.",
+        because: "Recommended because one package costs nothing to set up and the team can sell and deliver it without you.",
         costMinor: 0,
         reversible: true,
         actions: [
@@ -733,6 +739,7 @@ const contentMedia = ArchetypeSeed.parse({
         label: "Free for the first chapter, paid tier at 1,000 subscribers",
         recommended: true,
         consequence: "Faster audience growth; sponsorship starts when reach justifies it.",
+        because: "Recommended because a paywall on issue one keeps out the readers who would tell others about you.",
         costMinor: THRESHOLD,
         reversible: true,
         actions: [

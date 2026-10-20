@@ -2,7 +2,7 @@
 /** Dialogs the development tabs share: Reassign, Stop and discard, Open in Claude Code, Forget saved code, GitHub repository. */
 import { useId, useState } from "react";
 import { ExternalLink, FolderGit2, Settings2, Square, Trash2, UserRoundCog } from "lucide-react";
-import { Button, Checkbox, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, SimpleSelect, Skeleton, Textarea } from "@foundmill/dugout";
+import { Button, Checkbox, Chip, ConsequenceLine, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, SimpleSelect, Skeleton, Term, Textarea } from "@foundmill/dugout";
 import { useWidgetQuery } from "@foundmill/widgets/data";
 import { InlineError, errorMessage } from "./shared";
 import type { AgentRow, OpenInClaudeCodeResponse } from "./types";
@@ -66,9 +66,13 @@ export function StopDialog({ open, onOpenChange, taskTitle, pending, error, onCo
       <DialogContent size="sm" aria-describedby={`${id}-desc`}>
         <DialogHeader>
           <DialogTitle>Stop and discard</DialogTitle>
-          <DialogDescription id={`${id}-desc`}>The agent working on “{taskTitle}” stops now and its branch is discarded. The task can be started again later.</DialogDescription>
+          <DialogDescription id={`${id}-desc`}>
+            The agent working on “{taskTitle}” stops now and its <Term id="branch">branch</Term> is discarded. The task can be started again later.
+          </DialogDescription>
         </DialogHeader>
-        <DialogBody>
+        <DialogBody className="flex flex-col gap-2">
+          {/* What stopping costs and whether it can be undone, always shown (UX plan §6.2 ConsequenceLine). */}
+          <ConsequenceLine consequence="The work in progress on the branch is lost; the task returns to ready." cost="No cost" reversible />
           <InlineError error={error} />
         </DialogBody>
         <DialogFooter>
@@ -94,7 +98,9 @@ export function ForgetCodeDialog({ open, onOpenChange, taskTitle, pending, error
           <DialogTitle>Forget saved code</DialogTitle>
           <DialogDescription id={`${id}-desc`}>Every saved session of “{taskTitle}” is deleted for good. Sessions running on the task now cannot save it back, and the next one starts from an empty folder. A file another task saved with the same contents stays with that task.</DialogDescription>
         </DialogHeader>
-        <DialogBody>
+        <DialogBody className="flex flex-col gap-2">
+          {/* Deleting is one of the things that cannot be undone: the line says so, in both guidance states. */}
+          <ConsequenceLine consequence="The next session on this task starts from an empty folder." cost="No cost" reversible={false} />
           <InlineError error={error} />
         </DialogBody>
         <DialogFooter>
@@ -145,7 +151,7 @@ export function GitHubRepositoryDialog({ open, onOpenChange, connected, simulate
         <DialogHeader>
           <DialogTitle>Push saved code to GitHub</DialogTitle>
           <DialogDescription id={`${id}-desc`}>
-            When a session on a code task finishes, its saved code is committed to the task's own branch (agent/…) in this private repository. Nothing is ever written to the default branch: merging stays a pull request.
+            When a session on a code task finishes, its saved code is committed to the task's own <Term id="branch">branch</Term> (agent/…) in this private <Term id="repository">repository</Term>. Nothing is ever written to the default branch: merging stays a <Term id="pull_request">pull request</Term>.
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">

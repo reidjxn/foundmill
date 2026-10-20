@@ -9,9 +9,18 @@ import { Chip, ProvenanceChip } from "../foundation/Chip";
 import { Icon } from "../foundation/Icon";
 import { StarRating } from "../foundation/StarRating";
 import { RatingFigure } from "../data/RatingBar";
+import type { TermDefinition } from "../guidance/GuidanceProvider";
+import { ScaleLabel } from "../guidance/ScaleLabel";
+import { Term } from "../guidance/Term";
 import { FormGuide } from "./ChannelToken";
 import { CHANNEL_ICONS, COST_TREND_LABEL, LINE_LABELS, channelLine } from "./formation";
 import type { ChannelTokenData } from "./types";
+
+/**
+ * What the cost trend is, as a Term's own definition: the map has no `cost_trend` id yet (the Term falls back to this,
+ * and takes the map's entry the day one lands).
+ */
+export const COST_TREND_TERM: TermDefinition = { id: "cost_trend", word: COST_TREND_LABEL, short: "The last five weeks of cost per customer against the channel's cost target: under, near or over it." };
 
 export interface ChannelProfileCardProps {
   channel: ChannelTokenData;
@@ -37,9 +46,19 @@ export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, 
             {LINE_LABELS[line]} · {meta.coreMetric}
           </p>
         </div>
-        <div className="flex flex-col items-end">
-          {channel.scored === false ? <span className="text-small text-secondary">Not scored</span> : <RatingFigure value={channel.fit} />}
-          <span className="t-label">Fit</span>
+        <div className="flex flex-col items-end gap-0.5">
+          {/* The figure carries its band word (UX plan §6.2 ScaleLabel: every number carries a word), and the label its definition. */}
+          {channel.scored === false ? (
+            <span className="text-small text-secondary">Not scored</span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5">
+              <ScaleLabel value={channel.fit} compact />
+              <RatingFigure value={channel.fit} />
+            </span>
+          )}
+          <span className="t-label">
+            <Term id="fit">Fit</Term>
+          </span>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -58,14 +77,18 @@ export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, 
           </div>
         ) : null}
         <div>
-          <dt className="t-label">{COST_TREND_LABEL}</dt>
+          <dt className="t-label">
+            <Term id="cost_trend" definition={COST_TREND_TERM}>{COST_TREND_LABEL}</Term>
+          </dt>
           <dd className="pt-1">
             <FormGuide form={channel.form} name={`${meta.label} ${COST_TREND_LABEL.toLowerCase()}`} />
           </dd>
         </div>
         {channel.cpaRange && channel.cpaRange.high.amountMinor > 0 ? (
           <div className="col-span-2">
-            <dt className="t-label">Cost per customer</dt>
+            <dt className="t-label">
+              <Term id="acquisition_cost">Cost per customer</Term>
+            </dt>
             <dd className="inline-flex items-center gap-1.5 tabular-nums">
               {formatMoney(channel.cpaRange.low)} – {formatMoney(channel.cpaRange.high)} <ProvenanceChip kind="estimate" />
             </dd>

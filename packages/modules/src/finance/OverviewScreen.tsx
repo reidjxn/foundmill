@@ -6,7 +6,7 @@
  */
 import { useMemo } from "react";
 import { AlertTriangle, Inbox, Landmark } from "lucide-react";
-import { BarChart, Button, EmptyState, ErrorState, LineChart, MetricTile, Panel, ProvenanceChip, StatusPill, formatNumber, useDateFormat, type LineSeries, type MetricTileProps, type MetricProvenance } from "@foundmill/dugout";
+import { BarChart, Button, EmptyState, ErrorState, Explainer, LineChart, MetricTile, Panel, ProvenanceChip, StatusPill, Term, formatNumber, useDateFormat, type LineSeries, type MetricTileProps, type MetricProvenance } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
@@ -23,6 +23,7 @@ import {
   operatingInflow,
   operatingOutflow,
   paybackMonths,
+  plainLine,
   pnlLabelWords,
   pnlTotals,
   readDrivers,
@@ -38,7 +39,7 @@ import {
 } from "./metrics";
 import { Screen, fmtAxisMoney, fmtMoney, fmtMonths, useCurrency, useNow } from "./shared";
 import type { ChannelsListResponse, FinanceOverview, PnlResponse } from "./types";
-import { runwayWords } from "@foundmill/widgets/shared/runway";
+import { runwayFigure, runwayWords } from "@foundmill/widgets/shared/runway";
 import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import { CHANNEL_WINDOW_DAYS } from "@foundmill/shared/constants";
 
@@ -47,8 +48,33 @@ const HISTORY = 6;
 /** Charts fill the rest of a 900 px window under the ten tiles. */
 const CHART_HEIGHT = 320;
 
+/** The department's intro, on its first tab while guidance is on (UX plan §7.10). */
+export const FINANCE_EXPLAINER = {
+  screenId: "finance/overview",
+  purpose: "Where the money is and how long it lasts.",
+  action: "Connect a bank or Stripe in Settings so the tiles measure instead of estimate; the Runway tab lets you try a forecast.",
+  watchFor: "Numbers marked Estimate are worked out, not measured.",
+} as const;
+
 export interface OverviewMetric extends MetricTileProps {
   key: MetricKey;
+}
+
+/**
+ * A tile's label as a founder first meets it: the defined word becomes a `Term` (dotted while guidance is on) and the
+ * rest of the label stays plain ("Gross burn (spending per month)", "Monthly recurring revenue (MRR)").
+ */
+export function MetricLabel({ metric }: { metric: MetricKey }) {
+  const { label, term } = METRIC_DEFINITIONS[metric];
+  if (!term) return <>{label}</>;
+  const open = label.indexOf(" (");
+  if (open < 0) return <Term id={term}>{label}</Term>;
+  return (
+    <>
+      <Term id={term}>{label.slice(0, open)}</Term>
+      {label.slice(open)}
+    </>
+  );
 }
 
 /** Forecast-based runway from the stored Base forecast: its drivers' runway, else the first month its series goes negative. */
@@ -95,12 +121,16 @@ export function overviewTiles(args: { overview: FinanceOverview; pnl: PnlRespons
     .sort((a, b) => a.cpa - b.cpa)
     .slice(0, 4);
   const perChannelText = perChannel && perChannel.length ? `Per channel: ${perChannel.map((c) => `${c.label} ${fmtMoney(c.cpa, currency, { compact: true })}`).join(", ")}.` : undefined;
+  // A balance below zero has no runway to count: the words stand in for the figure and keep the Estimate tag
+  // (@foundmill/widgets/shared/runway, the one wording every screen shares).
+  const runwayMonths = runwayFigure(overview);
+  const runwayStandIn = runwayWords(overview);
 
   const tiles: OverviewMetric[] = [
     { key: "cash", label: METRIC_DEFINITIONS.cash.label, value: { amountMinor: overview.cash.amountMinor, currency }, spark: cashHistory(overview.cash.amountMinor, monthly, months), provenance: prov("cash", `Bank balances, ${bank}`, "finance.overview.cash"), caption: bank },
     { key: "grossBurn", label: METRIC_DEFINITIONS.grossBurn.label, value: { amountMinor: overview.burn.grossBurnMinor, currency }, estimate: "estimate", spark: monthlySeries(monthly, months, operatingOutflow), provenance: prov("grossBurn", "Bank transactions, operating outflows", "finance.overview.burn.grossBurnMinor"), caption: `per month, ${overview.burn.months}-month average` },
     { key: "netBurn", label: METRIC_DEFINITIONS.netBurn.label, value: { amountMinor: overview.burn.netBurnMinor, currency }, estimate: "estimate", delta: undefined, spark: monthlySeries(monthly, months, operatingBurn), provenance: prov("netBurn", "Bank transactions, financing and transfers excluded", "finance.overview.burn.netBurnMinor"), caption: overview.burn.netBurnMinor <= 0 ? "Cash-flow positive" : `per month, ${overview.burn.months}-month average` },
-    { key: "runway", label: METRIC_DEFINITIONS.runway.label, value: overview.runway.months === null ? (runwayWords(overview)?.value ?? "—") : `${overview.runway.months}`, unit: overview.runway.months === null ? undefined : "mo", estimate: overview.runway.months === null ? undefined : "estimate", provenance: prov("runway", "Cash ÷ net burn", "finance.overview.runway", fcRunway !== null ? `Base forecast: ${fmtMonths(fcRunway)}.` : undefined), caption: fcRunway !== null ? `Forecast: ${fmtMonths(fcRunway)}` : overview.runway.months === null ? (runwayWords(overview)?.caption ?? "Appears once net burn is measured") : runwayWord(overview.runway.months) },
+    { key: "runway", label: METRIC_DEFINITIONS.runway.label, value: runwayMonths === null ? (runwayStandIn?.value ?? "—") : `${runwayMonths}`, unit: runwayMonths === null ? undefined : "mo", estimate: runwayMonths === null ? (runwayStandIn?.estimate ? "estimate" : undefined) : "estimate", provenance: prov("runway", "Cash ÷ net burn", "finance.overview.runway", fcRunway !== null ? `Base forecast: ${fmtMonths(fcRunway)}.` : undefined), caption: runwayMonths === null ? (runwayStandIn?.caption ?? "Appears once net burn is measured") : fcRunway !== null ? `Forecast: ${fmtMonths(fcRunway)}` : runwayWord(runwayMonths) },
     { key: "revenue", label: METRIC_DEFINITIONS.revenue.label, value: { amountMinor: revenue, currency }, estimate: pnl?.source === "ledger" ? undefined : "estimate", spark: monthlySeries(monthly, months, operatingInflow), provenance: prov("revenue", pnlSource, "finance.pnl.categories[revenue]"), caption: `trailing ${TRAILING} months` },
     { key: "mrr", label: METRIC_DEFINITIONS.mrr.label, value: { amountMinor: mrr, currency }, estimate: "estimate", provenance: prov("mrr", pnlSource, `revenue ÷ ${TRAILING}`), caption: "per month" },
     { key: "arr", label: METRIC_DEFINITIONS.arr.label, value: { amountMinor: mrr * 12, currency }, estimate: "estimate", provenance: prov("arr", pnlSource, "MRR × 12"), caption: "annualized" },
@@ -108,7 +138,12 @@ export function overviewTiles(args: { overview: FinanceOverview; pnl: PnlRespons
     { key: "acquisitionCost", label: METRIC_DEFINITIONS.acquisitionCost.label, value: cpa === null ? "—" : { amountMinor: cpa, currency }, estimate: cpa === null ? undefined : "estimate", provenance: prov("acquisitionCost", "Distribution board, channel spend and customers", "spend ÷ new customers", perChannelText), caption: blended ? `${blended.customers} customer${blended.customers === 1 ? "" : "s"}, ${blended.days} days` : "Appears once a channel spends" },
     { key: "payback", label: METRIC_DEFINITIONS.payback.label, value: payback === null ? "—" : `${payback}`, unit: payback === null ? undefined : "mo", estimate: payback === null ? undefined : "estimate", provenance: prov("payback", "Acquisition cost, and gross profit per paying customer (every customer who had paid by the end of the revenue window and had not churned)", "CPA ÷ (MRR × gross margin ÷ paying customers)"), caption: payback === null ? "Appears with acquisition cost, margin and paying customers" : `${formatNumber(payingCustomers)} paying customer${payingCustomers === 1 ? "" : "s"}` },
   ];
-  return tiles;
+  // The plain line under each figure while guidance is on (PlainFigure): the definitions map's sentence for a defined
+  // metric, the definition's own plain half for the rest.
+  return tiles.map((t) => {
+    const term = METRIC_DEFINITIONS[t.key].term;
+    return term ? { ...t, metricId: term } : { ...t, plain: plainLine(t.key) };
+  });
 }
 
 export function RunwayWarning({ months, warnings, blocksContinue, onOpenInbox }: { months: number | null; warnings: readonly number[]; blocksContinue: boolean; onOpenInbox: () => void }) {
@@ -177,29 +212,37 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
 
   const openInbox = () => navigate(routes.inbox(businessId));
 
+  // The months the warning judges: a balance below zero has none (the tile says "Cash is below zero").
+  const warningMonths = data ? runwayFigure(data) : null;
+
   return (
     <Screen name="finance/overview">
-      {data ? <RunwayWarning months={data.runway.months} warnings={data.runway.warnings?.length ? data.runway.warnings : runwayWarnings(data.runway.months)} blocksContinue={data.runway.blocksContinue} onOpenInbox={openInbox} /> : null}
+      {data ? <RunwayWarning months={warningMonths} warnings={data.runway.warnings?.length ? data.runway.warnings : runwayWarnings(warningMonths)} blocksContinue={data.runway.blocksContinue} onOpenInbox={openInbox} /> : null}
       <section aria-label="Finance metrics" aria-busy={overview.isLoading || undefined} className="col-span-12">
         {overview.error ? (
           <ErrorState onRetry={overview.refetch} detail={overview.error.message}>
             The finance overview could not be loaded.
           </ErrorState>
         ) : data && !hasData ? (
-          <EmptyState icon={Landmark} title="No bank or revenue data yet" action={{ label: "Connect a bank", icon: Landmark, onClick: () => navigate(routes.settings(businessId, "integrations")) }}>
-            Connect a bank account (Tink or Plaid) or Stripe and the tiles fill with cash, burn, runway and revenue.
-          </EmptyState>
+          <>
+            <Explainer {...FINANCE_EXPLAINER} className="mb-3" />
+            <EmptyState icon={Landmark} title="No bank or revenue data yet" action={{ label: "Connect a bank", icon: Landmark, onClick: () => navigate(routes.settings(businessId, "integrations")) }}>
+              Connect a bank account (Tink or Plaid) or Stripe and the tiles fill with cash, burn, runway and revenue.
+            </EmptyState>
+          </>
         ) : (
           <>
+            {/* The department's intro while guidance is on, then the one plain sentence the tiles add up to (UX plan §7.14). */}
+            <Explainer {...FINANCE_EXPLAINER} className="mb-3" />
             {summary ? (
               <p className="mb-2 max-w-reading text-body text-primary" data-testid="finance-summary">
                 {summary}
               </p>
             ) : null}
             <div role="list" className="grid grid-cols-5 gap-px overflow-hidden rounded-panel border border-subtle bg-subtle">
-              {(tiles ?? Array.from({ length: 10 }, (_, i) => ({ key: `loading-${i}`, label: Object.values(METRIC_DEFINITIONS)[i]?.label ?? "", value: null, loading: true }))).map(({ key, ...tile }) => (
-                <MetricTile key={key} role="listitem" data-metric={key} {...tile} />
-              ))}
+              {tiles
+                ? tiles.map(({ key, ...tile }) => <MetricTile key={key} role="listitem" data-metric={key} {...tile} label={<MetricLabel metric={key} />} />)
+                : (Object.keys(METRIC_DEFINITIONS) as MetricKey[]).map((key) => <MetricTile key={`loading-${key}`} role="listitem" label={METRIC_DEFINITIONS[key].label} value={null} loading />)}
             </div>
           </>
         )}
@@ -207,7 +250,7 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
       <Panel
         title="Cash"
         menu={pinMenu}
-        meta={`last ${HISTORY} months and the Base forecast`}
+        meta={<>last {HISTORY} months and the Base <Term id="forecast" always>forecast</Term></>}
         span={8}
         loading={overview.isLoading}
         error={overview.error ? overview.error.message : undefined}

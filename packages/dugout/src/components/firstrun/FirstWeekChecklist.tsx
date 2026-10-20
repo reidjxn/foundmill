@@ -19,7 +19,10 @@ import type { GridSpan } from "../shell/types";
 export interface FirstWeekItem {
   id: string;
   label: string;
-  href: string;
+  /** Where "Go" leads; a router link through the shell link renderer. */
+  href?: string;
+  /** An action instead of a route ("Run a cycle" puts the focus on Continue); `href` wins when both are given. */
+  onGo?: () => void;
   done: boolean;
 }
 
@@ -55,25 +58,44 @@ export function checklistMeta(items: readonly { done: boolean }[]): string {
   return `${items.filter((i) => i.done).length} of ${items.length} done`;
 }
 
-function Row({ item }: { item: FirstWeekItem }) {
+/** The ghost "Go": a link when the item has a route, a button when it has an action, nothing when it has neither. */
+function Go({ item }: { item: FirstWeekItem }) {
   const renderLink = useShellLink();
+  const className = cn(buttonVariants({ variant: "ghost", size: "sm" }), "text-secondary hover:text-primary");
+  const label = `Go: ${item.label}`;
+  if (item.href) {
+    return (
+      <>
+        {renderLink({
+          href: item.href,
+          className,
+          "aria-label": label,
+          children: (
+            <>
+              Go
+              <Icon icon={ArrowRight} size="inline" />
+            </>
+          ),
+        })}
+      </>
+    );
+  }
+  if (item.onGo) {
+    return (
+      <Button variant="ghost" size="sm" iconRight={ArrowRight} onClick={item.onGo} aria-label={label}>
+        Go
+      </Button>
+    );
+  }
+  return null;
+}
+
+function Row({ item }: { item: FirstWeekItem }) {
   return (
     <li className="flex min-h-row-comfortable items-center gap-2 border-b border-line-faint last:border-b-0" data-first-week-item={item.id} data-done={item.done || undefined}>
       {item.done ? <Icon icon={CircleCheck} className="text-status-good" label="Done" /> : <Icon icon={Circle} className="text-tertiary" label="Not done" />}
       <span className={cn("t-body min-w-0 flex-1 text-pretty", item.done ? "text-tertiary" : "text-primary")}>{item.label}</span>
-      {item.done
-        ? null
-        : renderLink({
-            href: item.href,
-            className: cn(buttonVariants({ variant: "ghost", size: "sm" }), "text-secondary hover:text-primary"),
-            "aria-label": `Go: ${item.label}`,
-            children: (
-              <>
-                Go
-                <Icon icon={ArrowRight} size="inline" />
-              </>
-            ),
-          })}
+      {item.done ? null : <Go item={item} />}
     </li>
   );
 }

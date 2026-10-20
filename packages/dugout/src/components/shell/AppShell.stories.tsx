@@ -113,7 +113,7 @@ function HomeContent() {
       <StatTile icon={Hourglass} label="Runway" value="11 mo" provenance="estimate" caption="Burn €11.6k/mo" />
       <StatTile icon={TrendingUp} label="Revenue (30 d)" value={formatMoney({ amountMinor: 1120000, currency: "EUR" })} caption="▲ 8.4% vs previous 30 d" />
       <StatTile icon={Users} label="Customers this week" value="23" caption="4 from Nordic Beauty AB" />
-      <StatTile icon={CircleCheck} label="Business health" value="86" caption="3 warnings" />
+      <StatTile icon={CircleCheck} label="Team health" value="67%" caption="4 of 6 agents healthy" />
       <StatTile icon={Trophy} label="Leaderboard position" value="14th" caption="DTC skincare · 212 businesses" />
       {DEPARTMENTS.map((d) => (
         <DepartmentCard key={d.id} d={d} />

@@ -1,10 +1,23 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { LONG, UUID, devApi, ensureDeck, inboxRow, logoPng, openSettings, signIn } from "./helpers";
 
 /**
- * /new/commit/[ideaId] — the Commit screen (BUILD §11.1; AC-11.1.6, AC-11.1.7). The test drafts a card in the
- * studio first when the deck is empty. Stack and commands: e2e/README.md.
+ * /new/commit/[ideaId] — the Commit screen (BUILD §11.1; AC-11.1.6, AC-11.1.7; docs/UX_AUDIT_AND_PLAN.md §7.6). The
+ * test drafts a card in the studio first when the deck is empty. Stack and commands: e2e/README.md.
  */
+
+/**
+ * Opens "How it runs" (A3): while guidance is on the five controls (Personal or live, Archetype, Business mode, Spend
+ * cap, Autopilot) sit behind "Change"; with guidance off (Settings › Preferences) they are open already.
+ */
+async function openHowItRuns(page: Page): Promise<void> {
+  const change = page.getByTestId("how-it-runs-change");
+  await expect(change).toBeVisible({ timeout: LONG });
+  if ((await change.getAttribute("aria-expanded")) !== "true") await change.click();
+  await expect(change).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByTestId("business-mode-panel")).toBeVisible();
+}
+
 test.describe("commit", () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page);
@@ -14,7 +27,33 @@ test.describe("commit", () => {
     await expect(page.getByTestId("commit-form")).toBeVisible({ timeout: LONG });
   });
 
+  test("Name and Logo are open; How it runs is one line of chips until Change opens the five controls (A3, §7.6)", async ({ page }) => {
+    await expect(page.getByTestId("name-panel")).toBeVisible();
+    await expect(page.getByTestId("logo-panel")).toBeVisible();
+    const summary = page.getByTestId("how-it-runs-summary");
+    await expect(summary.locator("[data-summary]")).toHaveCount(5);
+    await expect(summary.locator('[data-summary="game-mode"]')).toHaveText("Personal");
+    await expect(summary.locator('[data-summary="business-mode"]')).toHaveText("Assisted");
+    await expect(summary.locator('[data-summary="spend-cap"]')).toHaveText(/^Asks you above /);
+    await expect(summary.locator('[data-summary="autopilot"]')).toHaveText("Autopilot off");
+    const change = page.getByTestId("how-it-runs-change");
+    const open = (await change.getAttribute("aria-expanded")) === "true";
+    // Open at once only while guidance is off (an operator's default); on, the controls wait behind Change.
+    await expect(page.getByTestId("archetype-panel")).toHaveCount(open ? 1 : 0);
+    await openHowItRuns(page);
+    await expect(page.getByRole("radiogroup", { name: "Personal or live" })).toBeVisible();
+    await expect(page.getByTestId("archetype-panel")).toBeVisible();
+    await expect(page.getByLabel(/Spend cap per action/)).toBeVisible();
+    await expect(page.getByTestId("run-on-autopilot")).toBeVisible();
+    // The defined words in the summary open their definition while guidance is on (a dotted Term).
+    await expect(summary.locator('[data-summary="archetype"] [data-term="archetype"]')).toBeVisible();
+    await change.click();
+    await expect(change).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByTestId("archetype-panel")).toHaveCount(0);
+  });
+
   test("AC-11.1.7: Assisted is the default business mode; Personal the default game mode", async ({ page }) => {
+    await openHowItRuns(page);
     await expect(page.getByTestId("commit-form")).toHaveAttribute("data-business-mode", "assisted");
     await expect(page.locator('[data-option="assisted"]')).toHaveAttribute("data-selected", "true");
     await expect(page.locator('[data-option="personal"]')).toHaveAttribute("data-selected", "true");
@@ -31,14 +70,18 @@ test.describe("commit", () => {
   });
 
   test("Run on autopilot is a choice, off by default, and shows in the summary when chosen", async ({ page }) => {
+    await openHowItRuns(page);
     const toggle = page.getByTestId("run-on-autopilot");
+    const chip = page.getByTestId("how-it-runs-summary").locator('[data-summary="autopilot"]');
     await expect(page.getByTestId("autopilot-choice")).toContainText("Run on autopilot");
     await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await expect(chip).toHaveText("Autopilot off");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "true");
-    await expect(page.getByText("Autopilot", { exact: true }).first()).toBeVisible();
+    await expect(chip).toHaveText("Autopilot on");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await expect(chip).toHaveText("Autopilot off");
   });
 
   test("name suggestions, live domain availability and the trademark screen with its caveat", async ({ page }) => {
@@ -86,9 +129,17 @@ test.describe("commit", () => {
     await expect(next).toContainText("Your team is hired");
     await expect(next).toContainText("Two notes ask you to sign them off");
     await expect(next).not.toContainText("Board");
+    await openHowItRuns(page);
     await expect(page.locator("[data-mode-example]")).toHaveCount(3);
     await expect(page.locator('[data-option="assisted"]')).toContainText("Example: drafts the pricing page and publishes it; asks before paying for a domain.");
-    await expect(page.getByTestId("reassure-mode")).toContainText("You can change this later in Settings › Mode.");
+    // The change-it-later lines are tutoring: there while guidance is on (Settings › Preferences), gone when it is off.
+    const reassure = page.getByTestId("reassure-mode");
+    if (await reassure.count()) {
+      await expect(reassure).toContainText("You can change this later in Settings › Mode.");
+      await expect(page.getByTestId("reassure-how-it-runs")).toContainText("Settings › Business and Settings › Mode");
+    } else {
+      await expect(page.getByTestId("reassure-how-it-runs")).toHaveCount(0);
+    }
   });
 
   test("logo: the initials mark until one is chosen; generate four marks and pick one; the contrast check reads the primary", async ({ page }) => {
@@ -138,6 +189,7 @@ test.describe("commit", () => {
   test("AC-11.1.6: Take charge creates the business and lands on Home, where the foundations draft; the Inbox has the welcome note, nothing blocks Continue", async ({ page }) => {
     const name = `Playwright Business ${Date.now().toString(36)}`;
     await page.getByLabel(/Business name/).fill(name);
+    await openHowItRuns(page);
     await page.getByLabel(/Business mode/).getByLabel(/Assisted/).check();
     // The chosen logo travels with the commit and lands on the top bar.
     await page.getByTestId("logo-generate").click();

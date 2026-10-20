@@ -14,19 +14,24 @@
  * - A change (`save`, and the provider's actions) shows at once everywhere (optimistic, rolled back if the save fails);
  *   two quick changes end on what was stored, as DateFormatHost does.
  * - Comfortable text is stamped on the document (`data-text="comfortable"` on <html>, the tokens' own hook) and removed
- *   when the choice is standard; it applies after the read, since the root layout renders without it.
+ *   when the choice is standard. The choice is mirrored into a cookie (text-size-cookie.ts, like the date format's),
+ *   which app/layout.tsx reads so the first byte already carries the attribute; `initialTextSize` is what that render
+ *   used, and it holds until the account answers.
  * - The glossary of the business on screen (`business.get`, read from the query cache under the route's id, never asked
- *   for here) renames the display words of the definitions, so a business that says "clients" reads it in every term.
+ *   for here) renames the display words of the definitions, so a business that says "clients" reads it in every term;
+ *   outside a business the map is `TERMS` as written. "Learn more" resolves through `learnPath` with the route's
+ *   business id (LearnLinkProvider); outside a business only absolute URLs open.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
-import { GuidanceProvider, type GuidanceActions, type GuidanceState } from "@foundmill/dugout";
+import { GuidanceProvider, LearnLinkProvider, type GuidanceActions, type GuidanceState, type TermDefinition } from "@foundmill/dugout";
 import type { Glossary } from "@foundmill/shared/glossary";
-import { termsWithGlossary } from "@foundmill/shared/terms";
+import { TERMS, learnPath, termsWithGlossary } from "@foundmill/shared/terms";
 import { isFounderPath } from "@/lib/auth/redirects";
 import type { RouterInputs, RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { encodeTextSizeCookie, readTextSizeCookie, textSizeCookieString, type TextSizeChoice } from "./text-size-cookie";
 
 /** The guided layer's preferences, as the API answers them. */
 export type GuidancePrefs = RouterOutputs["founder"]["preferences"]["guidance"];
@@ -92,10 +97,14 @@ export function useGuidancePreferences(): GuidancePreferencesApi {
 
 const NO_GLOSSARY: Glossary | null = null;
 
-/** The glossary of the business the route names, from the query cache (BusinessShell holds `business.get`); null elsewhere. */
-function useBusinessGlossary(): Glossary | null {
+/** The business the route names (`/b/[bid]/…`), or null elsewhere (LIVE, /new, /onboarding, the sign-in pages). */
+function useRouteBusinessId(): string | null {
   const params = useParams<{ bid?: string }>();
-  const bid = typeof params?.bid === "string" ? params.bid : null;
+  return typeof params?.bid === "string" ? params.bid : null;
+}
+
+/** The glossary of the business the route names, from the query cache (BusinessShell holds `business.get`); null elsewhere. */
+function useBusinessGlossary(bid: string | null): Glossary | null {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const subscribe = useCallback((onChange: () => void) => (bid ? queryClient.getQueryCache().subscribe(onChange) : () => undefined), [queryClient, bid]);
@@ -107,17 +116,36 @@ function useBusinessGlossary(): Glossary | null {
   return useSyncExternalStore(subscribe, read, () => NO_GLOSSARY);
 }
 
+/**
+ * Where a definition's "Learn more" goes: an absolute URL as given; a route slug through `learnPath` inside the
+ * business the route names; nowhere (no link) outside a business, since a department tab needs one.
+ */
+export function resolveLearn(learn: string, businessId: string | null): string | undefined {
+  if (/^https?:\/\//.test(learn)) return learn;
+  if (!businessId) return undefined;
+  return learnPath(learn, businessId);
+}
+
+/** The definitions map for the business on screen (its glossary applied), or the map as written elsewhere. */
+export function termsFor(businessId: string | null, glossary: Glossary | null): Record<string, TermDefinition> {
+  return businessId ? termsWithGlossary(glossary) : TERMS;
+}
+
 export interface GuidanceHostProps {
   /** The account's preferences when the layout already has them (rendered with the page); else they are read. */
   initial?: GuidancePrefs | null;
   /** Whether a signed-in account is on screen; decided from the route when not given. */
   signedIn?: boolean;
+  /** Whose text-size cookie this is (text-size-cookie.ts); "" or missing when nobody is signed in: nothing is written then. */
+  textSizeOwner?: string;
+  /** The text size the server rendered the document with (from the cookie), kept until the account answers. */
+  initialTextSize?: TextSizeChoice | null;
   children?: ReactNode;
 }
 
 const noop = () => undefined;
 
-export function GuidanceHost({ initial, signedIn: signedInProp, children }: GuidanceHostProps) {
+export function GuidanceHost({ initial, signedIn: signedInProp, textSizeOwner = "", initialTextSize = null, children }: GuidanceHostProps) {
   const pathname = usePathname();
   const signedIn = signedInProp ?? isSignedInPath(pathname);
   const trpc = useTRPC();
@@ -131,7 +159,9 @@ export function GuidanceHost({ initial, signedIn: signedInProp, children }: Guid
       retry: false,
     }),
   );
-  const prefs: GuidancePrefs = q.data ?? initial ?? DEFAULT_GUIDANCE_PREFS;
+  // Until the account answers, the text size is what the server rendered with (the cookie): no flash.
+  const seed = useMemo<GuidancePrefs>(() => (initialTextSize ? { ...DEFAULT_GUIDANCE_PREFS, textSize: initialTextSize } : DEFAULT_GUIDANCE_PREFS), [initialTextSize]);
+  const prefs: GuidancePrefs = q.data ?? initial ?? seed;
 
   // Comfortable text: the tokens read the attribute on the root (packages/dugout tokens.css); standard removes it.
   useEffect(() => {
@@ -139,6 +169,16 @@ export function GuidanceHost({ initial, signedIn: signedInProp, children }: Guid
     if (prefs.textSize === "comfortable") root.setAttribute("data-text", "comfortable");
     else root.removeAttribute("data-text");
   }, [prefs.textSize]);
+
+  // The cookie follows whatever the account said or the person saved, so the next server render carries the attribute
+  // on the first byte. Only once the account has answered (or the layout handed its answer over): the default is never
+  // written over a real choice.
+  const answered = q.data !== undefined;
+  useEffect(() => {
+    if (!signedIn || !textSizeOwner || !answered) return;
+    if (readTextSizeCookie(document.cookie) === encodeTextSizeCookie(prefs.textSize, textSizeOwner)) return;
+    document.cookie = textSizeCookieString(prefs.textSize, textSizeOwner, window.location.protocol === "https:");
+  }, [signedIn, textSizeOwner, answered, prefs.textSize]);
 
   // Two quick changes travel as two requests that may answer in either order: only the last one still pending writes
   // its answer, and the last to settle asks the account again, so the screen always ends on what was stored.
@@ -190,8 +230,10 @@ export function GuidanceHost({ initial, signedIn: signedInProp, children }: Guid
     [save],
   );
 
-  const glossary = useBusinessGlossary();
-  const terms = useMemo(() => termsWithGlossary(glossary), [glossary]);
+  const bid = useRouteBusinessId();
+  const glossary = useBusinessGlossary(bid);
+  const terms = useMemo(() => termsFor(bid, glossary), [bid, glossary]);
+  const resolve = useCallback((learn: string) => resolveLearn(learn, bid), [bid]);
   const value = useMemo<GuidanceState>(
     () => ({ guidance: prefs.guidance, textSize: prefs.textSize, explainersSeen: prefs.explainersSeen, toursDone: prefs.toursDone, checklistDismissedAt: prefs.checklistDismissedAt, terms }),
     [prefs, terms],
@@ -200,9 +242,11 @@ export function GuidanceHost({ initial, signedIn: signedInProp, children }: Guid
 
   return (
     <GuidancePreferencesCtx.Provider value={api}>
-      <GuidanceProvider value={value} actions={actions}>
-        {children}
-      </GuidanceProvider>
+      <LearnLinkProvider resolve={resolve}>
+        <GuidanceProvider value={value} actions={actions}>
+          {children}
+        </GuidanceProvider>
+      </LearnLinkProvider>
     </GuidancePreferencesCtx.Provider>
   );
 }

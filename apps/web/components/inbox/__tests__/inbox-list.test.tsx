@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render } from "@testing-library/react";
 import { APP_NAME } from "@foundmill/config";
+import { GuidanceProvider } from "@foundmill/dugout";
 import { InboxList, type InboxListRow } from "../InboxList";
+import { goAheadConsequence } from "../ConfirmPlanDialog";
 import { ConfirmPlanDialog } from "../ReadingPane";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }), usePathname: () => "/", useSearchParams: () => new URLSearchParams() }));
@@ -126,8 +128,33 @@ describe("ConfirmPlanDialog ('Here is what will happen')", () => {
     expect(r.getByText("Only you can do this")).toBeTruthy();
     expect(r.queryByText(/Within policy|hard-gated|You act/)).toBeNull();
     expect(r.getAllByText("€500.00").length).toBeGreaterThanOrEqual(1);
+    // Under the footer: what Go ahead does (always), and where to undo it (guidance on by default outside a provider).
+    expect(r.getByTestId("confirm-plan-consequence").textContent).toBe("3 actions start when you say go.·€500.00 (Estimate)");
+    expect(r.getByTestId("confirm-plan-reassurance").textContent).toBe("You can stop or change this from the Inbox at any time.");
     fireEvent.click(r.getByTestId("confirm-plan-go"));
     expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("the consequence line says Not reversible only when a reason says so, No cost without a total, and the reassurance hides when guidance is off", () => {
+    const r = render(
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <ConfirmPlanDialog
+          open
+          onOpenChange={vi.fn()}
+          summary=""
+          onConfirm={vi.fn()}
+          lines={[
+            { label: "Delete the old campaign", outcome: "ask", hardGate: false, cost: null, reasons: ["This cannot be undone"] },
+            { label: "Pay the supplier", outcome: "deny", hardGate: false, cost: { amountMinor: 90_000, currency: "EUR" }, reasons: [] },
+          ]}
+        />
+      </GuidanceProvider>,
+    );
+    const line = r.getByTestId("confirm-plan-consequence");
+    expect(line.textContent).toBe("1 action starts when you say go.·€900.00 (Estimate)·Not reversible");
+    expect(line.querySelector("[data-consequence-reversible='false']")).not.toBeNull();
+    expect(r.queryByTestId("confirm-plan-reassurance")).toBeNull();
+    expect(goAheadConsequence([{ label: "Enable channel paid ads", outcome: "allow", hardGate: false, cost: null, reasons: [] }])).toEqual({ consequence: "1 action starts when you say go.", cost: "No cost", reversible: undefined });
   });
 
   it("says why an action asks in plain words, under the action, keeping the agent's own sentence, and only for an ask", () => {

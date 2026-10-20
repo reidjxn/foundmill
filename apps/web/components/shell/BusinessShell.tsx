@@ -16,7 +16,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useTransition, type ReactNode } from "react";
-import { AppShell, Avatar, EntityLinkProvider, ShellLinkProvider, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
+import { AppShell, Avatar, Callout, EntityLinkProvider, ShellLinkProvider, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
 import { ModuleEnvProvider, type ModuleEnv } from "@foundmill/modules/env";
 import { readWidgetEvent, type WidgetEvent } from "@foundmill/widgets/data";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -101,7 +101,7 @@ const SpecEditor = dynamic(() => import("@/components/spec/SpecEditor").then((m)
 
 /** Events after which the shell refetches a router's queries (or one procedure group's, as a dotted path). */
 export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
-  // An Inbox item that blocks Continue (or the decision that clears it) moves the Autopilot chip: Waiting for you.
+  // An Inbox item that blocks Continue (or the decision that clears it) moves the Autopilot chip: Needs your answer.
   "inbox.item_created": ["inbox", "business.autopilot"],
   // Another member archived an item or confirmed its plan (audit RUI-09).
   "inbox.item_updated": ["inbox", "plan"],
@@ -175,6 +175,19 @@ export function describeContinue(result: ContinueResult): { title: string; descr
   if (result.mode === "local" && result.item) return { title: "One new note", description: result.item.subject, tone: "info", itemId: result.item.id };
   return { title: "Cycle started", description: "The team is at work. What they finish and what they need from you come back as notes in the Inbox.", tone: "info", itemId: null };
 }
+
+/**
+ * The first-Continue callout (UX plan §7.7): "This is how you move forward", under Continue, until the first cycle
+ * the founder starts has completed. Commit starts cycle 1 by itself (services/commit.ts), so the cycle a founder's
+ * press starts is the second one; a business with two finished cycles has moved forward on its own. Never for a role
+ * that cannot press Continue (viewers, advisors, the read-only demo). The Coachmark itself also waits while a cycle
+ * is processing or a dialog is open, and never replays once "Got it" marked the tour done.
+ */
+export function wantsFirstContinueCallout(cycle: { completedCount: number }, canChange: boolean): boolean {
+  return canChange && cycle.completedCount <= 1;
+}
+
+export const FIRST_CONTINUE_CALLOUT = { tourId: "first-continue", targetId: "continue", title: "This is how you move forward", body: "Press it when you have answered what needs you." } as const;
 
 export function BusinessShell(props: BusinessShellProps) {
   const [registry] = useState(createKeyboardRegistry);
@@ -328,7 +341,10 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       const state = computeContinueState({ blocking: inboxQ.data?.blocking ?? data.blockingItems ?? 0, items: inboxQ.data?.items, holiday: data.holiday, cycle });
       // "On vacation until Oct 21" is the founder's own day, known only in the browser (see `today`): until then the
       // caption reads "On vacation", so the server's UTC day never mismatches the browser's on hydration.
-      return state.kind === "holiday" && today === null ? { ...state, until: null } : state;
+      if (state.kind === "holiday" && today === null) return { ...state, until: null };
+      // The running cycle's number travels with the state ("The team is working · cycle 3").
+      if (state.kind === "processing" && cycle.cycleNumber) return { ...state, cycle: cycle.cycleNumber };
+      return state;
     },
     [inboxQ.data?.blocking, inboxQ.data?.items, data.blockingItems, data.holiday, cycle, today],
   );
@@ -680,6 +696,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 data-business-id={businessId}
               >
                 {stopAllError ? <p className="sr-only" role="alert">{stopAllError}</p> : null}
+                {/* The first-Continue callout, anchored to the top bar's button (ContinueButton marks it data-coachmark="continue"). */}
+                {wantsFirstContinueCallout(cycle, access.canChange) ? <Callout tourId={FIRST_CONTINUE_CALLOUT.tourId} targetId={FIRST_CONTINUE_CALLOUT.targetId} title={FIRST_CONTINUE_CALLOUT.title} body={FIRST_CONTINUE_CALLOUT.body} side="bottom" /> : null}
                 <AgentDeskHost apiRef={deskApi}>{children}</AgentDeskHost>
               </AppShell>
             </ShellLinkProvider>

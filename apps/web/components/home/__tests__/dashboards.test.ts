@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DASHBOARD_PRESET_IDS } from "@foundmill/widgets";
-import { dashboardActions, dashboardTabs, dayOneLine, dayOneStep, editedElsewhere, ghostedMilestones, gridPresets, isDayOne, isOwnDashboard, nextDashboardName, pickDashboardId, resetPresetFor, sameLayout, shareHref, versionConflict, type DashboardSummary } from "../dashboards";
+import { dashboardActions, dashboardTabs, editedElsewhere, foundationsForNextStep, ghostedMilestones, gridPresets, isDayOne, isOwnDashboard, nextDashboardName, nextStepFacts, pickDashboardId, resetPresetFor, sameLayout, shareHref, unreadNotes, versionConflict, withContinueAction, type DashboardSummary } from "../dashboards";
 
 const d = (id: string, name: string, extra: Partial<DashboardSummary> = {}): DashboardSummary => ({ id, name, preset: "founder", version: 1, isActive: false, userId: "u1", ...extra });
 
@@ -108,19 +108,42 @@ describe("day one after commit (audit FR-19, IAE-19, OL-23)", () => {
     expect(isDayOne({ conversions: 0, milestones: 0, cyclesCompleted: 1 })).toBe(false);
   });
 
-  it("never asks to start the first cycle while it runs or while Respond holds Continue", () => {
-    expect(dayOneLine({ running: true, cycleNumber: 1, blocking: 1 })).toMatch(/^Cycle 1 is under way/);
-    expect(dayOneLine({ running: true, cycleNumber: 1, blocking: 0 })).not.toMatch(/press Continue/);
-    expect(dayOneLine({ running: false, cycleNumber: null, blocking: 1 })).toMatch(/answer the note in Respond/);
-    expect(dayOneLine({ running: false, cycleNumber: null, blocking: 2 })).toMatch(/answer the 2 notes in Respond/);
-    expect(dayOneLine({ running: false, cycleNumber: null, blocking: 0 })).toMatch(/press Continue to start the first cycle/);
+});
+
+describe("the next-step strip's facts (UX plan §6.2 NextStep, §7.8)", () => {
+  const cycle = { running: false, paused: false, cycleNumber: null, nextCycleNumber: 1, activeAgentIds: [], completedCount: 0 };
+
+  it("reads the first draft's status as the strip does: pending and drafting are one wait, none is nothing to read", () => {
+    expect(foundationsForNextStep("pending")).toBe("drafting");
+    expect(foundationsForNextStep("drafting")).toBe("drafting");
+    expect(foundationsForNextStep("ready")).toBe("ready");
+    expect(foundationsForNextStep("failed")).toBe("failed");
+    expect(foundationsForNextStep("none")).toBe("none");
+    expect(foundationsForNextStep(undefined)).toBeNull();
+    expect(foundationsForNextStep("whatever")).toBeNull();
   });
 
-  it("links the one step that matches the line: the Vision tab, the Inbox's Respond tab, or Continue (UX plan B4)", () => {
-    expect(dayOneStep({ running: true, cycleNumber: 1, blocking: 1 })).toEqual({ kind: "vision", label: "Read what the team drafted" });
-    expect(dayOneStep({ running: false, cycleNumber: null, blocking: 1 })).toEqual({ kind: "respond", label: "Answer the note" });
-    expect(dayOneStep({ running: false, cycleNumber: null, blocking: 2 })).toEqual({ kind: "respond", label: "Answer the 2 notes" });
-    expect(dayOneStep({ running: false, cycleNumber: null, blocking: 0 })).toEqual({ kind: "continue", label: "Press Continue" });
+  it("counts only the team's unopened notes", () => {
+    expect(unreadNotes(undefined)).toBe(0);
+    expect(unreadNotes([{ state: "unread", fromAgentId: "a" }, { state: "read", fromAgentId: "a" }, { state: "unread", fromAgentId: null }, { state: "unread" }])).toBe(1);
+  });
+
+  it("turns the shell's reads into facts: day one, then a running cycle with its agents, then after the first cycle", () => {
+    expect(nextStepFacts({ foundationsStatus: "ready", blocking: 2, unread: 2, cycle, distributionStartedAt: null })).toEqual({ foundationsStatus: "ready", blockingNotes: 2, unreadNotes: 2, cycleRunning: false, cycleNumber: 1, agentsWorking: 0, distributionStarted: false, firstCycleDone: false });
+    const running = nextStepFacts({ foundationsStatus: "ready", blocking: 0, unread: 0, cycle: { ...cycle, running: true, cycleNumber: 3, activeAgentIds: ["a", "b", "c", "d"], completedCount: 2 }, distributionStartedAt: "2026-10-01T00:00:00.000Z" });
+    expect(running).toMatchObject({ cycleRunning: true, cycleNumber: 3, agentsWorking: 4, distributionStarted: true, firstCycleDone: true });
+    // A paused cycle is not running for the founder (Continue resumes it): no agents at work, the next number shown.
+    expect(nextStepFacts({ foundationsStatus: "ready", blocking: 0, unread: 0, cycle: { ...cycle, running: true, paused: true, cycleNumber: 3, nextCycleNumber: 4, activeAgentIds: ["a"], completedCount: 2 }, distributionStartedAt: null })).toMatchObject({ cycleRunning: false, cycleNumber: 4, agentsWorking: 0 });
+    // No cycle read yet: nothing is running and nothing is done.
+    expect(nextStepFacts({ foundationsStatus: "ready", blocking: -1, unread: 0, cycle: undefined, distributionStartedAt: null })).toMatchObject({ blockingNotes: 0, cycleRunning: false, cycleNumber: 1, firstCycleDone: false });
+  });
+
+  it("gives Press Continue its action and leaves every other row as it is", () => {
+    const onGo = () => {};
+    const steps = withContinueAction([{ id: "read-draft", label: "Read", href: "/v" }, { id: "press-continue", label: "Press Continue" }, { id: "press-continue", label: "Cycle 1 is running", done: true }], onGo);
+    expect(steps[0]).toEqual({ id: "read-draft", label: "Read", href: "/v" });
+    expect(steps[1]).toEqual({ id: "press-continue", label: "Press Continue", onGo });
+    expect(steps[2]!.onGo).toBeUndefined();
   });
 });
 

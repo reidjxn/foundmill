@@ -12,7 +12,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Handshake, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
-import { ApplyScopeDialog, Button, Chip, Field, Icon, MoneyInput, Panel, RadioGroup, RadioOption, useToast, type ApplyScope } from "@foundmill/dugout";
+import { ApplyScopeDialog, Button, Chip, Field, Icon, MoneyInput, Panel, RadioGroup, RadioOption, Term, useToast, type ApplyScope } from "@foundmill/dugout";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
@@ -67,12 +67,22 @@ export function AutonomyTab({ businessId, profile, currency, typeCount, allCount
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="agent-autonomy">
       <Panel
-        title="Autonomy"
+        title={<Term id="autonomy">Autonomy</Term>}
         span={6}
         actions={<Chip tone="neutral">Business mode: {MODE_WORD[data.business.businessMode] ?? data.business.businessMode}</Chip>}
         footer={
           <span className="flex w-full items-center gap-2">
-            <span data-testid="autonomy-footer">{isAdmin ? "Hard gates (money, signing, identity, deletion, security) never lift, whatever the override." : "Only an owner or admin changes autonomy and spend caps. Hard gates never lift, whatever the override."}</span>
+            <span data-testid="autonomy-footer">
+              {isAdmin ? (
+                <>
+                  <Term id="hard_gate">Hard gates</Term> (money, signing, identity, deletion, security) never lift, whatever the override.
+                </>
+              ) : (
+                <>
+                  Only an owner or admin changes autonomy and spend caps. <Term id="hard_gate">Hard gates</Term> never lift, whatever the override.
+                </>
+              )}
+            </span>
             <Button size="sm" variant="primary" className="ml-auto" disabled={!isAdmin || released || !!autonomyError} loading={setAutonomyM.isPending} onClick={() => setScopeOpen(true)} data-testid="save-autonomy">
               Save autonomy
             </Button>

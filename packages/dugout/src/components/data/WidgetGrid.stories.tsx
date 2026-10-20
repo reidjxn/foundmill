@@ -53,7 +53,7 @@ const renderers: Record<string, WidgetRegistryEntry["render"]> = {
           delta: { value: 0.12, percent: true },
         },
         { label: "Customers this week", value: 31, format: "integer", delta: { value: 7 } },
-        { label: "Business health", value: "Good", caption: "4 of 6 departments healthy" },
+        { label: "Team health", value: 4 / 6, format: "percent", caption: "4 of 6 agents healthy" },
       ]}
     />
   ),

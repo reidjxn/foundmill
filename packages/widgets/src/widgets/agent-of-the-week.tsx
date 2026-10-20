@@ -1,14 +1,15 @@
 "use client";
 /**
- * Agent of the week widget: the squad member with the best week (rating, recent form or value for money), with a
- * player-card treatment (BUILD §11.9 squad columns, DESIGN §8 ProfileHeader).
+ * Agent of the week widget: the team member with the best week (rating, recent form or value for money), with a
+ * profile-card treatment (BUILD §11.9 team columns, DESIGN §8 ProfileHeader). One rating scale everywhere (founder
+ * decision 2026-10-20, item 3): the /20 mean of the agent's skills with its band word, and the stars derived from it.
  */
 import { useMemo } from "react";
 import { z } from "zod";
 import { Award } from "lucide-react";
 import type { ModelKey } from "@foundmill/shared";
 import { MODEL_KEYS } from "@foundmill/shared/constants";
-import { Avatar, Button, DeptChip, EntityLink, FormCells, KeyValueList, ModelChip, RatingCell, StarRating, formScore, formatMoney, type FormResult } from "@foundmill/dugout";
+import { Avatar, Button, DeptChip, EntityLink, FormCells, KeyValueList, ModelChip, RATING_MAX, RatingCell, StarRating, Term, formScore, formatMoney, type FormResult } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { WidgetFrame } from "../shared/frame";
@@ -24,10 +25,25 @@ export type AgentOfTheWeekSettings = z.infer<typeof AgentOfTheWeekSettings>;
 
 const isModelKey = (v: unknown): v is ModelKey => typeof v === "string" && (MODEL_KEYS as readonly string[]).includes(v);
 
-/** Score an agent for the pick: rating (1–10), form (last five), or rating per euro of wage. */
+/**
+ * The agent's rating on the one /20 scale: the mean of its skills' displayed values; without skills, the stored /10
+ * average doubled. Null when neither is known (no training run yet).
+ */
+export function agentRating20(a: Pick<TeamAgentRow, "skills" | "rating">): number | null {
+  const skills = (a.skills ?? []).map((s) => s.displayed).filter((v) => Number.isFinite(v) && v > 0);
+  if (skills.length) return skills.reduce((sum, v) => sum + v, 0) / skills.length;
+  return a.rating === null || a.rating === undefined || !Number.isFinite(a.rating) ? null : a.rating * 2;
+}
+
+/** The /20 rating as stars out of 5, in halves: 18/20 → 4.5. */
+export function starsFromRating20(rating20: number): number {
+  return Math.round((rating20 / RATING_MAX) * 10) / 2;
+}
+
+/** Score an agent for the pick: rating (/20), form (last five), or rating per dollar of wage. */
 export function agentScore(a: TeamAgentRow, by: (typeof AGENT_PICKS)[number]): number {
-  const rating = a.rating ?? 0;
-  if (by === "form") return a.form && a.form.length ? formScore(a.form) * 2 + rating / 10 : rating;
+  const rating = agentRating20(a) ?? 0;
+  if (by === "form") return a.form && a.form.length ? formScore(a.form) * 2 + rating / RATING_MAX : rating;
   if (by === "value") return rating / Math.max(1, a.wage.costMinor / 100);
   return rating;
 }
@@ -53,13 +69,18 @@ function AgentOfTheWeekWidget({ settings }: WidgetProps<AgentOfTheWeekSettings>)
   useBusinessEvents(() => team.refetch(), ["task.completed", "training.completed", "agent.promoted", "cycle.completed"]);
   const agent = useMemo(() => pickAgent(agentRows(team.data), settings), [team.data, settings]);
   const dept = agent?.departments[0];
+  const rating20 = agent ? agentRating20(agent) : null;
   return (
     <WidgetFrame
       title="Agent of the week"
       data-widget="agent_of_the_week"
       queries={[team]}
       empty={team.data && !agent ? { icon: Award, text: "The first agent of the week is named after the team's first cycle." } : null}
-      footer={<span>{PICK_WORD[settings.by]} · wage is an estimate of tokens, sandbox minutes and tool costs</span>}
+      footer={
+        <span>
+          {PICK_WORD[settings.by]} · <Term id="wage">wage</Term> is an estimate of tokens, sandbox minutes and tool costs
+        </span>
+      }
     >
       {agent ? (
         <div className="flex h-full min-h-0 flex-col gap-3">
@@ -74,14 +95,15 @@ function AgentOfTheWeekWidget({ settings }: WidgetProps<AgentOfTheWeekSettings>)
                   contextMenu={false}
                   className="t-display-md truncate text-primary"
                 />
-                {agent.rating !== null ? <RatingCell value={agent.rating} /> : null}
+                {/* The /20 mean with its band word (the team table's cell), never a bare number. */}
+                {rating20 !== null ? <RatingCell value={rating20} /> : null}
               </div>
               <div className="flex flex-wrap items-center gap-2 text-small text-secondary">
                 <span>{agent.role}</span>
                 {dept ? <DeptChip dept={dept.colourToken}>{dept.name}</DeptChip> : null}
                 <ModelChip model={isModelKey(agent.modelKey) ? agent.modelKey : "sonnet"} />
               </div>
-              {agent.rating !== null ? <StarRating value={Math.round(agent.rating) / 2} showValue label="Current ability" className="mt-1" /> : null}
+              {rating20 !== null ? <StarRating value={starsFromRating20(rating20)} showValue label="Current ability" className="mt-1" /> : null}
             </div>
           </div>
           <KeyValueList

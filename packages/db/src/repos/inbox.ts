@@ -22,6 +22,11 @@ export const ComposerOption = z.object({
   consequence: z.string(),
   cost_minor: z.number().int().nonnegative(),
   reversible: z.boolean(),
+  /**
+   * Why this option is recommended, or why it is on the list, in the agent's words ("Recommended because it is free and
+   * reversible."; UX plan §7.19). One sentence; the DecisionBar shows it under the consequence.
+   */
+  because: z.string().max(400).optional(),
   /** What choosing it runs, written with the option (the Board's and the Import report's options; audit IAE-20). */
   actions: z.array(OptionAction).min(1).max(8).optional(),
 });
@@ -87,7 +92,17 @@ export function inBusinessWords(v: ParsedComposerItem, glossary: Record<string, 
     ...v,
     subject: clampText(g(v.subject), 80),
     body_md: g(v.body_md),
-    decision: v.decision ? { ...v.decision, options: v.decision.options.map((opt) => ({ ...opt, label: clampText(g(opt.label), 120), consequence: g(opt.consequence) })) } : null,
+    decision: v.decision
+      ? {
+          ...v.decision,
+          options: v.decision.options.map((opt) => ({
+            ...opt,
+            label: clampText(g(opt.label), 120),
+            consequence: g(opt.consequence),
+            ...(opt.because !== undefined ? { because: clampText(g(opt.because), 400) } : {}),
+          })),
+        }
+      : null,
   };
 }
 
@@ -285,6 +300,20 @@ export const inboxRepo = {
    * viewers and advisors the Inbox policy keeps from writing notes included. Without a `userId` the system read it for
    * the whole business (the Chief of Staff deciding a win on vacation): the stored state becomes `read`.
    */
+  /**
+   * True once anyone opened or answered a note an agent wrote (a read receipt or a state past `unread`): the first-week
+   * checklist's "read a note from an agent" (docs/UX_AUDIT_AND_PLAN.md §6.2). One id at most is loaded.
+   */
+  async anyAgentNoteOpened(db: Executor, businessId: string): Promise<boolean> {
+    const opened = sql`exists (select 1 from ${inboxItemReads} where ${inboxItemReads.inboxItemId} = ${inboxItems.id})`;
+    const rows = await db
+      .select({ id: inboxItems.id })
+      .from(inboxItems)
+      .where(and(eq(inboxItems.businessId, businessId), isNotNull(inboxItems.fromAgentId), or(sql`${inboxItems.state} <> 'unread'`, opened)))
+      .limit(1);
+    return rows.length > 0;
+  },
+
   async markRead(db: Executor, businessId: string, itemId: string, userId?: string | null): Promise<InboxItem> {
     const item = await inboxRepo.get(db, businessId, itemId);
     if (item.state !== "unread") return inboxRepo.get(db, businessId, itemId, userId);

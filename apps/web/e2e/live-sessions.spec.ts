@@ -16,7 +16,15 @@ test.describe("live sessions", () => {
     await page.goto(href.replace(/\/d\/([^/]+)\/.*$/, "/d/$1/training-ground"));
     await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/training-ground", { timeout: LONG });
     const tiles = page.locator("[data-tile-id]");
-    await expect(tiles.first(), "the seed has agents working").toBeVisible({ timeout: LONG });
+    await expect(tiles.first(), "the seed has agents working").toBeVisible({ timeout: LONG});
+
+    // Guidance on (the product default): the department's intro sits in the panel's body above the tiles, and every
+    // tile carries a visible "…" so hovering is never the only way to its controls (UX plan §7.10, §7.12).
+    const explainer = page.locator("[data-explainer='development/live-sessions']");
+    await expect(explainer).toBeVisible();
+    await expect(explainer).toContainText("Each tile is one agent on one task.");
+    expect(await explainer.evaluate((el) => !!el.closest("[data-panel-body]"))).toBe(true);
+    expect(await page.locator("[data-tile-actions]").count()).toBe(await tiles.count());
 
     // Northwind runs in GBP: no tile shows a cost in euros.
     await expect(page.getByRole("region", { name: "Agent tiles" })).not.toContainText("€");

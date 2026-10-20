@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 /**
- * Home's Autopilot chip: the state in words with the next planned cycle (an Estimate); it nudges the workflow to run
- * only when Autopilot is on and not paused; clicking it opens Settings › Mode.
+ * Home's Autopilot chip: the state in words (On, Needs your answer, Paused: reason, Off) with the next planned cycle (an
+ * Estimate); it nudges the workflow to run only when Autopilot is on and not paused; clicking it opens Settings › Mode.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -73,15 +73,15 @@ describe("Home Autopilot chip", () => {
     expect(ensure).toHaveBeenCalledTimes(1);
   });
 
-  it("shows Waiting for you and Paused with their reasons, without nudging a paused Autopilot", async () => {
+  it("shows Needs your answer and Paused with their reasons, without nudging a paused Autopilot", async () => {
     status = { enabled: true, state: "paused", label: "Paused: agents stopped", detail: "Stop all agents was pressed, so Autopilot paused.", pausedReason: "kill_switch", nextAt: null };
     const { unmount } = renderChip();
     expect((await screen.findByTestId("autopilot-chip")).textContent).toContain("Paused: agents stopped");
     expect(ensure).not.toHaveBeenCalled();
     unmount();
-    status = { enabled: true, state: "waiting", label: "Waiting for you", detail: "Two Inbox items need your decision.", pausedReason: null, nextAt: null };
+    status = { enabled: true, state: "waiting", label: "Needs your answer", detail: "2 notes in the Inbox need your answer. Autopilot never answers them for you.", pausedReason: null, nextAt: null };
     renderChip();
-    expect((await screen.findByTestId("autopilot-chip")).textContent).toContain("Waiting for you");
+    expect((await screen.findByTestId("autopilot-chip")).textContent).toContain("Needs your answer");
   });
 
   it("shows Off and never nudges", async () => {

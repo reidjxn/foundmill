@@ -7,7 +7,7 @@
  * sentence is always "Nothing runs until you say go."
  */
 import { Check } from "lucide-react";
-import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, KeyValueList, Markdown, ProvenanceChip, StatusPill, formatMoney } from "@foundmill/dugout";
+import { Button, Chip, ConsequenceLine, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, KeyValueList, Markdown, ProvenanceChip, ReassuranceLine, StatusPill, formatMoney, type ConsequenceParts } from "@foundmill/dugout";
 import { totalCost, type ConfirmationLine } from "./confirmation";
 
 export interface ConfirmPlanDialogProps {
@@ -93,6 +93,25 @@ export function reasonSentence(line: Pick<ConfirmationLine, "reasons" | "cost">)
   return parts.join(" ");
 }
 
+/** Under the footer (guidance on): where to stop or change the plan once it runs (UX plan §6.2 ReassuranceLine). */
+export const GO_AHEAD_REASSURANCE = "You can stop or change this from the Inbox at any time.";
+
+/**
+ * The consequence line under "Go ahead" (always shown): how many actions start, the total as an Estimate ("No cost"
+ * without one), and "Not reversible" only when a reason says an action cannot be undone; reversibility is left out
+ * otherwise (never "unknown").
+ */
+export function goAheadConsequence(lines: readonly ConfirmationLine[]): ConsequenceParts {
+  const run = lines.filter((l) => l.outcome !== "deny");
+  const totals = totalCost(lines);
+  const irreversible = lines.some((l) => l.outcome !== "deny" && lineReasons(l).because.includes("cannot be undone"));
+  return {
+    consequence: run.length ? `${run.length} action${run.length === 1 ? " starts" : "s start"} when you say go.` : "Nothing starts.",
+    cost: totals.length ? `${totals.map((t) => formatMoney(t)).join(" + ")} (Estimate)` : "No cost",
+    reversible: irreversible ? false : undefined,
+  };
+}
+
 /** The dialog's description: the reassurance first, then what needs the founder's go-ahead (and why), what is not allowed, what is theirs to do. */
 export function confirmPlanDescription(lines: readonly ConfirmationLine[]): string {
   const asks = lines.filter((l) => l.outcome === "ask");
@@ -142,13 +161,20 @@ export function ConfirmPlanDialog({ open, onOpenChange, lines, summary, loading,
             {totals.length ? <p className="text-small text-tertiary text-pretty">Budgets and caps as planned, not spend to date.{totals.length > 1 ? " Amounts in different currencies are listed side by side, not converted." : ""}</p> : null}
           </div>
         </DialogBody>
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={loading}>
-            Not now
-          </Button>
-          <Button variant="primary" icon={Check} loading={loading} onClick={onConfirm} data-testid="confirm-plan-go">
-            Go ahead
-          </Button>
+        <DialogFooter className="justify-between">
+          {/* What Go ahead does (information, always) and where to undo it later (tutoring, guidance on). */}
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <ConsequenceLine {...goAheadConsequence(lines)} data-testid="confirm-plan-consequence" />
+            <ReassuranceLine data-testid="confirm-plan-reassurance">{GO_AHEAD_REASSURANCE}</ReassuranceLine>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={loading}>
+              Not now
+            </Button>
+            <Button variant="primary" icon={Check} loading={loading} onClick={onConfirm} data-testid="confirm-plan-go">
+              Go ahead
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

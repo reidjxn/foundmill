@@ -35,6 +35,10 @@ describe("ContractsScreen", () => {
     expect(within(obligations).getAllByText("Overdue")).toHaveLength(1);
     expect(within(obligations).getByText("Counterparty")).toBeTruthy();
     expect(within(detail).getByText("4 open of 4")).toBeTruthy();
+    // Letting a contract go cannot be undone: the line under the lifecycle buttons says so (UX plan §6.2).
+    expect(within(detail).getByRole("button", { name: "Terminate" })).toBeTruthy();
+    const consequence = within(detail).getByTestId("terminate-consequence");
+    expect(within(consequence).getByText("Not reversible")).toBeTruthy();
     const signing = within(detail).getByRole("region", { name: "Signing" });
     const open = within(signing).getByRole("button", { name: "Open to sign" });
     expect(open.getAttribute("data-founder-only")).toBe("true");

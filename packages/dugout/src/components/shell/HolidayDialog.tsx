@@ -30,7 +30,7 @@ export const GATED_DECISION_TYPES: readonly DecisionType[] = ["sign_contracts"];
 export const HOLIDAY_WAKE_EVENTS = ["kill_switch", "credential_failure", "legal_deadline", "runway_warning", "customer_won", "hard_gate_queued", "agent_failing"] as const;
 export type HolidayWakeEvent = (typeof HOLIDAY_WAKE_EVENTS)[number];
 export const HOLIDAY_WAKE_EVENT_LABELS: Record<HolidayWakeEvent, string> = {
-  kill_switch: "Kill switch pressed",
+  kill_switch: "Stop all agents was pressed",
   credential_failure: "A credential fails",
   legal_deadline: "A legal deadline is near",
   runway_warning: "Runway warning",
@@ -165,7 +165,7 @@ export function HolidayDialog({ open, onOpenChange, currency, today = new Date()
       <DialogContent size="lg" data-testid="holiday-dialog">
         <DialogHeader>
           <DialogTitle>Go on vacation</DialogTitle>
-          <DialogDescription>The business runs in Automated mode and Continue runs itself every 4 agent-hours. Hard gates still wait for you.</DialogDescription>
+          <DialogDescription>The business runs in Automated mode and Continue runs itself every 4 hours of team work. Hard gates still wait for you.</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-4">
           <fieldset className="flex flex-col gap-2">

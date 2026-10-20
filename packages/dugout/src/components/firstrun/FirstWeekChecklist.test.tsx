@@ -32,6 +32,20 @@ describe("FirstWeekChecklist", () => {
     expect(within(rows[2] as HTMLElement).getByRole("link", { name: "Go: Run a cycle" }).getAttribute("href")).toBe("/go/run_cycle");
   });
 
+  it("an item with an action instead of a route gets a Go button that calls it; one with neither has no Go", async () => {
+    const onGo = vi.fn();
+    const mixed: FirstWeekItem[] = [
+      { id: "run_cycle", label: "Run a cycle", onGo, done: false },
+      { id: "wait", label: "Nothing to open", done: false },
+    ];
+    render(<FirstWeekChecklist items={mixed} onDismiss={() => {}} />);
+    await userEvent.click(screen.getByRole("button", { name: "Go: Run a cycle" }));
+    expect(onGo).toHaveBeenCalledTimes(1);
+    const rows = screen.getAllByRole("listitem");
+    expect(within(rows[1] as HTMLElement).queryByRole("button")).toBeNull();
+    expect(within(rows[1] as HTMLElement).queryByRole("link")).toBeNull();
+  });
+
   it("Hide in the header calls onDismiss", async () => {
     const onDismiss = vi.fn();
     render(<FirstWeekChecklist items={items} onDismiss={onDismiss} />);

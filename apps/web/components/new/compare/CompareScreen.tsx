@@ -8,7 +8,7 @@ import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, Columns3, GitMerge, Trophy } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef } from "react";
-import { Button, Chip, ConceptCompare, EmptyState, Markdown, Panel, Skeleton, SkeletonRows, StatusPill, cn, useToast } from "@foundmill/dugout";
+import { Button, Chip, ConceptCompare, EmptyState, Markdown, Panel, ReassuranceLine, Skeleton, SkeletonRows, StatusPill, cn, useToast } from "@foundmill/dugout";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
@@ -143,10 +143,8 @@ function CompareBody({ ids, viewer }: { ids: string[]; viewer: { email: string |
               </ol>
               <div className="mt-3 flex flex-col items-start gap-1.5">
                 <StatusPill tone="info">Verdict, not a decision</StatusPill>
-                {/* TODO(guided-layer): ReassuranceLine */}
-                <p className="text-small text-secondary" data-testid="compare-reassurance">
-                  Nothing is committed until you take charge.
-                </p>
+                {/* Reassurance under the ranking (§7.5): tutoring, so only while guidance is on; the pill above is the information. */}
+                <ReassuranceLine data-testid="compare-reassurance">Nothing is committed until you take charge.</ReassuranceLine>
               </div>
             </Panel>
           </div>

@@ -15,6 +15,7 @@ import {
   JourneyRibbon,
   ProvenanceChip,
   RIBBON_DEFAULT_HEIGHT,
+  Term,
   ZOOM_LEVELS,
   indexDailyRows,
   summariseDay,
@@ -207,15 +208,27 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
       title="Journey"
       data-widget="journey_ribbon"
       queries={[ribbon, departments]}
-      // The loop, stated where it is needed (UX plan §5.1, §7.8): what a cycle is, in the sentence.
-      // TODO(guided-layer): Term on "cycle" (TERMS.cycle) once the Term primitive takes a plain-text sentence.
-      empty={empty ? { icon: Route, text: "Your journey starts on day one. Press Continue to run the first cycle: the team works for a while, then reports back in the Inbox." } : null}
+      // The loop, stated where it is needed (UX plan §5.1, §7.8): what a cycle is, in the sentence, "cycle" a defined word.
+      empty={
+        empty
+          ? {
+              icon: Route,
+              text: (
+                <>
+                  Your journey starts on day one. Press Continue to run the first <Term id="cycle">cycle</Term>: the team works for a while, then reports back in the Inbox.
+                </>
+              ),
+            }
+          : null
+      }
       flush
       actions={
         <>
-          {/* The Forecast chip keeps its word. TODO(guided-layer): Term on the chip (TERMS.forecast). */}
+          {/* The Forecast and Estimate chips keep their dashed look; each opens its definition on hover and focus whether
+              guidance is on or off (ProvenanceChip → ProvenanceTip reads TERMS.forecast / TERMS.estimate): the "Term
+              always" of UX plan §7.8. */}
           {cone.length > 0 ? <ProvenanceChip kind="forecast" /> : null}
-          {runwayMonths !== null ? <ProvenanceChip kind="estimate" title="Runway horizon is an estimate" /> : null}
+          {runwayMonths !== null ? <ProvenanceChip kind="estimate" aria-label="Runway horizon is an estimate" /> : null}
         </>
       }
     >

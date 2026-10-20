@@ -8,7 +8,7 @@
  */
 import { useId, useMemo, useState } from "react";
 import { Building2, Check, CheckCircle2, Circle, CircleDashed, Compass, FileStack, Landmark, MonitorPlay, Play, Send, UserRound, XCircle } from "lucide-react";
-import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, ProvenanceChip, RadioCard, RadioGroup, SimpleSelect, StarRating, Timeline, cn, useFormatters, type IconComponent, type TimelineEvent } from "@foundmill/dugout";
+import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, ProvenanceChip, RadioCard, RadioGroup, SimpleSelect, StarRating, Term, Timeline, cn, useFormatters, type IconComponent, type TimelineEvent } from "@foundmill/dugout";
 import { INCORPORATION_ROUTES, type IncorporationRoute } from "@foundmill/shared/constants";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData } from "@foundmill/widgets/data";
@@ -204,6 +204,7 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
     <Screen name="legal/incorporate">
       <Panel
         title="Where to incorporate"
+        help="The jurisdiction is the country or state whose law the company lives under; it sets what you file, what you pay and who can invest."
         span={12}
         actions={<InformationNotice />}
         footer={
@@ -273,7 +274,7 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
             })}
           </RadioGroup>
           <div className="grid grid-cols-2 gap-3">
-            <Field htmlFor={`${id}-jur`} label="Jurisdiction">
+            <Field htmlFor={`${id}-jur`} label={<Term id="jurisdiction">Jurisdiction</Term>}>
               <Input id={`${id}-jur`} value={jurisdiction} onChange={(e) => onJurisdiction(e.target.value)} disabled={active} maxLength={40} />
             </Field>
             <Field htmlFor={`${id}-type`} label="Entity type" hint={ROUTE_META[route].entityTypes.join(" / ")}>

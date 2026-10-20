@@ -17,6 +17,12 @@ const usEnglish: { findSpellingHits(text: string): { match: string; us: string }
 const entries = Object.entries(TERMS) as [string, TermDefinition][];
 const textOf = (t: TermDefinition) => [t.word, t.short, t.long ?? ""].join(" ");
 
+/** The Studio's `attributeTermId(key)` ids, one per concept attribute (packages/dugout journey/types.ts CONCEPT_ATTRIBUTE_HINTS). */
+const CONCEPT_ATTRIBUTE_IDS = [
+  "attr_market_pull", "attr_market_size", "attr_competition", "attr_speed_to_first_customer", "attr_capital_intensity",
+  "attr_agent_executability", "attr_founder_fit", "attr_defensibility", "attr_regulatory_load", "attr_distribution_clarity",
+];
+
 /** The ids the plan's "define" tier (Appendix E, §4.3) requires at launch. */
 const REQUIRED_IDS = [
   "runway", "burn", "gross_burn", "net_burn", "cash_basis", "pnl", "ledger", "mrr", "arr", "churn", "gross_margin", "payback",
@@ -28,6 +34,11 @@ const REQUIRED_IDS = [
   "position_map", "health", "hierarchy", "milestone", "leaderboard", "customer_update", "channel_board", "lead", "campaign",
   "creative", "integration", "source_watcher", "planner", "distribution_strategist", "product_lead", "team_health",
   "runway_horizon",
+  // Wave B (the screens that wired the guided layer asked for these): the status strip's Revenue, the channel cost
+  // trend, Contacts (the CRM, founder decision item 1), the Skills panel's Tested and Proven, Legal's filings, and the
+  // Ideation Studio's ten concept attributes.
+  "revenue", "cost_trend", "contacts", "tested", "proven", "filing",
+  ...CONCEPT_ATTRIBUTE_IDS,
 ];
 
 // A small list in case the script does not load; the script's families are the full check.
@@ -39,7 +50,7 @@ const BRITISH = [
 const FOOTBALL = ["squad", "club", "crest", "pitch", "match", "season", "kit"];
 const wordRe = (phrase: string, flags = "i") => new RegExp(`(?<![\\p{L}\\p{N}_])${phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+")}(?:es|s|ed|ing)?(?![\\p{L}\\p{N}_])`, `${flags}u`);
 const SETTINGS_TABS = ["business", "mode", "departments", "glossary", "members", "integrations", "keys", "billing", "preferences", "danger"];
-const TOP_LEVEL = ["home", "inbox", "journey", "milestones"];
+const TOP_LEVEL = ["home", "inbox", "journey", "milestones", "crm"];
 
 const sentences = (s: string) => (s.match(/[.?!](?=\s|$)/g) ?? []).length;
 
@@ -126,6 +137,15 @@ describe("TERMS", () => {
     for (const old of Object.values(LEARN_SLUG_ALIASES)) for (const [, term] of entries) expect(term.learn, term.id).not.toBe(old);
   });
 
+  it("every concept attribute reads its direction in the sentence, so a high Competition score is understood as an open field", () => {
+    for (const id of CONCEPT_ATTRIBUTE_IDS) {
+      const term: TermDefinition = TERMS[id as keyof typeof TERMS];
+      expect(term.short, id).toMatch(/; higher means [^.]+\.$/);
+      expect(term.learn, id).toBeUndefined();
+    }
+    expect(TERMS.attr_competition.short).toBe("How crowded the market is; higher means less crowded.");
+  });
+
   it("a short with a number carries its unit or scale", () => {
     for (const [, term] of entries) {
       for (const m of term.short.matchAll(/\d+(?:,\d{3})*(?:\.\d+)?/g)) {
@@ -187,6 +207,7 @@ describe("learnPath", () => {
     expect(learnPath("finance/payroll", "b1")).toBe("/b/b1/d/finance/wage-bill");
     expect(learnPath("settings/mode", "b1")).toBe("/b/b1/settings/mode");
     expect(learnPath("inbox", "b1")).toBe("/b/b1/inbox");
+    expect(learnPath("crm", "b1")).toBe("/b/b1/crm");
     expect(learnPath("https://example.com/help", "b1")).toBe("https://example.com/help");
     expect(isKnownDepartmentLearn("team/agents")).toBe(true);
     expect(isKnownDepartmentLearn("team/nowhere")).toBe(false);

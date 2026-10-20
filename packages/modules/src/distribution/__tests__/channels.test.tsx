@@ -29,6 +29,30 @@ describe("ChannelsScreen", () => {
     expect(screen.getByText(/4 on the board · 6 of 15 scored/)).toBeTruthy();
   });
 
+  it("guidance on: opens on the Simple view (Channel, Fit, Status, Cost per customer) and defines the words it uses (UX plan §7.10)", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <ChannelsScreen {...props} />, { guidance: "on" });
+    const table = screen.getByRole("grid", { name: "Channels" });
+    expect(screen.getByRole("button", { name: /^View: Simple/ })).toBeTruthy();
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Channel", "Fit", "Status", "Cost per customer", "Actions"]);
+    expect(within(table).getAllByRole("row")).toHaveLength(16);
+    expect(within(table).queryByText("Acquisition")).toBeNull(); // Family waits in the other views
+    // The panel's help tip and the footer's defined words (the column head's sort button shares the words, so the
+    // defined one is told by its dotted underline).
+    expect(screen.getByRole("button", { name: "About Channels" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Cost per customer" }).filter((b) => b.className.includes("term-link"))).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Distribution Strategist" }).className).toContain("term-link");
+  });
+
+  it("guidance off: opens on All channels with plain words and no help tip", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <ChannelsScreen {...props} />);
+    expect(screen.getByRole("button", { name: /^View: All channels/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "About Channels" })).toBeNull();
+    expect(document.querySelector(".term-link")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Distribution Strategist" })).toBeNull();
+  });
+
   it("switches saved views: Running shows only the three running channels", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });

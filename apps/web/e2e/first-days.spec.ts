@@ -1,5 +1,15 @@
-import { expect, test } from "@playwright/test";
-import { LONG, ROADMAP_SIGNOFF, SPEC_SIGNOFF, approveFromInbox, ensureDeck, inboxRow, openBoardQuestion, settled, signIn, startDistributionFromBoard, takeChargeToHome } from "./helpers";
+import { expect, test, type PlaywrightWorkerArgs } from "@playwright/test";
+import { LONG, ROADMAP_SIGNOFF, SPEC_SIGNOFF, approveFromInbox, devApi, ensureDeck, inboxRow, openBoardQuestion, settled, signIn, startDistributionFromBoard, takeChargeToHome } from "./helpers";
+
+/** The dev founder's guidance switch (Settings › Preferences): the next-step strip, the checklist and the callout render only while it is on. */
+async function guidanceOn(playwright: PlaywrightWorkerArgs["playwright"]): Promise<boolean> {
+  const api = await devApi(playwright);
+  const res = await api.get("/trpc/founder.preferences.guidance");
+  expect(res.ok(), `founder.preferences.guidance answered ${res.status()}`).toBe(true);
+  const body = (await res.json()) as { result: { data: { json: { guidance: "on" | "off" } } } };
+  await api.dispose();
+  return body.result.data.json.guidance === "on";
+}
 
 /**
  * The first days of a new business are about the product (founder, 2026-10-18): Take charge → Home shows the drafting →
@@ -11,7 +21,8 @@ import { LONG, ROADMAP_SIGNOFF, SPEC_SIGNOFF, approveFromInbox, ensureDeck, inbo
 test.describe("first days", () => {
   test.setTimeout(300_000);
 
-  test("approving both sign-offs plans the first build; distribution waits for Start distribution, which posts the Board's question", async ({ page }) => {
+  test("approving both sign-offs plans the first build; distribution waits for Start distribution, which posts the Board's question", async ({ page, playwright }) => {
+    const guided = await guidanceOn(playwright);
     await signIn(page);
     await ensureDeck(page, 1);
     await page.getByTestId("commit-link").first().click();
@@ -20,6 +31,38 @@ test.describe("first days", () => {
     const status = page.getByTestId("foundations-status");
     await expect(status).toBeVisible({ timeout: LONG });
     await expect(status).toHaveAttribute("data-foundations-state", "ready", { timeout: LONG });
+
+    // The guided layer on day one (UX plan §7.8): three numbered next steps in the Day one panel above the ghosted
+    // milestones, "Your first week" with nothing done yet, and the callout under Continue (which waits while the first
+    // cycle is still processing or a dialog is open).
+    const dayOne = page.getByTestId("day-one");
+    await expect(dayOne).toBeVisible({ timeout: LONG });
+    if (guided) {
+      const next = dayOne.locator("[data-next-step]");
+      await expect(next).toHaveAttribute("data-rows", "3", { timeout: LONG });
+      await expect(next.locator("[data-next-step-row='read-draft']")).toContainText("Read what the team drafted");
+      await expect(next.locator("[data-next-step-row='read-draft']").getByRole("link", { name: /^Go:/ })).toHaveAttribute("href", new RegExp(`/b/${bid}/d/product/vision$`));
+      await expect(next.locator("[data-next-step-row='answer-notes']")).toContainText(/Answer the (\d+ )?notes? in the Inbox/);
+      await expect(next.locator("[data-next-step-row='press-continue']")).toBeVisible();
+      const checklist = page.locator("[data-first-week-checklist]");
+      await expect(checklist).toBeVisible({ timeout: LONG });
+      await expect(checklist).toContainText("0 of 7 done");
+      await expect(checklist.locator("[data-first-week-item='sign_off_specification']").getByRole("link", { name: /^Go:/ })).toHaveAttribute("href", new RegExp(`/b/${bid}/d/product/specification$`));
+      await expect(checklist.locator("[data-first-week-item='run_cycle']").getByRole("button", { name: "Go: Run a cycle" })).toBeVisible();
+      const continueButton = page.locator("[data-continue-state]").first();
+      if ((await continueButton.getAttribute("data-continue-state")) !== "processing") {
+        const callout = page.locator("[data-coachmark][data-tour='first-continue']");
+        await expect(callout).toBeVisible({ timeout: LONG });
+        await expect(callout).toContainText("This is how you move forward");
+        await expect(page.locator("[data-coachmark='continue'][data-coachmark-active]")).toHaveCount(1);
+        await callout.getByRole("button", { name: "Got it" }).click();
+        await expect(callout).toHaveCount(0);
+      }
+    } else {
+      await expect(dayOne.locator("[data-next-step]")).toHaveCount(0);
+      await expect(page.locator("[data-first-week-checklist]")).toHaveCount(0);
+      await expect(page.locator("[data-coachmark]")).toHaveCount(0);
+    }
 
     // The specification, approved from its tab: the pill turns Signed off with the version the approval published.
     await page.goto(`/b/${bid}/d/product/specification`);
@@ -41,6 +84,16 @@ test.describe("first days", () => {
     await expect(building).toBeVisible({ timeout: LONG });
     await building.click();
     await expect(page.getByTestId("inbox-note")).toContainText("Distribution waits until you start it from Distribution › Board.", { timeout: LONG });
+
+    // Both sign-offs tick off on the first-week checklist.
+    if (guided) {
+      await page.goto(`/b/${bid}/home`);
+      const checklist = page.locator("[data-first-week-checklist]");
+      await expect(checklist).toBeVisible({ timeout: LONG });
+      await expect(checklist).toContainText("2 of 7 done", { timeout: LONG });
+      await expect(checklist.locator("[data-first-week-item='sign_off_specification'][data-done]")).toHaveCount(1);
+      await expect(checklist.locator("[data-first-week-item='sign_off_roadmap'][data-done]")).toHaveCount(1);
+    }
 
     // The Planner's first tasks, each tied to a roadmap item, on Development › Plan; the banner is gone.
     await page.goto(`/b/${bid}/d/development/plan`);

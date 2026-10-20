@@ -9,7 +9,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, CircleDollarSign, Plug, Send, ShieldAlert, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Button, Checkbox, Chip, Icon, Panel, StatusPill, Tooltip, useToast } from "@foundmill/dugout";
+import { Button, Checkbox, Chip, Icon, Panel, StatusPill, Term, Tooltip, useToast } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -197,15 +197,19 @@ export function ToolsTab({ businessId, profile, refetch }: TabProps) {
       <Panel title="Permissions" span={4} data-testid="permissions-panel">
         <div className="flex flex-col gap-3 text-body text-primary">
           <p>
-            <span className="t-label block">Business mode</span>
+            <span className="t-label block">
+              <Term id="business_mode">Business mode</Term>
+            </span>
             {modeCopy[businessMode] ?? businessMode}
           </p>
           <p>
             <span className="t-label block">Per call</span>
-            A grant lets this agent use the tool. Every use is still checked: it runs, asks you first, or is refused, depending on the business mode, this agent's autonomy and what the tool can do.
+            A grant lets this agent use the tool. Every use is still checked: it runs, asks you first, or is refused, depending on the business mode, this agent's <Term id="autonomy">autonomy</Term> and what the tool can do.
           </p>
           <div>
-            <span className="t-label block">Hard gates (never lifted)</span>
+            <span className="t-label block">
+              <Term id="hard_gate">Hard gates</Term> (never lifted)
+            </span>
             <ul className="mt-1 flex flex-col gap-0.5 text-small text-secondary">
               <li>Moving money, signing, accepting terms</li>
               <li>Filing with the founder's identity</li>

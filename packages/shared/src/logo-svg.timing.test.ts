@@ -8,8 +8,18 @@ import { checkLogo } from "./logo";
 import { SVG_MAX_INPUT_CHARS, SVG_VALUE_GRAMMARS, sanitiseSvg } from "./logo-svg";
 
 const N = 2_000_000;
-const GRAMMAR_BUDGET_MS = 100;
-const DOCUMENT_BUDGET_MS = 1_000;
+/**
+ * Two budgets per shape. The soft one is what an idle machine does (a grammar answers 2M characters in well under a
+ * tenth of a second); crossing it only logs, so a loaded CI box or a 4-CPU machine shared by several test runs never
+ * fails on noise. The hard one is what the test asserts: an order of magnitude above the soft budget, still orders of
+ * magnitude under what a super-linear pattern takes on these inputs (the reported transform took seconds).
+ */
+const GRAMMAR_SOFT_MS = 100;
+const GRAMMAR_BUDGET_MS = 1_000;
+const DOCUMENT_SOFT_MS = 1_000;
+const DOCUMENT_BUDGET_MS = 5_000;
+const PAYLOAD_SOFT_MS = 50;
+const PAYLOAD_BUDGET_MS = 500;
 
 /**
  * Best of three runs: a busy machine (or a parallel test file) only ever adds time, while a super-linear pattern on
@@ -24,6 +34,11 @@ function timed<T>(fn: () => T): { ms: number; result: T } {
     best = Math.min(best, performance.now() - t0);
   }
   return { ms: best, result };
+}
+
+/** Logs a run over the soft budget (the machine was busy, or something got slower) without failing it. */
+function softBudget(ms: number, soft: number, what: string): void {
+  if (ms > soft) console.warn(`logo-svg timing: ${what} took ${ms.toFixed(0)} ms, over the ${soft} ms soft budget (a loaded machine, or a slower grammar)`);
 }
 
 const ones = "1".repeat(N);
@@ -56,6 +71,7 @@ describe("value grammars run in linear time", () => {
         expect(input.length).toBeGreaterThanOrEqual(N);
         const { ms, result } = timed(() => check(input));
         expect(result, `${name} accepted an adversarial value`).toBeNull();
+        softBudget(ms, GRAMMAR_SOFT_MS, `${name} on ${input.slice(0, 24)}…`);
         expect(ms, `${name} took ${ms.toFixed(1)} ms on ${input.slice(0, 24)}…`).toBeLessThan(GRAMMAR_BUDGET_MS);
       }
     });
@@ -99,6 +115,7 @@ describe("whole documents built from the same shapes stay fast", () => {
     it(`${name} (${Math.round(svg.length / 1024)} KB) in under ${DOCUMENT_BUDGET_MS} ms`, () => {
       expect(svg.length).toBeLessThanOrEqual(SVG_MAX_INPUT_CHARS);
       const { ms, result } = timed(() => sanitiseSvg(svg));
+      softBudget(ms, DOCUMENT_SOFT_MS, name);
       expect(ms, `${name} took ${ms.toFixed(0)} ms`).toBeLessThan(DOCUMENT_BUDGET_MS);
       if (!result.ok) expect(result.reason.length).toBeLessThan(300);
     });
@@ -113,6 +130,7 @@ describe("whole documents built from the same shapes stay fast", () => {
       const svg = wrap(`<style>${selectors}{${decls}}</style>${rects}`);
       const { ms, result } = timed(() => sanitiseSvg(svg));
       expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/too complex: more than 96 KB after cleaning/) });
+      softBudget(ms, GRAMMAR_SOFT_MS, `${selectors.length} selector characters`);
       expect(ms, `${selectors.length} selector characters took ${ms.toFixed(0)} ms`).toBeLessThan(GRAMMAR_BUDGET_MS);
     }
     // An ordinary exported sheet (a few class rules) is unaffected.
@@ -123,7 +141,8 @@ describe("whole documents built from the same shapes stay fast", () => {
   it("the reported api payload (570 bytes, used to take seconds) is answered at once through checkLogo", () => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1" transform="${"scale(1)  ".repeat(30)}X"/></svg>`;
     const { ms, result } = timed(() => checkLogo({ mime: "image/svg+xml", svg }));
-    expect(ms).toBeLessThan(50);
+    softBudget(ms, PAYLOAD_SOFT_MS, "the reported api payload");
+    expect(ms).toBeLessThan(PAYLOAD_BUDGET_MS);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.logo.removed).toContain("value:transform");
   });

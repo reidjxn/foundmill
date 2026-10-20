@@ -1,4 +1,5 @@
 "use client";
+import type { ReactNode } from "react";
 import { ArrowRight, CircleCheck, CircleX, Clock, Inbox, MessageSquareReply, Moon, RefreshCw, TriangleAlert } from "lucide-react";
 import type { EntityKind } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
@@ -10,6 +11,7 @@ import { FitText } from "../foundation/FitText";
 import { Skeleton } from "../foundation/Skeleton";
 import { StatusPill, agentStatusTone, type StatusTone } from "../foundation/StatusPill";
 import { Tooltip } from "../foundation/Tooltip";
+import { PlainFigure } from "../guidance/PlainFigure";
 import { EntityText } from "./EntityText";
 import { Figure } from "../data/Figure";
 import { TileSpark } from "../data/MetricTile";
@@ -26,6 +28,12 @@ export interface DepartmentCardProps {
   entityKinds?: Record<string, EntityKind>;
   /** Max avatars in the squad strip before "+N". Default 8. */
   maxSquad?: number;
+  /**
+   * The headline metric in plain words under its figure while guidance is on (PlainFigure, UX plan §7.8): the id of its
+   * definition ("runway", "team_health", "acquisition_cost"), or an explicit line in `metricPlain`.
+   */
+  metricId?: string;
+  metricPlain?: ReactNode;
   className?: string;
 }
 
@@ -74,7 +82,7 @@ export function teamStripWords(squad: readonly { status: SquadMember["status"]; 
  * for the founder, an unread note, the last task it finished, or "All clear" — never a void (`QuietLine`); while the
  * work is loading it shows placeholders rather than calling the department quiet.
  */
-export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntity, onOpenQuiet, entityKinds, maxSquad = 8, className }: DepartmentCardProps) {
+export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntity, onOpenQuiet, entityKinds, maxSquad = 8, metricId, metricPlain, className }: DepartmentCardProps) {
   const health = HEALTH[d.health];
   const squad = d.squad.slice(0, maxSquad);
   const extra = d.squad.length - squad.length;
@@ -184,15 +192,18 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
         <div className="flex items-end justify-between gap-3 rounded-md border border-line-faint bg-white/2 px-3 pb-2.5 pt-2" data-department-metric>
           <div className="min-w-0">
             <span className="t-data block">{d.metric.label}</span>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-              <FitText className="font-display text-display-md font-semibold text-primary" text={d.metric.value} truncate={false} tooltip={false}>
-                <Figure value={d.metric.value} />
-              </FitText>
-              {d.metric.delta ? (
-                <span className={cn("chip-tone inline-flex h-badge items-center whitespace-nowrap rounded-pill border px-1.5 text-small font-medium tabular-nums", DELTA_CLASS[d.metric.deltaTone ?? "good"])}>{d.metric.delta}</span>
-              ) : null}
-              {d.metric.provenance ? <ProvenanceChip kind={d.metric.provenance} /> : null}
-            </div>
+            {/* The plain-words line under the figure while guidance is on; the figure alone otherwise (same structure). */}
+            <PlainFigure metricId={metricId} plain={metricPlain} className="mt-0.5">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <FitText className="font-display text-display-md font-semibold text-primary" text={d.metric.value} truncate={false} tooltip={false}>
+                  <Figure value={d.metric.value} />
+                </FitText>
+                {d.metric.delta ? (
+                  <span className={cn("chip-tone inline-flex h-badge items-center whitespace-nowrap rounded-pill border px-1.5 text-small font-medium tabular-nums", DELTA_CLASS[d.metric.deltaTone ?? "good"])}>{d.metric.delta}</span>
+                ) : null}
+                {d.metric.provenance ? <ProvenanceChip kind={d.metric.provenance} /> : null}
+              </div>
+            </PlainFigure>
           </div>
           <TileSpark data={d.metric.series} className={cn("mb-1 max-w-32 shrink-0 basis-1/3", DEPT_TEXT[d.dept])} label={d.metric.seriesLabel ?? `${d.metric.label}, ${d.metric.series.length} periods`} />
         </div>
@@ -220,7 +231,7 @@ const QUIET_OPENS: ReadonlySet<DepartmentQuietLine["kind"]> = new Set(["attentio
 
 /**
  * A quiet card's one line, set in the space "Working on now" lines would take: the department's light on an icon disc, a kicker
- * ("Waiting for you", "New in your Inbox", "Last finished", "All clear"), the line itself (two lines at most, the whole
+ * ("Needs your answer", "New in your Inbox", "Last finished", "All clear"), the line itself (two lines at most, the whole
  * text on hover) and a short detail. A note opens from the line. Without a line it says only what the card knows.
  */
 function QuietLine({ line, onOpen }: { line: DepartmentQuietLine | null; onOpen?: () => void }) {

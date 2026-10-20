@@ -1,7 +1,7 @@
 /** Deterministic API fixtures for every path the gallery widgets query. */
 import type { FakeResponse } from "../testing";
 import { addDays, dayKey, lastDays } from "../shared/time";
-import type { ChannelMetricRow, ChannelsListResponse, CommunityPostRow, CommunityRow, ComplianceResponse, CustomMetricResult, DepartmentRow, FinanceOverview, InboxListResponse, LeaderboardEntryRow, LeaderboardPositionRow, LeaderboardRow, MetricCatalogEntry, Page, RibbonResponse, RoadmapListResponse, TaskRow, TeamAgentRow } from "../shared/types";
+import type { ChannelMetricRow, ChannelsListResponse, CommunityPostRow, CommunityRow, ComplianceResponse, CustomMetricResult, DepartmentRow, FinanceOverview, FirstWeekResponse, InboxListResponse, LeaderboardEntryRow, LeaderboardPositionRow, LeaderboardRow, MetricCatalogEntry, Page, RibbonResponse, RoadmapListResponse, TaskRow, TeamAgentRow } from "../shared/types";
 import type { SessionRow } from "../widgets/squad-pulse";
 
 export const BID = "11111111-1111-4111-8111-111111111111";
@@ -203,9 +203,14 @@ export const metricCatalog: MetricCatalogEntry[] = [
   { id: "customers_30d", label: "Customers won, last 30 days", format: "integer", estimate: null },
 ];
 
+/** business.firstWeek.get: two of the seven first-week items done. */
+export const firstWeek: FirstWeekResponse = { specificationSignedOff: true, roadmapSignedOff: true, cycleCompleted: false, noteRead: false, conversationReplySent: false, distributionStarted: false, bankOrStripeConnected: false };
+export const firstWeekNone: FirstWeekResponse = { specificationSignedOff: false, roadmapSignedOff: false, cycleCompleted: false, noteRead: false, conversationReplySent: false, distributionStarted: false, bankOrStripeConnected: false };
+
 /** Every path with data: the "data" state of each widget. */
 export function dataResponses(): Record<string, FakeResponse> {
   return {
+    "business.firstWeek.get": firstWeek,
     "department.list": departments,
     "journey.ribbon": ribbon(),
     // Every conversion of one day, named (what the ribbon's hover card and day digest load).
@@ -240,6 +245,7 @@ export function dataResponses(): Record<string, FakeResponse> {
 export function emptyResponses(): Record<string, FakeResponse> {
   const emptyRibbon: RibbonResponse = { rows: [], conversions: [], milestones: [], chapters: [], kickoff: TODAY, today: TODAY };
   return {
+    "business.firstWeek.get": firstWeekNone,
     "department.list": [],
     "journey.ribbon": emptyRibbon,
     "product.roadmap.list": { items: [], dependencies: [] },

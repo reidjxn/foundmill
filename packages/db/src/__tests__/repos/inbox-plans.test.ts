@@ -75,12 +75,15 @@ describe("inbox.createItem stores notes in the business's own words (Settings โ€
     await setGlossary({ customer: "client", team: "crew" });
     const item = await repos.inbox.createItem(r.db, r.B.businessId, {
       ...note({ from_agent_id: r.B.agentId, type: "decision", subject: "Customers this week", body_md: "The team keeps working; the customers week stands at 0. [[ent:" + r.B.entityId + "|Customer Co]] is the first customer." }),
-      decision: { options: [{ id: "a", label: "Call the customer", recommended: true, consequence: "The team calls today", cost_minor: 0, reversible: true }, { id: "b", label: "Wait", recommended: false, consequence: "Nothing", cost_minor: 0, reversible: true }], free_text: false, expires_at: null },
+      decision: { options: [{ id: "a", label: "Call the customer", recommended: true, consequence: "The team calls today", because: "Recommended because the customer asked for a call.", cost_minor: 0, reversible: true }, { id: "b", label: "Wait", recommended: false, consequence: "Nothing", cost_minor: 0, reversible: true }], free_text: false, expires_at: null },
       entity_ids: [r.B.entityId],
     });
     expect(item.subject).toBe("Clients this week");
     expect(item.bodyMd).toBe(`The crew keeps working; the clients week stands at 0. [[ent:${r.B.entityId}|Customer Co]] is the first client.`);
-    expect((item.decision as { options: { label: string; consequence: string }[] }).options[0]).toMatchObject({ label: "Call the client", consequence: "The crew calls today" });
+    // The option's "because" (UX plan ยง7.19) is kept and read in the business's words too; an option without one gets none.
+    const options = (item.decision as { options: { label: string; consequence: string; because?: string }[] }).options;
+    expect(options[0]).toMatchObject({ label: "Call the client", consequence: "The crew calls today", because: "Recommended because the client asked for a call." });
+    expect(options[1]).not.toHaveProperty("because");
     // Another business's notes keep the default words.
     expect((await repos.inbox.createItem(r.db, r.A.businessId, note({ subject: "Customers this week" }))).subject).toBe("Customers this week");
   });

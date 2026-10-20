@@ -39,13 +39,22 @@ describe("universal search", () => {
     expect(filterLocal(items, "zzzz")).toEqual([]);
   });
 
-  it("offers Preferences (the person's own date and time format), found by what it changes", () => {
+  it("offers Preferences (the person's own date format, guidance and text size), found by what it changes", () => {
     const items = localPaletteItems({ businessId: BID, departments, live: false });
     const prefs = items.find((i) => i.id === "command:preferences");
-    expect(prefs).toMatchObject({ kind: "command", label: "Preferences", href: `/b/${BID}/settings/preferences` });
-    for (const q of ["Preferences", "date format", "time format", "24-hour"]) expect(filterLocal(items, q)[0]?.id, q).toBe("command:preferences");
+    expect(prefs).toMatchObject({ kind: "command", label: "Preferences", description: "Your date format, guidance and text size, in every business", href: `/b/${BID}/settings/preferences` });
+    for (const q of ["Preferences", "date format", "time format", "24-hour", "guidance", "explain", "text size", "comfortable", "checklist", "tour"]) expect(filterLocal(items, q)[0]?.id, q).toBe("command:preferences");
     // One row for it, not a second "Settings · Preferences".
     expect(items.filter((i) => i.href === `/b/${BID}/settings/preferences`)).toHaveLength(1);
+  });
+
+  it("calls the glossary tab Your words (the slug and the old name still find it) and says what Refresh does without a cycle (§7.17, B12)", () => {
+    const items = localPaletteItems({ businessId: BID, departments, live: false });
+    const words = items.find((i) => i.id === "command:settings:glossary");
+    expect(words).toMatchObject({ label: "Settings · Your words", href: `/b/${BID}/settings/glossary` });
+    expect(filterLocal(items, "glossary")[0]?.id).toBe("command:settings:glossary");
+    expect(filterLocal(items, "your words")[0]?.id).toBe("command:settings:glossary");
+    expect(items.find((i) => i.id === "command:refresh-inbox")?.description).toBe("Ask the team for one quick note (does not start a cycle)");
   });
 
   it("offers Edit layout only where the screen has a layout to edit (audit OL-29)", () => {

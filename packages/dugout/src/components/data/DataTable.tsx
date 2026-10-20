@@ -195,10 +195,8 @@ export interface DataTableProps<T> {
 const SELECT_COLUMN_ID = "__select";
 /** The visible "…" at the end of every row with actions. */
 export const ACTIONS_COLUMN_ID = "__actions";
-/** The 24 px button, the cell's padding on both sides and the row's end padding: never narrower, so it is never cut. */
+/** The 24 px button (`size-target`), the cell's padding on both sides and the row's end padding: never narrower, so it is never cut. */
 const ACTIONS_COLUMN_WIDTH = 44;
-const ACTIONS_BUTTON_SIZE = 24;
-const ACTIONS_BUTTON_STYLE: CSSProperties = { width: ACTIONS_BUTTON_SIZE, height: ACTIONS_BUTTON_SIZE };
 /** Columns the table adds itself: not data, so no CSV, no chooser, no content fit. */
 const OWN_COLUMNS = new Set([SELECT_COLUMN_ID, ACTIONS_COLUMN_ID]);
 const MIN_COLUMN_WIDTH = 48;
@@ -594,9 +592,8 @@ export function DataTable<T>(props: DataTableProps<T>) {
             label={`Actions for ${rowMenu.current.label(row)}`}
             tooltip={false}
             title="Actions"
-            className="text-tertiary"
             // 24 px (the smallest pointer target, `--target-size`) inside a 28 px row; the small button is 28.
-            style={ACTIONS_BUTTON_STYLE}
+            className="size-target text-tertiary"
             data-row-actions=""
             onClick={(e) => {
               e.stopPropagation();

@@ -3,7 +3,7 @@
  * stopAllAgents/resumeAgents/export/archive/restore/listArchived/requestDeletion/cancelDeletion (BUILD §9.4, §9.6, §11.15, §14).
  */
 import { LIMITS, liveModeOpen } from "@foundmill/config";
-import { HolidayRunningError, repos, SLUG_TAKEN, UpdateBusinessInput, type Db } from "@foundmill/db";
+import { HolidayRunningError, repos, SLUG_TAKEN, UpdateBusinessInput, type Db, type DbTx } from "@foundmill/db";
 import { demoBusinessIdForSlug } from "@foundmill/db/seed/constants";
 import { BUSINESS_SETTINGS_FIELDS, businessStreamKey } from "@foundmill/events";
 import { PRICING_CURRENCY } from "@foundmill/models";
@@ -61,6 +61,45 @@ const AutopilotSettingsInput = z.object({
   maxIdleCycles: z.number().int().min(AUTOPILOT_LIMITS.maxIdleCycles.min).max(AUTOPILOT_LIMITS.maxIdleCycles.max).optional(),
 });
 
+/** The first-week checklist's flags (docs/UX_AUDIT_AND_PLAN.md §6.2 FirstWeekChecklist), one per item, all read-only. */
+export interface FirstWeekFlags {
+  specificationSignedOff: boolean;
+  roadmapSignedOff: boolean;
+  cycleCompleted: boolean;
+  noteRead: boolean;
+  conversationReplySent: boolean;
+  distributionStarted: boolean;
+  bankOrStripeConnected: boolean;
+}
+
+/**
+ * What the business has done in its first week, from what it already records: the latest sign-off round of each kind
+ * approved, a `cycle.completed` event, a note from an agent that someone opened (a read receipt, 0048) or answered, a
+ * message the founder wrote to an agent, distribution started, a bank account or a connected Stripe. Every read runs
+ * under the caller's RLS (a member of another business is refused by `businessProcedure` before any of this runs);
+ * each existence check loads one id at most.
+ */
+export async function firstWeekFlags(tx: DbTx, business: { id: string; distributionStartedAt: Date | null }): Promise<FirstWeekFlags> {
+  const businessId = business.id;
+  const [signoffs, completed, noteRead, conversationReplySent, accounts, stripe] = await Promise.all([
+    signoffViews(tx, businessId),
+    repos.events.list(tx, businessId, { type: "cycle.completed", limit: 1 }),
+    repos.inbox.anyAgentNoteOpened(tx, businessId),
+    repos.conversations.anyFounderMessage(tx, businessId),
+    repos.finance.listAccounts(tx, businessId),
+    repos.integrations.getByKey(tx, businessId, "stripe"),
+  ]);
+  return {
+    specificationSignedOff: signoffs.spec?.status === "approved",
+    roadmapSignedOff: signoffs.roadmap?.status === "approved",
+    cycleCompleted: completed.items.length > 0,
+    noteRead,
+    conversationReplySent,
+    distributionStarted: business.distributionStartedAt !== null,
+    bankOrStripeConnected: accounts.length > 0 || stripe?.status === "connected" || stripe?.status === "mock",
+  };
+}
+
 const journeyRefreshes = new WeakMap<Db, { running: Promise<void> | null; again: boolean }>();
 
 /**
@@ -100,6 +139,14 @@ export const businessRouter = router({
     get: businessProcedure.query(({ ctx }) => autopilotStatus(ctx)),
     set: adminProcedure.input(AutopilotSettingsInput).mutation(({ ctx, input }) => setAutopilot(ctx, input)),
     ensure: writeProcedure.mutation(({ ctx }) => ensureAutopilot(ctx)),
+  }),
+
+  /**
+   * The first-week checklist (UX plan §6.2, §7.8): one done flag per item, read-only, for any member of the business
+   * (RLS-scoped like every other read here). Home's "Your first week" panel ticks its rows off from this.
+   */
+  firstWeek: router({
+    get: businessProcedure.query(({ ctx }) => ctx.rls((tx) => firstWeekFlags(tx, { id: ctx.businessId, distributionStartedAt: ctx.business.distributionStartedAt }))),
   }),
 
   get: businessProcedure.query(async ({ ctx }) => {

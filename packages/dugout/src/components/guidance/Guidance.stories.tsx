@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { MetricTile } from "../data/MetricTile";
 import { Button } from "../foundation/Button";
 import { ProvenanceChip } from "../foundation/Chip";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../foundation/Dialog";
 import { Input } from "../foundation/Input";
 import { Field } from "../foundation/Label";
 import { Skeleton } from "../foundation/Skeleton";
@@ -92,6 +93,40 @@ export const SideBySide: Story = {
       <Sampler guidance="on" />
       <Sampler guidance="off" />
     </div>
+  ),
+};
+
+/**
+ * An Estimate chip as the first focusable inside a dialog. Radix auto-focuses it when the dialog opens; the tooltip
+ * stays closed (keyboardFocus.ts: a script's focus never opens it), so the first Escape closes the dialog. Tab away
+ * and back, or hover, and it opens as before.
+ */
+export const InDialog: Story = {
+  name: "Estimate chip in a dialog",
+  render: () => (
+    <GuidanceProvider value={{ terms: FIXTURE_TERMS }}>
+      <Dialog>
+        <DialogTrigger asChild>
+          <Button variant="secondary">Open the plan</Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm the plan</DialogTitle>
+            <DialogDescription>
+              This cycle spends about $12 <ProvenanceChip kind="estimate" /> across four agents.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="ghost">Cancel</Button>
+            </DialogClose>
+            <DialogClose asChild>
+              <Button>Confirm</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </GuidanceProvider>
   ),
 };
 

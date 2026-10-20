@@ -167,6 +167,19 @@ describe("RunwayScreen", () => {
     }
   });
 
+  it("a bank balance below zero reads 'Cash is below zero' in red, never 'No limit' or a negative figure (UX plan B8)", () => {
+    const base = emptyResponses["finance.overview"] as { cash: Record<string, unknown>; runway: Record<string, unknown> };
+    const belowZero = { ...emptyResponses, "finance.overview": { ...base, cash: { ...base.cash, amountMinor: -250_000, accounts: 1 }, runway: { months: null, reason: "negative", label: "Estimate", warnings: [], blocksContinue: false } } };
+    const fake = createFakeSource({ businessId: BID, responses: belowZero });
+    renderScreen(fake, <RunwayScreen {...props} />);
+    const list = screen.getByRole("list", { name: "Runway by scenario" });
+    const row = list.querySelector("[data-scenario='base']") as HTMLElement;
+    expect(within(row).getAllByText("Cash is below zero").length).toBeGreaterThan(0);
+    expect(within(row).getByText("The bank balance is negative, so there is no runway to count")).toBeTruthy();
+    expect(within(row).queryByText("No limit")).toBeNull();
+    expect(within(row).queryByText("Runway not known yet")).toBeNull();
+  });
+
   it("describes each scenario from its own drivers, not fixed text (#173)", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <RunwayScreen {...props} />);

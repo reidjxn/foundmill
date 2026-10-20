@@ -143,6 +143,9 @@ describe("SourcesScreen", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Remove source" }));
     const dialog = await screen.findByRole("dialog", { name: "Remove this source?" });
     expect(within(dialog).getByText(/Invoicely/)).toBeTruthy();
+    // What removing does and that it cannot be undone, always shown (UX plan §6.2 ConsequenceLine).
+    expect(within(dialog).getByText("Not reversible")).toBeTruthy();
+    expect(within(dialog).getByText("The Source Watcher stops reading it; proposals keep what it already said.")).toBeTruthy();
     expect(fake.mutations).toHaveLength(0);
     await user.click(within(dialog).getByRole("button", { name: "Remove source" }));
     await waitFor(() => expect(fake.mutations).toEqual([{ path: "product.sources.remove", input: { sourceId: sources[1]!.id } }]));

@@ -356,11 +356,13 @@ export function withLiveStatus(agents: readonly AgentRow[] | undefined, override
 /* ---------- AgentRow → SquadRow (dugout squad cells) ---------- */
 
 /**
- * The agent's rating on the one scale the product uses (founder, Oct 20, 2026): the 1–20 mean of its displayed skills,
- * to one decimal, as the profile header computes it. The API's `rating` is a 1–10 figure (`team.agents.list`); it is
- * doubled only when the row carries no skills to average, and is due to be dropped.
+ * The agent's rating on the one scale the product uses (founder, Oct 20, 2026): the API's `rating20`
+ * (`team.agents.list`: the 1–20 mean of its displayed skills to one decimal, as the profile header computes it), else
+ * the same mean worked out from the skills on the row, else the deprecated 1–10 `rating` doubled (an older payload
+ * with no skills). Nothing at all reads 0, which the cell shows as "—".
  */
-export function skillRating(agent: Pick<AgentRow, "rating" | "skills">): number {
+export function skillRating(agent: Pick<AgentRow, "rating" | "rating20" | "skills">): number {
+  if (typeof agent.rating20 === "number" && Number.isFinite(agent.rating20) && agent.rating20 > 0) return Math.round(agent.rating20 * 10) / 10;
   const skills = agent.skills ?? [];
   if (skills.length) return Math.round((skills.reduce((s, k) => s + k.displayed, 0) / skills.length) * 10) / 10;
   if (typeof agent.rating === "number" && Number.isFinite(agent.rating) && agent.rating > 0) return Math.round(agent.rating * 2 * 10) / 10;

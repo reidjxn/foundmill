@@ -2,6 +2,8 @@ import "./setup";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { GuidanceProvider } from "@foundmill/dugout";
+import { termsWithGlossary } from "@foundmill/shared/terms";
 import { CATALOGUE_VIEWS, MOVES_VIEWS, RecruitmentScreen, toCatalogueRows } from "../RecruitmentScreen";
 import { suggestTemplates, tokenize } from "../shared";
 import { AGENT_COS, AGENT_JUNO, BID, DEPT_DEV, DEPT_DIST, DEPT_TEAM, agents, catalogue, dataResponses, emptyResponses } from "./fixtures";
@@ -41,7 +43,13 @@ describe("recruitment data", () => {
 describe("RecruitmentScreen", () => {
   it("renders the catalogue with model chips, wage caps labelled Estimate and the team moves table", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
-    renderScreen(fake, <RecruitmentScreen {...props} />);
+    // Guidance on, with the definitions map the app hands the provider, so the dotted words render as Terms.
+    renderScreen(
+      fake,
+      <GuidanceProvider value={{ terms: termsWithGlossary(null) }}>
+        <RecruitmentScreen {...props} />
+      </GuidanceProvider>,
+    );
     const table = await screen.findByRole("grid", { name: "Catalog" });
     expect(within(table).getAllByRole("row")).toHaveLength(catalogue.length + 1);
     expect(within(table).getAllByText("Estimate").length).toBe(catalogue.length);
@@ -52,6 +60,13 @@ describe("RecruitmentScreen", () => {
     expect(within(table).getByRole("columnheader", { name: /Wage cap \(USD\)/ })).toBeTruthy();
     expect(screen.getByTestId("catalogue-intro").textContent).toBe("Ready-made agents. Hire one into a department and it starts next cycle.");
     expect(screen.getByTestId("catalogue-summary").textContent).toBe("7 templates · 5 in the team");
+    // Guidance is on outside a provider: the tab's intro sits in the builder panel, the wage cap is a defined word, and
+    // the generate button shows no key cap (an operator's affordance).
+    const explainer = document.querySelector("[data-explainer='team-recruitment']") as HTMLElement;
+    expect(explainer.getAttribute("data-state")).toBe("open");
+    expect(explainer.textContent).toContain("Hire new agents");
+    expect(explainer.querySelector("[data-term='wage_cap']")).not.toBeNull();
+    expect(screen.getByTestId("draft-agent").querySelector("kbd")).toBeNull();
     const moves = screen.getByRole("grid", { name: "Team moves" });
     expect(within(moves).getAllByRole("row")).toHaveLength(agents.length + 1);
     expect(within(moves).getByRole("link", { name: "Juno" })).toBeTruthy();
@@ -70,6 +85,14 @@ describe("RecruitmentScreen", () => {
     expect(within(dialog).getByText("Hire Newsletter writer")).toBeTruthy();
     expect(within(dialog).getByText("Kind")).toBeTruthy();
     expect(within(dialog).getByText("Wage cap (USD)")).toBeTruthy();
+    // What hiring does and what it can cost, under the form (UX plan §6.2 ConsequenceLine), then the reassurance.
+    const consequence = within(dialog).getByTestId("hire-consequence");
+    expect(consequence.textContent).toContain("Starts next cycle with the template's instructions, tools and skills");
+    expect(consequence.textContent).toContain("Up to $150.00/mo (Estimate)");
+    expect(consequence.textContent).toContain("Reversible");
+    expect(dialog.querySelector("[data-reassurance]")?.textContent).toContain("lend it or let it go later");
+    // Focus opens on the department, the first thing to fill, never on a defined word or the Estimate chip.
+    await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByRole("combobox", { name: "Department" })));
     // A distribution template opened from Team › Recruitment starts in Distribution, not in the tab's own department.
     expect(within(dialog).getByRole("combobox", { name: "Department" }).textContent).toBe("Distribution");
     await user.click(within(dialog).getByRole("combobox", { name: "Department" }));
@@ -123,6 +146,20 @@ describe("RecruitmentScreen", () => {
     box.focus();
     await user.keyboard("{Control>}{Enter}{/Control}");
     expect(await screen.findByTestId("hire-dialog")).toBeTruthy();
+  });
+
+  it("with guidance off the key cap shows on the generate button and the intro is gone; the catalog line stays", async () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(
+      fake,
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <RecruitmentScreen {...props} />
+      </GuidanceProvider>,
+    );
+    await screen.findByRole("grid", { name: "Catalog" });
+    expect(screen.getByTestId("draft-agent").querySelector("kbd")?.textContent).toBe("⌘↵");
+    expect(document.querySelector("[data-explainer='team-recruitment']")).toBeNull();
+    expect(screen.getByTestId("catalogue-intro").textContent).toBe("Ready-made agents. Hire one into a department and it starts next cycle.");
   });
 
   it("keeps a long template description to three lines in the hire dialog, the rest on request", async () => {

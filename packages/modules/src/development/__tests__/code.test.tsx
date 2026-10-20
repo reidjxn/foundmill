@@ -118,6 +118,9 @@ describe("CodeScreen", () => {
     renderScreen(fake, <CodeScreen {...props} />);
     await user.click(await screen.findByRole("button", { name: "Forget" }));
     const dialog = await screen.findByRole("dialog", { name: "Forget saved code" });
+    // Deleting cannot be undone: the consequence line says so (UX plan §6.2 ConsequenceLine), in every guidance state.
+    expect(within(dialog).getByText("Not reversible")).toBeTruthy();
+    expect(within(dialog).getByText("The next session on this task starts from an empty folder.")).toBeTruthy();
     expect(within(dialog).getByText(/Usage index for the Ledgerly dashboard/)).toBeTruthy();
     await user.click(within(dialog).getByRole("button", { name: "Forget saved code" }));
     expect(await within(dialog).findByRole("alert")).toBeTruthy();

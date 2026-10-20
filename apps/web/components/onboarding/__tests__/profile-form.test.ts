@@ -1,8 +1,56 @@
 import { describe, expect, it } from "vitest";
-import { FALLBACK_CURRENCY, PROFILE_LIMITS, addChip, currencyForCountry, currencyForLocale, defaultCurrency, profileSaveMessage, clampSkill, displayNameFromEmail, emptyProfileForm, formFromProfile, isProfileValid, parseBudgetMinor, profilePatch, profileSummary, removeChip, sectionStatus, toggleChip, validateProfileForm, type ProfileForm } from "../profile-form";
+import {
+  DETAIL_SECTION_TITLE,
+  FALLBACK_CURRENCY,
+  PROFILE_LIMITS,
+  PROFILE_SECTIONS,
+  addChip,
+  currencyForCountry,
+  currencyForLocale,
+  defaultCurrency,
+  defaultMarket,
+  detailAnswered,
+  detailOpenByDefault,
+  detailStorageKey,
+  effectiveTargetMarkets,
+  firstInvalidSection,
+  profileSaveMessage,
+  clampSkill,
+  displayNameFromEmail,
+  emptyProfileForm,
+  formFromProfile,
+  isProfileValid,
+  parseBudgetMinor,
+  profilePatch,
+  profileSummary,
+  removeChip,
+  sectionStatus,
+  toggleChip,
+  validateProfileForm,
+  type ProfileForm,
+} from "../profile-form";
 
 function filled(): ProfileForm {
-  return { ...emptyProfileForm("reid.jackson@example.com"), experience: "first_time", timeCommitment: "full_time", budget: "25k", currency: "EUR", targetMarkets: ["EU", "UK"], constraints: ["Bootstrapped, no outside funding"], riskAppetite: "medium" };
+  return {
+    ...emptyProfileForm("reid.jackson@example.com"),
+    experience: "first_time",
+    timeCommitment: "full_time",
+    budget: "25k",
+    currency: "EUR",
+    targetMarkets: ["EU", "UK"],
+    constraints: ["Bootstrapped, no outside funding"],
+    riskAppetite: "medium",
+  };
+}
+
+/** The first pass alone: the four answers, nothing under "Add detail". */
+function firstPass(): ProfileForm {
+  return {
+    ...emptyProfileForm("reid.jackson@example.com"),
+    experience: "first_time",
+    timeCommitment: "evenings_weekends",
+    residence: "United Kingdom",
+  };
 }
 
 describe("founder profile form (BUILD §11.1, AC-11.1.1)", () => {
@@ -21,10 +69,11 @@ describe("founder profile form (BUILD §11.1, AC-11.1.1)", () => {
     expect(parseBudgetMinor("twenty")).toBeNaN();
   });
 
-  it("requires name, experience, time, a market and risk; budget is optional", () => {
+  it("requires name, experience and time; markets, budget and where you live are optional (UX plan §7.3, two passes)", () => {
     const empty = validateProfileForm(emptyProfileForm());
-    expect(Object.keys(empty).sort()).toEqual(["displayName", "experience", "targetMarkets", "timeCommitment"]);
+    expect(Object.keys(empty).sort()).toEqual(["displayName", "experience", "timeCommitment"]);
     expect(isProfileValid(filled())).toBe(true);
+    expect(isProfileValid(firstPass())).toBe(true);
     expect(validateProfileForm({ ...filled(), budget: "abc" }).budget).toMatch(/number/);
     expect(validateProfileForm({ ...filled(), currency: "eur" }).currency).toBeDefined();
   });
@@ -33,20 +82,63 @@ describe("founder profile form (BUILD §11.1, AC-11.1.1)", () => {
     expect(clampSkill(0)).toBe(1);
     expect(clampSkill(99)).toBe(20);
     expect(clampSkill(Number.NaN)).toBe(10);
-    const patch = profilePatch({ ...filled(), skills: { engineering: 25, sales: 14, design: 0, finance: 9, domain: 16 }, citizenship: " Sweden ", residence: "" });
-    expect(patch).toMatchObject({ displayName: "Reid Jackson", experience: "first_time", skills: { engineering: 20, sales: 14, design: 1, finance: 9, domain: 16 }, timeCommitment: "full_time", budgetMinor: 2_500_000, currency: "EUR", citizenship: "Sweden", residence: null, targetMarkets: ["EU", "UK"], riskAppetite: "medium" });
+    const patch = profilePatch({
+      ...filled(),
+      skills: { engineering: 25, sales: 14, design: 0, finance: 9, domain: 16 },
+      citizenship: " Sweden ",
+      residence: "",
+    });
+    expect(patch).toMatchObject({
+      displayName: "Reid Jackson",
+      experience: "first_time",
+      skills: { engineering: 20, sales: 14, design: 1, finance: 9, domain: 16 },
+      timeCommitment: "full_time",
+      budgetMinor: 2_500_000,
+      currency: "EUR",
+      citizenship: "Sweden",
+      residence: null,
+      targetMarkets: ["EU", "UK"],
+      riskAppetite: "medium",
+    });
   });
 
   it("round-trips an existing profile into the form", () => {
-    const form = formFromProfile({ displayName: "Sara", experience: "exited", skills: { engineering: 18, sales: 7 }, timeCommitment: "part_time", budgetMinor: 1_000_000, currency: "SEK", citizenship: "Sweden", residence: "Sweden", targetMarkets: ["Nordics"], constraints: [], riskAppetite: "high" }, "x@y.z");
+    const form = formFromProfile(
+      {
+        displayName: "Sara",
+        experience: "exited",
+        skills: { engineering: 18, sales: 7 },
+        timeCommitment: "part_time",
+        budgetMinor: 1_000_000,
+        currency: "SEK",
+        citizenship: "Sweden",
+        residence: "Sweden",
+        targetMarkets: ["Nordics"],
+        constraints: [],
+        riskAppetite: "high",
+      },
+      "x@y.z",
+    );
     expect(form.displayName).toBe("Sara");
     expect(form.skills).toEqual({ engineering: 18, sales: 7, design: 10, finance: 10, domain: 10 });
     expect(form.budget).toBe("10000");
     expect(form.noBudget).toBe(false);
     expect(form.currency).toBe("SEK");
     expect(profilePatch(form).budgetMinor).toBe(1_000_000);
-    // A saved profile without a budget reads as the explicit choice.
-    const saved = formFromProfile({ displayName: "Sara", experience: null, skills: {}, timeCommitment: null, budgetMinor: null, currency: "", citizenship: null, residence: null, targetMarkets: [], constraints: [], riskAppetite: null });
+    // A saved profile without a budget made that choice: it reads as "I have no budget yet".
+    const saved = formFromProfile({
+      displayName: "Sara",
+      experience: null,
+      skills: {},
+      timeCommitment: null,
+      budgetMinor: null,
+      currency: "",
+      citizenship: null,
+      residence: null,
+      targetMarkets: [],
+      constraints: [],
+      riskAppetite: null,
+    });
     expect(saved.noBudget).toBe(true);
     expect(saved.currency).toBe(FALLBACK_CURRENCY);
   });
@@ -87,34 +179,150 @@ describe("founder profile form (BUILD §11.1, AC-11.1.1)", () => {
     expect(emptyProfileForm().currency).toBe("USD");
   });
 
+  it("derives the first market from where the founder lives, in the suggestion list's words, and never from a typo (UX plan §7.3)", () => {
+    expect(defaultMarket("United Kingdom")).toBe("UK");
+    expect(defaultMarket("uk")).toBe("UK");
+    expect(defaultMarket("GB")).toBe("UK");
+    expect(defaultMarket("United States")).toBe("US");
+    expect(defaultMarket("Canada")).toBe("Canada");
+    expect(defaultMarket("Australia")).toBe("Australia");
+    expect(defaultMarket("Sweden")).toBe("Nordics");
+    expect(defaultMarket("Finland")).toBe("Nordics");
+    expect(defaultMarket("Germany")).toBe("DACH");
+    expect(defaultMarket("Switzerland")).toBe("DACH");
+    expect(defaultMarket("Netherlands")).toBe("Benelux");
+    expect(defaultMarket("France")).toBe("France");
+    expect(defaultMarket("Spain")).toBe("EU");
+    expect(defaultMarket("Poland")).toBe("EU");
+    expect(defaultMarket("Japan")).toBe("Japan");
+    expect(defaultMarket("Brazil")).toBe("Brazil");
+    expect(defaultMarket("Atlantis")).toBeNull();
+    expect(defaultMarket("")).toBeNull();
+    expect(defaultMarket(null)).toBeNull();
+    // The founder's own markets always win; an empty list falls back to the residence; no residence, no market.
+    expect(
+      effectiveTargetMarkets({ targetMarkets: ["Nordics"], residence: "United Kingdom" }),
+    ).toEqual(["Nordics"]);
+    expect(effectiveTargetMarkets({ targetMarkets: [], residence: "United Kingdom" })).toEqual([
+      "UK",
+    ]);
+    expect(effectiveTargetMarkets({ targetMarkets: [], residence: "" })).toEqual([]);
+    expect(profilePatch(firstPass()).targetMarkets).toEqual(["UK"]);
+    expect(profilePatch({ ...firstPass(), residence: "" }).targetMarkets).toEqual([]);
+    expect(profileSummary(firstPass())).toBe("First-time founder · evenings and weekends · UK");
+  });
+
   it("chips de-duplicate case-insensitively, trim, cap and toggle", () => {
     expect(addChip(["EU"], " eu ")).toEqual(["EU"]);
     expect(addChip(["EU"], "UK  and   Ireland")).toEqual(["EU", "UK and Ireland"]);
-    expect(addChip(Array.from({ length: 20 }, (_, i) => `m${i}`), "one more")).toHaveLength(20);
+    expect(
+      addChip(
+        Array.from({ length: 20 }, (_, i) => `m${i}`),
+        "one more",
+      ),
+    ).toHaveLength(20);
     expect(toggleChip(["EU", "UK"], "uk")).toEqual(["EU"]);
     expect(toggleChip(["EU"], "US")).toEqual(["EU", "US"]);
     expect(removeChip(["EU", "UK"], "EU")).toEqual(["UK"]);
   });
 
-  it("reports section completion for the rail and a one-line summary", () => {
-    const status = sectionStatus(emptyProfileForm());
-    expect(status).toEqual({ identity: false, skills: true, time: false, place: false, constraints: true });
-    expect(sectionStatus(filled())).toEqual({ identity: true, skills: true, time: true, place: true, constraints: true });
+  it("lists the four questions and the optional section as one, and ticks each by its answer (UX plan §7.3)", () => {
+    expect(PROFILE_SECTIONS.map((s) => s.id)).toEqual([
+      "name",
+      "experience",
+      "time",
+      "place",
+      "detail",
+    ]);
+    expect(PROFILE_SECTIONS.map((s) => s.label)).toEqual([
+      "Your name",
+      "Experience",
+      "Time you can give",
+      "Where you live",
+      "Add detail (optional)",
+    ]);
+    expect(DETAIL_SECTION_TITLE).toBe("Add detail (optional, improves the ideas)");
+    expect(sectionStatus(emptyProfileForm())).toEqual({
+      name: false,
+      experience: false,
+      time: false,
+      place: false,
+      detail: false,
+    });
+    expect(sectionStatus(emptyProfileForm("reid@example.com"))).toMatchObject({ name: true });
+    // The four answered: 4 of 5, nothing under Add detail yet.
+    expect(sectionStatus(firstPass())).toEqual({
+      name: true,
+      experience: true,
+      time: true,
+      place: true,
+      detail: false,
+    });
+    expect(sectionStatus(filled())).toMatchObject({ detail: true });
+    // "Add detail" counts once anything in it is answered: a budget (or none), a market, a constraint, a skill moved.
+    expect(detailAnswered(firstPass())).toBe(false);
+    expect(detailAnswered({ ...firstPass(), noBudget: true })).toBe(true);
+    expect(detailAnswered({ ...firstPass(), budget: "10k" })).toBe(true);
+    expect(detailAnswered({ ...firstPass(), targetMarkets: ["EU"] })).toBe(true);
+    expect(detailAnswered({ ...firstPass(), constraints: ["Remote only"] })).toBe(true);
+    expect(detailAnswered({ ...firstPass(), skills: { ...firstPass().skills, sales: 13 } })).toBe(
+      true,
+    );
+    // A refused answer in the section unticks it.
+    expect(sectionStatus({ ...filled(), budget: "abc" }).detail).toBe(false);
     expect(profileSummary(filled())).toBe("First-time founder · full time · EUR 25,000 · EU, UK");
+  });
+
+  it("opens Add detail by default for an Exited founder or an Operator, under one browser key per account", () => {
+    expect(detailOpenByDefault("exited")).toBe(true);
+    expect(detailOpenByDefault("operator")).toBe(true);
+    expect(detailOpenByDefault("first_time")).toBe(false);
+    expect(detailOpenByDefault("domain_expert")).toBe(false);
+    expect(detailOpenByDefault("")).toBe(false);
+    expect(detailOpenByDefault(null)).toBe(false);
+    expect(detailStorageKey("11111111-1111-4111-8111-111111111111")).toBe(
+      "foundmill.profile.detail.11111111-1111-4111-8111-111111111111",
+    );
+    expect(detailStorageKey(null)).toBe("foundmill.profile.detail.account");
+  });
+
+  it("names the first section, in page order, with an answer that refuses to save", () => {
+    expect(firstInvalidSection({})).toBeNull();
+    expect(firstInvalidSection({ budget: "x", experience: "x" })).toBe("experience");
+    expect(firstInvalidSection({ riskAppetite: "x", residence: "x" })).toBe("place");
+    expect(firstInvalidSection({ constraints: "x" })).toBe("detail");
+    expect(firstInvalidSection(validateProfileForm(emptyProfileForm()))).toBe("name");
   });
 
   it("refuses what the API would reject, before submit and in plain words (audit FR-14)", () => {
     const long = (n: number) => "x".repeat(n);
-    expect(validateProfileForm({ ...filled(), budget: "99999999999999m" }).budget).toMatch(/budget below 1,000,000,000,000/);
+    expect(validateProfileForm({ ...filled(), budget: "99999999999999m" }).budget).toMatch(
+      /budget below 1,000,000,000,000/,
+    );
     expect(validateProfileForm({ ...filled(), budget: "1000000000000" }).budget).toBeUndefined();
-    expect(validateProfileForm({ ...filled(), citizenship: long(81) }).citizenship).toMatch(/under 80 characters/);
-    expect(validateProfileForm({ ...filled(), residence: long(100) }).residence).toMatch(/under 80 characters/);
-    expect(validateProfileForm({ ...filled(), citizenship: long(80), residence: long(80), targetMarkets: [long(80)] })).toEqual({});
-    expect(validateProfileForm({ ...filled(), targetMarkets: ["EU", long(150)] }).targetMarkets).toMatch(/each market under 80/);
-    expect(validateProfileForm({ ...filled(), constraints: [long(401)] }).constraints).toMatch(/each constraint under 400/);
+    expect(validateProfileForm({ ...filled(), citizenship: long(81) }).citizenship).toMatch(
+      /under 80 characters/,
+    );
+    expect(validateProfileForm({ ...filled(), residence: long(100) }).residence).toMatch(
+      /under 80 characters/,
+    );
+    expect(
+      validateProfileForm({
+        ...filled(),
+        citizenship: long(80),
+        residence: long(80),
+        targetMarkets: [long(80)],
+      }),
+    ).toEqual({});
+    expect(
+      validateProfileForm({ ...filled(), targetMarkets: ["EU", long(150)] }).targetMarkets,
+    ).toMatch(/each market under 80/);
+    expect(validateProfileForm({ ...filled(), constraints: [long(401)] }).constraints).toMatch(
+      /each constraint under 400/,
+    );
     // The sections rail does not read "done" for a section that holds a refused answer.
     expect(sectionStatus({ ...filled(), citizenship: long(81) }).place).toBe(false);
-    expect(sectionStatus({ ...filled(), constraints: [long(401)] }).constraints).toBe(false);
+    expect(sectionStatus({ ...filled(), constraints: [long(401)] }).detail).toBe(false);
   });
 
   it("a chip longer than its field's limit is not added", () => {
@@ -132,9 +340,13 @@ describe("founder profile form (BUILD §11.1, AC-11.1.1)", () => {
       { path: ["targetMarkets", 3], message: "Too big: expected string to have <=80 characters" },
     ];
     const text = profileSaveMessage(issues, "fallback");
-    expect(text).toBe("These answers were not accepted: budget, citizenship, target markets. Shorten or correct them, then save again.");
+    expect(text).toBe(
+      "These answers were not accepted: budget, citizenship, target markets. Shorten or correct them, then save again.",
+    );
     expect(text).not.toMatch(/budgetMinor|targetMarkets|Too big|int/);
     expect(profileSaveMessage(null, "Something went wrong")).toBe("Something went wrong");
-    expect(profileSaveMessage([{ path: ["unknownField"] }], "Something went wrong")).toBe("Something went wrong");
+    expect(profileSaveMessage([{ path: ["unknownField"] }], "Something went wrong")).toBe(
+      "Something went wrong",
+    );
   });
 });

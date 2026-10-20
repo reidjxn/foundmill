@@ -8,7 +8,7 @@
  */
 import { useMemo, useState } from "react";
 import { AlertTriangle, Landmark, Receipt, Tag, X } from "lucide-react";
-import { Button, DataTable, EntityLink, MiniTable, Panel, SegmentedControl, StatusPill, cn, formatPercent, useFormatters, type DataTableColumn, type DateFormatPrefs, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Button, DataTable, EntityLink, MiniTable, Panel, SegmentedControl, StatusPill, Term, cn, formatPercent, useFormatters, type DataTableColumn, type DateFormatPrefs, type RowAction, type SavedView } from "@foundmill/dugout";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -17,7 +17,7 @@ import type { ModuleScreenProps } from "../registry";
 import { PNL_SECTION_LABELS, buildPnl, categoryLabel, formatMonth, isUncategorised, ledgerPnlRows, monthStart, pnlLabelWords, pnlTotals, type PnlRow } from "./metrics";
 import { RecategoriseDialog } from "./RecategoriseDialog";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
-import { Screen, fitTableHeight, fmtMoney, fmtSigned, useCurrency, useNow } from "./shared";
+import { SIMPLE_VIEW_ID, Screen, fitTableHeight, fmtMoney, fmtSigned, useCurrency, useDefaultViewId, useNow } from "./shared";
 import type { PnlResponse, TransactionRow, TransactionsListResponse } from "./types";
 
 export const PNL_PERIODS = [
@@ -38,6 +38,8 @@ export function periodRange(period: PnlPeriod, now: Date, prefs?: DateFormatPref
 }
 
 export const PNL_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10, principle 10): every line keeps its place; the figures narrow to the amount and its share.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["label", "amount", "pct"], sort: [], filters: [] },
   { id: "all", name: "Management P&L", builtIn: true, columns: ["label", "amount", "pct", "count"], sort: [], filters: [] },
   { id: "operating", name: "Operating only", builtIn: true, columns: ["label", "amount", "pct", "count"], sort: [], filters: [{ id: "f-op", field: "section", op: "in", value: ["revenue", "cogs", "opex", "gross", "operating"] }] },
   { id: "uncategorised", name: "Needs categorizing", builtIn: true, columns: ["label", "amount", "count"], sort: [], filters: [{ id: "f-unc", field: "section", op: "eq", value: "uncategorised" }] },
@@ -117,6 +119,17 @@ export function pnlColumns(currency: string, sizes: Record<PnlColumnId, number> 
   ];
 }
 
+/** The P&L's source label with "cash basis" as a defined word where the label ends in it; any other label as it is. */
+export function PnlBasisMeta({ label }: { label: string }) {
+  const suffix = " (cash basis)";
+  if (!label.endsWith(suffix)) return <>{label}</>;
+  return (
+    <>
+      {label.slice(0, -suffix.length)} (<Term id="cash_basis">cash basis</Term>)
+    </>
+  );
+}
+
 export function pnlRowClass(row: PnlRow): string | undefined {
   if (row.kind === "subtotal") return "border-t border-secondary";
   if (row.kind === "total") return "border-t border-secondary bg-panel-alt";
@@ -139,8 +152,9 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
   const { prefs: datePrefs, formatDateShort } = useFormatters();
   const range = useMemo(() => periodRange(period, now, datePrefs), [period, now, datePrefs]);
   const pnl = useWidgetQuery<PnlResponse>("finance.pnl", { from: range.from, to: range.to });
-  // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("finance.pnl", PNL_VIEWS, { defaultViewId: "all" });
+  // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("finance.pnl", PNL_VIEWS, { defaultViewId });
   const [selected, setSelected] = useState<PnlRow | null>(null);
   const [recat, setRecat] = useState<TransactionRow | null>(null);
   const transactions = useWidgetQuery<TransactionsListResponse>("finance.transactions.list", { from: range.from, to: range.to, limit: 500 }, { enabled: !!selected });
@@ -169,14 +183,15 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
   return (
     <Screen name="finance/pnl">
       <Panel
-        title="Profit and loss"
+        title={<Term id="pnl">Profit and loss</Term>}
+        help="Money in minus money out, counted when the cash moves; every line is a category of the chart of accounts."
         span={selected ? 8 : 12}
         flush
         loading={pnl.isLoading}
         error={pnl.error ? pnl.error.message : undefined}
         onRetry={pnl.refetch}
         empty={empty ? { icon: Landmark, title: "No transactions in this period", children: "Connect a bank account and the finance lead categorizes every transaction into the standard chart of accounts.", action: { label: "Connect a bank", icon: Landmark, onClick: () => navigate(routes.settings(businessId, "integrations")) } } : undefined}
-        meta={pnl.data ? (ledger ? `Ledger · ${ledger.basis} basis` : pnlLabelWords(pnl.data.label)) : undefined}
+        meta={pnl.data ? (ledger ? <><Term id="ledger">Ledger</Term> · {ledger.basis} basis</> : <PnlBasisMeta label={pnlLabelWords(pnl.data.label)} />) : undefined}
         actions={<SegmentedControl<PnlPeriod> aria-label="Period" size="sm" value={period} onValueChange={setPeriod} options={PNL_PERIODS.map((p) => ({ value: p.value, label: p.short, title: p.label }))} />}
         footer={
           <>
@@ -205,7 +220,7 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
           data={rows}
           columns={columns}
           {...savedViews}
-          defaultViewId="all"
+          defaultViewId={defaultViewId}
           height={fitTableHeight(rows.length, { minRows: 6, maxRows: 40 })}
           density="compact"
           virtualized={false}

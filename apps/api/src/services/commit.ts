@@ -97,10 +97,14 @@ export const BOARD_FIRST_DECISION_LINE = "The team has started on the basics; th
  * Board item). Posted when the build starts (both sign-offs approved; services/signoff.ts `startBuilding`), from the
  * report snapshotted on the foundations row.
  */
-export function importBoardDecisionFromReport(name: string, report: ScoutingReportLike | null, sourceCount: number): { subject: string; bodyMd: string; options: { id: string; label: string; recommended: boolean; consequence: string; costMinor: number; reversible: boolean; actions?: OptionAction[] }[] } | null {
+/** The report the Board item is built from; a first decision may say why it is recommended (`because`, UX plan §7.19). */
+export type ImportReportLike = Pick<ScoutingReportLike, "summary"> & { firstDecisions: (ScoutingReportLike["firstDecisions"][number] & { because?: string | null })[] };
+
+export function importBoardDecisionFromReport(name: string, report: ImportReportLike | null, sourceCount: number): { subject: string; bodyMd: string; options: { id: string; label: string; recommended: boolean; consequence: string; because?: string; costMinor: number; reversible: boolean; actions?: OptionAction[] }[] } | null {
   if (!report || report.firstDecisions.length < 2) return null;
-  // Each option carries what choosing it runs, so the click never parses its words (audit IAE-20).
-  const options = report.firstDecisions.slice(0, 4).map((d) => ({ id: d.id.slice(0, 40), label: d.label.slice(0, 120), recommended: d.recommended, consequence: d.consequence, costMinor: 0, reversible: d.reversible, ...(d.actions?.length ? { actions: d.actions } : {}) }));
+  // Each option carries what choosing it runs, so the click never parses its words (audit IAE-20), and the report's
+  // reason for recommending it ("because", UX plan §7.19) travels with it when the report wrote one.
+  const options = report.firstDecisions.slice(0, 4).map((d) => ({ id: d.id.slice(0, 40), label: d.label.slice(0, 120), recommended: d.recommended, consequence: d.consequence, ...(d.because?.trim() ? { because: d.because.trim().slice(0, 400) } : {}), costMinor: 0, reversible: d.reversible, ...(d.actions?.length ? { actions: d.actions } : {}) }));
   if (options.filter((o) => o.recommended).length !== 1) options.forEach((o, i) => (o.recommended = i === 0));
   return {
     subject: "Where should the team start with what you imported?",

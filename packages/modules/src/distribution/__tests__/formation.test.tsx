@@ -10,6 +10,31 @@ const props = { businessId: BID, departmentId: "d1", animateEntrance: false, res
 const onMutate = (path: string) => (path === "distribution.recommend" ? recommendResponse : {});
 
 describe("FormationScreen", () => {
+  it("guidance on: the department's intro sits in the Board's body and Fit is a defined word in the caption (UX plan §7.10, §7.13)", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <FormationScreen {...props} />, { guidance: "on" });
+    const panel = screen.getByRole("region", { name: "Board" });
+    const explainer = panel.querySelector("[data-explainer='distribution/board']") as HTMLElement;
+    expect(explainer).toBeTruthy();
+    expect(within(explainer).getByText("How customers will find you.")).toBeTruthy();
+    expect(within(explainer).getByText("Cost per customer is an Estimate until the conversion API confirms it.")).toBeTruthy();
+    const caption = screen.getByTestId("board-caption");
+    expect(caption.textContent).toBe("Fit 1–20: how well a channel suits this business, scored by the Distribution Strategist. Closer to the center means a better fit.");
+    expect(within(caption).getByRole("button", { name: "Fit" }).className).toContain("term-link");
+    expect(within(panel).getByRole("button", { name: "About Board" })).toBeTruthy();
+    // "Got it" collapses the intro to one line.
+    fireEvent.click(within(explainer).getByRole("button", { name: "Got it" }));
+    expect((panel.querySelector("[data-explainer='distribution/board']") as HTMLElement).getAttribute("data-state")).toBe("collapsed");
+  });
+
+  it("guidance off: no intro, the caption's words are plain", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <FormationScreen {...props} />);
+    expect(document.querySelector("[data-explainer]")).toBeNull();
+    expect(screen.getByTestId("board-caption").textContent).toBe("Fit 1–20: how well a channel suits this business, scored by the Distribution Strategist. Closer to the center means a better fit.");
+    expect(screen.queryByRole("button", { name: "Fit" })).toBeNull();
+  });
+
   it("renders every channel as a token: the running ones on the Board, the rest off the board, with fit and recommendation", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <FormationScreen {...props} />);

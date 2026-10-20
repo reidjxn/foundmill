@@ -1,5 +1,15 @@
-import { expect, test } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, openBusiness, settingsScreen } from "./helpers";
+import { expect, test, type PlaywrightWorkerArgs } from "@playwright/test";
+import { LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness, settingsScreen } from "./helpers";
+
+/** The dev founder's guidance switch (Settings › Preferences): the guided layer renders only while it is on. */
+async function guidanceOn(playwright: PlaywrightWorkerArgs["playwright"]): Promise<boolean> {
+  const api = await devApi(playwright);
+  const res = await api.get("/trpc/founder.preferences.guidance");
+  expect(res.ok(), `founder.preferences.guidance answered ${res.status()}`).toBe(true);
+  const body = (await res.json()) as { result: { data: { json: { guidance: "on" | "off" } } } };
+  await api.dispose();
+  return body.result.data.json.guidance === "on";
+}
 
 /** Home dashboards (BUILD §11.2, AC-11.2.4) on the seeded Northwind Skincare. Stack and commands: e2e/README.md. */
 test.describe("home", () => {
@@ -60,6 +70,46 @@ test.describe("home", () => {
     await expect(card).not.toContainText("Next up");
     await expect(card).not.toContainText("Nothing queued");
     await expect(card.locator("[data-team-strip-words]")).toHaveText(/^\d+ of \d+ working$|^\d+ agents?, |^No agents yet$/);
+  });
+
+  test("the guided layer on Home: defined words on the strip, plain words under every figure, the next step in one line (UX plan §7.8)", async ({ page, playwright }) => {
+    const guided = await guidanceOn(playwright);
+    const strip = page.getByRole("region", { name: "Status" });
+    await expect(strip).toBeVisible({ timeout: LONG });
+    await expect(strip.locator("[data-metric-tile][aria-busy='true']")).toHaveCount(0, { timeout: LONG });
+    // "Runway" and "Revenue this month" are defined words (Term) on their tiles' labels, whatever the switch.
+    const runway = strip.locator("[data-term='runway']");
+    await expect(runway).toHaveText("Runway");
+    await expect(strip.locator("[data-term='revenue']")).toContainText("Revenue");
+    if (guided) {
+      // Dotted means something to learn: the word is a button whose definition opens on hover and focus.
+      expect(await runway.evaluate((el) => el.tagName)).toBe("BUTTON");
+      await runway.focus();
+      const card = page.locator("[data-definition-card]");
+      await expect(card).toBeVisible({ timeout: LONG });
+      await expect(card).toContainText("How many months your cash lasts at today's spending.");
+      await page.keyboard.press("Escape");
+      await expect(card).toHaveCount(0);
+      // Every tile says its figure in plain words under it.
+      const tiles = await strip.locator("[data-metric-tile]").count();
+      await expect(strip.locator("[data-metric-tile] [data-plain-line]")).toHaveCount(tiles, { timeout: LONG });
+      // Northwind is past day one: the next step is one line on its own plate above the grid.
+      const next = page.getByTestId("next-step-strip");
+      await expect(next).toBeVisible({ timeout: LONG });
+      await expect(next.locator("[data-next-step]")).toHaveAttribute("data-rows", "1");
+      await expect(next).toContainText(/needs? your answer|is running|new notes? from the team|Start distribution|Nothing waiting/);
+      await expect(page.getByTestId("day-one")).toHaveCount(0);
+      // The Edit key cap is an operator's affordance: it shows only when guidance is off; the shortcut works either way.
+      await expect(page.getByTestId("edit-layout").locator("kbd")).toHaveCount(0);
+      // The Autopilot sentence beside the chip defines its first word.
+      await expect(page.getByTestId("home-autopilot").locator("[data-autopilot-guide] [data-term='autopilot']")).toHaveText("Autopilot", { timeout: LONG });
+    } else {
+      await expect(runway).toHaveAttribute("data-guided", "off");
+      await expect(strip.locator("[data-plain-line]")).toHaveCount(0);
+      await expect(page.getByTestId("next-step-strip")).toHaveCount(0);
+      await expect(page.getByTestId("edit-layout").locator("kbd")).toHaveCount(1);
+      await expect(page.getByTestId("home-autopilot").locator("[data-autopilot-guide]")).toHaveCount(0);
+    }
   });
 
   test("the Team pulse hour labels fit their boxes at 1280 px, one every three hours", async ({ page }) => {
@@ -128,7 +178,7 @@ test.describe("home", () => {
   });
 });
 
-/** Home's Autopilot chip: always there, in words (Off, On, Waiting for you, Paused: reason); it opens Settings > Mode. */
+/** Home's Autopilot chip: always there, in words (Off, On, Needs your answer, Paused: reason); it opens Settings > Mode. */
 test.describe("home > Autopilot chip", () => {
   test("shows the state and opens Settings > Mode", async ({ page }) => {
     await openBusiness(page);

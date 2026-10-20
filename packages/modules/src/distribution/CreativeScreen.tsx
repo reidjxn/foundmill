@@ -6,7 +6,7 @@
  */
 import { useCallback, useMemo, useState } from "react";
 import { Check, ExternalLink, FileText, Film, Image, Mail, Mailbox, Megaphone, Newspaper, ScrollText, Share2, X } from "lucide-react";
-import { Button, EntityLink, Icon, Panel, SegmentedControl, StatusPill, cn, formatRelative, type IconComponent } from "@foundmill/dugout";
+import { Button, EntityLink, Icon, Panel, SegmentedControl, StatusPill, Term, cn, formatRelative, type IconComponent } from "@foundmill/dugout";
 import { APPROVAL_STATES, ASSET_KINDS, type ApprovalState, type AssetKind } from "@foundmill/shared/constants";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
@@ -91,7 +91,7 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
   return (
     <Screen name="distribution/creative">
       <Panel
-        title="Creative"
+        title={<Term id="creative">Creative</Term>}
         span={12}
         loading={assets.isLoading}
         error={assets.error ? assets.error.message : undefined}

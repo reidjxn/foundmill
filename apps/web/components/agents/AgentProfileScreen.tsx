@@ -139,7 +139,7 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
           )
         }
         facts={facts}
-        // The header's stars read "Now 3.5 · could reach 4.5" once (StarRating's caption); the 1–20 mean is the Rating column's figure.
+        // The header's stars read "Now 3.5 of 5 · could reach 4.5" once with their band word (StarRating's caption and ScaleLabel); the 1–20 mean is the Rating column's figure.
         stars={mean !== null ? { current: starsFor(mean) ?? 0, potential: starsFor(potential) } : undefined}
         actions={
           released ? (

@@ -41,6 +41,10 @@ test.describe("agent skills from the library and files", () => {
     await page.getByTestId("draft-agent").click();
     const hire = page.getByTestId("hire-dialog");
     await expect(hire).toBeVisible();
+    // The dialog opens on its first field, never on the Estimate chip in the wage cap row (whose tooltip Escape would
+    // close first), and says what hiring does and can cost under the form.
+    await expect(hire.getByRole("combobox", { name: "Department" })).toBeFocused();
+    await expect(hire.getByTestId("hire-consequence")).toContainText(/Up to \$[\d,.]+\/mo \(Estimate\)/);
     // Named to sort first: Team moves lists agents by name in a virtualized table.
     const name = `Aa Quill ${Date.now().toString(36)}`;
     await hire.getByLabel("Name", { exact: false }).fill(name);

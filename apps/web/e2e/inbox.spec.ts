@@ -296,6 +296,49 @@ test.describe("inbox", () => {
     await expect(page.getByTestId("answered-panel")).toHaveCount(0);
   });
 
+  test("the guided layer on a note: the status word and Your decision carry a tip, defined terms in the body are underlined, and the first decision shows its callout once (UX plan §7.9)", async ({ page }) => {
+    await openInbox(page, "respond");
+    const decision = rowsOf(page).filter({ hasText: "Approve batch 002" }).first();
+    await expect(decision, "the seed gives Northwind the batch 002 decision").toBeVisible({ timeout: LONG });
+    await decision.click();
+    const bar = page.getByTestId("decision-bar");
+    await expect(bar).toHaveAttribute("data-state", "open", { timeout: LONG });
+    const options = bar.getByRole("group", { name: "Options" }).getByRole("button");
+    // The pane marks the first option as the callout's anchor whatever the guidance switch says.
+    await expect(options.first()).toHaveAttribute("data-coachmark", "first-decision-option");
+    const note = page.getByTestId("inbox-note");
+    await expect(note).toBeVisible();
+    // The account's switch (Settings › Preferences): the bar's guided line is there only while guidance is on.
+    const guided = (await bar.locator("[data-decision-guided-line]").count()) > 0;
+    if (guided) {
+      // Tutoring: the tips, the terms (the seeded note says "Estimate"), and the key caps stay hidden.
+      await expect(page.getByTestId("inbox-item-header").getByRole("button", { name: "About Needs your answer" })).toBeVisible();
+      await expect(bar.getByRole("button", { name: "About Your decision" })).toBeVisible();
+      await expect(note.locator("[data-term]").first()).toBeVisible();
+      expect(await note.locator("[data-term='estimate']").count()).toBe(1);
+      await expect(bar.locator("[data-option-key]")).toHaveCount(0);
+      // The one-step callout on the first option, once per account: Got it ends it and a reload never brings it back.
+      const callout = page.locator('[data-coachmark][data-tour="first-decision"]');
+      if (await callout.isVisible()) {
+        await expect(callout).toContainText("Each option says what it costs and whether you can undo it");
+        await expect(callout).toContainText("The recommended one is marked.");
+        await callout.getByRole("button", { name: "Got it" }).click();
+        await expect(callout).toBeHidden();
+        await page.reload();
+        await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open", { timeout: LONG });
+        await expect(page.locator('[data-coachmark][data-tour="first-decision"]')).toHaveCount(0);
+      }
+    } else {
+      // Guidance off: no tutoring at all, and the operator's key caps on the options.
+      await expect(page.getByRole("button", { name: /^About / })).toHaveCount(0);
+      await expect(note.locator("[data-term]")).toHaveCount(0);
+      await expect(page.locator('[data-coachmark][data-tour="first-decision"]')).toHaveCount(0);
+      expect(await bar.locator("[data-option-key]").count()).toBeGreaterThanOrEqual(2);
+    }
+    // Information stays whatever the switch: every option's consequence or cost line, and the Holds Continue tooltip.
+    expect(await options.count()).toBeGreaterThanOrEqual(2);
+  });
+
   test("a money decision reads in the business's own currency: pounds for Northwind, never euros", async ({ page }) => {
     // The options' costs used to read a glossary entry nothing writes, so every business saw "€37,200.00" here.
     await openInbox(page, "respond");
@@ -396,6 +439,12 @@ test.describe("inbox", () => {
     // Distribution lead, when the business has no paid-ads agent yet) says "Please set up my spend allowance".
     const askReason = confirm.getByTestId("confirm-plan-lines").locator('[data-outcome="ask"]').getByTestId("confirm-plan-reason");
     await expect(askReason).toHaveText(/\S/);
+    // Under the footer: what Go ahead does (always), and where to undo it later (only while guidance is on).
+    await expect(confirm.getByTestId("confirm-plan-consequence")).toContainText(/when you say go\./);
+    await expect(confirm.getByTestId("confirm-plan-consequence")).toContainText(/\(Estimate\)|No cost/);
+    if ((await page.getByTestId("decision-bar").locator("[data-decision-guided-line]").count()) > 0 || (await confirm.getByTestId("confirm-plan-reassurance").count()) > 0) {
+      await expect(confirm.getByTestId("confirm-plan-reassurance")).toHaveText("You can stop or change this from the Inbox at any time.");
+    }
     await confirm.getByRole("button", { name: "Not now" }).click();
     await expect(confirm).toBeHidden();
 

@@ -6,7 +6,7 @@
  */
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
-import { CONCEPT_ATTRIBUTE_KEYS, CONCEPT_ATTRIBUTE_LABELS, createRng, hslToRgb, kitOnPrimaryDetail, rgbToHex, type Concept, type ConceptAttribute, type ConceptEvidence, type Kit } from "@foundmill/dugout";
+import { CONCEPT_ATTRIBUTE_HINTS, CONCEPT_ATTRIBUTE_KEYS, CONCEPT_ATTRIBUTE_LABELS, createRng, hslToRgb, kitOnPrimaryDetail, rgbToHex, type Concept, type ConceptAttribute, type ConceptEvidence, type Kit, type TermDefinition } from "@foundmill/dugout";
 import { DISPLAY_LOCALE } from "@/lib/format";
 
 export const META_KIND = "foundmill:meta";
@@ -173,6 +173,22 @@ export function attributeChanges(before: IdeaVersionLike["attributes"] | null | 
     const b = after[key]?.value;
     return typeof a === "number" && typeof b === "number" && a !== b ? [{ key, label: attributeLabel(key), from: a, to: b }] : [];
   });
+}
+
+/**
+ * A concept attribute as a defined word (UX plan §7.5, A6): the `Term` id is `attr_<key>` ("attr_market_pull" …
+ * "attr_distribution_clarity"), the sentence is the attribute's hint with its direction ("How crowded the market is.
+ * Higher means less crowded."). An inline definition until the ids land in the shared definitions map; an unknown key
+ * gets no definition, so the word stays plain text.
+ */
+export function attributeTermId(key: string): string {
+  return `attr_${key}`;
+}
+
+export function attributeTerm(key: string): TermDefinition | undefined {
+  const hint = (CONCEPT_ATTRIBUTE_HINTS as Record<string, string>)[key];
+  if (!hint) return undefined;
+  return { id: attributeTermId(key), word: attributeLabel(key), short: hint };
 }
 
 export const VERSION_ACTION_LABELS: Record<string, string> = { generated: "Generated", merged: "Merged", forked: "Forked", edited: "Edited" };

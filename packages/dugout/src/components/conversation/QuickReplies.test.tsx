@@ -32,6 +32,21 @@ describe("QuickReplies", () => {
     );
   });
 
+  it("draws a reply's description as a small second line under the label, and nothing extra without one", () => {
+    const replies: QuickReplyItem[] = [
+      { id: "go_with", label: "Go with: Place the order", kind: "choose_option", recommended: true, description: "This answers the note" },
+      { id: "why", label: "Why that one?", kind: "ask" },
+    ];
+    render(<QuickReplies replies={replies} onChoose={() => {}} />);
+    const [first, second] = numbered();
+    const line = first!.querySelector("[data-quick-reply-description]");
+    expect(line?.textContent).toBe("This answers the note");
+    expect(line?.className).toContain("btn-desc");
+    expect(first!.textContent).toBe("1Go with: Place the orderThis answers the note");
+    expect(second!.querySelector("[data-quick-reply-description]")).toBeNull();
+    expect(second!.textContent).toBe("2Why that one?");
+  });
+
   it("sends a reply with its number key, and not while typing in a field", () => {
     const onChoose = vi.fn();
     render(

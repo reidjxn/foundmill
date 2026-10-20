@@ -2,7 +2,7 @@
 /** Helpers shared by the product screens: section ordering, authorship, mutations with pending/error state, layout. */
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { Bot, Lock, UserRound } from "lucide-react";
-import { Chip, EntityLink, Icon, PageGrid, cn, useEntityLinkContext } from "@foundmill/dugout";
+import { Chip, EntityLink, Icon, PageGrid, cn, useEntityLinkContext, useGuided } from "@foundmill/dugout";
 import { useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { AuthorKind, SpecBlockRow } from "./types";
 import { pmTitle } from "./prosemirror";
@@ -205,6 +205,27 @@ export function Screen({ name, children, className }: { name: string; children: 
     </PageGrid>
   );
 }
+
+/* ---------- Tables and the guided layer ---------- */
+
+/** The built-in "Simple" saved view every table carries: its four most important columns (UX plan §7.10). */
+export const SIMPLE_VIEW_ID = "simple";
+
+/**
+ * The view a table opens on before the person picks one: "Simple" while guidance is on, the screen's general view
+ * otherwise. A view the person left open (stored per table) still wins; this only fills the gap (saved-views.ts).
+ */
+export function useDefaultViewId(general: string): string {
+  return useGuided() ? SIMPLE_VIEW_ID : general;
+}
+
+/** The department's intro, on its first tab while guidance is on (UX plan §7.10). */
+export const PRODUCT_EXPLAINER = {
+  screenId: "product/vision",
+  purpose: "What your business is building.",
+  action: "Read the vision; sign off the specification and roadmap when they look right.",
+  watchFor: "A proposal on the Changes tab: an agent suggests an edit, and nothing changes until you accept it.",
+} as const;
 
 /** Label + value pair for compact fact rows. */
 export function Fact({ label, children, numeric }: { label: ReactNode; children: ReactNode; numeric?: boolean }) {

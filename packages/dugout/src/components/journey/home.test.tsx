@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { DayDigest } from "./DayDigest";
 import { DepartmentCard, teamStripWords } from "./DepartmentCard";
 import { departmentCardFixtures, generateJourneyFixture, RIBBON_DEPARTMENTS, squadPulseFixture, trophyFixtures } from "./fixtures";
@@ -85,11 +86,32 @@ describe("DepartmentCard · quiet", () => {
   it("fills Now with the line it is given, which opens the note", async () => {
     const user = userEvent.setup();
     const onOpenQuiet = vi.fn();
-    const { container } = render(<DepartmentCard department={{ ...quiet, quiet: { kind: "respond", label: "Waiting for you", text: "Approve the Q4 retail terms", detail: "2 more in the Inbox" } }} onOpenQuiet={onOpenQuiet} />);
+    const { container } = render(<DepartmentCard department={{ ...quiet, quiet: { kind: "respond", label: "Needs your answer", text: "Approve the Q4 retail terms", detail: "2 more in the Inbox" } }} onOpenQuiet={onOpenQuiet} />);
     expect(screen.getByText("Quiet", { selector: "[data-now-quiet]" })).toBeTruthy();
     expect(container.querySelector("[data-now-lines]")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Waiting for you: Approve the Q4 retail terms. 2 more in the Inbox" }));
+    await user.click(screen.getByRole("button", { name: "Needs your answer: Approve the Q4 retail terms. 2 more in the Inbox" }));
     expect(onOpenQuiet).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts the headline metric in plain words under its figure while guidance is on, and leaves the figure alone when it is off", () => {
+    const terms = { runway: { id: "runway", word: "Runway", short: "How many months your cash lasts at today's spending." } };
+    const { container, unmount } = render(
+      <GuidanceProvider value={{ terms }}>
+        <DepartmentCard department={quiet} metricId="runway" />
+      </GuidanceProvider>,
+    );
+    expect(container.querySelector("[data-department-metric] [data-plain-line]")?.textContent).toBe("How many months your cash lasts at today's spending.");
+    unmount();
+    const { container: plain, unmount: unmountPlain } = render(<DepartmentCard department={quiet} metricPlain="Tasks the team finished in the last 7 days." />);
+    expect(plain.querySelector("[data-department-metric] [data-plain-line]")?.textContent).toBe("Tasks the team finished in the last 7 days.");
+    unmountPlain();
+    const { container: off } = render(
+      <GuidanceProvider value={{ guidance: "off", terms }}>
+        <DepartmentCard department={quiet} metricId="runway" metricPlain="Never shown" />
+      </GuidanceProvider>,
+    );
+    expect(off.querySelector("[data-plain-line]")).toBeNull();
+    expect(off.querySelector("[data-department-metric] [data-figure]")).toBeTruthy();
   });
 
   it("states a finished task as plain text, and says only what it knows without a line", () => {
@@ -204,7 +226,8 @@ describe("DayDigest", () => {
     const onOpenJourney = vi.fn();
     render(<DayDigest summary={summary} currency="EUR" highlights={["Scout closed [[ent:0f7c2d1e-4b1a-4c8e-9a3b-2d5f6e7a8b9c|Nordic Beauty AB]]"]} onOpenJourney={onOpenJourney} onOpenEntity={() => {}} />);
     expect(screen.getByRole("region", { name: /Day digest/ })).toBeTruthy();
-    expect(screen.getByText("Agent hours")).toBeTruthy();
+    expect(screen.getByText("Hours of team work")).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Hours of team work by department" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Nordic Beauty AB" })).toBeTruthy();
     const replay = screen.getAllByRole("button", { name: /Open the Customer Update/ })[0]!;
     await user.click(replay);

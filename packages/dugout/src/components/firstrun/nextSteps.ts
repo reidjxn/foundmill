@@ -8,7 +8,13 @@
  * dropped, so the strip's numbering never moves (DESIGN §2: structure never moves).
  */
 
-export type NextStepFoundationsStatus = "drafting" | "ready" | "failed" | null;
+/**
+ * The specification and roadmap drafts: "drafting" while the team writes them (or before the draft was asked for, which
+ * null also means), "ready" once there is something to read, "failed" when the draft broke, "none" for a business that
+ * has no first draft at all (committed before foundations existed, imported, or seeded): then there is nothing to read
+ * or sign off, and day one is the notes and Continue alone.
+ */
+export type NextStepFoundationsStatus = "drafting" | "ready" | "failed" | "none" | null;
 
 export interface NextStepFacts {
   /** The specification and roadmap drafts: null before the first draft was asked for. */
@@ -79,6 +85,14 @@ export function nextStepsFor(facts: NextStepFacts, router: NextStepRouter): Next
   }
 
   if (!facts.firstCycleDone) {
+    const go: NextStepItem = facts.cycleRunning
+      ? { id: "press-continue", label: cycleRunningLine(facts.cycleNumber, facts.agentsWorking), done: true }
+      : { id: "press-continue", label: "Press Continue" };
+    // No first draft to wait for or read (an imported or seeded business): the notes, if any, then Continue.
+    if (facts.foundationsStatus === "none") {
+      const answerNow: NextStepItem = { id: "answer-notes", label: `Answer the ${notes(facts.blockingNotes)} in the Inbox`, href: href("inboxRespond") };
+      return facts.blockingNotes > 0 ? [answerNow, go] : [go];
+    }
     const drafting = facts.foundationsStatus !== "ready";
     const signedOff = !drafting && facts.blockingNotes === 0;
     const read: NextStepItem = drafting
@@ -88,9 +102,6 @@ export function nextStepsFor(facts: NextStepFacts, router: NextStepRouter): Next
       facts.blockingNotes > 0
         ? { id: "answer-notes", label: `Answer the ${notes(facts.blockingNotes)} in the Inbox`, href: href("inboxRespond") }
         : { id: "answer-notes", label: "Answer the notes in the Inbox", href: href("inboxRespond"), done: !drafting };
-    const go: NextStepItem = facts.cycleRunning
-      ? { id: "press-continue", label: cycleRunningLine(facts.cycleNumber, facts.agentsWorking), done: true }
-      : { id: "press-continue", label: "Press Continue" };
     return [read, answer, go];
   }
 

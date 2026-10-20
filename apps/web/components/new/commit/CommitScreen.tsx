@@ -1,23 +1,25 @@
 "use client";
 /**
- * /new/commit/[ideaId] — the Commit screen (BUILD §11.1; AC-11.1.6, AC-11.1.7). Name with suggestions, live domain
- * availability (the registry's answer through `idea.domainCheck`) and the trademark quick screen ("Screen, not legal
- * clearance"), the logo (upload a real one or
- * generate marks; `idea.logo.*`) and brand colours, game mode LIVE / Personal, archetype cards, business mode
- * (Augmented / Assisted default / Automated) with the default spend cap, the team the archetype seeds (idea.preview),
- * then "Take charge" → idea.commit (with the chosen logo) → the Board item in the Inbox.
+ * /new/commit/[ideaId] — the Commit screen (BUILD §11.1; AC-11.1.6, AC-11.1.7; docs/UX_AUDIT_AND_PLAN.md §7.6). Name
+ * with suggestions, live domain availability (the registry's answer through `idea.domainCheck`) and the trademark
+ * quick screen ("Screen, not legal clearance"), the logo (upload a real one or generate marks; `idea.logo.*`) and
+ * brand colors, then "How it runs": one line of chips ("Personal · Assisted · B2B SaaS · Asks you above €250 ·
+ * Autopilot off") with a ghost "Change" that opens the five controls, game mode LIVE / Personal, archetype cards,
+ * business mode (Augmented / Assisted default / Automated) with the default spend cap, and Autopilot (A3; open by
+ * default when guidance is off). The team the archetype seeds (idea.preview) sits in the rail, then "Take charge" →
+ * idea.commit (with the chosen logo) → Home, where the foundations draft.
  *
  * `CommitForm` is pure apart from the local trademark screen and the logo and domain calls it is handed (`logoApi`,
  * `domainApi`); `CommitScreen` loads the idea, wires those calls to tRPC and commits.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Check, Globe, Lock, RotateCw, Scale, SearchX, Settings, ThumbsUp } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, Globe, Lock, RotateCw, Scale, SearchX, ThumbsUp } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype, type BusinessMode, type DeptColourToken, type GameMode } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { Avatar, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, Switch, cn, fieldDescribedBy, formatMoney, useDateFormat, useFormatters, useGuided, useToast, type Kit } from "@foundmill/dugout";
+import { Avatar, Button, Checkbox, Chip, ConceptCard, EmptyState, Field, Input, Label, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, ReassuranceLine, SkeletonRows, StatusPill, Switch, Term, cn, fieldDescribedBy, formatMoney, useDateFormat, useFormatters, useGuided, useToast, type Kit } from "@foundmill/dugout";
 import { formatDate, formatMoney as formatCredits, plainWords, plural } from "@/lib/format";
 import { useSingleFlight } from "@/lib/single-flight";
 import { errorMessage, tierLimitOf, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
@@ -236,6 +238,17 @@ export function includedCreditsLine(): string {
   return `Starts with ${formatCredits({ amountMinor: includedCreditsMinor("free"), currency: CREDITS_CURRENCY })} of included credits this month. No card.`;
 }
 
+/** The spend cap in words for the "How it runs" line: "Asks you above €250", "No spend cap", or what is wrong with it. */
+export function spendCapSummary(spendCap: string, currency: string): string {
+  const typed = spendCap.trim();
+  if (!typed) return "No spend cap";
+  const minor = Math.round(Number(typed.replace(/[\s,_]/g, "")) * 100);
+  return Number.isFinite(minor) ? `Asks you above ${formatMoney({ amountMinor: minor, currency })}` : "Spend cap to fix";
+}
+
+/** Where "How it runs" is changed later, under its summary (§7.6). */
+export const HOW_IT_RUNS_REASSURANCE = "You can change all of this later in Settings › Business and Settings › Mode.";
+
 export interface CommitFormProps {
   idea: IdeaLike;
   viewer: { email: string | null };
@@ -297,8 +310,9 @@ const DEBOUNCE_MS = 350;
 
 export function CommitForm({ idea, viewer, currency, initialName, suggestedArchetype, steps, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, creditsNotice, adultConfirmed = false, liveOpen = true, onCommit, logoApi, domainApi, back }: CommitFormProps) {
   const concept = useMemo(() => toConcept(idea), [idea]);
-  // Reassurance lines are tutoring: hidden when guidance is off (§5.9).
+  // Guidance off: an operator sees the five "How it runs" controls at once (§7.6); on, they open from "Change".
   const guided = useGuided();
+  const [runsChosen, setRunsChosen] = useState<boolean | null>(null);
   // The idea's seed only picks the starting brand colours now; the logo is uploaded or generated.
   const ideaSeed = String(readMeta(idea.current?.research).crest_seed ?? idea.id);
   const [form, setForm] = useState<CommitFormValues>(() => {
@@ -401,7 +415,9 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
   }
 
   const show = (key: keyof CommitFormValues) => (touched ? errors[key] : undefined);
-  const capMinor = Math.round(Number(form.spendCap.replace(/[\s,_]/g, "")) * 100);
+  // A refused answer among the five controls opens them, so the founder sees what to fix.
+  const runsOpen = (runsChosen ?? !guided) || (touched && Boolean(errors.archetype || errors.spendCap || errors.adult));
+  const modeLabel = BUSINESS_MODE_CARDS.find((m) => m.value === form.businessMode)?.label ?? form.businessMode;
 
   return (
     <StudioFrame
@@ -436,7 +452,9 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                   </Chip>
                 ))}
               </div>
-              <Reassurance guided={guided} where="Settings › Business" testId="reassure-name" />
+              <ReassuranceLine icon="settings" data-testid="reassure-name">
+                You can change this later in Settings › Business.
+              </ReassuranceLine>
             </div>
           </Panel>
 
@@ -519,85 +537,136 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
           <Panel title="Logo and brand colors" data-testid="logo-panel">
             <div className="flex flex-col gap-3">
               <LogoColoursEditor name={form.name} kit={form.kit} onKitChange={(kit: Kit) => set("kit", kit)} logo={form.logo} onLogoChange={(logo) => set("logo", logo)} logoActions={logoActions} error={show("kit")} />
-              <Reassurance guided={guided} where="Settings › Business" testId="reassure-logo" />
+              <ReassuranceLine icon="settings" data-testid="reassure-logo">
+                You can change this later in Settings › Business.
+              </ReassuranceLine>
             </div>
           </Panel>
 
-          <Panel title="Personal or live">
-            <RadioGroup value={form.gameMode} onValueChange={(v) => set("gameMode", v as GameMode)} className="grid-cols-2" aria-label="Personal or live">
-              {GAME_MODE_CARDS.filter((m) => liveOpen || m.value !== "live").map((m) => (
-                <ModeCardOption key={m.value} id={`game-${m.value}`} value={m.value} label={m.label} tagline={m.tagline} details={m.details} selected={form.gameMode === m.value} icon={m.value === "live" ? Globe : Lock} />
-              ))}
-            </RadioGroup>
-            {/* A LIVE business is on the network from the start, and the network is for adults: asked once (Settings › Mode asks the same). */}
-            {form.gameMode === "live" && !adultConfirmed ? (
-              <Field htmlFor="commit-adult" label="The network is for adults" error={show("adult")} className="mt-3">
-                <span className="flex items-start gap-2" data-testid="commit-adult">
-                  <Checkbox id="commit-adult" checked={form.adult} onCheckedChange={(v) => set("adult", v === true)} className="mt-0.5" aria-describedby={fieldDescribedBy("commit-adult", { error: Boolean(show("adult")) })} />
-                  <Label htmlFor="commit-adult" className="normal-case tracking-normal text-body text-primary">
-                    I am 18 or older. You confirm this once.
-                  </Label>
-                </span>
-              </Field>
-            ) : null}
-            {liveOpen ? null : <p className="mt-2 text-small text-secondary" data-testid="live-closed-note">Live is not open yet. Your business starts Personal.</p>}
+          {/* How it runs (A3): the five choices in one line of chips; "Change" opens the controls below. */}
+          <Panel
+            title="How it runs"
+            data-testid="how-it-runs"
+            actions={
+              <Button type="button" size="sm" variant="ghost" icon={runsOpen ? ChevronUp : ChevronDown} aria-expanded={runsOpen} aria-controls="how-it-runs-controls" onClick={() => setRunsChosen(!runsOpen)} data-testid="how-it-runs-change">
+                {runsOpen ? "Hide" : "Change"}
+              </Button>
+            }
+          >
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-1.5" role="list" aria-label="How it runs" data-testid="how-it-runs-summary">
+                <Chip role="listitem" tone={form.gameMode === "live" ? "kit" : "ink"} icon={form.gameMode === "live" ? Globe : Lock} data-summary="game-mode">
+                  {form.gameMode === "live" ? "Live" : "Personal"}
+                </Chip>
+                <Chip role="listitem" data-summary="business-mode">
+                  <Term id="business_mode">{modeLabel}</Term>
+                </Chip>
+                {form.archetype ? (
+                  <Chip role="listitem" data-summary="archetype">
+                    <Term id="archetype">{ARCHETYPE_LABELS[form.archetype]}</Term>
+                  </Chip>
+                ) : (
+                  <Chip role="listitem" tone="warn" data-summary="archetype">
+                    Pick an <Term id="archetype">archetype</Term>
+                  </Chip>
+                )}
+                <Chip role="listitem" data-summary="spend-cap">
+                  {spendCapSummary(form.spendCap, form.currency)}
+                </Chip>
+                <Chip role="listitem" data-summary="autopilot">
+                  <Term id="autopilot">Autopilot</Term>
+                  {form.autopilot ? " on" : " off"}
+                </Chip>
+              </div>
+              <ReassuranceLine icon="settings" data-testid="reassure-how-it-runs">
+                {HOW_IT_RUNS_REASSURANCE}
+              </ReassuranceLine>
+            </div>
           </Panel>
 
-          <Panel title="Archetype" data-testid="archetype-panel">
-            <div className="flex flex-col gap-3">
-              <Field htmlFor="archetype-group" label="The kind of business: it decides which departments and agents you start with, and the first roadmap" required error={show("archetype")}>
-                <RadioGroup id="archetype-group" value={form.archetype ?? ""} onValueChange={(v) => set("archetype", v as Archetype)} className="grid-cols-4" aria-label="Archetype">
-                  {ARCHETYPE_CARDS.map((a) => (
-                    <ModeCardOption key={a.value} id={`arch-${a.value}`} value={a.value} label={a.label} tagline={a.tagline} details={[`First win: ${a.firstWin}`]} selected={form.archetype === a.value} badge={suggestedArchetype === a.value ? "From the import report" : !suggestedArchetype && idea.archetype === a.value ? "From the card" : undefined} />
+          {runsOpen ? (
+            <div id="how-it-runs-controls" className="contents" data-testid="how-it-runs-controls">
+              <Panel title="Personal or live">
+                <RadioGroup value={form.gameMode} onValueChange={(v) => set("gameMode", v as GameMode)} className="grid-cols-2" aria-label="Personal or live">
+                  {GAME_MODE_CARDS.filter((m) => liveOpen || m.value !== "live").map((m) => (
+                    <ModeCardOption key={m.value} id={`game-${m.value}`} value={m.value} label={m.label} tagline={m.tagline} details={m.details} selected={form.gameMode === m.value} icon={m.value === "live" ? Globe : Lock} />
                   ))}
                 </RadioGroup>
-              </Field>
-              <Reassurance guided={guided} where="Settings › Business" testId="reassure-archetype" />
-            </div>
-          </Panel>
+                {/* A LIVE business is on the network from the start, and the network is for adults: asked once (Settings › Mode asks the same). */}
+                {form.gameMode === "live" && !adultConfirmed ? (
+                  <Field htmlFor="commit-adult" label="The network is for adults" error={show("adult")} className="mt-3">
+                    <span className="flex items-start gap-2" data-testid="commit-adult">
+                      <Checkbox id="commit-adult" checked={form.adult} onCheckedChange={(v) => set("adult", v === true)} className="mt-0.5" aria-describedby={fieldDescribedBy("commit-adult", { error: Boolean(show("adult")) })} />
+                      <Label htmlFor="commit-adult" className="normal-case tracking-normal text-body text-primary">
+                        I am 18 or older. You confirm this once.
+                      </Label>
+                    </span>
+                  </Field>
+                ) : null}
+                {liveOpen ? null : <p className="mt-2 text-small text-secondary" data-testid="live-closed-note">Live is not open yet. Your business starts Personal.</p>}
+              </Panel>
 
-          <Panel title="Business mode" data-testid="business-mode-panel">
-            <div className="flex flex-col gap-3">
-              <RadioGroup value={form.businessMode} onValueChange={(v) => chooseMode(v as BusinessMode)} className="grid-cols-3" aria-label="Business mode">
-                {BUSINESS_MODE_CARDS.map((m) => (
-                  <ModeCardOption key={m.value} id={`mode-${m.value}`} value={m.value} label={m.label} tagline={m.tagline} details={m.details} example={m.example} selected={form.businessMode === m.value} badge={m.value === "assisted" ? "Default" : undefined} />
-                ))}
-              </RadioGroup>
-              <div className="grid grid-cols-12 items-start gap-gutter border-t border-line pt-3">
-                <Field htmlFor="spend-cap" label="Spend cap per action" hint="Above this amount, every spend asks you first, whatever the mode. Leave it empty for no limit." error={show("spendCap")} className="col-span-6">
-                  <MoneyInput
-                    id="spend-cap"
-                    controlSize="lg"
-                    inputMode="decimal"
-                    value={form.spendCap}
-                    currency={form.currency}
-                    onChange={(e) => {
-                      setCapTouched(true);
-                      set("spendCap", e.target.value);
-                    }}
-                    invalid={Boolean(show("spendCap"))}
-                  />
-                </Field>
-                <p className="col-span-6 flex flex-wrap items-center gap-x-2 gap-y-1 pt-6 text-small text-secondary">
-                  <span>
-                    Default for {BUSINESS_MODE_CARDS.find((m) => m.value === form.businessMode)?.label}: <span className="tabular text-primary">{formatMoney({ amountMinor: DEFAULT_SPEND_CAP_MINOR[form.businessMode], currency: form.currency })}</span>
-                  </span>
-                  <ProvenanceChip kind="estimate" />
-                  <span>Money, signatures and identity always ask.</span>
-                </p>
-              </div>
-              <div className="flex items-start gap-3 border-t border-line pt-3" data-testid="autopilot-choice">
-                <Switch id="run-on-autopilot" checked={form.autopilot} onCheckedChange={(on) => set("autopilot", on)} aria-describedby="run-on-autopilot-hint" data-testid="run-on-autopilot" />
-                <div className="flex flex-col gap-1">
-                  <Label htmlFor="run-on-autopilot">Run on autopilot</Label>
-                  <p id="run-on-autopilot-hint" className="text-small text-secondary">
-                    Off by default. The team starts its own cycles, about every 4 hours, the way Continue does: every approval and hard gate still waits for you, and Autopilot pauses itself when credits run out or Inbox decisions are waiting.
-                  </p>
+              <Panel title={<Term id="archetype">Archetype</Term>} data-testid="archetype-panel">
+                <div className="flex flex-col gap-3">
+                  <Field htmlFor="archetype-group" label="The kind of business: it decides which departments and agents you start with, and the first roadmap" required error={show("archetype")}>
+                    <RadioGroup id="archetype-group" value={form.archetype ?? ""} onValueChange={(v) => set("archetype", v as Archetype)} className="grid-cols-4" aria-label="Archetype">
+                      {ARCHETYPE_CARDS.map((a) => (
+                        <ModeCardOption key={a.value} id={`arch-${a.value}`} value={a.value} label={a.label} tagline={a.tagline} details={[`First win: ${a.firstWin}`]} selected={form.archetype === a.value} badge={suggestedArchetype === a.value ? "From the import report" : !suggestedArchetype && idea.archetype === a.value ? "From the card" : undefined} />
+                      ))}
+                    </RadioGroup>
+                  </Field>
+                  <ReassuranceLine icon="settings" data-testid="reassure-archetype">
+                    You can change this later in Settings › Business.
+                  </ReassuranceLine>
                 </div>
-              </div>
-              <Reassurance guided={guided} where="Settings › Mode" testId="reassure-mode" />
+              </Panel>
+
+              <Panel title={<Term id="business_mode">Business mode</Term>} data-testid="business-mode-panel">
+                <div className="flex flex-col gap-3">
+                  <RadioGroup value={form.businessMode} onValueChange={(v) => chooseMode(v as BusinessMode)} className="grid-cols-3" aria-label="Business mode">
+                    {BUSINESS_MODE_CARDS.map((m) => (
+                      <ModeCardOption key={m.value} id={`mode-${m.value}`} value={m.value} label={m.label} tagline={m.tagline} details={m.details} example={m.example} selected={form.businessMode === m.value} badge={m.value === "assisted" ? "Default" : undefined} />
+                    ))}
+                  </RadioGroup>
+                  <div className="grid grid-cols-12 items-start gap-gutter border-t border-line pt-3">
+                    <Field htmlFor="spend-cap" label="Spend cap per action" hint="Above this amount, every spend asks you first, whatever the mode. Leave it empty for no limit." error={show("spendCap")} className="col-span-6">
+                      <MoneyInput
+                        id="spend-cap"
+                        controlSize="lg"
+                        inputMode="decimal"
+                        value={form.spendCap}
+                        currency={form.currency}
+                        onChange={(e) => {
+                          setCapTouched(true);
+                          set("spendCap", e.target.value);
+                        }}
+                        invalid={Boolean(show("spendCap"))}
+                      />
+                    </Field>
+                    <p className="col-span-6 flex flex-wrap items-center gap-x-2 gap-y-1 pt-6 text-small text-secondary">
+                      <span>
+                        Default for {modeLabel}: <span className="tabular text-primary">{formatMoney({ amountMinor: DEFAULT_SPEND_CAP_MINOR[form.businessMode], currency: form.currency })}</span>
+                      </span>
+                      <ProvenanceChip kind="estimate" />
+                      <span>Money, signatures and identity always ask.</span>
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-3 border-t border-line pt-3" data-testid="autopilot-choice">
+                    <Switch id="run-on-autopilot" checked={form.autopilot} onCheckedChange={(on) => set("autopilot", on)} aria-describedby="run-on-autopilot-hint" data-testid="run-on-autopilot" />
+                    <div className="flex flex-col gap-1">
+                      <Label htmlFor="run-on-autopilot">Run on autopilot</Label>
+                      <p id="run-on-autopilot-hint" className="text-small text-secondary">
+                        Off by default. The team starts its own <Term id="cycle">cycles</Term>, about every 4 hours, the way Continue does: every approval and <Term id="hard_gate">hard gate</Term> still waits for you, and Autopilot pauses itself when credits run out or Inbox decisions are waiting.
+                      </p>
+                    </div>
+                  </div>
+                  <ReassuranceLine icon="settings" data-testid="reassure-mode">
+                    You can change this later in Settings › Mode.
+                  </ReassuranceLine>
+                </div>
+              </Panel>
             </div>
-          </Panel>
+          ) : null}
 
           {error ? (
             <div className="flex flex-wrap items-center gap-2" data-testid="commit-error">
@@ -659,15 +728,6 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                   {includedCreditsLine()}
                 </p>
               )}
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Chip tone={form.gameMode === "live" ? "kit" : "ink"} icon={form.gameMode === "live" ? Globe : Lock}>
-                  {form.gameMode === "live" ? "Live" : "Personal"}
-                </Chip>
-                <Chip>{BUSINESS_MODE_CARDS.find((m) => m.value === form.businessMode)?.label}</Chip>
-                {form.archetype ? <Chip>{ARCHETYPE_LABELS[form.archetype]}</Chip> : null}
-                {Number.isFinite(capMinor) && form.spendCap.trim() ? <Chip>Cap {formatMoney({ amountMinor: capMinor, currency: form.currency })}</Chip> : null}
-                {form.autopilot ? <Chip>Autopilot</Chip> : null}
-              </div>
               {creditsNotice ? (
                 <div data-testid="commit-credits-notice" className="mt-3 flex flex-col items-start gap-1.5">
                   <StatusPill tone="warn">Team starts paused</StatusPill>
@@ -692,21 +752,6 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
         </aside>
       </form>
     </StudioFrame>
-  );
-}
-
-/**
- * "You can change this later in Settings › Business." under a first-run commitment (§5.7). A plain line now; hidden
- * when guidance is off.
- */
-// TODO(guided-layer): ReassuranceLine
-function Reassurance({ guided, where, testId }: { guided: boolean; where: string; testId: string }) {
-  if (!guided) return null;
-  return (
-    <p className="flex items-center gap-1.5 text-small text-tertiary" data-testid={testId}>
-      <Settings size={14} className="shrink-0" aria-hidden />
-      You can change this later in {where}.
-    </p>
   );
 }
 

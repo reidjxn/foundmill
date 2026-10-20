@@ -7,8 +7,8 @@
 import { ArrowLeft, ArrowRight, GitFork, GitMerge, History, MessageCircleQuestionMark } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { RETRY_REPLY_ID, deskFailureOf, failureQuickReplies, failureReply } from "@/components/conversation/logic";
-import { AgentDesk, Button, Checkbox, Chip, BusinessLogo, ConceptCard, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Markdown, SkeletonText, StatusPill, Textarea, cn, currentQuickReplies, stripEntityMarkup, useFormatters, type DeskMessage, type DeskPersona, type QuickReplyItem } from "@foundmill/dugout";
-import { qaBubbles, qaOf, toConcept, versionActionLabel, versionToConcept, type IdeaLike, type IdeaVersionLike } from "./concepts";
+import { AgentDesk, Button, Checkbox, Chip, BusinessLogo, ConceptCard, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Markdown, SkeletonText, StatusPill, Term, Textarea, cn, currentQuickReplies, stripEntityMarkup, useFormatters, type DeskMessage, type DeskPersona, type QuickReplyItem } from "@foundmill/dugout";
+import { attributeTerm, attributeTermId, qaBubbles, qaOf, toConcept, versionActionLabel, versionToConcept, type IdeaLike, type IdeaVersionLike } from "./concepts";
 
 /* ---------- Ask ---------- */
 
@@ -134,8 +134,12 @@ export function AskDialog({ idea, open, onOpenChange, persona, starters, onAsk, 
         <span className="inline-flex flex-wrap items-center gap-1.5" data-testid="ask-version">
           <Chip icon={History}>Saved as version {latest.version}</Chip>
           {(latest.changes ?? []).map((c) => (
-            <Chip key={c.key} tone={c.to > c.from ? "good" : "warn"}>
-              {c.label} {c.from} → {c.to}
+            <Chip key={c.key} tone={c.to > c.from ? "good" : "warn"} data-attribute-change={c.key}>
+              {/* The attribute is a defined word (A6): its sentence says what it measures and which way it reads. */}
+              <Term id={attributeTermId(c.key)} definition={attributeTerm(c.key)}>
+                {c.label}
+              </Term>{" "}
+              {c.from} → {c.to}
             </Chip>
           ))}
         </span>

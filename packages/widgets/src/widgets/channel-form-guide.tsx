@@ -1,13 +1,15 @@
 "use client";
 /**
- * Channel form guide widget (BUILD §11.7 "form guide (last 5 weeks of CPA)"): every enabled channel with its fit,
- * five weekly form cells and this week's cost per customer (Estimate).
+ * Channel performance widget (BUILD §11.7 "form guide (last 5 weeks of CPA)"; the identifier `channel_form_guide`
+ * stays): every enabled channel with its fit, five weekly cost-trend cells and this week's cost to win a customer
+ * (Estimate). The words follow the Channel Board (UX plan §7.13): "Cost trend", each week under, near or over the
+ * channel's cost target, the key on hover (`FormGuide` from the design system), and never "CPA" where a founder reads.
  */
 import { useMemo } from "react";
 import { z } from "zod";
 import { Megaphone } from "lucide-react";
 import { CHANNEL_META, type ChannelKey } from "@foundmill/shared/constants";
-import { FormGuide, MiniTable, ProvenanceChip, RatingFigure, formatMoney, formatNumber, type FormCell, type MiniTableColumn } from "@foundmill/dugout";
+import { COST_TREND_LABEL, FormGuide, MiniTable, ProvenanceChip, RatingFigure, Term, formatMoney, formatNumber, type FormCell, type MiniTableColumn } from "@foundmill/dugout";
 import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { moduleHref, useDepartments } from "../shared/departments";
@@ -16,7 +18,7 @@ import { addDays, weekKey } from "../shared/time";
 import type { ChannelMetricRow, ChannelRow, ChannelsListResponse } from "../shared/types";
 
 export const ChannelFormGuideSettings = z.object({
-  /** Include channels on the bench (disabled). */
+  /** Include channels that are off the board (disabled). */
   includeDisabled: z.boolean().default(false),
   /** How many channels to show (sorted by fit). */
   max: z.number().int().min(3).max(15).default(8),
@@ -39,7 +41,10 @@ export interface ChannelFormRow {
   spendMinor: number;
 }
 
-/** Weekly CPA against the channel's own median: within ±10 % is "near cap", lower is good, higher is bad. */
+/**
+ * Each week's cost to win a customer against the channel's own median, which stands in for its cost target: within
+ * ±10% is "near target" (warn), lower is "under target" (good), higher is "over target" (bad); no spend is no data.
+ */
 export function formCells(weekly: readonly { spendMinor: number; customers: number }[]): FormCell[] {
   const cpas = weekly.map((w) => (w.customers > 0 ? w.spendMinor / w.customers : w.spendMinor > 0 ? Number.POSITIVE_INFINITY : null));
   const finite = cpas.filter((c): c is number => c !== null && Number.isFinite(c)).sort((a, b) => a - b);
@@ -102,11 +107,13 @@ function ChannelFormGuideWidget({ settings }: WidgetProps<ChannelFormGuideSettin
   }, ["channel.threshold_breached", "campaign.launched", "payment.received"]);
   const rows = useMemo(() => buildFormRows(channels.data?.channels ?? [], metrics.data ?? [], today, settings), [channels.data, metrics.data, today, settings]);
   const cur = channels.data?.channels[0]?.currency ?? currency;
+  // Column heads define their words where a founder first meets them (UX plan §7.8): fit and the cost to win a customer
+  // are Terms; the cost trend's key sits on each strip (FormGuide's tooltip, as on the Board).
   const columns: MiniTableColumn<ChannelFormRow>[] = [
     { id: "channel", header: "Channel", cell: (r) => <span className={r.enabled ? "text-body-strong" : "text-secondary"}>{r.label}{r.recommended ? <span className="ml-1 text-small text-tertiary">Recommended</span> : null}</span> },
-    { id: "fit", header: "Fit", numeric: true, width: 44, cell: (r) => <RatingFigure value={r.fit} /> },
-    { id: "form", header: "Form", width: 64, cell: (r) => <FormGuide form={r.form} name={`${r.label} form`} /> },
-    { id: "cpa", header: "CPA this week", numeric: true, width: 110, cell: (r) => (r.cpaMinor === null ? "—" : formatMoney({ amountMinor: r.cpaMinor, currency: cur })) },
+    { id: "fit", header: <Term id="fit">Fit</Term>, numeric: true, width: 44, cell: (r) => <RatingFigure value={r.fit} /> },
+    { id: "form", header: COST_TREND_LABEL, width: 64, cell: (r) => <FormGuide form={r.form} name={`${r.label} ${COST_TREND_LABEL.toLowerCase()}`} /> },
+    { id: "cpa", header: <Term id="acquisition_cost">Cost to win a customer</Term>, numeric: true, width: 150, cell: (r) => (r.cpaMinor === null ? "—" : formatMoney({ amountMinor: r.cpaMinor, currency: cur })) },
     { id: "customers", header: "Customers (5 wk)", numeric: true, width: 110, cell: (r) => formatNumber(r.customers, { maxDigits: 0 }) },
   ];
   const openChannels = () => navigate(moduleHref(businessId, departments.data, "distribution", "channels") ?? moduleHref(businessId, departments.data, "distribution") ?? `/b/${businessId}/home`);
@@ -116,9 +123,13 @@ function ChannelFormGuideWidget({ settings }: WidgetProps<ChannelFormGuideSettin
       data-widget="channel_form_guide"
       queries={[channels, metrics]}
       flush
-      empty={channels.data && rows.length === 0 ? { icon: Megaphone, text: "No channels are on the board yet. Put starters on the Channel Board.", action: { label: "Open Channel Board", onClick: () => navigate(moduleHref(businessId, departments.data, "distribution", "formation") ?? `/b/${businessId}/home`) } } : null}
-      actions={<ProvenanceChip kind="estimate" title="CPA = spend ÷ customers attributed to the channel" />}
-      footer={<span>Form: each week's CPA against the channel's own median · last {FORM_WEEKS} weeks</span>}
+      empty={channels.data && rows.length === 0 ? { icon: Megaphone, text: "No channels are on the board yet. Put the first channels on the Channel Board.", action: { label: "Open Channel Board", onClick: () => navigate(moduleHref(businessId, departments.data, "distribution", "formation") ?? `/b/${businessId}/home`) } } : null}
+      actions={<ProvenanceChip kind="estimate" aria-label="Estimate: the cost to win a customer is this week's spend divided by the customers the channel brought in" />}
+      footer={
+        <span>
+          Cost to win a customer is this week's. {COST_TREND_LABEL}: each week against the channel's cost target, under, near or over · last {FORM_WEEKS} weeks
+        </span>
+      }
     >
       <MiniTable columns={columns} rows={rows} getRowKey={(r) => r.channelId} onRowClick={openChannels} aria-label="Channel performance" emptyText="No channels." />
     </WidgetFrame>
@@ -128,7 +139,7 @@ function ChannelFormGuideWidget({ settings }: WidgetProps<ChannelFormGuideSettin
 export const channelFormGuideWidget = registerWidget<ChannelFormGuideSettings>({
   key: "channel_form_guide",
   title: "Channel performance",
-  description: "Every channel's fit, five-week form and cost per customer.",
+  description: "Every channel's fit, its five-week cost trend and the cost to win a customer.",
   icon: "megaphone",
   surfaces: ["home", "department"],
   defaultSize: { w: 6, h: 10, minW: 4, minH: 8 },

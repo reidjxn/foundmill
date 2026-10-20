@@ -42,6 +42,7 @@ type Story = StoryObj<typeof meta>;
 /** The Team › Squad DataTable with the five saved views (General, Health, Tools, Cost, Performance) and the custom cells. */
 export const SquadDataTable: Story = {};
 
+/** The cells on their own. Rating carries its band word as a compact ScaleLabel (UX plan §6.2); Form shows its FormKey sentence on hover. */
 export const Cells: Story = {
   render: () => {
     const rows = mockSquadRows(6);

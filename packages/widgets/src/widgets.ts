@@ -15,3 +15,4 @@ export * from "./widgets/trophy-cabinet";
 export * from "./widgets/league-table";
 export * from "./widgets/community-feed";
 export * from "./widgets/custom-metric";
+export * from "./widgets/first-week-checklist";

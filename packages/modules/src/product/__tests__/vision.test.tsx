@@ -28,6 +28,27 @@ describe("VisionScreen", () => {
     expect(within(now).getByText("Done")).toBeTruthy();
   });
 
+  it("guidance on: the department's intro sits in the first panel's body and the summary's first word is defined (UX plan §7.10)", () => {
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "department.list": departments } });
+    renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />, {}, { guidance: "on" });
+    const explainer = document.querySelector("[data-explainer='product/vision']") as HTMLElement;
+    expect(explainer).toBeTruthy();
+    expect(within(explainer).getByText("What your business is building.")).toBeTruthy();
+    expect(within(explainer).getByText("Read the vision; sign off the specification and roadmap when they look right.")).toBeTruthy();
+    // Inside a panel's body, never floating.
+    expect(explainer.closest("[data-panel-body]")).toBeTruthy();
+    const summary = screen.getByTestId("spec-summary");
+    expect(summary.textContent).toBe("Specification: 5 sections · not signed off yet");
+    expect(within(summary).getByRole("button", { name: "Specification" }).className).toContain("term-link");
+  });
+
+  it("guidance off: no intro, the summary's words are plain", () => {
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "department.list": departments } });
+    renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />);
+    expect(document.querySelector("[data-explainer]")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Specification" })).toBeNull();
+  });
+
   it("gives each outline row a 24 px target (WCAG 2.5.8; they were 19 px, stacked)", () => {
     const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "department.list": departments } });
     const { container } = renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />);

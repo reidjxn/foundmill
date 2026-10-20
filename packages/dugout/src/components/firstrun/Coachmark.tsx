@@ -7,10 +7,11 @@
  * Back / Next / Skip tour. ArrowLeft and ArrowRight move, Esc skips. Overlay motion 200 ms, instant under reduced
  * motion. Finishing or skipping marks the tour done (`markTourDone`), so it never replays.
  *
- * It never starts when the tour is already done, when guidance is off, or while an element with
- * `[data-coachmark-pause]` is in the document (the app sets it while Continue is processing or a dialog is open); it
- * waits for the pause to clear and for its targets to appear, then starts. A step whose target is missing is skipped;
- * a target that leaves the page mid-tour moves the tour on.
+ * It never starts when the tour is already done, when guidance is off, while an element with `[data-coachmark-pause]`
+ * is in the document (the app sets it while Continue is processing or one of its own overlays is open), or while any
+ * dialog is open (`[role="dialog"]`: a Dialog, a Sheet, the command palette, another tour's card); it waits for the
+ * pause to clear and for its targets to appear, then starts. A step whose target is missing is skipped; a target that
+ * leaves the page mid-tour moves the tour on; a tour none of whose targets ever appear simply never starts.
  *
  * Targets are found by DOM id or by a `data-coachmark="<targetId>"` attribute.
  */
@@ -56,9 +57,16 @@ export function findCoachmarkTarget(targetId: string): HTMLElement | null {
   return document.querySelector<HTMLElement>(`[data-coachmark="${escaped}"]`);
 }
 
-/** True while something on the page asks tours to wait. */
+/**
+ * An open dialog of any kind (a Dialog, a Sheet, the command palette, another tour's own card) also pauses a tour: a
+ * coach mark must never open over a dialog, and two tours never run at once.
+ */
+export const COACHMARK_DIALOG_SELECTOR = '[role="dialog"], [role="alertdialog"]';
+
+/** True while something on the page asks tours to wait: a pause marker, or an open dialog. */
 export function isCoachmarkPaused(): boolean {
-  return typeof document !== "undefined" && document.querySelector(COACHMARK_PAUSE_SELECTOR) !== null;
+  if (typeof document === "undefined") return false;
+  return document.querySelector(COACHMARK_PAUSE_SELECTOR) !== null || document.querySelector(COACHMARK_DIALOG_SELECTOR) !== null;
 }
 
 interface Box {
@@ -145,7 +153,9 @@ export function Coachmark({ tourId, steps, onDone, autoStart = true, open }: Coa
         if (tryStart()) observer.disconnect();
       });
     });
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-coachmark-pause", "data-coachmark", "id"] });
+    // A dialog opening or closing is a mount, an unmount or a `data-state` flip; the pause marker and the targets are
+    // attributes: all of these wake the retry.
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-coachmark-pause", "data-coachmark", "id", "role", "data-state"] });
     return () => {
       observer.disconnect();
       if (frame) cancelAnimationFrame(frame);
