@@ -15,8 +15,8 @@ export type VoiceRegister = "silent" | "terse" | "numerate" | "measured" | "mark
 const REGISTER_VOICES: Record<VoiceRegister, AgentVoice> = {
   silent: { greeting: "Ready.", thinking: ["Processing the input…", "Checking the fields…"], ack: ["Noted.", "Understood."] },
   terse: {
-    greeting: "Hi. Ask me about the code, the tests or the branch.",
-    thinking: ["Checking the branch…", "Reading the test output…", "Looking at the diff…"],
+    greeting: "Hi. Ask me about the code, the tests or my changes.",
+    thinking: ["Checking my changes…", "Reading the test output…", "Looking at the diff…"],
     ack: ["Understood.", "Noted. Changing course in this step.", "Clear."],
   },
   numerate: {

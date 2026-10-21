@@ -7,6 +7,7 @@ import { useFormatters } from "../foundation/DateFormatProvider";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../foundation/Dialog";
 import { Icon } from "../foundation/Icon";
 import { Tooltip } from "../foundation/Tooltip";
+import { ConsequenceLine } from "../guidance/ConsequenceLine";
 import { Term } from "../guidance/Term";
 
 /** The team is stopped (Stop all agents, a revoked key, used-up credits): the kill switch becomes the way back. */
@@ -57,8 +58,13 @@ export const STOP_PENDING_ESCAPE_MS = 35_000;
 /** The trigger's tooltip: what it does and the reassurance, in one line (docs/UX_AUDIT_AND_PLAN.md §7.7, B6). */
 export const STOP_ALL_TOOLTIP = "Stop all agents (pauses everything, nothing is lost)";
 
+/**
+ * The line under the confirm (a `ConsequenceLine`, always shown: a consequence is information, not tutoring): what the
+ * stop does, that it costs nothing and that it can be undone (Resume agents).
+ */
+export const STOP_ALL_CONSEQUENCE = "Running sessions stop now; tasks keep their state. Nothing is deleted.";
+
 /** The confirm dialog's description: the reassurance first, then what stops and who brings it back. Exported for tests. */
-// TODO(guided-layer): ConsequenceLine (reversible, no cost) under the confirm once the primitive lands.
 export function stopAllDescription(count: number, canStop: boolean): string {
   if (!canStop) return "Only an owner or admin can stop every agent at once. Ask one of them; they find the same button here.";
   const stops = count > 0 ? `${count} running ${count === 1 ? "session stops" : "sessions stop"} now.` : "Every running session stops now.";
@@ -183,6 +189,8 @@ function StopAll({ onConfirm, runningCount, open, onOpenChange, disabled, childr
                 Stop all agents
               </Button>
             ) : null}
+            {/* Its own row under the buttons (the footer wraps), lined up with the confirm. */}
+            {canStop ? <ConsequenceLine consequence={STOP_ALL_CONSEQUENCE} cost="No cost" reversible className="basis-full justify-end text-right" data-testid="stop-all-consequence" /> : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>

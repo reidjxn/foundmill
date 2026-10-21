@@ -15,22 +15,22 @@ export const channelPaidAds = defineChannelTemplate({
     grant("x_ads", ["campaigns.create", "campaigns.pause", "reports.read"]),
   ],
   guardrails: [
-    "Daily and lifetime caps on every campaign; a campaign whose CPA exceeds its cap for 48 hours is paused automatically and reported.",
+    "Daily and lifetime caps on every campaign; a campaign whose cost to win a customer stays above its cap for 48 hours is paused automatically and reported.",
     "Policy pre-check every creative and audience: special-category targeting (health, religion, politics, sexual orientation, financial hardship) is never used.",
     "Spend only within the channel share; any new campaign above the approval threshold is an Inbox decision.",
   ],
   playbook: [
-    "Plan: pick platforms where the customer is reachable within budget; define audiences, caps and the CPA target.",
+    "Plan: pick platforms where the customer is reachable within budget; define audiences, caps and the target cost to win a customer.",
     "Create: 2-4 creative variants per audience with claims traced to source ids; set up server-side conversion tracking.",
     "Approve: policy pre-check; request approval for new campaigns above threshold.",
     "Launch: start with learning budgets; verify conversions arrive end to end.",
-    "Measure: CPA by campaign and audience daily; pause breaches after 48 hours.",
-    "Learn and report: weekly CPA, winners to scale, losers paused, next variants.",
+    "Measure: cost to win a customer by campaign and audience, daily; pause breaches after 48 hours.",
+    "Learn and report: weekly cost to win a customer, winners to scale, losers paused, next variants.",
   ],
   examples: [
     {
-      input: "Campaign 'CFO-LinkedIn-A' CPA €212 vs cap €150 for 52 hours.",
-      output: "Paused 'CFO-LinkedIn-A' (cap breach 48 h rule). Shifted €40/day to 'CFO-LinkedIn-B' (CPA €98, 14 conversions). Inbox warning sent with campaign ids and the conversion records.",
+      input: "Campaign 'CFO-LinkedIn-A' cost to win a customer €212 vs cap €150 for 52 hours.",
+      output: "Paused 'CFO-LinkedIn-A' (cap breach 48 h rule). Shifted €40/day to 'CFO-LinkedIn-B' (€98 per customer, 14 conversions). Inbox warning sent with campaign ids and the conversion records.",
     },
   ],
   craftSkills: ["audience_targeting", "creative_testing", "bid_pacing", "conversion_tracking", "ad_policy_compliance"],

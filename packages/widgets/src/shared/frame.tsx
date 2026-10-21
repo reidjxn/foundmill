@@ -29,6 +29,13 @@ export interface WidgetFrameProps {
   empty?: WidgetEmpty | null | false;
   actions?: ReactNode;
   footer?: ReactNode;
+  /**
+   * One sentence about the widget, as the panel's InfoTip after its title (UX plan §6.2, §8.2): where a widget defines
+   * the jargon it shows ("Runway is how many months your cash lasts at today's spending"). Hidden when guidance is off.
+   */
+  help?: ReactNode;
+  /** A "Learn more" target for `help` (a route slug or URL). */
+  helpLearn?: string;
   menu?: PanelMenu;
   flush?: boolean;
   bodyClassName?: string;
@@ -78,7 +85,7 @@ function errorText(error: Error | string): string {
   return error.message && error.message.length < 160 ? error.message : "The data for this panel could not be loaded.";
 }
 
-export function WidgetFrame({ title, queries = [], loading, error, onRetry, empty, actions, footer, menu, flush, bodyClassName, className, children, ...rest }: WidgetFrameProps) {
+export function WidgetFrame({ title, queries = [], loading, error, onRetry, empty, actions, footer, help, helpLearn, menu, flush, bodyClassName, className, children, ...rest }: WidgetFrameProps) {
   // Captions in the business's words (Settings › Glossary): a string title and the text of a footer are renamed.
   const g = useGlossary();
   // Away from Home (a department screen) the caret menu offers Pin to Home for this widget (audit #394).
@@ -104,6 +111,8 @@ export function WidgetFrame({ title, queries = [], loading, error, onRetry, empt
       onRetry={retry}
       empty={emptyProps}
       footer={glossNode(footer, g)}
+      help={help ? glossNode(help, g) : undefined}
+      helpLearn={helpLearn}
       flush={flush}
       bodyClassName={bodyClassName ?? WIDGET_BODY_CLASS}
       className={collapsed ? (className ? `h-auto ${className}` : "h-auto") : className ? `h-full ${className}` : "h-full"}

@@ -65,6 +65,7 @@ export const ComposerOutput = z
     path: ["decision", "options"],
   })
   .refine((v) => v.exhibit.kind === "none" || v.exhibit.spec_ref !== null, {
+    // plain-allow: model-facing (a validation message the Composer reads on its retry; founders never see it)
     message: "an exhibit other than 'none' must reference a named query",
     path: ["exhibit", "spec_ref"],
   });

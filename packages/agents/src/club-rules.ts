@@ -242,7 +242,7 @@ const ACTION_PATTERNS: ActionPattern[] = [
     ruleId: 1,
     action: /\b(no need to|don't|do not|never|skip|avoid|without|stop(?= (creating|raising|filing|emitting)))\b[^.]{0,15}\b(create|creating|raise|raising|file|filing|emit|emitting)\b[^.]{0,10}\brequest_human_action\b/i,
     selfContained: true,
-    reason: "removes the request_human_action escalation for hard gates",
+    reason: "removes the hand-off to the founder for actions only they can take",
   },
   // Rule 2 — untrusted content
   {

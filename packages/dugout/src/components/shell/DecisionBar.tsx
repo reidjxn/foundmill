@@ -11,7 +11,9 @@ import { Icon } from "../foundation/Icon";
 import { Input } from "../foundation/Input";
 import { Kbd } from "../foundation/Kbd";
 import { StatusPill } from "../foundation/StatusPill";
+import { ConsequenceLine, type ConsequenceParts } from "../guidance/ConsequenceLine";
 import { useGuided } from "../guidance/GuidanceProvider";
+import { ReassuranceLine } from "../guidance/ReassuranceLine";
 
 const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -120,6 +122,15 @@ export function optionSubline(o: DecisionOption): string | undefined {
   if (o.consequence) return o.consequence;
   const parts = [o.cost !== undefined ? costText(o.cost) : null, o.reversible !== undefined ? reversibilityText(o.reversible) : null].filter(Boolean);
   return parts.length ? parts.join(" · ") : undefined;
+}
+
+/**
+ * The parts of an option's subline for its `ConsequenceLine`, the same choice as `optionSubline`: the consequence when
+ * the agent gave one, or else the cost and reversibility it stated. Exported for tests.
+ */
+export function optionConsequence(o: DecisionOption): ConsequenceParts {
+  if (o.consequence) return { consequence: o.consequence };
+  return { cost: o.cost !== undefined ? costText(o.cost) : null, reversible: o.reversible ?? null };
 }
 
 /**
@@ -263,15 +274,11 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
       ) : (
         <div className="decision-inner">
           <div className="decision-heading" data-decision-heading>
-            <span className="flex min-w-0 flex-col gap-0.5">
+            <div className="flex min-w-0 flex-col gap-0.5">
               <span className="t-data">{heading}</span>
-              {guided ? (
-                // TODO(guided-layer): ReassuranceLine once the primitive lands.
-                <span className="text-small text-secondary text-pretty" data-decision-guided-line>
-                  {DECISION_GUIDED_LINE}
-                </span>
-              ) : null}
-            </span>
+              {/* Tutoring: ReassuranceLine renders only while guidance is on. */}
+              <ReassuranceLine data-decision-guided-line="">{DECISION_GUIDED_LINE}</ReassuranceLine>
+            </div>
             {leftLine ? <span className="text-small text-tertiary tabular-nums">{leftLine}</span> : null}
             {onAsk ? (
               <Button size="sm" variant="default" icon={MessageCircle} disabled={!!disabled || !!executing} onClick={onAsk} className="decision-ask" data-decision-ask data-coachmark="decision-ask">
@@ -289,16 +296,14 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
               {shown.map((o, i) => {
                 const descId = `${baseId}-${o.id}`;
                 const sub = optionSubline(o);
-                // The consequence, then the agent's "because" as its own small line (TODO(guided-layer): ConsequenceLine).
+                // The consequence (or what is known of the cost and reversibility), then the agent's "because" as its own
+                // small line, both as ConsequenceLines; `text-inherit` keeps the button's own description color, which
+                // the recommended (primary) option needs. The screen reader's sentence stays `optionDescription`.
                 const description =
                   sub || o.because ? (
                     <>
-                      {sub ? <span>{sub}</span> : null}
-                      {o.because ? (
-                        <span className={cn("block text-small text-secondary", sub && "mt-0.5")} data-option-because>
-                          {o.because}
-                        </span>
-                      ) : null}
+                      {sub ? <ConsequenceLine {...optionConsequence(o)} className="text-inherit" data-option-subline="" /> : null}
+                      {o.because ? <ConsequenceLine consequence={o.because} className={cn("text-inherit", sub && "mt-0.5")} data-option-because="" /> : null}
                     </>
                   ) : undefined;
                 return (

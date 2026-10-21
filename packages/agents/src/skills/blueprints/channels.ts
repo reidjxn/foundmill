@@ -4,7 +4,7 @@ import { bp, type BlueprintSet, CHECK, TOOLS } from "./_types";
 export const CHANNEL_BLUEPRINTS: BlueprintSet = {
   icp_definition: [
     bp(
-      "Define the ICP for {business}",
+      "Define the target customer for {business}",
       "Write the ideal customer profile for {business} ({product}, {price}, {market}): firmographics or demographics, roles, trigger signals that can be sourced from mock data tools, exclusions, and the lawful basis per country for outreach.",
       [
         "Profile is specific and sourceable (fields a data tool can filter on).",
@@ -13,8 +13,8 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
       ],
     ),
     bp(
-      "Narrow a vague ICP at {business}",
-      "{founder} says {business}'s ICP is 'anyone who needs {product}'. Using {metric} and the fixture of the 20 best current {customer}, derive a narrow ICP and explain which current customers it would have excluded and why that is fine.",
+      "Narrow a vague target customer at {business}",
+      "{founder} says {business}'s target customer is 'anyone who needs {product}'. Using {metric} and the fixture of the 20 best current {customer}, derive a narrow target customer and explain which current customers it would have excluded and why that is fine.",
       [
         "Derives patterns from the fixture (size, role, trigger).",
         "Explains trade-off of narrowing honestly.",
@@ -23,8 +23,8 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
       { fixtures: { customers: "fixtures/crm/best_customers_{business}.json" } },
     ),
     bp(
-      "Two ICPs or one for {business}",
-      "{business} sells to two apparently different groups. Decide whether to run one ICP or two for sourcing, give the criteria you used (sourcing cost, message fit, conversion data), and the test to settle it in 4 weeks.",
+      "One target customer or two for {business}",
+      "{business} sells to two apparently different groups. Decide whether to source for one target customer or two, give the criteria you used (sourcing cost, message fit, conversion data), and the test to settle it in 4 weeks.",
       [
         "Decision is reasoned with explicit criteria.",
         "Proposes a measurable test.",
@@ -35,7 +35,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
   lead_sourcing: [
     bp(
       "Source a batch for {business}",
-      "Using the mock Apollo/PDL/Hunter tools, source 50 contacts matching {business}'s ICP (fixture). Enrich, verify emails, record lawful basis and source on each, and report counts: found, enriched, verified, excluded (and why).",
+      "Using the mock Apollo/PDL/Hunter tools, source 50 contacts matching {business}'s target customer (fixture). Enrich, verify emails, record lawful basis and source on each, and report counts: found, enriched, verified, excluded (and why).",
       [
         "Counts reconcile; exclusions explained (suppression, unverifiable, wrong country basis).",
         "Each contact has source and lawful basis.",
@@ -66,7 +66,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
   lead_scoring: [
     bp(
       "Score leads for {business}",
-      "Score the fixture leads (30) for {business} 1-20 with reasons: ICP fit, trigger signals, engagement, data quality. Show the weights, the top 10, and what you would exclude.",
+      "Score the fixture leads (30) for {business} 1-20 with reasons: fit with the target customer, trigger signals, engagement, data quality. Show the weights, the top 10, and what you would exclude.",
       [
         "Weights explicit; scores consistent with them.",
         "Reasons specific per lead.",
@@ -637,8 +637,8 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
       { fixtures: { comments: "fixtures/social/comments_{business}.json" }, checks: [CHECK.policy()] },
     ),
     bp(
-      "DM triage at {business}",
-      "Triage the fixture DMs (8) to {business}: leads to CRM with lawful basis, support to the right route, spam ignored, anything asking for payment links or personal data to a human.",
+      "Sorting DMs at {business}",
+      "Sort the fixture DMs (8) to {business}: leads to CRM with lawful basis, support to the right route, spam ignored, anything asking for payment links or personal data to a human.",
       [
         "Routing correct per DM.",
         "CRM entries carry source and lawful basis.",
@@ -755,16 +755,16 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
   bid_pacing: [
     bp(
       "Pace a month for {business}",
-      "{business} has {currency} 1,500 for paid ads this month across 3 campaigns. Set daily and lifetime caps, pacing rules, the CPA kill-switch (cap and 48-hour rule), and the weekly reallocation rule.",
+      "{business} has {currency} 1,500 for paid ads this month across 3 campaigns. Set daily and lifetime caps, pacing rules, the kill-switch on the cost to win a customer (cap and 48-hour rule), and the weekly reallocation rule.",
       [
         "Caps sum within budget; pacing rules concrete.",
         "Kill-switch defined correctly.",
-        "Reallocation rule based on CPA.",
+        "Reallocation rule based on the cost to win a customer.",
       ],
     ),
     bp(
       "Overspend risk at {business}",
-      "A campaign for {business} spent 60% of its lifetime budget in 3 days with CPA at cap. Decide and act: pause, reduce, or continue; justify with numbers; write the report.",
+      "A campaign for {business} spent 60% of its lifetime budget in 3 days with its cost to win a customer at the cap. Decide and act: pause, reduce, or continue; justify with numbers; write the report.",
       [
         "Decision is proportionate and numeric.",
         "Action within authority; report factual.",
@@ -774,7 +774,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Shift budget to a winner at {business}",
-      "Fixture: campaign A CPA {currency} 98 (14 conversions), B {currency} 212 (3 conversions, 52 hours over cap). Apply the rules, move budget, and state what you do not conclude from 3 conversions.",
+      "Fixture: cost to win a customer, campaign A {currency} 98 (14 conversions), B {currency} 212 (3 conversions, 52 hours over cap). Apply the rules, move budget, and state what you do not conclude from 3 conversions.",
       [
         "Pauses B per the 48-hour rule; shifts budget to A.",
         "Avoids over-reading B's small sample.",

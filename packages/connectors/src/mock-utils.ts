@@ -209,7 +209,7 @@ export const SIMULATE_EVENTS = [
   { name: "payment.received", label: "Payment received", description: "A first Stripe payment lands (a featured Customer Update).", emits: "payment.received" },
   { name: "lead.replied", label: "Lead replied", description: "An outbound email gets a reply.", emits: "lead.replied" },
   { name: "bank.sync", label: "Bank sync", description: "Open-banking sync updates the balance.", emits: "bank.balance_updated" },
-  { name: "cpa.spike", label: "CPA spike", description: "Paid campaign CPA over cap for 48 h; engine pauses it.", emits: "channel.threshold_breached" },
+  { name: "cpa.spike", label: "Cost-per-customer spike", description: "A paid campaign's cost to win a customer is over its cap for 48 h; the channel pauses it.", emits: "channel.threshold_breached" },
   { name: "credential.expiry", label: "Credential expiry", description: "A connector credential is about to expire.", emits: "credential.expiring" },
 ] as const satisfies readonly { name: string; label: string; description: string; emits: EventType }[];
 

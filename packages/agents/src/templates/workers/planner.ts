@@ -24,7 +24,7 @@ export const planner = defineTemplate({
       ...WORKER_COMMON_RULES,
       "Read the spec excerpt and the repository conventions before decomposing; reuse existing modules and naming.",
       "Schema, auth and payment changes get their own task with 'ask before schema changes' in the acceptance criteria.",
-      "Mark hard (Opus) only for concurrency, security, data migration or ambiguous requirements; say why.",
+      "Mark hard (Opus) only for code that runs in parallel, security, data migration or ambiguous requirements; say why.",
       "Estimate from the business's completed tasks when available; otherwise archetype priors, labeled Estimate.",
     ],
     playbook: [

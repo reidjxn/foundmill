@@ -20,7 +20,7 @@ export function createShopifyConnector(options: LiveConnectorOptions = {}): Conn
   const http = (ctx: ToolContext): HttpClient => {
     const shop = ctx.integration.externalAccountId ?? (ctx.integration.config as { shop?: string }).shop;
     if (!shop || !ShopDomain.safeParse(shop).success) throw new ConfigError(SHOPIFY_KEY, "shop domain", "connect the Shopify store in Settings → Integrations");
-    if (!ctx.credential?.secret) throw new ConfigError(SHOPIFY_KEY, "Shopify access token", "reconnect the Shopify store (OAuth)");
+    if (!ctx.credential?.secret) throw new ConfigError(SHOPIFY_KEY, "Shopify access token", "reconnect the Shopify store");
     return createHttp({ connectorKey: SHOPIFY_KEY, baseUrl: shopBaseUrl(shop), fetch, headers: { "x-shopify-access-token": ctx.credential.secret } });
   };
 
@@ -82,7 +82,7 @@ export function createShopifyConnector(options: LiveConnectorOptions = {}): Conn
           return consentRecord(SHOPIFY_KEY, businessId, authorizeUrl(`https://${shop.data}/admin/oauth/authorize`, { client_id: secrets.shopifyClientId, scope: SHOPIFY_SCOPES.join(","), redirect_uri: start.redirectUri, state: start.state }), { now, newId: uuid });
         }
         if (!accessToken) {
-          if (typeof i.code !== "string") throw new ConfigError(SHOPIFY_KEY, "OAuth code", "connect() expects { shop, code } from the OAuth redirect");
+          if (typeof i.code !== "string") throw new ConfigError(SHOPIFY_KEY, "authorization code", "connect() expects { shop, code } from the sign-in redirect");
           if (!secrets.shopifyClientId || !secrets.shopifyClientSecret) throw new ConfigError(SHOPIFY_KEY, "SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET");
           const res = await createHttp({ connectorKey: SHOPIFY_KEY, baseUrl: `https://${shop.data}`, fetch }).json<{ access_token: string; scope: string }>("POST", "/admin/oauth/access_token", { body: { client_id: secrets.shopifyClientId, client_secret: secrets.shopifyClientSecret, code: i.code } });
           accessToken = res.access_token;

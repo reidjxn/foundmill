@@ -16,6 +16,7 @@ export const CLUB_RULES: readonly ClubRule[] = Object.freeze([
   {
     id: 1,
     slug: "hard_gates",
+    // plain-allow: model-facing (the Plan action type the model emits; founders read HOUSE_RULES_FOUNDER_LINE instead)
     text: "Never move money, sign anything, accept terms, file with the founder's identity, permanently delete data, or change security settings. If a task needs one of these, create a request_human_action.",
   },
   {

@@ -23,7 +23,7 @@ export const hasAuthorizationCode = (input: unknown): boolean => typeof input ==
 export function consentStartOf(input: unknown, displayName: string): ConsentStart {
   const i = (typeof input === "object" && input ? input : {}) as { state?: unknown; redirectUri?: unknown };
   if (typeof i.state !== "string" || !SIGNED_STATE.test(i.state)) throw new ValidationError(`Connecting ${displayName} needs a signed state from the api`);
-  if (typeof i.redirectUri !== "string" || !isRedirectUri(i.redirectUri)) throw new ValidationError(`Connecting ${displayName} needs the app's OAuth callback address`);
+  if (typeof i.redirectUri !== "string" || !isRedirectUri(i.redirectUri)) throw new ValidationError(`Connecting ${displayName} needs the address the sign-in page returns to`);
   return { state: i.state, redirectUri: i.redirectUri };
 }
 

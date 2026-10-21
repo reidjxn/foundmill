@@ -55,7 +55,7 @@ describe("prompt templates (BUILD §12)", () => {
     expect(plan).toContain("Return JSON {summary, actions:[{type, params, agent_id}]}.");
     const cos = getPrompt("chief_of_staff_planner").render({ business_name: "Ledgerly", max_agents: 16, budget: "£1,200.00 (Estimate)", capacity: "40 req/min", product_stage: "building" });
     expect(cos).toContain("Plan the next cycle for Ledgerly.");
-    expect(cos).toContain("Respect concurrency 16, budget remaining £1,200.00 (Estimate), and rate-limit capacity 40 req/min.");
+    expect(cos).toContain("Respect the limit of 16 agents working at once, budget remaining £1,200.00 (Estimate), and rate-limit capacity 40 req/min.");
   });
 
   it("the journey commentary prompt describes the enforced output: null for the two unanchored lines, a headline, and every tone (audit #332)", () => {

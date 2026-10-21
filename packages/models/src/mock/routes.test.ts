@@ -159,7 +159,7 @@ describe("coach (BUILD §12.6, AC-11.10.4)", () => {
     expect(r.json.edits.length).toBeLessThanOrEqual(3);
     expect(r.json.edits.map((e) => e.skill)).toEqual(["Testing", "Communication"]);
     expect(r.json.edits[0]).toMatchObject({ field: "playbook", before: "Read the task" });
-    expect(r.json.edits[0]!.after).toMatch(/failing acceptance test/);
+    expect(r.json.edits[0]!.after).toMatch(/failing test for what counts as done/);
     expect(r.json.edits[1]!.field).toBe("tone");
     for (const e of r.json.edits) expect(e.after).not.toMatch(/move money|ignore (club|house) rules/i);
   });

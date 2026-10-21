@@ -147,7 +147,7 @@ export async function seedNorthwindResearch(ctx: SeedCtx, businessId: string, sq
         "- Customers: clinics act as a referral channel the Customers section does not list.",
         "",
         "## Handed to the Product lead",
-        "Three proposed changes travel through the open change proposal; the founder decides each hunk.",
+        "Three proposed changes travel through the open change proposal; the founder decides each one.",
       ),
     },
   ];

@@ -8,7 +8,7 @@
 import { useMemo } from "react";
 import { z } from "zod";
 import { Activity } from "lucide-react";
-import { SquadPulse, type SquadPulseCell } from "@foundmill/dugout";
+import { SquadPulse, Term, type SquadPulseCell } from "@foundmill/dugout";
 import { dayHourIn, dayRangeIn } from "@foundmill/shared/time-zone";
 import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
@@ -100,7 +100,7 @@ function SquadPulseWidget({ settings }: WidgetProps<SquadPulseSettings>) {
       title="Team pulse"
       data-widget="squad_pulse"
       queries={[departments, sessions]}
-      empty={empty ? { icon: Activity, text: "Hours of team work by hour and department appear after the first cycle runs." } : null}
+      empty={empty ? { icon: Activity, text: <>Hours of team work by hour and department appear after the first <Term id="cycle">cycle</Term> runs.</> } : null}
       footer={<span>Last 7 days · hours of team work from session logs</span>}
     >
       <SquadPulse departments={toRibbonDepartments(depts)} days={days} cells={cells} />

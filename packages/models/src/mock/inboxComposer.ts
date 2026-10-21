@@ -300,8 +300,8 @@ function factSentence(type: InboxItemType, e: EventIn | undefined, who: string |
   const subject = who ?? "A customer";
   if (!e) {
     return rng.pick([
-      `Nothing new landed for ${business} since the last cycle, so this is a quick check-in rather than news.`,
-      `No new events for ${business} this cycle; here is what deserves your attention next.`,
+      `Nothing new landed for ${business} since my last note, so this is a quick check-in rather than news.`,
+      `No new events for ${business} since my last note; here is what deserves your attention next.`,
     ]);
   }
   switch (true) {
@@ -339,7 +339,7 @@ function factSentence(type: InboxItemType, e: EventIn | undefined, who: string |
     case /^approval\.requested$/.test(e.type):
       return `${who ?? "An agent"} needs your go-ahead${title ? ` on "${title}"` : ""}${amount ? ` worth ${amount}` : ""} before going further.`;
     case /^spec\.proposal_created$/.test(e.type):
-      return `A change to the specification${title ? ` touching "${title}"` : ""} is waiting for your review, with the evidence attached.`;
+      return `A change to the product spec${title ? ` touching "${title}"` : ""} is waiting for your review, with the evidence attached.`;
     case /^message\.received$/.test(e.type):
       return `${who ?? "Someone"} sent a message${title ? ` about "${title}"` : ""}; it is quoted in full below.`;
     case /^(idea\.committed|spec\.version_published|contract\.signed|holiday\.)/.test(e.type):
@@ -351,8 +351,8 @@ function factSentence(type: InboxItemType, e: EventIn | undefined, who: string |
 
 /** Metric keys as the founder reads them: the acronym becomes the plain phrase (UX plan §8.2), the rest is the key in words. */
 const METRIC_WORDS: Readonly<Record<string, string>> = Object.freeze({
-  runway_months: "runway (months of cash left at today's spending)",
-  runway: "runway (months of cash left at today's spending)",
+  runway_months: "months of cash left at today's spending",
+  runway: "months of cash left at today's spending",
   cpa: "cost per customer",
   cac: "cost to win a customer",
   mrr: "monthly recurring revenue",
@@ -360,7 +360,7 @@ const METRIC_WORDS: Readonly<Record<string, string>> = Object.freeze({
   ltv: "what a customer is worth over time",
   roas: "return on ad spend",
   ctr: "click rate",
-  cvr: "conversion rate",
+  cvr: "share who took the next step",
   churn: "customers who leave",
   burn: "monthly spend",
   net_burn: "monthly spend over income",
@@ -475,7 +475,7 @@ function subjectLine(type: InboxItemType, who: string | undefined, channel: Chan
     case "human_message":
       return `Message from ${who ?? "a contact"}${title ? `: ${title}` : ""}`;
     case "report":
-      return `${voice.name}'s report: ${title ?? "cycle summary"}`;
+      return `${voice.name}'s report: ${title ?? "what the team did"}`;
     default:
       return rng.pick([`${title ?? ch ?? "Work"} shipped`, `Update: ${title ?? ch ?? "progress"}`, `${voice.name}: ${title ?? "latest progress"}`]);
   }

@@ -27,7 +27,7 @@ export interface GoogleToken {
 
 export async function googleAccessToken(ctx: ToolContext, deps: GoogleAuthDeps): Promise<GoogleToken> {
   const cred = ctx.credential;
-  if (!cred?.secret) throw new ConfigError(deps.connectorKey, "Google OAuth credential", "connect the Google account in Settings → Integrations");
+  if (!cred?.secret) throw new ConfigError(deps.connectorKey, "Google sign-in credential", "connect the Google account in Settings → Integrations");
   const expiresAt = cred.expiresAt ? Date.parse(cred.expiresAt) : Number.POSITIVE_INFINITY;
   const stillValid = expiresAt - 60_000 > deps.now().getTime();
   if (stillValid || !cred.refreshToken) return { accessToken: cred.secret };
@@ -53,7 +53,7 @@ export const googleHeaders = (token: string): Record<string, string> => ({ autho
 export async function googleOAuthConnect(input: unknown, deps: GoogleAuthDeps, opts: { businessId: string; scopes: string[]; label: string; newId: () => string }): Promise<IntegrationRecord> {
   if (!hasAuthorizationCode(input)) {
     const start = consentStartOf(input, opts.label);
-    if (!deps.secrets.googleClientId) throw new ConfigError(deps.connectorKey, "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET", "create an OAuth client (web application) in the Google Cloud console");
+    if (!deps.secrets.googleClientId) throw new ConfigError(deps.connectorKey, "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET", "create a client ID for a web application in the Google Cloud console");
     const url = authorizeUrl(GOOGLE_AUTHORIZE_URL, { client_id: deps.secrets.googleClientId, redirect_uri: start.redirectUri, response_type: "code", scope: ["openid", "email", ...opts.scopes].join(" "), access_type: "offline", prompt: "consent", include_granted_scopes: "true", state: start.state });
     return consentRecord(deps.connectorKey, opts.businessId, url, { now: deps.now, newId: opts.newId });
   }

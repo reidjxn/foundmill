@@ -30,7 +30,7 @@ export const anthropicMock = buildMockConnector({
     },
     ask_panel: async ({ question }) => ({ question, answer: `A few well-reviewed options come up for "${question}"; compare ingredients and reviews before choosing (mock answer).`, model: resolveModel("worker").modelId }),
   },
-  connect: async (businessId) => mockIntegrationRecord(ANTHROPIC_KEY, businessId, { accountLabel: "Anthropic (BYOK, mock)", scopes: ["models:read", "messages:write"] }),
+  connect: async (businessId) => mockIntegrationRecord(ANTHROPIC_KEY, businessId, { accountLabel: "Anthropic (your own key, mock)", scopes: ["models:read", "messages:write"] }),
   healthcheck: async () => mockHealth(ANTHROPIC_KEY, { models: ANTHROPIC_MODEL_FIXTURES.length }),
   simulations: {
     "credential.expiry": (params) => simulate("credential.expiry", { ...params, connectorKey: ANTHROPIC_KEY }),

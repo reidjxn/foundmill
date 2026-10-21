@@ -17,7 +17,7 @@ export const channelEmailAutomation = defineChannelTemplate({
     "Create: write the sequence with personalization from CRM fields only, segment rules and send windows in the recipient's local time.",
     "Approve: run suppression and consent checks on the segment; request policy approval for the sequence.",
     "Launch: schedule through the provider; verify the unsubscribe link and tracking on a seed address.",
-    "Measure: deliverability, opens where available, replies and conversions from webhooks; pause on spam-rate breach.",
+    "Measure: deliverability, opens where available, replies and conversions reported by the email provider; pause on spam-rate breach.",
     "Learn and report: weekly reply and conversion rate per sequence, the variant to keep and the next test.",
   ],
   examples: [

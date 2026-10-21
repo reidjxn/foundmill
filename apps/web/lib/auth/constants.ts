@@ -4,6 +4,13 @@
 export const DEV_AUTH_COOKIE = "fm_dev_auth";
 /** The literal bearer apps/api and apps/stream accept under DEV_AUTH_USER_ID (docs/DECISIONS.md). */
 export const DEV_BEARER_TOKEN = "dev";
+/**
+ * Set by /auth/dev?as=<uuid> in development/test beside DEV_AUTH_COOKIE: the account the dev bypass signs in as instead
+ * of DEV_AUTH_USER_ID (the bearer becomes `dev:<uuid>`; lib/auth/dev-as.ts). Readable by the page's script.
+ */
+export const DEV_AS_COOKIE = "fm_dev_as";
+/** The /auth/dev parameter naming that account. */
+export const DEV_AS_PARAM = "as";
 /** Last business the founder opened; `/` redirects there (BUILD §6.2). */
 export const LAST_BUSINESS_COOKIE = "fm_last_business";
 /** Sidebar collapsed state, per business (prefix + business id). */

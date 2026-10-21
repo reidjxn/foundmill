@@ -54,9 +54,10 @@ export interface AppShellProcessing {
 
 /**
  * The strip's sentence in words, at the right end of the tab bar while guidance is on (B2): `t-small` in text-3,
- * inside the bar's 40 px, truncated with a tooltip when the tabs leave it little room. Nothing moves.
+ * inside the bar's 40 px, truncated with a tooltip when the tabs leave it little room. Nothing moves. It stays a plain
+ * line on purpose: `PlainFigure` stacks a figure over its words, which would need a second row the bar does not have,
+ * and `ConsequenceLine` is for what an action will do, not for what is happening now.
  */
-// TODO(guided-layer): ConsequenceLine-style primitive, if one lands for status lines.
 function ProcessingLine({ text }: { text: string }) {
   return (
     <Tooltip content={text} side="bottom">

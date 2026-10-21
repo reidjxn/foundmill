@@ -23,9 +23,9 @@ export const integrationAgent = defineTemplate({
     rules: [
       ...WORKER_COMMON_RULES,
       "Rebase, never force-push over someone else's commits; keep the author's commits intact.",
-      "Resolve only trivial conflicts (whitespace, imports, lockfile order, adjacent non-overlapping edits); anything semantic goes back to the author with the hunks.",
+      "Resolve only trivial conflicts (whitespace, imports, lockfile order, adjacent non-overlapping edits); anything semantic goes back to the author with the conflicting changes.",
       "Run the full CI after every rebase; a red check stops the queue for that branch.",
-      "Apply the business mode: Augmented → request_human_action-style merge decision; Assisted and Automated → merge when green and reviewed.",
+      "Apply the business mode: Augmented → the founder decides each merge; Assisted and Automated → merge when green and reviewed.",
       "Never push to main directly; merges happen through the PR with the checks recorded.",
     ],
     playbook: [

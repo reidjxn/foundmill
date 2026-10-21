@@ -21,11 +21,19 @@
  *   for here) renames the display words of the definitions, so a business that says "clients" reads it in every term;
  *   outside a business the map is `TERMS` as written. "Learn more" resolves through `learnPath` with the route's
  *   business id (LearnLinkProvider); outside a business only absolute URLs open.
+ * - The product signals (UX plan §11, `founder.preferences.signal`, the five guidance.* events): `signal(kind, payload)`
+ *   on `useGuidancePreferences()` and `useGuidanceSignal()` sends one, fire and forget (never awaited, a failure is
+ *   dropped, nothing on screen waits for it). The host sends three itself: an explainer's first "Got it"
+ *   (`markExplainerSeen`), a definition card opened (the Term calls the provider's `onTermOpen`; once per term id per
+ *   session), and a save that turns guidance off (the Preferences switch, `from: "settings"` unless the caller says
+ *   otherwise). The tours send theirs through `useGuidanceSignal` (components/tours/signal.ts). A signal belongs to the
+ *   business on screen: outside a business route there is none to record it in, so it is not sent.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
-import { GuidanceProvider, LearnLinkProvider, type GuidanceActions, type GuidanceState, type TermDefinition } from "@foundmill/dugout";
+import { GuidanceProvider, LearnLinkProvider, type GuidanceActions, type GuidanceState, type TermDefinition, type TermOpenAction } from "@foundmill/dugout";
+import type { GuidanceOffSource } from "@foundmill/shared/constants";
 import type { Glossary } from "@foundmill/shared/glossary";
 import { TERMS, learnPath, termsWithGlossary } from "@foundmill/shared/terms";
 import { isFounderPath } from "@/lib/auth/redirects";
@@ -38,6 +46,58 @@ export type GuidancePrefs = RouterOutputs["founder"]["preferences"]["guidance"];
 /** A change to them (the date format is DateFormatHost's). */
 export type GuidancePatch = Omit<RouterInputs["founder"]["preferences"]["update"], "date" | "time">;
 
+/** One guided-layer signal as `founder.preferences.signal` takes it (the payload of a guidance.* event, with its type). */
+export type GuidanceSignal = RouterInputs["founder"]["preferences"]["signal"]["signal"];
+export type GuidanceSignalKind = GuidanceSignal["type"];
+/** The payload of one kind of signal, without its type. */
+export type GuidanceSignalPayload<K extends GuidanceSignalKind> = Omit<Extract<GuidanceSignal, { type: K }>, "type">;
+/** Sends one signal, fire and forget: it returns at once, never throws, and a failure is dropped. */
+export type GuidanceSignalFn = <K extends GuidanceSignalKind>(kind: K, payload: GuidanceSignalPayload<K>) => void;
+/** What the host hands `founder.preferences.signal`. */
+export type GuidanceSignalInput = RouterInputs["founder"]["preferences"]["signal"];
+
+/** The API's own bounds on a signal's ids (apps/api founder.ts `GuidanceSignalInput`): a term id, a screen or tour id. */
+const TERM_ID_RE = /^[a-z][a-z0-9_]*$/;
+const MAX_ID = 120;
+
+/**
+ * The request for one signal in the business on screen, or null when it cannot be recorded: no business on the route,
+ * or an id the API would refuse (a Term with an inline definition, an over-long screen id). Exported for tests.
+ */
+export function guidanceSignalInput<K extends GuidanceSignalKind>(kind: K, payload: GuidanceSignalPayload<K>, businessId: string | null): GuidanceSignalInput | null {
+  if (!businessId) return null;
+  const p = payload as Record<string, unknown>;
+  for (const key of ["tourId", "screenId"] as const) {
+    const v = p[key];
+    if (typeof v === "string" && (!v.trim() || v.length > MAX_ID)) return null;
+  }
+  if (kind === "guidance.term_opened" && (typeof p.termId !== "string" || p.termId.length > 64 || !TERM_ID_RE.test(p.termId))) return null;
+  return { businessId, signal: { type: kind, ...payload } as unknown as GuidanceSignal };
+}
+
+/**
+ * The screen a signal happened on, from the route: "/b/<id>/finance/runway" → "finance/runway", "/b/<id>" → "home";
+ * null outside a business. Exported for tests.
+ */
+export function screenIdFromPath(pathname: string | null | undefined): string | null {
+  const m = typeof pathname === "string" ? /^\/b\/[^/]+(?:\/(.*))?$/.exec(pathname.split(/[?#]/)[0]!.replace(/\/+$/, "")) : null;
+  if (!m) return null;
+  const rest = (m[1] ?? "").trim();
+  const id = rest || "home";
+  return id.length > MAX_ID ? id.slice(0, MAX_ID) : id;
+}
+
+const noSignal: GuidanceSignalFn = () => undefined;
+const GuidanceSignalCtx = createContext<GuidanceSignalFn>(noSignal);
+
+/** Provides a `signal` below it: the host's own, or a fake in a story or a test. */
+export const GuidanceSignalProvider = GuidanceSignalCtx.Provider;
+
+/** The host's `signal` (a no-op outside <GuidanceHost>, so a tour or a test can call it anywhere). */
+export function useGuidanceSignal(): GuidanceSignalFn {
+  return useContext(GuidanceSignalCtx);
+}
+
 /** What everyone reads until the account answers, and on every signed-out page. */
 export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null });
 
@@ -49,6 +109,8 @@ export const GUIDANCE_FRESH_MS = 5 * 60_000;
  * check (`isMutating` on the procedure key) never counts a guidance change, and this host's never counts a date one.
  */
 export const GUIDANCE_MUTATION_KEY: readonly unknown[] = [["founder", "preferences", "guidance"]];
+/** The product signals' own key, so neither host's "is another change of mine pending" check ever counts one. */
+export const GUIDANCE_SIGNAL_MUTATION_KEY: readonly unknown[] = [["founder", "preferences", "signal"]];
 
 /** True on the pages the proxy reserves for a signed-in founder; `/` is the landing page for a visitor, so it is not one. */
 export function isSignedInPath(pathname: string | null | undefined): boolean {
@@ -77,10 +139,20 @@ export function applyGuidancePatch(prev: GuidancePrefs, patch: GuidancePatch, no
   return next;
 }
 
+export interface GuidanceSaveOptions {
+  /** Where a change that turns guidance off was made (the `guidance.turned_off` signal); default "settings". */
+  from?: GuidanceOffSource;
+}
+
 export interface GuidancePreferencesApi {
   prefs: GuidancePrefs;
-  /** Saves a change; the guided layer follows at once everywhere. Rejects when the save fails (then it is rolled back). */
-  save: (patch: GuidancePatch) => Promise<GuidancePrefs>;
+  /**
+   * Saves a change; the guided layer follows at once everywhere. Rejects when the save fails (then it is rolled back).
+   * A saved change from on to off sends `guidance.turned_off`.
+   */
+  save: (patch: GuidancePatch, options?: GuidanceSaveOptions) => Promise<GuidancePrefs>;
+  /** Sends one product signal (fire and forget; see the file comment). */
+  signal: GuidanceSignalFn;
   saving: boolean;
   /** False on a signed-out page: nothing is read, nothing can be saved, everything reads as the default. */
   signedIn: boolean;
@@ -186,6 +258,10 @@ export function GuidanceHost({ initial, signedIn: signedInProp, textSizeOwner = 
   const overlapped = useRef(false);
   const fallback = useRef(prefs);
   fallback.current = prefs;
+  const queryKeyRef = useRef(queryKey);
+  queryKeyRef.current = queryKey;
+  /** What the account holds right now: the cache follows each save at once, the render may not have yet. */
+  const currentPrefs = useCallback(() => queryClient.getQueryData<GuidancePrefs>(queryKeyRef.current) ?? fallback.current, [queryClient]);
   const options = trpc.founder.preferences.update.mutationOptions({
     onMutate: async (change) => {
       if (!lastPending()) overlapped.current = true;
@@ -209,28 +285,80 @@ export function GuidanceHost({ initial, signedIn: signedInProp, textSizeOwner = 
     },
   });
   const { mutateAsync, isPending } = useMutation({ ...options, mutationKey: GUIDANCE_MUTATION_KEY });
-  const save = useCallback(
-    (patch: GuidancePatch): Promise<GuidancePrefs> => {
-      if (!signedIn) return Promise.reject(new Error("Sign in to change your preferences"));
-      return mutateAsync(patch).then(guidancePrefsOf);
+
+  // The product signals: one request each, never awaited. The procedure is looked up when a signal goes out, not at
+  // render, and any failure (offline, FORBIDDEN, a refused id) is dropped: a metric never gets in the founder's way.
+  const bid = useRouteBusinessId();
+  const bidRef = useRef(bid);
+  bidRef.current = bid;
+  const { mutate: sendSignal } = useMutation({
+    mutationKey: GUIDANCE_SIGNAL_MUTATION_KEY,
+    mutationFn: (input: GuidanceSignalInput) => {
+      const run = trpc.founder.preferences.signal.mutationOptions().mutationFn as ((input: GuidanceSignalInput) => Promise<unknown>) | undefined;
+      return run ? run(input) : Promise.resolve(null);
     },
-    [mutateAsync, signedIn],
+    retry: false,
+  });
+  const signal = useCallback<GuidanceSignalFn>(
+    (kind, payload) => {
+      if (!signedIn) return;
+      const input = guidanceSignalInput(kind, payload, bidRef.current);
+      if (!input) return;
+      try {
+        sendSignal(input, { onError: noop });
+      } catch {
+        // Fire and forget: nothing on screen depends on a signal.
+      }
+    },
+    [sendSignal, signedIn],
   );
 
-  // The primitives' actions: fire and forget (a failed "Got it" is rolled back and asked again next time).
-  const actions = useMemo<GuidanceActions>(
+  const save = useCallback(
+    (patch: GuidancePatch, opts: GuidanceSaveOptions = {}): Promise<GuidancePrefs> => {
+      if (!signedIn) return Promise.reject(new Error("Sign in to change your preferences"));
+      const wasOn = currentPrefs().guidance === "on";
+      return mutateAsync(patch).then((saved) => {
+        const next = guidancePrefsOf(saved);
+        if (patch.guidance === "off" && wasOn && next.guidance === "off") signal("guidance.turned_off", { from: opts.from ?? "settings" });
+        return next;
+      });
+    },
+    [mutateAsync, signedIn, signal, currentPrefs],
+  );
+
+  // A definition card opened: once per term id per session (this host lives as long as the tab), and only once it was
+  // actually sent, so a card opened outside a business still counts when it is opened again inside one.
+  const termsSent = useRef(new Set<string>());
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
+  const onTermOpen = useCallback(
+    (termId: string) => {
+      if (termsSent.current.has(termId) || !signedIn || !bidRef.current) return;
+      if (!guidanceSignalInput("guidance.term_opened", { termId }, bidRef.current)) return;
+      termsSent.current.add(termId);
+      signal("guidance.term_opened", { termId, screenId: screenIdFromPath(pathnameRef.current) });
+    },
+    [signal, signedIn],
+  );
+
+  // The primitives' actions: fire and forget (a failed "Got it" is rolled back and asked again next time). The first
+  // "Got it" on a screen's explainer is its dismissal signal; a second one after reopening it is not.
+  const actions = useMemo<GuidanceActions & TermOpenAction>(
     () => ({
       setGuidance: (mode) => void save({ guidance: mode }).catch(noop),
       setTextSize: (size) => void save({ textSize: size }).catch(noop),
-      markExplainerSeen: (screenId) => void save({ explainersSeen: { [screenId]: true } }).catch(noop),
+      markExplainerSeen: (screenId) => {
+        if (currentPrefs().explainersSeen[screenId] !== true) signal("guidance.explainer_dismissed", { screenId });
+        void save({ explainersSeen: { [screenId]: true } }).catch(noop);
+      },
       markTourDone: (tourId) => void save({ toursDone: { [tourId]: true } }).catch(noop),
       dismissChecklist: () => void save({ checklistDismissed: true }).catch(noop),
       resetGuidance: () => void save({ reset: true }).catch(noop),
+      onTermOpen,
     }),
-    [save],
+    [save, signal, onTermOpen, currentPrefs],
   );
 
-  const bid = useRouteBusinessId();
   const glossary = useBusinessGlossary(bid);
   const terms = useMemo(() => termsFor(bid, glossary), [bid, glossary]);
   const resolve = useCallback((learn: string) => resolveLearn(learn, bid), [bid]);
@@ -238,15 +366,17 @@ export function GuidanceHost({ initial, signedIn: signedInProp, textSizeOwner = 
     () => ({ guidance: prefs.guidance, textSize: prefs.textSize, explainersSeen: prefs.explainersSeen, toursDone: prefs.toursDone, checklistDismissedAt: prefs.checklistDismissedAt, terms }),
     [prefs, terms],
   );
-  const api = useMemo<GuidancePreferencesApi>(() => ({ prefs, save, saving: isPending, signedIn }), [prefs, save, isPending, signedIn]);
+  const api = useMemo<GuidancePreferencesApi>(() => ({ prefs, save, signal, saving: isPending, signedIn }), [prefs, save, signal, isPending, signedIn]);
 
   return (
     <GuidancePreferencesCtx.Provider value={api}>
-      <LearnLinkProvider resolve={resolve}>
-        <GuidanceProvider value={value} actions={actions}>
-          {children}
-        </GuidanceProvider>
-      </LearnLinkProvider>
+      <GuidanceSignalCtx.Provider value={signal}>
+        <LearnLinkProvider resolve={resolve}>
+          <GuidanceProvider value={value} actions={actions}>
+            {children}
+          </GuidanceProvider>
+        </LearnLinkProvider>
+      </GuidanceSignalCtx.Provider>
     </GuidancePreferencesCtx.Provider>
   );
 }

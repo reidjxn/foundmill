@@ -9,6 +9,7 @@ import { AppError } from "@foundmill/shared";
 import { Hono } from "hono";
 import { z } from "zod";
 import { QUARTER_RE } from "./chapter";
+import { ESTIMATE } from "./labels";
 import type { ComposerService } from "./service";
 
 const Id = z.guid();
@@ -65,25 +66,25 @@ export function createApp(service: ComposerService, options: AppOptions = {}) {
   app.post("/v1/narrate", async (c) => {
     const { businessId, eventIds } = await body(c, NarrateBody);
     const r = await service.narrate(businessId, eventIds);
-    return c.json({ inboxItemId: r.item.id, item: r.item, eventIds: r.eventIds, reasked: r.reasked, replayed: r.replayed, entityIds: r.entityIds, draftEntityIds: r.draftEntityIds, cost: { amountMinor: r.costMinor, label: "Estimate" }, model: r.model, durationMs: r.durationMs });
+    return c.json({ inboxItemId: r.item.id, item: r.item, eventIds: r.eventIds, reasked: r.reasked, replayed: r.replayed, entityIds: r.entityIds, draftEntityIds: r.draftEntityIds, cost: { amountMinor: r.costMinor, label: ESTIMATE }, model: r.model, durationMs: r.durationMs });
   });
 
   app.post("/v1/refresh", async (c) => {
     const { businessId } = await body(c, RefreshBody);
     const r = await service.refresh(businessId);
-    return c.json({ inboxItemId: r.item.id, item: r.item, slot: r.slot, source: r.source, debounced: r.debounced, buffer: r.buffer, cost: { amountMinor: r.costMinor, label: "Estimate" }, durationMs: r.durationMs });
+    return c.json({ inboxItemId: r.item.id, item: r.item, slot: r.slot, source: r.source, debounced: r.debounced, buffer: r.buffer, cost: { amountMinor: r.costMinor, label: ESTIMATE }, durationMs: r.durationMs });
   });
 
   app.post("/v1/commentary", async (c) => {
     const { businessId, journeyId } = await body(c, CommentaryBody);
     const r = await service.commentary(businessId, journeyId);
-    return c.json({ journeyId: r.journeyId, headline: r.headline, lines: r.lines, stripped: r.stripped, cost: { amountMinor: r.costMinor, label: "Estimate" }, model: r.model });
+    return c.json({ journeyId: r.journeyId, headline: r.headline, lines: r.lines, stripped: r.stripped, cost: { amountMinor: r.costMinor, label: ESTIMATE }, model: r.model });
   });
 
   app.post("/v1/chapter-title", async (c) => {
     const { businessId, quarter } = await body(c, ChapterTitleBody);
     const r = await service.chapterTitle(businessId, quarter);
-    return c.json({ quarter: r.quarter, label: r.label, title: r.title, subtitle: r.subtitle, mood: r.mood, source: r.source, facts: r.facts, cost: { amountMinor: r.costMinor, label: "Estimate" } });
+    return c.json({ quarter: r.quarter, label: r.label, title: r.title, subtitle: r.subtitle, mood: r.mood, source: r.source, facts: r.facts, cost: { amountMinor: r.costMinor, label: ESTIMATE } });
   });
 
   app.get("/v1/exhibits", (c) => c.json({ queries: service.exhibits() }));
@@ -92,7 +93,7 @@ export function createApp(service: ComposerService, options: AppOptions = {}) {
     const businessId = Id.safeParse(c.req.query("businessId"));
     if (!businessId.success) throw new AppError("validation", "businessId query parameter must be a UUID", 400);
     const data = await service.exhibit(businessId.data, c.req.param("id"));
-    if (!data) return c.json({ error: "not_found", message: `No named query ${c.req.param("id")}` }, 404);
+    if (!data) return c.json({ error: "not_found", message: `No chart or table with id ${c.req.param("id")}` }, 404);
     return c.json(data);
   });
 

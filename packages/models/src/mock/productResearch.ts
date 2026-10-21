@@ -47,7 +47,7 @@ const GENERIC_THEME_WORDS = new Set(["first", "last", "next", "today", "value", 
 export function generateResearchPlan(ctx: MockContext): ResearchPlanOutput {
   const req = ctx.getRecord("research_request") ?? {};
   const business = str(req.business_name) || str(ctx.getString("business_name")) || "the business";
-  const icp = str(req.icp) || str(ctx.getString("icp")) || "the people the specification names";
+  const icp = str(req.icp) || str(ctx.getString("icp")) || "the people the product is for";
   const markets = strings(req.target_markets);
   const vision = str(req.vision_statement);
   const roadmapNow = strings(req.roadmap_now);
@@ -91,7 +91,7 @@ export function generateResearchPlan(ctx: MockContext): ResearchPlanOutput {
       test_kind: "smoke_test",
     },
     {
-      assumption: pricing ? truncate(firstSentence(pricing.text), 380) : `${icp} will pay a price in the range the specification names.`,
+      assumption: pricing ? truncate(firstSentence(pricing.text), 380) : `${icp} will pay a price in the range the pricing section names.`,
       from_section: pricing?.section ?? "Pricing",
       why_it_matters: "Willingness to pay decides whether the first roadmap item is worth building as specified.",
       test_kind: "demo_script",
@@ -128,10 +128,10 @@ export function generateResearchPlan(ctx: MockContext): ResearchPlanOutput {
       summary: `Six to eight conversations that test the Problem and Customers sections before the build commits to them.`,
       body_md: [
         `## Goal`,
-        `Learn whether ${icp} recognize the problem the specification describes, what they do about it today and who decides to change it.`,
+        `Learn whether ${icp} recognize the problem the product solves, what they do about it today and who decides to change it.`,
         ``,
         `## Who`,
-        `6 to 8 people who match the Customers section in ${where} (Estimate: 6 reaches saturation on the first themes). The recruit list is a set of CRM records with a lawful basis; nobody is contacted before the founder approves the list.`,
+        `6 to 8 people who match the Customers section in ${where} (Estimate: 6 reaches saturation on the first themes). The recruit list is a set of CRM records, each with a lawful basis: the legal reason we may hold and use that person's details. Nobody is contacted before the founder approves the list.`,
         ``,
         `## Assumptions tested`,
         ...assumptions.slice(0, 2).map((a) => `- ${a.from_section}: ${a.assumption}`),
@@ -187,7 +187,7 @@ export function generateResearchPlan(ctx: MockContext): ResearchPlanOutput {
         `Proceed if at least 5% of qualified visitors request access over two weeks (Estimate); fewer than 2% (Estimate) sends the Value proposition section back to the Product lead with the page's words as evidence.`,
         ``,
         `## What happens if it fails`,
-        `No build task is canceled by the test alone: the Product lead proposes spec changes through the usual proposal, and the founder decides.`,
+        `No build task is canceled by the test alone: the Product lead suggests spec changes the usual way, and the founder decides.`,
         ``,
         `## Rules`,
         `Nothing is published or promoted without the founder's approval; traffic comes only from channels the founder has started.`,

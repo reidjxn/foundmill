@@ -35,7 +35,7 @@ const DELAWARE: Card = {
   banking: "US business accounts are available remotely through Stripe Atlas partners.",
   investor_familiarity: 5,
   tax_notes: "A non-US founder may owe US tax on US-source income and has annual US filings; a tax professional should confirm.",
-  advantages: ["The standard structure for venture investors", "Stock option plans and SAFEs (simple agreements for future equity) are well understood", "Fast online company formation"],
+  advantages: ["The standard structure for venture investors", "Stock option plans are well understood, and so are SAFEs: an investor pays now for shares priced in a later round", "Fast online company formation"],
   disadvantages: ["US annual filings and franchise tax", "A non-US founder may face questions about where the company is really run from"],
   route: "stripe_atlas",
 };

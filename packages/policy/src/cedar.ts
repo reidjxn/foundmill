@@ -16,7 +16,7 @@ export interface PolicyEngine {
 export function createPolicyEngine(policySet: LoadedPolicySet = loadPolicySet()): PolicyEngine {
   const schemaCheck = cedar.checkParseSchema(CEDAR_SCHEMA);
   if (schemaCheck.type === "failure") {
-    throw new PolicyLoadError(`Cedar schema does not parse: ${schemaCheck.errors.map((e) => e.message).join("; ")}`, schemaCheck.errors);
+    throw new PolicyLoadError(`Policy schema does not parse: ${schemaCheck.errors.map((e) => e.message).join("; ")}`, schemaCheck.errors);
   }
   const validation = cedar.validate({
     schema: CEDAR_SCHEMA,

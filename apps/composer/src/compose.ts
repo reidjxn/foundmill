@@ -157,6 +157,7 @@ export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record
 export function systemPrompt(ctx: ComposeContext): string[] {
   return [
     clubRulesPrompt.render({ business_name: ctx.business.name, APP_NAME }),
+    // plain-allow: agent-facing. The fallback role fills the system prompt's from_agent_role; only the model reads it.
     prompts.inboxComposerPrompt.render({ business_name: ctx.business.name, from_agent_name: ctx.voice.name, from_agent_role: ctx.voice.role || "Chief of Staff", founder_experience: ctx.founderExperience }),
   ];
 }

@@ -108,11 +108,11 @@ function ChannelFormGuideWidget({ settings }: WidgetProps<ChannelFormGuideSettin
   const rows = useMemo(() => buildFormRows(channels.data?.channels ?? [], metrics.data ?? [], today, settings), [channels.data, metrics.data, today, settings]);
   const cur = channels.data?.channels[0]?.currency ?? currency;
   // Column heads define their words where a founder first meets them (UX plan §7.8): fit and the cost to win a customer
-  // are Terms; the cost trend's key sits on each strip (FormGuide's tooltip, as on the Board).
+  // and the cost trend are Terms; the trend's key also sits on each strip (FormGuide's tooltip, as on the Board).
   const columns: MiniTableColumn<ChannelFormRow>[] = [
     { id: "channel", header: "Channel", cell: (r) => <span className={r.enabled ? "text-body-strong" : "text-secondary"}>{r.label}{r.recommended ? <span className="ml-1 text-small text-tertiary">Recommended</span> : null}</span> },
     { id: "fit", header: <Term id="fit">Fit</Term>, numeric: true, width: 44, cell: (r) => <RatingFigure value={r.fit} /> },
-    { id: "form", header: COST_TREND_LABEL, width: 64, cell: (r) => <FormGuide form={r.form} name={`${r.label} ${COST_TREND_LABEL.toLowerCase()}`} /> },
+    { id: "form", header: <Term id="cost_trend">{COST_TREND_LABEL}</Term>, width: 64, cell: (r) => <FormGuide form={r.form} name={`${r.label} ${COST_TREND_LABEL.toLowerCase()}`} /> },
     { id: "cpa", header: <Term id="acquisition_cost">Cost to win a customer</Term>, numeric: true, width: 150, cell: (r) => (r.cpaMinor === null ? "—" : formatMoney({ amountMinor: r.cpaMinor, currency: cur })) },
     { id: "customers", header: "Customers (5 wk)", numeric: true, width: 110, cell: (r) => formatNumber(r.customers, { maxDigits: 0 }) },
   ];
@@ -120,6 +120,7 @@ function ChannelFormGuideWidget({ settings }: WidgetProps<ChannelFormGuideSettin
   return (
     <WidgetFrame
       title="Channel performance"
+      help="The Channel Board is the map of where this business finds customers: channels on the board are live, channels off it are not."
       data-widget="channel_form_guide"
       queries={[channels, metrics]}
       flush

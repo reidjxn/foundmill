@@ -51,9 +51,10 @@ function FunnelWidget({ settings }: WidgetProps<FunnelSettings>) {
   return (
     <WidgetFrame
       title={title}
+      help="A funnel is the steps from first hearing about you to paying, and how many people make it through each."
       data-widget="funnel"
       queries={[channels]}
-      empty={channels.data && total === 0 ? { icon: Filter, text: settings.channelKey ? `No activity on this channel in the last ${CHANNEL_WINDOW_DAYS} days.` : "The funnel fills as channels run. Enable channels on the Channel Board." } : null}
+      empty={channels.data && total === 0 ? { icon: Filter, text: settings.channelKey ? `No activity on this channel in the last ${CHANNEL_WINDOW_DAYS} days.` : "The funnel fills as channels run. Turn on a channel in Distribution to start." } : null}
       footer={<span>Last {CHANNEL_WINDOW_DAYS} days · {settings.channelKey ? "one channel" : "all channels"} · {formatNumber(stages.at(-1)?.value ?? 0, { maxDigits: 0 })} customers</span>}
     >
       <FunnelChart stages={stages} label={`${title}, last ${CHANNEL_WINDOW_DAYS} days`} />
@@ -64,7 +65,7 @@ function FunnelWidget({ settings }: WidgetProps<FunnelSettings>) {
 export const funnelWidget = registerWidget<FunnelSettings>({
   key: "funnel",
   title: "Funnel",
-  description: "Impressions to customers, blended or per channel, with step conversion rates.",
+  description: "Impressions to customers, blended or per channel, with the share that reaches each next step.",
   icon: "filter",
   surfaces: ["home", "department"],
   // Five stages and the footer without scrolling.

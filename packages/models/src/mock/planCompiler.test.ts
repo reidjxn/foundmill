@@ -43,7 +43,7 @@ describe("plan compiler rules (BUILD §12.3)", () => {
     const plan = compilePlanRuleBased("pay the supplier invoice");
     expect(types(plan)).toEqual(["request_human_action"]);
     expect(plan.actions[0]!.params).toMatchObject({ gate: "move_money" });
-    expect(String(plan.actions[0]!.params.instructions)).toMatch(/hard gate/);
+    expect(String(plan.actions[0]!.params.instructions)).toMatch(/always yours/);
     expect(plan.actions[0]!.agent_id).toBeNull();
   });
 

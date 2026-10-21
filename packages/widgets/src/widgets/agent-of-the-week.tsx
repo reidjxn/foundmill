@@ -77,7 +77,7 @@ function AgentOfTheWeekWidget({ settings }: WidgetProps<AgentOfTheWeekSettings>)
       title="Agent of the week"
       data-widget="agent_of_the_week"
       queries={[team]}
-      empty={team.data && !agent ? { icon: Award, text: "The first agent of the week is named after the team's first cycle." } : null}
+      empty={team.data && !agent ? { icon: Award, text: <>The first agent of the week is named after the team's first <Term id="cycle">cycle</Term>.</> } : null}
       footer={
         <span>
           {PICK_WORD[settings.by]} · <Term id="wage">wage</Term> is an estimate of tokens, sandbox minutes and tool costs
@@ -113,7 +113,7 @@ function AgentOfTheWeekWidget({ settings }: WidgetProps<AgentOfTheWeekSettings>)
             items={[
               { label: "Form", value: agent.form && agent.form.length ? <FormCells form={agent.form as FormResult[]} name={`${agent.name} form`} /> : "No completed tasks yet" },
               { label: "Working on", value: agent.currentTask ? agent.currentTask.title : "Between tasks" },
-              { label: "Wage this month", value: `${formatMoney({ amountMinor: agent.wage.costMinor, currency })} · Estimate`, numeric: true, hint: agent.wage.capMinor ? `Cap ${formatMoney({ amountMinor: agent.wage.capMinor, currency })}` : undefined },
+              { label: "Wage this month", value: <>{formatMoney({ amountMinor: agent.wage.costMinor, currency })} · <Term id="estimate" always>Estimate</Term></>, numeric: true, hint: agent.wage.capMinor ? `Cap ${formatMoney({ amountMinor: agent.wage.capMinor, currency })}` : undefined },
             ]}
           />
           <div className="mt-auto flex justify-end">

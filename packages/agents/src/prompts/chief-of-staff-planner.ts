@@ -23,9 +23,9 @@ export const chiefOfStaffPlannerPrompt = definePrompt({
   key: "chief_of_staff_planner",
   version: 2,
   route: "chiefOfStaff",
-  description: "Plans one business cycle: tasks to start per department with assignees, priorities and the time box; product first, distribution when the founder starts it.",
+  description: "Plans one business cycle: tasks to start per department with assignees, priorities and the time limit; product first, distribution when the founder starts it.",
   variables: ChiefOfStaffPlannerVariables,
   text: `Plan the next cycle for {business_name}. Inputs: brief, open tasks, budgets, business mode, pending events, roadmap, approvals waiting.
-Output: for each department, the tasks to start (with assignee agent ids), priorities, and the time box. Respect concurrency {max_agents}, budget remaining {budget}, and rate-limit capacity {capacity}. Prefer work that unblocks customers.
+Output: for each department, the tasks to start (with assignee agent ids), priorities, and the time limit. Respect the limit of {max_agents} agents working at once, budget remaining {budget}, and rate-limit capacity {capacity}. Prefer work that unblocks customers.
 Product stage: {product_stage}. Before the specification and roadmap are signed off, plan only research, finance, legal and specialist groundwork; until distribution has started, plan no channel work.`,
 });

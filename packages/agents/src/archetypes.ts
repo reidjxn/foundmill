@@ -146,14 +146,14 @@ export const CHANNEL_SCORING_TASK = task({
 const FINANCE_TASK = task({
   kind: "finance",
   title: "Set up the first runway forecast",
-  goal: "Build the first cash and runway forecast from the founder's budget and the archetype's cost priors, labeled Forecast.",
+  goal: "Build the first cash forecast from the founder's budget and the typical costs for this kind of business, labeled Forecast; runway is how many months that cash lasts at today's spending.",
   acceptance: ["Base, upside and downside scenarios", "Every driver labeled Forecast or Estimate", "Runway warning thresholds configured"],
   assigneeTemplateKey: "finance_lead",
   departmentSlug: "finance",
 });
 
 const LEGAL_TASK = (goal: string, acceptance: string[]): FirstCycleTask =>
-  task({ kind: "legal", title: "Jurisdiction and compliance scan", goal, acceptance, assigneeTemplateKey: "legal_lead", departmentSlug: "legal" });
+  task({ kind: "legal", title: "Where to incorporate, and the rules that apply", goal, acceptance, assigneeTemplateKey: "legal_lead", departmentSlug: "legal" });
 
 /** The Planner's fallback goal once the founder has signed off and Now is empty (`ArchetypeSeed.firstBuild`). */
 const FIRST_BUILD = (title: string, goal: string, acceptance: string[]): FirstBuild => ({ title, goal, acceptance });
@@ -201,14 +201,14 @@ const b2bSaas = ArchetypeSeed.parse({
   firstCycleTasks: [
     OPEN_QUESTIONS_TASK,
     FINANCE_TASK,
-    LEGAL_TASK("Recommend an incorporation jurisdiction and list the first compliance obligations for a software business selling to businesses.", [
-      "Three jurisdictions compared with dated sources",
+    LEGAL_TASK("Recommend where to incorporate and list the first compliance obligations for a software business selling to businesses.", [
+      "Three places to incorporate compared, with dated sources",
       "Data-protection obligations for the target markets listed",
       "Recommendation labeled as a screen, not legal advice",
     ]),
   ],
-  firstBuild: FIRST_BUILD("Plan the first build: signup, first value, payment", "Build the task graph for a signup → first value → payment slice with acceptance tests per task.", [
-    "Task graph has goals, acceptance criteria and file scopes",
+  firstBuild: FIRST_BUILD("Plan the first build: signup, first value, payment", "Build the task graph for a signup → first value → payment slice, with tests per task that show when it is done.", [
+    "Task graph has goals, what counts as done, and file scopes",
     "No two tasks share a file scope concurrently",
     "Every task under four hours",
   ]),
@@ -217,7 +217,7 @@ const b2bSaas = ArchetypeSeed.parse({
     "Where should the first customer come from?",
     [
       "Distribution has started: the starter channels on the board are warming up and the Distribution strategist is scoring the channels while the engineers build the first roadmap items.",
-      "The Board asks for one decision before committing any budget: which route to the first paying customer should take priority this chapter?",
+      "The Board asks for one decision before committing any budget: which route to the first paying customer should take priority for the next three months?",
     ],
     [
       {
@@ -234,7 +234,7 @@ const b2bSaas = ArchetypeSeed.parse({
           channelWork("lead_generation", "Build the first prospect list", "Source the first prospect list for the one kind of customer we target first (the ideal customer profile: one segment, one buyer role), with the reason each account fits."),
           enable("email_automation"),
           channelWork("email_automation", "Write the first outbound sequence", "Write the first outbound email sequence for that prospect list; every send is checked against the founder's limits and the suppression list."),
-          work("planner", "code", "Build the demo path outbound needs", "Plan and build the shortest demo path the outbound sequence sends prospects to, with acceptance tests."),
+          work("planner", "code", "Build the demo path outbound needs", "Plan and build the shortest demo path the outbound sequence sends prospects to, with tests that prove it works."),
         ],
       },
       {
@@ -284,15 +284,15 @@ const consumerApp = ArchetypeSeed.parse({
   firstCycleTasks: [
     OPEN_QUESTIONS_TASK,
     FINANCE_TASK,
-    LEGAL_TASK("List consumer-law, privacy and app-store obligations for the target markets and recommend a jurisdiction.", [
+    LEGAL_TASK("List consumer-law, privacy and app-store obligations for the target markets and recommend where to incorporate.", [
       "Privacy policy and consent requirements per market",
       "App store policy items listed",
-      "Jurisdiction recommendation with dated sources",
+      "Recommendation on where to incorporate, with dated sources",
     ]),
   ],
   firstBuild: FIRST_BUILD("Plan onboarding to first habit", "Build the task graph for install → onboarding → first activation event with analytics events defined up front.", [
     "Activation event defined and instrumented",
-    "Onboarding flow has acceptance tests",
+    "Onboarding flow has tests that prove it works",
     "Store listing requirements captured as tasks",
   ]),
   boardDecision: board(
@@ -314,14 +314,14 @@ const consumerApp = ArchetypeSeed.parse({
         actions: [
           enable("paid_ads"),
           budget("paid_ads", THRESHOLD * 2),
-          channelWork("paid_ads", "Small paid test with a cost-per-customer limit", "Run a small paid acquisition test with a hard cost-per-customer (CPA) limit; pause any campaign over the limit for 48 hours and report the signal within two weeks."),
+          channelWork("paid_ads", "Small paid test with a cost-per-customer limit", "Run a small paid acquisition test with a hard limit on the cost to win a customer; pause any campaign over the limit for 48 hours and report the signal within two weeks."),
         ],
       },
       {
         id: "creator_seeding",
         label: "Seed 10 creators with codes",
         recommended: false,
-        consequence: "Cheaper per install if creators fit; disclosure checked before any payout.",
+        consequence: "Cheaper per install if the creators suit the product; disclosure checked before any payout.",
         costMinor: THRESHOLD,
         reversible: true,
         actions: [
@@ -371,14 +371,14 @@ const marketplace = ArchetypeSeed.parse({
   ],
   firstBuild: FIRST_BUILD("Plan supply onboarding and the first transaction", "Build the task graph for listing creation, search and a first paid transaction through connected payouts.", [
     "Payout flow uses the payments connector; no money moves without a founder-approved go-live",
-    "Listing and search have acceptance tests",
+    "Listing and search have tests that prove they work",
     "Trust and dispute flow captured as later tasks",
   ]),
   boardDecision: board(
     "marketplace",
     "Which side do we seed first?",
     [
-      "A marketplace needs both sides, but the first cycle can only chase one. The Board asks which side to seed first and how.",
+      "A marketplace needs both sides, but the first round of work can only chase one. The Board asks which side to seed first and how.",
     ],
     [
       {
@@ -462,15 +462,15 @@ const dtcPhysical = ArchetypeSeed.parse({
       "costing",
     ),
     FINANCE_TASK,
-    LEGAL_TASK("List product compliance, labeling and consumer obligations for the target markets and recommend a jurisdiction.", [
+    LEGAL_TASK("List product compliance, labeling and consumer obligations for the target markets and recommend where to incorporate.", [
       "Product regulation named per market with dates",
       "Labeling requirements listed",
-      "Jurisdiction recommendation with dated sources",
+      "Recommendation on where to incorporate, with dated sources",
     ]),
   ],
-  firstBuild: FIRST_BUILD("Plan the storefront and order flow", "Build the task graph for the storefront, checkout through the commerce connector, and order webhooks into the journey model.", [
+  firstBuild: FIRST_BUILD("Plan the storefront and order flow", "Build the task graph for the storefront, checkout through the commerce connector, and order notifications from the store into the journey model.", [
     "Checkout uses the commerce connector in mock mode",
-    "Order events reach the journey model with attribution",
+    "Order events reach the journey model with the channel that brought each customer",
     "No payment settings changed without a founder action",
   ]),
   boardDecision: board(
@@ -478,7 +478,7 @@ const dtcPhysical = ArchetypeSeed.parse({
     "Sample before storefront, or both at once?",
     [
       "Operations is ready to send RFQs and Development can start the storefront. Cash is finite and samples take weeks.",
-      "The Board asks how to sequence the first chapter.",
+      "The Board asks how to order the first three months.",
     ],
     [
       {
@@ -559,14 +559,14 @@ const hardware = ArchetypeSeed.parse({
       "sourcing_manufacturing",
     ),
     FINANCE_TASK,
-    LEGAL_TASK("List product safety, radio, battery and e-waste obligations for the target markets and recommend a jurisdiction.", [
+    LEGAL_TASK("List product safety, radio, battery and e-waste obligations for the target markets and recommend where to incorporate.", [
       "Obligations named per market with dates",
       "Importer and responsible-person duties noted",
-      "Jurisdiction recommendation with dated sources",
+      "Recommendation on where to incorporate, with dated sources",
     ]),
   ],
-  firstBuild: FIRST_BUILD("Plan firmware, app and the pre-order site", "Build the task graph for the firmware build pipeline, the companion app's first screen and a pre-order page with attribution.", [
-    "Firmware CI builds and tests in the sandbox",
+  firstBuild: FIRST_BUILD("Plan firmware, app and the pre-order site", "Build the task graph for the firmware build steps, the companion app's first screen and a pre-order page that records which channel brought each buyer.", [
+    "Firmware builds and passes its tests automatically on every change",
     "Pre-order page tracks source codes",
     "No OTA or release signing without a founder action",
   ]),
@@ -641,15 +641,15 @@ const services = ArchetypeSeed.parse({
   firstCycleTasks: [
     OPEN_QUESTIONS_TASK,
     FINANCE_TASK,
-    LEGAL_TASK("Draft the engagement terms playbook and list professional, tax and insurance obligations for the target market.", [
+    LEGAL_TASK("Draft the standard engagement terms and list professional, tax and insurance obligations for the target market.", [
       "Engagement terms clauses listed with defaults",
       "Professional and insurance obligations noted with sources",
-      "Jurisdiction recommendation with dated sources",
+      "Recommendation on where to incorporate, with dated sources",
     ]),
   ],
   firstBuild: FIRST_BUILD("Plan the client portal and intake", "Build the task graph for intake form, client portal and the delivery checklist that agents and staff share.", [
-    "Intake captures lawful basis and source",
-    "Portal is business-scoped with RLS tests",
+    "Intake records why we may hold each client's data, and where it came from",
+    "Portal keeps each business's data separate, with tests that prove it",
     "Delivery checklist drives task status",
   ]),
   boardDecision: board(
@@ -680,7 +680,7 @@ const services = ArchetypeSeed.parse({
         costMinor: 0,
         reversible: true,
         actions: [
-          work("product_lead", "research", "Engagement playbook for the first five clients", "Write the discovery questions and the engagement playbook for the first five bespoke clients, noting where the founder's time is needed."),
+          work("product_lead", "research", "How we run the first five client engagements", "Write the discovery questions and the engagement steps for the first five bespoke clients, noting where the founder's time is needed."),
           work("legal_lead", "legal", "Engagement terms for bespoke work", "Draft engagement terms for bespoke work, for the founder to review."),
         ],
       },
@@ -716,10 +716,10 @@ const contentMedia = ArchetypeSeed.parse({
   firstCycleTasks: [
     OPEN_QUESTIONS_TASK,
     FINANCE_TASK,
-    LEGAL_TASK("List publishing, sponsorship disclosure, email marketing and copyright obligations for the target market and recommend a jurisdiction.", [
+    LEGAL_TASK("List publishing, sponsorship disclosure, email marketing and copyright obligations for the target market and recommend where to incorporate.", [
       "Sponsorship disclosure rules cited",
       "Email marketing law per market listed",
-      "Jurisdiction recommendation with dated sources",
+      "Recommendation on where to incorporate, with dated sources",
     ]),
   ],
   firstBuild: FIRST_BUILD("Plan the publication site and membership", "Build the task graph for the site, newsletter signup with consent, paid membership through the billing connector and sponsorship tracking links.", [
@@ -731,12 +731,12 @@ const contentMedia = ArchetypeSeed.parse({
     "content_media",
     "Free first or paid from issue one?",
     [
-      "Audience compounds; revenue needs an audience. The Board asks whether the first chapter builds reach or charges from the start.",
+      "Audience compounds; revenue needs an audience. The Board asks whether the first three months build reach or charge from the start.",
     ],
     [
       {
         id: "free_then_paid",
-        label: "Free for the first chapter, paid tier at 1,000 subscribers",
+        label: "Free for the first three months, paid tier at 1,000 subscribers",
         recommended: true,
         consequence: "Faster audience growth; sponsorship starts when reach justifies it.",
         because: "Recommended because a paywall on issue one keeps out the readers who would tell others about you.",
@@ -745,7 +745,7 @@ const contentMedia = ArchetypeSeed.parse({
         actions: [
           enable("content"),
           budget("content", THRESHOLD),
-          channelWork("content", "Grow the free audience to 1,000 subscribers", "Publish the free first chapter on a steady cadence and grow the list toward 1,000 subscribers; sponsorship waits until reach justifies it."),
+          channelWork("content", "Grow the free audience to 1,000 subscribers", "Publish free issues on a steady cadence for the first three months and grow the list toward 1,000 subscribers; sponsorship waits until reach justifies it."),
           enable("email_automation"),
           channelWork("email_automation", "Welcome sequence for free subscribers", "Write the welcome sequence every new free subscriber receives."),
           work("planner", "code", "Paid tier ready at 1,000 subscribers", "Build the paid membership tier behind a switch so it opens at 1,000 subscribers; taking payments waits for the founder's go-live."),

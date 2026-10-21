@@ -44,8 +44,8 @@ export const LONG_LIVED_NAME_PATTERNS: readonly CredentialPattern[] = [
 /** Value shapes of well-known long-lived credentials. */
 export const LONG_LIVED_VALUE_PATTERNS: readonly CredentialPattern[] = [
   { id: "value.stripe_secret", reason: "Stripe secret/restricted key", value: /\b(sk|rk)_(live|test)_[A-Za-z0-9]{10,}/ },
-  { id: "value.stripe_webhook", reason: "Stripe webhook signing secret", value: /\bwhsec_[A-Za-z0-9]{10,}/ },
-  { id: "value.github_pat", reason: "GitHub personal/OAuth/user token", value: /\b(ghp|gho|ghu|ghr)_[A-Za-z0-9]{20,}/ },
+  { id: "value.stripe_webhook", reason: "Stripe event signing secret", value: /\bwhsec_[A-Za-z0-9]{10,}/ },
+  { id: "value.github_pat", reason: "GitHub personal, app or user token", value: /\b(ghp|gho|ghu|ghr)_[A-Za-z0-9]{20,}/ },
   { id: "value.github_fine_grained_pat", reason: "GitHub fine-grained personal access token", value: /\bgithub_pat_[A-Za-z0-9_]{20,}/ },
   { id: "value.gitlab_pat", reason: "GitLab personal access token", value: /\bglpat-[A-Za-z0-9_-]{15,}/ },
   { id: "value.aws_access_key", reason: "AWS long-term access key id", value: /\b(AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA)[0-9A-Z]{16}\b/ },

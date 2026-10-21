@@ -37,6 +37,17 @@ export type HardGate =
   | "security_settings"
   | "untrusted_instructions";
 
+/** Each gate as the founder reads it in a plan line (UX plan §7.19: never name the plumbing). */
+const GATE_WORDS: Readonly<Record<HardGate, string>> = {
+  move_money: "moving money",
+  sign: "signing",
+  file_with_identity: "filing in your name",
+  accept_terms: "accepting terms",
+  permanent_delete: "deleting for good",
+  security_settings: "changing security settings",
+  untrusted_instructions: "deciding what to do with instructions found in outside content",
+};
+
 const HARD_GATES: Array<{ gate: HardGate; re: RegExp; instruction: string; unless?: RegExp }> = [
   {
     gate: "move_money",
@@ -45,36 +56,36 @@ const HARD_GATES: Array<{ gate: HardGate; re: RegExp; instruction: string; unles
     // policy", "refunds and consumer-law exposure" or "before any payout" name money and move none, so they compile
     // to the work they describe.
     re: /\b(pay(?:s)?(?![-\s]*(?:as|per|what|walls?|tiers?|plans?|pages?|gates?|gap|scale|rates?|structure|attention)\b)|paying(?![-\s]*(?:customers?|users?|subscribers?|members?|clients?|accounts?|buyers?|tiers?|plans?|for\s+(?:itself|ads?))\b)|payments?\s+(?:of\s+[€$£\d]|to\s)|(?:make|send|issue|release|authori[sz]e)\s+(?:a\s+|an\s+|the\s+|their\s+|her\s+|his\s+)?(?:\w+\s+)?(?:payments?|payouts?|refunds?|transfers?|wire)|wire(?!\s+(?:up|in|into|through|together|frames?)\b)|transfer(?:ring|s)?|send(?:ing)?\s+(?:the\s+|them\s+|him\s+|her\s+)?(?:money|funds|a\s+payment|the\s+payment)|refund(?:ing|s)?\s+(?!(?:polic(?:y|ies)|windows?|rates?|terms|requests?|process(?:es)?|flows?|pages?|and|or|if|when|exposure|risks?)\b)(?:the|a|an|her|his|their|them|him|this|that|these|those|all|every|each|our|my|customers?|buyers?|orders?|payments?|deposits?|[\w-]+'s|[€$£]|\d)|settle\s+(?:the\s+)?(?:invoice|bill|balance)|reimburse|top[- ]?up|buy(?:ing)?\s+(?:shares|stock|securities|crypto|bitcoin|options)|purchas(?:e|ing)\s+(?:shares|stock|securities)|trade\s+(?:shares|stock|crypto))\b/i,
-    instruction: "Moving money is a hard gate. Review the amount and payee, then make the payment yourself from your own account or provider dashboard.",
+    instruction: "Moving money is always yours to do. Review the amount and payee, then make the payment yourself from your own account or provider dashboard.",
   },
   {
     gate: "sign",
     // "sign"/"signs"/"signing" as the act; not "signed" (an adjective: "the signed contract") and not "sign up/off/in/on"
     // with or without the hyphen: "the sign-up flow", "fix sign-in", "single sign-on" are product words (audit VRB-X2).
     re: /\b(?:sign|signs|signing)(?![\s-]*(?:up|off|in|on)\b)\b|\b(?:signature|e-?sign|docusign|countersign|execute\s+the\s+(?:contract|agreement|nda|io|insertion\s+order))\b/i,
-    instruction: "Signing is a hard gate. The document is prepared for you; review it and sign with your own identity.",
+    instruction: "Signing is always yours to do. The document is prepared for you; review it and sign with your own identity.",
   },
   {
     gate: "file_with_identity",
     re: /\b(?:file|submit|lodge)\b[^.;,]*\b(?:incorporation|tax(?:es)?|vat|ein|return|filing|articles|form|registration)\b|\bregister\s+(?:the\s+|a\s+|our\s+)?(?:company|business|llc|ltd|entity)\b|\bapply\s+for\s+(?:an?\s+|the\s+)?(?:ein|vat\s+number|tax\s+id|trademark)\b|\b(?:identity|id)\s+verification\b|\bkyc\b/i,
-    instruction: "Filings in your identity are a hard gate. The kit with every field pre-filled is attached; submit it yourself.",
+    instruction: "Filing in your own name is always yours to do. The kit with every field pre-filled is attached; submit it yourself.",
   },
   {
     gate: "accept_terms",
     re: /\b(?:accept|agree\s+to|consent\s+to)\b[^.;,]*\b(?:terms|t&cs|tos|agreement|policy|conditions)\b|\bgrant\s+(?:oauth|consent|access)\b|\bauthori[sz]e\s+the\s+(?:app|integration|connector)\b/i,
-    instruction: "Accepting terms or granting consent is a hard gate. Open the provider's consent screen and accept it yourself.",
+    instruction: "Accepting terms or granting consent is always yours to do. Open the provider's consent screen and accept it yourself.",
   },
   {
     gate: "permanent_delete",
     re: /\b(?:permanently\s+delete|hard[- ]delete|purge|wipe|erase|destroy)\b/i,
-    instruction: "Permanent deletion is a hard gate. Confirm the records in the settings screen and delete them yourself.",
+    instruction: "Deleting for good is always yours to do. Confirm the records in the settings screen and delete them yourself.",
   },
   {
     gate: "security_settings",
     re: /\b(?:change|rotate|reset|disable|turn\s+off|update|remove|revoke)\b[^.;,]*\b(?:password|2fa|mfa|two[- ]factor|security\s+settings?|api\s+keys?|permissions|recovery\s+email|login\s+settings)\b|\bsecurity\s+settings\b/i,
     // Building a security feature into the product is engineering work, not a change to the founder's own settings.
     unless: /\b(?:spec|specification|roadmap|feature|product|requirements?|user\s+story|implement|build|ship)\b/i,
-    instruction: "Security settings are a hard gate. Change them yourself in the provider's security page.",
+    instruction: "Changing security settings is always yours to do. Change them yourself in the provider's security page.",
   },
   {
     gate: "untrusted_instructions",
@@ -290,7 +301,7 @@ export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}
           "request_human_action",
           { gate: g.gate, matched: g.match, instructions: g.instruction, request: sentenceCase(clause), original_text: clause },
           null,
-          `Ask you to handle "${truncate(clause, 60)}" yourself (${g.gate.replace(/_/g, " ")} is a hard gate).`,
+          `Ask you to handle "${truncate(clause, 60)}" yourself (${GATE_WORDS[g.gate]} is always yours).`,
         );
       }
       continue; // never compile anything automated out of a gated clause
@@ -303,7 +314,7 @@ export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}
         compileStep: (step) => compilePlanRuleBased(step, { ...ctx, agents, insidePlaybook: true }).actions,
       });
       if (compiled.ok) add("create_playbook", compiled.params, null, compiled.summary);
-      else add("reply_only", { question: compiled.question }, null, "Ask which event starts the playbook.");
+      else add("reply_only", { question: compiled.question }, null, "Ask which event should start it.");
       continue;
     }
 

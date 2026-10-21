@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness, settled, signIn } from "./helpers";
+import { E2E_EXAMPLE_VIEWER_ID } from "../playwright.config";
+import { API_URL, LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness, settled, signIn, signInAs } from "./helpers";
 
 /**
  * The example business (docs/UX_AUDIT_AND_PLAN.md §10 Phase 3, §12 item 5; migration 0065): a signed-in founder opens
@@ -14,12 +15,10 @@ import { LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness, settled, signIn } fr
  *     belong to for real: the door hides, `business.example.open` refuses (CONFLICT) and nothing is listed under
  *     "Example". The first describe below covers that and runs on the stack as it is.
  *
- *  2. An example viewer: an account that is not a member of the example business. The stack has no second account
- *     (the api maps every bearer to `DEV_AUTH_USER_ID` in test; the seed creates one stub user), so the second
- *     describe signs in through `E2E_EXAMPLE_VIEWER_ID`, the id of a stub auth user that belongs to no business,
- *     handed to the dev bypass as `/auth/dev?as=<uuid>`. Until the stack offers that (see the slice's requests:
- *     apps/web/app/auth/dev/route.ts, apps/web/lib/auth/server.ts, apps/api/src/auth.ts, the seed), those tests fail
- *     early with a message that says what is missing (no spec skips itself, e2e/README.md).
+ *  2. An example viewer: an account that is not a member of the example business. The second describe signs in as
+ *     `E2E_EXAMPLE_VIEWER_ID` (playwright.config.ts, a fixed id) through `signInAs` (`/auth/dev?as=<uuid>`): the web
+ *     then sends `Bearer dev:<uuid>`, which the api and the stream map to that account in development and test only,
+ *     and the api's dev bootstrap creates it as a stub auth user with no business the first time it is seen.
  */
 
 type Json<T> = { result: { data: { json: T } } };
@@ -75,13 +74,12 @@ test.describe("the example business, as the seeded owner", () => {
   });
 });
 
-/** The second account (an auth user that belongs to no business), when the stack offers one; see the header. */
-const EXAMPLE_VIEWER_ID = process.env.E2E_EXAMPLE_VIEWER_ID ?? null;
+/** The second account: an auth user that belongs to no business (see the header). */
+const EXAMPLE_VIEWER_ID = E2E_EXAMPLE_VIEWER_ID;
 
 /** Signs the second account in through the dev bypass and lands on New business (its profile is completed once). */
 async function signInAsExampleViewer(page: Page): Promise<void> {
-  expect(EXAMPLE_VIEWER_ID, "an account that is not a member of the example business: set E2E_EXAMPLE_VIEWER_ID to the id of a stub auth user that belongs to no business and let /auth/dev?as=<uuid> sign it in (see the header of this spec)").not.toBeNull();
-  await page.goto(`/auth/dev?as=${EXAMPLE_VIEWER_ID}&next=%2Fnew`);
+  await signInAs(page, EXAMPLE_VIEWER_ID, "/new");
   await page.waitForURL(/\/onboarding|\/new/, { timeout: LONG });
   if (/\/onboarding/.test(page.url())) {
     await expect(page.getByTestId("onboarding-form")).toBeVisible({ timeout: LONG });
@@ -102,7 +100,7 @@ async function signInAsExampleViewer(page: Page): Promise<void> {
 
 /** An api client signed in as the second account (the same `dev:<uuid>` bearer the cookie carries). */
 async function viewerApi(playwright: PlaywrightWorkerArgs["playwright"]): Promise<APIRequestContext> {
-  return playwright.request.newContext({ baseURL: process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000", extraHTTPHeaders: { authorization: `Bearer dev:${EXAMPLE_VIEWER_ID}` } });
+  return playwright.request.newContext({ baseURL: API_URL, extraHTTPHeaders: { authorization: `Bearer dev:${EXAMPLE_VIEWER_ID}` } });
 }
 
 test.describe("the example business, as an example viewer", () => {

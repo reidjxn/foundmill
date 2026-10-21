@@ -79,7 +79,7 @@ export function makeBankingTools(v: BankingVendor) {
     defineTool({ name: "get_consent_status", description: "Whether the bank consent is active and when it expires (open-banking consents lapse after 90–180 days; AC-11.8.2 warns 7 days before).", input: z.object({}), output: ConsentStatus, hints: {}, annotations: { readOnlyHint: true } }),
     defineTool({
       name: "start_consent",
-      description: `HARD GATE (BUILD §2.2): granting bank access is an OAuth consent only the founder can give, in ${v.linkName}.`,
+      description: `HARD GATE (BUILD §2.2): granting bank access is a consent only the founder can give, in ${v.linkName}.`,
       input: z.object({ reason: z.string().max(1000).optional() }),
       hints: { hardGate: true, irreversible: true },
       humanAction: (a) => ({ title: `Connect your bank in ${v.linkName}`, instructions: `Open Settings → Integrations → ${v.linkName}, choose your bank and approve read-only access to accounts, balances and transactions. Agents never see your bank login.${a.reason ? ` Why: ${a.reason}` : ""}`, url: v.linkUrl }),

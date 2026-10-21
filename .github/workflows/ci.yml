@@ -75,13 +75,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Plain-language self-test
         run: node --test scripts/plain-language.test.mjs
-      # Report mode until the package sweep lands (docs/UX_AUDIT_AND_PLAN.md §8.3, Gate 2): the step goes red on hits
-      # but does not fail the job. The UX wave after wave C that sweeps docs/PLAIN_LANGUAGE_SWEEP.md package by package
-      # (wave D) removes `continue-on-error` once the sweep reads zero, and from then on any new hit fails CI.
-      - name: Plain-language scan (replace-tier jargon on sight, define-tier words the file does not define, developer notes)
+      # Gate 2 (docs/UX_AUDIT_AND_PLAN.md §10) fails the job: a replace-tier word or a developer note anywhere, a
+      # replace-tier plain-allow in text a founder reads, or more than 300 undefined define-tier words in the UI roots.
+      - name: Plain-language gate
+        run: node scripts/plain-language.mjs --gate --summary
+      # The full sweep (every define-tier word, agent-facing packages included) is a report for the next sweep.
+      - name: Plain-language sweep (report)
         if: ${{ !cancelled() }}
         continue-on-error: true
-        run: node scripts/plain-language.mjs --sweep docs/PLAIN_LANGUAGE_SWEEP.md
+        run: node scripts/plain-language.mjs --sweep docs/PLAIN_LANGUAGE_SWEEP.md --summary
       - name: Upload the plain-language sweep
         if: ${{ always() }}
         uses: actions/upload-artifact@v4

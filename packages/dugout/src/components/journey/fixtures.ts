@@ -202,8 +202,9 @@ export function generateJourneyFixture(opts: { days?: number; today?: string; se
       endsOn: day(end),
       status,
       title: status === "past" ? (titles[index] ?? null) : null,
-      // The placeholder packages/journey writes until a title is composed (provisionalChapterTitle).
-      provisionalTitle: status === "future" ? "Up next" : status === "current" ? "In progress" : index === 0 ? "Getting started" : "Steady progress",
+      // The landing page's example chapters (apps/web landing/examples/helpers.ts) are numbered the same way; its test
+      // requires the two to match. plain-allow: "chapter" is defined where the ribbon shows it (<Term id="chapter">).
+      provisionalTitle: `Chapter ${index + 1}`,
     });
     cursor = addDays(end, 1);
     index += 1;

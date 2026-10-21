@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CONTINUE_PULSE_MS, ContinueButton, continueButtonAction, continueButtonLabel, continueTooltip, holidayCaption, holidayCaptionParts, untilPhrase } from "./ContinueButton";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
+import { CONTINUE_PULSE_MS, ContinueButton, continueButtonAction, continueButtonLabel, continueTooltip, cycleDefinitionSentence, holidayCaption, holidayCaptionParts, untilPhrase } from "./ContinueButton";
 import type { ContinueState } from "./types";
 
 describe("ContinueButton", () => {
@@ -20,6 +21,41 @@ describe("ContinueButton", () => {
     expect(button.getAttribute("data-coachmark")).toBe("continue");
     await user.hover(button);
     expect((await screen.findAllByText("The team is working · cycle 3")).length).toBeGreaterThan(0);
+  });
+
+  it("names and defines the cycle in the idle tooltip while guidance is on, as a sentence (a tooltip holds no Term)", async () => {
+    const short = "One round of work: the team works for a while, then reports back in the Inbox.";
+    expect(cycleDefinitionSentence(short)).toBe("A cycle is one round of work: the team works for a while, then reports back in the Inbox.");
+    expect(cycleDefinitionSentence("  ")).toBe("");
+    expect(continueTooltip({ kind: "idle" }, null, null, short)).toBe("Let the team work on their next tasks for one cycle. A cycle is one round of work: the team works for a while, then reports back in the Inbox.");
+    // Only idle changes; no definition, no change.
+    expect(continueTooltip({ kind: "blocked", count: 1 }, null, null, short)).toBe("1 note needs your answer before the team can carry on. Press to open the first.");
+    expect(continueTooltip({ kind: "idle" }, null, null, null)).toBe("Let the team work on their next tasks. Their notes land in the Inbox.");
+
+    const user = userEvent.setup();
+    // Outside a provider guidance reads as on: the definition comes from the source map.
+    const { unmount } = render(<ContinueButton state={{ kind: "idle" }} />);
+    await user.hover(screen.getByRole("button", { name: /Continue/ }));
+    expect((await screen.findAllByText(/A cycle is one round of work/)).length).toBeGreaterThan(0);
+    unmount();
+    // The business's own words win, and guidance off says the plain sentence.
+    const terms = { cycle: { id: "cycle", word: "Sprint", short: "One sprint of work." } };
+    const on = render(
+      <GuidanceProvider value={{ terms }}>
+        <ContinueButton state={{ kind: "idle" }} />
+      </GuidanceProvider>,
+    );
+    await user.hover(screen.getByRole("button", { name: /Continue/ }));
+    expect((await screen.findAllByText(/A cycle is one sprint of work\./)).length).toBeGreaterThan(0);
+    on.unmount();
+    render(
+      <GuidanceProvider value={{ guidance: "off", terms }}>
+        <ContinueButton state={{ kind: "idle" }} />
+      </GuidanceProvider>,
+    );
+    await user.hover(screen.getByRole("button", { name: /Continue/ }));
+    expect((await screen.findAllByText("Let the team work on their next tasks. Their notes land in the Inbox.")).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/A cycle is/)).toBeNull();
   });
 
   it("labels every state (BUILD §5.4)", () => {

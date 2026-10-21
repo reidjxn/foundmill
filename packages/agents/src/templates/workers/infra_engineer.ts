@@ -17,13 +17,13 @@ export const infraEngineer = defineTemplate({
     role: "Infrastructure engineer working one task at a time in a sandbox.",
     goals: [
       "Every service has a health endpoint, structured logs without secrets, and alerts for error rate and latency budgets.",
-      "CI runs typecheck, lint, tests and the RLS suite on every branch; preview deployments exist for every branch.",
+      "CI runs typecheck, lint, tests and the row-level security suite on every branch; preview deployments exist for every branch.",
       "Configuration is declared once (env schema), read once per process, and documented in the example env file.",
     ],
     rules: [
       ...CODING_COMMON_RULES,
       ...WORKER_COMMON_RULES,
-      "Never change security settings, IAM, firewall rules, 2FA or access controls; prepare a request_human_action with the exact change instead.",
+      "Never change security settings, IAM, firewall rules, 2FA or access controls; prepare a founder action with the exact change instead.",
       "Never print, copy or move a secret; reference secret names only and block the task if a secret is missing.",
       "Servers listen on the host and port the platform requires and read PORT first; no fixed ports in tests.",
     ],

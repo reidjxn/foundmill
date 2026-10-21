@@ -110,7 +110,7 @@ export function compilePlaybookRuleBased(text: string, opts: PlaybookCompileOpti
   let stepsText = cut ? afterLead.slice(cut.index + cut[0].length).trim() : "";
   const trigger = detectTrigger(triggerPhrase) ?? detectTrigger(afterLead);
   if (!trigger) {
-    return { ok: false, question: "Which event should start this playbook? For example: a lead replies, someone signs up, a payment arrives, or runway drops." };
+    return { ok: false, question: "A playbook is a set of steps the team runs by itself when something happens. Which event should start this one? For example: a lead replies, someone signs up, a payment arrives, or cash runs low." };
   }
   if (!stepsText) stepsText = afterLead.replace(triggerPhrase, "").replace(/^[,;:\s]+/, "").trim();
   stepsText = stepsText.replace(/[\s.!;,]+$/, "");

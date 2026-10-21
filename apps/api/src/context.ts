@@ -17,6 +17,7 @@ import { createDefaultRegistry, type ConnectorRegistry } from "@foundmill/connec
 import { createAuthVerifier, type AuthVerifier } from "./auth";
 import { requestIdFrom } from "./request-id";
 import { createComposerClient, type ComposerClient } from "./services/composer";
+import { createDevUserBootstrap } from "./services/dev-users";
 import { createApiModelClient } from "./services/models";
 import { createRateLimitStore, type RateLimitStore, type RedisLimitClient } from "./services/rate-limit";
 import { createRedis } from "./services/redis";
@@ -144,6 +145,9 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
     jwtSecret: env.SUPABASE_JWT_SECRET ?? null,
     devUserId: env.DEV_AUTH_USER_ID ?? null,
     appEnv: env.APP_ENV,
+    // Development and test on PGlite only: a `dev:<uuid>` account is created as a stub auth user on first sight.
+    onDevUser: createDevUserBootstrap({ db, env }),
+    onDevUserError: (err, userId) => log.warn({ userId, err: (err as Error)?.message }, "dev account bootstrap failed"),
   });
 
   const health = {

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GuidanceProvider } from "../guidance/GuidanceProvider";
-import { DECISION_GUIDED_LINE, DecisionBar, NOT_STATED, costText, optionDescription, optionSubline, optionWeight, reversibilityText } from "./DecisionBar";
+import { DECISION_GUIDED_LINE, DecisionBar, NOT_STATED, costText, optionConsequence, optionDescription, optionSubline, optionWeight, reversibilityText } from "./DecisionBar";
 import { REORDER_OPTIONS } from "./fixtures";
 
 /** Guidance off: the operator's view (key caps, no guided line). Outside a provider guidance reads as on. */
@@ -41,11 +41,42 @@ describe("DecisionBar", () => {
   it("reads 'Your decision' with the guided line while guidance is on, and only the heading when it is off", () => {
     const { unmount } = render(<DecisionBar options={REORDER_OPTIONS} onChoose={() => {}} />);
     expect(screen.getByText("Your decision").className).toContain("t-data");
-    expect(screen.getByText(DECISION_GUIDED_LINE).className).toContain("text-small");
+    // The guided line is a ReassuranceLine (small, tertiary, with its icon), still findable by its data attribute.
+    const line = screen.getByText(DECISION_GUIDED_LINE).closest("[data-decision-guided-line]") as HTMLElement;
+    expect(line.getAttribute("data-reassurance")).toBe("undo");
+    expect(line.className).toContain("text-small");
+    expect(line.querySelector("svg")).not.toBeNull();
     unmount();
     render(quiet(<DecisionBar options={REORDER_OPTIONS} onChoose={() => {}} />));
     expect(screen.getByText("Your decision")).toBeTruthy();
     expect(screen.queryByText(DECISION_GUIDED_LINE)).toBeNull();
+  });
+
+  it("draws each option's subline and because as ConsequenceLines, in the button's own color", () => {
+    const options = [
+      { ...REORDER_OPTIONS[0]!, because: "Recommended because it keeps the bundle on sale." },
+      { id: "wait", label: "Wait a week", cost: null, reversible: false },
+      { id: "bare", label: "Do nothing" },
+    ];
+    render(<DecisionBar options={options} onChoose={() => {}} />);
+    const a = screen.getByRole("button", { name: /Reorder 2,000 units/ });
+    const sub = a.querySelector("[data-option-subline]") as HTMLElement;
+    expect(sub.hasAttribute("data-consequence")).toBe(true);
+    expect(sub.textContent).toBe(optionSubline(REORDER_OPTIONS[0]!));
+    expect(sub.className).toContain("text-inherit");
+    expect(sub.className).not.toContain("text-secondary");
+    const because = a.querySelector("[data-option-because]") as HTMLElement;
+    expect(because.hasAttribute("data-consequence")).toBe(true);
+    // No consequence: the cost and reversibility it stated, with the warning for one that cannot be undone.
+    const wait = screen.getByRole("button", { name: /Wait a week/ }).querySelector("[data-option-subline]") as HTMLElement;
+    expect(wait.textContent).toContain("No cost");
+    expect(wait.textContent).toContain("Not reversible");
+    expect(wait.querySelector("[data-consequence-reversible='false'] svg")).not.toBeNull();
+    expect(optionConsequence(options[1]!)).toEqual({ cost: "No cost", reversible: false });
+    expect(optionConsequence(REORDER_OPTIONS[0]!)).toEqual({ consequence: REORDER_OPTIONS[0]!.consequence });
+    // Nothing known: no line at all; the screen reader's sentence is still optionDescription.
+    expect(screen.getByRole("button", { name: /Do nothing/ }).querySelector("[data-consequence]")).toBeNull();
+    expect(document.getElementById(a.getAttribute("aria-describedby")!)?.textContent).toBe(optionDescription(options[0]!));
   });
 
   it("marks the recommended option with a kit fill and thumbs-up, the others outlined", () => {

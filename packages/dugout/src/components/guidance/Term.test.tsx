@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DefinitionCard } from "./DefinitionCard";
-import { GuidanceProvider } from "./GuidanceProvider";
+import { GuidanceProvider, type GuidanceActions } from "./GuidanceProvider";
 import { LearnLinkProvider, isExternalLearnHref, resolveLearnHref } from "./LearnLink";
-import { Term } from "./Term";
+import { Term, type TermOpenAction } from "./Term";
 import { FIXTURE_TERMS } from "./fixtures";
 
 const RUNWAY_SHORT = FIXTURE_TERMS.runway!.short;
@@ -87,6 +87,45 @@ describe("Term", () => {
     expect(document.body.textContent).toBe("");
     rerender(<Term id="local" definition={{ id: "local", word: "Local", short: "Defined inline." }} />);
     expect(screen.getByRole("button", { name: "Local" }).className).toContain("term-link");
+  });
+});
+
+describe("Term open callbacks", () => {
+  it("calls the provider's onTermOpen and its own onOpen once per opening, with the term's id", async () => {
+    const user = userEvent.setup();
+    const onTermOpen = vi.fn();
+    const onOpen = vi.fn();
+    const actions: Partial<GuidanceActions> & TermOpenAction = { markExplainerSeen: vi.fn(), onTermOpen };
+    render(
+      <GuidanceProvider value={{ terms: FIXTURE_TERMS }} actions={actions}>
+        <p>
+          Your <Term id="runway" onOpen={onOpen}>runway</Term> is 7 months.
+        </p>
+      </GuidanceProvider>,
+    );
+    const word = screen.getByRole("button", { name: "runway" });
+    expect(onTermOpen).not.toHaveBeenCalled();
+    await user.hover(word);
+    await screen.findByText(RUNWAY_SHORT, {}, { timeout: 2000 });
+    expect(onTermOpen).toHaveBeenCalledTimes(1);
+    expect(onTermOpen).toHaveBeenCalledWith("runway");
+    expect(onOpen).toHaveBeenCalledWith("runway");
+    // Pinning the card that is already open is the same opening: no second call.
+    word.focus();
+    await user.keyboard("{Enter}");
+    expect(onTermOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls nothing with guidance off (plain text) or for an id the map does not hold", () => {
+    const onTermOpen = vi.fn();
+    const actions: Partial<GuidanceActions> & TermOpenAction = { markExplainerSeen: vi.fn(), onTermOpen };
+    render(
+      <GuidanceProvider value={{ terms: FIXTURE_TERMS, guidance: "off" }} actions={actions}>
+        <Term id="runway">runway</Term> <Term id="nope">nope</Term>
+      </GuidanceProvider>,
+    );
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(onTermOpen).not.toHaveBeenCalled();
   });
 });
 

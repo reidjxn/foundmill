@@ -33,6 +33,21 @@ export async function signIn(page: Page): Promise<void> {
   if (/\/onboarding/.test(page.url())) await completeProfile(page);
 }
 
+/**
+ * Signs in as another account through the dev bypass (`/auth/dev?as=<uuid>`, development and test only): the dev-as
+ * cookie makes every bearer the web sends `dev:<uuid>`, which the api and the stream map to that account. Lands on
+ * `next` (default New business), or on /onboarding when the account has no founder profile yet: the caller completes
+ * it with its own answers (completeProfile writes the seed owner's). The account is the browser context's until it
+ * closes, or until a plain `signIn` (whose /auth/dev clears the choice).
+ */
+export async function signInAs(page: Page, userId: string, next = "/new"): Promise<void> {
+  expect(userId, "signInAs needs an account id (a UUID)").toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  await page.goto(`/auth/dev?as=${encodeURIComponent(userId)}&next=${encodeURIComponent(next)}`);
+  await page.waitForURL((u) => !u.pathname.startsWith("/auth/dev"), { timeout: LONG });
+  const cookies = await page.context().cookies();
+  expect(cookies.find((c) => c.name === "fm_dev_as")?.value, "/auth/dev?as= set the dev-as cookie (development and test only)").toBe(userId.toLowerCase());
+}
+
 /** Signs in and opens the seeded Northwind Skincare Home (the AppShell is visible on return). */
 export async function openBusiness(page: Page, path = "home"): Promise<string> {
   await signIn(page);

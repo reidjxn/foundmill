@@ -31,7 +31,7 @@ const SPEC_TEXT: Record<string, string[]> = {
   Packaging: ["Refillable glass with aluminum caps; FSC outer cartons; UKCA-compliant labeling with batch and PAO marks."],
   Compliance: ["UK Cosmetics Regulation: CPSR per product, SCPN notification, responsible person named; EU CPNP for Ireland."],
   Fulfillment: ["Third-party logistics in the Midlands; 48-hour dispatch; subscription refills shipped monthly."],
-  "Non-functional requirements": ["Storefront loads under two seconds; checkout through the commerce connector; order webhooks reach the journey model within a minute."],
+  "Non-functional requirements": ["Storefront loads under two seconds; checkout through the commerce connector; order notifications from the store reach the journey model within a minute."],
   Data: ["Orders, customers, refunds from Shopify; batch results from the lab; consent recorded at signup."],
   Integrations: ["Shopify, SendGrid, open banking (Tink), Google Drive for lab documents."],
   Pricing: ["Routine £54, refills £38 per quarter (Estimate until the landed-cost model confirms margin)."],
@@ -61,7 +61,7 @@ const HISTORY_TITLES = [
   { kind: "specialist" as const, departmentSlug: "operations", assigneeTemplateKey: "sourcing_manufacturing", title: "Supplier quote comparison" },
   { kind: "specialist" as const, departmentSlug: "operations", assigneeTemplateKey: "formulation_chemist", title: "Stability check on serum batch" },
   { kind: "code" as const, departmentSlug: "development", assigneeTemplateKey: "frontend_engineer", title: "Storefront fix" },
-  { kind: "code" as const, departmentSlug: "development", assigneeTemplateKey: "backend_engineer", title: "Order webhook hardening" },
+  { kind: "code" as const, departmentSlug: "development", assigneeTemplateKey: "backend_engineer", title: "Order notification hardening" },
   { kind: "channel" as const, departmentSlug: "distribution", assigneeTemplateKey: "channel_email_automation", title: "Refill reminder sequence tweak" },
   { kind: "channel" as const, departmentSlug: "distribution", assigneeTemplateKey: "channel_influencer", title: "Creator seeding round" },
   { kind: "research" as const, departmentSlug: "product", assigneeTemplateKey: "researcher", title: "Customer interview synthesis" },
@@ -256,7 +256,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
       return { specBlockId: specIds.get(h.section)!, base: current, ours: current, theirs: proseDoc(...h.proposed), position };
     }),
   });
-  log(`proposal: ${proposal.hunks.length} hunks from source ${interview.id}`);
+  log(`proposal: ${proposal.hunks.length} proposed changes from source ${interview.id}`);
   // The Product Researcher's plan and the findings behind the proposal (Product › Research).
   const research = await seedNorthwindResearch(ctx, businessId, squad, specIds, interview.id);
   log(`research: ${research.artifacts} artifacts`);
@@ -265,7 +265,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   const taskSpecs: TaskSpec[] = [
     { kind: "specialist", title: "Second batch purchase order pack", goal: "Assemble the PO pack for batch 002 across three SKUs with quote ids and the landed-cost model; the founder signs.", acceptance: ["Every line cites a quote id", "Landed cost per unit at 2,000 and 5,000 units", "No PO sent"], status: "running", departmentSlug: "operations", assigneeTemplateKey: "sourcing_manufacturing", roadmapTitle: "Second production batch (3 SKUs)", startedDaysAgo: 0, durationHours: 3, progress: 0.55, phase: "implementing" },
     { kind: "specialist", title: "Stability data for serum reformulation", goal: "Collate 12-week stability results for serum v3 and flag any drift beyond spec.", acceptance: ["All three storage conditions reported", "Drift flagged with values", "Recommendation labeled Estimate"], status: "review", departmentSlug: "operations", assigneeTemplateKey: "formulation_chemist", roadmapTitle: "Second production batch (3 SKUs)", startedDaysAgo: 1, durationHours: 2.5, phase: "review" },
-    { kind: "code", title: "Subscription pause and skip", goal: "Add pause and skip to the refill subscription through the commerce connector, against the test store.", acceptance: ["Pause and skip through the Shopify connector (test store)", "Webhook events reach the journey model", "Playwright test for the account page"], status: "running", departmentSlug: "development", assigneeTemplateKey: "backend_engineer", roadmapTitle: "Subscription refills v2 (pause and skip)", startedDaysAgo: 0, durationHours: 4, progress: 0.35, phase: "implementing", fileScope: ["apps/storefront/account/**"] },
+    { kind: "code", title: "Subscription pause and skip", goal: "Add pause and skip to the refill subscription through the commerce connector, against the test store.", acceptance: ["Pause and skip through the Shopify connector (test store)", "Store order events reach the journey model", "Playwright test for the account page"], status: "running", departmentSlug: "development", assigneeTemplateKey: "backend_engineer", roadmapTitle: "Subscription refills v2 (pause and skip)", startedDaysAgo: 0, durationHours: 4, progress: 0.35, phase: "implementing", fileScope: ["apps/storefront/account/**"] },
     { kind: "code", title: "Account page: refill schedule UI", goal: "Show the next refill date with pause/skip controls.", acceptance: ["Matches the design", "Accessible controls", "Storybook story"], status: "ready", departmentSlug: "development", assigneeTemplateKey: "frontend_engineer", roadmapTitle: "Subscription refills v2 (pause and skip)", dependsOn: ["Subscription pause and skip"] },
     { kind: "code", title: "Batch results page", goal: "Render published batch results per product from the lab documents.", acceptance: ["One page per SKU", "Results cite the lab report"], status: "planned", departmentSlug: "development", assigneeTemplateKey: "planner", roadmapTitle: "Batch results page per product" },
     { kind: "channel", title: "Creator seeding wave 4", goal: "Brief and seed ten creators with codes; disclosure checked before any payout.", acceptance: ["Ten briefs sent", "Codes registered for attribution", "No payout without disclosure check"], status: "blocked", departmentSlug: "distribution", assigneeTemplateKey: "channel_influencer", startedDaysAgo: 2, durationHours: 1.5, phase: "implementing" },
@@ -433,7 +433,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
       fromAgentId: squad.byTemplate.get("engineering_lead")?.agent.id ?? chief.agent.id,
       subject: "Subscription pause and skip: 35% done",
       bodyMd: [
-        `${agentMention(agentEntities, squad.byTemplate.get("backend_engineer")!)} has the Shopify connector calls for pause and skip passing against the test store; webhooks into the journey model are next.`,
+        `${agentMention(agentEntities, squad.byTemplate.get("backend_engineer")!)} has the Shopify connector calls for pause and skip passing against the test store; sending the store's order events into the journey model is next.`,
         `${agentMention(agentEntities, squad.byTemplate.get("frontend_engineer")!)} starts the account page once the API lands. No merge to main without your approval (Assisted mode).`,
       ].join("\n\n"),
       exhibit: { kind: "table", spec_ref: "tasks_by_status" },

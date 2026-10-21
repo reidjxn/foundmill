@@ -4,12 +4,12 @@ import { type MockContext, isRecord, sentenceCase, truncate } from "./inputs";
 import { inferTaskKind } from "./planCompiler";
 
 const STEPS: Record<string, string[]> = {
-  code: ["Read the task goal and acceptance criteria; list the files in scope", "Write the failing acceptance tests", "Implement the smallest change that passes them", "Run typecheck, lint and the full test suite", "Open the PR with a changelog entry and request review"],
+  code: ["Read the task goal and what counts as done; list the files in scope", "Write the failing tests for what counts as done", "Implement the smallest change that passes them", "Run typecheck, lint and the full test suite", "Open the PR with a changelog entry and request review"],
   research: ["Define the question and what evidence would settle it", "Gather sources through the gateway and record ids", "Read untrusted content through the quarantined reader", "Summarize findings with citations and confidence", "Hand the summary to the lead with open questions"],
   channel: ["Confirm the audience, budget cap and suppression rules", "Draft creative variants with source-backed claims only", "Submit for policy check and approval where required", "Launch with tracking links or codes", "Measure, report to the Inbox with entities linked"],
-  specialist: ["Define the specification and quality criteria", "Shortlist suppliers and send structured RFQs", "Extract quotes through the quarantined reader and score them", "Request samples within the approved budget", "Prepare the purchase recommendation for the founder's approval"],
-  legal: ["Identify the jurisdiction and the applicable rules", "Draft the document from the approved template", "Mark every item that needs a human signature or filing", "Prepare the kit for the founder", "Record the compliance deadline in the calendar"],
-  finance: ["Pull the ledger or bank transactions through the connector", "Categorize and reconcile; flag anomalies", "Update the forecast with labeled estimates", "Draft the summary for the Finance overview", "Never initiate a payment; list anything that needs one as a human action"],
+  specialist: ["Write down the requirements and quality criteria", "Shortlist suppliers and send structured RFQs", "Extract quotes through the quarantined reader and score them", "Request samples within the approved budget", "Prepare the purchase recommendation for the founder's approval"],
+  legal: ["Identify which country's or state's laws apply, and the rules that follow", "Draft the document from the approved template", "Mark every item that needs a human signature or filing", "Prepare the kit for the founder", "Record the compliance deadline in the calendar"],
+  finance: ["Pull the books or bank transactions through the connector", "Categorize and reconcile; flag anomalies", "Update the forecast with labeled estimates", "Draft the summary for the Finance overview", "Never initiate a payment; list anything that needs one as a human action"],
   ops: ["Clarify the outcome and who it is for", "Break the work into checkable steps", "Do the work within the limits you were given", "Record what changed and where", "Report back with links to the artifacts"],
 };
 

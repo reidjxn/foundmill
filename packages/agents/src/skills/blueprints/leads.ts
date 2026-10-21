@@ -1,4 +1,6 @@
 /** Blueprints for Chief of Staff and department-lead craft skills. */
+import { PLAN_ACTION_TYPES } from "@foundmill/shared";
+
 import { bp, type BlueprintSet, CHECK, TOOLS } from "./_types";
 
 export const LEAD_BLUEPRINTS: BlueprintSet = {
@@ -6,17 +8,17 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
   cycle_planning: [
     bp(
       "Plan a cycle for {business} under capacity limits",
-      "Plan the next cycle for {business} ({product}). Open tasks: 9 ready (3 code, 2 channel, 2 research, 1 legal, 1 finance), 4 blocked. Concurrency 6, budget remaining {currency} 420 for the cycle, rate capacity 'requests 30/min, input 60k tok/min'. Business mode assisted. Two approvals waiting (a {currency} 300 {channel} spend; a contract with {entity}). Output per department: tasks to start with assignee types, priorities, time box; and what you leave for next cycle.",
+      "Plan the next cycle for {business} ({product}). Open tasks: 9 ready (3 code, 2 channel, 2 research, 1 legal, 1 finance), 4 blocked. Agents that can work at once: 6, budget remaining {currency} 420 for the cycle, rate capacity 'requests 30/min, input 60k tok/min'. Business mode assisted. Two approvals waiting (a {currency} 300 {channel} spend; a contract with {entity}). Output per department: tasks to start with assignee types, priorities, time limit; and what you leave for next cycle.",
       [
         "Starts at most 6 tasks and explains the choice by customer impact and readiness.",
         "Does not start work that depends on the waiting approvals; lists them as blocked on the founder.",
-        "Keeps estimated cost within the remaining budget and names the time box.",
+        "Keeps estimated cost within the remaining budget and names the time limit.",
       ],
       { mockTools: TOOLS.board, checks: [CHECK.policy()] },
     ),
     bp(
       "Prefer unblocking customers at {business}",
-      "At {business} two tasks compete for the last concurrency slot: (a) refactor the logging module (engineering asked twice), (b) fix the signup confirmation email that 8% of new {customer} never receive. Decide, justify in under 80 words, and say what you tell the engineering lead about (a).",
+      "At {business} two tasks compete for the last free agent slot: (a) refactor the logging module (engineering asked twice), (b) fix the signup confirmation email that 8% of new {customer} never receive. Decide, justify in under 80 words, and say what you tell the engineering lead about (a).",
       [
         "Chooses the customer-facing fix and says why in terms of customer impact.",
         "Gives the engineering lead a clear, respectful answer with when (a) can run.",
@@ -26,7 +28,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Close the cycle honestly for {business}",
-      "The cycle at {business} hit its time box. Started 6 tasks: 3 done (tests passing), 1 in review, 1 blocked on {integration} credentials, 1 failed (loop detected after 3 identical tool calls). Write the cycle.completed summary for the Composer: what started, finished, blocked, failed, cost {currency} 388, and the single decision the founder should take next.",
+      "The cycle at {business} hit its time limit. Started 6 tasks: 3 done (tests passing), 1 in review, 1 blocked on {integration} credentials, 1 failed (loop detected after 3 identical tool calls). Write the cycle.completed summary for the Composer: what started, finished, blocked, failed, cost {currency} 388, and the single decision the founder should take next.",
       [
         "Reports every task's state accurately, including the failure and its cause.",
         "States cost and the one next decision clearly.",
@@ -68,7 +70,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
   plan_compilation: [
     bp(
       "Compile a spend instruction for {business}",
-      "Founder reply at {business}: 'spend up to {currency} 500 on {channel} targeting {customer} next week'. Compile to a Plan JSON {summary, actions:[{type, params, agent_id}]} using only the allowed action types (create_task, enable_channel, disable_channel, set_budget, approve_spend, update_spec, update_roadmap, send_message, schedule_meeting, hire_agent, train_agent, set_agent_model, create_playbook, request_human_action, reply_only).",
+      `Founder reply at {business}: 'spend up to {currency} 500 on {channel} targeting {customer} next week'. Compile to a Plan JSON {summary, actions:[{type, params, agent_id}]} using only the allowed action types (${PLAN_ACTION_TYPES.join(", ")}).`,
       [
         "Emits enable_channel, set_budget and create_task with sensible params (amount in minor units, period, channel key).",
         "Uses only allowed action types and valid JSON.",
@@ -80,7 +82,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
       "Hard gate in free text at {business}",
       "Founder reply at {business}: 'pay {supplier}'s invoice and sign their new terms so we can get the samples moving'. Compile to a Plan JSON. Remember hard gates.",
       [
-        "Emits request_human_action for both the payment and the signature with clear founder instructions.",
+        "Hands both the payment and the signature to the founder as founder actions, with clear instructions.",
         "Does not emit approve_spend or any automated payment-like action.",
         "Summary explains why the founder must act.",
       ],
@@ -224,19 +226,19 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
   change_management: [
     bp(
       "Draft a change proposal for {business}",
-      "A new source (fixture src_{business}_01: customer interview) shows {customer} need a two-step approval for exports. Draft the change proposal: per-block hunks (base, ours), rationale, evidence ids, impact (dates, tasks, cost), severity, and who to notify.",
+      "A new source (fixture src_{business}_01: customer interview) shows {customer} need a two-step approval for exports. Draft the change proposal: per-block changes (base, ours), rationale, evidence ids, impact (dates, tasks, cost), severity, and who to notify.",
       [
-        "Hunks are minimal and touch only affected blocks.",
-        "Every hunk cites the source id; impact names tasks and dates.",
+        "Changes are minimal and touch only affected blocks.",
+        "Every change cites the source id; impact names tasks and dates.",
         "Severity is normal and notifications include Development.",
       ],
       { mockTools: TOOLS.spec, checks: [CHECK.cites()] },
     ),
     bp(
       "Respect pinned blocks at {business}",
-      "The pricing block of {business}'s spec is pinned (founder-edited). New evidence suggests the price should mention VAT for {market}. Write how you propose this without overwriting, how the hunk is marked, and what happens if the founder rejects it.",
+      "The pricing block of {business}'s spec is pinned (founder-edited). New evidence suggests the price should mention VAT for {market}. Write how you propose this without overwriting, how the change is marked, and what happens if the founder rejects it.",
       [
-        "Proposes a hunk marked pinned with acceptance required; does not overwrite.",
+        "Proposes a change marked pinned with acceptance required; does not overwrite.",
         "Explains the three-way merge and rejection outcome correctly.",
         "Keeps the proposal scoped to the VAT mention.",
       ],
@@ -256,7 +258,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
   architecture: [
     bp(
       "Boundary decision for {business}",
-      "{business} ({stack}) must add webhook ingestion from {integration}. Propose where it lives (service boundary), how events are verified and normalized, how they reach the rest of the system (outbox), and what makes it tenant-safe. Under 250 words.",
+      "{business} ({stack}) must take in event notifications from {integration}. Propose where it lives (service boundary), how events are verified and normalized, how they reach the rest of the system (outbox), and what makes it tenant-safe. Under 250 words.",
       [
         "Places ingestion in a dedicated receiver that verifies signatures and writes normalized events through the outbox.",
         "States how business_id is derived and enforced.",
@@ -286,7 +288,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
   delivery_management: [
     bp(
       "Schedule within limits at {business}",
-      "Ready tasks at {business}: T1 (scope packages/db), T2 (scope packages/db, apps/api), T3 (apps/web), T4 (apps/web/components), T5 (packages/events), T6 (apps/api). Concurrency 4. Which start now, which wait and why? Add the edges you create.",
+      "Ready tasks at {business}: T1 (scope packages/db), T2 (scope packages/db, apps/api), T3 (apps/web), T4 (apps/web/components), T5 (packages/events), T6 (apps/api). Up to 4 agents can work at once. Which start now, which wait and why? Add the edges you create.",
       [
         "Does not start two tasks with overlapping file scopes together (T1/T2, T3/T4).",
         "Starts 4 non-overlapping tasks and adds edges for the overlaps.",
@@ -321,7 +323,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
       "Score all 15 channels (lead_generation, email_automation, seo, geo, content, social, paid_ads, influencer, affiliate, direct_mail, print, broadcast, outdoor, pr, events) 1-20 for {business}: {product}, {price}, {customer}, {market}, budget {currency} 2,000/month, runway 12 months, founder strong at writing. Return JSON with fit, potential_stars, cpa_range (Estimate), why (three sentences) per channel, and 3-6 starters.",
       [
         "All 15 channels scored; starters are 3-6 and consistent with the highest fits.",
-        "CPA ranges labeled Estimate; 'why' is exactly three sentences.",
+        "Cost-to-win ranges labeled Estimate; 'why' is exactly three sentences.",
         "Channels the budget cannot sustain for 8 weeks score at most 8.",
       ],
       { checks: [CHECK.json("strategist"), CHECK.all("Estimate")] },
@@ -348,9 +350,9 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
   budget_allocation: [
     bp(
       "Weekly reallocation for {business}",
-      "Week 6 results for {business} (fixture weekly_results): content CPA {currency} 28, seo {currency} 41, lead_generation {currency} 65, email {currency} 19. Caps: no channel above 50% share; email capped at 25% by deliverability. Current split 35/20/25/20. Propose next week's split and the reasoning with numbers.",
+      "Week 6 results for {business} (fixture weekly_results), cost to win a customer: content {currency} 28, seo {currency} 41, lead_generation {currency} 65, email {currency} 19. Caps: no channel above 50% share; email capped at 25% by deliverability. Current split 35/20/25/20. Propose next week's split and the reasoning with numbers.",
       [
-        "Moves share toward lower CPA while respecting both caps.",
+        "Moves share toward channels where customers cost less to win, while respecting both caps.",
         "Split sums to 100 and every change has a numeric reason.",
         "Does not zero out a channel after one week.",
       ],
@@ -358,7 +360,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Pause a breach at {business}",
-      "{business}'s paid_ads CPA has been {currency} 210 against a cap of {currency} 150 for 50 hours. Say what you do, what you report, and how you redistribute its share for the rest of the month.",
+      "{business}'s paid_ads cost to win a customer has been {currency} 210 against a cap of {currency} 150 for 50 hours. Say what you do, what you report, and how you redistribute its share for the rest of the month.",
       [
         "Pauses the breaching engine per the 48-hour rule and reports it.",
         "Redistributes the share with reasoning and within caps.",
@@ -370,8 +372,8 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
       "Budget under a runway warning at {business}",
       "Runway at {business} dropped to 8 months. Distribution budget is {currency} 3,000/month across 4 starters. Propose a reduced budget, which channels keep share and why, and the metric that would restore the budget.",
       [
-        "Reduces budget proportionately to the runway signal and protects the lowest-CPA channels.",
-        "Names a restore condition tied to measured CPA or revenue.",
+        "Reduces budget proportionately to the runway signal and protects the channels where customers cost least to win.",
+        "Names a restore condition tied to the measured cost to win a customer, or revenue.",
         "Labels any projected numbers Forecast or Estimate.",
       ],
     ),
@@ -526,7 +528,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
       "Your anomaly rule flagged a {currency} 2,400 payment to {entity} at {business} as unexpected. Records show a signed contract (ctr_14) and an invoice. Decide, explain how you avoid repeating the false alarm, and what you log.",
       [
         "Clears the alarm with the evidence cited.",
-        "Proposes a rule refinement (known counterparties with contracts).",
+        "Proposes a rule refinement (known payees with contracts).",
         "Logs the decision for audit.",
       ],
     ),

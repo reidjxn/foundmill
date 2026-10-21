@@ -6,6 +6,7 @@
 import { repos, type Executor } from "@foundmill/db";
 import { LIMITS } from "@foundmill/config";
 import { CHANNEL_META, formatMoney, type ChannelKey, type TaskStatus } from "@foundmill/shared";
+import { ESTIMATE } from "./labels";
 
 const DAY_MS = 86_400_000;
 const dayKey = (d: Date): string => d.toISOString().slice(0, 10);
@@ -133,15 +134,15 @@ export interface StatusMetric {
   metric: string;
   value: string;
   source: string;
-  label: "Estimate" | null;
+  label: typeof ESTIMATE | null;
 }
 
 /** The ≤ 4 live metrics offered for the status strip, each with provenance (a named query or table) and a label. */
 export function statusMetrics(s: MetricsSnapshot): StatusMetric[] {
   const out: StatusMetric[] = [];
   // Money reaches the note's prose as the founder reads it everywhere else: the currency's narrow symbol, grouped (audit VGTM-X3).
-  if (s.cashMinor !== null) out.push({ metric: "cash", value: formatMoney({ amountMinor: s.cashMinor, currency: s.currency }), source: "cash_position", label: "Estimate" });
-  if (s.runwayMonths !== null) out.push({ metric: "runway", value: `${s.runwayMonths} months`, source: "cash_position", label: "Estimate" });
+  if (s.cashMinor !== null) out.push({ metric: "cash", value: formatMoney({ amountMinor: s.cashMinor, currency: s.currency }), source: "cash_position", label: ESTIMATE });
+  if (s.runwayMonths !== null) out.push({ metric: "runway", value: `${s.runwayMonths} months`, source: "cash_position", label: ESTIMATE });
   out.push({ metric: "customers_week", value: String(s.customersWeek), source: "conversions_30d", label: null });
   out.push({ metric: "tasks_running", value: String(s.tasks.running), source: "tasks_by_status", label: null });
   if (out.length < 4) out.push({ metric: "signups_week", value: String(s.signupsWeek), source: "conversions_30d", label: null });

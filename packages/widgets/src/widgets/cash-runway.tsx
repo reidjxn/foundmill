@@ -6,7 +6,7 @@
 import { useMemo } from "react";
 import { z } from "zod";
 import { Landmark } from "lucide-react";
-import { LineChart, MetricTile, StatusPill, formatMoney, formatNumber, type LineSeries, type MetricTileProps } from "@foundmill/dugout";
+import { LineChart, MetricTile, StatusPill, Term, formatMoney, formatNumber, type LineSeries, type MetricTileProps } from "@foundmill/dugout";
 import { minorToMajor } from "@foundmill/shared";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
@@ -98,6 +98,7 @@ function CashRunwayWidget({ settings }: WidgetProps<CashRunwaySettings>) {
   return (
     <WidgetFrame
       title="Cash and runway"
+      help="Runway is how many months your cash lasts at today's spending. Net burn is what the business spends in a month minus what it earns."
       data-widget="cash_runway"
       queries={[finance]}
       flush
@@ -116,7 +117,13 @@ function CashRunwayWidget({ settings }: WidgetProps<CashRunwaySettings>) {
             {series.length > 0 ? (
               <LineChart series={series} label={forecastShown ? "Cash forecast by scenario" : "Monthly net cash flow"} height={140} provenance={forecastShown ? "forecast" : undefined} yFormat={(v) => formatNumber(v, { maxDigits: 0 })} />
             ) : (
-              <p className="text-small text-secondary">{settings.chart === "forecast" ? "No forecast yet. The Finance lead drafts one after the first cycle." : "Monthly cash flow appears after two months of transactions."}</p>
+              <p className="text-small text-secondary">{settings.chart === "forecast" ? (
+                  <>
+                    No forecast yet. The Finance lead drafts one after the first <Term id="cycle">cycle</Term>.
+                  </>
+                ) : (
+                  "Monthly cash flow appears after two months of transactions."
+                )}</p>
             )}
           </div>
         </div>

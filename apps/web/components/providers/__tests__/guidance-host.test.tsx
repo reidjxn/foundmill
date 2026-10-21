@@ -34,6 +34,7 @@ async function serverUpdate(change: Patch) {
   return { date: "us", time: "12h", ...stored };
 }
 const update = vi.fn(serverUpdate);
+const sendSignal = vi.fn(async (_input: unknown) => ({ written: true }));
 /** Holds the next request open until the returned function is called, so the optimistic state can be observed. */
 function holdNextUpdate(): () => void {
   let release: () => void = () => undefined;
@@ -57,13 +58,15 @@ vi.mock("@/lib/trpc-react", () => ({
           mutationKey: () => [["founder", "preferences", "update"]],
           mutationOptions: (opts: Record<string, unknown>) => ({ mutationKey: [["founder", "preferences", "update"]], mutationFn: (change: Patch) => update(change), ...opts }),
         },
+        // The fake client for the product signals: records each request.
+        signal: { mutationOptions: () => ({ mutationKey: [["founder", "preferences", "signal"]], mutationFn: (input: unknown) => sendSignal(input) }) },
       },
     },
     business: { get: { queryKey: (input: { businessId: string }) => businessKey(input.businessId) } },
   }),
 }));
 
-import { GuidanceHost, applyGuidancePatch, isSignedInPath, resolveLearn, termsFor, useGuidancePreferences, type GuidancePreferencesApi } from "../GuidanceHost";
+import { GuidanceHost, applyGuidancePatch, guidanceSignalInput, isSignedInPath, resolveLearn, screenIdFromPath, termsFor, useGuidancePreferences, useGuidanceSignal, type GuidancePreferencesApi } from "../GuidanceHost";
 import { TEXT_SIZE_COOKIE, readTextSizeCookie } from "../text-size-cookie";
 
 let api: GuidancePreferencesApi | null = null;
@@ -106,6 +109,8 @@ beforeEach(() => {
 afterEach(() => {
   read.mockClear();
   update.mockClear();
+  sendSignal.mockReset();
+  sendSignal.mockImplementation(async () => ({ written: true }));
 });
 
 describe("GuidanceHost", () => {
@@ -273,7 +278,145 @@ describe("GuidanceHost definitions and Learn more", () => {
   });
 });
 
+/** The provider's actions as the Term sees them (GuidanceHost passes `onTermOpen` with the others). */
+type Actions = ReturnType<typeof useGuidance> & { onTermOpen?: (termId: string) => void };
+const signalsSent = () => sendSignal.mock.calls.map(([input]) => input as { businessId: string; signal: Record<string, unknown> });
+
+describe("GuidanceHost product signals", () => {
+  it("signal() sends one request for the business on screen and returns at once", async () => {
+    mount();
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    act(() => api!.signal("guidance.tour_completed", { tourId: "home", steps: 5 }));
+    await waitFor(() => expect(sendSignal).toHaveBeenCalledTimes(1));
+    expect(signalsSent()[0]).toEqual({ businessId: BUSINESS, signal: { type: "guidance.tour_completed", tourId: "home", steps: 5 } });
+  });
+
+  it("sends nothing outside a business route, and a failed signal changes nothing on screen", async () => {
+    pathname = "/new";
+    params = null;
+    const r = mount(client(), undefined, {});
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    act(() => api!.signal("guidance.explainer_dismissed", { screenId: "home" }));
+    await new Promise((res) => setTimeout(res, 20));
+    expect(sendSignal).not.toHaveBeenCalled();
+    r.unmount();
+
+    pathname = `/b/${BUSINESS}/home`;
+    params = { bid: BUSINESS };
+    sendSignal.mockRejectedValue(new Error("offline"));
+    mount();
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    expect(() => act(() => api!.signal("guidance.tour_skipped", { tourId: "home", atStep: 2, steps: 5 }))).not.toThrow();
+    await waitFor(() => expect(sendSignal).toHaveBeenCalledTimes(1));
+    await new Promise((res) => setTimeout(res, 20));
+    expect(probe()).toBe("on standard - - Cost to win a customer");
+  });
+
+  it("an explainer's first Got it is its dismissal signal; one already seen sends nothing", async () => {
+    stored = { ...defaults(), explainersSeen: { inbox: true } };
+    mount();
+    await waitFor(() => expect(guided?.explainersSeen).toEqual({ inbox: true }));
+    await act(async () => guided!.markExplainerSeen("finance/runway"));
+    await act(async () => guided!.markExplainerSeen("inbox"));
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+    expect(signalsSent().map((i) => i.signal)).toEqual([{ type: "guidance.explainer_dismissed", screenId: "finance/runway" }]);
+  });
+
+  it("a definition opened sends term_opened once per term per session, with the screen it was opened on", async () => {
+    pathname = `/b/${BUSINESS}/finance/runway`;
+    mount();
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    const actions = guided as Actions;
+    expect(typeof actions.onTermOpen).toBe("function");
+    act(() => {
+      actions.onTermOpen!("runway");
+      actions.onTermOpen!("runway");
+      actions.onTermOpen!("burn");
+      // An inline definition's id the API would refuse is dropped, not sent.
+      actions.onTermOpen!("Not An Id");
+    });
+    await waitFor(() => expect(sendSignal).toHaveBeenCalledTimes(2));
+    expect(signalsSent().map((i) => i.signal)).toEqual([
+      { type: "guidance.term_opened", termId: "runway", screenId: "finance/runway" },
+      { type: "guidance.term_opened", termId: "burn", screenId: "finance/runway" },
+    ]);
+  });
+
+  it("a saved switch from on to off sends turned_off (from Settings by default); off to off and on do not", async () => {
+    mount();
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await api!.save({ textSize: "comfortable" });
+      await api!.save({ guidance: "off" });
+    });
+    await waitFor(() => expect(sendSignal).toHaveBeenCalledTimes(1));
+    expect(signalsSent()[0]!.signal).toEqual({ type: "guidance.turned_off", from: "settings" });
+    await act(async () => {
+      await api!.save({ guidance: "off" });
+      await api!.save({ guidance: "on" });
+      await api!.save({ guidance: "off" }, { from: "checklist" });
+    });
+    await waitFor(() => expect(sendSignal).toHaveBeenCalledTimes(2));
+    expect(signalsSent()[1]!.signal).toEqual({ type: "guidance.turned_off", from: "checklist" });
+  });
+
+  it("a failed save sends no turned_off", async () => {
+    mount();
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    update.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => {
+      await expect(api!.save({ guidance: "off" })).rejects.toThrow("offline");
+    });
+    await new Promise((res) => setTimeout(res, 20));
+    expect(sendSignal).not.toHaveBeenCalled();
+  });
+
+  it("useGuidanceSignal is the host's signal inside it and a no-op outside it", async () => {
+    let inside: ReturnType<typeof useGuidanceSignal> | null = null;
+    let outside: ReturnType<typeof useGuidanceSignal> | null = null;
+    function Inside() {
+      inside = useGuidanceSignal();
+      return null;
+    }
+    function Outside() {
+      outside = useGuidanceSignal();
+      return null;
+    }
+    render(
+      <QueryClientProvider client={client()}>
+        <Outside />
+        <GuidanceHost>
+          <Inside />
+        </GuidanceHost>
+      </QueryClientProvider>,
+    );
+    expect(() => outside!("guidance.tour_completed", { tourId: "home", steps: 1 })).not.toThrow();
+    act(() => inside!("guidance.tour_completed", { tourId: "inbox", steps: 4 }));
+    await waitFor(() => expect(sendSignal).toHaveBeenCalledTimes(1));
+    expect(signalsSent()[0]!.signal).toEqual({ type: "guidance.tour_completed", tourId: "inbox", steps: 4 });
+  });
+});
+
 describe("helpers", () => {
+  it("guidanceSignalInput: the business on screen and ids the API accepts, else nothing", () => {
+    expect(guidanceSignalInput("guidance.turned_off", { from: "tour" }, BUSINESS)).toEqual({ businessId: BUSINESS, signal: { type: "guidance.turned_off", from: "tour" } });
+    expect(guidanceSignalInput("guidance.turned_off", { from: "tour" }, null)).toBeNull();
+    expect(guidanceSignalInput("guidance.term_opened", { termId: "mrr" }, BUSINESS)?.signal).toEqual({ type: "guidance.term_opened", termId: "mrr" });
+    expect(guidanceSignalInput("guidance.term_opened", { termId: "MRR" }, BUSINESS)).toBeNull();
+    expect(guidanceSignalInput("guidance.explainer_dismissed", { screenId: " " }, BUSINESS)).toBeNull();
+    expect(guidanceSignalInput("guidance.explainer_dismissed", { screenId: "x".repeat(121) }, BUSINESS)).toBeNull();
+  });
+
+  it("screenIdFromPath: the part of a business route after its id, Home for the root, null elsewhere", () => {
+    expect(screenIdFromPath(`/b/${BUSINESS}/finance/runway`)).toBe("finance/runway");
+    expect(screenIdFromPath(`/b/${BUSINESS}/inbox/`)).toBe("inbox");
+    expect(screenIdFromPath(`/b/${BUSINESS}`)).toBe("home");
+    expect(screenIdFromPath(`/b/${BUSINESS}/home?x=1`)).toBe("home");
+    expect(screenIdFromPath("/new")).toBeNull();
+    expect(screenIdFromPath(null)).toBeNull();
+  });
+
+
   it("isSignedInPath: the founder's pages, never the landing page or the sign-in pages", () => {
     expect(isSignedInPath(`/b/${BUSINESS}/home`)).toBe(true);
     expect(isSignedInPath("/new/ideate")).toBe(true);

@@ -93,7 +93,7 @@ export const PLAIN_LINES = {
  */
 export function runwayTile(finance: FinanceOverview | undefined, loading: boolean, onClick: () => void): StatusTile {
   const months = finance?.runway.months ?? null;
-  const provenance = finance ? { source: "Cash ÷ net burn (trailing 3 months)", note: finance.burn.definition } : undefined;
+  const provenance = finance ? { source: "Cash ÷ net burn (net burn: monthly spending minus income, trailing 3 months)", note: finance.burn.definition } : undefined;
   if (months === null) {
     const words = runwayWords(finance);
     return { label: "Runway", termId: "runway", metricId: "runway", value: loading ? null : (words?.value ?? RUNWAY_WORDS.no_bank.value), loading, caption: words?.caption, provenance, onClick };
@@ -153,7 +153,7 @@ export function statusTiles(i: StatusStripInputs): StatusTile[] {
     financeError ? unavailableTile("Runway", financeError, "Finance", openFinance, "runway") : runwayTile(i.finance, i.loading.finance, openFinance),
     financeError
       ? unavailableTile("Revenue this month", financeError, "Finance", openFinance, "revenue")
-      : { label: "Revenue this month", termId: "revenue", plain: PLAIN_LINES.revenue, value: revenueMonth === null ? (i.loading.finance ? null : "—") : { amountMinor: revenueMonth, currency }, spark: revenueSeries, loading: i.loading.finance, caption: "Money in this month", provenance: { source: "Bank inflows, cash basis, financing and transfers excluded", note: i.finance?.revenue.label }, onClick: openFinance },
+      : { label: "Revenue this month", termId: "revenue", plain: PLAIN_LINES.revenue, value: revenueMonth === null ? (i.loading.finance ? null : "—") : { amountMinor: revenueMonth, currency }, spark: revenueSeries, loading: i.loading.finance, caption: "Money in this month", provenance: { source: "Bank inflows, counted when the cash arrives; financing and transfers excluded", note: i.finance?.revenue.label }, onClick: openFinance },
     ribbonError
       ? unavailableTile("Customers this week", ribbonError, "The Journey", () => i.open("customers"))
       : { label: "Customers this week", plain: PLAIN_LINES.customers, value: i.ribbon ? customersWeek : null, format: "integer", loading: i.loading.ribbon, caption: "Paying customers, last 7 days", delta: i.ribbon ? { value: customersWeek - customersPrev, label: "vs last week" } : undefined, spark: i.ribbon ? dailySeries(rows, lastDays(14, i.today), (r) => r.payments) : undefined, provenance: { source: "Payments (first payments count as customers)" }, onClick: () => i.open("customers") },

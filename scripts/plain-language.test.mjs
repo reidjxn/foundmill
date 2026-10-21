@@ -907,3 +907,24 @@ describe("report", () => {
     assert.equal(run.status, 0, run.stdout + run.stderr);
   });
 });
+
+it("model-facing allowances are reported apart and never count against Gate 2", async () => {
+  const { gateSilenced } = await import("./plain-language.mjs");
+  const silenced = [
+    { file: "packages/agents/src/prompts/x.ts", line: 3, term: "hunk", tier: "replace", modelFacing: true },
+    { file: "apps/web/components/x.tsx", line: 9, term: "CPA", tier: "replace" },
+  ];
+  assert.deepEqual(gateSilenced(silenced).map((h) => h.term), ["CPA"]);
+});
+
+it("--gate fails on a replace-tier word, a leak or a founder-facing plain-allow, and on too many UI define hits", async () => {
+  const { gateVerdict } = await import("./plain-language.mjs");
+  const ok = gateVerdict({ hits: [{ file: "packages/agents/src/x.ts", line: 1, term: "Runway", tier: "define" }], silenced: [], errors: [] });
+  assert.equal(ok.ok, true);
+  assert.equal(gateVerdict({ hits: [{ file: "apps/web/a.tsx", line: 1, term: "CPA", tier: "replace" }], silenced: [], errors: [] }).ok, false);
+  assert.equal(gateVerdict({ hits: [{ file: "apps/web/a.tsx", line: 1, term: "TODO", tier: "leak" }], silenced: [], errors: [] }).ok, false);
+  assert.equal(gateVerdict({ hits: [], silenced: [{ file: "apps/web/a.tsx", line: 1, term: "hunk" }], errors: [] }).ok, false);
+  assert.equal(gateVerdict({ hits: [], silenced: [{ file: "packages/agents/src/prompts/a.ts", line: 1, term: "hunk", modelFacing: true }], errors: [] }).ok, true);
+  const many = Array.from({ length: 301 }, (_, i) => ({ file: "apps/web/a.tsx", line: i + 1, term: "Runway", tier: "define" }));
+  assert.equal(gateVerdict({ hits: many, silenced: [], errors: [] }).ok, false);
+});

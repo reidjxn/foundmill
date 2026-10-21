@@ -7,7 +7,10 @@
  *   after every 10-minute gap fetched them itself (audit api-db F7).
  * - Projects still on the legacy HS256 secret are accepted when `SUPABASE_JWT_SECRET` is present.
  * - `DEV_AUTH_USER_ID` replaces verification only when `APP_ENV` is development or test (loadEnv already nulls it
- *   elsewhere); the id must be a UUID because it becomes the RLS `sub` claim.
+ *   elsewhere); the id must be a UUID because it becomes the RLS `sub` claim. Under it a missing token or the literal
+ *   `dev` is that user, and `dev:<uuid>` is the account it names (a second account for the Playwright stack, signed in
+ *   by apps/web `/auth/dev?as=<uuid>`), handed to `onDevUser` first so a dev bootstrap can make sure it exists. Outside
+ *   development and test there is no bypass: `dev` and `dev:<uuid>` are malformed tokens like any other.
  */
 import { createRemoteJWKSet, customFetch, decodeProtectedHeader, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
 
@@ -68,6 +71,13 @@ export interface AuthVerifierOptions {
   /** Development bypass; honoured only when `appEnv` is development or test. */
   devUserId?: string | null;
   appEnv: string;
+  /**
+   * Development and test only: called with the account a `dev:<uuid>` token names before it resolves (the dev
+   * bootstrap that creates the stub auth user on a local database). A failure is reported to `onDevUserError` and the
+   * token still resolves: the request then meets whatever the database says about an unknown account.
+   */
+  onDevUser?: (userId: string) => Promise<void>;
+  onDevUserError?: (err: unknown, userId: string) => void;
   /** Override the JWKS fetcher (tests). */
   jwks?: JWTVerifyGetKey;
   /** The `fetch` the remote JWKS uses (tests). */
@@ -83,6 +93,16 @@ export class AuthError extends Error {
     super(message);
     this.name = "AuthError";
   }
+}
+
+/** The development bearer's account: the literal `dev` → the dev user; `dev:<uuid>` → that account; else null. */
+export function parseDevToken(token: string, devUserId: string): string | null {
+  if (token === "dev") return devUserId;
+  if (token.startsWith("dev:")) {
+    const id = token.slice(4);
+    return UUID_RE.test(id) ? id.toLowerCase() : null;
+  }
+  return null;
 }
 
 export function bearerToken(authorization: string | null | undefined): string | null {
@@ -189,6 +209,19 @@ export function createAuthVerifier(opts: AuthVerifierOptions): AuthVerifier {
     async resolve(authorization) {
       const token = bearerToken(authorization);
       if (!token) return devBypass ? { userId: devBypass, email: null, authenticatedAt: new Date(), emailConfirmed: true } : null;
+      if (devBypass) {
+        const dev = parseDevToken(token, devBypass);
+        if (dev) {
+          if (dev !== devBypass.toLowerCase() && opts.onDevUser) {
+            try {
+              await opts.onDevUser(dev);
+            } catch (err) {
+              opts.onDevUserError?.(err, dev);
+            }
+          }
+          return { userId: dev, email: null, authenticatedAt: new Date(), emailConfirmed: true };
+        }
+      }
       try {
         return await verify(token);
       } catch {

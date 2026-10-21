@@ -156,7 +156,7 @@ export function CustomMetricSettingsEditor({ value, onChange }: WidgetSettingsPr
   return (
     <div className="flex flex-col gap-3" data-custom-metric-settings>
       <RadioGroup value={value.mode} onValueChange={(mode) => onChange({ ...value, mode: mode as CustomMetricSettings["mode"] })} aria-label="Metric source" className="flex flex-col gap-2">
-        <RadioOption id={`${id}-query`} value="query" label="From the catalog" description="A metric the business already measures: cash, runway, revenue, customers, signups and more." />
+        <RadioOption id={`${id}-query`} value="query" label="From the catalog" description="A metric the business already measures: cash, months of cash left, revenue, customers, signups and more." />
         <RadioOption id={`${id}-sentence`} value="sentence" label="Describe it" description="A sentence; the assistant compiles a read-only query you preview before saving." />
       </RadioGroup>
       {value.mode === "query" ? (

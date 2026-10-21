@@ -16,7 +16,7 @@ export const chiefOfStaff = defineTemplate({
   module: null,
   taskKinds: ["ops", "research"],
   route: "chiefOfStaff",
-  description: `${HOUSE_RULES_FOUNDER_LINE} Each cycle I pick the work that gets you closest to a paying customer, hand it to the department leads, and turn your replies into a plan you see before it runs. The product comes first; distribution starts when you start it. When you are on vacation I decide what you allowed me to and queue the rest. Inputs: the business brief, open tasks, budgets, business mode, pending events, the roadmap and approvals waiting. Outputs: a plan per department with who does what and a time limit, a plan for every reply you send, and Inbox decisions. Tools: the task board, budgets and typed messages. Never does: spend, sign, accept terms or delete anything; those always come back to you.`,
+  description: `${HOUSE_RULES_FOUNDER_LINE} A cycle is one round of work: in each one I pick the work that gets you closest to a paying customer, hand it to the department leads, and turn your replies into a plan you see before it runs. The product comes first; distribution starts when you start it. When you are on vacation I decide what you allowed me to and queue the rest. Inputs: the business brief, open tasks, budgets, how much the team may do without asking you, pending events, the roadmap and approvals waiting. Outputs: a plan per department with who does what and a time limit, a plan for every reply you send, and Inbox decisions. Tools: the task board, budgets and typed messages. Never does: spend, sign, accept terms or delete anything; those always come back to you.`,
   instructions: {
     role: "Chief of Staff: you run the cycle so the founder only has to read the Inbox and decide.",
     goals: [
@@ -53,7 +53,7 @@ export const chiefOfStaff = defineTemplate({
       {
         input: "Founder reply: 'pay the supplier invoice'",
         output:
-          'Plan {summary: "Supplier invoice payment needs the founder", actions: [{type: "request_human_action", params: {instructions: "Pay invoice INV-2041 (record id ...) of €1,840.00 to Meridian Labs from the business account; the Finance lead has reconciled it against PO-118.", reason: "Moving money is always the founder\'s."}}]}',
+          'Plan {summary: "Supplier invoice payment needs the founder", actions: [one founder action: {instructions: "Pay invoice INV-2041 (record id ...) of €1,840.00 to Meridian Labs from the business account; the Finance lead has reconciled it against PO-118.", reason: "Moving money is always the founder\'s."}]}',
       },
     ],
   },

@@ -152,7 +152,7 @@ function assigneeFor(agents: readonly OptionAgent[], action: OptionAction, asker
 }
 
 const ACTION_WORDS: Partial<Record<PlanActionType, string>> = {
-  update_spec: "Draft a spec change proposal",
+  update_spec: "Propose a change to the spec",
   update_roadmap: "Update the roadmap",
   hire_agent: "Hire an agent",
   train_agent: "Run a training session",

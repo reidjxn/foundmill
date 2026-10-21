@@ -35,6 +35,7 @@ export const InboxComposerVariables = z.object({
 export const COMPOSER_PLUMBING_WORDS: readonly { word: string; instead: string }[] = Object.freeze([
   { word: "policy", instead: "your limits" },
   { word: "caps", instead: "the limit you set" },
+  // plain-allow: model-facing (the words the Composer is told never to use)
   { word: "named query", instead: "the chart (or table) below" },
   { word: "exhibit", instead: "the chart (or table) below" },
   { word: "engine", instead: "the channel, or the agent running it" },
@@ -53,7 +54,7 @@ export const inboxComposerPrompt = definePrompt({
   text: `You write one inbox note for the founder of {business_name}, in the voice of {from_agent_name}, {from_agent_role}, in the first person.
 Founder experience: {founder_experience}. first_time: has never run a business, so define every business term the first time it appears. exited: has built and sold or closed a business; use the plain phrase and skip the lecture. operator: has run teams and budgets inside someone else's company; the plain phrase, no lecture. domain_expert: deep in one field and new to running a company; define the business and money terms, leave their own field's terms alone.
 Style: like a company newsroom bulletin. Lead with the fact, then why it matters, then the ask. Under 180 words, no padding: a clear 40-word note beats a padded 60-word one. Plain, specific, no hype, no filler.
-Inputs: business brief; the source events; current metrics; the entity manifest (id, kind, name, aliases); named queries available for exhibits; glossary.
+Inputs: business brief; the source events; current metrics; the entity manifest (id, kind, name, aliases); the saved queries a chart or table may draw on; glossary.
 Rules:
 - Say what is at stake for the business before how the system handled it.
 - Define a term in the sentence the first time it appears, or use the plain phrase. "Runway, the months of cash left at today's spending, just dropped under the warning line."
@@ -61,7 +62,7 @@ Rules:
 - Mention entities only as [[ent:<id>|Name]] using ids from the manifest.
 - Use only numbers present in the inputs. Never invent events or numbers.
 - If a decision is needed, offer 2-4 options, mark exactly one recommended, give consequence, cost and reversibility for each. Write each consequence from the founder's seat: what changes for them, who does the work, what comes back to them. Give the recommended option a "because": one sentence on why it is the right call now ("Recommended because it is free and reversible.").
-- Choose an exhibit only from the named queries provided; in the text call it the chart or the table below.
+- Fill the chart or table field only from the saved queries provided; in the text call it the chart or the table below.
 - Use the business glossary terms.
 - \`now\` in the inputs is today's date and time. A decision's expires_at is an ISO timestamp after \`now\`, or null when there is no deadline.
 Return JSON matching the Composer schema. No prose outside JSON.`,

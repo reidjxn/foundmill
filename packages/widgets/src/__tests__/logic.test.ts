@@ -464,7 +464,7 @@ describe("text helpers", () => {
     expect(describeEvent({ type: "customer.converted", payload: { kind: "payment", amount: { amountMinor: 4900, currency: "USD" } } })).toMatchObject({ title: "New paying customer", description: "$49.00", statusWord: "Win" });
     expect(describeEvent({ type: "approval.resolved", payload: { outcome: "approved" } })).toMatchObject({ title: "Approved", statusWord: "Approved", tone: "good" });
     expect(describeEvent({ type: "approval.resolved", payload: { outcome: "expired" } }).title).toBe("Approval expired");
-    expect(describeEvent({ type: "cycle.completed", payload: { cycleNumber: 3, outcome: "time_box", tasksCompleted: 1 } })).toMatchObject({ title: "Cycle 3 reached its time box", description: "1 task done" });
+    expect(describeEvent({ type: "cycle.completed", payload: { cycleNumber: 3, outcome: "time_box", tasksCompleted: 1 } })).toMatchObject({ title: "Cycle 3 reached its time limit", description: "1 task done" });
     expect(describeEvent({ type: "task.progressed", payload: { phase: "implementing", progress: 0.45 } }).title).toBe("Implementing: 45%");
     expect(describeEvent({ type: "mode.changed", payload: { scope: "business" } }).title).toBe("Business mode changed");
     expect(describeEvent({ type: "constructor", payload: {} }).title).toBe("Business update");

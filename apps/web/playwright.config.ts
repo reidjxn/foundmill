@@ -19,6 +19,15 @@ import { DEMO_OWNER_USER_ID } from "../../packages/db/src/seed/constants";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = path.resolve(here, "../..");
 
+/**
+ * The second account (e2e/example-business.spec.ts, the example viewer): a fixed auth user id that belongs to no
+ * business. `signInAs(page, E2E_EXAMPLE_VIEWER_ID)` (e2e/helpers.ts) signs it in through `/auth/dev?as=<uuid>`; the web
+ * then sends `Bearer dev:<uuid>`, which the api and the stream map to this account in development and test only, and
+ * the api's dev bootstrap (apps/api src/services/dev-users.ts, PGlite only) creates the stub auth user on first sight.
+ * E2E_EXAMPLE_VIEWER_ID in the environment overrides it (a stack whose database already holds another account).
+ */
+export const E2E_EXAMPLE_VIEWER_ID = process.env.E2E_EXAMPLE_VIEWER_ID ?? "e2e0e2e0-0000-4000-8000-00000000e5a1";
+
 export const E2E_PGLITE_DIR = "./.pglite/e2e";
 export const E2E_DATABASE_URL = `pglite:${E2E_PGLITE_DIR}`;
 export const API_PORT = 4000;

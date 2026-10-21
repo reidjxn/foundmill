@@ -8,6 +8,7 @@
  */
 import { stableHash } from "@foundmill/models";
 import type { NamedQueryId } from "./exhibits";
+import { ESTIMATE } from "./labels";
 import type { MetricsSnapshot } from "./metrics";
 
 export interface DecisionOptionSeed {
@@ -101,9 +102,9 @@ export function groundedDecisions(s: MetricsSnapshot): NextBestDecision[] {
       key: "",
       identity: "",
       title: "Choose a runway plan",
-      facts: { runway_months: s.runwayMonths, cash_minor: s.cashMinor, net_burn_monthly_minor: s.netBurnMonthlyMinor, currency: s.currency, label: "Estimate" },
+      facts: { runway_months: s.runwayMonths, cash_minor: s.cashMinor, net_burn_monthly_minor: s.netBurnMonthlyMinor, currency: s.currency, label: ESTIMATE },
       options: [
-        option({ id: "trim", label: "Trim spend to extend runway", recommended: true, consequence: "The Finance lead proposes cuts for you to approve; agents never pay or cancel anything themselves.", cost_minor: 0, reversible: true, because: "Recommended because it buys more months of runway without a single step you cannot take back." }),
+        option({ id: "trim", label: "Trim spend to extend runway", recommended: true, consequence: "The Finance lead proposes cuts for you to approve; agents never pay or cancel anything themselves.", cost_minor: 0, reversible: true, because: "Recommended because runway is how many months your cash lasts at today's spending, and trimming adds months without a single step you cannot take back." }),
         option({ id: "raise", label: "Prepare an investor update", recommended: false, consequence: "A draft investor update is written for you to send; nobody reaches out in your name.", cost_minor: 0, reversible: true, because: "Recommended because investors need to hear from you before the cash gets tight." }),
         option({ id: "hold", label: "Hold course", recommended: false, consequence: "Nothing changes; the runway warning stays on Home.", cost_minor: 0, reversible: true, because: "Recommended because the plan already accounts for this." }),
       ],
@@ -121,7 +122,7 @@ export function groundedDecisions(s: MetricsSnapshot): NextBestDecision[] {
     options: [
       option({ id: "product", label: "Lead with product work", recommended: quiet, consequence: "The next cycle starts from the roadmap's Now items.", cost_minor: 0, reversible: true, because: "Recommended because nobody has signed up yet, so there is nothing for distribution to amplify." }),
       option({ id: "distribution", label: "Lead with distribution", recommended: !quiet, consequence: "The next cycle puts the live channels and customer follow-ups first.", cost_minor: 0, reversible: true, because: "Recommended because customers are arriving, and following up on them is the cheapest growth there is." }),
-      option({ id: "balanced", label: "Keep the current balance", recommended: false, consequence: "I plan as usual within the budget and the limit on agents working at once.", cost_minor: 0, reversible: true, because: "Recommended because the current mix is working." }),
+      option({ id: "balanced", label: "Keep the current balance", recommended: false, consequence: "I plan the next cycle as usual, within the budget and the limit on agents working at once. A cycle is one round of work that ends with notes in your Inbox.", cost_minor: 0, reversible: true, because: "Recommended because the current mix is working." }),
     ],
     exhibit: { kind: "table", spec_ref: "tasks_by_status" },
   });

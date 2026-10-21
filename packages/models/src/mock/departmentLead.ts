@@ -45,18 +45,19 @@ export function generateDepartmentLead(ctx: MockContext): DepartmentLeadOutput {
     assignments.push({
       task_id: t.id,
       agent_id: agent.id,
-      instructions: `${truncate(t.title, 80)}. Work on branch agent/${t.id}; write the acceptance tests first; report progress every phase; ask before any external action or spend.`,
+      // plain-allow: agent-facing. The assignment is the worker agent's instruction and names the branch it must use.
+      instructions: `${truncate(t.title, 80)}. Work on branch agent/${t.id}; write the tests for what counts as done first; report progress every phase; ask before any external action or spend.`,
       priority: scoreTask(t),
     });
   }
 
   const report = [
-    `## ${departmentName} — cycle plan`,
+    `## ${departmentName} — plan for this round of work`,
     goal ? `Goal: ${goal}` : undefined,
     `${assignments.length} task${assignments.length === 1 ? "" : "s"} assigned across ${load.size} agent${load.size === 1 ? "" : "s"}; ${blockers.length} blocked.`,
     assignments.length > 0 ? `Starting with: ${assignments.slice(0, 3).map((a) => tasks.find((t) => t.id === a.task_id)?.title ?? a.task_id).join("; ")}.` : "Nothing can start until the blockers clear.",
     blockers.length > 0 ? `Blockers: ${blockers.map((b) => `${b.task_id} (${b.reason})`).join("; ")}.` : undefined,
-    "Nothing in this plan moves money, signs or contacts new counterparties without an approval.",
+    "Nothing in this plan moves money, signs anything or contacts anyone new without your approval.",
   ]
     .filter(Boolean)
     .join("\n\n");

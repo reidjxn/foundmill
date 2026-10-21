@@ -119,7 +119,7 @@ export function provisionalTitle(facts: QuarterFacts): Pick<ChapterTitleOutput, 
   const hasTrophy = facts.milestones.length > 0;
   if (facts.customersWon > 0 && hasTrophy) return { title: "A Chapter Of Firsts", subtitle: `${facts.customersWon} customers won and ${facts.milestones.length} milestones in ${facts.label}.`, mood: "breakthrough" };
   if (facts.customersWon > 0) return { title: "Points On The Board", subtitle: `${facts.customersWon} customers won in ${facts.label}.`, mood: "rising" };
-  if (facts.signups > 0 || facts.activations > 0) return { title: "First Names In The Pipeline", subtitle: `${facts.signups} signups and ${facts.activations} activations in ${facts.label}.`, mood: "rising" };
+  if (facts.signups > 0 || facts.activations > 0) return { title: "First Names Through The Door", subtitle: `${facts.signups} signups and ${facts.activations} activations in ${facts.label}.`, mood: "rising" };
   if (facts.decisionsMade > 0 || facts.events > 0) return { title: "Building Through The Lines", subtitle: `${facts.decisionsMade} decisions made in ${facts.label}.`, mood: "steady" };
   return { title: "A Quiet Opening Chapter", subtitle: `No customer activity recorded in ${facts.label}.`, mood: "steady" };
 }

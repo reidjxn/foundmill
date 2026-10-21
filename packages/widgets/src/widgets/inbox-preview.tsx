@@ -7,7 +7,7 @@ import { z } from "zod";
 import { Inbox } from "lucide-react";
 import { notePreview, type DeptColourToken } from "@foundmill/shared";
 import { APP_NAME } from "@foundmill/config";
-import { Avatar, Button, Chip, Tooltip, cn, formatRelative } from "@foundmill/dugout";
+import { Avatar, Button, Chip, Term, Tooltip, cn, formatRelative } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { useDepartments } from "../shared/departments";
@@ -54,7 +54,11 @@ function InboxPreviewWidget({ settings }: WidgetProps<InboxPreviewSettings>) {
       data-widget="inbox_preview"
       queries={[inbox]}
       flush
-      empty={inbox.data && items.length === 0 ? { icon: Inbox, text: "Notes from your team land here after each cycle. Press Continue to start one.", action: { label: "Open inbox", onClick: () => navigate(routes.inbox(businessId)) } } : null}
+      empty={inbox.data && items.length === 0 ? { icon: Inbox, text: (
+            <>
+              Notes from your team land here after each <Term id="cycle">cycle</Term>. Press Continue to start one.
+            </>
+          ), action: { label: "Open inbox", onClick: () => navigate(routes.inbox(businessId)) } } : null}
       actions={
         <Button size="sm" variant="ghost" className="px-1.5" onClick={() => navigate(routes.inbox(businessId))}>
           Open

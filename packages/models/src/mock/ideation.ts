@@ -246,11 +246,11 @@ function evidenceFor(key: IdeaAttributeKey, value: number, archetype: Archetype,
     case "capital_intensity":
       return value >= 14 ? "Software-only; no inventory or tooling needed up front (Estimate)." : "Requires inventory, tooling or certification spend before revenue (Estimate).";
     case "agent_executability":
-      return value >= 14 ? "Most of the build and distribution work can be run by the team with existing connectors." : "Key steps need humans: physical samples, licensed sign-off or in-person sales.";
+      return value >= 14 ? "Most of the build and distribution work can be run by the team with existing connectors." : "Key steps need humans: physical samples, a licensed professional's approval or in-person sales.";
     case "founder_fit":
-      return `Based on the founder profile skills and constraints; fit reads ${strength}.`;
+      return `Based on the founder profile skills and constraints; the match reads ${strength}.`;
     case "defensibility":
-      return value >= 12 ? "Data network effects or switching costs plausible after the first cohort (Estimate)." : "Easy to copy; defensibility would come from brand and distribution, not technology.";
+      return value >= 12 ? "Data network effects or switching costs plausible after the first cohort (Estimate)." : "Easy to copy; protection from copycats would come from brand and distribution, not technology.";
     case "regulatory_load":
       return value >= 14 ? "No licensing or sector regulation identified beyond standard consumer and data law." : "Sector rules apply (claims, safety or financial regulation); budget for compliance.";
     case "distribution_clarity":

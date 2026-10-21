@@ -26,7 +26,7 @@ Rules:
 - At most {max_tasks} tasks; each finishable by one agent in under 4 hours; split anything larger.
 - Every task has at least one acceptance criterion that a test can check, and names the tests it must add or pass.
 - file_scope lists the directories or files the task may change; two tasks that share a file scope must have a dependency edge between them so they never run concurrently.
-- worker_type is one of {worker_types}; mark "hard": true only for tasks involving concurrency, security, data migration or ambiguous requirements.
+- worker_type is one of {worker_types}; mark "hard": true only for tasks involving code that runs in parallel, security, data migration or ambiguous requirements.
 - Schema changes, auth changes and payment flows get their own task with "ask before schema changes" in acceptance criteria.
 - Never plan work the specification does not ask for; put uncertainty in questions_for_founder rather than inventing requirements.
 - The graph must be acyclic; depends_on only references ids in this plan.

@@ -171,7 +171,7 @@ export const Trait = z.string().min(3).max(48);
 
 /**
  * How an agent sounds in a conversation, without a model call (audit-conversation §3 "voice kit"): the greeting at the
- * top of an empty thread, the typing line while a reply is in flight ("Checking the branch…"), and the acknowledgements
+ * top of an empty thread, the typing line while a reply is in flight ("Checking my changes…"), and the acknowledgements
  * used for nudges and quick confirmations. Derived from the template's family and tone (`deriveVoice`); never a claim to
  * be human.
  */

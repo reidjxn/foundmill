@@ -91,6 +91,17 @@ const GATE_UI_ROOTS = [
 const GATE_DEFINE_LIMIT = 300;
 const inGateUi = (file) => GATE_UI_ROOTS.some((r) => file === r || file.startsWith(`${r}/`));
 const ALLOW_MARKER = /plain-allow/;
+/**
+ * Text only a model reads (prompt templates and the Composer's own output schema): a replace-tier word may stay there
+ * when the line says `plain-allow: model-facing` (a tool name the model must call, a list of words it must avoid, a JSON
+ * key it must write). These are reported apart and never count against Gate 2, which is about what a founder reads.
+ */
+const MODEL_FACING_FILES = [/^packages\/agents\/src\/prompts\//, /^packages\/models\/src\/schemas\.ts$/];
+const MODEL_FACING_MARKER = /plain-allow:\s*model-facing/;
+const isModelFacing = (file, lines, line) =>
+  MODEL_FACING_FILES.some((re) => re.test(file)) && (MODEL_FACING_MARKER.test(lines[line] ?? "") || MODEL_FACING_MARKER.test(lines[line - 1] ?? ""));
+/** The silenced replace-tier hits Gate 2 counts: everything but model-facing text. */
+export const gateSilenced = (silenced) => silenced.filter((h) => !h.modelFacing);
 
 /** The banned-terms roots plus the three places the plan names explicitly (already inside them; listed so a later narrowing of VOCAB_CODE_ROOTS keeps them). */
 const PLAIN_CODE_ROOTS = [
@@ -643,7 +654,7 @@ function scanPieces({ file, lines, pieces, lineOf, ctx, terms, hits, silenced })
         snippet: (lines[line] ?? "").trim().slice(0, 140),
       };
       if (lineHasAllowMarker(lines, line, ALLOW_MARKER)) {
-        if (t.tier === "replace") silenced.push(record);
+        if (t.tier === "replace") silenced.push(isModelFacing(file, lines, line) ? { ...record, modelFacing: true } : record);
         continue;
       }
       if (t.tier === "define") {
@@ -841,7 +852,8 @@ function writeSweep(path, { hits, silenced, errors, files, terms, tiers = null }
   out.push(
     `**${hits.length} hit(s) in ${byPkg.size} package(s): ${totals.replace} replace, ${totals.define} define, ${totals.leak} leak.** ` +
       "CI (`plain-language` job) reports these without failing until the package sweep lands; from then on it fails while the number is above zero. " +
-      `Gate 2 also wants no \`plain-allow\` on a replace-tier term: ${silenced.length} silenced today.` +
+      `Gate 2 also wants no \`plain-allow\` on a replace-tier term in text a founder reads: ${gateSilenced(silenced).length} silenced today` +
+      `${silenced.length - gateSilenced(silenced).length ? ` (${silenced.length - gateSilenced(silenced).length} more in model-facing prompts, listed below and not counted)` : ""}.` +
       (errors.length ? ` ${errors.length} file(s) could not be parsed (listed at the end).` : ""),
   );
   out.push("");
@@ -970,13 +982,26 @@ function writeSweep(path, { hits, silenced, errors, files, terms, tiers = null }
       out.push("");
     }
   }
-  if (silenced.length) {
+  const founderSilenced = gateSilenced(silenced);
+  const modelSilenced = silenced.filter((h) => h.modelFacing);
+  if (founderSilenced.length) {
     out.push("## Replace-tier terms silenced by `plain-allow` (Gate 2 wants none)");
     out.push("");
     out.push(
       ...mdTable(
         ["File:line", "Term", "Text"],
-        silenced.map((h) => [`\`${h.file}:${h.line}\``, h.term, cell(h.snippet)]),
+        founderSilenced.map((h) => [`\`${h.file}:${h.line}\``, h.term, cell(h.snippet)]),
+      ),
+    );
+    out.push("");
+  }
+  if (modelSilenced.length) {
+    out.push("## Replace-tier terms kept in model-facing prompts (`plain-allow: model-facing`, not counted)");
+    out.push("");
+    out.push(
+      ...mdTable(
+        ["File:line", "Term", "Text"],
+        modelSilenced.map((h) => [`\`${h.file}:${h.line}\``, h.term, cell(h.snippet)]),
       ),
     );
     out.push("");
@@ -1020,12 +1045,35 @@ function writeSweep(path, { hits, silenced, errors, files, terms, tiers = null }
   writeFileSync(path, out.join("\n"));
 }
 
+/**
+ * Gate 2 (docs/UX_AUDIT_AND_PLAN.md §10): no replace-tier word and no developer note anywhere scanned, no `plain-allow`
+ * on a replace-tier word in text a founder reads, and at most GATE_DEFINE_LIMIT undefined define-tier words across the
+ * UI roots. Define-tier words in agent-facing packages are reported by the sweep, not gated.
+ */
+export function gateVerdict({ hits, silenced, errors }) {
+  const replace = hits.filter((h) => h.tier === "replace");
+  const leak = hits.filter((h) => h.tier === "leak");
+  const founderSilenced = gateSilenced(silenced);
+  const uiDefine = hits.filter((h) => h.tier === "define" && inGateUi(h.file));
+  const lines = [
+    `Gate 2: ${replace.length} replace-tier hit(s), ${leak.length} developer note(s), ${founderSilenced.length} replace-tier plain-allow(s) in founder text, ` +
+      `${uiDefine.length} undefined define-tier hit(s) in the UI roots (limit ${GATE_DEFINE_LIMIT})${errors.length ? `, ${errors.length} unreadable file(s)` : ""}.`,
+    ...replace.map((h) => `  replace ${h.file}:${h.line}: ${h.term}`),
+    ...leak.map((h) => `  leak ${h.file}:${h.line}: ${h.term}`),
+    ...founderSilenced.map((h) => `  plain-allow ${h.file}:${h.line}: ${h.term}`),
+  ];
+  const ok = !replace.length && !leak.length && !founderSilenced.length && uiDefine.length <= GATE_DEFINE_LIMIT && !errors.length;
+  lines.push(ok ? "Gate 2 passes." : "Gate 2 fails.");
+  return { ok, lines };
+}
+
 function main(argv) {
   const args = [...argv];
   let sweepPath = null;
   let jsonPath = null;
   let summaryOnly = false;
   let reportOnly = false;
+  let gateMode = false;
   const roots = [];
   while (args.length) {
     const a = args.shift();
@@ -1041,6 +1089,7 @@ function main(argv) {
       );
     else if (a === "--summary") summaryOnly = true;
     else if (a === "--report") reportOnly = true;
+    else if (a === "--gate") gateMode = true;
     else if (a.startsWith("-")) {
       console.error(`unknown flag ${a}`);
       process.exit(2);
@@ -1069,10 +1118,16 @@ function main(argv) {
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([p, n]) => `${p} ${n}`)
     .join(", ");
+  if (gateMode) {
+    const verdict = gateVerdict(result);
+    for (const line of verdict.lines) print(line);
+    if (!verdict.ok) process.exit(1);
+    return;
+  }
   if (hits.length || errors.length) {
     console.error(
       `\n${hits.length} plain-language hit(s): ${totals.replace} replace, ${totals.define} define, ${totals.leak} leak` +
-        `${summary ? ` (${summary})` : ""}${silenced.length ? `; ${silenced.length} replace-tier term(s) silenced by plain-allow` : ""}` +
+        `${summary ? ` (${summary})` : ""}${gateSilenced(silenced).length ? `; ${gateSilenced(silenced).length} replace-tier term(s) silenced by plain-allow` : ""}` +
         `${errors.length ? `; ${errors.length} file(s) could not be read` : ""}.`,
     );
     if (reportOnly) {
@@ -1082,7 +1137,7 @@ function main(argv) {
     process.exit(1);
   }
   print(
-    `No undefined jargon in user-facing text${silenced.length ? ` (${silenced.length} replace-tier term(s) silenced by plain-allow)` : ""}.`,
+    `No undefined jargon in user-facing text${gateSilenced(silenced).length ? ` (${gateSilenced(silenced).length} replace-tier term(s) silenced by plain-allow)` : ""}.`,
   );
 }
 

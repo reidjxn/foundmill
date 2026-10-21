@@ -37,7 +37,7 @@ const TOPIC_PARAGRAPHS: Record<string, string[]> = {
   feature: ["The release adds approval workflows, a reaction diary and an export of the audit trail.", "Customers asked for pause and skip on subscriptions and for clearer batch results."],
   review: ["Reviewers praise the fast onboarding and the bank feed matching but call support slow on weekends.", "Three reviewers mention the missing export to CSV."],
   privacy: ["The policy explains which processors receive customer data and how long invoices are kept.", "Customers can request deletion of their data at any time."],
-  integration: ["Integrations include Xero, QuickBooks, Stripe and Shopify, with a webhook for new invoices.", "A public API lists invoices, customers and payments."],
+  integration: ["Integrations include Xero, QuickBooks, Stripe and Shopify, with instant notifications for new invoices.", "A public API lists invoices, customers and payments."],
 };
 
 const titleCase = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase());
