@@ -941,6 +941,10 @@
   white-space: nowrap;
   pointer-events: none;
   user-select: none;
+  /* Squeezed, the ghost is wider than the box: clip it so the invisible copy never counts as overflow of the box or of
+     the control around it (a Term button reported 130 < 133 while the visible text fit). `clip` keeps scrollWidth (the
+     natural width FitText reads) and, unlike `hidden`, makes no scroll container, so the layout and baseline hold. */
+  overflow-x: clip;
   &[data-text]::before {
     content: attr(data-text);
   }
