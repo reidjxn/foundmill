@@ -264,6 +264,27 @@ export function inboxRow(page: Page, subject: string | RegExp): Locator {
   return page.getByTestId("inbox-list").getByRole("option").filter({ hasText: subject }).first();
 }
 
+/**
+ * A first-visit tour card or a one-step callout (the Coachmark stamps `data-coachmark` and `data-tour` on its card; its
+ * ring and its targets carry only one of the two).
+ */
+export const COACHMARK_CARD = "[data-coachmark][data-tour]";
+
+/**
+ * Closes every tour card and callout showing now: Skip tour on a tour, Got it on a callout. Either marks it done for the
+ * whole dev account (tours.spec.ts resets them before it asserts them). A card is a `role="dialog"` popover, and an
+ * open dialog holds the Inbox's number keys (ReadingPane), so a spec that decides from the keyboard closes them first.
+ */
+export async function dismissCoachmarks(page: Page): Promise<void> {
+  const cards = page.locator(COACHMARK_CARD);
+  for (let i = 0; i < 5 && (await cards.count()) > 0; i++) {
+    const card = cards.first();
+    const tour = await card.getAttribute("data-tour");
+    await card.getByRole("button", { name: /^(Skip tour|Got it)$/ }).click();
+    await expect(page.locator(`[data-coachmark][data-tour="${tour}"]`)).toHaveCount(0, { timeout: LONG });
+  }
+}
+
 /** Opens the note from the Inbox list and approves it with the keyboard (1 = the recommended option). */
 export async function approveFromInbox(page: Page, bid: string, subject: string): Promise<void> {
   await page.goto(`/b/${bid}/inbox`);
@@ -277,8 +298,15 @@ export async function approveFromInbox(page: Page, bid: string, subject: string)
   await expect(page.getByTestId("signoff-panel")).toBeVisible({ timeout: LONG });
   await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
   // The number keys decide the note from the page (the shell's main content), not from the list row that opened it.
-  await page.getByTestId("shell-content").focus();
-  await page.keyboard.press("1");
+  // On the account's first Inbox visit the Inbox tour opens, and once it closes the first-decision callout can follow
+  // (UX plan §6.2, §7.9; each waits for the other): an open card holds the keys, so close what shows, then press, and
+  // try again if a card opened in between. A second press after the decision landed does nothing (the bar is locked).
+  await expect(async () => {
+    await dismissCoachmarks(page);
+    await page.getByTestId("shell-content").focus();
+    await page.keyboard.press("1");
+    await expect(item).toHaveAttribute("data-state", "answered", { timeout: 10_000 });
+  }).toPass({ timeout: LONG * 2 });
   await expect(item).toHaveAttribute("data-state", "answered", { timeout: LONG });
   await expect(page.getByTestId("answered-panel")).toBeVisible({ timeout: LONG });
 }
