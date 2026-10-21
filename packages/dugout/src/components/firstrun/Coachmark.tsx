@@ -10,7 +10,10 @@
  * It never starts when the tour is already done, when guidance is off, while an element with `[data-coachmark-pause]`
  * is in the document (the app sets it while Continue is processing or one of its own overlays is open), or while any
  * dialog is open (`[role="dialog"]`: a Dialog, a Sheet, the command palette, another tour's card); it waits for the
- * pause to clear and for its targets to appear, then starts. A step whose target is missing is skipped; a target that
+ * pause to clear and for its targets to appear, then starts. Two tours never run at once: a tour holds a claim from the
+ * moment it decides to start until it ends or unmounts, and another tour waits for the claim (the card itself may open
+ * a while after the decision when React defers the commit, so the open dialog alone is not enough to keep a second
+ * tour out). A step whose target is missing is skipped; a target that
  * leaves the page mid-tour moves the tour on; a tour none of whose targets ever appear simply never starts. The ring
  * follows its target through scrolling, resizing and layout changes.
  *
@@ -76,6 +79,13 @@ export function findCoachmarkTarget(targetId: string): HTMLElement | null {
  */
 export const COACHMARK_DIALOG_SELECTOR = '[role="dialog"], [role="alertdialog"]';
 
+/**
+ * The tour that has started, or is about to show its card: one at a time. A start sets it before its state update
+ * commits (that commit can be deferred while the page is in a transition), so a second tour deciding in between sees
+ * it and waits. Released when the tour ends or unmounts.
+ */
+let coachmarkClaim: object | null = null;
+
 /** True while something on the page asks tours to wait: a pause marker, or an open dialog. */
 export function isCoachmarkPaused(): boolean {
   if (typeof document === "undefined") return false;
@@ -123,6 +133,8 @@ export function Coachmark({ tourId, steps, onDone, autoStart = true, open }: Coa
   onDoneRef.current = onDone;
 
   const wants = autoStart || open === true;
+  // This tour's token for `coachmarkClaim`.
+  const claimRef = useRef<object>({});
   // Never before the account's preferences have answered: until then `toursDone` is the empty default.
   const eligible = loaded && guidance === "on" && !toursDone[tourId] && !finished && wants;
 
@@ -190,6 +202,18 @@ export function Coachmark({ tourId, steps, onDone, autoStart = true, open }: Coa
     [finish],
   );
 
+  // The claim goes when the tour ends (its index back to null after a start) and when it unmounts. Declared before
+  // the start effect, so a start in the same commit is not released at once.
+  useEffect(() => {
+    if (index === null && coachmarkClaim === claimRef.current) coachmarkClaim = null;
+  }, [index]);
+  useEffect(
+    () => () => {
+      if (coachmarkClaim === claimRef.current) coachmarkClaim = null;
+    },
+    [],
+  );
+
   // Start: when eligible and not yet showing, the first step with a target, unless the page asks tours to wait. While
   // paused (Continue processing, a dialog open: a long cycle mounts and flips a great deal), it polls every
   // COACHMARK_PAUSE_POLL_MS instead of waking on every change; while only its targets are missing, it watches the
@@ -197,9 +221,10 @@ export function Coachmark({ tourId, steps, onDone, autoStart = true, open }: Coa
   useEffect(() => {
     if (!eligible || index !== null || typeof document === "undefined") return;
     const tryStart = (): "started" | "paused" | "waiting" => {
-      if (isCoachmarkPaused()) return "paused";
+      if (isCoachmarkPaused() || (coachmarkClaim !== null && coachmarkClaim !== claimRef.current)) return "paused";
       const first = existing(0, 1);
       if (first < 0) return "waiting";
+      coachmarkClaim = claimRef.current;
       // Remembered before the card takes focus: the "Replay the tour" button, the row the founder was on, or nothing.
       const active = document.activeElement;
       openerRef.current = active instanceof HTMLElement && active !== document.body ? active : null;

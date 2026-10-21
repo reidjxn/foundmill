@@ -181,6 +181,31 @@ describe("Coachmark", () => {
     await screen.findByRole("dialog", { name: "Your story on one line" });
   });
 
+  it("never runs two tours at once, even when both decide to start in the same commit; the second starts after the first ends and takes the focus", async () => {
+    const user = userEvent.setup();
+    const markTourDone = vi.fn();
+    render(
+      <Page actions={{ markTourDone }}>
+        <Callout tourId="first-continue" targetId="continue" title="This is how you move forward" body="Press it." />
+        <Coachmark tourId="home" steps={steps} />
+      </Page>,
+    );
+    await screen.findByRole("dialog", { name: "This is how you move forward" });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Got it" }));
+    // The home tour waits for the callout's claim and its card, then starts with the focus on its own card.
+    const home = await screen.findByRole("dialog", { name: "Your story on one line" }, { timeout: COACHMARK_PAUSE_POLL_MS * 4 });
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    await waitFor(() => expect(document.activeElement).toBe(home));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(markTourDone).toHaveBeenCalledWith("first-continue");
+    expect(markTourDone).toHaveBeenCalledWith("home");
+  });
+
   it("while paused, polls every 500 ms instead of waking on every change of a busy page", async () => {
     function Busy() {
       const [busy, setBusy] = useState(true);

@@ -164,6 +164,11 @@ for (const width of [1280, 1440]) {
       if (await delegate.count()) await expect(delegate).toHaveText("Delegate to staff…");
       else await expect(signRow.getByText("Founder or staff only")).toBeVisible();
       expect(await headersInside(page, "Responsibilities")).toEqual([]);
+      // The Simple view (guidance on, UX plan §7.10) leaves out what a decision covers; the All view carries it, and the
+      // open view is saved per person, so the check picks it rather than assuming it.
+      await chooseTableView(page, "All decisions");
+      await expect(matrix.getByRole("columnheader", { name: /covers/i })).toHaveCount(1);
+      expect(await headersInside(page, "Responsibilities")).toEqual([]);
       // Opening a decision's departments narrows the matrix: every column still fits and the detail says what it covers.
       await matrix.getByText("Message customers").click();
       await expect(page.getByRole("table", { name: "Message customers by department" })).toBeVisible({ timeout: LONG });
@@ -283,8 +288,10 @@ for (const width of [1280, 1440]) {
       // Only code tasks are pull requests: the Formulation Chemist's stability-data task is not one (TPD-13).
       await expect(page.getByRole("grid", { name: "Open pull requests" }).getByText(/Stability data/)).toHaveCount(0);
 
-      // The Formulation Lab (Operations) shows the Specialists and Plan tabs only, not a copy of Development (DB-11).
-      const lab = await departmentBase(page, /formulation lab/i);
+      // The Formulation Lab (Operations) shows the Specialists and Plan tabs only, not a copy of Development (DB-11). The
+      // name is a label over the operations module: Settings › Departments › Reset to defaults (settings-departments.spec)
+      // gives it back its default name, so either label finds it.
+      const lab = await departmentBase(page, /^(formulation lab|operations)$/i);
       await page.goto(`${lab}/specialists`);
       await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "development/specialists", { timeout: LONG });
       const labTabs = page.getByRole("tablist").first().getByRole("tab");

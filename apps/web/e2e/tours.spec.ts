@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { LONG, NORTHWIND_BUSINESS_ID, devApi, openBusiness, settingsScreen, settled, toast } from "./helpers";
 
 /**
@@ -27,6 +27,22 @@ async function resetTours(api: APIRequestContext): Promise<void> {
 
 const HOME_CARD = "[data-coachmark][data-tour='home']";
 const FIRST_CONTINUE = "[data-coachmark][data-tour='first-continue']";
+
+/**
+ * Two coach marks never show at once: after a reset, the first-Continue callout (shell-wide, on a business with fewer
+ * than two finished cycles) may start before the page's tour, which then waits for its "Got it". Returns once the
+ * callout is out of the way and the tour's card shows.
+ */
+async function pastFirstContinue(page: Page, tour: Locator): Promise<void> {
+  const firstContinue = page.locator(FIRST_CONTINUE);
+  await expect(tour.or(firstContinue).first()).toBeVisible({ timeout: LONG });
+  if (await firstContinue.isVisible()) {
+    await firstContinue.getByRole("button", { name: "Got it" }).click();
+    await expect(firstContinue).toHaveCount(0);
+  }
+  await expect(tour).toBeVisible({ timeout: LONG });
+  await expect(page.locator("[data-coachmark][data-tour]")).toHaveCount(1);
+}
 
 test.describe("tours", () => {
   let before: Guidance | null = null;
@@ -61,15 +77,8 @@ test.describe("tours", () => {
     await openBusiness(page);
     await expect(page.getByTestId("home-grid")).toBeVisible({ timeout: LONG });
 
-    // Two coach marks never show at once: on a business with fewer than two finished cycles the first-Continue
-    // callout may start first, and the tour waits for its "Got it".
     const home = page.locator(HOME_CARD);
-    const firstContinue = page.locator(FIRST_CONTINUE);
-    await expect(home.or(firstContinue).first()).toBeVisible({ timeout: LONG });
-    if (await firstContinue.isVisible()) {
-      await firstContinue.getByRole("button", { name: "Got it" }).click();
-      await expect(firstContinue).toHaveCount(0);
-    }
+    await pastFirstContinue(page, home);
 
     // Step 1: the sidebar, ringed; the card is a non-modal popover (no backdrop) with the count and the three actions.
     await expect(home).toBeVisible({ timeout: LONG });
@@ -135,12 +144,7 @@ test.describe("tours", () => {
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
     await expect(page.getByTestId("home-grid")).toBeVisible({ timeout: LONG });
     await settled(page);
-    await expect(home.or(firstContinue).first()).toBeVisible({ timeout: LONG });
-    if (await firstContinue.isVisible()) {
-      await firstContinue.getByRole("button", { name: "Got it" }).click();
-      await expect(firstContinue).toHaveCount(0);
-    }
-    await expect(home).toBeVisible({ timeout: LONG });
+    await pastFirstContinue(page, home);
     await expect(home.locator("[data-coachmark-count]")).toHaveText("1 of 5");
     // Esc skips as well, and marks it done.
     await page.keyboard.press("Escape");
@@ -159,7 +163,7 @@ test.describe("tours", () => {
     await openBusiness(page, "inbox");
     await expect(page.getByTestId("inbox-pane")).toBeVisible({ timeout: LONG });
     const inbox = page.locator("[data-coachmark][data-tour='inbox']");
-    await expect(inbox).toBeVisible({ timeout: LONG });
+    await pastFirstContinue(page, inbox);
     await expect(inbox).toContainText("the tag on each one says what kind of note it is.");
     await expect(inbox.locator("[data-coachmark-count]")).toHaveText("1 of 4");
     await expect(page.locator("[data-testid='inbox-pane'][data-coachmark='inbox-pane'][data-coachmark-active]")).toHaveCount(1);
@@ -176,7 +180,7 @@ test.describe("tours", () => {
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
     await settled(page);
     const department = page.locator("[data-coachmark][data-tour='department']");
-    await expect(department).toBeVisible({ timeout: LONG });
+    await pastFirstContinue(page, department);
     await expect(department).toContainText("Each tab is one screen of this department.");
     await expect(department.locator("[data-coachmark-count]")).toHaveText("1 of 3");
     await expect(page.locator("[role='tablist'][data-coachmark='tabs'][data-coachmark-active]")).toHaveCount(1);
