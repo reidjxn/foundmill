@@ -58,6 +58,10 @@ describe("business.firstWeek.get", () => {
     await repos.finance.upsertAccount(hz.db, businessId, { provider: "mock_bank", externalId: "first-week-acc", name: "Business current account", currency: "EUR" });
     const after = await owner.business.firstWeek.get({ businessId });
     expect(after).toMatchObject({ noteRead: true, conversationReplySent: true, cycleCompleted: true, bankOrStripeConnected: true });
+    // Both sign-off rounds approved (read as the latest round of each kind, no specification versions involved).
+    expect(after).toMatchObject({ specificationSignedOff: false, roadmapSignedOff: false });
+    await repos.productSignoffs.seedApproved(hz.db, businessId, { spec: { at: new Date() }, roadmap: { at: new Date() } });
+    expect(await owner.business.firstWeek.get({ businessId })).toMatchObject({ specificationSignedOff: true, roadmapSignedOff: true });
     // Another business's flags did not move with B's.
     const other = await hz.caller({ userId: hz.A.ownerId }).business.firstWeek.get({ businessId: hz.A.businessId });
     expect(other.conversationReplySent).toBe(false);
