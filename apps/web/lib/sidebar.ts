@@ -54,6 +54,8 @@ export const SIDEBAR_IDS = { home: "home", inbox: "inbox", crm: "crm", milestone
 
 /** The CRM's display label (founder, 2026-10-20: "Contacts"); its slug, id and G chord keep "crm". */
 export const CRM_LABEL = "Contacts";
+/** The Contacts item's tooltip line: the old name, for operators who look for it (B13). */
+export const CRM_HINT = "The CRM";
 
 /** The Foundmill wordmark closing the sidebar foot (DESIGN §8a). Not an item: Dugout draws it when the sidebar is expanded. */
 export const SIDEBAR_BRAND: SidebarBrand = { href: "/" };
@@ -94,7 +96,7 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
     if (!canOpenDepartment(access, d)) continue;
     items.push({ id: d.id, label: d.name, icon: iconByName(d.icon) as LucideIcon, href: departmentHref(bid, d), group: "department", dept: d.colourToken, shortcut: d.shortcut ?? null, badge: badges.get(d.id) || undefined });
   }
-  if (access.canRead("crm")) items.push({ id: SIDEBAR_IDS.crm, label: CRM_LABEL, icon: Users, href: routes.crm(bid), group: "main", fixed: "crm" });
+  if (access.canRead("crm")) items.push({ id: SIDEBAR_IDS.crm, label: CRM_LABEL, icon: Users, href: routes.crm(bid), group: "main", fixed: "crm", hint: CRM_HINT });
   items.push({ id: SIDEBAR_IDS.milestones, label: "Milestones", icon: Trophy, href: `/b/${bid}/milestones`, group: "main" });
   // Network is the founder's own (their connections, messages and invitations), so it is there in every mode with its
   // badge: a request or a message must reach a founder whichever business they have open. Communities and Leaderboards

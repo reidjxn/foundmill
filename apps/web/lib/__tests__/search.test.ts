@@ -118,6 +118,8 @@ describe("universal search", () => {
     // The old tab slug stays in the URL (learnPath's aliases); a term without a learn target has no href.
     expect(items.find((i) => i.id === "help:rating")?.href).toBe(`/b/${BID}/d/team/squad`);
     expect(items.find((i) => i.id === "help:estimate")?.href).toBeUndefined();
+    // The longer explanation travels with the row, so a term without an href can open its definition in place.
+    expect(items.find((i) => i.id === "help:estimate")?.long).toMatch(/^The figure is calculated/);
     expect(items.length).toBeGreaterThan(40);
     // The glossary renames inside the definitions.
     const clients = helpPaletteItems(BID, { customer: "client" });

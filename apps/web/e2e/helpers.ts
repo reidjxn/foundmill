@@ -127,6 +127,10 @@ export async function completeProfile(page: Page): Promise<void> {
   await page.getByLabel(/What the team calls you/).fill("Playwright Founder");
   await page.getByLabel("First-time founder").check();
   await page.getByLabel("Full time").check();
+  // The profile is two passes (UX plan §7.3): budget, markets, constraints and risk sit behind the collapsed "Add
+  // detail" panel for a first-time founder; open it before filling them.
+  const toggle = page.getByTestId("profile-detail-toggle");
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
   await page.getByLabel(/Budget you can commit/).fill("25k");
   // The chip input and its suggestions list share the "Target markets" label prefix; the textbox is the field.
   const markets = page.getByRole("textbox", { name: "Target markets" });

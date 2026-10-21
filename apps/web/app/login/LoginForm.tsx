@@ -97,7 +97,8 @@ export function LoginForm({ nextParam = null, errorParam = null }: LoginFormProp
               Send sign-in link
             </Button>
             {supabaseReady ? (
-              // TODO(guided-layer): ReassuranceLine
+              // How sign-in works, not tutoring: it stays whatever the guidance switch says (there is none signed out), and
+              // ReassuranceLine's Undo / Settings icons mean "you can change this later", which this line is not.
               <p className="text-small text-secondary" data-testid="login-reassurance">
                 No password, no card. We email you a link.
               </p>

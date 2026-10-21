@@ -41,12 +41,15 @@ describe("Explainer", () => {
     expect(markExplainerSeen).toHaveBeenCalledWith("home");
     const strip = screen.getByRole("region", { name: EXPLAINER_LABELS.purpose });
     expect(strip.getAttribute("data-state")).toBe("collapsed");
+    // The department tour's anchor stays on the strip in both states.
+    expect(strip.getAttribute("data-coachmark")).toBe("explainer");
     expect(screen.queryByText(EXPLAINER_LABELS.action)).toBeNull();
     expect(screen.getByText(props.purpose)).toBeTruthy();
     const more = screen.getByRole("button", { name: "Show more about this screen" });
     expect(more.getAttribute("aria-expanded")).toBe("false");
     await user.click(more);
     expect(screen.getByRole("region", { name: EXPLAINER_LABELS.purpose }).getAttribute("data-state")).toBe("open");
+    expect(screen.getByRole("region", { name: EXPLAINER_LABELS.purpose }).getAttribute("data-coachmark")).toBe("explainer");
     expect(screen.getByText(props.watchFor)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Show less about this screen" }));
     expect(screen.getByRole("region", { name: EXPLAINER_LABELS.purpose }).getAttribute("data-state")).toBe("collapsed");

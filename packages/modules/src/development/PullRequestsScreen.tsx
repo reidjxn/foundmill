@@ -212,7 +212,7 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
           );
         },
       },
-      { id: "branch", accessorKey: "branch", header: "Branch", size: openSizes.branch, cell: ({ row }) => <BranchName branch={row.original.branch} /> },
+      { id: "branch", accessorKey: "branch", header: "Branch", size: openSizes.branch, cell: ({ row }) => <BranchName branch={row.original.branch} />, meta: { term: "branch" } },
       {
         id: "previewUrl",
         accessorKey: "previewUrl",
@@ -238,7 +238,7 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
     () => fitToGrow<MergedPrTableRow>([
       { id: "prLabel", accessorKey: "prLabel", header: "PR", size: mergedSizes.prLabel, meta: { locked: true }, cell: ({ row }) => (row.original.url ? <a href={row.original.url} target="_blank" rel="noreferrer" className="entity-link font-mono text-mono">{row.original.prLabel}</a> : <span className="font-mono text-mono">{row.original.prLabel}</span>) },
       { id: "title", accessorKey: "title", header: "Title", size: mergedSizes.title, cell: ({ row }) => <span className="block min-w-0 truncate text-body-strong" title={row.original.title ?? undefined}>{row.original.title ?? "—"}</span> },
-      { id: "branch", accessorKey: "branch", header: "Branch", size: mergedSizes.branch, cell: ({ row }) => (row.original.branch ? <BranchName branch={row.original.branch} /> : <span className="text-tertiary">—</span>) },
+      { id: "branch", accessorKey: "branch", header: "Branch", size: mergedSizes.branch, cell: ({ row }) => (row.original.branch ? <BranchName branch={row.original.branch} /> : <span className="text-tertiary">—</span>), meta: { term: "branch" } },
       { id: "mergedByName", accessorKey: "mergedByName", header: "Merged by", size: mergedSizes.mergedByName },
       { id: "additions", accessorKey: "additions", header: "Added", size: mergedSizes.additions, meta: { numeric: true, label: "Lines added" }, cell: ({ row }) => (row.original.additions === undefined ? <span className="text-tertiary">—</span> : <span className="text-status-good tabular-nums">+{formatNumber(row.original.additions)}</span>) },
       { id: "deletions", accessorKey: "deletions", header: "Removed", size: mergedSizes.deletions, meta: { numeric: true, label: "Lines removed" }, cell: ({ row }) => (row.original.deletions === undefined ? <span className="text-tertiary">—</span> : <span className="text-status-bad tabular-nums">−{formatNumber(row.original.deletions)}</span>) },

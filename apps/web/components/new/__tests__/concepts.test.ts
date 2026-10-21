@@ -180,7 +180,7 @@ describe("Ask history and version changes", () => {
     expect(attributeChanges(null, before)).toEqual([]);
     // Every attribute is a defined word with its direction (A6): the Term id is attr_<key>, the sentence its hint.
     expect(attributeTermId("market_pull")).toBe("attr_market_pull");
-    expect(attributeTerm("competition")).toEqual({ id: "attr_competition", word: "Competition", short: "How crowded the market is. Higher means less crowded." });
+    expect(attributeTerm("competition")).toMatchObject({ id: "attr_competition", word: "Competition", short: "How crowded the market is; higher means less crowded." });
     expect(attributeTerm("distribution_clarity")?.id).toBe("attr_distribution_clarity");
     expect(attributeTerm("not_an_attribute")).toBeUndefined();
   });

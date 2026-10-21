@@ -11,9 +11,11 @@
  * off (an operator's affordance, noise to a first-timer); the shortcuts work in both states.
  */
 import { createContext, useContext, useMemo, type ReactNode } from "react";
+import type { GuidanceMode, TextSize } from "@foundmill/shared/constants";
 
-export type GuidanceMode = "on" | "off";
-export type TextSize = "standard" | "comfortable";
+// The tuples' one source (GUIDANCE_MODES, TEXT_SIZES in @foundmill/shared/constants, re-exported by the db schema):
+// the zod-free constants entry keeps the design system free of the validation library.
+export type { GuidanceMode, TextSize };
 
 /** One entry of the definitions map (`packages/shared/src/terms.ts`), keyed by a stable id, never by the display word. */
 export interface TermDefinition {

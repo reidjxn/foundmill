@@ -106,7 +106,7 @@ export function leadColumns(businessId: string, agents: readonly AgentRow[] | un
           )}
         </Tooltip>
       ),
-      meta: { filter: "select", filterOptions: [{ value: "Not recorded", label: "Not recorded" }, ...LAWFUL_BASES] },
+      meta: { filter: "select", filterOptions: [{ value: "Not recorded", label: "Not recorded" }, ...LAWFUL_BASES], term: "lawful_basis" },
     },
     {
       id: "suppression",

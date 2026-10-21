@@ -156,6 +156,26 @@ describe("CommandPalette", () => {
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "help:runway", kind: "help", href: "/b/northwind/d/finance/runway" }));
   });
 
+  it("opens a Help term without an href in place: the palette stays open and shows the definition, a new query puts it away", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const onOpenChange = vi.fn();
+    render(<CommandPalette open onOpenChange={onOpenChange} items={PALETTE_ITEMS} helpItems={[KEYBOARD_SHORTCUTS_HELP_ITEM, ...HELP_PALETTE_ITEMS]} onSelect={onSelect} />);
+    expect(screen.queryByTestId("palette-definition")).toBeNull();
+    await user.type(screen.getByRole("combobox"), "what is estimate");
+    await user.click(await screen.findByRole("option", { name: /Estimate.*Worked out, not measured/ }));
+    const card = screen.getByRole("region", { name: "Estimate: definition" });
+    expect(card.textContent).toContain("Worked out, not measured.");
+    expect(card.textContent).toContain("It is replaced by a measured one");
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    await user.type(screen.getByRole("combobox"), "x");
+    expect(screen.queryByTestId("palette-definition")).toBeNull();
+    // A term with an href still opens it, and the keyboard shortcuts row still goes to the shell.
+    expect(helpPaletteRows(HELP_PALETTE_ITEMS, "runway")[0]?.definition).toBeUndefined();
+    expect(helpPaletteRows([KEYBOARD_SHORTCUTS_HELP_ITEM], "")[0]?.definition).toBeUndefined();
+  });
+
   it("leads with Ask and Generate: Ask carries the query and stays while typing, Generate follows it", async () => {
     const user = userEvent.setup();
     const onAsk = vi.fn();

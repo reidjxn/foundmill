@@ -26,10 +26,12 @@ export type AgentOfTheWeekSettings = z.infer<typeof AgentOfTheWeekSettings>;
 const isModelKey = (v: unknown): v is ModelKey => typeof v === "string" && (MODEL_KEYS as readonly string[]).includes(v);
 
 /**
- * The agent's rating on the one /20 scale: the mean of its skills' displayed values; without skills, the stored /10
- * average doubled. Null when neither is known (no training run yet).
+ * The agent's rating on the one /20 scale: `rating20` as team.agents.list answers it (the /20 mean to one decimal);
+ * else the mean of its skills' displayed values; else, for an older host, the deprecated /10 `rating` doubled. Null when
+ * none is known (no training run yet).
  */
-export function agentRating20(a: Pick<TeamAgentRow, "skills" | "rating">): number | null {
+export function agentRating20(a: Pick<TeamAgentRow, "skills" | "rating"> & { rating20?: number | null }): number | null {
+  if (typeof a.rating20 === "number" && Number.isFinite(a.rating20) && a.rating20 > 0) return a.rating20;
   const skills = (a.skills ?? []).map((s) => s.displayed).filter((v) => Number.isFinite(v) && v > 0);
   if (skills.length) return skills.reduce((sum, v) => sum + v, 0) / skills.length;
   return a.rating === null || a.rating === undefined || !Number.isFinite(a.rating) ? null : a.rating * 2;

@@ -37,10 +37,12 @@ describe("ChannelsScreen", () => {
     expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Channel", "Fit", "Status", "Cost per customer", "Actions"]);
     expect(within(table).getAllByRole("row")).toHaveLength(16);
     expect(within(table).queryByText("Acquisition")).toBeNull(); // Family waits in the other views
-    // The panel's help tip and the footer's defined words (the column head's sort button shares the words, so the
-    // defined one is told by its dotted underline).
+    // The panel's help tip and the defined words: the footer's, and the column heads' (`meta.term`: the word is the
+    // Term, the arrow beside it sorts).
     expect(screen.getByRole("button", { name: "About Channels" })).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Cost per customer" }).filter((b) => b.className.includes("term-link"))).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Cost per customer" }).filter((b) => b.className.includes("term-link"))).toHaveLength(2);
+    expect(within(table).getByRole("columnheader", { name: /Fit/ }).querySelector("button[data-term='fit']")).toBeTruthy();
+    expect(within(table).getByRole("button", { name: "Sort by Fit" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Distribution Strategist" }).className).toContain("term-link");
   });
 

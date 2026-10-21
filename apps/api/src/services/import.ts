@@ -404,6 +404,11 @@ export interface ScoutingDecision {
   label: string;
   recommended: boolean;
   consequence: string;
+  /**
+   * Why the recommended option is recommended, from the founder's seat ("Recommended because …", UX plan §7.19). The
+   * Board item's option carries it under the consequence line; options that are not recommended leave it out.
+   */
+  because?: string;
   reversible: boolean;
   /** What choosing it runs (the Board item's option carries them): never parsed from the words (audit IAE-20). */
   actions?: OptionAction[];
@@ -552,6 +557,10 @@ export function buildScoutingReport(configs: readonly SourceConfig[], job?: Impo
       label: "Rebuild the Specification from the imported sources",
       recommended: true,
       consequence: "The Product lead drafts the spec from what exists; you review it before any task starts.",
+      because:
+        usable.length > 0
+          ? "Recommended because every department works from the Specification, and a draft built from what you already have is quicker to check than one written from nothing."
+          : "Recommended because every department works from the Specification; it is drafted from your sources once they are read, and you check it before anything is built.",
       reversible: true,
       actions: [task("product_lead", "research", "Rebuild the specification from the imported sources", "Draft the specification from what the import found, one block per outline section with every claim citing its source; the founder reviews it before any task starts.")],
     },

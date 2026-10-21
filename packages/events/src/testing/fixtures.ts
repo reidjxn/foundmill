@@ -522,6 +522,11 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     taskIds: [fixtureId("task-1")],
     inboxItemId: fixtureId("inbox-item"),
   },
+  "guidance.tour_completed": { tourId: "home", steps: 4 },
+  "guidance.tour_skipped": { tourId: "inbox", atStep: 2, steps: 4 },
+  "guidance.explainer_dismissed": { screenId: "finance/runway" },
+  "guidance.term_opened": { termId: "runway", screenId: "home" },
+  "guidance.turned_off": { from: "settings", toursDone: 2, explainersSeen: 5 },
 };
 
 /** A valid `WriteEventInput` for the given type, with the fixture payload and envelope. */

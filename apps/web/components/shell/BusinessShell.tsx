@@ -13,10 +13,11 @@
  *   screen chrome.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowRight } from "lucide-react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useTransition, type ReactNode } from "react";
-import { AppShell, Avatar, BusinessLogo, Callout, Chip, EntityLinkProvider, ShellLinkProvider, Tooltip, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
+import { AppShell, Avatar, Button, Callout, Chip, EntityLinkProvider, ShellLinkProvider, Tooltip, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
 import { ModuleEnvProvider, type ModuleEnv } from "@foundmill/modules/env";
 import { readWidgetEvent, type WidgetEvent } from "@foundmill/widgets/data";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -215,20 +216,32 @@ export function exampleFrame(access: Pick<Access, "isExample" | "canChange">, cy
 }
 
 /**
- * The top bar's identity in the Example frame: the logo tile, then the neutral "Example" chip beside the business name
- * (KitBar renders the name after this slot). The chip's tooltip explains the frame; pointer moves stop at the chip so
- * the switcher's own "Switch business" tooltip does not open over it.
+ * The Example frame's badge after the business name (KitBar `businessBadge`): the neutral "Example" chip. Its tooltip
+ * explains the frame; pointer moves stop at the chip so the switcher's own "Switch business" tooltip does not open over
+ * it.
  */
-function ExampleIdentity({ src, name, primary }: { src: string | null; name: string; primary: string }) {
+function ExampleBadge() {
   return (
-    <span className="flex items-center gap-2.5">
-      <BusinessLogo src={src} name={name} primary={primary} size={32} data-testid="kitbar-logo" />
-      <Tooltip content={EXAMPLE_CHIP_TOOLTIP} side="bottom">
-        <Chip className="shrink-0 text-kit-on-primary" data-testid="example-chip" onPointerMove={(e) => e.stopPropagation()}>
-          Example
-        </Chip>
-      </Tooltip>
-    </span>
+    <Tooltip content={EXAMPLE_CHIP_TOOLTIP} side="bottom">
+      <Chip className="shrink-0 text-kit-on-primary" data-testid="example-chip" onPointerMove={(e) => e.stopPropagation()}>
+        Example
+      </Chip>
+    </Tooltip>
+  );
+}
+
+/** Where "Start your own" goes from an example business: the three doors on /new. */
+export const START_YOUR_OWN_HREF = "/new";
+
+/**
+ * The Example frame's primary action in Continue's slot (KitBar `continueSlot`): "Start your own", at Continue's size,
+ * anchoring the Start-your-own callout (`data-coachmark="start-your-own"`, tour id `example-start`).
+ */
+function StartYourOwnButton({ onStart }: { onStart: () => void }) {
+  return (
+    <Button variant="primary" iconRight={ArrowRight} className="h-kitbar-chip rounded-track min-w-continue-min" data-coachmark="start-your-own" data-testid="start-your-own" onClick={onStart}>
+      Start your own
+    </Button>
   );
 }
 
@@ -633,7 +646,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   );
   const businessMenu = useMemo(
     () => ({
-      businesses: switcherBusinesses(businessesData?.businesses, { id: businessId, name: business.name, kitPrimary: data.kit.primary, logoSrc, isDemo: business.isDemo, role: data.role }, businessLogos),
+      businesses: switcherBusinesses(businessesData?.businesses, { id: businessId, name: business.name, kitPrimary: data.kit.primary, logoSrc, isDemo: business.isDemo, role: data.role, isExample: access.isExample }, businessLogos),
       loading: wantBusinesses && businessesLoading,
       error: businessesFailed ? "Could not load your other businesses." : null,
       onRetry: () => void refetchBusinesses(),
@@ -644,7 +657,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       onProfile: () => router.push(accountRoutes.profile),
       pendingBusinessId: switching ? switchingTo : null,
     }),
-    [businessesData, businessesLoading, businessesFailed, refetchBusinesses, businessId, business.name, business.isDemo, data.kit.primary, data.role, logoSrc, businessLogos, wantBusinesses, openBusiness, router, switching, switchingTo],
+    [businessesData, businessesLoading, businessesFailed, refetchBusinesses, businessId, business.name, business.isDemo, data.kit.primary, data.role, access.isExample, logoSrc, businessLogos, wantBusinesses, openBusiness, router, switching, switchingTo],
   );
 
   const financeDept = useMemo(() => visibleDepartments.find((d) => d.moduleKeys.includes("finance")), [visibleDepartments]);
@@ -671,8 +684,9 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 businessMode={business.businessMode}
                 kit={data.kit}
                 logoSrc={logoSrc}
-                // The Example frame's identity: the logo tile and the "Example" chip beside the name.
-                logo={frame.chip ? <ExampleIdentity src={logoSrc} name={business.name} primary={data.kit.primary} /> : undefined}
+                // The Example frame: the "Example" chip after the name, and "Start your own" in Continue's slot.
+                businessBadge={frame.chip ? <ExampleBadge /> : undefined}
+                continueSlot={frame.chip ? <StartYourOwnButton onStart={() => router.push(START_YOUR_OWN_HREF)} /> : undefined}
                 businessName={business.name}
                 screenTitle={chrome.title ?? "Home"}
                 sidebar={{ items: sidebarItems, activeId, collapsed, onCollapsedChange, brand: SIDEBAR_BRAND }}
@@ -687,10 +701,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                   // Pending, not disabled: Continue keeps keyboard focus while its own request is in flight.
                   pending: refreshInbox.isPending || endHoliday.isPending || continueCycle.isPending || pauseCycle.isPending,
                   // Viewers and advisors follow the business; they do not run cycles (audit RUI-05). In the Example
-                  // frame this slot is to hold a primary "Start your own" (→ /new, Continue's size; it anchors the
-                  // Start-your-own callout as data-coachmark="start-your-own"): KitBar renders ContinueButton itself,
-                  // so the swap waits on a `continueSlot` prop there (requested with this slice); until then Continue
-                  // stays disabled here as for every viewer.
+                  // frame "Start your own" takes the slot (`continueSlot`) and Continue's shortcut stays disabled.
                   disabled: !access.canChange,
                   onContinue,
                   onRespond,

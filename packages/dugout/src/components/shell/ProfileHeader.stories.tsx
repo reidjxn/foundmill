@@ -1,3 +1,4 @@
+import { Term } from "../guidance/Term";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { GraduationCap, MessageSquare, Pause } from "lucide-react";
 import { Avatar } from "../foundation/Avatar";
@@ -44,6 +45,16 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Agent: Story = {};
+/** A fact label can be a Term on the screen's first mention of a defined word; `id` keys it. */
+export const DefinedFactLabels: Story = {
+  args: {
+    facts: [
+      { id: "line-manager", label: <Term id="line_manager">Line manager</Term>, value: "Chief of Staff" },
+      { label: "Tasks", value: "42" },
+      { id: "wage", label: <Term id="wage">AI cost (USD)</Term>, value: "$120", provenance: "estimate" },
+    ],
+  },
+};
 export const Person: Story = {
   args: {
     avatar: <Avatar name="Sara Lindqvist" size={64} />,

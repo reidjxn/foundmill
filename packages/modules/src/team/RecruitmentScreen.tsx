@@ -155,7 +155,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
       // "Kind" to the founder (C10); the column id and the enum keep `family`.
       { id: "family", accessorKey: "family", header: "Kind", size: catalogueSizes.family, cell: ({ row }) => <Chip>{row.original.familyLabel}</Chip>, meta: { filter: "select", filterOptions: (Object.keys(FAMILY_LABELS) as TemplateRow["family"][]).map((f) => ({ value: f, label: FAMILY_LABELS[f] })) }, sortingFn: (a, b) => FAMILY_ORDER[a.original.family] - FAMILY_ORDER[b.original.family] },
       { id: "module", accessorFn: (r) => moduleLabel(r, departments.data, agentsQuery.data?.agents), header: "Department", size: catalogueSizes.module, meta: { label: "Department" }, cell: ({ row }) => <span className={row.original.module ? "text-primary" : "text-secondary"}>{moduleLabel(row.original, departments.data, agentsQuery.data?.agents)}</span> },
-      { id: "model", accessorKey: "modelKey", header: "Model", size: catalogueSizes.model, cell: ({ row }) => <ModelChip model={row.original.modelKey} /> },
+      { id: "model", accessorKey: "modelKey", header: "Model", size: catalogueSizes.model, cell: ({ row }) => <ModelChip model={row.original.modelKey} />, meta: { term: "model" } },
       {
         id: "skills",
         accessorFn: (r) => r.skills.length,

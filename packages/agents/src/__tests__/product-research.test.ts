@@ -158,7 +158,7 @@ describe("finaliseResearchPlan over the mock", () => {
 });
 
 describe("researchPlanNote", () => {
-  it("is 60-180 words, fact → why → ask, names the ICP and escapes model text", async () => {
+  it("is under 180 words with no padding, fact → why → ask, names the ICP and escapes model text", async () => {
     const inputs = researchInputs({ icp: "Operations managers at *fintechs* <b>in the UK</b>" });
     const res = await new MockModelClient().complete(buildResearchPlanRequest(inputs));
     const plan = finaliseResearchPlan(res.json, inputs);
@@ -166,8 +166,10 @@ describe("researchPlanNote", () => {
     expect(note.subject.startsWith("How we'll test the specification with")).toBe(true);
     expect(note.subject.length).toBeLessThanOrEqual(80);
     const n = wordsOf(note.bodyMd);
-    expect(n).toBeGreaterThanOrEqual(60);
+    // The founder's rule is "under 180 words, no padding": no floor to pad up to, only enough to carry fact, why and ask.
+    expect(n).toBeGreaterThanOrEqual(20);
     expect(n).toBeLessThanOrEqual(180);
+    expect(note.bodyMd).not.toMatch(/The plan names, for each assumption/);
     expect(note.bodyMd).toContain("Product › Research");
     expect(note.bodyMd).toContain("(Estimate)");
     expect(note.bodyMd).toMatch(/Nothing is sent to anyone without your approval/);

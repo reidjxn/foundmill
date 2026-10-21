@@ -8,7 +8,7 @@ import { GridCell, PageGrid, snapSpan, spanClass } from "./PageGrid";
 import { Panel } from "./Panel";
 import { preloadPanelMenu } from "./PanelMenuButton";
 import { ProcessingStrip, processingStatusText, segmentState } from "./ProcessingStrip";
-import { RUNWAY_UNKNOWN_WORDS, RunwayChip, formatRunway, runwayTone } from "./RunwayChip";
+import { RUNWAY_TOOLTIP_LEAD, RUNWAY_UNKNOWN_WORDS, RunwayChip, formatRunway, runwayTone, runwayTooltipLead, runwayTooltipLines } from "./RunwayChip";
 import { RightRail } from "./RightRail";
 import { NORTHWIND_SEGMENTS } from "./fixtures";
 
@@ -144,6 +144,13 @@ describe("Panel", () => {
       </Panel>,
     );
     expect(screen.getByRole("button", { name: "About this panel" })).toBeTruthy();
+    // A node title (a Term) names its tip through helpLabel.
+    rerender(
+      <Panel title={<span>Autopilot</span>} helpLabel="Autopilot" help="A sentence.">
+        x
+      </Panel>,
+    );
+    expect(screen.getByRole("button", { name: "About Autopilot" })).toBeTruthy();
   });
 
   it("lights the panel from its corner in a department colour or the brand", () => {
@@ -204,6 +211,12 @@ describe("ProcessingStrip", () => {
 });
 
 describe("RunwayChip", () => {
+  it("leads its tooltip with the definitions map's sentence for runway, or the built-in line outside the app", () => {
+    expect(runwayTooltipLead(undefined)).toBe(RUNWAY_TOOLTIP_LEAD);
+    expect(runwayTooltipLead({ word: "Runway", short: "How many months your cash lasts at today's spending." })).toBe("Runway: how many months your cash lasts at today's spending");
+    expect(runwayTooltipLines({ runwayMonths: 11, lead: "Runway: x" })[0]).toBe("Runway: x");
+    expect(runwayTooltipLines({ runwayMonths: 11 })[0]).toBe(RUNWAY_TOOLTIP_LEAD);
+  });
   it("follows the runway horizon rule and labels the estimate", () => {
     expect(runwayTone(12)).toBe("neutral");
     expect(runwayTone(8.9)).toBe("warn");

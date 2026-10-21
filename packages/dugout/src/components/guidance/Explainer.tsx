@@ -50,6 +50,7 @@ export function Explainer({ screenId, purpose, action, watchFor, onExample, clas
         aria-labelledby={`${id}-title`}
         data-explainer={screenId}
         data-state="collapsed"
+        data-coachmark="explainer"
         className={cn("flex min-w-0 items-center gap-2 rounded-md bg-surface-2 py-1.5 pl-3 pr-1.5 text-primary", className)}
         {...rest}
       >
@@ -67,6 +68,7 @@ export function Explainer({ screenId, purpose, action, watchFor, onExample, clas
       aria-labelledby={`${id}-title`}
       data-explainer={screenId}
       data-state="open"
+      data-coachmark="explainer"
       className={cn("flex min-w-0 gap-3 rounded-md bg-surface-2 p-3 text-primary", className)}
       {...rest}
     >

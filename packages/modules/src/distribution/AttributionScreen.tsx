@@ -85,7 +85,7 @@ export function attributionColumns(currency: string, sizes: Record<AttributionCo
       header: "Cost per customer",
       size: sizes.cpa,
       cell: ({ row }) => <EstimatedMoney amountMinor={row.original.cpaMinor} currency={currency} spendMinor={row.original.spendMinor} />,
-      meta: { numeric: true, label: "Cost per customer (Estimate)" },
+      meta: { numeric: true, label: "Cost per customer (Estimate)", term: "acquisition_cost" },
     },
     { id: "partial", accessorFn: (r) => r.partial, header: "Partial", size: sizes.partial, cell: ({ getValue }) => (getValue() ? "Yes" : "No"), meta: { filter: "boolean" } },
     {

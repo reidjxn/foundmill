@@ -4,6 +4,7 @@ import { Archive, Bot, ExternalLink, ListPlus, Mail } from "lucide-react";
 import { formatDate, formatMoney } from "../../lib/format";
 import { Chip } from "../foundation/Chip";
 import { StatusPill, type StatusTone } from "../foundation/StatusPill";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { DataTable, type DataTableColumn } from "./DataTable";
 import { EntityLink } from "./EntityLink";
 import { RatingFigure } from "./RatingBar";
@@ -268,6 +269,28 @@ export const SmallWithoutViews: Story = {
       height={380}
     />
   ),
+};
+
+/**
+ * A head that is a defined term (`meta.term`): the word opens its definition card, the arrow beside it sorts. With
+ * guidance off the head is plain and sorts as a whole.
+ */
+export const DefinedColumnHeads: Story = {
+  args: { data: [], columns: [] },
+  render: () => {
+    const defined = columns.slice(0, 7).map((c, i) => (i === 2 ? { ...c, meta: { ...c.meta, term: "pipeline" } } : c));
+    const terms = { pipeline: { id: "pipeline", word: "Pipeline", short: "Every open lead and deal, by how close it is to paying.", learn: "distribution/leads" } };
+    return (
+      <div className="grid grid-cols-2 gap-gutter">
+        <GuidanceProvider value={{ guidance: "on", terms }}>
+          <DataTable title="Guidance on" data={generateLeads(12, "terms-on")} columns={defined} height={380} />
+        </GuidanceProvider>
+        <GuidanceProvider value={{ guidance: "off", terms }}>
+          <DataTable title="Guidance off" data={generateLeads(12, "terms-off")} columns={defined} height={380} />
+        </GuidanceProvider>
+      </div>
+    );
+  },
 };
 
 export const ComfortableDensity: Story = {

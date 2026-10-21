@@ -397,19 +397,23 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
 
   if (card && dept) {
     const plain = METRIC_PLAIN[metricKey];
+    // The Home tour's anchor (`data-coachmark="department-card"`): DepartmentCard takes no extra attributes, so a box
+    // the card fills carries it.
     return (
-      <DepartmentCard
-        department={card}
-        className="h-full"
-        onOpen={firstTab ? () => navigate(routes.department(businessId, dept.slug, firstTab.slug)) : undefined}
-        onOpenAgent={(agentId) => navigate(routes.agent(businessId, agentId))}
-        onOpenEntity={openEntity}
-        onOpenQuiet={openQuiet}
-        entityKinds={entityKinds}
-        // The metric in plain words while guidance is on; never on a figure that says "No access" or "Couldn't load".
-        metricId={metricError ? undefined : "metricId" in plain ? plain.metricId : undefined}
-        metricPlain={metricError ? undefined : "plain" in plain ? g(plain.plain) : undefined}
-      />
+      <div data-coachmark="department-card" className="h-full min-w-0">
+        <DepartmentCard
+          department={card}
+          className="h-full"
+          onOpen={firstTab ? () => navigate(routes.department(businessId, dept.slug, firstTab.slug)) : undefined}
+          onOpenAgent={(agentId) => navigate(routes.agent(businessId, agentId))}
+          onOpenEntity={openEntity}
+          onOpenQuiet={openQuiet}
+          entityKinds={entityKinds}
+          // The metric in plain words while guidance is on; never on a figure that says "No access" or "Couldn't load".
+          metricId={metricError ? undefined : "metricId" in plain ? plain.metricId : undefined}
+          metricPlain={metricError ? undefined : "plain" in plain ? g(plain.plain) : undefined}
+        />
+      </div>
     );
   }
   const dependent: QueryState<unknown>[] = enabled ? [departments, ribbon, tasks] : [departments];
@@ -417,6 +421,7 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
     <WidgetFrame
       title={dept ? dept.name : "Department"}
       data-widget="department_card"
+      data-coachmark="department-card"
       queries={dependent}
       empty={departments.data && !dept ? { icon: LayoutGrid, text: "No department in this slot. Pick one in the widget settings, or add a department in Settings." } : null}
     />

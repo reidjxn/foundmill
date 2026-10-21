@@ -301,6 +301,5 @@ export function researchPlanNote(plan: ResearchPlan, icp: string): { subject: st
     lines.splice(lines.length - 2, 1);
     body = lines.join("\n\n");
   }
-  if (words(body).length < 60) body = `${body}\n\nThe plan names, for each assumption, the specification section it comes from and the cheapest test that would move it; findings arrive as sources with quotes and a confidence, so the Product lead can propose changes you accept or reject.`;
   return { subject: clipChars(`How we'll test the specification with ${plainLine(who)}`, 80), bodyMd: body };
 }

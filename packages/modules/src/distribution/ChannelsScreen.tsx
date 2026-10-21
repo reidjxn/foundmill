@@ -118,7 +118,7 @@ export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColum
       size: sizes.line,
       meta: { filter: "select", filterOptions: CHANNEL_LINES.map((l) => ({ value: LINE_LABELS[l], label: LINE_LABELS[l] })) },
     },
-    { id: "fit", accessorFn: (r) => r.fit, header: "Fit", size: sizes.fit, cell: ({ row }) => (row.original.scored ? <RatingFigure value={row.original.fit} /> : <span className="text-secondary">—</span>), meta: { numeric: true } },
+    { id: "fit", accessorFn: (r) => r.fit, header: "Fit", size: sizes.fit, cell: ({ row }) => (row.original.scored ? <RatingFigure value={row.original.fit} /> : <span className="text-secondary">—</span>), meta: { numeric: true, term: "fit" } },
     {
       // The five-cell strip the Board's tokens carry: each week's cost per customer against the cost target; its key
       // ("Last 5 weeks against the cost target: 4 under, 1 near") is the strip's tooltip. The identifier `form` stays.
@@ -127,7 +127,7 @@ export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColum
       header: COST_TREND_LABEL,
       size: sizes.form,
       cell: ({ row }) => (row.original.enabled ? <FormGuide form={row.original.form5} name={`${row.original.meta?.label ?? row.original.channelKey} ${COST_TREND_LABEL.toLowerCase()}`} /> : <span className="text-secondary">—</span>),
-      meta: { numeric: true, filter: false, fitContent: true, csv: (r) => r.form5.join(" ") },
+      meta: { numeric: true, filter: false, fitContent: true, csv: (r) => r.form5.join(" "), term: "cost_trend" },
     },
     {
       id: "stars",
@@ -143,7 +143,7 @@ export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColum
       header: "Cost per customer",
       size: sizes.cpa,
       cell: ({ row }) => <CostPerCustomer view={row.original} />,
-      meta: { numeric: true, label: "Cost per customer (Estimate)" },
+      meta: { numeric: true, label: "Cost per customer (Estimate)", term: "acquisition_cost" },
     },
     { id: "cpaActual", accessorFn: (r) => r.form?.cpaMinor ?? null, header: `Cost per customer, ${CHANNEL_WINDOW_DAYS} days`, size: sizes.cpaActual, cell: ({ row }) => <EstimatedMoney amountMinor={row.original.form?.cpaMinor ?? null} currency={row.original.currency} spendMinor={row.original.form?.spendMinor ?? null} />, meta: { numeric: true, label: `Cost per customer, ${CHANNEL_WINDOW_DAYS} days (Estimate)` } },
     { id: "budget", accessorFn: (r) => r.budgetMinor, header: "Monthly budget", size: sizes.budget, cell: ({ row }) => <span className="tabular-nums">{row.original.persisted ? formatMoney({ amountMinor: row.original.budgetMinor, currency: row.original.currency }) : "—"}</span>, meta: { numeric: true } },

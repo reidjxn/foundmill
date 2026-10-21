@@ -28,8 +28,13 @@ export interface PaletteHelpItem {
   title: string;
   /** One line a student understands: "How many months your cash lasts at today's spending." */
   line: string;
-  /** Where "learn more" goes; a row without one just reads. */
+  /**
+   * Where "learn more" goes. A row without one opens its definition in place when chosen (the word, `line` and `long`
+   * under the list, the palette staying open), so Estimate or Vacation can be read in full without leaving the search.
+   */
   href?: string;
+  /** The longer explanation of a defined term (TERMS `long`), shown when the row opens its definition in place. */
+  long?: string;
 }
 
 /** The Help row every palette has: the AppShell opens the keyboard overlay when it is chosen. */
@@ -58,6 +63,8 @@ export interface PaletteItem {
   /** LIVE: a public profile from the network, labelled "On {APP_NAME}" (BUILD §11.12). */
   public?: boolean;
   disabled?: boolean;
+  /** A Help row's definition: choosing the row shows it in the palette instead of opening anything (`helpPaletteRows`). */
+  definition?: { word: string; short: string; long?: string };
 }
 
 /** BUILD §11.12 search operators. `kind:` is applied locally; the rest are handed to the app with the parsed query. */
@@ -266,7 +273,16 @@ export function helpQuery(text: string): string {
  * tests.
  */
 export function helpPaletteRows(items: readonly PaletteHelpItem[], text: string): PaletteItem[] {
-  const toRow = (it: PaletteHelpItem): PaletteItem => ({ id: it.id, kind: "help", label: it.title, description: it.line, href: it.href, keywords: [it.line] });
+  const toRow = (it: PaletteHelpItem): PaletteItem => ({
+    id: it.id,
+    kind: "help",
+    label: it.title,
+    description: it.line,
+    href: it.href,
+    keywords: [it.line],
+    // A term with nowhere to go reads in place; the keyboard shortcuts row opens the overlay instead.
+    ...(!it.href && it.id !== KEYBOARD_SHORTCUTS_HELP_ITEM.id ? { definition: { word: it.title, short: it.line, ...(it.long ? { long: it.long } : {}) } } : {}),
+  });
   const q = helpQuery(text);
   if (!q) return items.filter((it) => it.id === KEYBOARD_SHORTCUTS_HELP_ITEM.id).map(toRow);
   // A question about a term ("what is runway") must not be out-scored by a plain substring; score the stripped query.
@@ -377,10 +393,14 @@ export function CommandPalette({
   const [listEl, setListEl] = useState<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // The Help row whose definition is shown under the list (chosen without an href); a new query puts it away.
+  const [defined, setDefined] = useState<{ raw: string; item: PaletteItem } | null>(null);
+
   useEffect(() => {
     if (open) return;
     setInternal("");
     setPick(null);
+    setDefined(null);
   }, [open]);
 
   const setQuery = (next: string) => {
@@ -436,8 +456,15 @@ export function CommandPalette({
     lastSelected.current = selected;
   }, [listEl, selected, first, valuesKey]);
 
+  const shownDefinition = defined && defined.raw === raw ? defined.item.definition : undefined;
+
   const select = (item: PaletteItem) => {
     if (item.disabled) return;
+    if (item.kind === "help" && item.definition && !item.href) {
+      // Read in place: the palette stays open with the definition under the list.
+      setDefined({ raw, item });
+      return;
+    }
     if (item.kind === "ask" && onAsk) onAsk(item, parsed.text);
     else onSelect(item);
     onOpenChange(false);
@@ -539,6 +566,19 @@ export function CommandPalette({
               </div>
             ) : null}
           </Command.List>
+          {shownDefinition ? (
+            <section
+              aria-label={`${shownDefinition.word}: definition`}
+              aria-live="polite"
+              data-palette-definition=""
+              data-testid="palette-definition"
+              className="flex shrink-0 flex-col gap-2 border-t border-line px-gutter py-3 text-pretty"
+            >
+              <p className="t-display-sm text-primary">{shownDefinition.word}</p>
+              <p className="t-body text-primary">{shownDefinition.short}</p>
+              {shownDefinition.long ? <p className="t-small text-secondary">{shownDefinition.long}</p> : null}
+            </section>
+          ) : null}
           {footer ? <div className="shrink-0 border-t border-line-faint px-gutter py-2">{footer}</div> : null}
           <div className="flex h-control-md shrink-0 items-center gap-3 border-t border-line-faint bg-black/15 px-gutter text-small text-tertiary" data-testid="palette-hints">
             <span className="inline-flex items-center gap-1">

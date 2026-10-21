@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Mail, Trash2 } from "lucide-react";
 import { Chip } from "../foundation/Chip";
 import { Dialog, DialogContent, DialogTitle } from "../foundation/Dialog";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { DataTable, cellTitle, type DataTableColumn } from "./DataTable";
 import { generateLeads, LEAD_STAGE_LABELS, LEAD_VIEWS, type LeadRow } from "./fixtures";
 import type { SavedView } from "./types";
@@ -73,6 +74,44 @@ describe("DataTable", () => {
     await user.click(screen.getByRole("button", { name: "Name" }));
     await user.keyboard("{/Shift}");
     expect(screen.getByText(/Sorted by Score, Name/)).toBeTruthy();
+  });
+
+  it("a defined column head (meta.term) is a Term beside the sort control, never inside it; guidance off restores the plain head", async () => {
+    const user = userEvent.setup();
+    const termed: DataTableColumn<LeadRow>[] = columns.map((c) =>
+      "accessorKey" in c && c.accessorKey === "score" ? { ...c, meta: { ...c.meta, term: "fit" } } : "accessorKey" in c && c.accessorKey === "owner" ? { ...c, enableSorting: false, meta: { ...c.meta, term: "line_manager" } } : c,
+    );
+    const terms = {
+      fit: { id: "fit", word: "Fit", short: "How well a channel suits this business, out of 20." },
+      line_manager: { id: "line_manager", word: "Line manager", short: "Who this agent reports to." },
+    };
+    const { rerender } = render(
+      <GuidanceProvider value={{ guidance: "on", terms }}>
+        <DataTable data={leads} columns={termed} />
+      </GuidanceProvider>,
+    );
+    const head = screen.getByRole("columnheader", { name: /Score/ });
+    const term = head.querySelector("button[data-term='fit']")!;
+    expect(term.textContent).toBe("Score");
+    // No button nests another; the arrow is its own control and sorts.
+    expect(head.querySelector("button button")).toBeNull();
+    const sort = within(head).getByRole("button", { name: "Sort by Score" });
+    expect(sort.contains(term)).toBe(false);
+    await user.click(sort);
+    expect(head.getAttribute("aria-sort")).toBe("descending");
+    // A click on the word opens its definition, not a sort.
+    await user.click(term);
+    expect((await screen.findByText("How well a channel suits this business, out of 20.")).closest("[data-definition-card]")).toBeTruthy();
+    expect(head.getAttribute("aria-sort")).toBe("descending");
+    // A head that does not sort is the Term alone.
+    expect(screen.getByRole("columnheader", { name: /Owner/ }).querySelector("button[data-term='line_manager']")).toBeTruthy();
+    rerender(
+      <GuidanceProvider value={{ guidance: "off", terms }}>
+        <DataTable data={leads} columns={termed} />
+      </GuidanceProvider>,
+    );
+    expect(screen.getByRole("columnheader", { name: /Score/ }).querySelector("[data-term]")).toBeNull();
+    expect(screen.getByRole("button", { name: "Score" })).toBeTruthy();
   });
 
   it("navigates with the keyboard: arrows move focus, Space selects, Shift extends, ⌘A selects all, Enter opens", async () => {
@@ -169,6 +208,11 @@ describe("DataTable", () => {
     await user.click(await screen.findByRole("menuitemradio", { name: /All leads/ }));
     expect(bodyRows()).toHaveLength(40);
     expect(screen.getByRole("columnheader", { name: /Owner/ })).toBeTruthy();
+  });
+
+  it("puts the department tour's anchor on the saved-view switcher", () => {
+    render(<DataTable data={leads} columns={columns} views={LEAD_VIEWS} activeViewId="hot" />);
+    expect(screen.getByRole("button", { name: /^View: / }).getAttribute("data-coachmark")).toBe("table-views");
   });
 
   it("applies the open view again when its definition arrives changed (a stored copy loading after the default)", () => {

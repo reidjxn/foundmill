@@ -84,7 +84,8 @@ test.describe("home", () => {
     if (guided) {
       // Dotted means something to learn: the word is a button whose definition opens on hover and focus.
       expect(await runway.evaluate((el) => el.tagName)).toBe("BUTTON");
-      await runway.focus();
+      // Hover (or a real Tab) opens it: a script's focus() does not, by design (guidance/keyboardFocus.ts).
+      await runway.hover();
       const card = page.locator("[data-definition-card]");
       await expect(card).toBeVisible({ timeout: LONG });
       await expect(card).toContainText("How many months your cash lasts at today's spending.");

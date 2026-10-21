@@ -9,7 +9,7 @@
  */
 import { RESERVED_NAME_MESSAGE, isReservedName } from "@foundmill/config";
 import { AppError, ARCHETYPES, DATA_REGIONS, ForbiddenError, NotFoundError, ValidationError, VISIBILITY } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
 import {
@@ -131,10 +131,11 @@ const publicBusiness = and(eq(businesses.gameMode, "live"), isNotNull(businesses
 /**
  * True when the business behind `businessId` is a seeded demo (0044 `is_demo`) the viewer does not belong to. A demo's
  * numbers are synthetic, so on the network it is shown only to its own members (`is_public` and `public_profiles`
- * leave it out for everyone else); null business ids are never hidden.
+ * leave it out for everyone else); null business ids are never hidden. An example membership (0065, "Explore an
+ * example") is a read-only walk around the demo, not belonging to it, so it never lifts the demo onto the network.
  */
 const demoHiddenFrom = (businessId: AnyColumn | SQL, viewerId: string): SQL =>
-  sql`exists (select 1 from businesses demo where demo.id = ${businessId} and demo.is_demo and not exists (select 1 from memberships dm where dm.business_id = demo.id and dm.user_id = ${viewerId}::uuid))`;
+  sql`exists (select 1 from businesses demo where demo.id = ${businessId} and demo.is_demo and not exists (select 1 from memberships dm where dm.business_id = demo.id and dm.user_id = ${viewerId}::uuid and dm.source <> 'example'))`;
 
 /** What the viewer may know about another user: `displayName` is null when their profile visibility keeps it back. */
 export interface PersonCard {
@@ -732,7 +733,8 @@ export const socialRepo = {
         .select({ businessId: businesses.id, name: businesses.name, slug: businesses.slug, kitPrimary: businesses.kitPrimary, kitSecondary: businesses.kitSecondary, archetype: businesses.archetype, gameMode: businesses.gameMode })
         .from(businesses)
         .innerJoin(memberships, eq(memberships.businessId, businesses.id))
-        .where(and(eq(memberships.userId, viewerId), inArray(businesses.id, businessIds), isNull(businesses.archivedAt)));
+        // An example membership is a walk-through, not the viewer's business (0065).
+        .where(and(eq(memberships.userId, viewerId), ne(memberships.source, "example"), inArray(businesses.id, businessIds), isNull(businesses.archivedAt)));
       for (const b of own) cards.set(b.businessId, { businessId: b.businessId, name: b.name, slug: b.slug, kitPrimary: b.kitPrimary, kitSecondary: b.kitSecondary, archetype: b.archetype, live: b.gameMode === "live" });
     }
     return { users, businesses: [...cards.values()] };
@@ -744,7 +746,7 @@ export const socialRepo = {
       .select({ userId: memberships.userId })
       .from(memberships)
       .innerJoin(businesses, eq(businesses.id, memberships.businessId))
-      .where(and(eq(memberships.businessId, businessId), eq(memberships.role, "owner"), publicBusiness))
+      .where(and(eq(memberships.businessId, businessId), eq(memberships.role, "owner"), ne(memberships.source, "example"), publicBusiness))
       .orderBy(asc(memberships.createdAt))
       .limit(1);
     return rows[0]?.userId ?? null;

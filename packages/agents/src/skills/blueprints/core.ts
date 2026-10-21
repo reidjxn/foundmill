@@ -296,7 +296,8 @@ export const CORE_BLUEPRINTS: BlueprintSet = {
         "Uses only the numbers given and cites the record ids.",
         "Plain, specific, no hype, under 180 words, no padding.",
       ],
-      { checks: [CHECK.words(60, 180), CHECK.cites()] },
+      // "Under 180 words, no padding": the floor only refuses an empty or one-line answer, never asks for filler.
+      { checks: [CHECK.words(20, 180), CHECK.cites()] },
     ),
     bp(
       "Bad news clearly for {business}",

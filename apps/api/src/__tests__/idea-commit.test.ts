@@ -37,6 +37,8 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(business.kitPrimary.toLowerCase()).toBe("#1b4fd8");
     const membership = await repos.memberships.get(hz.db, bid, userId);
     expect(membership?.role).toBe("owner");
+    // The founder's own seat says so (0065 source): never an invite, never an example.
+    expect(membership?.source).toBe("founder");
 
     // Departments 1:1 with the seed; every one has its module tabs as screen definitions.
     const departments = await repos.departments.list(hz.db, bid);

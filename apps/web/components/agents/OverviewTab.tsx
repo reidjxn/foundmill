@@ -9,29 +9,23 @@ import { useQuery } from "@tanstack/react-query";
 import { BookOpenText, CalendarClock, ShieldOff } from "lucide-react";
 import { useMemo } from "react";
 import { effectiveApprovalThresholdMinor } from "@foundmill/config";
-import { Chip, DevelopmentChart, Icon, KeyValueList, Markdown, POSITION_MAP_BASIS, POSITION_MAP_TITLE, Panel, PositionMap, ProvenanceChip, RATING_MAX, SKILL_GRID_WHY, SkillGrid, Term, TraitChips, formatMoney, formatRelative, useFormatters, useGuided, type TermDefinition } from "@foundmill/dugout";
+import { Chip, DevelopmentChart, Icon, KeyValueList, Markdown, POSITION_MAP_BASIS, POSITION_MAP_TITLE, Panel, PositionMap, ProvenanceChip, RATING_MAX, SKILL_GRID_WHY, SkillGrid, Term, TraitChips, formatMoney, formatRelative, useFormatters, useGuided } from "@foundmill/dugout";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import type { TabProps } from "./AgentProfileScreen";
 import { autonomyFromAgent, currentVersion, departmentColour, developmentSeries, latestPromotedRun, parseInstructions, positionFits, toSkillRows, traitsFor, trainingSessionMarks, wageLabel, whatIDo } from "./logic";
 
-/**
- * "Tested" and "Proven" defined where the founder meets them (UX plan §7.15 C3). Inline definitions until the
- * definitions map (packages/shared/src/terms.ts) carries `tested` and `proven`; the ids are the ones it will use.
- */
-export const SKILL_SCORE_TERMS: Record<"tested" | "proven", TermDefinition> = {
-  tested: { id: "tested", word: "Tested", short: "The score on practice tests: what the agent does on held-back examples, 1 to 20.", long: "Half of the practice tests stay hidden so the score stays honest. A training run re-tests every skill and the Coach compares the results with the live version.", learn: "team/agents" },
-  proven: { id: "proven", word: "Proven", short: "The score on real work: how the agent's finished tasks went, 1 to 20.", long: "More real work makes Proven count for more in the displayed score; a new skill shows its tested score alone until the agent has used it.", learn: "team/agents" },
-};
-
 /** What the Skills panel is about, for its "About Skills" tip (InfoTip through Panel `help`; hidden with guidance off). */
 export const SKILLS_HELP = `Each skill is scored 1–${RATING_MAX} and always shows its band word: Poor, Average, Good or Excellent. Training can move it.`;
 
-/** The Skills panel footer (UX plan §7.15 C3): what the scores are, with Tested and Proven as defined words, and why they matter while guided. */
+/**
+ * The Skills panel footer (UX plan §7.15 C3): what the scores are, with Tested and Proven as defined words (TERMS
+ * `tested` and `proven`, learn team/agents), and why they matter while guided.
+ */
 export function SkillsFooter({ guided }: { guided: boolean }) {
   return (
     <span data-testid="skills-footer">
-      Scores 1–{RATING_MAX}. <Term id="tested" definition={SKILL_SCORE_TERMS.tested}>Tested</Term> is the result on practice tests, <Term id="proven" definition={SKILL_SCORE_TERMS.proven}>Proven</Term> the result on real work; more real work makes Proven count for more. Hover a skill for its tested and proven scores.
+      Scores 1–{RATING_MAX}. <Term id="tested">Tested</Term> is the result on practice tests, <Term id="proven">Proven</Term> the result on real work; more real work makes Proven count for more. Hover a skill for its tested and proven scores.
       {guided ? <span data-testid="skills-why"> {SKILL_GRID_WHY}</span> : null}
     </span>
   );

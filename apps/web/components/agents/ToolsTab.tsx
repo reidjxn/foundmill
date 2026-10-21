@@ -160,8 +160,8 @@ export function ToolsTab({ businessId, profile, refetch }: TabProps) {
   const businessMode = data.business.businessMode;
   const modeCopy: Record<string, string> = {
     augmented: "Augmented: every external action and spend asks you first.",
-    assisted: "Assisted: routine external work within caps runs; above caps, new counterparties and contracts ask.",
-    automated: "Automated: everything within caps runs; only hard gates ask.",
+    assisted: "Assisted: routine external work within your limits runs; anything over them, new people or companies, and contracts ask you first.",
+    automated: "Automated: everything within your limits runs; only hard gates ask.",
   };
 
   return (

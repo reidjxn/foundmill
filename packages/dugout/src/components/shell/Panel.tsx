@@ -50,6 +50,11 @@ export interface PanelProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   /** A "Learn more" target for `help` (a route slug or URL): the tip becomes a definition card with a reachable link. */
   helpLearn?: string;
   /**
+   * What the help tip is about, for its "About <label>" name, when `title` is not plain text (a `<Term>` title): a
+   * string title names the tip by itself; a node title without `helpLabel` falls back to "About this panel".
+   */
+  helpLabel?: string;
+  /**
    * Light inside the panel from its lit corner (DESIGN §3): a department colour (department cards, the note's metric
    * strip, the agent thread) or "brand" (the Journey, the brief). The corner of the edge takes the colour too.
    */
@@ -98,11 +103,11 @@ function isEmptyStateProps(v: unknown): v is Omit<EmptyStateProps, "children"> &
  * (PanelMenuButton), and the help tip is the guidance group's client InfoTip.
  */
 export const Panel = forwardRef<HTMLElement, PanelProps>(function Panel(
-  { title, span, menu, actions, meta, help, helpLearn, glow, loading, empty, error, onRetry, footer, flush, bodyClassName, className, children, ...rest },
+  { title, span, menu, actions, meta, help, helpLearn, helpLabel: helpLabelProp, glow, loading, empty, error, onRetry, footer, flush, bodyClassName, className, children, ...rest },
   ref,
 ) {
   const titleId = useId();
-  const helpLabel = typeof title === "string" || typeof title === "number" ? String(title) : "this panel";
+  const helpLabel = helpLabelProp?.trim() || (typeof title === "string" || typeof title === "number" ? String(title) : "this panel");
   const hasMenu = !!menu && (menu.onSwap || menu.onSettings || menu.onPinToHome || (menu.items && menu.items.length > 0));
   const state = loading ? "loading" : error ? "error" : empty !== undefined && empty !== null && empty !== false ? "empty" : "ready";
 

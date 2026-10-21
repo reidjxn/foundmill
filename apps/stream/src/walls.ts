@@ -94,6 +94,13 @@ export const EVENT_WALLS = {
   "product.signoff_decided": { sections: ["product"], hide: freeText("notes") },
   // Distribution started: ids and a count only.
   "distribution.started": { sections: ["distribution"] },
+  // The guided layer's product signals (one founder's own use of tours, explainers and definitions): metrics only, so
+  // on the stream they reach no one but the readers of Settings.
+  "guidance.tour_completed": { sections: ["settings"] },
+  "guidance.tour_skipped": { sections: ["settings"] },
+  "guidance.explainer_dismissed": { sections: ["settings"] },
+  "guidance.term_opened": { sections: ["settings"] },
+  "guidance.turned_off": { sections: ["settings"] },
 } as const satisfies { readonly [K in EventType]: EventWall };
 
 /** What one reader may see of business events: their walls (sections they may not read at all). */

@@ -6,7 +6,7 @@
  */
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
 import { ExternalLink, Info, ShieldCheck } from "lucide-react";
-import { Button, Chip, PageGrid, StatusPill, cn, formatMoney, useGuided, type ButtonProps, type StatusTone, type TermDefinition } from "@foundmill/dugout";
+import { Button, Chip, PageGrid, StatusPill, cn, formatMoney, useGuided, type ButtonProps, type StatusTone } from "@foundmill/dugout";
 import { useWidgetData, useWidgetQuery, type QueryState } from "@foundmill/widgets/data";
 import { plainWords, type CalendarStatus } from "./legal-data";
 import type { ContractStatus, IncorporationStatus, IncorporationStatusResponse, LegalEntityStatus } from "./types";
@@ -189,14 +189,6 @@ export const SIMPLE_VIEW_ID = "simple";
 export function useDefaultViewId(general: string): string {
   return useGuided() ? SIMPLE_VIEW_ID : general;
 }
-
-/* ---------- Terms ---------- */
-
-/**
- * "Filing" as a Term's own definition: the definitions map has no `filing` id yet (UX plan §7.16 names it), so the
- * Term falls back to this and takes the map's entry the day one lands.
- */
-export const FILING_TERM: TermDefinition = { id: "filing", word: "Filing", short: "A form or report the company must send to a registry or tax office by a set date." };
 
 /** The department's intro, on its first tab while guidance is on (UX plan §7.10). */
 export const LEGAL_EXPLAINER = {

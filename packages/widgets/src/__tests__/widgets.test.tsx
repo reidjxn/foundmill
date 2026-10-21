@@ -232,6 +232,10 @@ describe("Home captions in the business's words (Settings › Glossary, AC-11.13
     const { container } = mount(getWidget("status_strip")!, dataResponses());
     expect(container.textContent).toContain("Customers this week");
   });
+  it("carries the Home tour's anchor on the status strip's panel root", () => {
+    const { container } = mount(getWidget("status_strip")!, dataResponses());
+    expect(container.querySelector("[data-widget='status_strip']")?.getAttribute("data-coachmark")).toBe("status-strip");
+  });
 });
 
 describe("Home's today is the business's day (audit #196)", () => {
@@ -372,6 +376,7 @@ function mountGuided(def: AnyWidgetDefinition, responses: Record<string, FakeRes
 const TERMS = {
   runway: { id: "runway", word: "Runway", short: "How many months your cash lasts at today's spending." },
   team_health: { id: "team_health", word: "Team health", short: "The share of agents not failing, down or degraded; idle and paused agents count as fine." },
+  revenue: { id: "revenue", word: "Revenue", short: "Money customers paid you, counted on the day it arrives." },
 };
 
 describe("status strip in guided mode", () => {
@@ -380,7 +385,7 @@ describe("status strip in guided mode", () => {
     const runway = container.querySelector("[data-term='runway']");
     expect(runway?.tagName).toBe("BUTTON");
     expect(runway?.textContent).toBe("Runway");
-    // "Revenue" has no entry in the map yet: the strip defines it inline.
+    // "Revenue" is defined by the map's entry (TERMS.revenue), like every other label.
     expect(container.querySelector("[data-term='revenue']")?.tagName).toBe("BUTTON");
     const lines = [...container.querySelectorAll("[data-metric-tile] [data-plain-line]")].map((el) => el.textContent);
     expect(lines).toEqual(["What is in the bank right now.", "How many months your cash lasts at today's spending.", "What customers paid you this month.", "People who paid you for the first time in the last 7 days.", "The share of agents not failing, down or degraded; idle and paused agents count as fine."]);

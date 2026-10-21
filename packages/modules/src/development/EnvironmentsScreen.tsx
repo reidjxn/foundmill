@@ -239,7 +239,7 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
         accessorFn: (r) => r.branchName,
         header: "Branch",
         size: sizes.branch,
-        meta: { locked: true, csv: (r) => r.branch },
+        meta: { locked: true, csv: (r) => r.branch, term: "branch" },
         cell: ({ row }) => (
           <span className="flex min-w-0 items-center gap-1.5 font-mono text-mono" title={row.original.branch === row.original.branchName ? undefined : `Branch ${row.original.branch}`} data-branch={row.original.branch}>
             <GitBranch size={12} aria-hidden className="shrink-0 text-tertiary" />

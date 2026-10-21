@@ -54,6 +54,13 @@ describe("department card widget", () => {
     expect(container.querySelector("[data-team-strip-words]")?.textContent).toBe("2 of 3 working");
   });
 
+  it("carries the Home tour's anchor around the card", () => {
+    const { container } = mountCard({ slot: 0 });
+    const anchor = container.querySelector("[data-coachmark='department-card']");
+    expect(anchor).toBeTruthy();
+    expect(anchor?.querySelector("[data-squad-member]")).toBeTruthy();
+  });
+
   it("puts the metric in plain words under its figure while guidance is on: the definition for runway, the card's own line for tasks (UX plan §7.8)", () => {
     const terms = { runway: { id: "runway", word: "Runway", short: "How many months your cash lasts at today's spending." } };
     const Component = def.Component;

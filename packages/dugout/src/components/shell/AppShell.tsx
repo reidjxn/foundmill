@@ -96,6 +96,13 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   logoSrc?: string | null;
   /** A ready element instead of `logoSrc`. */
   logo?: ReactNode;
+  /** A small badge after the business name in the top bar (KitBar `businessBadge`: the Example chip). */
+  businessBadge?: ReactNode;
+  /**
+   * Something else in Continue's slot (KitBar `continueSlot`: the Example frame's "Start your own"). Continue's
+   * keyboard shortcut still follows `continueButton`, so pass it disabled alongside.
+   */
+  continueSlot?: ReactNode;
   businessName: string;
   screenTitle: ReactNode;
   sidebar: AppShellSidebar;
@@ -206,6 +213,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     kit,
     logoSrc,
     logo,
+    businessBadge,
+    continueSlot,
     businessName,
     screenTitle,
     sidebar,
@@ -364,6 +373,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             onModeClick={onModeClick}
             gameMode={mode}
             continueButton={{ state, cycleNumber, pulseKey, disabled: continueDisabled, pending: continuePending, ...continueHandlers }}
+            continueSlot={continueSlot}
+            businessBadge={businessBadge}
             stopAll={stopAll}
             onHome={homeItem && onNavigate ? () => onNavigate(homeItem) : undefined}
             businessMenu={businessMenu}

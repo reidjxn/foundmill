@@ -19,7 +19,7 @@ describe("sidebar items", () => {
     expect(items.find((i) => i.id === "home")?.fixed).toBe("home");
     expect(items.find((i) => i.id === "inbox")?.fixed).toBe("inbox");
     // The CRM reads "Contacts" (founder, 2026-10-20); its id, slug and G chord keep "crm".
-    expect(items.find((i) => i.id === "crm")).toMatchObject({ fixed: "crm", label: "Contacts", href: `/b/${BID}/crm` });
+    expect(items.find((i) => i.id === "crm")).toMatchObject({ fixed: "crm", label: "Contacts", hint: "The CRM", href: `/b/${BID}/crm` });
     // A Personal business keeps Network (the founder's own requests and messages) and nothing else of the LIVE block.
     expect(items.filter((i) => i.group === "live").map((i) => i.label)).toEqual(["Network"]);
     // The Foundmill wordmark is not an item (no icon): Dugout draws it from `SIDEBAR_BRAND` while expanded. The

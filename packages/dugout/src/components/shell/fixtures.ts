@@ -83,7 +83,7 @@ export const HELP_PALETTE_ITEMS: PaletteHelpItem[] = [
   { id: "help:runway", title: "Runway", line: "How many months your cash lasts at today's spending.", href: "/b/northwind/d/finance/runway" },
   { id: "help:burn", title: "Burn", line: "How much cash the business uses up each month.", href: "/b/northwind/d/finance/overview" },
   { id: "help:cycle", title: "Cycle", line: "One round of work: the team works for a while, then reports back in the Inbox.", href: "/b/northwind/home" },
-  { id: "help:estimate", title: "Estimate", line: "Worked out, not measured." },
+  { id: "help:estimate", title: "Estimate", line: "Worked out, not measured.", long: "The figure is calculated from what is known, such as archetype averages or a model's price list. It is replaced by a measured one as soon as a bank, Stripe or an ad account is connected." },
   { id: "help:chief_of_staff", title: "Chief of Staff", line: "The agent that plans each cycle, hands work to the department leads and turns your replies into plans.", href: "/b/northwind/d/team/squad" },
 ];
 

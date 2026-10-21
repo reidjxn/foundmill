@@ -342,6 +342,10 @@ describe("agent of the week", () => {
     expect(agentRating20({ skills: [], rating: 7.5 })).toBe(15);
     expect(agentRating20({ skills: [], rating: null })).toBeNull();
     expect(agentRating20({ skills: [{ displayed: 0 }], rating: null })).toBeNull();
+    // team.agents.list's own /20 figure comes first; a missing or zero one falls through to the skills, then the /10.
+    expect(agentRating20({ skills: [{ displayed: 10 }], rating: 4, rating20: 16.5 })).toBe(16.5);
+    expect(agentRating20({ skills: [{ displayed: 10 }], rating: 4, rating20: 0 })).toBe(10);
+    expect(agentRating20({ skills: [], rating: 4, rating20: null })).toBe(8);
     expect(starsFromRating20(18)).toBe(4.5);
     expect(starsFromRating20(15)).toBe(4);
     expect(starsFromRating20(20)).toBe(5);

@@ -1,18 +1,13 @@
 /** 0001 — memberships (tenancy), 0065 — `source`. Helper functions is_member/has_role/is_public live in SQL only. */
-import { MEMBERSHIP_ROLES } from "@foundmill/shared";
+import { MEMBERSHIP_ROLES, MEMBERSHIP_SOURCES, type MembershipSource } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { index, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { emptyObject, id, timestamps } from "./_common";
 import { businessId } from "./_refs";
 
-/**
- * How a membership came to be (0065): `invite` (team.humans.invite, the seeds' owners, every row before 0065),
- * `founder` (the owner seat Commit writes), `example` (business.example.open: a read-only walk around a seeded demo
- * business, always a viewer, never a seat, never staff).
- */
-export const MEMBERSHIP_SOURCES = ["invite", "founder", "example"] as const;
-export type MembershipSource = (typeof MEMBERSHIP_SOURCES)[number];
+/** How a membership came to be (0065): the tuple lives in @foundmill/shared/constants next to MEMBERSHIP_ROLES. */
+export { MEMBERSHIP_SOURCES, type MembershipSource };
 
 export const memberships = pgTable(
   "memberships",

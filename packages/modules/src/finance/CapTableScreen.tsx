@@ -139,7 +139,7 @@ export function issuanceColumns(businessId: string, securities: readonly Securit
     { id: "price", accessorFn: (r) => r.priceMinor ?? 0, header: "Price", size: sizes.price, cell: ({ row }) => <span className="tabular-nums">{row.original.priceMinor === null ? "—" : fmtMoney(row.original.priceMinor, currencyOf(row.original))}</span>, meta: { numeric: true } },
     { id: "consideration", accessorFn: (r) => (r.priceMinor === null ? 0 : Math.round(r.priceMinor * Number(r.quantity))), header: "Consideration", size: sizes.consideration, cell: ({ row }) => <span className="tabular-nums">{row.original.priceMinor === null ? "—" : fmtMoney(Math.round(row.original.priceMinor * Number(row.original.quantity)), currencyOf(row.original))}</span>, meta: { numeric: true } },
     { id: "issuedAt", accessorFn: (r) => r.issuedAt ?? "", header: "Issued", size: sizes.issuedAt, cell: ({ getValue }) => <DateText className="tabular-nums" value={getValue() ? String(getValue()) : null} />, meta: { filter: "date" } },
-    { id: "vesting", accessorFn: (r) => vestingSummary(r.vesting, r.quantity, now, r.issuedAt)?.text ?? "", header: "Vesting", size: sizes.vesting, cell: ({ getValue }) => <span className="text-secondary">{String(getValue()) || "Fully vested"}</span> },
+    { id: "vesting", accessorFn: (r) => vestingSummary(r.vesting, r.quantity, now, r.issuedAt)?.text ?? "", header: "Vesting", size: sizes.vesting, cell: ({ getValue }) => <span className="text-secondary">{String(getValue()) || "Fully vested"}</span>, meta: { term: "vesting" } },
     {
       id: "vestedPct",
       // No schedule: vested at issue. A schedule with no start date: unknown, never "100%".

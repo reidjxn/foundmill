@@ -5,7 +5,7 @@ import { EMPTY_CYCLE, cycleFromSnapshot } from "@/lib/cycle";
 import { trpcPathPrefix, trpcQueryKey } from "@/lib/trpc";
 import { SAFETY_POLL_MS } from "@/lib/stream-status";
 import { EXAMPLE_CHIP_TOOLTIP, EXAMPLE_READ_ONLY_REASON, accessFor, readOnlyReason } from "@/lib/access";
-import { EXAMPLE_START_CALLOUT, FIRST_CONTINUE_CALLOUT, INVALIDATE_ON_EVENT, cycleReducer, describeContinue, exampleFrame, shellPollIntervals, wantsFirstContinueCallout } from "../BusinessShell";
+import { EXAMPLE_START_CALLOUT, FIRST_CONTINUE_CALLOUT, START_YOUR_OWN_HREF, INVALIDATE_ON_EVENT, cycleReducer, describeContinue, exampleFrame, shellPollIntervals, wantsFirstContinueCallout } from "../BusinessShell";
 
 type ContinueResult = Parameters<typeof describeContinue>[0];
 
@@ -84,6 +84,8 @@ describe("the Example frame (UX plan §12 item 5)", () => {
   it("the callout targets Start your own with its own tour id, and the chip says nothing is saved", () => {
     expect(EXAMPLE_START_CALLOUT).toEqual({ tourId: "example-start", targetId: "start-your-own", title: "This is an example", body: "When you are ready, start your own business here." });
     expect(EXAMPLE_START_CALLOUT.tourId).not.toBe(FIRST_CONTINUE_CALLOUT.tourId);
+    // "Start your own" (in Continue's slot) opens the three doors.
+    expect(START_YOUR_OWN_HREF).toBe("/new");
     expect(EXAMPLE_CHIP_TOOLTIP).toBe("A seeded example business. Nothing you do here is saved.");
   });
 

@@ -35,6 +35,8 @@ export interface WidgetFrameProps {
   className?: string;
   children?: ReactNode;
   "data-widget"?: string;
+  /** A tour's anchor (Coachmark targets `[data-coachmark=…]`), forwarded to the panel root like `data-widget`. */
+  "data-coachmark"?: string;
 }
 
 /** Fold several query states into one loading/error pair plus a refetch-all. */
@@ -106,6 +108,7 @@ export function WidgetFrame({ title, queries = [], loading, error, onRetry, empt
       bodyClassName={bodyClassName ?? WIDGET_BODY_CLASS}
       className={collapsed ? (className ? `h-auto ${className}` : "h-auto") : className ? `h-full ${className}` : "h-full"}
       data-widget={rest["data-widget"]}
+      data-coachmark={rest["data-coachmark"]}
       data-empty={collapsed ? "collapsed" : undefined}
     >
       {children}

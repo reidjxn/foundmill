@@ -14,7 +14,7 @@ import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
 import { DUE_WINDOW_DAYS, calendarMonths, calendarRows, daysToNextDeadline, type CalendarRow } from "./legal-data";
-import { CALENDAR_PILL, FILING_TERM, Pill, SIMPLE_VIEW_ID, Screen, fitTableHeight, humanise, useDefaultViewId, useNow } from "./shared";
+import { CALENDAR_PILL, Pill, SIMPLE_VIEW_ID, Screen, fitTableHeight, humanise, useDefaultViewId, useNow } from "./shared";
 import type { ComplianceListResponse } from "./types";
 import { DateText } from "../dates";
 
@@ -122,7 +122,7 @@ export function ComplianceScreen({ businessId, subView }: ModuleScreenProps) {
         }
         footer={
           <span>
-            A <Term id="filing" definition={FILING_TERM}>filing</Term> is a form or report the company must send by a date; a compliance event is anything else it must do by one. Use the … button or right-click a deadline to see it in the calendar, open the legal entity or the Inbox.
+            A <Term id="filing">filing</Term> is a form or report the company must send by a date; a compliance event is anything else it must do by one. Use the … button or right-click a deadline to see it in the calendar, open the legal entity or the Inbox.
           </span>
         }
       >

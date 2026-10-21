@@ -8,7 +8,7 @@
 import { useMemo } from "react";
 import { z } from "zod";
 import { Gauge } from "lucide-react";
-import { StatusStrip, Term, formatNumber, useTerm, type MetricTileProps, type TermDefinition } from "@foundmill/dugout";
+import { StatusStrip, Term, formatNumber, type MetricTileProps } from "@foundmill/dugout";
 import { useBusinessEvents, useGlossary, useToday, useWidgetData, useWidgetQuery } from "../data";
 import { monthRevenueMinor } from "../shared/cash";
 import { RUNWAY_WORDS, runwayWords } from "../shared/runway";
@@ -84,12 +84,6 @@ export const PLAIN_LINES = {
   revenue: "What customers paid you this month.",
   customers: "People who paid you for the first time in the last 7 days.",
 } as const;
-
-/**
- * "Revenue" has no entry in the definitions map yet: the strip defines it inline until one lands (then the map's wins;
- * see `revenueDefinition`).
- */
-export const REVENUE_FALLBACK: TermDefinition = { id: "revenue", word: "Revenue", short: "Money customers paid you, counted on the day it arrives.", long: "Everything customers paid this month, on a cash basis: a sale counts when the money lands, not when it is invoiced. Money raised or moved between accounts is left out." };
 
 /**
  * The runway tile. With a burn model it is the figure in months with its Estimate chip and a caption in words ("Months
@@ -220,10 +214,8 @@ function StatusStripWidget({ settings }: WidgetProps<StatusStripSettings>) {
     [finance.data, finance.isLoading, finance.error, ribbon.data, ribbon.isLoading, ribbon.error, departments.data, departments.isLoading, departments.error, positions.data, positions.isLoading, live, today, currency, navigate, businessId],
   );
   // Tile labels, captions and plain lines in the business's words ("Customers this week" → "Clients this week"); a label
-  // that is a defined term becomes a `Term` (lifted above the tile's covering button), the map's definition first and
-  // the strip's own for "Revenue" until the map holds one.
+  // that is a defined term becomes a `Term` (lifted above the tile's covering button) with the map's definition.
   const g = useGlossary();
-  const revenueDefinition = useTerm("revenue") ? undefined : REVENUE_FALLBACK;
   const glossed = useMemo<MetricTileProps[]>(
     () =>
       tiles.map(({ termId, ...t }) => {
@@ -231,7 +223,7 @@ function StatusStripWidget({ settings }: WidgetProps<StatusStripSettings>) {
         return {
           ...t,
           label: termId ? (
-            <Term id={termId} definition={termId === "revenue" ? revenueDefinition : undefined} className="relative z-10">
+            <Term id={termId} className="relative z-10">
               {label}
             </Term>
           ) : (
@@ -241,11 +233,11 @@ function StatusStripWidget({ settings }: WidgetProps<StatusStripSettings>) {
           plain: typeof t.plain === "string" ? g(t.plain) : t.plain,
         };
       }),
-    [tiles, g, revenueDefinition],
+    [tiles, g],
   );
   const failed = finance.error && ribbon.error && departments.error;
   return (
-    <WidgetFrame title="Status" data-widget="status_strip" error={failed ? (finance.error ?? undefined) : undefined} onRetry={failed ? () => [finance, ribbon, departments].forEach((q) => q.refetch()) : undefined} flush empty={null}>
+    <WidgetFrame title="Status" data-widget="status_strip" data-coachmark="status-strip" error={failed ? (finance.error ?? undefined) : undefined} onRetry={failed ? () => [finance, ribbon, departments].forEach((q) => q.refetch()) : undefined} flush empty={null}>
       <StatusStrip tiles={glossed} className="rounded-none border-0" aria-label="Business status" />
       {/* Setup advice only when finance answered and there is no bank or revenue yet, never because the query failed. */}
       {finance.data && finance.data.cash.accounts === 0 && finance.data.revenue.monthly.length === 0 ? (

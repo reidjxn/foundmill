@@ -11,6 +11,7 @@ import { FitText } from "../../foundation/FitText";
 import { Icon } from "../../foundation/Icon";
 import { SegmentedControl } from "../../foundation/SegmentedControl";
 import { Figure } from "../../data/Figure";
+import { Term } from "../../guidance/Term";
 import type { Chapter, Conversion, DayKey, ForecastPoint, JourneyDailyRow, Kit, Milestone, RibbonDepartment, RibbonEvent, RoadmapFlag, ZoomLevel } from "../types";
 import { ZOOM_LEVELS } from "../types";
 import {
@@ -613,7 +614,10 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
               <svg width={16} height={10} aria-hidden>
                 <line x1={1} x2={15} y1={5} y2={5} stroke={REVENUE} strokeWidth={1.5} strokeDasharray="3 3" />
               </svg>
-              Forecast
+              {/* A projection, not a measurement: defined on hover and focus even with guidance off (UX plan §7.8). */}
+              <Term id="forecast" always>
+                Forecast
+              </Term>
             </li>
           ) : null}
           <li className="flex items-center gap-1.5 whitespace-nowrap">

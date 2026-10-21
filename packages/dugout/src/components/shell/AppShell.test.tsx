@@ -89,6 +89,38 @@ describe("AppShell", () => {
     expect(screen.queryByRole("link", { name: "Foundmill" })).toBeNull();
   });
 
+  it("puts a badge after the business name and something else in Continue's slot when given (the Example frame)", () => {
+    const { unmount } = render(<AppShell {...shellProps()} />);
+    expect(screen.queryByTestId("kitbar-business-badge")).toBeNull();
+    expect(screen.queryByTestId("kitbar-continue-slot")).toBeNull();
+    expect(document.querySelector("[data-coachmark='continue']")).toBeTruthy();
+    unmount();
+    render(
+      <AppShell
+        {...shellProps({
+          businessBadge: <span data-testid="badge">Example</span>,
+          continueSlot: (
+            <button type="button" data-coachmark="start-your-own">
+              Start your own
+            </button>
+          ),
+          continueButton: { state: { kind: "idle" }, disabled: true },
+        })}
+      />,
+    );
+    // The badge sits after the name, inside the identity.
+    const name = screen.getByTestId("kitbar-business-name");
+    const badge = screen.getByTestId("kitbar-business-badge");
+    expect(name.parentElement).toBe(badge.parentElement);
+    expect(name.compareDocumentPosition(badge) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The slot replaces Continue and keeps its height and minimum width.
+    const slot = screen.getByTestId("kitbar-continue-slot");
+    expect(slot.className).toContain("h-kitbar-chip");
+    expect(slot.className).toContain("min-w-continue-min");
+    expect(slot.querySelector("[data-coachmark='start-your-own']")?.textContent).toBe("Start your own");
+    expect(document.querySelector("[data-coachmark='continue']")).toBeNull();
+  });
+
   it("shows the business logo in the top bar, or the initials mark (never a shield) when there is none", () => {
     const { unmount } = render(<AppShell {...shellProps({ logoSrc: SAMPLE_LOGOS.stack })} />);
     const logo = screen.getByTestId("kitbar-logo");

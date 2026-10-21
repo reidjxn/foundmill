@@ -101,13 +101,16 @@ test.describe("landing page", () => {
     await expect(deck.getByRole("button", { name: /Respond to 1 item/ })).toBeVisible();
     await page.getByTestId("deck-decision").getByRole("button", { name: "Merge" }).click();
     await expect(deck.getByText("Photo grading merged", { exact: true })).toBeVisible();
-    // The callout under Continue teaches the loop in the app's own words, until the visitor presses it.
-    await expect(deck.getByTestId("deck-callout")).toHaveText("This is how you move forward. Press it when you have answered what needs you.");
+    // The callout under Continue teaches the loop in the app's own words, until the visitor presses it. It is the
+    // design system's Callout: a popover portaled to <body>, anchored to the deck's Continue (data-coachmark-active).
+    const callout = page.locator("[data-coachmark][data-tour='deck-continue']");
+    await expect(callout).toContainText("Press it when you have answered what needs you.");
+    await expect(page.locator("[data-testid='deck-continue'][data-coachmark-active]")).toHaveCount(1);
 
     // Pressing Continue runs the next cycle, which brings a customer; the gold card opens the Journey.
     await deck.getByRole("button", { name: "Continue" }).click();
     await expect(deck).toHaveAttribute("data-phase", "processing");
-    await expect(deck.getByTestId("deck-callout")).toHaveCount(0);
+    await expect(callout).toHaveCount(0);
     await expect(page.getByTestId("deck-win")).toBeVisible({ timeout: 15_000 });
     await expect(deck.getByRole("button", { name: /Go to Journey/ })).toBeVisible();
     await page.getByTestId("deck-win").getByRole("button", { name: /See the Customer Update/ }).click();

@@ -6,6 +6,7 @@
  * package is assignable here without a cast. Dugout does not depend on the journey package (it depends only on
  * config and shared), so the shapes are declared structurally; vocabulary enums come from @foundmill/shared.
  */
+import type { ReactNode } from "react";
 import type { AgentStatus, ChannelKey, ConversionKind, DeptColourToken, MatchdayLevel, MilestoneKind } from "@foundmill/shared";
 import type { Kit } from "../shell/types";
 
@@ -365,6 +366,13 @@ export interface DepartmentMetric {
   provenance?: "forecast" | "estimate";
   /** What the sparkline plots when it is not the metric itself ("Cash at month end, last 6 months"). */
   seriesLabel?: string;
+  /**
+   * The TERMS id behind the metric ("runway", "mrr"), so the card can define its label and read its plain-words line
+   * from the definitions source (PlainFigure). Absent for a metric the map does not define.
+   */
+  metricId?: string;
+  /** The plain-words line under the figure when it is not the term's own sentence; shown while guidance is on. */
+  plain?: ReactNode;
 }
 
 export interface DepartmentCardData {
@@ -398,7 +406,7 @@ export interface DepartmentCardData {
  */
 export interface DepartmentQuietLine {
   kind: "attention" | "respond" | "inbox" | "finished" | "clear" | "error";
-  /** "Needs you", "Waiting for you", "New in your Inbox", "Last finished", "All clear", "Couldn't load". */
+  /** "Needs you", "Needs your answer", "New in your Inbox", "Last finished", "All clear", "Couldn't load". */
   label: string;
   /** The note's subject or the task's title. */
   text: string;

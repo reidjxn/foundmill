@@ -63,6 +63,13 @@ export interface KitBarProps extends Omit<HTMLAttributes<HTMLElement>, "title"> 
   /** Shown as a second chip when LIVE; omitted in Personal mode. */
   gameMode?: GameMode;
   continueButton: ContinueButtonProps;
+  /**
+   * Something else in Continue's slot (the Example frame's primary "Start your own"): rendered in place of the
+   * ContinueButton, inside a box that keeps Continue's height and minimum width so nothing beside it moves.
+   */
+  continueSlot?: ReactNode;
+  /** A small badge after the business name (the Example frame's neutral "Example" chip). */
+  businessBadge?: ReactNode;
   stopAll: StopAllAgentsProps;
   /** Logo + name become a button (go Home). */
   onHome?: () => void;
@@ -138,6 +145,8 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
     onModeClick,
     gameMode,
     continueButton,
+    continueSlot,
+    businessBadge,
     stopAll,
     onHome,
     businessMenu,
@@ -155,6 +164,11 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
       <FitText minPx={KITBAR_NAME_MIN_PX} lines={2} className="t-display-sm leading-tight" data-testid="kitbar-business-name">
         {businessName}
       </FitText>
+      {businessBadge ? (
+        <span className="flex shrink-0 items-center" data-testid="kitbar-business-badge">
+          {businessBadge}
+        </span>
+      ) : null}
     </span>
   );
   const holiday = continueButton.state.kind === "holiday";
@@ -231,7 +245,13 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
         <RunwayChip date={date} runwayMonths={runwayMonths} words={runwayWords} cash={cash} estimate={runwayEstimate} onClick={onRunwayClick} />
         {gameMode === "live" ? <GameModeChip mode="live" /> : null}
         <ModeChip mode={businessMode} holiday={holiday} onClick={onModeClick} />
-        <ContinueButton {...continueButton} className={cn("h-kitbar-chip rounded-track", continueButton.className)} />
+        {continueSlot ? (
+          <div className="flex h-kitbar-chip min-w-continue-min shrink-0 items-stretch" data-testid="kitbar-continue-slot">
+            {continueSlot}
+          </div>
+        ) : (
+          <ContinueButton {...continueButton} className={cn("h-kitbar-chip rounded-track", continueButton.className)} />
+        )}
         <StopAllAgents {...stopAll} />
       </div>
     </header>

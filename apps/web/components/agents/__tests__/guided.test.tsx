@@ -8,7 +8,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { Explainer, GuidanceProvider, Panel, TooltipProvider } from "@foundmill/dugout";
 import { termsWithGlossary } from "@foundmill/shared/terms";
-import { SKILLS_HELP, SKILL_SCORE_TERMS, SkillsFooter } from "../OverviewTab";
+import { SKILLS_HELP, SkillsFooter } from "../OverviewTab";
 import { AGENT_TRAINING_EXPLAINER } from "../TrainingTab";
 
 const TERMS = termsWithGlossary(null);
@@ -33,9 +33,9 @@ describe("Training explainer (C5)", () => {
 });
 
 describe("Skills footer and tip (C3)", () => {
-  it("defines Tested and Proven inline (until terms.ts carries them), keeps the scores sentence, and adds why it matters only while guided", () => {
-    expect(SKILL_SCORE_TERMS.tested.short).toMatch(/practice tests/);
-    expect(SKILL_SCORE_TERMS.proven.short).toMatch(/real work/);
+  it("defines Tested and Proven from the definitions map, keeps the scores sentence, and adds why it matters only while guided", () => {
+    expect(TERMS.tested?.short).toMatch(/practice tests/);
+    expect(TERMS.proven?.short).toMatch(/real work/);
     const { rerender } = render(
       <TooltipProvider>
         <GuidanceProvider value={{ terms: TERMS }}>

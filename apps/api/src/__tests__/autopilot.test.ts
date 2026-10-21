@@ -1,7 +1,7 @@
 /**
  * Autopilot (0055): the setting is owner and admin only, audited, off by default; turning it on starts its workflow
  * (refused while the team is stopped); Stop all agents pauses it and the resume does not turn it back on; the status
- * is the same decision the workflow makes (a blocking Inbox item reads as Waiting for you); Commit can start a business
+ * is the same decision the workflow makes (a blocking Inbox item reads as Needs your answer); Commit can start a business
  * on autopilot.
  */
 import { repos, stopBusinessAgents } from "@foundmill/db";
@@ -24,7 +24,7 @@ describe("business.autopilot", () => {
   beforeEach(async () => {
     await repos.autopilot.set(hz.db, A(), { enabled: false, cadence: "every_4h", dailyHour: 9, maxCyclesPerDay: 6, spendCeilingMinor: null, maxIdleCycles: 3 });
     await owner().business.resumeAgents({ businessId: A() }).catch(() => undefined);
-    // The fixture's blocking items would hold Autopilot at "Waiting for you"; tests that need none clear them.
+    // The fixture's blocking items would hold Autopilot at "Needs your answer"; tests that need none clear them.
     temporal.starts.length = 0;
     temporal.signals.length = 0;
   });
@@ -85,13 +85,13 @@ describe("business.autopilot", () => {
     expect((await owner().business.autopilot.set({ businessId: A(), spendCeilingMinor: null })).status.settings.spendCeilingMinor).toBeNull();
   });
 
-  it("reads as Waiting for you while an Inbox item blocks Continue, and never decides it", async () => {
+  it("reads as Needs your answer while an Inbox item blocks Continue, and never answers it", async () => {
     await owner().business.autopilot.set({ businessId: A(), enabled: true });
     const blocking = await repos.inbox.countBlocking(hz.db, A());
     const s = await owner().business.autopilot.get({ businessId: A() });
     if (blocking > 0) {
-      expect(s).toMatchObject({ state: "waiting", label: "Waiting for you", waitingFor: "inbox" });
-      expect(s.detail).toMatch(/Autopilot never decides for you/);
+      expect(s).toMatchObject({ state: "waiting", label: "Needs your answer", waitingFor: "inbox" });
+      expect(s.detail).toMatch(/Autopilot never answers (it|them) for you/);
       expect(await repos.inbox.countBlocking(hz.db, A())).toBe(blocking);
     } else {
       expect(s.state).toBe("on");

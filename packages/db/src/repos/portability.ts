@@ -7,7 +7,7 @@
  * a new table can never be silently missing from the export again. Rows are read in id order, page by page, until the
  * table is exhausted (`nextAfter: null`); nothing here stops at a row count.
  */
-import { and, asc, eq, getTableColumns, getTableName, gt, is, type AnyColumn } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, getTableName, gt, is, ne, type AnyColumn, type SQL } from "drizzle-orm";
 import { PgTable } from "drizzle-orm/pg-core";
 import * as s from "../schema";
 import type { Executor } from "./_shared";
@@ -25,9 +25,11 @@ export interface ExportTableSpec {
   omit?: readonly string[];
   /** When set, only these columns are written (connector plumbing: what is connected, never how). */
   pick?: readonly string[];
+  /** When set, only the rows this condition keeps are written (the business's own rows, never someone else's walk-through). */
+  rows?: SQL;
 }
 
-const t = (table: PgTable, section: ExportSection, columns: { omit?: readonly string[]; pick?: readonly string[] } = {}): ExportTableSpec => ({ table: table as BusinessTable, section, ...columns });
+const t = (table: PgTable, section: ExportSection, columns: { omit?: readonly string[]; pick?: readonly string[]; rows?: SQL } = {}): ExportTableSpec => ({ table: table as BusinessTable, section, ...columns });
 
 /** Exported tables by their SQL name (the archive's keys), grouped by section. */
 export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
@@ -110,7 +112,9 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   decisions: t(s.decisions, "inbox"),
   approvals: t(s.approvals, "inbox"),
   // settings
-  memberships: t(s.memberships, "settings", { pick: ["id", "userId", "role", "createdAt"] }),
+  // An example membership (0065, `source = 'example'`) is a visitor's read-only walk around a demo business, not a
+  // seat of this business, so it never travels in the business's archive.
+  memberships: t(s.memberships, "settings", { pick: ["id", "userId", "role", "createdAt"], rows: ne(s.memberships.source, "example") }),
   integrations: t(s.integrations, "settings", { pick: ["id", "connectorKey", "status", "authKind", "scopes", "accountLabel", "lastHealthAt", "lastError", "createdAt", "updatedAt"] }),
   app_installations: t(s.appInstallations, "settings", { pick: ["id", "connectorKey", "accountLabel", "verifiedAt", "createdAt"] }),
   policies: t(s.policies, "settings"),
@@ -161,7 +165,7 @@ export const portabilityRepo = {
     const rows = (await db
       .select()
       .from(spec.table)
-      .where(and(eq(spec.table.businessId, businessId), options.after ? gt(spec.table.id, options.after) : undefined))
+      .where(and(eq(spec.table.businessId, businessId), spec.rows, options.after ? gt(spec.table.id, options.after) : undefined))
       .orderBy(asc(spec.table.id))
       .limit(limit + 1)) as Record<string, unknown>[];
     const more = rows.length > limit;

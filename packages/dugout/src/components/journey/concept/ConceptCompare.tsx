@@ -5,9 +5,8 @@ import { BusinessLogo } from "../../foundation/BusinessLogo";
 import { EmptyState } from "../../foundation/EmptyState";
 import { Icon } from "../../foundation/Icon";
 import { StarRating } from "../../foundation/StarRating";
-import { Tooltip } from "../../foundation/Tooltip";
 import { CONCEPT_ATTRIBUTE_HINTS, CONCEPT_ATTRIBUTE_KEYS, CONCEPT_ATTRIBUTE_LABELS, type Concept, type ConceptAttributeKey } from "../types";
-import { AttributeBar } from "./AttributeBar";
+import { AttributeBar, AttributeLabel } from "./AttributeBar";
 import { conceptOverall } from "./ConceptCard";
 import { RadarChart } from "./RadarChart";
 
@@ -79,12 +78,7 @@ export function ConceptCompare({ concepts, radarSize = 320, className }: Concept
           {CONCEPT_ATTRIBUTE_KEYS.map((key) => (
             <li key={key} className="grid items-center gap-x-4 px-panel-pad py-1.5" style={{ gridTemplateColumns: cols }} role="row" data-compare-row={key}>
               <span className="text-body text-primary" role="rowheader">
-                {/* TODO(guided-layer): Term — the dotted Term with its hover card replaces this tooltip. */}
-                <Tooltip content={CONCEPT_ATTRIBUTE_HINTS[key]} side="top" align="start">
-                  <button type="button" className="cursor-help rounded-xs text-left text-body text-primary transition-colors duration-hover hover:text-secondary focus-visible:shadow-ring" data-attribute-hint="">
-                    {CONCEPT_ATTRIBUTE_LABELS[key]}
-                  </button>
-                </Tooltip>
+                <AttributeLabel label={CONCEPT_ATTRIBUTE_LABELS[key]} hint={CONCEPT_ATTRIBUTE_HINTS[key]} attributeKey={key} textClassName="text-body text-primary" />
               </span>
               {shown.map((c, i) => {
                 const leader = leaders[key] === i;

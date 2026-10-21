@@ -1,5 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, chooseTableView, openBusiness } from "./helpers";
+import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
+import { LONG, NORTHWIND_BUSINESS_ID, chooseTableView, devApi, openBusiness } from "./helpers";
 
 /**
  * Distribution, Finance and Legal on the seeded Northwind Skincare (its Distribution department is named "Retail
@@ -21,6 +21,16 @@ async function openTab(page: Page, dept: keyof typeof TABS, tab: string): Promis
   await expect(screen).toBeVisible({ timeout: LONG });
   await expect(screen).toHaveAttribute("data-module", `${dept}/${tab}`);
   await expect(screen.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: LONG });
+}
+
+/** The dev founder's guidance switch (Settings › Preferences): examples to try render only while it is on. */
+async function guidanceOn(playwright: PlaywrightWorkerArgs["playwright"]): Promise<boolean> {
+  const api = await devApi(playwright);
+  const res = await api.get("/trpc/founder.preferences.guidance");
+  expect(res.ok(), `founder.preferences.guidance answered ${res.status()}`).toBe(true);
+  const body = (await res.json()) as { result: { data: { json: { guidance: "on" | "off" } } } };
+  await api.dispose();
+  return body.result.data.json.guidance === "on";
 }
 
 /** A stored key shown as-is: two or more lower-case words joined by underscores ("cost_of_goods", "private_limited_company"). */
@@ -167,6 +177,43 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(form.getByText("GBP").first()).toBeVisible();
     await page.getByRole("group", { name: "Scenario" }).getByRole("button", { name: /Upside/ }).click();
     await expect(page.getByRole("form", { name: "Upside drivers" })).toBeVisible();
+  });
+
+  test("finance: Runway's example drivers fill the form read-only, hold Save and Reset, and are never saved (UX plan Phase 3)", async ({ page, playwright }) => {
+    await openTab(page, "finance", "runway");
+    const toggle = page.getByTestId("runway-example-toggle");
+    if (!(await guidanceOn(playwright))) {
+      // Guidance off: examples to try are tutoring, so the toggle is not there; the real drafts stay as they are.
+      await expect(toggle).toHaveCount(0);
+      return;
+    }
+    const form = page.getByRole("form", { name: "Base drivers" });
+    const cashBefore = await form.getByLabel("Starting cash").inputValue();
+    await toggle.getByRole("button", { name: "Show me an example" }).click();
+    const example = page.getByTestId("runway-example");
+    await expect(example).toBeVisible();
+    await expect(example.getByText("Example", { exact: true }).first()).toBeVisible();
+    const expected: [string, RegExp][] = [
+      ["Starting cash", /^30,000(\.00)?$/],
+      ["Monthly revenue", /^4,000(\.00)?$/],
+      ["Revenue growth", /^5$/],
+      ["Monthly costs", /^7,500(\.00)?$/],
+      ["Cost growth", /^1$/],
+      ["Horizon", /^24$/],
+    ];
+    for (const [label, value] of expected) {
+      const field = example.getByLabel(label, { exact: true });
+      await expect(field, label).toHaveValue(value);
+      await expect(field, label).toHaveAttribute("readonly", "");
+    }
+    await expect(form.getByRole("button", { name: "Save Base forecast" })).toBeDisabled();
+    await expect(form.getByRole("button", { name: "Reset" })).toBeDisabled();
+    await expect(page.locator("[data-driver-runway]")).toHaveText(/^Example runway with these drivers:/);
+    // Hiding it gives the founder's own drafts back, untouched.
+    await page.getByTestId("runway-example-toggle").getByRole("button", { name: "Hide the example" }).click();
+    await expect(example).toHaveCount(0);
+    await expect(form.getByLabel("Starting cash")).toHaveValue(cashBefore);
+    await expect(page.locator("[data-driver-runway]")).toHaveText(/^Base runway with these drivers:/);
   });
 
   test("finance: every projected figure on Runway carries a Forecast label", async ({ page }) => {

@@ -12,7 +12,10 @@ export interface ProfileChip {
 }
 
 export interface ProfileFact {
-  label: string;
+  /** The fact's label: plain text, or a node such as a `<Term>` on the screen's first mention of a defined word. */
+  label: ReactNode;
+  /** The React key, needed when `label` is not a string ("line-manager"); a string label is its own key. */
+  id?: string;
   value: ReactNode;
   /** Label non-real numbers (DESIGN §10). */
   provenance?: ProvenanceKind;
@@ -82,8 +85,8 @@ export const ProfileHeader = forwardRef<HTMLElement, ProfileHeaderProps>(functio
       </div>
       {shownFacts.length > 0 ? (
         <dl className="flex min-w-0 shrink-4 flex-wrap justify-end gap-x-6 gap-y-2" data-testid="profile-facts">
-          {shownFacts.map((f) => (
-            <div key={f.label} className="flex min-w-0 flex-col gap-0.5">
+          {shownFacts.map((f, i) => (
+            <div key={f.id ?? (typeof f.label === "string" ? f.label : i)} className="flex min-w-0 flex-col gap-0.5">
               <dt className="t-data whitespace-nowrap">{f.label}</dt>
               <dd className="inline-flex flex-wrap items-center gap-1.5 text-body-strong text-primary tabular-nums">
                 {f.value}

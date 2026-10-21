@@ -47,6 +47,8 @@ import { cn } from "../../lib/cn";
 import { formatNumber } from "../../lib/format";
 import { uniqueId } from "../../lib/seed";
 import { Checkbox } from "../foundation/Checkbox";
+import { useGuidance } from "../guidance/GuidanceProvider";
+import { Term } from "../guidance/Term";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -113,6 +115,13 @@ declare module "@tanstack/react-table" {
      * Numeric columns always fit; so does any cell whose words all sit in chips or pills (a chip is never cut).
      */
     fitContent?: boolean;
+    /**
+     * A TERMS id: the head label becomes a `Term` with its definition card (UX plan §6.2, §7.10). On a sortable column
+     * the Term sits beside the sort control, never inside it (a button in a button is invalid and Enter would fire
+     * both): the label opens the definition, the arrow sorts. Guidance off, or an id the map does not hold: the plain
+     * head, the whole label sorting as before.
+     */
+    term?: string;
   }
 }
 
@@ -378,6 +387,8 @@ export function DataTable<T>(props: DataTableProps<T>) {
   );
 
   const [sorting, setSorting] = useState<SortingState>(() => viewToState(activeView).sort);
+  // Column heads that are defined terms (`meta.term`): the map, and whether tutoring renders at all.
+  const { guidance: guidanceMode, terms: guidanceTerms } = useGuidance();
   const [chips, setChips] = useState<FilterChipValue[]>(() => viewToState(activeView).filters);
   const [visibleIds, setVisibleIds] = useState<string[]>(() => viewToState(activeView).columns);
   const [densityState, setDensityState] = useState<TableDensity>(
@@ -1126,6 +1137,14 @@ export function DataTable<T>(props: DataTableProps<T>) {
                 const sortIndex = sorting.length > 1 && sorted ? col.getSortIndex() + 1 : null;
                 const last = hi === hg.headers.length - 1;
                 const label = columnLabel(table, col.id);
+                const termId = meta?.term && guidanceMode === "on" && guidanceTerms[meta.term] ? meta.term : null;
+                const sortIcon = (
+                  <Icon
+                    icon={sorted === "asc" ? ArrowUp : sorted === "desc" ? ArrowDown : ChevronsUpDown}
+                    size={12}
+                    className={cn("shrink-0", sorted ? "text-kit-lift" : "opacity-0 transition-opacity duration-hover group-hover/sort:opacity-100 group-focus-visible/sort:opacity-100 group-focus-within/sort:opacity-100")}
+                  />
+                );
                 return (
                   <th
                     key={header.id}
@@ -1150,7 +1169,28 @@ export function DataTable<T>(props: DataTableProps<T>) {
                     )}
                     style={columnStyle(col.id, col.getSize())}
                   >
-                    {header.isPlaceholder ? null : canSort ? (
+                    {header.isPlaceholder ? null : termId && canSort ? (
+                      // A defined head: the label is the Term (its card), the arrow beside it is the sort control.
+                      <span className={cn("t-data group/sort -mx-1 flex min-w-0 items-center gap-1 px-1 py-0.5", align === "right" && "flex-row-reverse", sorted && "text-secondary")} data-header-term={termId}>
+                        <span className="truncate" data-header-label="">
+                          <Term id={termId}>{flexRender(col.columnDef.header, header.getContext())}</Term>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={col.getToggleSortingHandler()}
+                          aria-label={`Sort by ${label}`}
+                          title={`Sort by ${label}. Shift+click to add a secondary sort.`}
+                          className="inline-flex shrink-0 items-center gap-1 rounded-xs transition-colors duration-hover hover:text-primary focus-visible:shadow-ring"
+                        >
+                          {sortIcon}
+                          {sortIndex ? <span className="font-mono text-micro text-secondary">{sortIndex}</span> : null}
+                        </button>
+                      </span>
+                    ) : termId ? (
+                      <span className="t-data truncate" data-header-label="" data-header-term={termId}>
+                        <Term id={termId}>{flexRender(col.columnDef.header, header.getContext())}</Term>
+                      </span>
+                    ) : canSort ? (
                       <button
                         type="button"
                         onClick={col.getToggleSortingHandler()}

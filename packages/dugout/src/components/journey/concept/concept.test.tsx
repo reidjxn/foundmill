@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { GuidanceProvider } from "../../guidance/GuidanceProvider";
 import { conceptFixtures } from "../fixtures";
 import { CONCEPT_ATTRIBUTE_HINTS, CONCEPT_ATTRIBUTE_KEYS, CONCEPT_ATTRIBUTE_LABELS } from "../types";
 import { AttributeBar } from "./AttributeBar";
@@ -82,6 +83,21 @@ describe("ConceptCard", () => {
     expect(screen.getByText("Version 3")).toBeTruthy();
     expect(screen.queryByText("v3")).toBeNull();
   });
+  it("each attribute label is a dotted Term with its attr_ id, kept with guidance off (the direction is information)", async () => {
+    const user = userEvent.setup();
+    render(
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <ConceptCard concept={concepts[0]!} />
+      </GuidanceProvider>,
+    );
+    for (const key of CONCEPT_ATTRIBUTE_KEYS) {
+      const trigger = document.querySelector(`[data-attribute-hint] [data-term='attr_${key}']`);
+      expect(trigger, key).toBeTruthy();
+      expect(trigger!.className).toContain("term-link");
+    }
+    await user.click(screen.getByRole("button", { name: CONCEPT_ATTRIBUTE_LABELS.competition }));
+    expect((await screen.findByText(CONCEPT_ATTRIBUTE_HINTS.competition)).closest("[data-definition-card]")).toBeTruthy();
+  });
   it("shows the shortlisted state and the compare toggle", async () => {
     const user = userEvent.setup();
     const onToggle = vi.fn();
@@ -118,6 +134,7 @@ describe("ConceptCompare", () => {
       expect(container.querySelectorAll("[data-radar-series]").length).toBe(n);
       // The row header defines the attribute too (one focusable label per row).
       expect(container.querySelectorAll("[role='rowheader'] [data-attribute-hint]").length).toBe(10);
+      expect(container.querySelectorAll("[role='rowheader'] [data-term^='attr_']").length).toBe(10);
       unmount();
     }
     const leaders = compareLeaders(concepts.slice(0, 2));

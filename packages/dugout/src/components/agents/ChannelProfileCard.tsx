@@ -9,18 +9,11 @@ import { Chip, ProvenanceChip } from "../foundation/Chip";
 import { Icon } from "../foundation/Icon";
 import { StarRating } from "../foundation/StarRating";
 import { RatingFigure } from "../data/RatingBar";
-import type { TermDefinition } from "../guidance/GuidanceProvider";
 import { ScaleLabel } from "../guidance/ScaleLabel";
 import { Term } from "../guidance/Term";
 import { FormGuide } from "./ChannelToken";
 import { CHANNEL_ICONS, COST_TREND_LABEL, LINE_LABELS, channelLine } from "./formation";
 import type { ChannelTokenData } from "./types";
-
-/**
- * What the cost trend is, as a Term's own definition: the map has no `cost_trend` id yet (the Term falls back to this,
- * and takes the map's entry the day one lands).
- */
-export const COST_TREND_TERM: TermDefinition = { id: "cost_trend", word: COST_TREND_LABEL, short: "The last five weeks of cost per customer against the channel's cost target: under, near or over it." };
 
 export interface ChannelProfileCardProps {
   channel: ChannelTokenData;
@@ -78,7 +71,7 @@ export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, 
         ) : null}
         <div>
           <dt className="t-label">
-            <Term id="cost_trend" definition={COST_TREND_TERM}>{COST_TREND_LABEL}</Term>
+            <Term id="cost_trend">{COST_TREND_LABEL}</Term>
           </dt>
           <dd className="pt-1">
             <FormGuide form={channel.form} name={`${meta.label} ${COST_TREND_LABEL.toLowerCase()}`} />

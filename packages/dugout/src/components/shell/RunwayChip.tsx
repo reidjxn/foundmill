@@ -6,6 +6,7 @@ import { formatMoney, formatNumber } from "../../lib/format";
 import { useFormatters } from "../foundation/DateFormatProvider";
 import { Icon } from "../foundation/Icon";
 import { Tooltip } from "../foundation/Tooltip";
+import { useTerm, type TermDefinition } from "../guidance/GuidanceProvider";
 import { KITBAR_BRIEF_CLASS } from "./ModeChip";
 
 export type RunwayTone = "neutral" | "warn" | "bad";
@@ -14,9 +15,19 @@ export type RunwayTone = "neutral" | "warn" | "bad";
 export const RUNWAY_WARN_MONTHS = 9;
 export const RUNWAY_BAD_MONTHS = 6;
 
-/** The first tooltip line: the word and what it means, before any figure (docs/UX_AUDIT_AND_PLAN.md §7.7, B8). */
-// TODO(guided-layer): PlainFigure / Term("runway") once the primitive lands; the sentence is TERMS.runway.short.
+/**
+ * The first tooltip line: the word and what it means, before any figure (docs/UX_AUDIT_AND_PLAN.md §7.7, B8). Inside the
+ * app it is the definitions map's own sentence (`runwayTooltipLead(TERMS.runway)`, the business's words applied); this
+ * is the line outside a provider. The chip is a button, so its tooltip carries the definition rather than a Term.
+ */
 export const RUNWAY_TOOLTIP_LEAD = "Runway: how many months your cash lasts";
+
+/** "Runway: how many months your cash lasts at today's spending" from a definition (word + short, the period dropped). */
+export function runwayTooltipLead(def: Pick<TermDefinition, "word" | "short"> | undefined): string {
+  if (!def) return RUNWAY_TOOLTIP_LEAD;
+  const short = def.short.trim().replace(/\.$/, "");
+  return `${def.word}: ${short.charAt(0).toLowerCase()}${short.slice(1)}`;
+}
 
 /** A figure the chip can show: finite and not negative (cash below zero has no runway to count; the words say so). */
 export function isRunwayFigure(months: number | null | undefined): months is number {
@@ -76,7 +87,7 @@ export interface RunwayChipProps {
 const TONE_TEXT: Record<RunwayTone, string> = { neutral: "", warn: "text-status-warn", bad: "text-status-bad" };
 
 /** The tooltip's lines, in order: the word and its meaning, the value with its reason, the horizon note. Exported for tests. */
-export function runwayTooltipLines(input: { runwayMonths: number | null | undefined; words?: RunwayWords | null; cash?: Money; estimate?: boolean }): string[] {
+export function runwayTooltipLines(input: { runwayMonths: number | null | undefined; words?: RunwayWords | null; cash?: Money; estimate?: boolean; lead?: string }): string[] {
   const known = isRunwayFigure(input.runwayMonths);
   const said = input.words ?? RUNWAY_UNKNOWN_WORDS;
   const tone = runwayTone(input.runwayMonths);
@@ -84,7 +95,7 @@ export function runwayTooltipLines(input: { runwayMonths: number | null | undefi
   const value = known ? `${formatRunway(input.runwayMonths)}${estimate ? " (Estimate)" : ""}` : `${said.value}${said.estimate && estimate ? " (Estimate)" : ""} · ${said.caption}`;
   const cash = input.cash ? `Cash ${formatMoney(input.cash)}` : null;
   const horizon = tone === "bad" ? "Under 6 months: the runway horizon is red" : tone === "warn" ? "Under 9 months: the runway horizon is amber" : null;
-  return [RUNWAY_TOOLTIP_LEAD, [value, cash].filter(Boolean).join(" · "), horizon].filter((l): l is string => Boolean(l));
+  return [input.lead ?? RUNWAY_TOOLTIP_LEAD, [value, cash].filter(Boolean).join(" · "), horizon].filter((l): l is string => Boolean(l));
 }
 
 /**
@@ -106,7 +117,8 @@ export function RunwayChip({ date, runwayMonths, words, cash, estimate = true, o
   const dateText = hasDate ? formatDate(date) : "";
   // The year sits apart so the top bar can drop it first: "Oct 9" + ", 2026", "9 Oct" + " 2026", "2026-" + "10-09".
   const parts = hasDate ? formatDateYearParts(date) : null;
-  const lines = runwayTooltipLines({ runwayMonths, words, cash, estimate });
+  const lead = runwayTooltipLead(useTerm("runway"));
+  const lines = runwayTooltipLines({ runwayMonths, words, cash, estimate, lead });
   const tip = (
     <span className="flex flex-col gap-0.5">
       {lines.map((line) => (

@@ -668,7 +668,8 @@ export interface FoldedProps {
 /**
  * A region that starts folded under a ghost disclosure while guidance is on (UX plan B19): the button sits exactly
  * where the content sits (DOM order unchanged), and opening it draws the content in place. Not folded: the content as
- * is, no button. TODO(guided-layer): swap for the shared disclosure primitive once it lands.
+ * is, no button. The design system has no shared disclosure primitive (Explainer collapses itself; nothing else folds
+ * a region), so the pane keeps this one: a ghost Button with aria-expanded / aria-controls over a region in place.
  */
 export function Folded({ folded, show, hide, testId, children }: FoldedProps) {
   const [foldable] = useState(folded);

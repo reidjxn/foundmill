@@ -13,7 +13,7 @@ import { SETTINGS_TABS } from "@/lib/search";
 export const SCREEN_TITLES = {
   home: "Home",
   inbox: "Inbox",
-  crm: "CRM",
+  crm: "Contacts",
   milestones: "Milestones",
   journey: "Customer Update",
 } as const;

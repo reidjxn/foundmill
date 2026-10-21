@@ -98,7 +98,7 @@ export const BOARD_FIRST_DECISION_LINE = "The team has started on the basics; th
  * report snapshotted on the foundations row.
  */
 /** The report the Board item is built from; a first decision may say why it is recommended (`because`, UX plan §7.19). */
-export type ImportReportLike = Pick<ScoutingReportLike, "summary"> & { firstDecisions: (ScoutingReportLike["firstDecisions"][number] & { because?: string | null })[] };
+export type ImportReportLike = ScoutingReportLike;
 
 export function importBoardDecisionFromReport(name: string, report: ImportReportLike | null, sourceCount: number): { subject: string; bodyMd: string; options: { id: string; label: string; recommended: boolean; consequence: string; because?: string; costMinor: number; reversible: boolean; actions?: OptionAction[] }[] } | null {
   if (!report || report.firstDecisions.length < 2) return null;
@@ -198,7 +198,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
       currency,
     });
     const businessId = business.id;
-    await repos.memberships.add(tx, businessId, { userId, role: "owner" });
+    await repos.memberships.add(tx, businessId, { userId, role: "owner", source: "founder" });
     // "Run on autopilot": on from the first minute, audited like turning it on in Settings.
     if (input.autopilot) {
       const on = await repos.autopilot.set(tx, businessId, { enabled: true });

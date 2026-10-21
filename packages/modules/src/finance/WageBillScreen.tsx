@@ -148,7 +148,7 @@ export function wageColumns(businessId: string, currency: string, sizes: Record<
     { id: "name", accessorKey: "name", header: "Agent", size: sizes.name, cell: ({ row }) => <EntityLink entity={{ id: row.original.agentId, kind: "agent", name: row.original.name, href: routes.agent(businessId, row.original.agentId) }} />, meta: { locked: true } },
     { id: "role", accessorKey: "role", header: "Role", size: sizes.role, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "") || "—"}</span> },
     { id: "department", accessorFn: (r) => r.department?.name ?? "", header: "Department", size: sizes.department, cell: ({ row }) => (row.original.department ? <DeptChip dept={row.original.department.colourToken} fit>{row.original.department.name}</DeptChip> : <span className="text-secondary">—</span>), meta: { filter: "text" } },
-    { id: "model", accessorKey: "modelKey", header: "Model", size: sizes.model, cell: ({ getValue }) => (getValue() ? <Chip tone="neutral" mono>{String(getValue())}</Chip> : null), meta: { filter: "select", filterOptions: ["opus", "sonnet", "haiku"].map((m) => ({ value: m, label: m })) } },
+    { id: "model", accessorKey: "modelKey", header: "Model", size: sizes.model, cell: ({ getValue }) => (getValue() ? <Chip tone="neutral" mono>{String(getValue())}</Chip> : null), meta: { filter: "select", filterOptions: ["opus", "sonnet", "haiku"].map((m) => ({ value: m, label: m })), term: "model" } },
     { id: "status", accessorFn: (r) => r.status ?? "", header: "Status", size: sizes.status, cell: ({ row }) => (row.original.status ? <AgentStatusPill status={row.original.status} /> : <span className="text-secondary">Released</span>) },
     { id: "tokens", accessorKey: "tokens", header: "Tokens", size: sizes.tokens, cell: ({ getValue }) => <span className="tabular-nums">{formatCompact(getValue() as number)}</span>, meta: { numeric: true } },
     { id: "sandbox", accessorKey: "sandboxMinutes", header: "Sandbox", size: sizes.sandbox, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(getValue() as number, { digits: 0 })} min</span>, meta: { numeric: true, label: "Sandbox minutes", csv: (r) => r.sandboxMinutes } },
@@ -183,7 +183,7 @@ export function wageColumns(businessId: string, currency: string, sizes: Record<
           </span>
         );
       },
-      meta: { numeric: true, csv: (r) => (r.capMinor === null ? "" : (r.capMinor / 100).toFixed(2)) },
+      meta: { numeric: true, csv: (r) => (r.capMinor === null ? "" : (r.capMinor / 100).toFixed(2)), term: "wage_cap" },
     },
     { id: "capPct", accessorFn: (r) => r.capUsedPct ?? 0, header: "Cap used", size: sizes.capPct, cell: ({ getValue }) => <span className="tabular-nums">{formatPercent(getValue() as number, { ofHundred: true, digits: 0 })}</span>, meta: { numeric: true } },
     { id: "tasks", accessorKey: "tasksDone", header: "Tasks done", size: sizes.tasks, cell: ({ getValue }) => <span className="tabular-nums">{String(getValue())}</span>, meta: { numeric: true } },

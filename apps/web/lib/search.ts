@@ -128,13 +128,11 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
 /**
  * The palette's Help group: every defined term ("Runway" with its one-line meaning, opening the screen that shows it,
  * in the business's own words through the glossary) after the keyboard shortcuts row, which the AppShell answers by
- * opening the overlay. A term without a `learn` target (Estimate, Vacation) is a row that reads and opens nothing: the
- * definition is the row itself, the way the design system's `Term` shows the same `short` in its card. Opening the
- * DefinitionCard from such a row needs the palette's help item to carry the definition (`PaletteHelpItem` holds a title,
- * a line and an href today) and the shell to answer the choice; both live outside this module.
+ * opening the overlay. A term without a `learn` target (Estimate, Vacation) opens its definition in place when chosen:
+ * the palette stays open and shows the word, the line and the longer explanation (`long`) under the list.
  */
 export function helpPaletteItems(businessId: string, glossary?: Glossary | null): PaletteHelpItem[] {
-  const terms = Object.values(termsWithGlossary(glossary)).map((t): PaletteHelpItem => ({ id: `help:${t.id}`, title: t.word, line: t.short, href: t.learn ? learnPath(t.learn, businessId) : undefined }));
+  const terms = Object.values(termsWithGlossary(glossary)).map((t): PaletteHelpItem => ({ id: `help:${t.id}`, title: t.word, line: t.short, href: t.learn ? learnPath(t.learn, businessId) : undefined, ...(t.long ? { long: t.long } : {}) }));
   return [KEYBOARD_SHORTCUTS_HELP_ITEM, ...terms];
 }
 
