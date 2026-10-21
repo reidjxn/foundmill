@@ -91,10 +91,13 @@ function InboxPreviewWidget({ settings }: WidgetProps<InboxPreviewSettings>) {
                   <span className={cn("line-clamp-2 break-words text-body-strong", item.state === "unread" ? "text-primary" : "text-secondary")}>{item.subject}</span>
                   {/* The same tag as the Inbox list (icon + word, one vocabulary, the legend on hover), then the one-line preview. */}
                   <span className="flex min-w-0 items-center gap-1.5">
+                    {/* The trigger is a span: it hands its child an onClick, which would make the Chip a button inside this row's button. */}
                     <Tooltip content={noteTagLegend(tag)}>
-                      <Chip tone={tag.tone} icon={NOTE_TAG_ICONS[tag.icon]} className="h-badge shrink-0" data-row-tag={tag.word}>
-                        {tag.word}
-                      </Chip>
+                      <span className="inline-flex shrink-0">
+                        <Chip tone={tag.tone} icon={NOTE_TAG_ICONS[tag.icon]} className="h-badge shrink-0" data-row-tag={tag.word}>
+                          {tag.word}
+                        </Chip>
+                      </span>
                     </Tooltip>
                     <span className="line-clamp-1 min-w-0 flex-1 break-all text-small text-secondary">{previewLine(item.bodyMd)}</span>
                   </span>

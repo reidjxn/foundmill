@@ -19,14 +19,18 @@ export const TAG_ICONS: Record<TagIcon, IconComponent> = NOTE_TAG_ICONS;
 /**
  * The tag as a chip: icon + word, the tone a second signal, never the only one. Its tooltip is the legend sentence for
  * the kind ("Customer: A new paying customer, with its Customer Update"; UX plan B21), so no tag is a bare word.
+ * The tooltip's trigger is a plain span around the chip: the trigger hands its child an onClick, which turns a Chip
+ * into a button, and the row around it is already a button (a button inside a button is invalid HTML).
  */
 export function NoteTagChip({ tag, size = "row", testId }: { tag: NoteTag; size?: "row" | "header"; testId?: string }) {
   const tone: ChipTone = tag.tone;
   return (
     <Tooltip content={noteTagLegend(tag)}>
-      <Chip tone={tone} icon={TAG_ICONS[tag.icon]} className={size === "row" ? "h-badge shrink-0" : "shrink-0"} data-row-tag={tag.word} data-tag-legend={noteTagLegend(tag)} data-testid={testId}>
-        {tag.word}
-      </Chip>
+      <span className="inline-flex max-w-full shrink-0">
+        <Chip tone={tone} icon={TAG_ICONS[tag.icon]} className={size === "row" ? "h-badge shrink-0" : "shrink-0"} data-row-tag={tag.word} data-tag-legend={noteTagLegend(tag)} data-testid={testId}>
+          {tag.word}
+        </Chip>
+      </span>
     </Tooltip>
   );
 }
