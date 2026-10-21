@@ -104,12 +104,14 @@ export interface FirstWeekFlags {
  * approved, a `cycle.completed` event, a note from an agent that someone opened (a read receipt, 0048) or answered, a
  * message the founder wrote to an agent, distribution started, a bank account or a connected Stripe. Every read runs
  * under the caller's RLS (a member of another business is refused by `businessProcedure` before any of this runs);
- * each existence check loads one id at most.
+ * each existence check loads one id at most. The sign-offs are read as their latest round of each kind only (not the
+ * Product screens' views, which also read the stage and every specification version with its snapshot), and
+ * distribution comes from the business the access lookup already holds: one transaction, every read in parallel.
  */
 export async function firstWeekFlags(tx: DbTx, business: { id: string; distributionStartedAt: Date | null }): Promise<FirstWeekFlags> {
   const businessId = business.id;
   const [signoffs, completed, noteRead, conversationReplySent, accounts, stripe] = await Promise.all([
-    signoffViews(tx, businessId),
+    repos.productSignoffs.latest(tx, businessId),
     repos.events.list(tx, businessId, { type: "cycle.completed", limit: 1 }),
     repos.inbox.anyAgentNoteOpened(tx, businessId),
     repos.conversations.anyFounderMessage(tx, businessId),
