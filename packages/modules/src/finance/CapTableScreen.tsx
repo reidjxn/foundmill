@@ -7,7 +7,7 @@
  */
 import { useId, useMemo, useState } from "react";
 import { Calculator, Download, ExternalLink, FileSpreadsheet, Landmark, PieChart, Users } from "lucide-react";
-import { Button, Chip, DataTable, cn, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Explainer, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, ProvenanceChip, StatusStrip, Term, Textarea, formatPercent, useFormatters, type ChipTone, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Button, Chip, DataTable, cn, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EmptyState, EntityLink, Explainer, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, ProvenanceChip, StatusStrip, Term, Textarea, formatPercent, useFormatters, type ChipTone, type DataTableColumn, type EmptyStateProps, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { EntityKind } from "@foundmill/shared";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -228,9 +228,9 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
 
   const empty = data && data.entries.length === 0 && data.securities.length === 0;
   const nothingToExport = !data || data.entries.length === 0;
-  // One empty state for an empty cap table (the Holders panel, with the way forward); the other panels keep their place
+  // One empty state for an empty cap table (the Holders panel, under its intro, with the way forward); the other panels keep their place
   // with one quiet line of what they will hold, no second icon, button or zero-count footer.
-  const emptyState = { icon: PieChart, title: "No cap table yet", children: "The legal lead records the founders' shares here once the company is incorporated.", action: { label: "Open Legal", icon: Landmark, onClick: () => navigate(moduleTabHref(businessId, departments.data, "legal", "entity")) } };
+  const emptyState: Omit<EmptyStateProps, "children"> & { children: string } = { icon: PieChart, title: "No cap table yet", children: "The legal lead records the founders' shares here once the company is incorporated.", action: { label: "Open Legal", icon: Landmark, onClick: () => navigate(moduleTabHref(businessId, departments.data, "legal", "entity")) } };
   const quiet = (text: string, padded?: boolean) => <p className={cn("text-small text-secondary", padded && "px-panel-pad py-3")}>{text}</p>;
 
   return (
@@ -238,12 +238,17 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
       <section aria-label="Cap table summary" className="col-span-12" aria-busy={cap.isLoading || undefined}>
         <StatusStrip tiles={tiles.map((t) => ({ ...t, loading: cap.isLoading }))} />
       </section>
-      <Panel title={<Term id="cap_table">Holders</Term>} span={8} flush loading={cap.isLoading} error={cap.error ? cap.error.message : undefined} onRetry={cap.refetch} empty={empty ? emptyState : undefined} footer={empty ? undefined : <span className="tabular-nums">{holders.length} holder{holders.length === 1 ? "" : "s"} · fully diluted over {fmtQuantity(data?.summary.totalQuantity ?? 0)} shares · use the … button or right-click for CRM and issuances</span>}>
+      <Panel title={<Term id="cap_table">Holders</Term>} span={8} flush loading={cap.isLoading} error={cap.error ? cap.error.message : undefined} onRetry={cap.refetch} footer={empty ? undefined : <span className="tabular-nums">{holders.length} holder{holders.length === 1 ? "" : "s"} · fully diluted over {fmtQuantity(data?.summary.totalQuantity ?? 0)} shares · use the … button or right-click for CRM and issuances</span>}>
         {/* What the cap table is, in the tab's intro while guidance is on (UX plan §7.14). */}
+        {/* It stays above the empty state too: a new business, with no shares yet, is the one that needs it most. */}
         <Explainer {...CAP_TABLE_EXPLAINER} className="m-panel-pad mb-2" />
-        <div className="min-w-0">
-        <DataTable<HolderRow> aria-label="Holders" data={holders} columns={hColumns} getRowId={(r) => r.holderEntityId} {...holderSavedViews} defaultViewId={defaultViewId} height={320} exportFileName="cap-table-holders" rowActions={holderActions} onRowOpen={(r) => navigate(routes.crm(businessId, r.holderEntityId))} rowClassName={(r) => (holderFilter === r.holderEntityId ? "bg-panel-alt" : undefined)} />
-        </div>
+        {empty ? (
+          <EmptyState {...emptyState} className="py-6" />
+        ) : (
+          <div className="min-w-0">
+          <DataTable<HolderRow> aria-label="Holders" data={holders} columns={hColumns} getRowId={(r) => r.holderEntityId} {...holderSavedViews} defaultViewId={defaultViewId} height={320} exportFileName="cap-table-holders" rowActions={holderActions} onRowOpen={(r) => navigate(routes.crm(businessId, r.holderEntityId))} rowClassName={(r) => (holderFilter === r.holderEntityId ? "bg-panel-alt" : undefined)} />
+          </div>
+        )}
       </Panel>
       <Panel
         title="Classes"

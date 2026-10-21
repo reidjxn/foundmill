@@ -18,8 +18,8 @@ import { createTRPCClient, createTRPCUntypedClient, getUntypedClient, httpBatchL
 import superjson from "superjson";
 import type { AppRouter } from "@foundmill/api/router";
 import { LIMITS } from "@foundmill/config";
-import { DEV_BEARER_TOKEN } from "@/lib/auth/constants";
-import { isDevLike, publicEnv } from "@/lib/env";
+import { devBearerToken } from "@/lib/auth/dev-as";
+import { publicEnv } from "@/lib/env";
 import { SAME_ORIGIN_TRPC_PATH } from "@/lib/same-origin-api";
 
 export type { AppRouter } from "@foundmill/api/router";
@@ -50,7 +50,8 @@ export const TOKEN_TIMEOUT_MS = 6_000;
 export const SIGN_IN_TIMEOUT_MESSAGE = "Your sign-in took too long to refresh. Check your connection, then try again.";
 
 /**
- * Bearer for a request: the session token, else the dev token in development/test, else nothing. A token that does not
+ * Bearer for a request: the session token, else the dev token in development/test (`dev`, or `dev:<uuid>` after
+ * `/auth/dev?as=<uuid>`: lib/auth/dev-as.ts), else nothing. A token that does not
  * come within `timeoutMs` rejects the request instead: nothing is sent, so an expired token never is.
  */
 export async function resolveBearer(getToken: TokenGetter, timeoutMs = TOKEN_TIMEOUT_MS): Promise<string | null> {
@@ -66,7 +67,7 @@ export async function resolveBearer(getToken: TokenGetter, timeoutMs = TOKEN_TIM
           }),
         ]).finally(() => clearTimeout(timer));
   if (token) return token;
-  return isDevLike() ? DEV_BEARER_TOKEN : null;
+  return devBearerToken();
 }
 
 /**

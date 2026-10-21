@@ -6,7 +6,7 @@
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { UserRoundCog } from "lucide-react";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, SimpleSelect, Term, useToast } from "@foundmill/dugout";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -47,16 +47,32 @@ export function LineManagerDialog({ businessId, profile, agents, open, onOpenCha
     }),
   );
   const unchanged = value === (agent.lineManagerId ?? NO_AGENT_MANAGER);
+  // The field is disabled until the team loads, and a disabled control cannot take focus: the dialog holds focus
+  // itself meanwhile, and hands it to the field once the team arrives (unless the founder has moved focus on).
+  const contentRef = useRef<HTMLDivElement>(null);
+  const focusField = () => {
+    const field = document.getElementById(`${id}-manager`) as HTMLButtonElement | null;
+    if (field && !field.disabled) field.focus();
+    else contentRef.current?.focus();
+  };
+  useEffect(() => {
+    if (!open || !agents) return;
+    const content = contentRef.current;
+    if (content && document.activeElement === content) focusField();
+    // focusField reads only the stable id and the ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, agents]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        ref={contentRef}
         size="sm"
         aria-describedby={`${id}-desc`}
         data-testid="line-manager-dialog"
         // Open on the one field, not on the defined words in the description (their cards would open with the dialog).
         onOpenAutoFocus={(e) => {
           e.preventDefault();
-          document.getElementById(`${id}-manager`)?.focus();
+          focusField();
         }}
       >
         <DialogHeader>

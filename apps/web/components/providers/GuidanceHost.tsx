@@ -362,9 +362,13 @@ export function GuidanceHost({ initial, signedIn: signedInProp, textSizeOwner = 
   const glossary = useBusinessGlossary(bid);
   const terms = useMemo(() => termsFor(bid, glossary), [bid, glossary]);
   const resolve = useCallback((learn: string) => resolveLearn(learn, bid), [bid]);
+  // Known once the account has answered (or failed to: the defaults then stand), or when the page handed the answer over.
+  // The business layouts' prefetched answer reaches the cache below this host, a render after its first one: until
+  // then the coach marks wait (Coachmark reads `loaded`), so a tour already done never flashes and moves the focus.
+  const loaded = !signedIn || initial != null || q.status !== "pending";
   const value = useMemo<GuidanceState>(
-    () => ({ guidance: prefs.guidance, textSize: prefs.textSize, explainersSeen: prefs.explainersSeen, toursDone: prefs.toursDone, checklistDismissedAt: prefs.checklistDismissedAt, terms }),
-    [prefs, terms],
+    () => ({ guidance: prefs.guidance, textSize: prefs.textSize, explainersSeen: prefs.explainersSeen, toursDone: prefs.toursDone, checklistDismissedAt: prefs.checklistDismissedAt, terms, loaded }),
+    [prefs, terms, loaded],
   );
   const api = useMemo<GuidancePreferencesApi>(() => ({ prefs, save, signal, saving: isPending, signedIn }), [prefs, save, signal, isPending, signedIn]);
 

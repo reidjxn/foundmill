@@ -27,11 +27,15 @@ export interface TourDefinition {
   stamps: readonly TourStamp[];
 }
 
-/** Home (five steps): the sidebar, Continue, the processing strip, the status strip, a department card. */
+/**
+ * Home (five steps): the sidebar, Continue, the processing strip, the status strip, a department card. The sidebar step
+ * centers its card on the sidebar's height: aligned to its top, the card would sit over the top bar's Switch business
+ * (the card is non-modal, so the controls around it stay usable).
+ */
 export const HOME_TOUR: TourDefinition = {
   id: "home",
   steps: [
-    { targetId: "sidebar", title: "Your departments", body: "Your business, one place per department.", side: "right" },
+    { targetId: "sidebar", title: "Your departments", body: "Your business, one place per department.", side: "right", align: "center" },
     { targetId: "continue", title: "Continue", body: "This runs the team; what they need from you lands in the Inbox.", side: "bottom", align: "end" },
     { targetId: "processing-strip", title: "The working light", body: "A light here means the team is working.", side: "bottom" },
     { targetId: "status-strip", title: "The status strip", body: "Your numbers; anything marked Estimate is worked out, not measured.", side: "bottom" },

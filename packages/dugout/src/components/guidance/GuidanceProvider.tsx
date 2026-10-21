@@ -41,6 +41,12 @@ export interface GuidanceState {
   checklistDismissedAt: string | null;
   /** The definitions map; empty outside the app. */
   terms: Record<string, TermDefinition>;
+  /**
+   * False while the account's preferences are still on their way (the values above are the defaults until then). Coach
+   * marks wait for it, so a tour the account already finished never opens for a frame on load and moves the focus when
+   * it closes again. True outside the app.
+   */
+  loaded: boolean;
 }
 
 export interface GuidanceActions {
@@ -62,6 +68,7 @@ export const DEFAULT_GUIDANCE_STATE: GuidanceState = {
   toursDone: {},
   checklistDismissedAt: null,
   terms: {},
+  loaded: true,
 };
 
 const noop = () => {};

@@ -42,7 +42,11 @@ export interface DoorsProps {
    * founder. Left undefined, the screen reads it from `founder.profile.get` itself.
    */
   experience?: string | null;
-  /** The founder's own businesses (an example membership is not one): the title says "Your first business" at zero. */
+  /**
+   * Every business the founder belongs to, an example membership included: the screen subtracts the example itself
+   * (`ownBusinessCount`), and the title says "Your first business" when none of their own is left. Counted here rather
+   * than in the server page, which cannot call a function exported from this client module.
+   */
   businessCount: number;
   /** The business the founder came from (the last one opened): Back to it. Null for a first business. */
   backTo?: { id: string; name: string } | null;
@@ -205,7 +209,7 @@ export function Doors({ viewer, profileLine, experience, businessCount, backTo, 
   return (
     <StudioFrame
       step="new"
-      title={doorsTitle(businessCount)}
+      title={doorsTitle(ownBusinessCount(businessCount, example))}
       lede={doorsLede(profileLine, exampleDoor ? 3 : 2)}
       viewer={viewer}
       actions={

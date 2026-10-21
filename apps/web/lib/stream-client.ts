@@ -9,8 +9,8 @@
  * the connection checked at once instead of at the next heartbeat.
  */
 import { useEffect, useRef } from "react";
-import { DEV_BEARER_TOKEN } from "@/lib/auth/constants";
-import { isDevLike, publicEnv } from "@/lib/env";
+import { devBearerToken } from "@/lib/auth/dev-as";
+import { publicEnv } from "@/lib/env";
 import { getQueryClient, resyncBusiness } from "@/lib/query-client";
 import { businessIdOfChannel, createStreamClient, type StreamClient, type StreamHandler } from "@/lib/stream";
 import { clearChannelLiveness, setChannelLive, setStreamStatus } from "@/lib/stream-status";
@@ -39,7 +39,7 @@ export function getStreamClient(): StreamClient {
   if (client) return client;
   client = createStreamClient({
     url: publicEnv().streamUrl,
-    getToken: async () => (await getBrowserAccessToken()) ?? (isDevLike() ? DEV_BEARER_TOKEN : ""),
+    getToken: async () => (await getBrowserAccessToken()) ?? (devBearerToken() ?? ""),
     onError: (err) => {
       // Refusals that can heal are asked again by the client; the channel is not live (so the shell polls) until then.
       console.warn("[stream]", err.code, err.message, err.ch ?? "");

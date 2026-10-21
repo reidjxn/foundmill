@@ -105,7 +105,7 @@ export function focusAfterTour(opener: HTMLElement | null, lastTarget: HTMLEleme
 }
 
 export function Coachmark({ tourId, steps, onDone, autoStart = true, open }: CoachmarkProps) {
-  const { guidance, toursDone, markTourDone } = useGuidance();
+  const { guidance, toursDone, markTourDone, loaded } = useGuidance();
   const reduced = usePrefersReducedMotion();
   const titleId = useId();
   const bodyId = useId();
@@ -118,7 +118,8 @@ export function Coachmark({ tourId, steps, onDone, autoStart = true, open }: Coa
   onDoneRef.current = onDone;
 
   const wants = autoStart || open === true;
-  const eligible = guidance === "on" && !toursDone[tourId] && !finished && wants;
+  // Never before the account's preferences have answered: until then `toursDone` is the empty default.
+  const eligible = loaded && guidance === "on" && !toursDone[tourId] && !finished && wants;
 
   /** The nearest step from `from` in `dir` whose target is on the page, or -1. */
   const existing = useCallback((from: number, dir: 1 | -1): number => {

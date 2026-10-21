@@ -53,6 +53,24 @@ describe("Coachmark", () => {
     expect(document.querySelector("[data-coachmark-active]")).toBeNull();
   });
 
+  it("waits for the account's preferences: a tour already done never opens on load, and the focus stays put", async () => {
+    const { rerender } = render(<Page value={{ loaded: false }} />);
+    // Until the preferences answer `toursDone` is the empty default: nothing opens.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    rerender(<Page value={{ loaded: true, toursDone: { home: true } }} />);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(document.body);
+    // Once they answer and the tour is not done, it starts.
+    rerender(<Page value={{ loaded: true }} />);
+    await screen.findByRole("dialog", { name: "Your story on one line" });
+  });
+
   it("moves with the arrow keys and skips with Esc, marking the tour done", async () => {
     const user = userEvent.setup();
     const markTourDone = vi.fn();

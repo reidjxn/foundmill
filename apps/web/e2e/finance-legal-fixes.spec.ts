@@ -52,8 +52,10 @@ test.describe("finance fixes", () => {
 
   test("cash: the This month view lists this month's transactions", async ({ page }) => {
     await openTab(page, "finance", "cash");
-    await page.getByRole("button", { name: /All transactions/ }).click();
+    // The table opens on whichever view is current (Simple while guidance is on, UX plan §7.10); pick This month from it.
+    await page.getByRole("button", { name: /^View: / }).click();
     await page.getByRole("menuitemradio", { name: /This month/ }).click();
+    await expect(page.getByRole("button", { name: /^View: This month/ })).toBeVisible();
     await expect(page.getByText("No rows match these filters")).toHaveCount(0);
     await expect(page.getByRole("grid", { name: "Transactions" }).getByRole("row")).not.toHaveCount(1);
   });

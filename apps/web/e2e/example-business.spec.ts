@@ -80,18 +80,16 @@ const EXAMPLE_VIEWER_ID = E2E_EXAMPLE_VIEWER_ID;
 /** Signs the second account in through the dev bypass and lands on New business (its profile is completed once). */
 async function signInAsExampleViewer(page: Page): Promise<void> {
   await signInAs(page, EXAMPLE_VIEWER_ID, "/new");
-  await page.waitForURL(/\/onboarding|\/new/, { timeout: LONG });
-  if (/\/onboarding/.test(page.url())) {
-    await expect(page.getByTestId("onboarding-form")).toBeVisible({ timeout: LONG });
+  // /new sends a founder without a profile on to /onboarding, so the URL can read /new for a moment before that
+  // redirect lands: wait for whichever screen actually renders, then branch on it.
+  const form = page.getByTestId("onboarding-form");
+  await expect(form.or(page.getByTestId("doors"))).toBeVisible({ timeout: LONG });
+  if (await form.isVisible()) {
     await page.getByLabel(/What the team calls you/).fill("Example Explorer");
     await page.getByLabel("First-time founder").check();
     await page.getByLabel("Full time").check();
-    await page.getByLabel(/Budget you can commit/).fill("25k");
-    const markets = page.getByRole("textbox", { name: "Target markets" });
-    await markets.fill("Nordics");
-    await markets.press("Enter");
-    await page.getByRole("button", { name: "Remote only" }).click();
-    await page.getByLabel("Medium").check();
+    // The first pass is enough to complete the profile (§7.3 two passes): "Add detail" (budget, markets, constraints,
+    // risk) stays closed and optional.
     await page.getByTestId("profile-submit-bottom").click();
     await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
   }

@@ -6,7 +6,7 @@
  */
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { Doors, ownBusinessCount, type ExampleDoor } from "@/components/new/Doors";
+import { Doors, type ExampleDoor } from "@/components/new/Doors";
 import { loadStudioViewer, profileLineOf } from "@/components/new/viewer.server";
 import { ApiErrorPage } from "@/components/shell/ApiErrorPage";
 import { pickCurrentBusiness } from "@/lib/auth/current-business";
@@ -46,7 +46,7 @@ export default async function NewBusinessPage() {
       viewer={{ email: viewer.email }}
       profileLine={profileLineOf(viewer.profile)}
       experience={viewer.profile?.experience ?? null}
-      businessCount={ownBusinessCount(viewer.businesses.length, example)}
+      businessCount={viewer.businesses.length}
       backTo={last ? { id: last.id, name: last.name } : null}
       example={example}
     />
