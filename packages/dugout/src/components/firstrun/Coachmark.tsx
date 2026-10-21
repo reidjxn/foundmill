@@ -56,6 +56,9 @@ export interface CoachmarkProps {
 /** The app sets this on an element while Continue is processing or a dialog is open; no tour starts meanwhile. */
 export const COACHMARK_PAUSE_SELECTOR = "[data-coachmark-pause]";
 
+/** How often a tour waiting on a pause looks again (it does not wake on every change of a busy page meanwhile). */
+export const COACHMARK_PAUSE_POLL_MS = 500;
+
 /** The element a step points at: by id, then by `data-coachmark`. */
 export function findCoachmarkTarget(targetId: string): HTMLElement | null {
   if (typeof document === "undefined") return null;
@@ -168,35 +171,56 @@ export function Coachmark({ tourId, steps, onDone, autoStart = true, open }: Coa
   }, [existing]);
 
   // Start: when eligible and not yet showing, the first step with a target, unless the page asks tours to wait. While
-  // blocked (a pause, or no target yet), watch the document and try again as it changes.
+  // paused (Continue processing, a dialog open: a long cycle mounts and flips a great deal), it polls every
+  // COACHMARK_PAUSE_POLL_MS instead of waking on every change; while only its targets are missing, it watches the
+  // document (one pass per frame) and tries again as it changes.
   useEffect(() => {
     if (!eligible || index !== null || typeof document === "undefined") return;
-    const tryStart = (): boolean => {
-      if (isCoachmarkPaused()) return false;
+    const tryStart = (): "started" | "paused" | "waiting" => {
+      if (isCoachmarkPaused()) return "paused";
       const first = existing(0, 1);
-      if (first < 0) return false;
+      if (first < 0) return "waiting";
       // Remembered before the card takes focus: the "Replay the tour" button, the row the founder was on, or nothing.
       const active = document.activeElement;
       openerRef.current = active instanceof HTMLElement && active !== document.body ? active : null;
       setIndex(first);
-      return true;
+      return "started";
     };
-    if (tryStart()) return;
-    if (typeof MutationObserver === "undefined") return;
     let frame = 0;
-    const observer = new MutationObserver(() => {
-      if (frame) return;
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        if (tryStart()) observer.disconnect();
-      });
-    });
-    // A dialog opening or closing is a mount, an unmount or a `data-state` flip; the pause marker and the targets are
-    // attributes: all of these wake the retry.
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-coachmark-pause", "data-coachmark", "id", "role", "data-state"] });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let watching = false;
+    const observer =
+      typeof MutationObserver !== "undefined"
+        ? new MutationObserver(() => {
+            if (frame) return;
+            frame = requestAnimationFrame(() => {
+              frame = 0;
+              attempt();
+            });
+          })
+        : null;
+    const attempt = () => {
+      const result = tryStart();
+      if (result === "waiting") {
+        // A target or the pause marker is an attribute or a mount; a dialog opening or closing is a mount or an
+        // unmount (a `data-state` flip alone never is, so it is not watched).
+        if (observer && !watching) {
+          observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-coachmark-pause", "data-coachmark", "id", "role"] });
+          watching = true;
+        }
+        return;
+      }
+      if (watching) {
+        observer?.disconnect();
+        watching = false;
+      }
+      if (result === "paused") timer = setTimeout(attempt, COACHMARK_PAUSE_POLL_MS);
+    };
+    attempt();
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       if (frame) cancelAnimationFrame(frame);
+      if (timer !== undefined) clearTimeout(timer);
     };
   }, [eligible, index, existing]);
 
@@ -227,19 +251,25 @@ export function Coachmark({ tourId, steps, onDone, autoStart = true, open }: Coa
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
     ro?.observe(el);
     // The target may be removed while this step shows: watch its ancestors' children. Another step's target may
-    // appear or leave meanwhile: then Back or Next changes, so the card is rendered again.
+    // appear or leave meanwhile: then Back or Next changes, so the card is rendered again. One pass per frame, however
+    // many changes the frame holds (each pass measures, which forces a layout).
+    let frame = 0;
+    const check = () => {
+      frame = 0;
+      if (!el.isConnected) {
+        next();
+        return;
+      }
+      measure();
+      const i = indexRef.current;
+      if (i === null) return;
+      const nav = { prev: existing(i - 1, -1) >= 0, next: existing(i + 1, 1) >= 0 };
+      if (nav.prev !== navRef.current.prev || nav.next !== navRef.current.next) rerender();
+    };
     const mo =
       typeof MutationObserver !== "undefined"
         ? new MutationObserver(() => {
-            if (!el.isConnected) {
-              next();
-              return;
-            }
-            measure();
-            const i = indexRef.current;
-            if (i === null) return;
-            const nav = { prev: existing(i - 1, -1) >= 0, next: existing(i + 1, 1) >= 0 };
-            if (nav.prev !== navRef.current.prev || nav.next !== navRef.current.next) rerender();
+            if (!frame) frame = requestAnimationFrame(check);
           })
         : null;
     mo?.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-coachmark", "id"] });
@@ -249,6 +279,7 @@ export function Coachmark({ tourId, steps, onDone, autoStart = true, open }: Coa
       window.removeEventListener("resize", measure);
       ro?.disconnect();
       mo?.disconnect();
+      if (frame) cancelAnimationFrame(frame);
     };
   }, [index, targetId, next, existing]);
 
