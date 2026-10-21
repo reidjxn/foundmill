@@ -22,7 +22,7 @@ const PILLARS: ReadonlyArray<{ icon: LucideIcon; title: string; text: ReactNode;
     ),
     href: "#live", link: "Watch the work", tone: "var(--dept-2)" },
   { icon: TrendingUp, title: "Better every cycle", text: "Agents are trained against real tests between cycles. Ratings move only with evidence, and the business remembers what it learns.", href: "#journey", link: "See it grow", tone: "var(--dept-3)" },
-  { icon: ShieldCheck, title: "You stay in charge", text: "Money, contracts, filings and anything irreversible wait for you, with the work prepared and a recommendation attached.", href: "#control", link: "Your calls", tone: "var(--status-good)" },
+  { icon: ShieldCheck, title: "You stay in charge", text: "Money, contracts, filings and anything irreversible wait for you, with the work prepared and a recommendation attached.", href: "#control", link: "Your decisions", tone: "var(--status-good)" },
 ];
 
 const STATEMENT = `AI agents can now write the code, run the channels and keep the books. ${APP_NAME} turns them into one team, gives them a real business to run, and keeps you in charge of every call that matters.`;

@@ -184,7 +184,7 @@ function InboxColumn({ business, state, decisionRef, onDecide, onOpenWin }: { bu
         <Icon icon={InboxIcon} size="inline" className="text-secondary" />
         <span className="t-label">Inbox</span>
         <span className="flex-1" />
-        {state.phase === "decision" ? <Chip tone="bad">1 needs you</Chip> : state.phase === "win" ? <Chip tone="gold">Customer won</Chip> : null}
+        {state.phase === "decision" ? <Chip tone="bad">1 needs your answer</Chip> : state.phase === "win" ? <Chip tone="gold">Customer won</Chip> : null}
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden p-2">
         {state.phase === "processing" ? (

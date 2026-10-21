@@ -148,6 +148,9 @@ describe("LandingPage (signed-out /)", () => {
     expect(within(deck).getByRole("button", { name: /Respond to 1 item/ })).toBeTruthy();
     const decision = screen.getByTestId("deck-decision");
     expect(within(decision).getByText("Merge photo grading to production?")).toBeTruthy();
+    // The app's words for an open decision ("Needs your answer"), never the retired "needs you".
+    expect(within(deck).getByText("1 needs your answer")).toBeTruthy();
+    expect(within(deck).queryByText("1 needs you")).toBeNull();
     fireEvent.click(within(decision).getByRole("button", { name: "Merge" }));
     expect(deck.getAttribute("data-phase")).toBe("idle");
     expect(within(deck).getByText("Photo grading merged")).toBeTruthy();
@@ -248,6 +251,11 @@ describe("LandingPage (signed-out /)", () => {
     // The Customer Update and the Inbox note are the example business's.
     expect(screen.getByRole("region", { name: "Customer Update" })).toBeTruthy();
     expect(screen.getByRole("article", { name: "Example Inbox note" })).toBeTruthy();
+    // The Inbox note and the thesis use the app's current words, not the retired "Needs you" / "Your calls".
+    expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText("Needs your answer")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Your decisions/ }).getAttribute("href")).toBe("#control");
+    expect(screen.queryByText("Needs you")).toBeNull();
+    expect(screen.queryByText(/Your calls/)).toBeNull();
     // Only milestones the example reached, each labelled as the example business's.
     expect(screen.queryByText("Not yet")).toBeNull();
     expect(screen.getByText(/6 of 6 reached/)).toBeTruthy();

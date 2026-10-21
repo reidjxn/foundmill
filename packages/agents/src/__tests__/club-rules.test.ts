@@ -27,7 +27,7 @@ describe("house rules block (BUILD §12.1, §9.2)", () => {
     const shown = [chiefOfStaff.description, ...chiefOfStaff.instructions.goals, ...chiefOfStaff.instructions.playbook, ...chiefOfStaff.neverDoes].join("\n");
     expect(chiefOfStaff.description).toMatch(/^I'm your Chief of Staff\./);
     for (const banned of [/compile/i, /free-text/i, /typed Plans?/, /\bpolicy\b/i, /hard gates? routed/i, /\bhard gates?\b/i, /concurrency/i, /time box/i, /request_human_action/]) expect(shown, String(banned)).not.toMatch(banned);
-    expect(shown).toMatch(/agents working at once/);
+    expect(shown).toMatch(/how many agents may work at once/);
     expect(shown).toMatch(/time limit/);
     expect(chiefOfStaff.description).toMatch(/Never does: spend, sign, accept terms or delete anything; those always come back to you\.$/);
   });

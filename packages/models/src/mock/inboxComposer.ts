@@ -328,7 +328,7 @@ function factSentence(type: InboxItemType, e: EventIn | undefined, who: string |
     case /^agent\.health_changed$/.test(e.type):
       return `${who ?? "An agent"} changed health status${title ? ` (${title})` : ""}; I checked that nothing wider is down.`;
     case /^task\.blocked$/.test(e.type):
-      return `${title ? `"${title}"` : "A task"} is stuck and needs a call from you before the team can continue.`;
+      return `${title ? `"${title}"` : "A task"} is stuck and needs your answer before the team can continue.`;
     case /^(pr\.merged|deploy\.succeeded|task\.completed)$/.test(e.type):
       return rng.pick([
         `${who ?? "The team"} finished ${title ? `"${title}"` : "the latest piece of work"}; the tests pass and the change is checked in.`,
@@ -400,7 +400,7 @@ function whySentence(type: InboxItemType, metrics: MetricIn[], channel: ChannelK
       ]);
     case "decision":
       return rng.pick([
-        `This is yours to decide because the options differ in what they cost and in whether you can undo them${metricClause ? `; for context, ${metricClause}` : ""}.`,
+        `This is yours to decide because one of these spends money or can't be taken back once it starts${metricClause ? `; for context, ${metricClause}` : ""}.`,
         `It is on your desk because it goes past the limits you set me${metricClause ? `, and ${metricClause}` : ""}.`,
       ]);
     case "milestone":
@@ -420,7 +420,7 @@ function whySentence(type: InboxItemType, metrics: MetricIn[], channel: ChannelK
 function askSentence(type: InboxItemType, rng: MockContext["rng"]): string {
   switch (type) {
     case "decision":
-      return rng.pick([`Pick an option below or tell me in your own words; nothing runs until you say so.`, `Your call: choose below, or tell me what you want and I will show you the plan before anything runs.`]);
+      return rng.pick([`Pick an option below or tell me in your own words; nothing runs until you say so.`, `Choose below, or tell me what you want and I will show you the plan before anything runs.`]);
     case "customer_won":
       return `Choose how we follow up, or just celebrate; either way this is answered and the replay opens.`;
     case "warning":
@@ -469,7 +469,7 @@ function subjectLine(type: InboxItemType, who: string | undefined, channel: Chan
     case "warning":
       return rng.pick([`${ch ?? "A channel"} went over its limit`, `Warning: ${ch ?? title ?? "attention needed"}`, `${ch ?? "A channel"} paused itself`]);
     case "decision":
-      return rng.pick([`Decision needed: ${title ?? ch ?? "your call"}`, `Your call on ${title ?? ch ?? "the next move"}`, `${voice.name} needs a decision`]);
+      return rng.pick([`Decision needed: ${title ?? ch ?? "the next step"}`, `Your decision on ${title ?? ch ?? "the next move"}`, `${voice.name} needs a decision`]);
     case "milestone":
       return `Milestone: ${title ?? ch ?? "a step forward"}`;
     case "human_message":

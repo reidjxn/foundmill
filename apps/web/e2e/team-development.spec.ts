@@ -300,7 +300,10 @@ for (const width of [1280, 1440]) {
       const states = await envs.locator("[role=row]").evaluateAll((rows) => rows.slice(1).map((r) => (/Live|Awaiting deployment|Merged|Stopped/.exec(r.textContent ?? "") ?? [""])[0]));
       const rank = (s: string) => ["Live", "Awaiting deployment", "Merged", "Stopped"].indexOf(s);
       expect(states.map(rank), "rows ordered live, awaiting, merged, stopped").toEqual([...states.map(rank)].sort((a, b) => a - b));
-      // Branches read as their tasks ("order-webhook-hardening-3"), the git branch (agent/<task id>) in the tooltip.
+      // Branches read as their tasks ("order-webhook-hardening-3"), the git branch (agent/<task id>) in the tooltip. The
+      // Simple view (guidance on, UX plan §7.10) leaves the Branch column out, so the check reads the full view.
+      await chooseTableView(page, "All environments");
+      await expect(envs.locator("[data-branch]").first()).toBeVisible({ timeout: LONG });
       const branches = await envs.locator("[data-branch]").evaluateAll((els) => els.map((e) => ({ shown: (e.textContent ?? "").trim(), raw: e.getAttribute("data-branch") ?? "", title: e.getAttribute("title") ?? "" })));
       expect(branches.length, "the seed has agent branches").toBeGreaterThan(0);
       for (const b of branches.filter((x) => x.raw.startsWith("agent/"))) {
@@ -343,8 +346,12 @@ test.describe("saved table views on module screens", () => {
     await expect(page.getByRole("button", { name: `View: ${name}` })).toBeVisible({ timeout: LONG });
     await page.getByRole("button", { name: `View: ${name}` }).click();
     await page.getByRole("menuitem", { name: "Delete view" }).click();
-    await expect(page.getByRole("button", { name: "View: General" })).toBeVisible();
+    // Deleting the open view falls back to the table's default: Simple while guidance is on (UX plan §7.10).
+    await expect(page.getByRole("button", { name: "View: Simple" })).toBeVisible();
     await page.reload();
-    await expect(page.getByRole("button", { name: "View: General" })).toBeVisible({ timeout: LONG });
+    await expect(page.getByRole("button", { name: "View: Simple" })).toBeVisible({ timeout: LONG });
+    await page.getByRole("button", { name: "View: Simple" }).click();
+    await expect(page.getByRole("menuitemradio", { name })).toHaveCount(0);
+    await page.keyboard.press("Escape");
   });
 });

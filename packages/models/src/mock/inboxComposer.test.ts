@@ -31,7 +31,7 @@ function allowedNumbers(input: unknown): Set<string> {
  * What a mock-mode tester must never read (UX plan §7.19, E2, E4): developer notes, the plumbing, the replace-tier
  * jargon, and the old mechanism-first sentences.
  */
-const NEVER_IN_A_NOTE = /Mock citation|replace with|See note\.|named query|\bexhibit\b|policy cap|request_human_action|\bICP\b|\bCPA\b|concurrency|time box|\btriage\b|\bpolicy\b|hard gate|\bengine\b|differ in cost and reversibility|outside the current policy caps/i;
+const NEVER_IN_A_NOTE = /Mock citation|replace with|See note\.|named query|\bexhibit\b|policy cap|request_human_action|\bICP\b|\bCPA\b|concurrency|time box|\btriage\b|\bpolicy\b|hard gate|\bengine\b|differ in (what they )?cost|\byour call\b|needs a call from you|outside the current policy caps/i;
 
 function assertComposerInvariants(out: ComposerOutput, input: Record<string, unknown>, manifestIds: Set<string>) {
   expect(ComposerOutput.safeParse(out).success).toBe(true);

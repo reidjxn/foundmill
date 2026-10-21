@@ -191,7 +191,7 @@ export function attributeTerm(key: string): TermDefinition | undefined {
   return (TERMS as Record<string, TermDefinition>)[attributeTermId(key)];
 }
 
-export const VERSION_ACTION_LABELS: Record<string, string> = { generated: "Generated", merged: "Merged", forked: "Forked", edited: "Edited" };
+export const VERSION_ACTION_LABELS: Record<string, string> = { generated: "Generated", merged: "Merged", forked: "Variant made", edited: "Edited" };
 
 export function versionActionLabel(action: string): string {
   return VERSION_ACTION_LABELS[action] ?? action;

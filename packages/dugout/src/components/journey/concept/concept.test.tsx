@@ -40,6 +40,31 @@ describe("AttributeBar", () => {
     expect(document.activeElement).toBe(label);
     expect((await screen.findAllByText("How crowded the market is. Higher means less crowded.")).length).toBeGreaterThan(0);
   });
+  it("keeps the label's Term outside the meter and outside the evidence trigger (one focusable control each)", async () => {
+    const user = userEvent.setup();
+    render(<AttributeBar label="Competition" value={12} hint="How crowded the market is. Higher means less crowded." evidence={[{ text: "Six direct rivals", source: "G2" }]} />);
+    const meter = screen.getByRole("meter", { name: "Competition" });
+    const label = screen.getByRole("button", { name: "Competition" });
+    // Meter children are presentational: the Term must be a sibling, not a descendant.
+    expect(meter.contains(label)).toBe(false);
+    expect(meter.querySelector("button, a, [tabindex]")).toBeNull();
+    // The meter itself opens the evidence; it is the only evidence trigger and it does not wrap the Term.
+    const trigger = document.querySelector("[data-evidence-trigger]");
+    expect(trigger).toBe(meter);
+    expect(meter.getAttribute("tabindex")).toBe("0");
+    await user.tab();
+    expect(document.activeElement).toBe(label);
+    await user.tab();
+    expect(document.activeElement).toBe(meter);
+    await user.hover(meter);
+    expect(await screen.findByText("Six direct rivals")).toBeTruthy();
+  });
+  it("leaves the meter out of the tab order when no evidence is attached", () => {
+    render(<AttributeBar label="Competition" value={12} hint="How crowded the market is. Higher means less crowded." />);
+    const meter = screen.getByRole("meter", { name: "Competition" });
+    expect(meter.hasAttribute("tabindex")).toBe(false);
+    expect(meter.contains(screen.getByRole("button", { name: "Competition" }))).toBe(false);
+  });
   it("keeps a plain label when nothing defines the attribute", () => {
     render(<AttributeBar label="Timing" value={12} />);
     expect(screen.queryByRole("button")).toBeNull();

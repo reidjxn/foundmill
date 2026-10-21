@@ -99,7 +99,7 @@ function InboxNote() {
           </span>
           <DeptChip dept={note.from.dept}>{note.department}</DeptChip>
           <Chip tone="bad" icon={Inbox}>
-            Needs you
+            Needs your answer
           </Chip>
         </header>
         <div className="flex flex-col gap-4 px-5 py-5">

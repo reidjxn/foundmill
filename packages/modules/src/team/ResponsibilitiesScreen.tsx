@@ -33,7 +33,8 @@ export interface ResponsibilityRowView {
 }
 
 export const RESPONSIBILITY_VIEWS: SavedView[] = [
-  // Simple (UX plan §7.10, §158): the decision, who handles it, where, and the Delegate / Take back buttons.
+  // Simple (UX plan §7.10, §158): the decision, who handles it, where (or "Differs by department"), and the Delegate /
+  // Take back buttons. What a decision covers is in the All view and in the department detail.
   { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["label", "handler", "scope", "actions"], sort: [], filters: [] },
   { id: "all", name: "All decisions", builtIn: true, columns: ["label", "covers", "handler", "scope", "actions"], sort: [], filters: [] },
   { id: "delegated", name: "Delegated", builtIn: true, columns: ["label", "covers", "handler", "scope", "actions"], sort: [], filters: [{ id: "kind-not-founder", field: "handler", op: "neq", value: "founder" }] },

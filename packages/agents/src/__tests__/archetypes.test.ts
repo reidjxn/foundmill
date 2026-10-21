@@ -120,7 +120,7 @@ describe("archetype seeds (BUILD §11.1, AC-11.1.6)", () => {
       expect(d.options.length).toBeGreaterThanOrEqual(2);
       expect(d.options.length).toBeLessThanOrEqual(4);
       expect(d.options.filter((o) => o.recommended).length).toBe(1);
-      expect(d.bodyMd).toContain("The Board");
+      expect(d.bodyMd).toMatch(/\bI need\b/);
       expect(d.subject.length).toBeLessThanOrEqual(80);
       for (const o of d.options) {
         expect(o.consequence.length).toBeGreaterThan(10);
@@ -221,5 +221,20 @@ describe("archetype seeds (BUILD §11.1, AC-11.1.6)", () => {
     }
     // Renamed departments keep the same slug and module (AC-11.13.1).
     expect(getArchetypeSeed("content_media").departments[0]).toMatchObject({ slug: "product", name: "Editorial", moduleKeys: ["product"] });
+  });
+
+  // The first decision note comes from the Chief of Staff in the first person (voice guide §8.1 #7): there is no
+  // board of directors, and the old "starters" label is gone from what the founder reads (UX plan §5 #11).
+  it.each(ARCHETYPES)("%s: the first decision note is first person, with no 'The Board' and no 'starters'", (archetype) => {
+    const { subject, bodyMd, options } = getArchetypeSeed(archetype).boardDecision;
+    const text = [subject, bodyMd, ...options.flatMap((o) => [o.label, o.consequence ?? ""])].join("\n");
+    expect(text).not.toMatch(/\bThe Board\b/);
+    expect(text).not.toMatch(/\bstarters?\b/i);
+    expect(bodyMd).toMatch(/\bI need\b/);
+  });
+
+  it("the channel-scoring task never says 'starters' in its title or acceptance", () => {
+    for (const text of [CHANNEL_SCORING_TASK.title, ...CHANNEL_SCORING_TASK.acceptance]) expect(text).not.toMatch(/\bstarters?\b/i);
+    expect(CHANNEL_SCORING_TASK.title).toBe("Score the 15 channels and pick 3 to 6 to start with");
   });
 });

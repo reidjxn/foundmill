@@ -136,9 +136,9 @@ const OPEN_QUESTIONS_TASK = task({
  */
 export const CHANNEL_SCORING_TASK = task({
   kind: "channel",
-  title: "Score the 15 channels and propose 3-6 starters",
+  title: "Score the 15 channels and pick 3 to 6 to start with",
   goal: "Score every channel 1-20 on fit for this business and propose the starting channels for the Channel Board with cost-per-customer ranges labeled Estimate.",
-  acceptance: ["All 15 channels scored with a reason", "3-6 starters with fit, potential, a cost-per-customer range and a three-sentence why", "Budget split proposed within the monthly distribution budget"],
+  acceptance: ["All 15 channels scored with a reason", "3 to 6 channels to start with, each with fit, potential, a cost-per-customer range and a three-sentence why", "Budget split proposed within the monthly distribution budget"],
   assigneeTemplateKey: "distribution_strategist",
   departmentSlug: "distribution",
 });
@@ -164,7 +164,7 @@ const SPECIALIST_TASK = (title: string, goal: string, acceptance: string[], assi
 function board(archetype: Archetype, subject: string, body: string[], options: BoardDecision["options"]): BoardDecision {
   return {
     subject,
-    bodyMd: [`**The Board** welcomes the new ${ARCHETYPE_LABELS[archetype]} business.`, "", ...body].join("\n"),
+    bodyMd: [`Welcome to your new ${ARCHETYPE_LABELS[archetype]} business.`, "", ...body].join("\n"),
     options,
   };
 }
@@ -216,8 +216,8 @@ const b2bSaas = ArchetypeSeed.parse({
     "b2b_saas",
     "Where should the first customer come from?",
     [
-      "Distribution has started: the starter channels on the board are warming up and the Distribution strategist is scoring the channels while the engineers build the first roadmap items.",
-      "The Board asks for one decision before committing any budget: which route to the first paying customer should take priority for the next three months?",
+      "Distribution has started: the Distribution strategist is scoring the channels while the engineers build the first roadmap items.",
+      "I need one decision from you before any budget is spent: which route to the first paying customer comes first for the next three months?",
     ],
     [
       {
@@ -300,7 +300,7 @@ const consumerApp = ArchetypeSeed.parse({
     "Paid acquisition or organic first?",
     [
       "Distribution has started and the Channel Board is ready; the engineers are building onboarding.",
-      "Consumer apps live or die on cost per activated user. The Board asks how the first budget should be spent.",
+      "Consumer apps live or die on cost per activated user. I need you to decide how the first budget is spent.",
     ],
     [
       {
@@ -378,7 +378,7 @@ const marketplace = ArchetypeSeed.parse({
     "marketplace",
     "Which side do we seed first?",
     [
-      "A marketplace needs both sides, but the first round of work can only chase one. The Board asks which side to seed first and how.",
+      "A marketplace needs both sides, but the first round of work can only chase one. I need you to decide which side to seed first and how.",
     ],
     [
       {
@@ -478,7 +478,7 @@ const dtcPhysical = ArchetypeSeed.parse({
     "Sample before storefront, or both at once?",
     [
       "Operations is ready to send RFQs and Development can start the storefront. Cash is finite and samples take weeks.",
-      "The Board asks how to order the first three months.",
+      "I need you to decide how to order the first three months.",
     ],
     [
       {
@@ -574,7 +574,7 @@ const hardware = ArchetypeSeed.parse({
     "hardware",
     "Pre-orders before certification?",
     [
-      "Hardware carries the longest lead times of any business: certification, tooling and components. The Board asks whether to take pre-orders before certification is in hand.",
+      "Hardware carries the longest lead times of any business: certification, tooling and components. I need you to decide whether to take pre-orders before certification is in hand.",
     ],
     [
       {
@@ -656,7 +656,7 @@ const services = ArchetypeSeed.parse({
     "services",
     "Productized package or bespoke engagements first?",
     [
-      "A services business scales through repeatable delivery. The Board asks whether the first clients buy a fixed package or bespoke work.",
+      "A services business scales through repeatable delivery. I need you to decide whether the first clients buy a fixed package or bespoke work.",
     ],
     [
       {
@@ -731,7 +731,7 @@ const contentMedia = ArchetypeSeed.parse({
     "content_media",
     "Free first or paid from issue one?",
     [
-      "Audience compounds; revenue needs an audience. The Board asks whether the first three months build reach or charge from the start.",
+      "Audience compounds; revenue needs an audience. I need you to decide whether the first three months build reach or charge from the start.",
     ],
     [
       {

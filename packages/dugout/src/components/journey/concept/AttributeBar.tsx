@@ -78,9 +78,22 @@ export function AttributeBar({ label, value, evidence, hint, attributeKey, hideL
   const ghostCells = ghost === undefined ? null : ratingCells(ghost);
   const ghostTone = ghost === undefined ? tone : ratingTone(ghost);
   const text = `${label}: ${v} of 20, ${ratingBandLabel(v)}${ghost !== undefined ? `, compared with ${clampRating(ghost)}` : ""}`;
-  const bar = (
-    <div role="meter" aria-valuemin={1} aria-valuemax={20} aria-valuenow={v} aria-valuetext={text} aria-label={label} className={cn("flex items-center gap-2", className)} data-attribute={label} {...rest}>
-      {hideLabel ? null : <AttributeLabel label={label} hint={hint} attributeKey={attributeKey} className="w-40" />}
+  const hasEvidence = !!evidence && evidence.length > 0;
+  // The meter holds only the cells and the figure: its children are presentational, so the label's Term button sits
+  // beside it (not inside it) where assistive tech can reach it. With evidence, the meter itself is the hover-card
+  // trigger, so the Term and the evidence card never nest or open from the same pointer.
+  const meter = (
+    <div
+      role="meter"
+      aria-valuemin={1}
+      aria-valuemax={20}
+      aria-valuenow={v}
+      aria-valuetext={text}
+      aria-label={label}
+      className={cn("flex min-w-0 flex-1 items-center gap-2", hasEvidence && "rounded-chip focus-visible:outline-2 focus-visible:outline-link")}
+      tabIndex={hasEvidence ? 0 : undefined}
+      data-evidence-trigger={hasEvidence ? "" : undefined}
+    >
       <span className="flex min-w-0 flex-1 items-center gap-0.5" aria-hidden>
         {cells.map((filled, i) => {
           const ghostOnly = !filled && ghostCells?.[i];
@@ -90,39 +103,41 @@ export function AttributeBar({ label, value, evidence, hint, attributeKey, hideL
       <span className={cn("w-6 shrink-0 text-right font-display text-display-sm font-semibold tabular-nums", ratingClass(v))}>{v}</span>
     </div>
   );
-  if (!evidence || evidence.length === 0) return bar;
   return (
-    <HoverCard>
-      <HoverCardTrigger asChild>
-        <div tabIndex={0} className="rounded-chip focus-visible:outline-2 focus-visible:outline-link" data-evidence-trigger>
-          {bar}
-        </div>
-      </HoverCardTrigger>
-      <HoverCardContent side="right" className="w-80">
-        <p className="t-label mb-1">
-          {label} · {v}/20 · {ratingBandLabel(v)}
-        </p>
-        {hint ? <p className="mb-1.5 text-small text-secondary">{hint}</p> : null}
-        <ul className="flex flex-col gap-1.5">
-          {evidence.map((e, i) => (
-            <li key={i} className="text-small">
-              <span className="text-primary">{e.text}</span>
-              {e.source ? (
-                <span className="ml-1 text-secondary">
-                  —{" "}
-                  {e.url ? (
-                    <a href={e.url} target="_blank" rel="noreferrer">
-                      {e.source}
-                    </a>
-                  ) : (
-                    e.source
-                  )}
-                </span>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      </HoverCardContent>
-    </HoverCard>
+    <div className={cn("flex items-center gap-2", className)} data-attribute={label} {...rest}>
+      {hideLabel ? null : <AttributeLabel label={label} hint={hint} attributeKey={attributeKey} className="w-40" />}
+      {hasEvidence && evidence ? (
+        <HoverCard>
+          <HoverCardTrigger asChild>{meter}</HoverCardTrigger>
+          <HoverCardContent side="right" className="w-80">
+            <p className="t-label mb-1">
+              {label} · {v}/20 · {ratingBandLabel(v)}
+            </p>
+            {hint ? <p className="mb-1.5 text-small text-secondary">{hint}</p> : null}
+            <ul className="flex flex-col gap-1.5">
+              {evidence.map((e, i) => (
+                <li key={i} className="text-small">
+                  <span className="text-primary">{e.text}</span>
+                  {e.source ? (
+                    <span className="ml-1 text-secondary">
+                      —{" "}
+                      {e.url ? (
+                        <a href={e.url} target="_blank" rel="noreferrer">
+                          {e.source}
+                        </a>
+                      ) : (
+                        e.source
+                      )}
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </HoverCardContent>
+        </HoverCard>
+      ) : (
+        meter
+      )}
+    </div>
   );
 }

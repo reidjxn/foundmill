@@ -221,7 +221,7 @@ export function ForkDialog({ idea, open, onOpenChange, onFork, busy, error }: Fo
       <DialogContent size="lg" aria-describedby="fork-description" data-testid="fork-dialog">
         <DialogHeader>
           <DialogTitle>Draft a variant of {idea?.title ?? "this concept"}</DialogTitle>
-          <DialogDescription id="fork-description">A variant is a new card with its own history. The original keeps a "Forked" entry in its history pointing at it.</DialogDescription>
+          <DialogDescription id="fork-description">A variant is a new card with its own history; the original's history links to it.</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit}>
           <DialogBody className="flex flex-col gap-3">
@@ -402,12 +402,12 @@ export function HistoryDialog({ idea, versions, loading, open, onOpenChange, onO
                     <ul className="flex flex-col gap-1 text-body">
                       {lineage.forkedFrom ? (
                         <li>
-                          Forked from <LineageLink id={lineage.forkedFrom} label={linkOf(lineage.forkedFrom)} onOpen={onOpenIdea} />
+                          Variant of <LineageLink id={lineage.forkedFrom} label={linkOf(lineage.forkedFrom)} onOpen={onOpenIdea} />
                         </li>
                       ) : null}
                       {lineage.forkedTo ? (
                         <li>
-                          Forked to <LineageLink id={lineage.forkedTo} label={linkOf(lineage.forkedTo)} onOpen={onOpenIdea} />
+                          Variant: <LineageLink id={lineage.forkedTo} label={linkOf(lineage.forkedTo)} onOpen={onOpenIdea} />
                         </li>
                       ) : null}
                       {lineage.mergedFrom.length ? (
