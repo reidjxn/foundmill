@@ -4,15 +4,15 @@
  * render again; GuidanceTermsProvider replaces the map below it and keeps the rest.
  */
 import { render, screen } from "@testing-library/react";
-import { useState } from "react";
-import { act } from "react";
+import { act, memo, useState } from "react";
 import { describe, expect, it } from "vitest";
 import { GuidanceProvider, GuidanceTermsProvider, useGuidance, useGuidanceMode, useGuidanceProgress, useGuided, useTerm, type GuidanceActions, type GuidanceState } from "./GuidanceProvider";
 
 const TERMS = { runway: { id: "runway", word: "Runway", short: "How many months your cash lasts at today's spending." } };
 const renders = { mode: 0, progress: 0 };
 
-function ModeReader() {
+// Memoized, as a screen below the host is: only a context change renders them again.
+const ModeReader = memo(function ModeReader() {
   renders.mode += 1;
   const { guidance, terms } = useGuidanceMode();
   return (
@@ -20,13 +20,13 @@ function ModeReader() {
       {guidance} {terms.runway?.word ?? "?"}
     </p>
   );
-}
+});
 
-function ProgressReader() {
+const ProgressReader = memo(function ProgressReader() {
   renders.progress += 1;
   const { explainersSeen } = useGuidanceProgress();
   return <p data-testid="progress">{Object.keys(explainersSeen).join(",") || "-"}</p>;
-}
+});
 
 let setState: (next: Partial<GuidanceState>) => void = () => undefined;
 const actions: Partial<GuidanceActions> = { markExplainerSeen: () => undefined };
