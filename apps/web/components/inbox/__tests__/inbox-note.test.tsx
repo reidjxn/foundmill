@@ -28,8 +28,9 @@ describe("HoldsContinueChip", () => {
       const describedBy = chip.getAttribute("aria-describedby");
       expect(describedBy).toBeTruthy();
       expect(document.getElementById(describedBy!)?.textContent).toBe(HOLDS_CONTINUE_HINT);
-      // No "About …" button: the e2e guidance-off check counts those.
-      expect(r.queryByRole("button", { name: /^About / })).toBeNull();
+      // One tab stop and no button: not a pressable chip, and no "About …" button (the e2e guidance-off check counts those).
+      expect(r.container.querySelector("button")).toBeNull();
+      expect(r.container.querySelectorAll("[tabindex]")).toHaveLength(1);
       r.unmount();
     }
   });

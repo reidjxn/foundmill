@@ -157,17 +157,20 @@ function YourDecisionTip({ gated }: { gated: boolean }) {
 }
 
 /**
- * "Holds Continue": the chip takes focus and carries its consequence as its description, so keyboard and screen-reader
- * users get the sentence the tooltip shows on hover. Information, not tutoring: shown whatever the guidance setting.
+ * "Holds Continue": one tab stop that carries its consequence as its description, so keyboard and screen-reader users
+ * get the sentence the tooltip shows on hover. Information, not tutoring: shown whatever the guidance setting. The
+ * tooltip trigger is a wrapper span, not the Chip: a Chip handed the trigger's onClick turns into a pressable button.
  */
 export function HoldsContinueChip() {
   const hintId = useId();
   return (
     <>
       <Tooltip content={HOLDS_CONTINUE_HINT}>
-        <Chip tone="neutral" icon={CirclePause} tabIndex={0} aria-describedby={hintId} className="focus-ring" data-testid="holds-continue">
-          Holds Continue
-        </Chip>
+        <span tabIndex={0} aria-describedby={hintId} className="inline-flex max-w-full rounded-sm focus-ring" data-testid="holds-continue">
+          <Chip tone="neutral" icon={CirclePause}>
+            Holds Continue
+          </Chip>
+        </span>
       </Tooltip>
       <span id={hintId} className="sr-only">
         {HOLDS_CONTINUE_HINT}

@@ -316,6 +316,15 @@ describe("navigation", () => {
     (container.querySelector("[data-inbox-row]") as HTMLButtonElement).click();
     expect(fake.navigations[0]).toMatch(new RegExp(`^/b/${BID}/inbox/`));
   });
+  it("an inbox preview row holds no button inside its own button (the tag's tooltip trigger is a span)", () => {
+    const { container } = mount(getWidget("inbox_preview")!, dataResponses());
+    const rows = container.querySelectorAll("[data-inbox-row]");
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.querySelector("[data-row-tag]")).not.toBeNull();
+      expect(row.querySelector("button, a, [tabindex]")).toBeNull();
+    }
+  });
   it("Channel performance's empty state opens the Channel Board by its name, not 'Formation'", () => {
     const { fake } = mount(getWidget("channel_form_guide")!, emptyResponses());
     expect(screen.queryByText(/Formation/)).toBeNull();
