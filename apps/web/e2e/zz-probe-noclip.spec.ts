@@ -7,17 +7,12 @@ test("probe", async ({ page }) => {
   await page.goto("/new/ideate");
   await page.waitForLoadState("networkidle", { timeout: LONG }).catch(() => undefined);
   await page.waitForTimeout(1500);
-  const info = await page.evaluate(() => {
-    const out: unknown[] = [];
-    for (const el of Array.from(document.querySelectorAll<HTMLElement>("body *")).filter((e) => e.children.length < 3 && /^Speed to first customer$/.test((e.textContent||"").trim())).map((e) => e.closest("[data-attribute]") as HTMLElement ?? e).slice(0, 2)) {
-      const chain: unknown[] = [];
-      for (const e of [el, ...Array.from(el.querySelectorAll<HTMLElement>("*"))].filter((x) => !/cell-|w-6/.test(String(x.className)))) {
-        const cs = getComputedStyle(e);
-        chain.push({ tag: e.tagName, cls: e.className, cw: e.clientWidth, sw: e.scrollWidth, fs: cs.fontSize, fit: e.getAttribute("data-fit"), ov: cs.overflowX, w: e.getBoundingClientRect().width });
-      }
-      out.push({ text: el.textContent, chain });
-    }
-    return out;
-  });
-  console.log(JSON.stringify(info, null, 1)); console.log(await page.locator("[data-testid=concept-grid]").count());
+  const snap = () => page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>(".fit-box")).slice(0, 400).map((b) => { const r = b.getBoundingClientRect(); const t = b.querySelector<HTMLElement>(".fit-text")!.getBoundingClientRect(); const p = b.parentElement!; return [Math.round(r.x*10), Math.round(r.y*10), Math.round(r.width*10), Math.round(r.height*10), Math.round(t.y*10), Math.round(t.height*10), p.scrollWidth - p.clientWidth, b.getAttribute("data-fit")].join(","); }));
+  const before = await snap();
+  await page.addStyleTag({ content: ".fit-ghost{overflow-x:clip}" });
+  await page.waitForTimeout(800);
+  const after = await snap();
+  let diffs = 0;
+  for (let i = 0; i < before.length; i++) if (before[i] !== after[i]) { diffs++; if (diffs < 15) console.log(before[i], "=>", after[i]); }
+  console.log("boxes", before.length, "diffs", diffs);
 });
