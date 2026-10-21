@@ -1,7 +1,8 @@
 /**
  * The signed-in index: proxy.ts serves it for `/` when the last-business cookie does not answer that itself (no cookie,
- * or the cookie's business is gone). The last business's Home when the founder still has it, else the first business,
- * else /new (profile complete) or /onboarding (BUILD §6.2, AC-11.1.1). The address stays `/`.
+ * or the cookie's business is gone). The last business's Home when the founder still has it, else their newest business
+ * of their own (never the example business they are walking around, which counts only as the last one opened), else
+ * /new (profile complete) or /onboarding (BUILD §6.2, AC-11.1.1). The address stays `/`.
  */
 import { redirect } from "next/navigation";
 import { routes } from "@foundmill/widgets/shared/routes";

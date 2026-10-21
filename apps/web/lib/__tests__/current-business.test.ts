@@ -15,4 +15,12 @@ describe("pickCurrentBusiness", () => {
   it("is undefined for a founder with no business", () => {
     expect(pickCurrentBusiness("anything", [])).toBeUndefined();
   });
+  it("never falls back to an example business, but keeps it when it is the one last opened", () => {
+    const withExample = [{ id: "example", isExample: true }, { id: "own", isExample: false }];
+    expect(pickCurrentBusiness(null, withExample)).toEqual({ id: "own", isExample: false });
+    expect(pickCurrentBusiness("gone", withExample)).toEqual({ id: "own", isExample: false });
+    expect(pickCurrentBusiness("example", withExample)).toEqual({ id: "example", isExample: true });
+    // Only the example: no current business, so /start sends the founder to /new.
+    expect(pickCurrentBusiness(null, [{ id: "example", isExample: true }])).toBeUndefined();
+  });
 });

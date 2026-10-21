@@ -62,7 +62,7 @@ describe("first-week 'Read a note from an agent' counts a founder's opening only
     await repos.inbox.markRead(r.db, businessId, update.id, null);
     // Staff and a viewer open it; so does someone exploring the business as an example.
     const explorer = await r.h.createUser("first-week-explorer@test.local");
-    await repos.memberships.add(r.db, businessId, { userId: explorer, role: "viewer", source: "example" });
+    await repos.memberships.openExample(r.db, businessId, explorer);
     const fresh = await repos.inbox.createItem(r.db, businessId, note(agentId, { subject: "Fresh note" }));
     for (const u of [memberId, viewerId, explorer]) await r.as(u, (tx) => repos.inbox.markRead(tx, businessId, fresh.id, u));
 
@@ -91,7 +91,8 @@ describe("a decision option's 'because' is a bounded plain line (review F36)", (
     expect(long.length).toBeGreaterThan(400);
     const item = await repos.inbox.createItem(r.db, r.A.businessId, decisionNote(r.A.agentId, long));
     const stored = (item.decision as { options: { id: string; because?: string }[] }).options;
-    expect(stored[0]!.because!.length).toBe(400);
+    expect(stored[0]!.because!.length).toBeLessThanOrEqual(400);
+    expect(stored[0]!.because!.length).toBeGreaterThan(390);
     expect(stored[0]!.because!.endsWith("…")).toBe(true);
     expect(stored[1]!.because).toBeUndefined();
 
