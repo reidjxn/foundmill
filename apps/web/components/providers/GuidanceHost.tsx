@@ -36,6 +36,7 @@ import type { Glossary } from "@foundmill/shared/glossary";
 import { TERMS, learnPath, termsWithGlossary } from "@foundmill/shared/terms";
 import { useTRPC } from "@/lib/trpc-react";
 import {
+  DEFAULT_GUIDANCE_PREFS,
   GuidancePreferencesProvider,
   GuidanceSignalProvider,
   isSignedInPath,
@@ -43,6 +44,7 @@ import {
   type GuidancePreferencesApi,
   type GuidancePrefs,
   type GuidanceSaveOptions,
+  type GuidanceSignal,
   type GuidanceSignalFn,
   type GuidanceSignalInput,
   type GuidanceSignalKind,
@@ -152,21 +154,31 @@ export function termsFor(businessId: string | null, glossary: Glossary | null): 
   return businessId ? termsWithGlossary(glossary) : TERMS;
 }
 
+/** True when two answers hold the same choice and the same marks (the order of the marks aside). */
+export function sameGuidancePrefs(a: GuidancePrefs | undefined, b: GuidancePrefs | undefined): boolean {
+  if (!a || !b) return a === b;
+  const sameMarks = (x: Record<string, true>, y: Record<string, true>) => {
+    const keys = Object.keys(x);
+    return keys.length === Object.keys(y).length && keys.every((k) => y[k] === x[k]);
+  };
+  return a.guidance === b.guidance && a.textSize === b.textSize && a.checklistDismissedAt === b.checklistDismissedAt && sameMarks(a.explainersSeen, b.explainersSeen) && sameMarks(a.toursDone, b.toursDone);
+}
+
+const DEFAULT_PREFS: GuidancePrefs = DEFAULT_GUIDANCE_PREFS;
+
 export interface GuidanceHostProps {
-  /** The account's preferences when the layout already has them (rendered with the page); else they are read. */
+  /** The account's preferences as the layout read them on the server (lib/guidance.server.ts); null when that failed. */
   initial?: GuidancePrefs | null;
   /** Whether a signed-in account is on screen; decided from the route when not given. */
   signedIn?: boolean;
   /** Whose text-size cookie this is (text-size-cookie.ts); "" or missing when nobody is signed in: nothing is written then. */
   textSizeOwner?: string;
-  /** The text size the server rendered the document with (from the cookie), kept until the account answers. */
-  initialTextSize?: TextSizeChoice | null;
   children?: ReactNode;
 }
 
 const noop = () => undefined;
 
-export function GuidanceHost({ initial, signedIn: signedInProp, textSizeOwner = "", initialTextSize = null, children }: GuidanceHostProps) {
+export function GuidanceHost({ initial, signedIn: signedInProp, textSizeOwner = "", children }: GuidanceHostProps) {
   const pathname = usePathname();
   const signedIn = signedInProp ?? isSignedInPath(pathname);
   const trpc = useTRPC();
@@ -180,21 +192,21 @@ export function GuidanceHost({ initial, signedIn: signedInProp, textSizeOwner = 
       retry: false,
     }),
   );
-  // Until the account answers, the text size is what the server rendered with (the cookie): no flash.
-  const seed = useMemo<GuidancePrefs>(() => (initialTextSize ? { ...DEFAULT_GUIDANCE_PREFS, textSize: initialTextSize } : DEFAULT_GUIDANCE_PREFS), [initialTextSize]);
-  const prefs: GuidancePrefs = q.data ?? initial ?? seed;
+  const prefs: GuidancePrefs = q.data ?? initial ?? DEFAULT_PREFS;
+  // Answered: the layout handed the account's answer over, or the browser's read came back.
+  const answered = q.data !== undefined;
 
-  // Comfortable text: the tokens read the attribute on the root (packages/dugout tokens.css); standard removes it.
+  // Comfortable text: the tokens read the attribute on the root (packages/dugout tokens.css); standard removes it. Not
+  // before the account has answered: until then the attribute is what the head script set from the cookie (no flash).
   useEffect(() => {
+    if (!answered) return;
     const root = document.documentElement;
     if (prefs.textSize === "comfortable") root.setAttribute("data-text", "comfortable");
     else root.removeAttribute("data-text");
-  }, [prefs.textSize]);
+  }, [answered, prefs.textSize]);
 
-  // The cookie follows whatever the account said or the person saved, so the next server render carries the attribute
-  // on the first byte. Only once the account has answered (or the layout handed its answer over): the default is never
-  // written over a real choice.
-  const answered = q.data !== undefined;
+  // The cookie follows whatever the account said or the person saved, so the next load's head script stamps the
+  // attribute before the first paint. Only once the account has answered: the default is never written over a real choice.
   useEffect(() => {
     if (!signedIn || !textSizeOwner || !answered) return;
     if (readTextSizeCookie(document.cookie) === encodeTextSizeCookie(prefs.textSize, textSizeOwner)) return;
@@ -225,7 +237,11 @@ export function GuidanceHost({ initial, signedIn: signedInProp, textSizeOwner = 
       else void queryClient.invalidateQueries({ queryKey });
     },
     onSuccess: (saved) => {
-      if (lastPending()) queryClient.setQueryData(queryKey, guidancePrefsOf(saved));
+      if (!lastPending()) return;
+      const next = guidancePrefsOf(saved);
+      // The optimistic value already says this (perf audit item 8): writing it again would render every reader twice.
+      if (sameGuidancePrefs(queryClient.getQueryData<GuidancePrefs>(queryKey), next)) return;
+      queryClient.setQueryData(queryKey, next);
     },
     onSettled: () => {
       if (!lastPending() || !overlapped.current) return;
@@ -275,8 +291,8 @@ export function GuidanceHost({ initial, signedIn: signedInProp, textSizeOwner = 
     [mutateAsync, signedIn, signal, currentPrefs],
   );
 
-  // A definition card opened: once per term id per session (this host lives as long as the tab), and only once it was
-  // actually sent, so a card opened outside a business still counts when it is opened again inside one.
+  // A definition card opened: once per term id per session (this host lives as long as the layout), and only once it
+  // was actually sent, so a card opened outside a business still counts when it is opened again inside one.
   const termsSent = useRef(new Set<string>());
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
@@ -308,28 +324,25 @@ export function GuidanceHost({ initial, signedIn: signedInProp, textSizeOwner = 
     [save, signal, onTermOpen, currentPrefs],
   );
 
-  const glossary = useBusinessGlossary(bid);
-  const terms = useMemo(() => termsFor(bid, glossary), [bid, glossary]);
   const resolve = useCallback((learn: string) => resolveLearn(learn, bid), [bid]);
-  // Known once the account has answered (or failed to: the defaults then stand), or when the page handed the answer over.
-  // The business layouts' prefetched answer reaches the cache below this host, a render after its first one: until
-  // then the coach marks wait (Coachmark reads `loaded`), so a tour already done never flashes and moves the focus.
-  const loaded = !signedIn || initial != null || q.status !== "pending";
+  // Known once the account has answered (or failed to: the defaults then stand), or when the layout handed it over.
+  // Until then the coach marks and the explainers wait (they read `loaded`), so nothing tutorial flashes and moves focus.
+  const loaded = !signedIn || answered || q.status !== "pending";
   const value = useMemo<GuidanceState>(
-    () => ({ guidance: prefs.guidance, textSize: prefs.textSize, explainersSeen: prefs.explainersSeen, toursDone: prefs.toursDone, checklistDismissedAt: prefs.checklistDismissedAt, terms, loaded }),
-    [prefs, terms, loaded],
+    () => ({ guidance: prefs.guidance, textSize: prefs.textSize, explainersSeen: prefs.explainersSeen, toursDone: prefs.toursDone, checklistDismissedAt: prefs.checklistDismissedAt, terms: TERMS, loaded }),
+    [prefs, loaded],
   );
   const api = useMemo<GuidancePreferencesApi>(() => ({ prefs, save, signal, saving: isPending, signedIn }), [prefs, save, signal, isPending, signedIn]);
 
   return (
-    <GuidancePreferencesCtx.Provider value={api}>
-      <GuidanceSignalCtx.Provider value={signal}>
+    <GuidancePreferencesProvider value={api}>
+      <GuidanceSignalProvider value={signal}>
         <LearnLinkProvider resolve={resolve}>
           <GuidanceProvider value={value} actions={actions}>
             {children}
           </GuidanceProvider>
         </LearnLinkProvider>
-      </GuidanceSignalCtx.Provider>
-    </GuidancePreferencesCtx.Provider>
+      </GuidanceSignalProvider>
+    </GuidancePreferencesProvider>
   );
 }
