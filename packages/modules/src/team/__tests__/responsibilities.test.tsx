@@ -2,6 +2,7 @@ import "./setup";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { GuidanceProvider } from "@foundmill/dugout";
 import { RESPONSIBILITY_VIEWS, ResponsibilitiesScreen, handlerName, toResponsibilityRows } from "../ResponsibilitiesScreen";
 import { DECISION_DESCRIPTIONS, readMe } from "../shared";
 import { AGENT_MARA, AGENT_PIKE, BID, DEPT_DIST, DEPT_TEAM, USER_ADA, agents, dataResponses, departments, emptyResponses, humans, me, responsibilities } from "./fixtures";
@@ -30,7 +31,8 @@ describe("responsibility rows", () => {
     ]);
     expect(handlerName({ kind: "agent", id: "ffffffff-0000-4000-8000-000000000000" }, ctx())).toBe("Agent ffffffff");
     expect(toResponsibilityRows(undefined, undefined, ctx())).toHaveLength(7);
-    expect(RESPONSIBILITY_VIEWS.map((v) => v.id)).toEqual(["all", "delegated", "mine"]);
+    expect(RESPONSIBILITY_VIEWS.map((v) => v.id)).toEqual(["simple", "all", "delegated", "mine"]);
+    expect(RESPONSIBILITY_VIEWS[0]).toMatchObject({ name: "Simple", builtIn: true, columns: ["label", "handler", "scope", "actions"] });
   });
 });
 
@@ -55,7 +57,7 @@ describe("ResponsibilitiesScreen", () => {
   it("makes room for the department detail: Covers steps aside, actions become named icon buttons, the detail says what the decision covers", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
-    renderScreen(fake, <ResponsibilitiesScreen {...props} />);
+    renderScreen(fake, <GuidanceProvider value={{ guidance: "off" }}><ResponsibilitiesScreen {...props} /></GuidanceProvider>);
     let table = await screen.findByRole("grid", { name: "Responsibilities" });
     const headers = () => within(screen.getByRole("grid", { name: "Responsibilities" })).getAllByRole("columnheader").map((h) => h.textContent?.replace(/Resize.*$/, "").trim());
     expect(headers()).toContain("Covers");

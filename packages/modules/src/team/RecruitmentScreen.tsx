@@ -19,7 +19,7 @@ import { useModuleEnv } from "../env";
 import { fitColumns, fitToGrow, humanise, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { CloneDialog, HireDialog, LoanDialog, RELEASE_CONSEQUENCE, ReleaseDialog } from "./dialogs";
-import { AgentCell, AgentStatusWordPill, FAMILY_LABELS, Screen, agentDept, agentEntity, agentHref, isChiefOfStaff, isChiefOfStaffType, suggestTemplates, useAgents, useNow } from "./shared";
+import { AgentCell, AgentStatusWordPill, FAMILY_LABELS, Screen, agentDept, agentEntity, agentHref, isChiefOfStaff, isChiefOfStaffType, SIMPLE_VIEW_ID, suggestTemplates, useAgents, useDefaultViewId, useNow } from "./shared";
 import type { AgentRow, TemplateRow } from "./types";
 
 export interface CatalogueRow extends TemplateRow {
@@ -30,6 +30,8 @@ export interface CatalogueRow extends TemplateRow {
 }
 
 export const CATALOGUE_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): what each template is, where it works and what it costs; it opens first while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["name", "family", "module", "wage"], sort: [{ id: "family", desc: false }], filters: [] },
   { id: "all", name: "All templates", builtIn: true, columns: ["name", "family", "module", "model", "skills", "wage", "hired"], sort: [{ id: "family", desc: false }], filters: [] },
   { id: "leads", name: "Leads", builtIn: true, columns: ["name", "module", "model", "skills", "wage", "hired"], sort: [], filters: [{ id: "f-lead", field: "family", op: "in", value: ["lead", "assistant"] }] },
   { id: "workers", name: "Workers", builtIn: true, columns: ["name", "module", "model", "skills", "wage", "hired"], sort: [], filters: [{ id: "f-worker", field: "family", op: "eq", value: "worker" }] },
@@ -39,6 +41,7 @@ export const CATALOGUE_VIEWS: SavedView[] = [
 ];
 
 export const MOVES_VIEWS: SavedView[] = [
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["name", "role", "departments", "status"], sort: [{ id: "name", desc: false }], filters: [] },
   { id: "all", name: "All agents", builtIn: true, columns: ["name", "role", "departments", "status"], sort: [{ id: "name", desc: false }], filters: [] },
   { id: "idle", name: "Idle or paused", builtIn: true, columns: ["name", "role", "departments", "status"], sort: [], filters: [{ id: "f-idle", field: "status", op: "in", value: ["idle", "paused"] }] },
 ];
@@ -93,7 +96,7 @@ const FAMILY_ORDER: Record<TemplateRow["family"], number> = { assistant: 0, lead
 export const TEAM_RECRUITMENT_EXPLAINER = {
   screenId: "team-recruitment",
   purpose: "Hire new agents: describe one in a sentence, or pick a ready-made template from the catalog.",
-  action: "Say what the agent should do and press Draft this agent; or right-click a template and choose Hire…. It joins a department and starts next cycle.",
+  action: "Say what the agent should do and press Draft this agent; or use the … on a template and choose Hire…. It joins a department and starts next cycle.",
   watchFor: (
     <>
       The <Term id="wage_cap">wage cap</Term>: the most an agent may cost per month, in US dollars (Estimate).
@@ -119,8 +122,9 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
   const rows = useMemo(() => toCatalogueRows(catalogue.data, agentsQuery.data?.agents), [catalogue.data, agentsQuery.data]);
   const team = useMemo(() => (agentsQuery.data?.agents ?? []).filter((a) => !a.archivedAt), [agentsQuery.data]);
   // Saved per person, business and table (audit #204): they come back after a reload.
-  const catalogueSavedViews = useSavedViews("team.recruitment.catalog", CATALOGUE_VIEWS, { defaultViewId: "all" });
-  const movesSavedViews = useSavedViews("team.recruitment.moves", MOVES_VIEWS, { defaultViewId: "all" });
+  const defaultViewId = useDefaultViewId("all");
+  const catalogueSavedViews = useSavedViews("team.recruitment.catalog", CATALOGUE_VIEWS, { defaultViewId });
+  const movesSavedViews = useSavedViews("team.recruitment.moves", MOVES_VIEWS, { defaultViewId });
   const { readOnly } = useModuleEnv();
   const [hire, setHire] = useState<{ template: TemplateRow; name?: string } | null>(null);
   const [release, setRelease] = useState<AgentRow | null>(null);
@@ -325,7 +329,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
             </span>
           ) : (
             <span>
-              Double-click or right-click a template to hire it into a department. <Term id="wage_cap">Wage caps</Term> are estimates, in US dollars.
+              Use the … on a template (or double-click it) to hire it into a department. <Term id="wage_cap">Wage caps</Term> are estimates, in US dollars.
             </span>
           )
         }
@@ -335,7 +339,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
           Ready-made agents. Hire one into a department and it starts next cycle.
         </p>
         <div className="min-w-0">
-          <DataTable<CatalogueRow> aria-label="Catalog" data={rows} columns={catalogueColumns} {...catalogueSavedViews} defaultViewId="all" rowActions={catalogueActions} onRowOpen={(row) => !readOnly && setHire({ template: row })} height={Math.min(480, Math.max(240, rows.length * 34 + 44))} density="comfortable" exportFileName="catalogue" className="border-0" />
+          <DataTable<CatalogueRow> aria-label="Catalog" data={rows} columns={catalogueColumns} {...catalogueSavedViews} defaultViewId={defaultViewId} rowActions={catalogueActions} onRowOpen={(row) => !readOnly && setHire({ template: row })} height={Math.min(480, Math.max(240, rows.length * 34 + 44))} density="comfortable" exportFileName="catalogue" className="border-0" />
         </div>
       </Panel>
 
@@ -346,11 +350,11 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         loading={agentsQuery.isLoading && !agentsQuery.data}
         error={agentsQuery.error ? agentsQuery.error.message : undefined}
         onRetry={refetch}
-        empty={agentsQuery.data && team.length === 0 ? { icon: Users, children: "Hired agents appear here; right-click one to duplicate it, lend it to another department or let it go." } : undefined}
+        empty={agentsQuery.data && team.length === 0 ? { icon: Users, children: "Hired agents appear here; use the … on a row to duplicate one, lend it to another department or let it go." } : undefined}
         footer={`Letting an agent go: ${RELEASE_CONSEQUENCE} Duplicating copies instructions, tools, model and skills. Lending adds a department; moving replaces it.`}
       >
         <div className="min-w-0">
-          <DataTable<AgentRow> aria-label="Team moves" data={team} columns={movesColumns} {...movesSavedViews} defaultViewId="all" rowActions={movesActions} onRowOpen={(a) => open(a.id)} height={Math.min(420, Math.max(200, team.length * 28 + 44))} exportFileName="team-moves" className="border-0" />
+          <DataTable<AgentRow> aria-label="Team moves" data={team} columns={movesColumns} {...movesSavedViews} defaultViewId={defaultViewId} rowActions={movesActions} onRowOpen={(a) => open(a.id)} height={Math.min(420, Math.max(200, team.length * 28 + 44))} exportFileName="team-moves" className="border-0" />
         </div>
       </Panel>
 

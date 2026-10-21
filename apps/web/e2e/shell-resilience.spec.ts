@@ -43,7 +43,13 @@ test.describe("shell resilience", () => {
         return route.fulfill({ status: 207, contentType: "application/json", body: JSON.stringify(answers.map((a, i) => (procs[i] === "inbox.list" ? FAILED_READ : a))) });
       },
     );
-    await page.getByTestId("inbox-refresh").click();
+    // With guidance on, the first-Continue callout (UX plan §7.7) sits under Continue in the top bar, over the Inbox
+    // header's Refresh. It is not modal and "Got it" would mark it done for the whole dev account (first-days.spec.ts
+    // expects it), so Refresh is pressed from the keyboard, as billing.spec.ts and crm.spec.ts do.
+    const refresh = page.getByTestId("inbox-refresh");
+    await refresh.focus();
+    await expect(refresh).toBeFocused();
+    await page.keyboard.press("Enter");
     await expect(page.getByTestId("refresh-failed").first()).toBeVisible({ timeout: LONG });
     await expect(rows).toHaveCount(before);
     await expect(page.getByTestId("error-panel")).toHaveCount(0);
@@ -97,7 +103,8 @@ test.describe("shell resilience", () => {
   test("Switch business reaches Home, the other businesses and Create a new business (IAE-08, WEB-13)", async ({ page }) => {
     await openBusiness(page);
     let switcher = await openSwitcher(page);
-    await expect(switcher.getByRole("option", { name: /Ledgerly/ })).toBeVisible({ timeout: LONG });
+    // By id: the foundations spec takes charge of throwaways named "Ledgerly <suffix>", which the founder owns too.
+    await expect(switcher.locator(`[data-business-id="${LEDGERLY_BUSINESS_ID}"]`)).toBeVisible({ timeout: LONG });
     await switcher.getByRole("option", { name: /^Home$/ }).click();
     await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/home$`));
     switcher = await openSwitcher(page);
@@ -117,8 +124,11 @@ test.describe("shell resilience", () => {
     await input.fill("role:customer");
     await expect(page.getByRole("option").first()).toBeVisible({ timeout: LONG });
     await input.fill("Ledgerly");
-    await expect(page.getByRole("option", { name: /Switch to Ledgerly/ })).toBeVisible({ timeout: LONG });
-    await page.getByRole("option", { name: /Switch to Ledgerly/ }).click();
+    // The seeded Ledgerly alone: the foundations spec takes charge of throwaways named "Ledgerly <suffix>", whose rows
+    // read "Switch to Ledgerly <suffix>".
+    const ledgerly = page.getByRole("option", { name: /^Switch to Ledgerly\s*Switch business$/ });
+    await expect(ledgerly).toBeVisible({ timeout: LONG });
+    await ledgerly.click();
     await expect(page).toHaveURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/home$`), { timeout: LONG });
   });
 

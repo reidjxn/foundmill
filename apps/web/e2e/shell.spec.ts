@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import { LONG, NORTHWIND_BUSINESS_ID, openBusiness, openSettings, settled } from "./helpers";
 
 /**
@@ -132,8 +132,13 @@ test.describe("shell", () => {
     const term = palette.getByRole("option", { name: /Runway.*How many months your cash lasts/ });
     await expect(term).toBeVisible({ timeout: LONG });
     await expect(palette.getByTestId("palette-operators")).toHaveCount(0);
+    // Words that match no place, record or term: Ask leads alone, carrying them to an agent (CommandPalette "lets Ask
+    // lead when the query matches nothing else"). The "Nothing matches…" empty state is for a palette with no Ask rows
+    // either (a business without agents); its words are covered by the Dugout unit test.
     await page.getByRole("combobox").fill("qqqqzzzz");
-    await expect(palette.getByRole("status")).toHaveText("Nothing matches. Try a person, a screen or an agent's name.", { timeout: LONG });
+    await expect(palette.getByRole("option").first()).toContainText("“qqqqzzzz”", { timeout: LONG });
+    await expect(palette.locator("[cmdk-group-heading]")).toHaveText(["Ask"]);
+    await expect(palette.locator("[cmdk-item]:not([data-kind='ask'])")).toHaveCount(0);
     await page.getByRole("combobox").fill(">");
     await expect(palette.getByTestId("palette-operators")).toBeVisible();
     await page.getByRole("combobox").fill("");
@@ -208,12 +213,23 @@ test.describe("shell", () => {
 
   test("the top bar says what each control does: Continue, the mode chip, the runway chip and Stop all agents carry plain sentences (B1, B3, B8, B6)", async ({ page }) => {
     const tooltip = page.getByRole("tooltip");
-    await page.getByRole("button", { name: /^Business mode: / }).hover();
-    await expect(tooltip).toContainText(/^(Assisted|Augmented|Automated) mode: the .*Change it in Settings › Mode\./, { timeout: LONG });
-    await page.getByTestId("kit-bar").locator("[data-runway-tone]").hover();
-    await expect(tooltip).toContainText("Runway: how many months your cash lasts", { timeout: LONG });
-    await page.getByTestId("stop-all-trigger").hover();
-    await expect(tooltip).toHaveText("Stop all agents (pauses everything, nothing is lost)", { timeout: LONG });
+    // A Playwright hover is one jump of the pointer. Radix keeps the tooltip just left open while the pointer is "in
+    // transit" toward it and ends that only on the next pointer move, which a real mouse always makes and a single jump
+    // never does: the old tooltip would stay and the new one never open. Nudge the pointer until exactly one tooltip,
+    // the hovered control's, is showing (strict mode fails while two are).
+    const hoverFor = async (target: Locator, check: () => Promise<void>) => {
+      await target.hover();
+      let nudge = 1;
+      await expect(async () => {
+        const box = (await target.boundingBox())!;
+        nudge = -nudge;
+        await page.mouse.move(box.x + box.width / 2 + nudge, box.y + box.height / 2);
+        await check();
+      }).toPass({ timeout: LONG });
+    };
+    await hoverFor(page.getByRole("button", { name: /^Business mode: / }), () => expect(tooltip).toContainText(/^(Assisted|Augmented|Automated) mode: the .*Change it in Settings › Mode\./, { timeout: 2_000 }));
+    await hoverFor(page.getByTestId("kit-bar").locator("[data-runway-tone]"), () => expect(tooltip).toContainText("Runway: how many months your cash lasts", { timeout: 2_000 }));
+    await hoverFor(page.getByTestId("stop-all-trigger"), () => expect(tooltip).toHaveText("Stop all agents (pauses everything, nothing is lost)", { timeout: 2_000 }));
     // The strip under the top bar has a sentence too, as its name.
     await expect(page.getByTestId("kit-bar").locator("xpath=following-sibling::*[@role='status']")).toHaveAttribute("aria-label", /(are|is) working|No cycle running/);
   });

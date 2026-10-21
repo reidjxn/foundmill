@@ -138,7 +138,7 @@ export const ENTITY_STATUS_PILL: Record<LegalEntityStatus, { tone: StatusTone; w
 export const INCORPORATION_PILL: Record<IncorporationStatus, { tone: StatusTone; word: string }> = {
   draft: { tone: "neutral", word: "Draft" },
   in_progress: { tone: "info", word: "Preparing" },
-  awaiting_founder: { tone: "warn", word: "Waiting for you" },
+  awaiting_founder: { tone: "warn", word: "Needs your go-ahead" },
   submitted: { tone: "info", word: "Submitted" },
   complete: { tone: "good", word: "Complete" },
   abandoned: { tone: "bad", word: "Abandoned" },

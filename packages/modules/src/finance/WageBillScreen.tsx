@@ -2,7 +2,7 @@
 /**
  * Finance › Payroll (BUILD §11.8): per-agent monthly cost (tokens, sandbox minutes, tool calls, training) against
  * each agent's wage cap, the human payroll line from categorised bank transactions, and output per 100 units of team
- * cost. Every figure is an Estimate: the founder's Anthropic invoice is the only real cost. The team's cost is metered
+ * cost. Every figure is an Estimate: the real cost is the credits used or, with the founder's own key, the Anthropic invoice. The team's cost is metered
  * in US dollars and is never added to staff payroll or compared with a cap in another currency (nothing is converted).
  */
 import { useMemo, useState } from "react";
@@ -236,7 +236,7 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
 
   // Each tile's plain line while guidance is on (PlainFigure): what the figure is, before where it comes from.
   const known: MetricTileProps[] = [
-    { label: <Term id="wage">{teamLabel}</Term>, value: { amountMinor: squadMinor, currency: teamCurrency }, estimate: "estimate", plain: "What the agents' work cost this month: their thinking, sandbox time, tool calls and training.", provenance: { source: "Usage ledger: tokens, sandbox minutes, tool calls, training", query: "finance.wages", note: "Metered at list prices; the Anthropic invoice is the only real cost." }, caption: `${rows.filter((r) => r.costMinor > 0).length} agents with usage in ${formatMonth(period, datePrefs)}` },
+    { label: <Term id="wage">{teamLabel}</Term>, value: { amountMinor: squadMinor, currency: teamCurrency }, estimate: "estimate", plain: "What the agents' work cost this month: their thinking, the computers they work on, the services they use and training.", provenance: { source: "Usage ledger: tokens, sandbox minutes, tool calls, training", query: "finance.wages", note: "Metered at list prices; the real cost is your credits used or, with your own key, your Anthropic invoice." }, caption: `${rows.filter((r) => r.costMinor > 0).length} agents with usage in ${formatMonth(period, datePrefs)}` },
     { label: "Human payroll", value: { amountMinor: payrollMinor, currency }, estimate: "estimate", plain: "What the business paid its staff and contractors this month.", provenance: { source: pnlLabelWords(pnl.data?.label), query: "finance.pnl categories Payroll, Contractors", note: "Bank outflows categorized as payroll or contractors in the month." }, caption: `${staff.length} staff member${staff.length === 1 ? "" : "s"}` },
     teamCurrency === currency
       ? { label: "Total payroll", value: { amountMinor: squadMinor + payrollMinor, currency }, estimate: "estimate", plain: "Agents and staff together.", provenance: { source: `${teamLabel} + human payroll`, note: "Team and staff together for the month." }, caption: formatMonth(period, datePrefs) }

@@ -42,6 +42,9 @@ describe("PlanScreen", () => {
     expect(within(table).getAllByRole("row")).toHaveLength(tasks.length + 1);
     expect(screen.getByRole("button", { name: "Task graph" }).className).toContain("term-link");
     expect(screen.getByRole("button", { name: "About Dependencies" })).toBeTruthy();
+    // Roadmap is defined by the planner field's help tip, never a Term button inside its <label>.
+    expect(document.querySelector("label button")).toBeNull();
+    expect(screen.getByRole("button", { name: "About Roadmap item" })).toBeTruthy();
   });
 
   it("guidance off: opens on All tasks, the words are plain and the help tip is gone", () => {

@@ -23,8 +23,12 @@ describe("recruitment data", () => {
       ["sourcing_specialist", "Specialist", 0],
       ["entity_linker", "Utility", 1],
     ]);
-    expect(CATALOGUE_VIEWS.map((v) => v.name)).toEqual(["All templates", "Leads", "Workers", "Channel engines", "Specialists", "Utilities"]);
-    expect(MOVES_VIEWS.map((v) => v.id)).toEqual(["all", "idle"]);
+    expect(CATALOGUE_VIEWS.map((v) => v.name)).toEqual(["Simple", "All templates", "Leads", "Workers", "Channel engines", "Specialists", "Utilities"]);
+    expect(MOVES_VIEWS.map((v) => v.id)).toEqual(["simple", "all", "idle"]);
+    // Simple (DESIGN §8 Guidance): four columns, built in, for both tables.
+    for (const views of [CATALOGUE_VIEWS, MOVES_VIEWS]) expect(views[0]).toMatchObject({ id: "simple", builtIn: true, columns: expect.any(Array) });
+    expect(CATALOGUE_VIEWS[0]!.columns).toHaveLength(4);
+    expect(MOVES_VIEWS[0]!.columns).toHaveLength(4);
   });
 
   it("suggests the closest templates for a sentence, stemming loosely and ignoring stop words", () => {
@@ -178,9 +182,18 @@ describe("RecruitmentScreen", () => {
     expect(within(dialog).getByRole("button", { name: "Show less" }).getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("shows skills and departments in words, never keys or module slugs", async () => {
+  it("opens both tables on the Simple view while guidance is on (DESIGN §8 Guidance)", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <RecruitmentScreen {...props} />);
+    await screen.findByRole("grid", { name: "Catalog" });
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /^View: Simple/ }).length).toBe(2));
+    // The empty-state and explainer lines point at the "…" button, never right-click alone (§7.10, D6).
+    expect(document.body.textContent).not.toMatch(/right-click/i);
+  });
+
+  it("shows skills and departments in words, never keys or module slugs", async () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <GuidanceProvider value={{ guidance: "off" }}><RecruitmentScreen {...props} /></GuidanceProvider>);
     const table = await screen.findByRole("grid", { name: "Catalog" });
     expect(within(table).queryByText(/_/)).toBeNull();
     expect(within(table).getByText("Planning, Prioritization")).toBeTruthy();

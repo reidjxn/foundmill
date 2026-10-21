@@ -36,7 +36,7 @@ export const DISTRIBUTION_EXPLAINER = {
   screenId: "distribution/board",
   purpose: "How customers will find you.",
   action: "Channels on the Board are running; the rest wait in the tray. Drag one up to start it, or open it for its profile.",
-  watchFor: "Cost per customer is an Estimate until the conversion API confirms it.",
+  watchFor: "Cost per customer is an Estimate until the ad platform reports which customers it actually brought.",
 } as const;
 
 export function FormationScreen({ businessId, departmentId, animateEntrance = true, rescoreDelayMs = RESCORE_DEBOUNCE_MS }: FormationScreenProps) {

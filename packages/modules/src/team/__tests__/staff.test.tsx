@@ -21,7 +21,8 @@ describe("staff rows", () => {
     expect(rows[1]!.reads).toEqual(["Legal"]);
     expect(rows[1]!.approves).toEqual(["Publish content"]);
     expect(permissionSummary({ product: "write", inbox: "none" })).toEqual({ write: ["Product"], read: [], none: ["Inbox"] });
-    expect(STAFF_VIEWS.map((v) => v.id)).toEqual(["all", "admins", "approvers"]);
+    expect(STAFF_VIEWS.map((v) => v.id)).toEqual(["simple", "all", "admins", "approvers"]);
+    expect(STAFF_VIEWS[0]).toMatchObject({ name: "Simple", builtIn: true, columns: ["name", "role", "sections", "approves"] });
   });
 });
 
@@ -39,7 +40,8 @@ describe("StaffScreen", () => {
     expect(screen.getByTestId("staff-summary").textContent).toBe("3 people · 1 approving");
     fireEvent.click(within(table).getByRole("link", { name: "ada@northwind.example" }));
     expect(fake.navigations[0]).toBe(`/b/${BID}/crm/e0000000-0000-4000-8000-000000000002/overview`);
-    expect(screen.getByText("All staff")).toBeTruthy();
+    // Guidance on (the default here): the table opens on its Simple view (DESIGN §8 Guidance).
+    expect(screen.getByRole("button", { name: /^View: Simple/ })).toBeTruthy();
   });
 
   it("invites a member by the email they sign in with, with a role and per-section permissions (C18: one flow, email first)", async () => {

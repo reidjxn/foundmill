@@ -13,7 +13,7 @@ import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { fitColumns, fitToGrow, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
-import { DECISION_LABELS, InlineError, ROLE_LABELS, STAFF_SECTIONS, Screen, memberEntity, memberName, permissionSummary, readMe, sectionLabel, useAction, useHumans, useMe, useNow, type Me } from "./shared";
+import { DECISION_LABELS, InlineError, ROLE_LABELS, STAFF_SECTIONS, Screen, memberEntity, memberName, permissionSummary, readMe, sectionLabel, SIMPLE_VIEW_ID, useAction, useDefaultViewId, useHumans, useMe, useNow, type Me } from "./shared";
 import type { MembershipRow, ResponsibilitiesResponse, SectionPermission } from "./types";
 
 export interface StaffRow {
@@ -33,6 +33,8 @@ export interface StaffRow {
 }
 
 export const STAFF_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10): who they are, their role, what they can open and what they approve; first while guidance is on.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["name", "role", "sections", "approves"], sort: [{ id: "role", desc: false }], filters: [] },
   { id: "all", name: "All staff", builtIn: true, columns: ["name", "role", "sections", "approves", "joined"], sort: [{ id: "role", desc: false }], filters: [] },
   { id: "admins", name: "Owners and admins", builtIn: true, columns: ["name", "role", "sections", "approves"], sort: [{ id: "role", desc: false }], filters: [{ id: "role-admins", field: "role", op: "in", value: ["owner", "admin"] }] },
   { id: "approvers", name: "Approvers", builtIn: true, columns: ["name", "role", "approves"], sort: [{ id: "approves", desc: true }], filters: [{ id: "approves-any", field: "approves", op: "gt", value: 0 }] },
@@ -322,7 +324,8 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
   const me = useMemo(() => readMe(meQuery.data, businessId), [meQuery.data, businessId]);
   const rows = useMemo(() => toStaffRows(humans.data, responsibilities.data, me), [humans.data, responsibilities.data, me]);
   // Saved per person, business and table (audit #204): they come back after a reload.
-  const savedViews = useSavedViews("team.staff", STAFF_VIEWS, { defaultViewId: "all" });
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("team.staff", STAFF_VIEWS, { defaultViewId });
   const [invite, setInvite] = useState(false);
   const [edit, setEdit] = useState<StaffRow | null>(null);
   const [remove, setRemove] = useState<StaffRow | null>(null);
@@ -428,7 +431,7 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
       >
         <div className="min-w-0">
           {/* The table is as tall as its rows (up to the window), so one person is not a screen of empty rows. */}
-          <DataTable<StaffRow> aria-label="Staff" data={rows} columns={columns} {...savedViews} defaultViewId="all" rowActions={rowActions} onRowOpen={(row) => setEdit(row)} height={Math.min(typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 264), Math.max(1, rows.length) * ROW_PX + 42)} exportFileName="staff" className="border-0" />
+          <DataTable<StaffRow> aria-label="Staff" data={rows} columns={columns} {...savedViews} defaultViewId={defaultViewId} rowActions={rowActions} onRowOpen={(row) => setEdit(row)} height={Math.min(typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 264), Math.max(1, rows.length) * ROW_PX + 42)} exportFileName="staff" className="border-0" />
         </div>
         {onlyMe ? (
           <EmptyState icon={Users} title="Only you so far" tone="kit" className="border-t border-line-faint" action={canAdmin ? { label: "Invite staff", icon: UserRoundPlus, onClick: () => setInvite(true) } : undefined}>

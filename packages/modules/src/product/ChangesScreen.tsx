@@ -14,6 +14,7 @@ import type { ModuleScreenProps } from "../registry";
 import { ProposalDetail } from "./changes/ProposalDetail";
 import { PROPOSAL_STATUS_PILL, SEVERITY_CHIP, decisionProgress, impactLines } from "./changes/hunks";
 import { isWebUri } from "./sources/kinds";
+import { useCanWrite } from "../env";
 import { InlineError, SIMPLE_VIEW_ID, Screen, useAction, useAgentNames, useDefaultViewId } from "./shared";
 import type { ProposalRow, ProposalWithHunks, ProposalsListResponse, RoadmapResponse, SourceRow, SourcesListResponse, SpecGetResponse, SpecVersionRow } from "./types";
 import { DateText } from "../dates";
@@ -43,9 +44,12 @@ function ProposerCell({ id }: { id: string | null }) {
   return <EntityLink entity={{ id, kind: "agent", name: agents.get(id) ?? ctx.resolve?.(id)?.name ?? "An agent" }} hoverCard={false} />;
 }
 
+/** The span-4 panel body at 1280 px; the Simple and Open views (title + severity + the 44 px "…" column) fit inside it. */
+export const PROPOSAL_LIST_BUDGET = 324;
+
 export function proposalColumns(currency: string): DataTableColumn<ProposalRow>[] {
   return [
-    { accessorKey: "title", header: "Proposal", size: 190, cell: ({ row }) => <span className="text-body-strong text-primary">{row.original.title || "Untitled proposal"}</span>, meta: { locked: true } },
+    { accessorKey: "title", header: "Proposal", size: 146, cell: ({ row }) => <span className="text-body-strong text-primary">{row.original.title || "Untitled proposal"}</span>, meta: { locked: true } },
     {
       accessorKey: "status",
       header: "Status",
@@ -101,6 +105,8 @@ export function ChangesScreen({ businessId }: ModuleScreenProps) {
   const versions = useWidgetQuery<SpecVersionRow[]>("product.spec.versions", undefined);
   const departments = useDepartments();
   const action = useAction();
+  // Viewers, advisors and example viewers read proposals; the accept and reject actions are not offered to them.
+  const canWrite = useCanWrite("product");
   const [selectedId, setSelectedId] = useState<string | null>(() => proposalFromLocation());
   // Saved per person, business and table (audit #204): they come back after a reload. Simple opens first while guidance is on.
   const defaultViewId = useDefaultViewId("open");
@@ -178,8 +184,12 @@ export function ChangesScreen({ businessId }: ModuleScreenProps) {
           rowClassName={(row) => (row.id === selectedId ? "bg-panel-alt" : undefined)}
           rowActions={(row) => [
             { id: "open", label: "Open proposal", icon: FolderOpen, onSelect: (r) => setSelectedId(r.id) },
-            { id: "accept", label: "Accept all changes", icon: CheckCheck, disabled: row.status !== "open", separatorBefore: true, onSelect: (r) => void action.run("product.proposals.acceptAll", { proposalId: r.id }, { key: "acceptAll", then: refetchAll }) },
-            { id: "reject", label: "Reject proposal", icon: X, variant: "danger", disabled: row.status !== "open", onSelect: (r) => void action.run("product.proposals.reject", { proposalId: r.id }, { key: "reject", then: refetchAll }) },
+            ...(canWrite
+              ? [
+                  { id: "accept", label: "Accept all changes", icon: CheckCheck, disabled: row.status !== "open", separatorBefore: true, onSelect: (r: ProposalRow) => void action.run("product.proposals.acceptAll", { proposalId: r.id }, { key: "acceptAll", then: refetchAll }) },
+                  { id: "reject", label: "Reject proposal", icon: X, variant: "danger" as const, disabled: row.status !== "open", onSelect: (r: ProposalRow) => void action.run("product.proposals.reject", { proposalId: r.id }, { key: "reject", then: refetchAll }) },
+                ]
+              : []),
           ]}
         />
       </Panel>

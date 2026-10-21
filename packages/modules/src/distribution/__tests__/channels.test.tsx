@@ -94,7 +94,7 @@ describe("ChannelsScreen", () => {
 
     fireEvent.contextMenu(within(table).getByText("SEO"));
     const menu3 = await screen.findByRole("menu");
-    expect(within(menu3).getByRole("menuitem", { name: "Move to Board" })).toBeTruthy();
+    expect(within(menu3).getByRole("menuitem", { name: "Put on the board" })).toBeTruthy();
     expect(within(menu3).getByRole("menuitem", { name: "Pause campaigns" }).getAttribute("aria-disabled")).toBe("true");
     await user.click(within(menu3).getByRole("menuitem", { name: "Set budget…" }));
     const dialog = await screen.findByRole("dialog", { name: "Set budget" });

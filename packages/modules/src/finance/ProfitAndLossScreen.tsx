@@ -184,6 +184,7 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
     <Screen name="finance/pnl">
       <Panel
         title={<Term id="pnl">Profit and loss</Term>}
+        helpLabel="Profit and loss"
         help="Money in minus money out, counted when the cash moves; every line is a category of the chart of accounts."
         span={selected ? 8 : 12}
         flush

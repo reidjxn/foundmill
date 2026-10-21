@@ -243,7 +243,7 @@ export function founderCanCancel(incorporation: IncorporationRow | null): boolea
 export const INCORPORATION_STATUS_WORD: Record<IncorporationRow["status"], string> = {
   draft: "Draft",
   in_progress: "Preparing",
-  awaiting_founder: "Waiting for you",
+  awaiting_founder: "Needs your go-ahead",
   submitted: "Submitted",
   complete: "Complete",
   abandoned: "Abandoned",

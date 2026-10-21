@@ -16,7 +16,7 @@ import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { fitColumns, fitToGrow, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { PlaybooksPanel } from "./PlaybooksPanel";
-import { AGENT_GATED_DECISIONS, DECISION_DESCRIPTIONS, DECISION_LABELS, InlineError, Screen, agentDept, agentEntity, agentHref, memberEntity, memberName, readMe, useAction, useAgents, useHumans, useMe, type Me } from "./shared";
+import { AGENT_GATED_DECISIONS, DECISION_DESCRIPTIONS, DECISION_LABELS, InlineError, Screen, agentDept, agentEntity, agentHref, memberEntity, memberName, readMe, SIMPLE_VIEW_ID, useAction, useAgents, useDefaultViewId, useHumans, useMe, type Me } from "./shared";
 import type { AgentRow, HandlerKind, MembershipRow, ResponsibilitiesResponse, ResponsibilityHandler } from "./types";
 
 export interface ResponsibilityRowView {
@@ -33,6 +33,8 @@ export interface ResponsibilityRowView {
 }
 
 export const RESPONSIBILITY_VIEWS: SavedView[] = [
+  // Simple (UX plan §7.10, §158): the decision, who handles it, where, and the Delegate / Take back buttons.
+  { id: SIMPLE_VIEW_ID, name: "Simple", builtIn: true, columns: ["label", "handler", "scope", "actions"], sort: [], filters: [] },
   { id: "all", name: "All decisions", builtIn: true, columns: ["label", "covers", "handler", "scope", "actions"], sort: [], filters: [] },
   { id: "delegated", name: "Delegated", builtIn: true, columns: ["label", "covers", "handler", "scope", "actions"], sort: [], filters: [{ id: "kind-not-founder", field: "handler", op: "neq", value: "founder" }] },
   { id: "mine", name: "Mine", builtIn: true, columns: ["label", "covers", "scope", "actions"], sort: [], filters: [{ id: "kind-founder", field: "handler", op: "eq", value: "founder" }] },
@@ -197,7 +199,8 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
   const ctx = useMemo(() => ({ agents: agentIndex, humans: humanIndex, me }), [agentIndex, humanIndex, me]);
   const rows = useMemo(() => toResponsibilityRows(data.data, departments.data, ctx), [data.data, departments.data, ctx]);
   // Saved per person, business and table (audit #204), and the open view kept across the narrow/full remount.
-  const savedViews = useSavedViews("team.responsibilities", RESPONSIBILITY_VIEWS, { defaultViewId: "all" });
+  const defaultViewId = useDefaultViewId("all");
+  const savedViews = useSavedViews("team.responsibilities", RESPONSIBILITY_VIEWS, { defaultViewId });
   const [delegate, setDelegate] = useState<ResponsibilityRowView | null>(null);
   const [selected, setSelected] = useState<DecisionType | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -374,7 +377,7 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
       >
         <div className="min-w-0">
           {/* Remounted when the detail opens or closes, so the Covers column leaves and returns without marking the view as edited. */}
-          <DataTable<ResponsibilityRowView> key={narrow ? "with-detail" : "full"} aria-label="Responsibilities" data={rows} columns={columns} {...savedViews} defaultViewId="all" getRowId={(r) => r.decisionType} selectedIds={selectedRow ? [selectedRow.decisionType] : []} rowActions={rowActions} onRowClick={(row) => setSelected(row.decisionType)} onRowOpen={(row) => (row.gated && otherStaff === 0 ? setSelected(row.decisionType) : setDelegate(row))} height={Math.max(3, rows.length) * ROW_PX + 44} density="comfortable" exportFileName="responsibilities" footer={null} className="border-0" />
+          <DataTable<ResponsibilityRowView> key={narrow ? "with-detail" : "full"} aria-label="Responsibilities" data={rows} columns={columns} {...savedViews} defaultViewId={defaultViewId} getRowId={(r) => r.decisionType} selectedIds={selectedRow ? [selectedRow.decisionType] : []} rowActions={rowActions} onRowClick={(row) => setSelected(row.decisionType)} onRowOpen={(row) => (row.gated && otherStaff === 0 ? setSelected(row.decisionType) : setDelegate(row))} height={Math.max(3, rows.length) * ROW_PX + 44} density="comfortable" exportFileName="responsibilities" footer={null} className="border-0" />
         </div>
       </Panel>
 

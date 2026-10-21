@@ -8,7 +8,7 @@
  */
 import { useId, useMemo, useState } from "react";
 import { Building2, Check, CheckCircle2, Circle, CircleDashed, Compass, FileStack, Landmark, MonitorPlay, Play, Send, UserRound, XCircle } from "lucide-react";
-import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, ProvenanceChip, RadioCard, RadioGroup, SimpleSelect, StarRating, Term, Timeline, cn, useFormatters, type IconComponent, type TimelineEvent } from "@foundmill/dugout";
+import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, ProvenanceChip, RadioCard, RadioGroup, SimpleSelect, StarRating, Timeline, cn, useFormatters, useTerm, type IconComponent, type TimelineEvent } from "@foundmill/dugout";
 import { INCORPORATION_ROUTES, type IncorporationRoute } from "@foundmill/shared/constants";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData } from "@foundmill/widgets/data";
@@ -114,6 +114,8 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
   const currency = useCurrency();
   const { navigate } = useWidgetData();
   const id = useId();
+  // A Term renders a button, which must not sit inside the <label>: the definition goes in the Field's help tip.
+  const jurisdictionTerm = useTerm("jurisdiction");
   const status = useLegalStatus();
   const recommend = useAction();
   const start = useAction();
@@ -274,7 +276,7 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
             })}
           </RadioGroup>
           <div className="grid grid-cols-2 gap-3">
-            <Field htmlFor={`${id}-jur`} label={<Term id="jurisdiction">Jurisdiction</Term>}>
+            <Field htmlFor={`${id}-jur`} label="Jurisdiction" help={jurisdictionTerm?.short} helpLearn={jurisdictionTerm?.learn}>
               <Input id={`${id}-jur`} value={jurisdiction} onChange={(e) => onJurisdiction(e.target.value)} disabled={active} maxLength={40} />
             </Field>
             <Field htmlFor={`${id}-type`} label="Entity type" hint={ROUTE_META[route].entityTypes.join(" / ")}>

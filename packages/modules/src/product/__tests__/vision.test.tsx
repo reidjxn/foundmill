@@ -91,6 +91,9 @@ describe("VisionScreen", () => {
     const fake = createFakeSource({ businessId: BID, responses: { ...emptyResponses, "department.list": [] } });
     renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />);
     expect(screen.getByText("No narrative yet")).toBeTruthy();
+    // The empty narrative names where to act and offers it (DESIGN §8 Panel: an action slot).
+    fireEvent.click(screen.getByRole("button", { name: "Open Specification" }));
+    expect(fake.navigations.at(-1)).toBe(`/b/${BID}/d/product/specification`);
     expect(screen.getByText(/Nothing is in Now/)).toBeTruthy();
     const loading = createFakeSource({ businessId: BID });
     const { container } = renderScreen(loading, <VisionScreen businessId={BID} departmentId="d1" />);

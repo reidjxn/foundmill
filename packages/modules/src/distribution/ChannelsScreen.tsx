@@ -283,7 +283,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
       { id: "open", label: "Open profile", icon: ExternalLink, onSelect: (r) => openProfile(r.channelKey) },
       row.enabled
         ? { id: "bench", label: "Take off the board", icon: ArrowDownToLine, onSelect: (r) => void toggle(r, false), separatorBefore: true }
-        : { id: "start", label: "Move to Board", icon: ArrowUpToLine, onSelect: (r) => void toggle(r, true), separatorBefore: true },
+        : { id: "start", label: "Put on the board", icon: ArrowUpToLine, onSelect: (r) => void toggle(r, true), separatorBefore: true },
       { id: "pause", label: row.paused ? "Resume campaigns" : "Pause campaigns", icon: row.paused ? Play : Pause, onSelect: (r) => void pause(r, !r.paused), disabled: !row.enabled || row.campaigns.length === 0 },
       { id: "budget", label: "Set budget…", icon: Coins, onSelect: (r) => setBudgetFor(r), disabled: !row.persisted, separatorBefore: true },
     ],

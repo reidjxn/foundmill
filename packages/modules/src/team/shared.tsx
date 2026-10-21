@@ -5,7 +5,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CircleAlert, CircleDashed, CirclePause } from "lucide-react";
-import { Avatar, EntityLink, MODEL_LABELS, PageGrid, StatusPill, agentStatusTone, cn, formatRelative, type EntityDetails, type IconComponent, type SquadRow } from "@foundmill/dugout";
+import { Avatar, EntityLink, MODEL_LABELS, PageGrid, StatusPill, agentStatusTone, cn, formatRelative, useGuided, type EntityDetails, type IconComponent, type SquadRow } from "@foundmill/dugout";
 import { type AgentStatus, type DeptColourToken, type MembershipRole } from "@foundmill/shared/constants";
 import { SECTIONS } from "@foundmill/shared/permissions";
 import { moduleTabHref } from "@foundmill/widgets/shared/departments";
@@ -53,6 +53,19 @@ export function Screen({ name, children, className }: { name: string; children: 
       {children}
     </PageGrid>
   );
+}
+
+/* ---------- Tables ---------- */
+
+/** The built-in "Simple" saved view every team table carries: its four most important columns (UX plan §7.10). */
+export const SIMPLE_VIEW_ID = "simple";
+
+/**
+ * The view a table opens on before the person picks one: "Simple" while guidance is on, the screen's general view
+ * otherwise (DESIGN §8 Guidance). A view the person left open (stored per table) still wins (saved-views.ts).
+ */
+export function useDefaultViewId(general: string): string {
+  return useGuided() ? SIMPLE_VIEW_ID : general;
 }
 
 /* ---------- Mutations ---------- */

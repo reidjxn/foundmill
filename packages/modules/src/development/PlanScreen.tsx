@@ -6,7 +6,7 @@
  */
 import { useId, useMemo, useState } from "react";
 import { ArrowUpCircle, Bot, ChevronRight, ExternalLink, ListTree, Network, Pause, Play, Radio, Square } from "lucide-react";
-import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, STRONGEST_MODEL_LABEL, TASK_STATUS_META, TaskGraph, Term, Textarea, SimpleSelect, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, STRONGEST_MODEL_LABEL, TASK_STATUS_META, TaskGraph, Term, Textarea, SimpleSelect, useTerm, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -107,6 +107,8 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
 
   // Planner trigger.
   const id = useId();
+  // A Term renders a button, which must not sit inside the <label>: the definition goes in the Field's help tip.
+  const roadmapTerm = useTerm("roadmap");
   const [roadmapItemId, setRoadmapItemId] = useState<string>("");
   const [goal, setGoal] = useState("");
   const [planned, setPlanned] = useState<PlanResponse | null>(null);
@@ -296,7 +298,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
         }
       >
         <div className="flex flex-col gap-3">
-          <Field htmlFor={`${id}-roadmap`} label={<><Term id="roadmap">Roadmap</Term> item</>}>
+          <Field htmlFor={`${id}-roadmap`} label="Roadmap item" help={roadmapTerm?.short} helpLearn={roadmapTerm?.learn}>
             <SimpleSelect id={`${id}-roadmap`} aria-label="Roadmap item" options={roadmapOptions} value={roadmapItemId || undefined} onValueChange={setRoadmapItemId} placeholder={roadmap.isLoading ? "Loading roadmap…" : roadmapOptions.length ? "Choose an item" : "No roadmap items yet"} disabled={!roadmapOptions.length} />
           </Field>
           <Field htmlFor={`${id}-goal`} label="Objective" hint="Optional with a roadmap item; required without one. Sent to the Planner as its goal.">

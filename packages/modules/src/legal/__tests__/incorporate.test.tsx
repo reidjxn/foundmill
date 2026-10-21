@@ -34,7 +34,7 @@ describe("IncorporateScreen", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <IncorporateScreen {...props} />);
     const session = screen.getByRole("region", { name: "Progress" });
-    expect(within(session).getAllByText("Waiting for you").length).toBeGreaterThan(0);
+    expect(within(session).getAllByText("Needs your go-ahead").length).toBeGreaterThan(0);
     const steps = within(session).getByRole("list", { name: "Session steps" });
     expect(Array.from(steps.querySelectorAll("li")).map((li) => li.getAttribute("data-state"))).toEqual(["done", "current", "todo", "todo", "todo"]);
     expect(within(steps).getAllByText("Founder only")).toHaveLength(2);
@@ -52,6 +52,15 @@ describe("IncorporateScreen", () => {
     expect(fake.mutations[0]).toEqual({ path: "legal.incorporate.founderSubmitted", input: { incorporationId: ENTITY.inc } });
     await screen.findByText(/Submitted by you/);
     expect(fake.refetches["legal.incorporate.status"]).toBe(1);
+  });
+
+  it("guidance on: Jurisdiction is defined by a help tip beside its label, never a button inside the <label>", () => {
+    const fake = createFakeSource({ businessId: BID, responses: { ...emptyResponses, "legal.incorporate.status": statusEntityOnly } });
+    renderScreen(fake, <IncorporateScreen {...props} />, {}, { guidance: "on" });
+    const form = screen.getByRole("form", { name: "Incorporation route" });
+    expect(form.querySelector("label button")).toBeNull();
+    expect(within(form).getByLabelText("Jurisdiction")).toBeTruthy();
+    expect(within(form).getByRole("button", { name: "About Jurisdiction" })).toBeTruthy();
   });
 
   it("starts a route from the chooser when nothing is in flight, and picks the route from the jurisdiction", async () => {

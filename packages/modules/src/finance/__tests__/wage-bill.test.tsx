@@ -28,6 +28,14 @@ describe("wageBillRows", () => {
 });
 
 describe("WageBillScreen", () => {
+  it("guidance on: the team-cost tile says what it covers in plain words (no tool calls or sandbox time)", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <WageBillScreen {...props} />, {}, { guidance: "on" });
+    const strip = screen.getByRole("region", { name: "Payroll summary" });
+    expect(within(strip).getByText("What the agents' work cost this month: their thinking, the computers they work on, the services they use and training.")).toBeTruthy();
+    expect(strip.textContent).not.toMatch(/tool calls|sandbox time/);
+  });
+
   it("renders the summary tiles, the team table with caps and output per euro, and the staff panel", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <WageBillScreen {...props} />);

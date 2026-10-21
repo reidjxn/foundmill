@@ -17,7 +17,7 @@ describe("FormationScreen", () => {
     const explainer = panel.querySelector("[data-explainer='distribution/board']") as HTMLElement;
     expect(explainer).toBeTruthy();
     expect(within(explainer).getByText("How customers will find you.")).toBeTruthy();
-    expect(within(explainer).getByText("Cost per customer is an Estimate until the conversion API confirms it.")).toBeTruthy();
+    expect(within(explainer).getByText("Cost per customer is an Estimate until the ad platform reports which customers it actually brought.")).toBeTruthy();
     const caption = screen.getByTestId("board-caption");
     expect(caption.textContent).toBe("Fit 1–20: how well a channel suits this business, scored by the Distribution Strategist. Closer to the center means a better fit.");
     expect(within(caption).getByRole("button", { name: "Fit" }).className).toContain("term-link");

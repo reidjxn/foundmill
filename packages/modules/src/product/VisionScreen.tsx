@@ -84,7 +84,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
       >
         {vision ? null : <Explainer {...PRODUCT_EXPLAINER} className="mb-4" />}
         {noNarrative ? (
-          <EmptyState icon={BookOpen} title="No narrative yet" className="py-6">
+          <EmptyState icon={BookOpen} title="No narrative yet" className="py-6" action={{ label: "Open Specification", onClick: () => navigate(href("specification")) }}>
             The Problem, Customers and Value proposition sections appear here once the spec outline is seeded or written on the Specification tab.
           </EmptyState>
         ) : null}

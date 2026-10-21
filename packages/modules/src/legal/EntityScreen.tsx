@@ -7,7 +7,7 @@
  */
 import { useId, useMemo, useState } from "react";
 import { Building2, Download, ExternalLink, Landmark, Search, Users } from "lucide-react";
-import { Button, Chip, DataTable, EmptyState, EntityLink, Explainer, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, SimpleSelect, Term, Timeline, useFormatters, type DataTableColumn, type RowAction, type SavedView, type TimelineEvent } from "@foundmill/dugout";
+import { Button, Chip, DataTable, EmptyState, EntityLink, Explainer, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, SimpleSelect, Term, Timeline, useFormatters, useTerm, type DataTableColumn, type RowAction, type SavedView, type TimelineEvent } from "@foundmill/dugout";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -91,6 +91,8 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
   const { navigate } = useWidgetData();
   const departments = useDepartments();
   const id = useId();
+  // A Term renders a button, which must not sit inside the <label>: the definition goes in the Field's help tip.
+  const jurisdictionTerm = useTerm("jurisdiction");
   const status = useLegalStatus();
   const officers = useWidgetQuery<OfficersResponse>("crm.roles.byRole", OFFICERS_INPUT);
   const action = useAction();
@@ -252,7 +254,7 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
             <SimpleSelect id={`${id}-country`} options={COUNTRY_OPTIONS} value={country} onValueChange={(v) => setCountry(v as "gb" | "se" | "other")} aria-label="Country" />
           </Field>
           {country === "other" ? (
-            <Field htmlFor={`${id}-jcode`} label={<><Term id="jurisdiction">Jurisdiction</Term> code</>} hint="OpenCorporates code, e.g. de, fr, no, dk, fi, ee">
+            <Field htmlFor={`${id}-jcode`} label="Jurisdiction code" help={jurisdictionTerm?.short} helpLearn={jurisdictionTerm?.learn} hint="OpenCorporates code, e.g. de, fr, no, dk, fi, ee">
               <Input id={`${id}-jcode`} value={jurisdictionCode} onChange={(e) => setJurisdictionCode(e.target.value)} placeholder="de" maxLength={10} />
             </Field>
           ) : null}

@@ -22,6 +22,13 @@ describe("periodRange", () => {
 });
 
 describe("ProfitAndLossScreen", () => {
+  it("guidance on: the panel's help tip is named for the panel, not \"About this panel\", though the title is a Term", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <ProfitAndLossScreen {...props} />, {}, { guidance: "on" });
+    expect(screen.getByRole("button", { name: "About Profit and loss" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "About this panel" })).toBeNull();
+  });
+
   it("renders the indented management P&L with subtotals, the cash-basis label and the period footer", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <ProfitAndLossScreen {...props} />);

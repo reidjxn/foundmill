@@ -48,6 +48,8 @@ describe("EntityScreen", () => {
     const panel = screen.getByRole("region", { name: "Legal entity" });
     expect(panel.querySelector("[data-explainer='legal/entity']")).toBeTruthy();
     expect(within(panel).getByText("No legal entity yet")).toBeTruthy();
+    // A Term is a button: it never sits inside a form label (the definition is the Field's help tip instead).
+    expect(document.querySelector("label button")).toBeNull();
   });
 
   it("opens the CRM from the right-click verb and on Enter", async () => {
