@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, ROADMAP_SIGNOFF, SPEC_SIGNOFF, UUID, approveBothSignoffs, approveFromInbox, ensureDeck, inboxRow, openBoardQuestion, openBusiness, signIn, startDistributionFromBoard, takeChargeToHome } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, ROADMAP_SIGNOFF, SPEC_SIGNOFF, UUID, approveBothSignoffs, approveFromInbox, dismissCoachmarks, ensureDeck, inboxRow, openBoardQuestion, openBusiness, signIn, startDistributionFromBoard, takeChargeToHome } from "./helpers";
 
 /**
  * Inbox (BUILD §11.3; AC-11.3.2 refresh, AC-11.3.3 Continue follows blocking items) on the seeded Northwind Skincare,
@@ -116,17 +116,25 @@ test.describe("inbox", () => {
     await expect(desk.locator('[data-quick-reply="go_with"]')).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("signoff-panel")).toBeVisible();
     // The number keys decide the note from the page (the shell's main content), not from the list row that opened it.
-    await page.getByTestId("shell-content").focus();
-    // Request changes without words asks for them instead of sending (the option stays open).
-    await page.keyboard.press("2");
-    await expect(page.getByTestId("signoff-panel")).toContainText("Say what should change", { timeout: LONG });
+    // Request changes without words asks for them instead of sending (the option stays open). On the account's first
+    // Inbox visit the Inbox tour (then the first-decision callout) opens, and an open card holds the number keys (UX plan
+    // §6.2, §7.9): close what shows, press, and try again if a card opened in between (a second 2 only asks again).
+    await expect(async () => {
+      await dismissCoachmarks(page);
+      await page.getByTestId("shell-content").focus();
+      await page.keyboard.press("2");
+      await expect(page.getByTestId("signoff-panel")).toContainText("Say what should change", { timeout: 10_000 });
+    }).toPass({ timeout: LONG * 2 });
     await expect(item).toHaveAttribute("data-state", /unread|read/);
     // The notes field took the focus so the founder can type; back on the page, 1 approves.
     await expect(page.getByTestId("signoff-notes")).toBeFocused();
-    await page.getByTestId("shell-content").focus();
-    await page.keyboard.press("1");
+    await expect(async () => {
+      await dismissCoachmarks(page);
+      await page.getByTestId("shell-content").focus();
+      await page.keyboard.press("1");
+      await expect(item).toHaveAttribute("data-state", "answered", { timeout: 10_000 });
+    }).toPass({ timeout: LONG * 2 });
     const answered = page.getByTestId("answered-panel");
-    await expect(item).toHaveAttribute("data-state", "answered", { timeout: LONG });
     await expect(answered).toBeVisible();
     // Decided from the DecisionBar: the desk keeps 2–4 replies but no longer offers "Go with: …" (no second decision).
     await expect(desk.locator('[data-quick-reply="go_with"]')).toHaveCount(0, { timeout: LONG });
@@ -168,9 +176,14 @@ test.describe("inbox", () => {
     expect(secondId, "the second reply asks rather than decides").not.toBe("go_with");
     const agentBubbles = desk.getByTestId("agent-bubble");
     const before = await agentBubbles.count();
-    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-    await page.keyboard.press("Alt+2");
-    await expect.poll(() => agentBubbles.count(), { timeout: LONG }).toBeGreaterThan(before);
+    // An open tour card or callout holds the keyboard shortcuts (the Inbox tour opens on the account's first visit, the
+    // first-decision callout after it): close what shows, press, and try again if a card opened in between.
+    await expect(async () => {
+      await dismissCoachmarks(page);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      await page.keyboard.press("Alt+2");
+      await expect.poll(() => agentBubbles.count(), { timeout: 15_000 }).toBeGreaterThan(before);
+    }).toPass({ timeout: LONG * 2 });
     // The question did not decide anything: the item and its DecisionBar are still open.
     // (Opening a note marks it read, so unread may turn read meanwhile; answered it is not.)
     await expect(item).toHaveAttribute("data-state", /^(unread|read)$/);
