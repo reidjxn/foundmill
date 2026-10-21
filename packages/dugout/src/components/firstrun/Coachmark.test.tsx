@@ -3,7 +3,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { GuidanceProvider, type GuidanceState } from "../guidance/GuidanceProvider";
-import { Callout, Coachmark, findCoachmarkTarget, focusAfterTour, isCoachmarkPaused, type CoachmarkStep } from "./Coachmark";
+import { Callout, COACHMARK_PAUSE_POLL_MS, COACHMARK_PAUSE_SELECTOR, Coachmark, findCoachmarkTarget, focusAfterTour, isCoachmarkPaused, type CoachmarkStep } from "./Coachmark";
 
 const steps: CoachmarkStep[] = [
   { targetId: "journey", title: "Your story on one line", body: "Revenue, customers and milestones on one time axis." },
@@ -179,6 +179,99 @@ describe("Coachmark", () => {
     expect(screen.queryByRole("dialog", { name: "Your story on one line" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Close the dialog" }));
     await screen.findByRole("dialog", { name: "Your story on one line" });
+  });
+
+  it("while paused, polls every 500 ms instead of waking on every change of a busy page", async () => {
+    function Busy() {
+      const [busy, setBusy] = useState(true);
+      return (
+        <Page>
+          {busy ? <div data-coachmark-pause="">Continue is processing</div> : null}
+          <button type="button" onClick={() => setBusy(false)}>
+            Finish processing
+          </button>
+          <Coachmark tourId="home" steps={steps} />
+        </Page>
+      );
+    }
+    render(<Busy />);
+    const spy = vi.spyOn(document, "querySelector");
+    const pauseChecks = () => spy.mock.calls.filter(([s]) => s === COACHMARK_PAUSE_SELECTOR).length;
+    try {
+      // A long cycle: mounts, unmounts and `data-state` flips, across several frames, well inside one poll.
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      for (let i = 0; i < 6; i += 1) {
+        host.appendChild(document.createElement("span"));
+        host.setAttribute("data-state", i % 2 ? "open" : "closed");
+        await act(async () => {
+          await new Promise((r) => setTimeout(r, 20));
+        });
+      }
+      expect(pauseChecks()).toBe(0);
+      host.remove();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      // The pause clears: the next poll starts the tour.
+      await userEvent.click(screen.getByRole("button", { name: "Finish processing" }));
+      await screen.findByRole("dialog", { name: "Your story on one line" }, { timeout: 1500 });
+      expect(COACHMARK_PAUSE_POLL_MS).toBe(500);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("waiting for its targets, wakes on mounts and attributes it cares about but not on a `data-state` flip", async () => {
+    const lonely: CoachmarkStep[] = [{ targetId: "later-target", title: "Here now", body: "It appeared." }];
+    render(
+      <GuidanceProvider>
+        <div data-testid="flipper" data-state="closed" />
+        <Coachmark tourId="later" steps={lonely} />
+      </GuidanceProvider>,
+    );
+    const spy = vi.spyOn(document, "getElementById");
+    const lookups = () => spy.mock.calls.filter(([id]) => id === "later-target").length;
+    try {
+      const flipper = screen.getByTestId("flipper");
+      for (let i = 0; i < 4; i += 1) {
+        flipper.setAttribute("data-state", i % 2 ? "closed" : "open");
+        await act(async () => {
+          await new Promise((r) => setTimeout(r, 20));
+        });
+      }
+      expect(lookups()).toBe(0);
+      const target = document.createElement("div");
+      target.setAttribute("data-coachmark", "later-target");
+      document.body.appendChild(target);
+      await screen.findByRole("dialog", { name: "Here now" });
+      expect(lookups()).toBeGreaterThan(0);
+      target.remove();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("while a step shows, measures its target once per frame however many changes the frame holds", async () => {
+    render(<Page />);
+    await screen.findByRole("dialog", { name: "Your story on one line" });
+    const journey = document.getElementById("journey")!;
+    const rect = { top: 10, left: 10, width: 100, height: 20 };
+    const measure = vi.fn(() => ({ ...rect, right: 110, bottom: 30, x: 10, y: 10, toJSON: () => rect }) as DOMRect);
+    journey.getBoundingClientRect = measure;
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    // Twenty separate observer deliveries inside one frame (each mutation in its own microtask).
+    await act(async () => {
+      for (let i = 0; i < 20; i += 1) {
+        host.appendChild(document.createElement("span"));
+        await Promise.resolve();
+      }
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(measure.mock.calls.length).toBeGreaterThan(0);
+    expect(measure.mock.calls.length).toBeLessThanOrEqual(3);
+    host.remove();
   });
 
   it("never starts when none of its targets is on the page, and nothing breaks", async () => {
