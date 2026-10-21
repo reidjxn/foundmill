@@ -11,9 +11,32 @@ async function guidanceOn(playwright: PlaywrightWorkerArgs["playwright"]): Promi
   return body.result.data.json.guidance === "on";
 }
 
+/**
+ * Home's first-visit tour and the first-Continue callout are tours.spec's and first-days.spec's to assert. Here they are
+ * marked done before the page opens (what Skip tour and Got it do, for the whole dev account): an open card takes the
+ * keyboard (Esc skips the tour instead of leaving Edit mode), and the callout's card sits over New below Continue.
+ */
+async function toursOutOfTheWay(playwright: PlaywrightWorkerArgs["playwright"]): Promise<void> {
+  const api = await devApi(playwright);
+  const res = await api.post("/trpc/founder.preferences.update", { data: { json: { toursDone: { home: true, "first-continue": true } } } });
+  expect(res.ok(), `founder.preferences.update answered ${res.status()}`).toBe(true);
+  await api.dispose();
+}
+
+/** Cycles Northwind's team has finished (`cycle.status.completedCount`): the seed has none; a spec that runs one adds one. */
+async function cyclesCompleted(playwright: PlaywrightWorkerArgs["playwright"]): Promise<number> {
+  const api = await devApi(playwright);
+  const res = await api.get(`/trpc/cycle.status?input=${encodeURIComponent(JSON.stringify({ json: { businessId: NORTHWIND_BUSINESS_ID } }))}`);
+  expect(res.ok(), `cycle.status answered ${res.status()}`).toBe(true);
+  const body = (await res.json()) as { result: { data: { json: { completedCount: number } } } };
+  await api.dispose();
+  return body.result.data.json.completedCount;
+}
+
 /** Home dashboards (BUILD §11.2, AC-11.2.4) on the seeded Northwind Skincare. Stack and commands: e2e/README.md. */
 test.describe("home", () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, playwright }) => {
+    await toursOutOfTheWay(playwright);
     await openBusiness(page);
     await expect(page.getByTestId("home-screen")).toBeVisible({ timeout: LONG });
   });
@@ -32,12 +55,13 @@ test.describe("home", () => {
     await expect(strip.getByText("Runway", { exact: true })).toBeVisible({ timeout: LONG });
     const bar = page.getByTestId("kit-bar");
     // No runway figure: the bar and the tile say the same words, never a bare dash: "No limit" when cash-flow
-    // positive, "Not known yet" otherwise (the shared runway wording), the reason under the tile and in the bar's tooltip.
+    // positive, "Not known yet" without a bank or enough history, "Cash is below zero" when the balance is negative
+    // (the shared runway wording, UX plan B8), the reason under the tile and in the bar's tooltip.
     await expect(bar).not.toContainText("No runway yet");
     const barWords = bar.locator("[data-runway-words]");
     if (await barWords.count()) {
       const words = (await barWords.innerText()).trim();
-      expect(words).toMatch(/^(No limit|Not known yet)$/);
+      expect(words).toMatch(/^(No limit|Not known yet|Cash is below zero)$/);
       await expect(strip.getByText(words, { exact: true })).toBeVisible({ timeout: LONG });
     }
     // Inbox preview rows: the subject wraps to two lines; nothing in a row is cut sideways.
@@ -55,7 +79,7 @@ test.describe("home", () => {
     await expect(strip.getByText("Team health", { exact: true })).toBeVisible({ timeout: LONG });
     await expect(strip).not.toContainText("Business health");
     await expect(strip).toContainText(/\d+ of \d+ \w+ healthy|No \w+ hired yet/, { timeout: LONG });
-    await expect(strip).toContainText(/Months of cash left|Under \d+ months of cash left|No limit|Not known yet/, { timeout: LONG });
+    await expect(strip).toContainText(/Months of cash left|Under \d+ months of cash left|No limit|Not known yet|Cash is below zero/, { timeout: LONG });
     await expect(strip).toContainText("Money in this month");
     await expect(strip).toContainText(/Paying \w+, last 7 days/);
     // The formula is the provenance tooltip's, not a caption: nothing on the strip reads "Cash ÷ net burn" or "Cash basis".
@@ -94,11 +118,19 @@ test.describe("home", () => {
       // Every tile says its figure in plain words under it.
       const tiles = await strip.locator("[data-metric-tile]").count();
       await expect(strip.locator("[data-metric-tile] [data-plain-line]")).toHaveCount(tiles, { timeout: LONG });
-      // Northwind is past day one: the next step is one line on its own plate above the grid.
+      // Northwind is past Home's day one (it has customers), so the next step sits on its own plate above the grid,
+      // never in the Day one panel. Once a cycle has finished it is the one most relevant line; before that (the seed
+      // finishes none, and a seeded business has no first draft to read) it is the notes, if any, then Continue
+      // (nextStepsFor's "none" foundations case, UX plan §6.2 NextStep).
       const next = page.getByTestId("next-step-strip");
       await expect(next).toBeVisible({ timeout: LONG });
-      await expect(next.locator("[data-next-step]")).toHaveAttribute("data-rows", "1");
-      await expect(next).toContainText(/needs? your answer|is running|new notes? from the team|Start distribution|Nothing waiting/);
+      if ((await cyclesCompleted(playwright)) > 0) {
+        await expect(next.locator("[data-next-step]")).toHaveAttribute("data-rows", "1");
+        await expect(next).toContainText(/needs? your answer|is running|new notes? from the team|Start distribution|Nothing waiting/);
+      } else {
+        await expect(next.locator("[data-next-step]")).toHaveAttribute("data-rows", /^[12]$/);
+        await expect(next.locator("[data-next-step-row]").last()).toContainText(/Press Continue|is running/);
+      }
       await expect(page.getByTestId("day-one")).toHaveCount(0);
       // The Edit key cap is an operator's affordance: it shows only when guidance is off; the shortcut works either way.
       await expect(page.getByTestId("edit-layout").locator("kbd")).toHaveCount(0);
