@@ -1,26 +1,25 @@
 "use client";
 /**
- * The guided layer's host (docs/UX_AUDIT_AND_PLAN.md §6.3): mounted once in AppProviders, it reads the signed-in
- * person's guidance preferences (`founder.preferences.guidance`: the switch, the text size, the explainers seen, the
- * tours done, the checklist) and provides the design system's `GuidanceProvider` with them and with the definitions map
- * (`TERMS` run through the business glossary), the way DateFormatHost provides the date format. Below it every
- * primitive reads `useGuidance()`, and Settings › Preferences changes the choice through `useGuidancePreferences()`.
+ * The guided layer's host (docs/UX_AUDIT_AND_PLAN.md §6.3): mounted by each signed-in layout (/b/[bid], the LIVE pages,
+ * /new, /onboarding), it reads the signed-in person's guidance preferences (`founder.preferences.guidance`: the switch,
+ * the text size, the explainers seen, the tours done, the checklist) and provides the design system's
+ * `GuidanceProvider` with them and with the definitions map (`TERMS`), the way DateFormatHost provides the date format.
+ * Below it every primitive reads `useGuidance()`, and Settings › Preferences changes the choice through
+ * `useGuidancePreferences()`. The root providers mount only GuidanceRoot (signed-out defaults, the map loaded lazily).
  *
- * - It reads only on a signed-in page (the proxy's own rule, lib/auth/redirects.ts `isFounderPath`; `/` is the landing
- *   page for a visitor): a read from a signed-out page would answer UNAUTHORIZED and send the visitor to sign in. The
- *   business layouts start the read on the server and hand it over with the page (lib/shell-data.server.ts), so the
- *   shell asks nothing after hydration; the other signed-in pages read once on load. Until the answer, and on every
- *   signed-out page, guidance reads as on with standard text.
+ * - The layout reads the preferences on the server with the rest of its data (lib/guidance.server.ts) and hands them
+ *   over as `initial`, so the first render already has the account's answer: a tour already done never opens for a
+ *   frame, and an account with guidance off never sees an explainer flash in (review F28, perf audit item 2). When that
+ *   read failed, the host reads once in the browser and the coach marks and explainers wait (`loaded`).
  * - A change (`save`, and the provider's actions) shows at once everywhere (optimistic, rolled back if the save fails);
- *   two quick changes end on what was stored, as DateFormatHost does.
+ *   two quick changes end on what was stored, as DateFormatHost does. An answer equal to the optimistic value changes
+ *   nothing, so the screen renders once per change.
  * - Comfortable text is stamped on the document (`data-text="comfortable"` on <html>, the tokens' own hook) and removed
- *   when the choice is standard. The choice is mirrored into a cookie (text-size-cookie.ts, like the date format's),
- *   which app/layout.tsx reads so the first byte already carries the attribute; `initialTextSize` is what that render
- *   used, and it holds until the account answers.
- * - The glossary of the business on screen (`business.get`, read from the query cache under the route's id, never asked
- *   for here) renames the display words of the definitions, so a business that says "clients" reads it in every term;
- *   outside a business the map is `TERMS` as written. "Learn more" resolves through `learnPath` with the route's
- *   business id (LearnLinkProvider); outside a business only absolute URLs open.
+ *   when the choice is standard, once the account has answered. The choice is mirrored into a cookie
+ *   (text-size-cookie.ts), which the root layout's head script reads before the first paint.
+ * - The definitions map is `TERMS` as written; the business shell replaces it with its glossary's words below it
+ *   (BusinessShell, `GuidanceTermsProvider`), so this host never watches the business. "Learn more" resolves through
+ *   `learnPath` with the route's business id (LearnLinkProvider); outside a business only absolute URLs open.
  * - The product signals (UX plan §11, `founder.preferences.signal`, the five guidance.* events): `signal(kind, payload)`
  *   on `useGuidancePreferences()` and `useGuidanceSignal()` sends one, fire and forget (never awaited, a failure is
  *   dropped, nothing on screen waits for it). The host sends three itself: an explainer's first "Got it"
@@ -31,30 +30,42 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, usePathname } from "next/navigation";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { GuidanceProvider, LearnLinkProvider, type GuidanceActions, type GuidanceState, type TermDefinition, type TermOpenAction } from "@foundmill/dugout";
-import type { GuidanceOffSource } from "@foundmill/shared/constants";
 import type { Glossary } from "@foundmill/shared/glossary";
 import { TERMS, learnPath, termsWithGlossary } from "@foundmill/shared/terms";
-import { isFounderPath } from "@/lib/auth/redirects";
-import type { RouterInputs, RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { encodeTextSizeCookie, readTextSizeCookie, textSizeCookieString, type TextSizeChoice } from "./text-size-cookie";
+import {
+  GuidancePreferencesProvider,
+  GuidanceSignalProvider,
+  isSignedInPath,
+  type GuidancePatch,
+  type GuidancePreferencesApi,
+  type GuidancePrefs,
+  type GuidanceSaveOptions,
+  type GuidanceSignalFn,
+  type GuidanceSignalInput,
+  type GuidanceSignalKind,
+  type GuidanceSignalPayload,
+} from "./guidance-context";
+import { encodeTextSizeCookie, readTextSizeCookie, textSizeCookieString } from "./text-size-cookie";
 
-/** The guided layer's preferences, as the API answers them. */
-export type GuidancePrefs = RouterOutputs["founder"]["preferences"]["guidance"];
-/** A change to them (the date format is DateFormatHost's). */
-export type GuidancePatch = Omit<RouterInputs["founder"]["preferences"]["update"], "date" | "time">;
-
-/** One guided-layer signal as `founder.preferences.signal` takes it (the payload of a guidance.* event, with its type). */
-export type GuidanceSignal = RouterInputs["founder"]["preferences"]["signal"]["signal"];
-export type GuidanceSignalKind = GuidanceSignal["type"];
-/** The payload of one kind of signal, without its type. */
-export type GuidanceSignalPayload<K extends GuidanceSignalKind> = Omit<Extract<GuidanceSignal, { type: K }>, "type">;
-/** Sends one signal, fire and forget: it returns at once, never throws, and a failure is dropped. */
-export type GuidanceSignalFn = <K extends GuidanceSignalKind>(kind: K, payload: GuidanceSignalPayload<K>) => void;
-/** What the host hands `founder.preferences.signal`. */
-export type GuidanceSignalInput = RouterInputs["founder"]["preferences"]["signal"];
+export {
+  DEFAULT_GUIDANCE_PREFS,
+  GuidanceSignalProvider,
+  isSignedInPath,
+  useGuidancePreferences,
+  useGuidanceSignal,
+  type GuidancePatch,
+  type GuidancePreferencesApi,
+  type GuidancePrefs,
+  type GuidanceSaveOptions,
+  type GuidanceSignal,
+  type GuidanceSignalFn,
+  type GuidanceSignalInput,
+  type GuidanceSignalKind,
+  type GuidanceSignalPayload,
+} from "./guidance-context";
 
 /** The API's own bounds on a signal's ids (apps/api founder.ts `GuidanceSignalInput`): a term id, a screen or tour id. */
 const TERM_ID_RE = /^[a-z][a-z0-9_]*$/;
@@ -87,20 +98,6 @@ export function screenIdFromPath(pathname: string | null | undefined): string | 
   return id.length > MAX_ID ? id.slice(0, MAX_ID) : id;
 }
 
-const noSignal: GuidanceSignalFn = () => undefined;
-const GuidanceSignalCtx = createContext<GuidanceSignalFn>(noSignal);
-
-/** Provides a `signal` below it: the host's own, or a fake in a story or a test. */
-export const GuidanceSignalProvider = GuidanceSignalCtx.Provider;
-
-/** The host's `signal` (a no-op outside <GuidanceHost>, so a tour or a test can call it anywhere). */
-export function useGuidanceSignal(): GuidanceSignalFn {
-  return useContext(GuidanceSignalCtx);
-}
-
-/** What everyone reads until the account answers, and on every signed-out page. */
-export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null });
-
 /** How long the choice read on load is taken as current (the same as the date format's). */
 export const GUIDANCE_FRESH_MS = 5 * 60_000;
 
@@ -111,11 +108,6 @@ export const GUIDANCE_FRESH_MS = 5 * 60_000;
 export const GUIDANCE_MUTATION_KEY: readonly unknown[] = [["founder", "preferences", "guidance"]];
 /** The product signals' own key, so neither host's "is another change of mine pending" check ever counts one. */
 export const GUIDANCE_SIGNAL_MUTATION_KEY: readonly unknown[] = [["founder", "preferences", "signal"]];
-
-/** True on the pages the proxy reserves for a signed-in founder; `/` is the landing page for a visitor, so it is not one. */
-export function isSignedInPath(pathname: string | null | undefined): boolean {
-  return typeof pathname === "string" && pathname !== "/" && isFounderPath(pathname);
-}
 
 /** The guided layer's part of a full preferences answer (`founder.preferences.update` returns the formats too). */
 export function guidancePrefsOf(p: GuidancePrefs): GuidancePrefs {
@@ -139,53 +131,10 @@ export function applyGuidancePatch(prev: GuidancePrefs, patch: GuidancePatch, no
   return next;
 }
 
-export interface GuidanceSaveOptions {
-  /** Where a change that turns guidance off was made (the `guidance.turned_off` signal); default "settings". */
-  from?: GuidanceOffSource;
-}
-
-export interface GuidancePreferencesApi {
-  prefs: GuidancePrefs;
-  /**
-   * Saves a change; the guided layer follows at once everywhere. Rejects when the save fails (then it is rolled back).
-   * A saved change from on to off sends `guidance.turned_off`.
-   */
-  save: (patch: GuidancePatch, options?: GuidanceSaveOptions) => Promise<GuidancePrefs>;
-  /** Sends one product signal (fire and forget; see the file comment). */
-  signal: GuidanceSignalFn;
-  saving: boolean;
-  /** False on a signed-out page: nothing is read, nothing can be saved, everything reads as the default. */
-  signedIn: boolean;
-}
-
-const GuidancePreferencesCtx = createContext<GuidancePreferencesApi | null>(null);
-
-/** The current choice and a way to change it (Settings › Preferences). Throws outside <GuidanceHost>. */
-export function useGuidancePreferences(): GuidancePreferencesApi {
-  const ctx = useContext(GuidancePreferencesCtx);
-  if (!ctx) throw new Error("useGuidancePreferences must be used inside <GuidanceHost>");
-  return ctx;
-}
-
-const NO_GLOSSARY: Glossary | null = null;
-
 /** The business the route names (`/b/[bid]/…`), or null elsewhere (LIVE, /new, /onboarding, the sign-in pages). */
 function useRouteBusinessId(): string | null {
   const params = useParams<{ bid?: string }>();
   return typeof params?.bid === "string" ? params.bid : null;
-}
-
-/** The glossary of the business the route names, from the query cache (BusinessShell holds `business.get`); null elsewhere. */
-function useBusinessGlossary(bid: string | null): Glossary | null {
-  const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const subscribe = useCallback((onChange: () => void) => (bid ? queryClient.getQueryCache().subscribe(onChange) : () => undefined), [queryClient, bid]);
-  const read = useCallback(() => {
-    if (!bid) return NO_GLOSSARY;
-    const data = queryClient.getQueryData<RouterOutputs["business"]["get"]>(trpc.business.get.queryKey({ businessId: bid }));
-    return data?.business?.glossary ?? NO_GLOSSARY;
-  }, [queryClient, trpc, bid]);
-  return useSyncExternalStore(subscribe, read, () => NO_GLOSSARY);
 }
 
 /**
