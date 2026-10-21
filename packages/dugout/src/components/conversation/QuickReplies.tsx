@@ -14,6 +14,7 @@ import { Button } from "../foundation/Button";
 import { Icon, type IconComponent } from "../foundation/Icon";
 import { Input } from "../foundation/Input";
 import { Kbd } from "../foundation/Kbd";
+import { useGuided } from "../guidance/GuidanceProvider";
 import { FALLBACK_QUICK_REPLIES, settleQuickReplies, type QuickReplyItem } from "./types";
 
 export type QuickReplyKeyModifier = "none" | "alt";
@@ -189,6 +190,9 @@ export function QuickReplies({
     }
   };
 
+  // The 1–4 (or ⌥1–4) key caps are an operator's affordance: they render only while guidance is off (UX plan §7.7,
+  // the DecisionBar's rule). The keys work either way, and aria-keyshortcuts names them in both states.
+  const showKeys = !useGuided();
   const keyLabel = (n: number) =>
     keyModifier === "alt" ? (mac ? `⌥${n}` : `Alt+${n}`) : String(n);
   const writeWord = writeLabel ?? "Write";
@@ -213,9 +217,11 @@ export function QuickReplies({
               data-quick-reply={reply.id}
               onClick={() => choose(reply)}
             >
-              <Kbd size="md" aria-hidden className={cn(likely && "text-primary")}>
-                {keyLabel(i + 1)}
-              </Kbd>
+              {showKeys ? (
+                <Kbd size="md" aria-hidden className={cn(likely && "text-primary")}>
+                  {keyLabel(i + 1)}
+                </Kbd>
+              ) : null}
               {kindIcon ? (
                 <Icon
                   icon={kindIcon}
