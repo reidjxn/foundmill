@@ -27,7 +27,7 @@ export const viewport: Viewport = {
 };
 
 /**
- * Synchronous and free of dynamic APIs (no cookies(), no session read), so `/`, `/examples/[id]` and the other
+ * Synchronous and free of dynamic APIs (it reads no cookie and no session), so `/`, `/examples/[id]` and the other
  * static pages stay prerendered (review F35, perf audit item 1). Comfortable text comes from a head script that reads
  * the text-size cookie before the first paint (components/providers/text-size-cookie.ts); the attribute it may add is
  * why `<html>` suppresses the hydration warning (that element only).
