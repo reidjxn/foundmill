@@ -3,8 +3,9 @@ import { forwardRef, useCallback, useEffect, useMemo, useState, type CSSProperti
 import type { BusinessMode, GameMode, Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { BusinessLogo } from "../foundation/BusinessLogo";
+import { FitText } from "../foundation/FitText";
 import { useToastPlacement } from "../foundation/Toast";
-import { Tooltip, TooltipProvider } from "../foundation/Tooltip";
+import { TooltipProvider } from "../foundation/Tooltip";
 import { useGuided } from "../guidance/GuidanceProvider";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { CommandPalette, KEYBOARD_SHORTCUTS_HELP_ITEM, type CommandPaletteProps, type PaletteItem } from "./CommandPalette";
@@ -52,19 +53,33 @@ export interface AppShellProcessing {
   cycleNumber?: number | null;
 }
 
+/** The floor the tab bar's processing line steps down to before it truncates (DESIGN §2: 11 px). */
+export const PROCESSING_LINE_MIN_PX = 11;
+
+/**
+ * The tab bar's version of the strip's sentence: the sentence itself while it names one or two departments, and a count
+ * once it names three or more ("4 departments are working on cycle 12"), so the line never reaches an ellipsis at
+ * 1280 px. The strip's tooltip and accessible name keep every department's name. Exported for tests.
+ */
+export function processingLineText(segments: readonly ProcessingSegment[], active: boolean, cycleNumber?: number | null): string {
+  const working = active ? segments.filter((s) => s.active).length : 0;
+  if (working < 3) return processingStatusText(segments, active, cycleNumber);
+  const on = typeof cycleNumber === "number" && cycleNumber > 0 ? ` on cycle ${cycleNumber}` : "";
+  return `${working} departments are working${on}`;
+}
+
 /**
  * The strip's sentence in words, at the right end of the tab bar while guidance is on (B2): `t-small` in text-3,
- * inside the bar's 40 px, truncated with a tooltip when the tabs leave it little room. Nothing moves. It stays a plain
- * line on purpose: `PlainFigure` stacks a figure over its words, which would need a second row the bar does not have,
- * and `ConsequenceLine` is for what an action will do, not for what is happening now.
+ * inside the bar's 40 px. When the tabs leave it little room it steps its size down to 11 px first and truncates with a
+ * tooltip only as the last resort (FitText, DESIGN §2). Nothing moves. It stays a plain line on purpose: `PlainFigure`
+ * stacks a figure over its words, which would need a second row the bar does not have, and `ConsequenceLine` is for
+ * what an action will do, not for what is happening now.
  */
 function ProcessingLine({ text }: { text: string }) {
   return (
-    <Tooltip content={text} side="bottom">
-      <span className="t-small max-w-64 min-w-0 truncate text-tertiary" data-testid="processing-line">
-        {text}
-      </span>
-    </Tooltip>
+    <FitText minPx={PROCESSING_LINE_MIN_PX} className="t-small max-w-64 min-w-0 text-tertiary" data-testid="processing-line">
+      {text}
+    </FitText>
   );
 }
 
@@ -389,7 +404,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
                 guided ? (
                   <>
                     {tabs.trailing}
-                    <ProcessingLine text={processingText} />
+                    <ProcessingLine text={processingLineText(processing.segments, processing.active, processing.cycleNumber)} />
                   </>
                 ) : (
                   tabs.trailing
