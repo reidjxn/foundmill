@@ -8,7 +8,7 @@
  * keeps its place on the grid (DESIGN §2) and shows one line only while the dashboard is being edited, so the founder
  * can see what the empty cell is.
  */
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { z } from "zod";
 import { ListChecks } from "lucide-react";
 import { DEFAULT_FIRST_WEEK_ITEMS, FirstWeekChecklist, useGuidance, type FirstWeekItem, type FirstWeekItemId } from "@foundmill/dugout";
@@ -34,8 +34,31 @@ export const FIRST_WEEK_FLAGS: Record<FirstWeekItemId, keyof FirstWeekResponse> 
   connect_bank: "bankOrStripeConnected",
 };
 
-/** Events after which a flag may have flipped. */
-const FIRST_WEEK_EVENTS = ["product.signoff_decided", "cycle.completed", "inbox.item_updated", "decision.made", "distribution.started", "bank.balance_updated", "customer.converted"] as const;
+/** Events after which a flag may have flipped, each with the flags it can flip. */
+export const FIRST_WEEK_EVENT_FLAGS: Record<string, readonly (keyof FirstWeekResponse)[]> = {
+  "product.signoff_decided": ["specificationSignedOff", "roadmapSignedOff"],
+  "cycle.completed": ["cycleCompleted"],
+  "inbox.item_updated": ["noteRead"],
+  "decision.made": ["noteRead"],
+  "conversation.message_posted": ["conversationReplySent"],
+  "distribution.started": ["distributionStarted"],
+  "bank.balance_updated": ["bankOrStripeConnected"],
+  "customer.converted": ["bankOrStripeConnected"],
+};
+const FIRST_WEEK_EVENTS = Object.keys(FIRST_WEEK_EVENT_FLAGS);
+
+/** How long a burst of events is folded into one refetch (a refetch cancels the one in flight, so each would run in full). */
+export const FIRST_WEEK_REFETCH_DEBOUNCE_MS = 400;
+
+/**
+ * Whether an event can still change the answer: only while one of the flags it can flip is not yet true (a flag never
+ * goes back). Once every flag an event touches is done, that event no longer refetches anything.
+ */
+export function firstWeekEventMatters(type: string, flags: FirstWeekResponse | undefined): boolean {
+  const touched = FIRST_WEEK_EVENT_FLAGS[type];
+  if (!touched) return false;
+  return !flags || touched.some((flag) => flags[flag] !== true);
+}
 
 /** The top bar's Continue button (ContinueButton marks it `data-continue-state`): "Run a cycle" puts the focus on it. */
 export function focusContinueButton(): boolean {
@@ -80,8 +103,21 @@ function FirstWeekChecklistWidget({ editing }: WidgetProps<FirstWeekChecklistSet
   const wanted = guided && !dismissed;
   const flags = useWidgetQuery<FirstWeekResponse>("business.firstWeek.get", {}, { enabled: wanted });
   const departments = useDepartments({ enabled: wanted });
-  useBusinessEvents(() => {
-    if (wanted) flags.refetch();
+  // A burst of events (a cycle's notes, a decision and its updates) folds into one refetch, and an event whose flags
+  // are all done already is ignored (perf audit item 10).
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refetchRef = useRef(flags.refetch);
+  refetchRef.current = flags.refetch;
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+  useBusinessEvents((event) => {
+    if (!wanted || !firstWeekEventMatters(event.type, flags.data)) return;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      refetchRef.current();
+    }, FIRST_WEEK_REFETCH_DEBOUNCE_MS);
   }, FIRST_WEEK_EVENTS);
   const menu = usePinToHomeMenu(useWidgetInstance());
   const hrefs = useMemo(() => firstWeekHrefs(businessId, departments.data), [businessId, departments.data]);
