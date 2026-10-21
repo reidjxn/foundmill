@@ -127,4 +127,5 @@ export default defineConfig({
     { name: "desktop-chromium", testIgnore: /onboarding\.spec\.ts/, dependencies: ["profile"], use: browser },
   ],
   webServer,
+  globalSetup: "./e2e/global-setup.ts",
 });
