@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { act, render, screen } from "@testing-library/react";
 import { DateFormatProvider } from "../foundation/DateFormatProvider";
 import { ContinueButton, holidayCaptionParts } from "./ContinueButton";
-import { fitKitBar, KITBAR_COMPACT_STEPS, KITBAR_SEARCH_FULL_WIDTH, kitBarFits, kitBarIsRoomy, setKitBarCompact } from "./KitBarFit";
+import { createSearchWidthCache, fitKitBar, KitBarFit, KITBAR_COMPACT_STEPS, KITBAR_SEARCH_FULL_WIDTH, kitBarFits, kitBarIsRoomy, kitBarSearchFullWidth, setKitBarCompact } from "./KitBarFit";
 import { GameModeChip, KITBAR_BRIEF_CLASS, ModeChip, modeChipTooltip } from "./ModeChip";
 import { RunwayChip } from "./RunwayChip";
 
@@ -40,6 +40,51 @@ describe("KitBarFit", () => {
     expect(kitBarIsRoomy(document.createElement("header"))).toBe(true);
     expect(KITBAR_COMPACT_STEPS[0]).toBe("chips-brief");
     expect(KITBAR_BRIEF_CLASS).toContain("chips-brief");
+  });
+
+  it("reads the search's whole width once, not on every change of words in the bar; a resize reads it again", async () => {
+    const reads = vi.fn((search: HTMLElement) => kitBarSearchFullWidth(search));
+    const cache = createSearchWidthCache(reads);
+    const search = document.createElement("button");
+    expect(cache.get(search)).toBe(KITBAR_SEARCH_FULL_WIDTH);
+    cache.get(search);
+    expect(reads).toHaveBeenCalledTimes(1);
+    cache.clear();
+    cache.get(search);
+    expect(reads).toHaveBeenCalledTimes(2);
+    // Another search element (the bar rendered again) is read afresh.
+    cache.get(document.createElement("button"));
+    expect(reads).toHaveBeenCalledTimes(3);
+
+    // In the bar: three changes of the title's words, one style read of the search (the first fit's).
+    const spy = vi.spyOn(window, "getComputedStyle");
+    const rects = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect");
+    try {
+      render(
+        <header>
+          <span data-testid="kitbar-screen-title">Home</span>
+          <button type="button" data-testid="kitbar-search">
+            Search
+          </button>
+          <KitBarFit />
+        </header>,
+      );
+      const title = screen.getByTestId("kitbar-screen-title");
+      for (const words of ["Inbox", "Finance", "Runway"]) {
+        await act(async () => {
+          title.textContent = words;
+          await Promise.resolve();
+        });
+      }
+      const searchReads = spy.mock.calls.filter(([el]) => (el as HTMLElement).getAttribute?.("data-testid") === "kitbar-search").length;
+      expect(searchReads).toBe(1);
+      // The bar was fitted on load and after each change all the same (the search measured each time).
+      const fits = rects.mock.contexts.filter((el) => (el as HTMLElement).getAttribute?.("data-testid") === "kitbar-search").length;
+      expect(fits).toBeGreaterThanOrEqual(4);
+    } finally {
+      spy.mockRestore();
+      rects.mockRestore();
+    }
   });
 
   it("asks for the screen title's room (its natural width, at most 120 px) as well as no overflow", () => {

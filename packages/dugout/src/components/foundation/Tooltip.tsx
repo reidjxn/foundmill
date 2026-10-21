@@ -1,10 +1,22 @@
 "use client";
-import { forwardRef, type ComponentPropsWithoutRef, type ElementRef, type ReactNode } from "react";
+import { createContext, forwardRef, useContext, type ComponentProps, type ComponentPropsWithoutRef, type ElementRef, type ReactNode } from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { cn } from "../../lib/cn";
 
-/** Put one at the app root so tooltips share a delay group. */
-export const TooltipProvider = TooltipPrimitive.Provider;
+/** True below a `TooltipProvider`: a `Tooltip` there mounts no provider of its own. */
+const HasTooltipProvider = createContext(false);
+
+/**
+ * Put one at the app root so tooltips share a delay group (apps/web AppProviders, AppShell). Below it every `Tooltip`
+ * uses it instead of mounting its own (perf audit item 7: hundreds of closed triggers on a screen).
+ */
+export function TooltipProvider(props: ComponentProps<typeof TooltipPrimitive.Provider>) {
+  return (
+    <HasTooltipProvider.Provider value={true}>
+      <TooltipPrimitive.Provider {...props} />
+    </HasTooltipProvider.Provider>
+  );
+}
 export const TooltipRoot = TooltipPrimitive.Root;
 export const TooltipTrigger = TooltipPrimitive.Trigger;
 export const TooltipPortal = TooltipPrimitive.Portal;
@@ -28,11 +40,14 @@ export const TooltipContent = forwardRef<ElementRef<typeof TooltipPrimitive.Cont
   },
 );
 
+const DEFAULT_DELAY_MS = 400;
+
 export interface TooltipProps {
   content: ReactNode;
   children: ReactNode;
   side?: "top" | "right" | "bottom" | "left";
   align?: "start" | "center" | "end";
+  /** This tooltip's own delay; default the provider's (400 ms). */
   delayDuration?: number;
   /** Controlled open state. */
   open?: boolean;
@@ -41,19 +56,25 @@ export interface TooltipProps {
 }
 
 /**
- * Convenience tooltip: wraps the child (which must accept a ref and props, e.g. a button).
- * Includes its own provider so it works anywhere; put a TooltipProvider at the root to share delays.
+ * Convenience tooltip: wraps the child (which must accept a ref and props, e.g. a button). Below a `TooltipProvider` it
+ * joins that provider's delay group; outside one (a story, a test) it mounts its own so it still works.
  */
-export function Tooltip({ content, children, side = "top", align = "center", delayDuration = 400, open, onOpenChange, className }: TooltipProps) {
+export function Tooltip({ content, children, side = "top", align = "center", delayDuration, open, onOpenChange, className }: TooltipProps) {
+  const shared = useContext(HasTooltipProvider);
   if (content === null || content === undefined || content === "") return <>{children}</>;
+  const root = (
+    // A delay given here is this tooltip's own; otherwise the provider's (400 ms in the app) applies.
+    <TooltipPrimitive.Root open={open} onOpenChange={onOpenChange} delayDuration={delayDuration}>
+      <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
+      <TooltipContent side={side} align={align} className={className}>
+        {content}
+      </TooltipContent>
+    </TooltipPrimitive.Root>
+  );
+  if (shared) return root;
   return (
-    <TooltipPrimitive.Provider delayDuration={delayDuration} skipDelayDuration={300}>
-      <TooltipPrimitive.Root open={open} onOpenChange={onOpenChange}>
-        <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
-        <TooltipContent side={side} align={align} className={className}>
-          {content}
-        </TooltipContent>
-      </TooltipPrimitive.Root>
+    <TooltipPrimitive.Provider delayDuration={delayDuration ?? DEFAULT_DELAY_MS} skipDelayDuration={300}>
+      {root}
     </TooltipPrimitive.Provider>
   );
 }

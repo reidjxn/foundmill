@@ -47,7 +47,7 @@ import { cn } from "../../lib/cn";
 import { formatNumber } from "../../lib/format";
 import { uniqueId } from "../../lib/seed";
 import { Checkbox } from "../foundation/Checkbox";
-import { useGuidance } from "../guidance/GuidanceProvider";
+import { useGuidanceMode } from "../guidance/GuidanceProvider";
 import { Term } from "../guidance/Term";
 import {
   ContextMenu,
@@ -391,7 +391,8 @@ export function DataTable<T>(props: DataTableProps<T>) {
 
   const [sorting, setSorting] = useState<SortingState>(() => viewToState(activeView).sort);
   // Column heads that are defined terms (`meta.term`): the map, and whether tutoring renders at all.
-  const { guidance: guidanceMode, terms: guidanceTerms } = useGuidance();
+  // The mode and the terms only: a "Got it" or a finished tour elsewhere does not render the table again.
+  const { guidance: guidanceMode, terms: guidanceTerms } = useGuidanceMode();
   const [chips, setChips] = useState<FilterChipValue[]>(() => viewToState(activeView).filters);
   const [visibleIds, setVisibleIds] = useState<string[]>(() => viewToState(activeView).columns);
   const [densityState, setDensityState] = useState<TableDensity>(

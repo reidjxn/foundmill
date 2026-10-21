@@ -36,16 +36,40 @@ export function kitBarFits(bar: HTMLElement): boolean {
   return title.getBoundingClientRect().width + 0.5 >= need;
 }
 
+/** The search's whole width: its CSS max-width (the `--kitbar-search` token), else the fallback. Exported for tests. */
+export function kitBarSearchFullWidth(search: HTMLElement): number {
+  const max = typeof getComputedStyle === "function" ? Number.parseFloat(getComputedStyle(search).maxWidth) : Number.NaN;
+  return Number.isFinite(max) && max > 0 ? max : KITBAR_SEARCH_FULL_WIDTH;
+}
+
+/**
+ * `kitBarSearchFullWidth`, read once per search element and kept until `clear` (the bar calls it when it resizes), so
+ * a change of words in the bar costs no style read. Exported for tests.
+ */
+export function createSearchWidthCache(read: (search: HTMLElement) => number = kitBarSearchFullWidth): {
+  get: (search: HTMLElement) => number;
+  clear: () => void;
+} {
+  let held: { search: HTMLElement; width: number } | null = null;
+  return {
+    get: (search) => {
+      if (held?.search !== search) held = { search, width: read(search) };
+      return held.width;
+    },
+    clear: () => {
+      held = null;
+    },
+  };
+}
+
 /**
  * True when the search has its whole width, so the chips may carry their second phrase (the widest step). A bar
  * without a search is roomy by definition. Exported for tests.
  */
-export function kitBarIsRoomy(bar: HTMLElement): boolean {
+export function kitBarIsRoomy(bar: HTMLElement, fullWidth: (search: HTMLElement) => number = kitBarSearchFullWidth): boolean {
   const search = bar.querySelector<HTMLElement>("[data-testid='kitbar-search']");
   if (!search) return true;
-  const max = typeof getComputedStyle === "function" ? Number.parseFloat(getComputedStyle(search).maxWidth) : Number.NaN;
-  const full = Number.isFinite(max) && max > 0 ? max : KITBAR_SEARCH_FULL_WIDTH;
-  return search.getBoundingClientRect().width + 0.5 >= full;
+  return search.getBoundingClientRect().width + 0.5 >= fullWidth(search);
 }
 
 /** Writes the step tokens for `level` (0 = none) on the bar. */
@@ -83,21 +107,28 @@ export function KitBarFit() {
   useLayoutEffect(() => {
     const bar = probe.current?.parentElement;
     if (!bar) return;
+    // The search's whole width is read once and again only after a resize, never on a change of words.
+    const searchWidth = createSearchWidthCache();
+    const roomy = (b: HTMLElement) => kitBarIsRoomy(b, searchWidth.get);
     const run = () => {
-      fitKitBar(bar);
+      fitKitBar(bar, kitBarFits, roomy);
+    };
+    const rerun = () => {
+      searchWidth.clear();
+      run();
     };
     run();
-    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(run);
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(rerun);
     ro?.observe(bar);
     // Text and structure only: the attribute writes above are not observed, so fitting never re-triggers itself.
     const mo = typeof MutationObserver === "undefined" ? null : new MutationObserver(run);
     mo?.observe(bar, { childList: true, subtree: true, characterData: true });
     const fonts = typeof document !== "undefined" ? document.fonts : undefined;
-    fonts?.addEventListener?.("loadingdone", run);
+    fonts?.addEventListener?.("loadingdone", rerun);
     return () => {
       ro?.disconnect();
       mo?.disconnect();
-      fonts?.removeEventListener?.("loadingdone", run);
+      fonts?.removeEventListener?.("loadingdone", rerun);
     };
   }, []);
   return <span ref={probe} hidden aria-hidden data-kitbar-fit="" />;

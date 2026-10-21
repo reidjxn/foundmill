@@ -286,6 +286,7 @@
   --palette-height: 70vh; /* the palette's list scrolls beyond this */
   --profile-header: 96px; /* ProfileHeader's height */
   --profile-avatar: 64px; /* its avatar or logo */
+  --explainer-col: 200px; /* the Explainer's three columns wrap below this width each (grid-cols-explainer) */
 
   /* ---------- Overlays ---------- */
   --backdrop: rgba(5, 7, 10, 0.66);

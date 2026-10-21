@@ -2,9 +2,12 @@
 /**
  * The guided layer's one switch (docs/UX_AUDIT_AND_PLAN.md §6.3). The app mounts one provider per signed-in layout with
  * the account's preference (`account_preferences.guidance`, `text_size`, the explainers seen, the tours done, the
- * checklist dismissal) and the definitions map (`TERMS` from @foundmill/shared, already run through the business
- * glossary), the way `DateFormatProvider` carries the date format. Outside a provider (signed-out pages, stories,
- * tests) guidance reads as on, text standard, no terms, and every action is a no-op.
+ * checklist dismissal) and the definitions map (`TERMS` from @foundmill/shared), the way `DateFormatProvider` carries
+ * the date format; the business shell replaces the map with its glossary's words through `GuidanceTermsProvider`.
+ * Outside a provider (stories, tests) guidance reads as on, text standard, no terms, and every action is a no-op.
+ *
+ * The value travels in two contexts: the mode (switch, text size, terms, `loaded`, actions) and the progress
+ * (explainers seen, tours done, checklist). `useGuided`, `useTerm` and `useGuidanceMode` read the first only.
  *
  * Guidance "off" hides tutoring (explainers, the checklist, coach marks, term underlines) and never hides information
  * (consequences, provenance, Estimate). Keyboard caps on buttons go the other way: they render only when guidance is
@@ -81,7 +84,28 @@ export const NOOP_GUIDANCE_ACTIONS: GuidanceActions = {
   resetGuidance: noop,
 };
 
-const GuidanceContext = createContext<GuidanceContextValue>({ ...DEFAULT_GUIDANCE_STATE, ...NOOP_GUIDANCE_ACTIONS });
+/** What changes rarely: the switch, the text size, the definitions, whether the account has answered, and the actions. */
+export type GuidanceModeValue = Pick<GuidanceState, "guidance" | "textSize" | "terms" | "loaded"> & GuidanceActions;
+/** What a "Got it", a finished tour or the checklist's dismissal changes. */
+export type GuidanceProgressValue = Pick<GuidanceState, "explainersSeen" | "toursDone" | "checklistDismissedAt">;
+
+const DEFAULT_MODE: GuidanceModeValue = {
+  guidance: DEFAULT_GUIDANCE_STATE.guidance,
+  textSize: DEFAULT_GUIDANCE_STATE.textSize,
+  terms: DEFAULT_GUIDANCE_STATE.terms,
+  loaded: DEFAULT_GUIDANCE_STATE.loaded,
+  ...NOOP_GUIDANCE_ACTIONS,
+};
+const DEFAULT_PROGRESS: GuidanceProgressValue = {
+  explainersSeen: DEFAULT_GUIDANCE_STATE.explainersSeen,
+  toursDone: DEFAULT_GUIDANCE_STATE.toursDone,
+  checklistDismissedAt: DEFAULT_GUIDANCE_STATE.checklistDismissedAt,
+};
+
+// Two contexts (perf audit item 8): a "Got it" or a finished tour changes only the progress one, so the readers of the
+// mode and the terms (every Term, the Estimate and Forecast tips, PlainFigure, DataTable's headers) do not render again.
+const GuidanceModeContext = createContext<GuidanceModeValue>(DEFAULT_MODE);
+const GuidanceProgressContext = createContext<GuidanceProgressValue>(DEFAULT_PROGRESS);
 
 export interface GuidanceProviderProps {
   /** The account's state; anything missing reads as the default (on, standard, nothing seen). */
@@ -92,24 +116,54 @@ export interface GuidanceProviderProps {
 }
 
 export function GuidanceProvider({ value, actions, children }: GuidanceProviderProps) {
-  const ctx = useMemo<GuidanceContextValue>(
-    () => ({ ...DEFAULT_GUIDANCE_STATE, ...(value ?? {}), ...NOOP_GUIDANCE_ACTIONS, ...(actions ?? {}) }),
-    [value, actions],
+  const v = value ?? {};
+  const { guidance = DEFAULT_MODE.guidance, textSize = DEFAULT_MODE.textSize, terms = DEFAULT_MODE.terms, loaded = DEFAULT_MODE.loaded } = v;
+  const { explainersSeen = DEFAULT_PROGRESS.explainersSeen, toursDone = DEFAULT_PROGRESS.toursDone, checklistDismissedAt = DEFAULT_PROGRESS.checklistDismissedAt } = v;
+  const mode = useMemo<GuidanceModeValue>(() => ({ ...NOOP_GUIDANCE_ACTIONS, ...(actions ?? {}), guidance, textSize, terms, loaded }), [actions, guidance, textSize, terms, loaded]);
+  const progress = useMemo<GuidanceProgressValue>(() => ({ explainersSeen, toursDone, checklistDismissedAt }), [explainersSeen, toursDone, checklistDismissedAt]);
+  return (
+    <GuidanceModeContext.Provider value={mode}>
+      <GuidanceProgressContext.Provider value={progress}>{children}</GuidanceProgressContext.Provider>
+    </GuidanceModeContext.Provider>
   );
-  return <GuidanceContext.Provider value={ctx}>{children}</GuidanceContext.Provider>;
 }
 
-/** The current account's guidance state and actions (on, standard and no-ops outside a provider). */
+/**
+ * Replaces the definitions map below it and keeps everything else from the provider above: the business shell hands
+ * its own glossary's words here (apps/web BusinessShell), so the account's host never watches the business.
+ */
+export function GuidanceTermsProvider({ terms, children }: { terms: Record<string, TermDefinition>; children?: ReactNode }) {
+  const parent = useContext(GuidanceModeContext);
+  const mode = useMemo<GuidanceModeValue>(() => ({ ...parent, terms }), [parent, terms]);
+  return <GuidanceModeContext.Provider value={mode}>{children}</GuidanceModeContext.Provider>;
+}
+
+/** The switch, the text size, the definitions, `loaded` and the actions; never renders again for progress alone. */
+export function useGuidanceMode(): GuidanceModeValue {
+  return useContext(GuidanceModeContext);
+}
+
+/** The explainers seen, the tours done and the checklist's dismissal (Explainer, Coachmark, the checklist). */
+export function useGuidanceProgress(): GuidanceProgressValue {
+  return useContext(GuidanceProgressContext);
+}
+
+/** The current account's guidance state and actions (on, standard and no-ops outside a provider). Prefer the narrower hooks above. */
 export function useGuidance(): GuidanceContextValue {
-  return useContext(GuidanceContext);
+  const mode = useGuidanceMode();
+  const progress = useGuidanceProgress();
+  return useMemo(() => ({ ...mode, ...progress }), [mode, progress]);
 }
 
-/** True when tutoring surfaces (explainers, checklist, coach marks, term underlines, kbd caps on buttons) should render. */
+/**
+ * True when tutoring surfaces (explainers, the checklist, coach marks, term underlines) should render. Key caps on
+ * buttons go the other way: they render when this is false.
+ */
 export function useGuided(): boolean {
-  return useGuidance().guidance === "on";
+  return useGuidanceMode().guidance === "on";
 }
 
 /** One definition by id, or undefined when the map does not hold it. */
 export function useTerm(id: string): TermDefinition | undefined {
-  return useGuidance().terms[id];
+  return useGuidanceMode().terms[id];
 }

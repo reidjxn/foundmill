@@ -12,7 +12,7 @@ import { cn } from "../../lib/cn";
 import { Button } from "../foundation/Button";
 import { Icon } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";
-import { useGuidance } from "./GuidanceProvider";
+import { useGuidanceMode, useGuidanceProgress } from "./GuidanceProvider";
 
 export interface ExplainerProps extends Omit<HTMLAttributes<HTMLElement>, "children"> {
   /** The screen's stable id ("home", "inbox", "finance/runway"); the key in `explainersSeen`. */
@@ -30,12 +30,14 @@ export interface ExplainerProps extends Omit<HTMLAttributes<HTMLElement>, "child
 export const EXPLAINER_LABELS = { purpose: "What this screen is for", action: "What to do here", watchFor: "Watch for" } as const;
 
 export function Explainer({ screenId, purpose, action, watchFor, onExample, className, ...rest }: ExplainerProps) {
-  const { guidance, explainersSeen, markExplainerSeen } = useGuidance();
+  const { guidance, loaded, markExplainerSeen } = useGuidanceMode();
+  const { explainersSeen } = useGuidanceProgress();
   const id = useId();
   // Local state too: outside a provider (stories, tests) the actions are no-ops, and "Got it" still has to collapse.
   const [dismissed, setDismissed] = useState(false);
   const [reopened, setReopened] = useState(false);
-  if (guidance !== "on") return null;
+  // Not before the account has answered: an account with guidance off never sees an explainer flash in and out.
+  if (guidance !== "on" || !loaded) return null;
   const seen = dismissed || explainersSeen[screenId] === true;
   const collapsed = seen && !reopened;
   const gotIt = () => {
@@ -74,7 +76,7 @@ export function Explainer({ screenId, purpose, action, watchFor, onExample, clas
     >
       <Icon icon={BookOpen} className="mt-0.5 text-kit-lift" />
       <div id={`${id}-body`} className="flex min-w-0 flex-1 flex-col gap-3">
-        <dl className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-x-6 gap-y-2">
+        <dl className="grid min-w-0 grid-cols-explainer gap-x-6 gap-y-2">
           <div className="min-w-0">
             <dt id={`${id}-title`} className="t-data">
               {EXPLAINER_LABELS.purpose}

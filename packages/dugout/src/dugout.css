@@ -472,6 +472,11 @@
   inherits: false;
 }
 
+/* The Explainer's columns (guidance/Explainer.tsx): as many as fit at --explainer-col each, sharing the rest. */
+@utility grid-cols-explainer {
+  grid-template-columns: repeat(auto-fit, minmax(var(--explainer-col), 1fr));
+}
+
 /* Duration utilities for the named token durations → duration-press, duration-hover, duration-overlay, duration-slide,
    duration-view, duration-pulse, duration-draw, duration-shimmer, duration-breathe; aliases duration-micro (= hover),
    duration-hover-card and duration-panel (= overlay), duration-ribbon (= draw). */

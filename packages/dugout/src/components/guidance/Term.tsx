@@ -13,7 +13,7 @@
 import { forwardRef, useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import { DefinitionCard } from "./DefinitionCard";
-import { useGuidance, useGuided, useTerm, type GuidanceContextValue, type TermDefinition } from "./GuidanceProvider";
+import { useGuidanceMode, useGuided, useTerm, type GuidanceModeValue, type TermDefinition } from "./GuidanceProvider";
 
 /**
  * The provider's optional "a definition was opened" action. The app passes it with the other actions (GuidanceHost);
@@ -58,7 +58,7 @@ const TermTrigger = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButto
 export function Term({ id, children, fact, always, definition, side, align, className, onOpen }: TermProps) {
   const guided = useGuided();
   const fromMap = useTerm(id);
-  const { onTermOpen } = useGuidance() as GuidanceContextValue & TermOpenAction;
+  const { onTermOpen } = useGuidanceMode() as GuidanceModeValue & TermOpenAction;
   const def = definition ?? fromMap;
   if (!def) return children === undefined ? null : <>{children}</>;
   const text = children ?? def.word;
