@@ -72,6 +72,11 @@ const BUDGETS: Array<[path: string, input: (businessId: string) => unknown, trip
   // The profile, memberships and businesses in one statement (was 3 statements on three connections).
   ["founder.profile.get", () => undefined, 1],
   ["founder.preferences.get", () => undefined, 3],
+  // The guided layer's half of the same row, its own procedure (perf audit item 11): BEGIN with the setup and the read, COMMIT.
+  ["founder.preferences.guidance", () => undefined, 3],
+  // Home's first-week checklist: the latest sign-off rounds, a cycle event, a note opened, a founder message, the
+  // accounts and Stripe, in parallel in one transaction (perf audit item 10).
+  ["business.firstWeek.get", (b) => ({ businessId: b }), 4],
 ];
 
 describe("round trips per procedure, on the wire", () => {
@@ -119,6 +124,14 @@ describe("round trips per procedure, on the wire", () => {
     expect(statements[2]).toMatch(/^select set_config\('role', \$1, true\)/);
     expect(statements.at(-1)).toBe("commit");
     expect(wire.roundTrips()).toBe(4);
+  });
+
+  it("business.firstWeek.get never reads the specification versions (their snapshots), only the latest sign-off rounds", async () => {
+    wire.reset();
+    await createCaller(deps, { userId: hz.A.ownerId }).business.firstWeek.get({ businessId: hz.A.businessId });
+    const statements = wire.statements();
+    expect(statements.filter((q) => /from "spec_versions"/.test(q))).toEqual([]);
+    expect(statements.filter((q) => /from "product_signoffs"/.test(q))).toHaveLength(1);
   });
 
   it("team.agents.list reads every agent's skills in one statement, however many agents there are", async () => {
