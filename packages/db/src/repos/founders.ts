@@ -105,6 +105,23 @@ export const foundersRepo = {
     };
   },
 
+  /**
+   * The business founder's profile experience (the Composer's "who the note is written to", UX plan §7.19), in one
+   * statement: the owner as `memberships.owner` picks them (the creator while they still own it, else the
+   * longest-standing owner) joined to their open profile. Null without an owner, a profile or an experience.
+   */
+  async ownerExperience(db: Executor, businessId: string): Promise<string | null> {
+    const rows = await db
+      .select({ experience: founderProfiles.experience })
+      .from(memberships)
+      .innerJoin(businesses, eq(businesses.id, memberships.businessId))
+      .leftJoin(founderProfiles, and(eq(founderProfiles.userId, memberships.userId), isNull(founderProfiles.archivedAt)))
+      .where(and(eq(memberships.businessId, businessId), eq(memberships.role, "owner")))
+      .orderBy(sql`(${memberships.userId} = ${businesses.createdBy}) desc`, asc(memberships.createdAt), asc(memberships.id))
+      .limit(1);
+    return rows[0]?.experience ?? null;
+  },
+
   async update(db: Executor, userId: string, patch: FounderProfilePatch): Promise<FounderProfile> {
     assertNameFree(patch.displayName);
     const v = parseInput(FounderProfilePatch, patch, "founder profile update");
