@@ -280,9 +280,8 @@ export function localNextBestDecisions(s: LocalDecisionState): LocalDecision[] {
 
 /** The owner's founder profile experience, as the Composer prompt reads it (UX plan §7.19, E3); first-time without a profile. */
 export async function loadFounderExperience(db: Db, businessId: string): Promise<prompts.FounderExperience> {
-  const owner = await repos.memberships.owner(db, businessId);
-  const profile = owner ? await repos.founders.get(db, owner.userId) : null;
-  return prompts.founderExperienceFrom(profile?.experience);
+  // One statement (the owner joined to their profile), not the owner and then the profile in sequence.
+  return prompts.founderExperienceFrom(await repos.founders.ownerExperience(db, businessId));
 }
 
 /** Compose one inbox item in-process (what the composer service does, without the buffer). */

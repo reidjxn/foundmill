@@ -42,9 +42,8 @@ export interface ComposeContext {
 
 /** The owner's founder profile experience, as the Composer prompt reads it. Never throws: no owner or no profile reads as first-time. */
 export async function loadFounderExperience(db: Executor, businessId: string): Promise<FounderExperience> {
-  const owner = await repos.memberships.owner(db, businessId);
-  const profile = owner ? await repos.founders.get(db, owner.userId) : null;
-  return prompts.founderExperienceFrom(profile?.experience);
+  // One statement (the owner joined to their profile), not the owner and then the profile in sequence.
+  return prompts.founderExperienceFrom(await repos.founders.ownerExperience(db, businessId));
 }
 
 export class NoAgentsError extends AppError {
