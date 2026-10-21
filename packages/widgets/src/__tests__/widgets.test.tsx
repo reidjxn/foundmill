@@ -10,6 +10,7 @@ import { WidgetDataProvider } from "../data";
 import { getWidget, listWidgets, parseWidgetSettings, type AnyWidgetDefinition } from "../registry";
 import { createFakeSource, type FakeResponse } from "../testing";
 import "../widgets";
+import { FIRST_WEEK_REFETCH_DEBOUNCE_MS, firstWeekEventMatters } from "../widgets/first-week-checklist";
 import { BID, TODAY, communities, dataResponses, emptyResponses, leaderboardEntries, leaderboards, posts } from "./fixtures";
 import { addDays } from "../shared/time";
 
@@ -433,6 +434,40 @@ describe("first-week checklist widget", () => {
     u2();
     const { container: editing } = mountGuided(def(), dataResponses(), { checklistDismissedAt: "2026-10-20T10:00:00.000Z" }, { editing: true });
     expect(editing.textContent).toContain("Hidden: you closed the checklist");
+  });
+
+  it("folds a burst of events into one refetch, and ignores events whose flags are already done (perf audit item 10)", () => {
+    vi.useFakeTimers();
+    try {
+      const { fake } = mountGuided(def(), dataResponses());
+      const ev = (type: string) => ({ id: `evt-${type}`, businessId: BID, type, occurredAt: new Date().toISOString(), actor: { kind: "system" }, entityIds: [], payload: {}, narrated: false });
+      // Both sign-offs are done in the fixture: a sign-off decision cannot change the answer.
+      act(() => fake.emit(ev("product.signoff_decided")));
+      act(() => void vi.advanceTimersByTime(FIRST_WEEK_REFETCH_DEBOUNCE_MS + 10));
+      expect(fake.refetches["business.firstWeek.get"]).toBeUndefined();
+      // A burst on flags still open: one refetch once the burst settles.
+      act(() => {
+        fake.emit(ev("inbox.item_updated"));
+        fake.emit(ev("decision.made"));
+        fake.emit(ev("conversation.message_posted"));
+      });
+      expect(fake.refetches["business.firstWeek.get"]).toBeUndefined();
+      act(() => void vi.advanceTimersByTime(FIRST_WEEK_REFETCH_DEBOUNCE_MS + 10));
+      expect(fake.refetches["business.firstWeek.get"]).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("firstWeekEventMatters: an event counts only while a flag it can flip is still open", () => {
+    const flags = { specificationSignedOff: true, roadmapSignedOff: false, cycleCompleted: true, noteRead: true, conversationReplySent: false, distributionStarted: false, bankOrStripeConnected: false };
+    expect(firstWeekEventMatters("product.signoff_decided", flags)).toBe(true);
+    expect(firstWeekEventMatters("product.signoff_decided", { ...flags, roadmapSignedOff: true })).toBe(false);
+    expect(firstWeekEventMatters("cycle.completed", flags)).toBe(false);
+    expect(firstWeekEventMatters("inbox.item_updated", flags)).toBe(false);
+    expect(firstWeekEventMatters("conversation.message_posted", flags)).toBe(true);
+    expect(firstWeekEventMatters("cycle.completed", undefined)).toBe(true);
+    expect(firstWeekEventMatters("agent.health_changed", flags)).toBe(false);
   });
 
   it("records the dismissal once every item is done, and renders nothing when guidance is off", () => {
