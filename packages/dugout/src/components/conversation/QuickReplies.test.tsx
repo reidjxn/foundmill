@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { QuickReplies, quickReplyIndexFromKey } from "./QuickReplies";
 import { JUNO_MESSAGES } from "./fixtures";
 import type { QuickReplyItem } from "./types";
@@ -20,9 +21,9 @@ describe("QuickReplies", () => {
     );
     const buttons = numbered();
     expect(buttons.map((b) => b.textContent)).toEqual([
-      "1Yes, ask for 45 days",
-      "2Show me December",
-      "3What does Boots risk?",
+      "Yes, ask for 45 days",
+      "Show me December",
+      "What does Boots risk?",
     ]);
     expect(buttons[0]!.hasAttribute("data-likeliest")).toBe(true);
     expect(buttons[0]!.getAttribute("data-variant")).toBe("tinted");
@@ -42,9 +43,9 @@ describe("QuickReplies", () => {
     const line = first!.querySelector("[data-quick-reply-description]");
     expect(line?.textContent).toBe("This answers the note");
     expect(line?.className).toContain("btn-desc");
-    expect(first!.textContent).toBe("1Go with: Place the orderThis answers the note");
+    expect(first!.textContent).toBe("Go with: Place the orderThis answers the note");
     expect(second!.querySelector("[data-quick-reply-description]")).toBeNull();
-    expect(second!.textContent).toBe("2Why that one?");
+    expect(second!.textContent).toBe("Why that one?");
   });
 
   it("sends a reply with its number key, and not while typing in a field", () => {
@@ -102,9 +103,31 @@ describe("QuickReplies", () => {
     expect(onPage).toHaveBeenCalledWith(REPLIES[0]);
   });
 
-  it("uses Alt+1–4 where 1–4 are taken, and shows the modifier on the key caps", () => {
+  it("shows the 1–4 key caps only while guidance is off; the keys work and are named in both states", () => {
+    for (const guidance of ["on", "off"] as const) {
+      const onChoose = vi.fn();
+      const r = render(
+        <GuidanceProvider value={{ guidance }}>
+          <QuickReplies replies={REPLIES} onChoose={onChoose} />
+        </GuidanceProvider>,
+      );
+      expect(numbered().map((b) => b.querySelector("kbd")?.textContent ?? null)).toEqual(
+        guidance === "off" ? ["1", "2", "3"] : [null, null, null],
+      );
+      expect(numbered().map((b) => b.getAttribute("aria-keyshortcuts"))).toEqual(["1", "2", "3"]);
+      fireEvent.keyDown(document, { key: "2", code: "Digit2" });
+      expect(onChoose).toHaveBeenCalledWith(REPLIES[1]);
+      r.unmount();
+    }
+  });
+
+  it("uses Alt+1–4 where 1–4 are taken, and shows the modifier on the key caps (guidance off)", () => {
     const onChoose = vi.fn();
-    render(<QuickReplies replies={REPLIES} onChoose={onChoose} keyModifier="alt" />);
+    render(
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <QuickReplies replies={REPLIES} onChoose={onChoose} keyModifier="alt" />
+      </GuidanceProvider>,
+    );
     fireEvent.keyDown(document, { key: "1", code: "Digit1" });
     expect(onChoose).not.toHaveBeenCalled();
     fireEvent.keyDown(document, { key: "¡", code: "Digit1", altKey: true });
