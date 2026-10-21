@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { AppShell, KIT_VARIABLES, sidebarItemForTarget, withSidebarKeys, type AppShellProps } from "./AppShell";
+import { AppShell, KIT_VARIABLES, PROCESSING_LINE_MIN_PX, processingLineText, sidebarItemForTarget, withSidebarKeys, type AppShellProps } from "./AppShell";
 import { GuidanceProvider } from "../guidance/GuidanceProvider";
 import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import { kitBarGradient, kitStyle } from "./KitBar";
@@ -178,8 +178,13 @@ describe("AppShell", () => {
     const { unmount } = render(<AppShell {...shellProps({ tabs, processing: { segments: NORTHWIND_SEGMENTS, active: true, cycleNumber: 3 } })} />);
     const sentence = "Product, Formulation Lab, Distribution and Operations are working on cycle 3";
     expect(screen.getByRole("status", { name: sentence })).toBeTruthy();
-    expect(screen.getByTestId("processing-line").textContent).toBe(sentence);
-    expect(screen.getByTestId("processing-line").closest("[role=tablist]")).toBeNull();
+    // Four departments: the tab bar says the count, so the line never reaches an ellipsis at 1280 px; the strip keeps the names.
+    const line = screen.getByTestId("processing-line");
+    expect(line.textContent).toBe("4 departments are working on cycle 3");
+    expect(line.closest("[role=tablist]")).toBeNull();
+    // A FitText box: it steps down to its floor before it truncates (DESIGN §2), not a plain `truncate`.
+    expect(line.hasAttribute("data-fit-box")).toBe(true);
+    expect(line.className).not.toMatch(/(^|\s)truncate(\s|$)/);
     unmount();
     render(
       <GuidanceProvider value={{ guidance: "off" }}>
@@ -188,6 +193,17 @@ describe("AppShell", () => {
     );
     expect(screen.getByRole("status", { name: "No cycle running" })).toBeTruthy();
     expect(screen.queryByTestId("processing-line")).toBeNull();
+  });
+
+  it("words the tab bar's processing line: the sentence for one or two departments, a count from three (review F45)", () => {
+    const seg = (label: string, active: boolean) => ({ id: label, label, dept: "dept-1" as const, active });
+    expect(processingLineText([seg("Product", true), seg("Finance", true), seg("Legal", false)], true, 12)).toBe("Product and Finance are working on cycle 12");
+    expect(processingLineText([seg("Product", true)], true, null)).toBe("Product is working");
+    expect(processingLineText([seg("Product", true), seg("Development", true), seg("Distribution", true), seg("Finance", true)], true, 12)).toBe(
+      "4 departments are working on cycle 12",
+    );
+    expect(processingLineText([seg("Product", true), seg("Development", true), seg("Distribution", true)], false, 12)).toBe("No cycle running");
+    expect(PROCESSING_LINE_MIN_PX).toBe(11);
   });
 
   it("opens the keyboard shortcuts from the sidebar's \"?\" cap and from the palette's Help row, and pauses coach marks while an overlay is open or a cycle runs (B15)", async () => {
