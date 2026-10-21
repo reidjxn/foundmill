@@ -97,6 +97,11 @@ describe("business.example.open / leave", () => {
     expect(await code(viewer.inbox.refresh({ businessId: bid }))).toBe("FORBIDDEN");
     expect(await code(viewer.team.humans.invite({ businessId: bid, userId: hz.A.memberId }))).toBe("FORBIDDEN");
     expect((await repos.businesses.get(hz.db, bid)).name).toBe("Northwind Skincare");
+    // Opening a note answers it as read but keeps no receipt (review F37): nothing of the explorer stays after they leave.
+    const note = await repos.inbox.createHumanMessage(hz.db, bid, { fromUserId: hz.B.ownerId, subject: "Welcome", bodyMd: "A note to open." });
+    expect((await viewer.inbox.markRead({ businessId: bid, itemId: note.id })).state).toBe("read");
+    expect((await repos.inbox.get(hz.db, bid, note.id, explorer)).state).toBe("unread");
+    expect((await repos.inbox.get(hz.db, bid, note.id)).state).toBe("unread");
   });
 
   it("refuses a real member (CONFLICT) and never rewrites their seat", async () => {

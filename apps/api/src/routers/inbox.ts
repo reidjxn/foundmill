@@ -76,7 +76,20 @@ export const inboxRouter = router({
   // Free text is compiled into a plan (a model call) and spends the planning allowance; choosing an option does not.
   decide: inboxWrite.input(z.object({ itemId: Id, chosenOption: z.string().max(40).nullable().optional(), freeText: z.string().max(4000).nullable().optional() })).use(modelLimited("plan", { when: hasFreeText })).mutation(({ ctx, input }) => decideInboxItem(ctx, input)),
 
-  markRead: inboxRead.input(z.object({ itemId: Id })).mutation(({ ctx, input }) => ctx.rls(async (tx) => noteAsSeenBy(tx, ctx.businessId, ctx.membership, await repos.inbox.markRead(tx, ctx.businessId, input.itemId, ctx.userId)))),
+  /**
+   * The caller's read receipt. An example viewer's opening is not kept (0065: nothing an example viewer does is kept): the
+   * note comes back read for this answer and no receipt is written, so nothing of theirs stays in the demo business (its
+   * export, its first-week flags, the next explorer's open) after they leave.
+   */
+  markRead: inboxRead.input(z.object({ itemId: Id })).mutation(({ ctx, input }) =>
+    ctx.rls(async (tx) => {
+      if (ctx.membership.source === "example") {
+        const item = await repos.inbox.get(tx, ctx.businessId, input.itemId, ctx.userId);
+        return noteAsSeenBy(tx, ctx.businessId, ctx.membership, item.state === "unread" ? { ...item, state: "read" } : item);
+      }
+      return noteAsSeenBy(tx, ctx.businessId, ctx.membership, await repos.inbox.markRead(tx, ctx.businessId, input.itemId, ctx.userId));
+    }),
+  ),
 
   archive: inboxWrite.input(z.object({ itemId: Id })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
