@@ -71,6 +71,28 @@ describe("Explainer", () => {
     expect(document.body.textContent).toBe("");
   });
 
+  it("waits for the account's answer, so an account with guidance off never sees it flash (F28)", () => {
+    const { rerender } = render(
+      <GuidanceProvider value={{ loaded: false }}>
+        <Explainer {...props} />
+      </GuidanceProvider>,
+    );
+    expect(screen.queryByRole("region")).toBeNull();
+    rerender(
+      <GuidanceProvider value={{ loaded: true }}>
+        <Explainer {...props} />
+      </GuidanceProvider>,
+    );
+    expect(screen.getByRole("region", { name: EXPLAINER_LABELS.purpose })).toBeTruthy();
+  });
+
+  it("lays its three columns out on the --explainer-col token, never an arbitrary pixel value", () => {
+    render(<Explainer {...props} />);
+    const list = screen.getByRole("region", { name: EXPLAINER_LABELS.purpose }).querySelector("dl");
+    expect(list?.className).toContain("grid-cols-explainer");
+    expect(list?.className).not.toMatch(/\[[^\]]*px/);
+  });
+
   it("never clips: the strip is in flow, not floating", () => {
     render(<Explainer {...props} />);
     const strip = screen.getByRole("region", { name: EXPLAINER_LABELS.purpose });
