@@ -110,6 +110,20 @@ describe("defined terms in a note (docs/UX_AUDIT_AND_PLAN.md §6.2 Term, Markdow
     expect(markTerms("<b>cycle</b>", TERMS)).toBe("<b>cyclecycle</b>");
   });
 
+  it("compiles a terms map's expressions once and reuses them on every later marking", async () => {
+    const { compiledTerms, markTerms } = await import("./Markdown");
+    const first = compiledTerms(TERMS);
+    expect(first.map((t) => t.id)).toEqual(["net_burn", "runway", "cycle", "burn", "mrr"]);
+    expect(compiledTerms(TERMS)).toBe(first);
+    expect(compiledTerms({ ...TERMS })).not.toBe(first);
+    // A cached expression is never left advanced: the same text marks the same way every time.
+    const text = "The runway is 7 months; net burn fell.";
+    const once = markTerms(text, TERMS);
+    expect(markTerms(text, TERMS)).toBe(once);
+    expect(compiledTerms(TERMS)).toBe(first);
+    expect(first.every((t) => t.re.lastIndex === 0)).toBe(true);
+  });
+
   it("renders a marked term as a Term with its definition, once per term, and nothing when guidance is off or terms are off", async () => {
     vi.resetModules();
     const { Markdown, preloadMarkdown } = await import("./Markdown");

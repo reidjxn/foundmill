@@ -1,5 +1,5 @@
 "use client";
-import { Children, isValidElement, lazy, Suspense, type ComponentPropsWithoutRef, type ReactNode } from "react";
+import { Children, isValidElement, lazy, Suspense, useMemo, type ComponentPropsWithoutRef, type ReactNode } from "react";
 import type { Components } from "react-markdown";
 import { ENTITY_MARKUP_RE } from "@foundmill/shared/constants";
 import { cn } from "../../lib/cn";
@@ -93,18 +93,42 @@ export function termRegExp(word: string): RegExp {
   return new RegExp(`(?<![\\p{L}\\p{N}_])${body}(?:s|es)?(?![\\p{L}\\p{N}_])`, "giu");
 }
 
+export interface CompiledTerm {
+  readonly id: string;
+  readonly re: RegExp;
+}
+
+/** Compiled expressions per terms map (the provider's map is stable, so a note re-render compiles nothing). */
+const compiledByTerms = new WeakMap<object, readonly CompiledTerm[]>();
+
+/**
+ * The terms map's words as compiled expressions, longest word first, cached per map object. Exported for tests.
+ */
+export function compiledTerms(terms: Readonly<Record<string, TermDefinition>>): readonly CompiledTerm[] {
+  let compiled = compiledByTerms.get(terms);
+  if (!compiled) {
+    compiled = Object.values(terms)
+      .filter((d) => d.word.trim().length > 0)
+      .sort((a, b) => b.word.length - a.word.length)
+      .map((d) => ({ id: d.id, re: termRegExp(d.word) }));
+    compiledByTerms.set(terms, compiled);
+  }
+  return compiled;
+}
+
 /**
  * The source with the first occurrence of each defined term marked (one per term, never inside a link, code or an
  * entity mention). Longer words are placed first, so "Net burn" is taken before "Burn" can claim its tail; a shorter
  * term then takes its first occurrence outside any longer one. Pure; exported for tests.
  */
 export function markTerms(text: string, terms: Readonly<Record<string, TermDefinition>>): string {
-  const defs = Object.values(terms).filter((d) => d.word.trim().length > 0);
-  if (!text || defs.length === 0) return text;
+  const compiled = compiledTerms(terms);
+  if (!text || compiled.length === 0) return text;
   const skips = skipSpans(text);
   const taken: Array<[start: number, end: number, id: string]> = [];
-  for (const def of [...defs].sort((a, b) => b.word.length - a.word.length)) {
-    for (const m of text.matchAll(termRegExp(def.word))) {
+  for (const def of compiled) {
+    // matchAll works on a copy of the expression, so the cached one is never advanced.
+    for (const m of text.matchAll(def.re)) {
       const start = m.index ?? 0;
       const end = start + m[0].length;
       if (overlaps(skips, start, end) || overlaps(taken, start, end)) continue;
@@ -224,7 +248,9 @@ export function Markdown({
   const handlers = { onResolveAmbiguous, onCreateDraft, onOpen };
   const guidance = useGuidance();
   // The source with its terms marked; a note shows no term while guidance is off (tutoring, UX plan §5 principle 9).
-  const source = terms && guidance.guidance === "on" ? markTerms(children, guidance.terms) : children;
+  const markOn = terms && guidance.guidance === "on";
+  const termMap = guidance.terms;
+  const source = useMemo(() => (markOn ? markTerms(children, termMap) : children), [markOn, children, termMap]);
   const L = (c: ReactNode) => (entities || terms ? inline(c, handlers, entities) : c);
   const components: Components = {
     p: ({ children: c, ...rest }: ComponentPropsWithoutRef<"p">) => (

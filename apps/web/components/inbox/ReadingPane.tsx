@@ -22,7 +22,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArrowRight, ChevronDown, ChevronRight, CirclePause, ExternalLink, EyeOff, Play, ShieldAlert, Trophy } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Avatar,
   Button,
@@ -153,6 +153,26 @@ function YourDecisionTip({ gated }: { gated: boolean }) {
     <InfoTip label="Your decision" kind="why" learn={hardGate?.learn} side="top" className="-my-1.5">
       {gated && hardGate ? hardGate.short : YOUR_DECISION_TIP}
     </InfoTip>
+  );
+}
+
+/**
+ * "Holds Continue": the chip takes focus and carries its consequence as its description, so keyboard and screen-reader
+ * users get the sentence the tooltip shows on hover. Information, not tutoring: shown whatever the guidance setting.
+ */
+export function HoldsContinueChip() {
+  const hintId = useId();
+  return (
+    <>
+      <Tooltip content={HOLDS_CONTINUE_HINT}>
+        <Chip tone="neutral" icon={CirclePause} tabIndex={0} aria-describedby={hintId} className="focus-ring" data-testid="holds-continue">
+          Holds Continue
+        </Chip>
+      </Tooltip>
+      <span id={hintId} className="sr-only">
+        {HOLDS_CONTINUE_HINT}
+      </span>
+    </>
   );
 }
 
@@ -469,11 +489,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           <NoteTagChip tag={tag} size="header" testId="type-pill" />
           <StatusWordTip word={tag.word} />
           {item.blocksContinue && !isAnswered ? (
-            <Tooltip content={HOLDS_CONTINUE_HINT}>
-              <Chip tone="neutral" icon={CirclePause} data-testid="holds-continue">
-                Holds Continue
-              </Chip>
-            </Tooltip>
+            <HoldsContinueChip />
           ) : null}
           {item.state !== "archived" && (isAnswered || !options.length) ? <Button size="sm" variant="ghost" icon={Archive} onClick={() => archive.mutate({ businessId, itemId: item.id })} loading={archive.isPending} data-testid="archive-item">Archive</Button> : null}
         </div>
@@ -695,7 +711,7 @@ export function Folded({ folded, show, hide, testId, children }: FoldedProps) {
  * (Markdown `terms`; off while guidance is off). Dugout's Markdown keeps its own props, so the test id lives on this
  * wrapper.
  */
-export function InboxNote({ bodyMd }: { bodyMd: string }) {
+export const InboxNote = memo(function InboxNote({ bodyMd }: { bodyMd: string }) {
   return (
     <div data-testid="inbox-note">
       <Markdown variant="reading" className="t-reading" terms>
@@ -703,4 +719,4 @@ export function InboxNote({ bodyMd }: { bodyMd: string }) {
       </Markdown>
     </div>
   );
-}
+});

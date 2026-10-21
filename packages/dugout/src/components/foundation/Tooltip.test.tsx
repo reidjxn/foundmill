@@ -6,11 +6,12 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type * as RadixTooltip from "@radix-ui/react-tooltip";
 
 const providers = vi.hoisted(() => ({ count: 0 }));
 
 vi.mock("@radix-ui/react-tooltip", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@radix-ui/react-tooltip")>();
+  const actual = await importOriginal<typeof RadixTooltip>();
   function CountingProvider(props: ComponentProps<typeof actual.Provider>) {
     providers.count += 1;
     return <actual.Provider {...props} />;

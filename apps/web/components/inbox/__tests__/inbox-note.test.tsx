@@ -7,9 +7,39 @@ import { render, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
 import { GuidanceProvider, TooltipProvider, preloadMarkdown } from "@foundmill/dugout";
 import { termsWithGlossary } from "@foundmill/shared/terms";
-import { InboxNote } from "../ReadingPane";
+import { HoldsContinueChip, InboxNote } from "../ReadingPane";
+import { HOLDS_CONTINUE_HINT } from "../logic";
+
+describe("HoldsContinueChip", () => {
+  it("takes focus and carries its consequence as its accessible description, whatever the guidance setting", () => {
+    for (const guidance of ["on", "off"] as const) {
+      const r = render(
+        <TooltipProvider>
+          <GuidanceProvider value={{ guidance, terms: termsWithGlossary(null) }}>
+            <HoldsContinueChip />
+          </GuidanceProvider>
+        </TooltipProvider>,
+      );
+      const chip = r.getByTestId("holds-continue");
+      expect(chip.textContent).toBe("Holds Continue");
+      expect(chip.getAttribute("tabindex")).toBe("0");
+      chip.focus();
+      expect(document.activeElement).toBe(chip);
+      const describedBy = chip.getAttribute("aria-describedby");
+      expect(describedBy).toBeTruthy();
+      expect(document.getElementById(describedBy!)?.textContent).toBe(HOLDS_CONTINUE_HINT);
+      // No "About …" button: the e2e guidance-off check counts those.
+      expect(r.queryByRole("button", { name: /^About / })).toBeNull();
+      r.unmount();
+    }
+  });
+});
 
 describe("InboxNote", () => {
+  it("is memoized: a parent re-render with the same body does not re-render the note", () => {
+    expect((InboxNote as unknown as { $$typeof: symbol }).$$typeof).toBe(Symbol.for("react.memo"));
+  });
+
   beforeAll(() => preloadMarkdown());
 
   it("renders the markdown body inside the inbox-note wrapper", () => {

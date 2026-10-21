@@ -67,13 +67,16 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(table).toContainText("£");
     // Transactions is in the full view; Simple (UX plan principle 10) keeps every line with the amount and its share only.
     await chooseTableView(page, "Management P&L");
-    // The line column takes the spare width, so Amount, % of revenue and Transactions sit together at the right.
+    // The line column takes the spare width, so Amount, % of revenue and Transactions sit together at the right, just
+    // before the row's visible "…" (UX plan D6), which closes the row.
     const box = await table.boundingBox();
     const amount = await table.getByRole("columnheader", { name: "Amount" }).boundingBox();
     const count = await table.getByRole("columnheader", { name: "Transactions" }).boundingBox();
-    expect(box && amount && count, "the P&L headers are on screen").toBeTruthy();
+    const actions = await table.locator('[role="columnheader"][data-col="__actions"]').boundingBox();
+    expect(box && amount && count && actions, "the P&L headers are on screen").toBeTruthy();
     expect(count!.x - (amount!.x + amount!.width), "a gap opens between the figures").toBeLessThan(160);
-    expect(count!.x + count!.width).toBeGreaterThan(box!.x + box!.width - 24);
+    expect(Math.abs(actions!.x - (count!.x + count!.width)), "Transactions sits against the row actions").toBeLessThan(2);
+    expect(actions!.x + actions!.width).toBeGreaterThan(box!.x + box!.width - 24);
   });
 
   test("finance: Payroll keeps the team's metered cost and its wage caps in US dollars, apart from staff payroll in pounds", async ({ page }) => {
