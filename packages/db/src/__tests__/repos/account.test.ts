@@ -69,4 +69,25 @@ describe("repos.founders.account", () => {
     expect(await repos.founders.account(r.db, member)).toEqual(expected);
     expect(await repos.founders.account(wire.db, member)).toEqual(expected);
   });
+
+  it("ownerExperience: the owner memberships.owner picks, joined to their open profile, in one statement", async () => {
+    await repos.founders.upsert(r.db, r.A.ownerId, { displayName: "Ada", experience: "Exited" });
+    // A co-owner who is not the creator, with a profile of their own: the creator still answers.
+    await r.db.update(s.memberships).set({ role: "owner" }).where(eq(s.memberships.userId, r.A.adminId));
+    await repos.founders.upsert(r.db, r.A.adminId, { displayName: "Co", experience: "First-time" });
+    const twoReads = async (businessId: string) => {
+      const owner = await repos.memberships.owner(r.db, businessId);
+      return (owner ? await repos.founders.get(r.db, owner.userId) : null)?.experience ?? null;
+    };
+    expect(await twoReads(r.A.businessId)).toBe("Exited");
+    wire.reset();
+    expect(await repos.founders.ownerExperience(wire.db, r.A.businessId)).toBe("Exited");
+    expect(wire.statements()).toHaveLength(1);
+    // An owner without a profile, and a business with no owner at all, read as null.
+    expect(await repos.founders.ownerExperience(r.db, r.B.businessId)).toBe(await twoReads(r.B.businessId));
+    expect(await repos.founders.ownerExperience(r.db, "00000000-0000-4000-8000-0000000000ff")).toBeNull();
+    // Archived profile: as founders.get, none.
+    await r.db.update(s.founderProfiles).set({ archivedAt: new Date() }).where(eq(s.founderProfiles.userId, r.A.ownerId));
+    expect(await repos.founders.ownerExperience(r.db, r.A.businessId)).toBe(await twoReads(r.A.businessId));
+  });
 });
