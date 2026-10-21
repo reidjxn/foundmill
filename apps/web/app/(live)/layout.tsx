@@ -14,6 +14,7 @@ import { Suspense, type ReactNode } from "react";
 import { pickCurrentBusiness } from "@/lib/auth/current-business";
 import { getLastBusinessId } from "@/lib/auth/server";
 import { getServerDateFormat } from "@/lib/date-format.server";
+import { getServerGuidance } from "@/lib/guidance.server";
 import { Prefetched } from "@/lib/hydrate.server";
 import { startBusinessShell } from "@/lib/shell-data.server";
 import { errorMessage } from "@/lib/trpc";
@@ -21,6 +22,7 @@ import { handOverProfile } from "@/lib/profile-handover";
 import { serverApi } from "@/lib/trpc-server";
 import { LiveViewerProvider } from "@/components/live/viewer";
 import { DateFormatHost } from "@/components/providers/DateFormatHost";
+import { GuidanceHost } from "@/components/providers/GuidanceHost";
 import { BusinessShell } from "@/components/shell/BusinessShell";
 import { ApiErrorPage } from "@/components/shell/ApiErrorPage";
 import { ShellSkeleton } from "@/components/shell/ShellSkeleton";
@@ -45,6 +47,8 @@ async function LiveShell({ children }: { children: ReactNode }) {
   const likely = lastBusinessId ? startBusinessShell(server, lastBusinessId) : null;
   const dateFormat = getServerDateFormat();
   dateFormat.catch(() => undefined);
+  // The guided layer's preferences, handed to GuidanceHost as `initial` (never rejects; lib/guidance.server.ts).
+  const guidance = getServerGuidance();
 
   let profile;
   try {
@@ -61,14 +65,16 @@ async function LiveShell({ children }: { children: ReactNode }) {
   const shell = likely && likely.businessId === current.id ? likely : startBusinessShell(server, current.id);
 
   try {
-    const [[business, departments], date] = await Promise.all([shell.data, dateFormat]);
+    const [[business, departments], date, guided] = await Promise.all([shell.data, dateFormat, guidance]);
     return (
       <Prefetched queryClient={handOverProfile(shell.prefetch(), profile)}>
-        <DateFormatHost initial={date.prefs} owner={date.owner}>
-          <BusinessShell businessId={current.id} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId, name: profile.profile?.displayName ?? null }}>
-            <LiveViewerProvider value={{ userId: founder.userId, displayName: founder.displayName }}>{children}</LiveViewerProvider>
-          </BusinessShell>
-        </DateFormatHost>
+        <GuidanceHost initial={guided.prefs} signedIn textSizeOwner={date.owner}>
+          <DateFormatHost initial={date.prefs} owner={date.owner}>
+            <BusinessShell businessId={current.id} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId, name: profile.profile?.displayName ?? null }}>
+              <LiveViewerProvider value={{ userId: founder.userId, displayName: founder.displayName }}>{children}</LiveViewerProvider>
+            </BusinessShell>
+          </DateFormatHost>
+        </GuidanceHost>
       </Prefetched>
     );
   } catch (err) {

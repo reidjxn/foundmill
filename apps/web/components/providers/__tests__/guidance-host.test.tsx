@@ -1,13 +1,13 @@
 // @vitest-environment happy-dom
 /**
- * GuidanceHost: reads the account's guidance preferences on a signed-in page only, provides them (and the definitions,
- * renamed by the business glossary) to the design system's `useGuidance`, stamps comfortable text on the document, and
- * saves a change optimistically (rolled back if the save fails).
+ * GuidanceHost: reads the account's guidance preferences on a signed-in page only (or takes the layout's server read),
+ * provides them and the definitions to the design system's `useGuidance`, stamps comfortable text on the document once
+ * the account has answered, and saves a change optimistically (rolled back if the save fails).
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useGuidance, useTerm } from "@foundmill/dugout";
+import { GuidanceTermsProvider, useGuidance, useTerm } from "@foundmill/dugout";
 
 type Prefs = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null };
 type Patch = Partial<{ guidance: Prefs["guidance"]; textSize: Prefs["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; reset: true }>;
@@ -66,7 +66,7 @@ vi.mock("@/lib/trpc-react", () => ({
   }),
 }));
 
-import { GuidanceHost, applyGuidancePatch, guidanceSignalInput, isSignedInPath, resolveLearn, screenIdFromPath, termsFor, useGuidancePreferences, useGuidanceSignal, type GuidancePreferencesApi } from "../GuidanceHost";
+import { GuidanceHost, applyGuidancePatch, guidanceSignalInput, isSignedInPath, resolveLearn, sameGuidancePrefs, screenIdFromPath, termsFor, useGuidancePreferences, useGuidanceSignal, type GuidancePreferencesApi } from "../GuidanceHost";
 import { TEXT_SIZE_COOKIE, readTextSizeCookie } from "../text-size-cookie";
 
 let api: GuidancePreferencesApi | null = null;
@@ -84,7 +84,7 @@ function Probe() {
 }
 
 const client = () => new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-const mount = (queryClient = client(), initial?: Prefs, host: { textSizeOwner?: string; initialTextSize?: "standard" | "comfortable" | null } = {}) =>
+const mount = (queryClient = client(), initial?: Prefs, host: { textSizeOwner?: string } = {}) =>
   render(
     <QueryClientProvider client={queryClient}>
       <GuidanceHost initial={initial} {...host}>
@@ -200,23 +200,68 @@ describe("GuidanceHost", () => {
     expect(stored.guidance).toBe("on");
   });
 
-  it("renames the definitions with the glossary of the business on screen, read from the query cache", async () => {
+  it("hands the map as written and never watches the business; the shell's GuidanceTermsProvider renames it below (perf item 3)", async () => {
     const queryClient = client();
-    mount(queryClient);
-    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    mount(queryClient, defaults());
     expect(probe()).toContain("Cost to win a customer");
     act(() => {
       queryClient.setQueryData(businessKey(BUSINESS), { business: { glossary: { customer: "client" } } });
     });
-    await waitFor(() => expect(probe()).toContain("Cost to win a client"));
-    // Another business's glossary is not this one's.
-    act(() => {
-      queryClient.setQueryData(businessKey("b1e5e5e5-0000-4000-8000-000000000002"), { business: { glossary: { customer: "patient" } } });
-    });
     await new Promise((r) => setTimeout(r, 10));
-    expect(probe()).toContain("Cost to win a client");
+    expect(probe()).toContain("Cost to win a customer");
+    // The business shell's provider: the same host, the glossary's words below it.
+    render(
+      <QueryClientProvider client={queryClient}>
+        <GuidanceHost initial={defaults()}>
+          <GuidanceTermsProvider terms={termsFor(BUSINESS, { customer: "client" })}>
+            <ShellProbe />
+          </GuidanceTermsProvider>
+        </GuidanceHost>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTestId("shell-probe").textContent).toBe("on Cost to win a client");
+  });
+
+  it("writes no second answer when the API's equals the optimistic one, so readers render once per change (perf item 8)", async () => {
+    const queryClient = client();
+    mount(queryClient, defaults());
+    const writes = vi.spyOn(queryClient, "setQueryData");
+    await act(async () => {
+      await api!.save({ toursDone: { home: true } });
+    });
+    // The optimistic write only: the answer said the same.
+    expect(writes.mock.calls.filter(([key]) => JSON.stringify(key) === JSON.stringify(GUIDANCE_KEY))).toHaveLength(1);
+    writes.mockClear();
+    // A dismissal carries the server's own time, which differs from the optimistic one: written again.
+    await act(async () => {
+      await api!.save({ checklistDismissed: true });
+    });
+    expect(writes.mock.calls.filter(([key]) => JSON.stringify(key) === JSON.stringify(GUIDANCE_KEY))).toHaveLength(2);
+    expect(probe()).toContain("2026-10-20T15:45:00.000Z");
+  });
+
+  it("is loaded at once with the layout's answer, and waits (loaded false) while its own read is on the way (F28)", async () => {
+    const r = mount(client(), { ...defaults(), toursDone: { home: true } });
+    expect(guided?.loaded).toBe(true);
+    expect(guided?.toursDone).toEqual({ home: true });
+    r.unmount();
+    let release: () => void = () => undefined;
+    read.mockImplementationOnce(async () => {
+      await new Promise<void>((res) => (release = res));
+      return stored;
+    });
+    mount(client(), undefined);
+    expect(guided?.loaded).toBe(false);
+    await act(async () => release());
+    await waitFor(() => expect(guided?.loaded).toBe(true));
   });
 });
+
+function ShellProbe() {
+  const g = useGuidance();
+  const term = useTerm("acquisition_cost");
+  return <p data-testid="shell-probe">{`${g.guidance} ${term?.word ?? "?"}`}</p>;
+}
 
 describe("GuidanceHost text size", () => {
   it("mirrors the account's text size into the owner's cookie once the account has answered, and follows a save", async () => {
@@ -233,19 +278,22 @@ describe("GuidanceHost text size", () => {
     await waitFor(() => expect(document.documentElement.getAttribute("data-text")).toBeNull());
   });
 
-  it("keeps the size the server rendered with (the cookie) until the account answers, so nothing flashes", async () => {
-    stored = { ...defaults(), textSize: "comfortable" };
+  it("leaves the head script's attribute alone until the account answers, then follows the account (no flash)", async () => {
+    // app/layout.tsx's head script stamped comfortable text from the cookie before the first paint.
+    document.documentElement.setAttribute("data-text", "comfortable");
+    stored = { ...defaults(), textSize: "standard" };
     let release: () => void = () => undefined;
     read.mockImplementationOnce(async () => {
       await new Promise<void>((r) => (release = r));
       return stored;
     });
-    mount(client(), undefined, { textSizeOwner: "dev", initialTextSize: "comfortable" });
-    expect(probe()).toBe("on comfortable - - Cost to win a customer");
-    await waitFor(() => expect(document.documentElement.getAttribute("data-text")).toBe("comfortable"));
-    await act(async () => release());
-    await waitFor(() => expect(probe()).toBe("on comfortable - - Cost to win a customer"));
+    mount(client(), undefined, { textSizeOwner: "dev" });
+    await new Promise((r) => setTimeout(r, 20));
     expect(document.documentElement.getAttribute("data-text")).toBe("comfortable");
+    // The account says standard (the cookie was stale): the attribute goes once it has answered.
+    await act(async () => release());
+    await waitFor(() => expect(document.documentElement.getAttribute("data-text")).toBeNull());
+    await waitFor(() => expect(readTextSizeCookie(document.cookie)).toBe("standard.dev"));
   });
 
   it("writes no cookie without an owner or on a signed-out page", async () => {
@@ -429,6 +477,17 @@ describe("helpers", () => {
     expect(isSignedInPath("/examples/northwind")).toBe(false);
     expect(isSignedInPath(null)).toBe(false);
     expect(isSignedInPath(undefined)).toBe(false);
+  });
+
+  it("sameGuidancePrefs: the same choice and marks, whatever their order", () => {
+    const a = { ...defaults(), explainersSeen: { home: true as const, inbox: true as const } };
+    expect(sameGuidancePrefs(a, { ...defaults(), explainersSeen: { inbox: true, home: true } })).toBe(true);
+    expect(sameGuidancePrefs(a, { ...a, guidance: "off" })).toBe(false);
+    expect(sameGuidancePrefs(a, { ...a, toursDone: { home: true } })).toBe(false);
+    expect(sameGuidancePrefs(a, { ...a, explainersSeen: { home: true } })).toBe(false);
+    expect(sameGuidancePrefs(a, { ...a, checklistDismissedAt: "2026-10-20T15:45:00.000Z" })).toBe(false);
+    expect(sameGuidancePrefs(undefined, a)).toBe(false);
+    expect(sameGuidancePrefs(undefined, undefined)).toBe(true);
   });
 
   it("applyGuidancePatch: the optimistic answer follows the API's rules without touching the previous state", () => {

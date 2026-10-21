@@ -2,7 +2,8 @@
  * Everything the business shell needs from the server (the /b/[bid] and LIVE layouts): `business.get` and the sidebar's
  * `department.list` (request-cached in lib/trpc-server.ts), asked together with the profile;
  * then the shell's first-screen queries (inbox, finance, cycle), which are not awaited: `<Prefetched>` hands them to
- * the browser, pending or done, under the keys BusinessShell's hooks use.
+ * the browser, pending or done, under the keys BusinessShell's hooks use. The guidance preferences are not among them:
+ * the layouts await them (lib/guidance.server.ts) and hand them to their GuidanceHost as `initial`.
  *
  * The first-screen queries start only once the layout's own data is in: they arrive long before the browser hydrates
  * either way, and starting them earlier would make them compete with what the first byte of the page waits for.
@@ -45,9 +46,6 @@ export function startBusinessShell(server: ServerApi, businessId: string): Busin
       void queryClient.prefetchQuery(trpc.inbox.list.queryOptions(inputs.inbox));
       void queryClient.prefetchQuery(trpc.finance.overview.queryOptions(inputs.finance));
       void queryClient.prefetchQuery(trpc.cycle.status.queryOptions(inputs.cycle));
-      // The guided layer's preferences (components/providers/GuidanceHost.tsx reads them under this key): account-level,
-      // so they come with the page and the host asks nothing after hydration.
-      void queryClient.prefetchQuery(trpc.founder.preferences.guidance.queryOptions(undefined));
       return queryClient;
     },
   };

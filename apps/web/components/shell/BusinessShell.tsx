@@ -10,14 +10,15 @@
  * - date + runway chip from finance.overview, business-mode chip → Settings › Mode;
  * - NeedsLargerWindow below 1280 (AppShell measures the window itself); G-then-letter chords (AppShell);
  * - providers for everything below: business context, WidgetDataProvider, ModuleEnv, EntityLink, keyboard registry,
- *   screen chrome.
+ *   screen chrome, and the definitions in this business's own words (`GuidanceTermsProvider` over the layout's
+ *   GuidanceHost: the glossary comes from `business.get`, which the shell already holds).
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight } from "lucide-react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useTransition, type ReactNode } from "react";
-import { AppShell, Avatar, Button, Callout, Chip, EntityLinkProvider, ShellLinkProvider, Tooltip, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
+import { AppShell, Avatar, Button, Callout, Chip, EntityLinkProvider, GuidanceTermsProvider, ShellLinkProvider, Tooltip, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
 import { ModuleEnvProvider, type ModuleEnv } from "@foundmill/modules/env";
 import { readWidgetEvent, type WidgetEvent } from "@foundmill/widgets/data";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -50,6 +51,7 @@ import { WidgetDataHost } from "@/lib/widget-data";
 import { SpecUserProvider, specUserName } from "@/components/spec/spec-user";
 import { AgentDeskHost, prefetchAgentDesk, type AgentDeskApi } from "@/components/conversation/DeskHost";
 import { useNetworkBadge } from "@/components/live/signals";
+import { termsFor } from "@/components/providers/GuidanceHost";
 import { agentOfAskItem, askPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
 import { switcherBusinesses } from "./business-switcher";
@@ -549,6 +551,9 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   );
   // The Help group: the defined terms in the business's own words, and the keyboard shortcuts (the shell opens them).
   const helpItems = useMemo(() => helpPaletteItems(businessId, business.glossary), [businessId, business.glossary]);
+  // The definitions renamed by this business's glossary ("clients" in every term), computed here from what the shell
+  // holds rather than by the account's host watching the query cache (perf audit item 3).
+  const glossaryTerms = useMemo(() => termsFor(businessId, business.glossary ?? null), [businessId, business.glossary]);
   // A LIVE business also searches the public profiles ("On Foundmill"): founders and businesses found by name.
   const publicText = live && debounced ? publicSearchText(debounced.q) : null;
   const publicQ = useQuery(trpc.live.people.search.queryOptions({ q: publicText ?? "--", limit: 5 }, { enabled: publicText !== null, staleTime: 15_000, retry: false }));
@@ -673,6 +678,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const frame = exampleFrame(access, cycle);
 
   return (
+    <GuidanceTermsProvider terms={glossaryTerms}>
     <BusinessProvider value={businessCtx}>
       <WidgetDataHost businessId={businessId} glossary={business.glossary ?? {}} gameMode={business.gameMode} currency={currency} timeZone={business.timeZone ?? null}>
         <ModuleEnvProvider value={moduleEnv}>
@@ -770,5 +776,6 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
         </ModuleEnvProvider>
       </WidgetDataHost>
     </BusinessProvider>
+    </GuidanceTermsProvider>
   );
 }
