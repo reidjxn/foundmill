@@ -383,6 +383,17 @@ Feasible in about a day on top of the existing scanner: refactor `findTermHits` 
 
 ## 10. Delivery plan
 
+### Status (Oct 20, 2026)
+
+The founder asked for the whole plan; it was built in three waves of parallel slices (A: the foundation and every Phase 0 word; B: the guided layer wired into every screen; C: teaching by doing, the linter and the docs). Each slice is a dated entry in `docs/PROGRESS.md` ("Building the UX plan"), its judgment calls are in `docs/DECISIONS.md` (2026-10-20, "Building the UX plan"), and the gates' state is in `docs/GATES.md` ("UX plan gates").
+
+- **Phase 0, words only: done.** Every ★ copy item in §7 (login, doors, studio, Commit, the chrome's tooltips, Home's captions, the two "needs you" families, the Agents table's scale and Form key, the Board's caption and verbs, Recruitment, Keys and Your words, the mock fixtures with their leak test), `--fs-data` 11 px, `terms.ts` (now about 95 entries), the stale Storybook welcome.
+- **Phase 1, the guided layer: done, unverified in the browser.** `GuidanceProvider` with the account's state (migration 0064, not 0063, which the Product Researcher took), Settings › Preferences › Guidance, the guidance primitives with stories, `NextStep` on Home, the first-Continue and first-decision callouts, the profile's two passes and skill anchors, Commit's "How it runs", the Inbox request sentence and folds, department Explainers and Simple views, Terms on titles, captions and footers, the Composer's `founder_experience` and `because` with its eval. Column heads as Terms wait on DataTable's `meta.term` (wave C).
+- **Phase 2, depth and enforcement: built except the sweep.** §7.11–7.18, `PlainFigure`, the tag legend, the palette's Help group, the sidebar renames (Contacts; the key in Settings), the status-contrast test, `Skeleton` labels, the visible "…" row actions; `scripts/plain-language.mjs` lands in wave C in report mode, and its first `docs/PLAIN_LANGUAGE_SWEEP.md` is the next wave's work list.
+- **Phase 3, teaching by doing: built, with two seams open.** The three tours and the landing deck's Callout, the first-week checklist, `ExampleToggle` on the profile, the brief and Runway's drivers, comfortable text, the example business as a read-only demo membership (migration 0065, `business.example.*`, the third door, the Example frame), the landing's fourth beat. Open: "Start your own" in Continue's slot and the Example chip after the name need KitBar slots, and the product signals of §11 (`guidance.*` events) are not declared yet.
+
+**What the verification wave still owes:** the whole-monorepo typecheck and lint; every Playwright spec written blind in waves A to C run on the PGlite stack (`apps/web/e2e/README.md`), including `tours.spec.ts`, `example-business.spec.ts` (its viewer half needs a second dev account) and `no-clip.spec.ts` at 1280 and 1440; the Storybook build with the `Guidance/` group; the live Composer eval with a key; the browser walkthrough of `docs/ux-audit/` re-run; and, to close Gate 3, the second external user test (§11).
+
 Four phases. Each follows CLAUDE.md's definition of done (typecheck, lint, unit tests, Playwright for every screen touched, Storybook for every new component, an eval for every agent-behavior change, PROGRESS.md updated) and the two existing linters plus the new one from Phase 2. Estimates assume the current build cadence (one package agent per slice in parallel, as in waves 2 and 3).
 
 ### Phase 0 — Words only (about 1 week, no new components, no migrations)

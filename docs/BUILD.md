@@ -460,7 +460,7 @@ Below 1280 px width render `<NeedsLargerWindow/>` only.
 | `SkillGrid` | three columns (Craft, Judgement, Execution), values 1–20 coloured by rating ramp, delta arrows, hover shows "Tested X · Proven Y · N tasks" |
 | `StarRating` | 0–5 with halves |
 | `StatusPill` | good / warn / bad / info / neutral; always icon + word |
-| `DecisionBar` | 2–4 option buttons (recommended marked with thumbs-up), consequence/cost/reversibility on hover, free-text box + "Execute" |
+| `DecisionBar` | 2–4 option buttons (recommended marked with thumbs-up) under the heading "Your decision" (with "Pick one. Nothing runs until you do." while guidance is on); each option's consequence is **inline** on the button, with the Composer's `because` as a small line under it; the hover card is the detail (consequence, cost as an Estimate, reversibility, "Not stated" for a part the option left out; the inline line omits it); 1–4 key caps only while guidance is off; "Ask <agent>" opens the conversation instead of a free-text box (DESIGN §8) |
 | `DiffView` | inline and side-by-side; per-hunk accept/reject/edit |
 | `AgentTile` | header (name, task link, phase pill, progress ring), body views (Terminal, Diff, Preview, Plan), footer (elapsed, tokens, cost, ETA, last note), controls (Pause, Shout, Reassign, Upgrade model, Stop) |
 | `FormationBoard` | pitch canvas in kit colours; lines Attack/Midfield/Defence/Wings; starters vs bench; drag between |
@@ -471,6 +471,8 @@ Below 1280 px width render `<NeedsLargerWindow/>` only.
 | `ApplyScopeDialog` | "This agent only" / "Apply to all [type] agents" / "Apply to all agents" (used by model, autonomy, negotiation settings) |
 
 Every component: Storybook story, keyboard operable, WCAG 2.2 AA, `prefers-reduced-motion` respected, colour never the only signal.
+
+**Guidance** (UX plan §6, added Oct 20, 2026): the guided layer's primitives (`Term`, `DefinitionCard`, `InfoTip`, `Explainer`, `ConsequenceLine`, `ReassuranceLine`, `PlainFigure`, `ScaleLabel` / `FormKey`, `NextStep`, `FirstWeekChecklist`, `Coachmark` / `Callout`, `ExampleToggle` / `ExampleFrame`, `LearnLinkProvider`) live in `components/guidance/*` and `components/firstrun/*` and read one switch, `GuidanceProvider` (`account_preferences.guidance`). Their anatomy, the on/off rule (off hides tutoring, never information) and the key-cap rule (caps on buttons only when guidance is off) are DESIGN §8 "Guidance"; the definitions come from `packages/shared/src/terms.ts`.
 
 ### 5.5 Keyboard
 
@@ -491,12 +493,12 @@ Space = Continue · `R` = refresh Inbox · `G` then letter = go to section (`G H
 ```text
 /                               → redirect to last business Home, or /onboarding
 /onboarding                     founder profile (once per account)
-/new                            Create a new business: Door A (ideate) or Door B (import)
+/new                            Create a new business: Door A (ideate), Door B (import), or "Explore an example" (a read-only viewer membership of the seeded example business, shown only when `business.example.get` finds one; it calls `business.example.open` and lands on that business's Home)
 /new/ideate                     Ideation Studio
 /new/compare?ids=…              Concept comparison
 /new/import                     Import sources
 /new/commit/[ideaId]            Commit screen
-/businesses                     Your businesses: open, settings, archived (account level)
+/businesses                     Your businesses: open, settings, an Example heading (Open, Leave = `business.example.leave`), archived (account level)
 /b/[bid]/home[/[dashboardId]]   Home dashboards
 /b/[bid]/inbox[/[itemId]]       Inbox
 /b/[bid]/journey/[journeyId]    Customer Journey (Match Day)
@@ -505,7 +507,7 @@ Space = Continue · `R` = refresh Inbox · `G` then letter = go to section (`G H
 /b/[bid]/crm                    CRM list + search
 /b/[bid]/crm/[entityId]/[tab]   Entity profile
 /b/[bid]/trophies               Trophy cabinet
-/b/[bid]/settings/[tab]         business | mode | departments | glossary | members | integrations | keys | billing | danger
+/b/[bid]/settings/[tab]         business | mode | departments | glossary ("Your words") | members | integrations | keys | billing | preferences | danger
 /network, /communities/[id], /leaderboards/[boardId], /u/[handle], /c/[businessSlug]   LIVE only
 ```
 
@@ -958,6 +960,10 @@ Acceptance criteria (AC) are the tests. Each AC must be covered by a unit, integ
 
 **Founder profile** (once per account): experience (first-time, exited, operator, domain expert), skills 1–20 (engineering, sales, design, finance, domain), time commitment, budget, citizenship and residence, target markets, constraints (free text chips), risk appetite.
 
+*In two passes* (UX plan §7.3, Oct 20, 2026). The first pass asks four things: your name (prefilled), experience (four cards), time you can give, and where you live; residence derives the currency (residence → browser locale → USD) and, when no market is named, the first target market, so the first pass saves on its own. Everything else sits in one collapsed panel, "Add detail (optional, improves the ideas)": skills (each with a None / Some / Solid / Expert picker over the 20-cell bar and one legend for the scale), budget (with an "I have no budget yet" card), target markets, constraints and risk. It opens by default for Exited and Operator founders and when a saved profile is edited, and is remembered per account in the browser; the rail counts "N of 5 done". "Show me an example" fills the section with a labeled example founder (never the name; never saved; Continue waits until the example is replaced). On the save that first creates the profile with experience Exited or Operator, guidance is set off once (`founder.profile.update` returns `guidanceTurnedOff`) and a toast says so: "Guidance is off for experienced founders" / "Turn it on any time in Settings › Preferences."
+
+**Doors** (`/new`): "I have an idea, or none yet" (Door A, "Recommended for you" for first-time founders), "I already run something" (Door B), and, when a seeded example exists and the founder is not already a member of it, "Explore an example" ("Walk around a running business before you start yours. Nothing you do there is saved.", CTA "Open the example"): a viewer membership with `source = 'example'` of the example business (Northwind first), read-only, labeled Example, with "Start your own" in Continue's place; leaving deletes only that membership.
+
 **Door A: Ideation Studio.**
 1. Prompt box (concept, problem, market, or empty = "surprise me within my constraints").
 2. Ideation agent (Opus) drafts 6–12 concept cards; Research agent (Sonnet + web search) grounds each with competitors, market size estimates, pricing comparables, citations.
@@ -1016,7 +1022,7 @@ AC:
 
 **Types:** decision (red, blocks Continue), customer_won (red with gold edge, blocks until viewed), warning (amber; blocks only if runway < 3 months), update (blue), milestone (green), report, human_message.
 
-**Anatomy:** header (from agent persona linked, date, department chip, related entities) · note 60–180 words (fact → why it matters → ask) · status strip (≤ 4 live metrics with provenance on hover) · exhibit (chart from a named query, SVG diagram, entity card, mini table, diff preview, agent progress tile; generated imagery decorative only) · DecisionBar.
+**Anatomy:** header (from agent persona linked, date, department chip, related entities) · note under 180 words with no padding and no word floor (the business stake → what happened → the ask; UX plan §7.19) · status strip (≤ 4 live metrics with provenance on hover) · exhibit (chart from a named query, SVG diagram, entity card, mini table, diff preview, agent progress tile; generated imagery decorative only) · DecisionBar.
 
 **Decision → execution:** option click or free text → (free text) Opus compiles a Plan of typed actions → policy check → inside policy executes; outside policy shows "Here is what will happen" confirmation with costs → orchestrator dispatches → item archived "Decided" → follow-up Update with links to artefacts.
 
@@ -1035,11 +1041,11 @@ AC:
   "type": "decision",
   "from_agent_id": "uuid",
   "subject": "string <= 80 chars",
-  "body_md": "markdown with [[ent:uuid|Name]] mentions, 60-180 words",
+  "body_md": "markdown with [[ent:uuid|Name]] mentions, under 180 words, no padding",
   "status_strip": [{ "metric": "cash|runway|mrr|customers_week|...", "source": "string" }],
   "exhibit": { "kind": "chart|diagram|entity_card|table|diff|agent_tile|none", "spec_ref": "named_query_id" },
   "decision": {
-    "options": [{ "id": "a", "label": "string", "recommended": true, "consequence": "string", "cost_minor": 0, "reversible": true }],
+    "options": [{ "id": "a", "label": "string", "recommended": true, "consequence": "string", "because": "one sentence, required on the recommended option", "cost_minor": 0, "reversible": true }],
     "free_text": true,
     "expires_at": "ISO-8601 or null"
   },
@@ -1047,6 +1053,8 @@ AC:
   "source_event_ids": ["uuid"]
 }
 ```
+
+`because` (Oct 20, 2026; UX plan §7.19): one sentence, from the founder's seat, on why the option is recommended ("Recommended because it is free and reversible."); optional on other options, at most 400 characters, run through the business glossary when stored, and rendered by the DecisionBar as a small line under the option's consequence. Grounded decisions, the default options and the archetypes' Board options carry it on the recommended option only; an Import report's first decisions pass theirs through. The eval `evals/src/composer.ts` runs the plain-language replace tier over the AC-11.3.1 100-note corpus (subject, body, option labels, consequences, `because`) and grades "says the business stake first" and "defines or avoids each term".
 
 AC:
 - AC-11.3.1 100 consecutive generated notes (mock + live) have 100% valid entity links; no unknown ids reach render.
@@ -1312,6 +1320,8 @@ AC:
 
 Business (name, crest, kit, archetype), Mode (game mode switch with review wizard; business mode; holiday), Departments, Glossary, Members, Integrations (connect, health, scopes, disconnect), Keys (Anthropic BYOK), Billing (tier, credits, usage by agent and department, top-ups), Danger zone (export everything; archive business; permanent deletion = founder-only, re-auth, 7-day delay).
 
+Since Oct 20, 2026 (UX plan §7.17): Glossary reads **"Your words"** ("Rename the product's nouns to yours (clients instead of customers)."; the slug stays `glossary`). Keys opens with "Agents think with Claude. Paste your Anthropic key so they run on your account, or use credits on Billing." and the Settings list shows the key's state as a chip (Connected / None / Revoked); the key left the sidebar. Mode's cards carry the Commit screen's example lines, and Go live, Switch to Personal, Go on vacation, Revoke key, Archive and Delete each carry a consequence line. **Preferences** (the person's own, in every business: date and time format, §20 of ARCHITECTURE) gains a **Guidance** section: the "Explain things as I go" switch (`account_preferences.guidance`, on by default, off once for Exited and Operator profiles), "Text size" Standard / Comfortable (`text_size`; body 14/20, small 12.5/16, nothing structural), ghost "Show the first-week checklist again" and "Replay the tour" (both clear the explainers seen, the tours done and the checklist dismissal; each is disabled until there is something to bring back). Each change saves at once with a toast ("Guidance on", "Comfortable text", "Starting over"; "Preference not saved" on failure).
+
 ---
 
 ## 12. Core prompt templates (`packages/agents/src/prompts/`)
@@ -1345,6 +1355,13 @@ Rules:
 - Use the business glossary terms.
 Return JSON matching the Composer schema. No prose outside JSON.
 ```
+
+**Version 3 (Oct 20, 2026; UX plan §7.19, §8.1).** The template above is the original; the live prompt (`packages/agents/src/prompts/inbox-composer.ts`, `inbox_composer` v3) adds:
+
+- **`{founder_experience}`**, one of `first_time | exited | operator | domain_expert` (default `first_time`), read from the business owner's founder profile by `loadFounderExperience` in apps/composer (and by the api's in-process composer, which now sends the same two system blocks: the house rules, then this prompt). A first-time founder gets every business term defined the first time it appears; exited and operator founders get the plain phrase without the lecture; a domain expert gets the business terms defined but not the terms of their own field. Anything else reads as `first_time` (`founderExperienceFrom`).
+- **The plain-language rules**: say what is at stake for the business before how the system handled it; define a term in the sentence the first time it appears, or use the plain phrase; never name the plumbing unless the founder did (`COMPOSER_PLUMBING_WORDS`: policy → "your limits", caps → "the limit you set", named query / exhibit → "the chart (or table) below", engine, hard gate → "something only you can do", `request_human_action` → "a task for you"); write each consequence from the founder's seat; give the recommended option a `because`.
+- **No word floor**: "Under 180 words, no padding: a clear 40-word note beats a padded 60-word one" (the "like a Football Manager news item" style line is now "like a company newsroom bulletin"; the prompts' 60-word floor is gone; the skill check's `CHECK.words(60, 180)` and the research plan note's padding to 60 words are lowered by wave C's leftovers slice).
+- The glossary input is the business's rename map applied to `packages/shared/src/terms.ts`, the same definitions the UI shows. The replace tier of `PLAIN_LANGUAGE_TIERS` is what the Composer eval forbids.
 
 ### 12.3 Plan compiler (Opus)
 

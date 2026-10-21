@@ -59,6 +59,37 @@ jobs:
           path: docs/VOCAB_SWEEP.md
           if-no-files-found: ignore
 
+  plain-language:
+    name: Plain-language linter (undefined jargon and developer notes in user-facing text)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      # The scan reuses the banned-terms extractor (TypeScript compiler API from the root devDependencies) and reads the
+      # tiers from packages/shared/src/terms.ts PLAIN_LANGUAGE_TIERS.
+      - run: pnpm install --frozen-lockfile
+      - name: Plain-language self-test
+        run: node --test scripts/plain-language.test.mjs
+      # Report mode until the package sweep lands (docs/UX_AUDIT_AND_PLAN.md §8.3, Gate 2): the step goes red on hits
+      # but does not fail the job. The UX wave after wave C that sweeps docs/PLAIN_LANGUAGE_SWEEP.md package by package
+      # (wave D) removes `continue-on-error` once the sweep reads zero, and from then on any new hit fails CI.
+      - name: Plain-language scan (replace-tier jargon on sight, define-tier words the file does not define, developer notes)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: node scripts/plain-language.mjs --sweep docs/PLAIN_LANGUAGE_SWEEP.md
+      - name: Upload the plain-language sweep
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: plain-language-sweep
+          path: docs/PLAIN_LANGUAGE_SWEEP.md
+          if-no-files-found: ignore
+
   checks:
     name: Typecheck, lint, unit tests
     runs-on: ubuntu-latest

@@ -640,11 +640,6 @@ function classifyNode(node, file) {
   return { verdict, key: null };
 }
 
-/** The verdict alone (see `classifyNode`). */
-function classify(node, file) {
-  return classifyNode(node, file).verdict;
-}
-
 /** The tag name of the nearest JSX element around `node` (`InfoTip` for text inside `<InfoTip>` or for its props), or null. */
 function enclosingElement(node) {
   for (let p = node.parent; p; p = p.parent) {
