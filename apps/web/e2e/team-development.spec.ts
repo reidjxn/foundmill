@@ -1,5 +1,5 @@
 import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
-import { LONG, chooseTableView, devApi, openBusiness } from "./helpers";
+import { COACHMARK_CARD, LONG, chooseTableView, devApi, dismissCoachmarks, openBusiness } from "./helpers";
 
 /**
  * Team and Development screens on the seeded Northwind business at the two desktop widths (1280, the minimum, and
@@ -33,6 +33,21 @@ async function openTab(page: Page, base: string, slug: string, module: string): 
   await page.goto(`${base}/${slug}`);
   await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", module, { timeout: LONG });
   await page.waitForLoadState("networkidle", { timeout: LONG }).catch(() => undefined);
+  await closeTours(page);
+}
+
+/**
+ * The department tour and the saved-views callout (UX plan §6.2) open on the account's first department visit, or again
+ * after tours.spec.ts resets them; a card's popover covers the tab's View button, so the spec closes what shows (each
+ * waits for the one before it) until none opens.
+ */
+async function closeTours(page: Page): Promise<void> {
+  const card = page.locator(COACHMARK_CARD).first();
+  for (let i = 0; i < 5; i++) {
+    const shown = await card.waitFor({ state: "visible", timeout: 1_500 }).then(() => true, () => false);
+    if (!shown) return;
+    await dismissCoachmarks(page);
+  }
 }
 
 /** The right edge of every column header in a grid sits inside the grid's own box (no header cut at the edge). */
