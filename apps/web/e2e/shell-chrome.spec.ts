@@ -7,6 +7,8 @@ import { LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
  * name, and overlays that portal to the body take the business's brand colour. Stack and commands: e2e/README.md.
  */
 const B = `/b/${NORTHWIND_BUSINESS_ID}`;
+/** The stream's endpoint, as playwright.config.ts hands it to the web app. */
+const STREAM_URL = process.env.NEXT_PUBLIC_STREAM_URL ?? "ws://localhost:4003";
 
 test.describe("shell chrome", () => {
   test("at 1280 the screen title and the chips keep their words; the search gives way first", async ({ page }) => {
@@ -36,7 +38,25 @@ test.describe("shell chrome", () => {
   });
 
   test("at 1440 the search shows its whole placeholder; the chips' second phrase shows only while the search has its whole width", async ({ page }) => {
+    // The bar as a founder normally sees it: the live connection up. This stack runs no stream service (README), so
+    // without a stand-in the "Reconnecting…" chip joins the bar once its grace runs out, and by DESIGN §8 the search then
+    // rightly gives way to its icon. The stand-in acknowledges every subscription (lib/stream.ts protocol) and answers pings.
+    let businessLive = false;
+    await page.routeWebSocket(
+      (url) => url.href.startsWith(STREAM_URL),
+      (ws) => {
+        ws.onMessage((message) => {
+          const frame = JSON.parse(String(message)) as { t?: string; ch?: string };
+          if (frame.t === "sub" && frame.ch) {
+            ws.send(JSON.stringify({ t: "subscribed", ch: frame.ch }));
+            if (frame.ch === `ev:${NORTHWIND_BUSINESS_ID}`) businessLive = true;
+          } else if (frame.t === "ping") ws.send(JSON.stringify({ t: "pong" }));
+        });
+      },
+    );
     await openBusiness(page);
+    await expect.poll(() => businessLive, { timeout: LONG }).toBe(true);
+    await expect(page.getByTestId("connection-chip")).toHaveCount(0);
     const search = page.getByTestId("kitbar-search");
     await expect(search.getByText("Search or jump to…")).toBeVisible();
     const box = (await search.boundingBox())!;

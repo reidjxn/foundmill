@@ -14,10 +14,12 @@
  * leaves the page mid-tour moves the tour on; a tour none of whose targets ever appear simply never starts. The ring
  * follows its target through scrolling, resizing and layout changes.
  *
- * When the tour ends (Done, Skip tour, Esc, or the card closing for any reason) keyboard focus goes back to the element
- * that had it when the tour started (the "Replay the tour" button, a row the founder was on); when nothing had it (the
- * tour started on its own on page load), to the last target when that is focusable (the Continue button after its
- * callout), and otherwise nowhere in particular.
+ * When the founder ends the tour (Done, Got it, Skip tour, Esc) keyboard focus goes back to the element that had it
+ * when the tour started (the "Replay the tour" button, a row the founder was on); when nothing had it (the tour started
+ * on its own on page load), to the last target when that is focusable (the Continue button after its callout), and
+ * otherwise nowhere in particular. When the card closes on its own (the page dropped it, guidance turned off, the tour
+ * marked done elsewhere) focus is never moved onto a target: the founder did not press anything, and focusing Continue
+ * would open its tooltip over the page. Only an opener gets it back, and only when focus was in the card or lost.
  *
  * Targets are found by DOM id or by a `data-coachmark="<targetId>"` attribute.
  */
@@ -134,6 +136,8 @@ export function Coachmark({ tourId, steps, onDone, autoStart = true, open }: Coa
   // What had focus when the tour started, and the target of the step on screen: focus goes back to one of them after.
   const openerRef = useRef<HTMLElement | null>(null);
   const lastTargetRef = useRef<HTMLElement | null>(null);
+  // True when the founder closed the card (Done, Got it, Skip tour, Esc): only then may focus move onto a target.
+  const closedByFounderRef = useRef(false);
 
   const finish = useCallback(
     (outcome: CoachmarkOutcome) => {
@@ -155,13 +159,20 @@ export function Coachmark({ tourId, steps, onDone, autoStart = true, open }: Coa
   const navRef = useRef({ prev: false, next: false });
   const [, rerender] = useReducer((n: number) => n + 1, 0);
 
-  const next = useCallback(() => {
-    const i = indexRef.current;
-    if (i === null) return;
-    const n = existing(i + 1, 1);
-    if (n < 0) finish("done");
-    else setIndex(n);
-  }, [existing, finish]);
+  /** The next step, or the end. `byFounder`: Next or ArrowRight, not a target that left the page. */
+  const next = useCallback(
+    (byFounder = false) => {
+      const i = indexRef.current;
+      if (i === null) return;
+      const n = existing(i + 1, 1);
+      if (n >= 0) setIndex(n);
+      else {
+        if (byFounder) closedByFounderRef.current = true;
+        finish("done");
+      }
+    },
+    [existing, finish],
+  );
 
   const back = useCallback(() => {
     const i = indexRef.current;
@@ -169,6 +180,15 @@ export function Coachmark({ tourId, steps, onDone, autoStart = true, open }: Coa
     const p = existing(i - 1, -1);
     if (p >= 0) setIndex(p);
   }, [existing]);
+
+  /** The founder's own close: the card's buttons and Esc. */
+  const close = useCallback(
+    (outcome: CoachmarkOutcome) => {
+      closedByFounderRef.current = true;
+      finish(outcome);
+    },
+    [finish],
+  );
 
   // Start: when eligible and not yet showing, the first step with a target, unless the page asks tours to wait. While
   // paused (Continue processing, a dialog open: a long cycle mounts and flips a great deal), it polls every
@@ -183,6 +203,7 @@ export function Coachmark({ tourId, steps, onDone, autoStart = true, open }: Coa
       // Remembered before the card takes focus: the "Replay the tour" button, the row the founder was on, or nothing.
       const active = document.activeElement;
       openerRef.current = active instanceof HTMLElement && active !== document.body ? active : null;
+      closedByFounderRef.current = false;
       setIndex(first);
       return "started";
     };
@@ -286,18 +307,24 @@ export function Coachmark({ tourId, steps, onDone, autoStart = true, open }: Coa
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === "ArrowRight") {
       e.preventDefault();
-      next();
+      next(true);
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
       back();
     }
   };
 
-  // The card closed (Done, Skip tour, Esc, guidance turned off, the tour marked done elsewhere): focus goes back to
-  // where it was, or to the last target when that is a control. Radix would otherwise look for a trigger it never had.
+  // The card closed. Radix would otherwise look for a trigger it never had. The founder closed it (Done, Skip tour,
+  // Esc): focus goes back to where it was, or to the last target when that is a control. It closed on its own (the page
+  // dropped it, guidance turned off, the tour marked done elsewhere): only to the opener, and only when focus was in the
+  // card or lost; never onto a target the founder did not choose (Continue would open its tooltip over the page).
   const onCloseAutoFocus = (e: Event) => {
     e.preventDefault();
-    const to = focusAfterTour(openerRef.current, lastTargetRef.current);
+    const byFounder = closedByFounderRef.current;
+    closedByFounderRef.current = false;
+    const active = document.activeElement;
+    const focusLost = active === null || active === document.body || (contentRef.current?.contains(active) ?? false);
+    const to = byFounder ? focusAfterTour(openerRef.current, lastTargetRef.current) : focusLost ? focusAfterTour(openerRef.current, null) : null;
     openerRef.current = null;
     lastTargetRef.current = null;
     to?.focus({ preventScroll: true });
@@ -349,7 +376,7 @@ export function Coachmark({ tourId, steps, onDone, autoStart = true, open }: Coa
           }}
           onEscapeKeyDown={(e) => {
             e.preventDefault();
-            finish("skipped");
+            close("skipped");
           }}
           onCloseAutoFocus={onCloseAutoFocus}
           onInteractOutside={(e) => {
@@ -373,23 +400,23 @@ export function Coachmark({ tourId, steps, onDone, autoStart = true, open }: Coa
             )}
             <div className="ml-auto flex flex-wrap items-center gap-1">
               {single ? (
-                <Button size="sm" onClick={() => finish("done")}>
+                <Button size="sm" onClick={() => close("done")}>
                   Got it
                 </Button>
               ) : (
                 <>
-                  <Button variant="ghost" size="sm" onClick={() => finish("skipped")}>
+                  <Button variant="ghost" size="sm" onClick={() => close("skipped")}>
                     Skip tour
                   </Button>
                   <Button variant="ghost" size="sm" icon={ArrowLeft} onClick={back} disabled={!hasPrev}>
                     Back
                   </Button>
                   {hasNext ? (
-                    <Button size="sm" iconRight={ArrowRight} onClick={next}>
+                    <Button size="sm" iconRight={ArrowRight} onClick={() => next(true)}>
                       Next
                     </Button>
                   ) : (
-                    <Button size="sm" onClick={() => finish("done")}>
+                    <Button size="sm" onClick={() => close("done")}>
                       Done
                     </Button>
                   )}

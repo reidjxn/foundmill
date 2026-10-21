@@ -7,8 +7,10 @@ import { LONG, openBusiness, openSettings, settingsScreen, toast } from "./helpe
  * spec adds its own department and archives that one, so the seeded departments are never touched. Stack: e2e/README.md.
  * The tab's own content is looked up through `settingsScreen` (React parks a second copy of a streamed screen outside the
  * shell for a moment, helpers.ts); the dialogs and the options list are portals and are looked up on the page.
+ * A department is archived, never deleted, so every run leaves its own in the Archived list: the name carries a run
+ * number, or a second run would find two "Restore" buttons for one name.
  */
-const NAME = "Support Desk (e2e)";
+const NAME = `Support Desk ${String(Date.now() % 1_000_000).padStart(6, "0")} (e2e)`;
 
 test.describe("settings, departments", () => {
   test.beforeEach(async ({ page }) => {

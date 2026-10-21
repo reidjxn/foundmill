@@ -376,6 +376,26 @@ describe("Coachmark", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Continue" }));
   });
 
+  it("never moves focus onto a target when the card closes on its own (dropped by the page, or marked done elsewhere)", async () => {
+    // A callout that started on page load and is then dropped by the page (the shell's frame no longer wants it).
+    function Shell({ show }: { show: boolean }) {
+      return <Page>{show ? <Callout tourId="first-continue" targetId="continue" title="This is how you move forward" body="Press it." /> : <span />}</Page>;
+    }
+    const dropped = render(<Shell show />);
+    await screen.findByRole("dialog", { name: "This is how you move forward" });
+    dropped.rerender(<Shell show={false} />);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).not.toBe(screen.getByRole("button", { name: "Continue" }));
+    dropped.unmount();
+
+    // The same callout marked done elsewhere (Settings › Preferences, another tab) while it shows.
+    const elsewhere = render(<Page value={{ loaded: true }}>{<Callout tourId="first-continue" targetId="continue" title="This is how you move forward" body="Press it." />}</Page>);
+    await screen.findByRole("dialog", { name: "This is how you move forward" });
+    elsewhere.rerender(<Page value={{ loaded: true, toursDone: { "first-continue": true } }}>{<Callout tourId="first-continue" targetId="continue" title="This is how you move forward" body="Press it." />}</Page>);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).not.toBe(screen.getByRole("button", { name: "Continue" }));
+  });
+
   it("focusAfterTour: the opener first, then a focusable last target, else nothing", () => {
     render(
       <div>
