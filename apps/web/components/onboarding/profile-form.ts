@@ -494,6 +494,61 @@ export function firstInvalidSection(errors: ProfileErrors): ProfileSectionId | n
   return PROFILE_SECTIONS.find((s) => sections.has(s.id))?.id ?? null;
 }
 
+/* ---------- the example founder (UX plan §6.2 ExampleToggle, Phase 3) ---------- */
+
+/** The answers "Show me an example" fills: every one but the founder's own name. */
+export const EXAMPLE_PROFILE_KEYS = ["experience", "timeCommitment", "citizenship", "residence", "skills", "budget", "noBudget", "currency", "targetMarkets", "constraints", "riskAppetite"] as const;
+export type ExampleProfileKey = (typeof EXAMPLE_PROFILE_KEYS)[number];
+
+/**
+ * A labeled example founder: first time, evenings and weekends, £5,000 of their own money, living in the United
+ * Kingdom and aiming at the UK and Ireland, keeping their day job and holding no stock, with a low appetite for risk.
+ * The skills show one of each band word, so the legend has something to point at.
+ */
+export const EXAMPLE_PROFILE: Readonly<Pick<ProfileForm, ExampleProfileKey>> = {
+  experience: "first_time",
+  timeCommitment: "evenings_weekends",
+  citizenship: "United Kingdom",
+  residence: "United Kingdom",
+  skills: { engineering: 8, sales: 12, design: 7, finance: 4, domain: 16 },
+  budget: "5000",
+  noBudget: false,
+  currency: "GBP",
+  targetMarkets: ["UK", "Ireland"],
+  constraints: ["Keep my day job for now", "No physical inventory"],
+  riskAppetite: "low",
+};
+
+const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/** The form with the example founder's answers in place of the founder's own; the name stays theirs. */
+export function fillExampleProfile(form: ProfileForm): ProfileForm {
+  return { ...form, ...EXAMPLE_PROFILE, skills: { ...EXAMPLE_PROFILE.skills }, targetMarkets: [...EXAMPLE_PROFILE.targetMarkets], constraints: [...EXAMPLE_PROFILE.constraints] };
+}
+
+/**
+ * The form after "Hide the example": every answer still holding the example's value goes back to what it was before
+ * the example (`before`), skill by skill; an answer the founder changed while the example was in stays theirs.
+ */
+export function clearExampleProfile(form: ProfileForm, before: ProfileForm): ProfileForm {
+  const next: ProfileForm = { ...form, skills: { ...form.skills } };
+  for (const key of SKILL_KEYS) if (form.skills[key] === EXAMPLE_PROFILE.skills[key]) next.skills[key] = before.skills[key];
+  if (form.experience === EXAMPLE_PROFILE.experience) next.experience = before.experience;
+  if (form.timeCommitment === EXAMPLE_PROFILE.timeCommitment) next.timeCommitment = before.timeCommitment;
+  if (form.citizenship === EXAMPLE_PROFILE.citizenship) next.citizenship = before.citizenship;
+  if (form.residence === EXAMPLE_PROFILE.residence) next.residence = before.residence;
+  // The budget and "I have no budget yet" are one answer.
+  if (form.budget === EXAMPLE_PROFILE.budget && form.noBudget === EXAMPLE_PROFILE.noBudget) {
+    next.budget = before.budget;
+    next.noBudget = before.noBudget;
+  }
+  if (form.currency === EXAMPLE_PROFILE.currency) next.currency = before.currency;
+  if (sameList(form.targetMarkets, EXAMPLE_PROFILE.targetMarkets)) next.targetMarkets = [...before.targetMarkets];
+  if (sameList(form.constraints, EXAMPLE_PROFILE.constraints)) next.constraints = [...before.constraints];
+  if (form.riskAppetite === EXAMPLE_PROFILE.riskAppetite) next.riskAppetite = before.riskAppetite;
+  return next;
+}
+
 /** One line the Ideation Studio shows back: "First-time founder · full time · EUR 25,000 · EU, UK". */
 export function profileSummary(form: ProfileForm): string {
   const parts: string[] = [];

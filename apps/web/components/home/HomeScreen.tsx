@@ -56,6 +56,7 @@ import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { HomeAutopilot } from "./HomeAutopilot";
+import { HomeTour } from "./HomeTour";
 import { dashboardActions, dashboardTabs, editedElsewhere, ghostedMilestones, gridPresets, isDayOne, isOwnDashboard, nextDashboardName, nextStepFacts, pickDashboardId, resetPresetFor, sameLayout, shareHref, unreadNotes, versionConflict, withContinueAction } from "./dashboards";
 import { isGuid } from "@/lib/ids";
 
@@ -269,6 +270,8 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
     <div className="flex min-h-full flex-col gap-gutter p-gutter" data-testid="home-screen" data-dashboard-id={row.id} data-dashboard-version={row.version} data-editing={editing || undefined}>
       {refreshFailed(listQ) || refreshFailed(dashboardQ) ? <RefreshFailedNotice query={refreshFailed(dashboardQ) ? dashboardQ : listQ} className="flex items-center gap-2" /> : null}
       {lead}
+      {/* The first-visit tour (once per account, guidance on), mounted with the dashboard so its widgets are there to point at. */}
+      <HomeTour />
       <DashboardGrid
         key={row.id}
         businessId={businessId}

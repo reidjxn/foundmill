@@ -81,13 +81,35 @@ test.describe("ideation studio", () => {
     // Key caps are an operator's affordance (UX plan §5.9): the generate control's ⌘↵ shows only while guidance is off.
     const guided = await guidanceOn(playwright);
     await expect(page.getByTestId("generate-button").locator("kbd")).toHaveCount(guided ? 0 : 1);
-    // Example briefs show only while the deck is empty (A7).
+    // Example briefs show only while the deck is empty (A7) and guidance is on: an ExampleToggle group (UX plan §6.2).
     const empty = (await page.getByTestId("concept-grid").locator("[data-concept]").count()) === 0;
-    await expect(page.getByTestId("example-briefs")).toHaveCount(empty ? 1 : 0);
-    if (empty) {
-      await page.getByTestId("example-briefs").getByRole("button", { name: "A subscription for refillable skincare" }).click();
-      await expect(page.getByRole("textbox", { name: "Brief" })).toHaveValue("A subscription for refillable skincare");
-      await page.getByRole("textbox", { name: "Brief" }).fill("");
+    await expect(page.getByTestId("example-briefs")).toHaveCount(empty && guided ? 1 : 0);
+    if (empty && guided) {
+      const briefs = page.getByTestId("example-briefs");
+      await expect(briefs.getByRole("group", { name: "Try an example brief" })).toBeVisible();
+      const chip = briefs.getByRole("button", { name: "A subscription for refillable skincare" });
+      const brief = page.getByRole("textbox", { name: "Brief" });
+      const generate = page.getByTestId("generate-button");
+      await chip.click();
+      await expect(brief).toHaveValue("A subscription for refillable skincare");
+      await expect(chip).toHaveAttribute("aria-pressed", "true");
+      // The brief wears the Example chip in a dashed frame, the control says it drafts from the example, and nothing is drafted by itself.
+      await expect(page.getByTestId("brief-example").getByText("Example", { exact: true })).toBeVisible();
+      await expect(generate).toContainText("Draft 6–12 ideas from this example");
+      await expect(page.getByTestId("draft-status")).toHaveCount(0);
+      // An edit, however small, makes the brief the founder's.
+      await brief.fill("A subscription for refillable skincare, for gyms");
+      await expect(page.getByTestId("brief-example")).toHaveCount(0);
+      await expect(chip).toHaveAttribute("aria-pressed", "false");
+      await expect(generate).toContainText("Draft concepts");
+      // The chosen chip again clears what it filled.
+      await chip.click();
+      await expect(brief).toHaveValue("A subscription for refillable skincare");
+      await chip.click();
+      await expect(brief).toHaveValue("");
+      await expect(page.getByTestId("brief-example")).toHaveCount(0);
+      await expect(generate).toContainText("Draft 6–12 ideas for me");
+      await expect(page.getByTestId("draft-status")).toHaveCount(0);
     }
   });
 

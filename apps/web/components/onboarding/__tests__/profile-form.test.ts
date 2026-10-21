@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   DETAIL_SECTION_TITLE,
+  EXAMPLE_PROFILE,
   FALLBACK_CURRENCY,
   PROFILE_LIMITS,
   PROFILE_SECTIONS,
   addChip,
+  clearExampleProfile,
+  fillExampleProfile,
   currencyForCountry,
   currencyForLocale,
   defaultCurrency,
@@ -348,5 +351,57 @@ describe("founder profile form (BUILD §11.1, AC-11.1.1)", () => {
     expect(profileSaveMessage([{ path: ["unknownField"] }], "Something went wrong")).toBe(
       "Something went wrong",
     );
+  });
+});
+
+describe("the example founder (UX plan §6.2 ExampleToggle, Phase 3)", () => {
+  it("fills every answer but the name: a first-time founder on evenings and weekends, £5,000, living in the UK, aiming at the UK and Ireland, low risk", () => {
+    const form: ProfileForm = { ...emptyProfileForm("reid.jackson@example.com") };
+    const filled = fillExampleProfile(form);
+    expect(filled.displayName).toBe("Reid Jackson");
+    expect(filled).toMatchObject({
+      experience: "first_time",
+      timeCommitment: "evenings_weekends",
+      residence: "United Kingdom",
+      citizenship: "United Kingdom",
+      currency: "GBP",
+      budget: "5000",
+      noBudget: false,
+      targetMarkets: ["UK", "Ireland"],
+      constraints: ["Keep my day job for now", "No physical inventory"],
+      riskAppetite: "low",
+    });
+    // The constraints are the suggestion chips' own words, so they read the same as the ones a founder can pick.
+    expect(filled.constraints.every((c) => (["Bootstrapped, no outside funding", "Remote only", "No physical inventory", "B2B only", "Must be profitable within a year", "Keep my day job for now", "No regulated industries", "English-speaking markets only"] as string[]).includes(c))).toBe(true);
+    expect(isProfileValid(filled)).toBe(true);
+    expect(profileSummary(filled)).toBe("First-time founder · evenings and weekends · GBP 5,000 · UK, Ireland");
+    expect(profilePatch(filled).budgetMinor).toBe(500_000);
+    // Its own copies: changing the filled form never changes the example.
+    filled.constraints.push("x");
+    filled.skills.sales = 1;
+    expect(EXAMPLE_PROFILE.constraints).toHaveLength(2);
+    expect(EXAMPLE_PROFILE.skills.sales).toBe(12);
+  });
+
+  it("clears only what it filled: untouched example answers go back, answers typed over the example stay", () => {
+    const before: ProfileForm = { ...emptyProfileForm(), budget: "25k", constraints: ["Remote only"], skills: { ...emptyProfileForm().skills, sales: 15 } };
+    const filled = fillExampleProfile(before);
+    expect(filled.skills.sales).toBe(12);
+    // The founder types over three answers while the example is in.
+    const edited: ProfileForm = { ...filled, budget: "12k", skills: { ...filled.skills, engineering: 3 }, targetMarkets: ["US"] };
+    const cleared = clearExampleProfile(edited, before);
+    expect(cleared.budget).toBe("12k");
+    expect(cleared.skills.engineering).toBe(3);
+    expect(cleared.targetMarkets).toEqual(["US"]);
+    // Everything else is as it was before the example.
+    expect(cleared.skills.sales).toBe(15);
+    expect(cleared.skills.domain).toBe(10);
+    expect(cleared.constraints).toEqual(["Remote only"]);
+    expect(cleared).toMatchObject({ experience: "", timeCommitment: "", residence: "", citizenship: "", currency: FALLBACK_CURRENCY, noBudget: false, riskAppetite: "medium" });
+    // Untouched, the round trip is the identity.
+    expect(clearExampleProfile(fillExampleProfile(before), before)).toEqual(before);
+    // The budget and "I have no budget yet" are one answer: picking "no budget" over the example keeps that choice.
+    const noBudget = clearExampleProfile({ ...filled, budget: "", noBudget: true }, before);
+    expect(noBudget).toMatchObject({ budget: "", noBudget: true });
   });
 });

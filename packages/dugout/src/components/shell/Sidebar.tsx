@@ -250,6 +250,8 @@ export const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(
       ref={ref}
       aria-label="Primary"
       data-collapsed={collapsed || undefined}
+      // The Home tour's first step (Coachmark) rings the whole rail.
+      data-coachmark="sidebar"
       className={cn("shell-rail flex h-full shrink-0 flex-col overflow-hidden", collapsed ? "w-sidebar-collapsed" : "w-sidebar", className)}
       onKeyDown={onKeyDown}
       {...rest}

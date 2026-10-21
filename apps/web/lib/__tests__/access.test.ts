@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { ADMIN_ONLY_REASON, FULL_ACCESS, accessFor, canOpenDepartment, readOnlyReason, sectionOf } from "../access";
+import { ADMIN_ONLY_REASON, EXAMPLE_READ_ONLY_REASON, FULL_ACCESS, accessFor, canOpenDepartment, isExampleViewer, readOnlyReason, sectionOf } from "../access";
 import { buildSidebarItems } from "../sidebar";
 
 const BID = "00000000-0000-4000-8000-000000000001";
-const membership = (role: string, sectionPermissions: Record<string, string> = {}) => ({ role, sectionPermissions }) as never;
+const membership = (role: string, sectionPermissions: Record<string, string> = {}, source = "invite") => ({ role, sectionPermissions, source }) as never;
 
 describe("access (audit RUI-05: the app followed only isAdmin)", () => {
   it("owners, admins and members change things; viewers and advisors only read", () => {
@@ -45,6 +45,28 @@ describe("access (audit RUI-05: the app followed only isAdmin)", () => {
     expect(readOnlyReason(accessFor(membership("viewer")))).toBe("As a viewer you can follow the business; an owner, admin or member makes changes.");
     expect(readOnlyReason(accessFor(membership("advisor")))).toContain("an advisor");
     expect(ADMIN_ONLY_REASON).toBe("Only an owner or admin can do this.");
+  });
+
+  it("an example viewer (0065) is a viewer with the example reason; a demo's own members and an invited viewer are not", () => {
+    const demo = { isDemo: true };
+    const example = accessFor(membership("viewer", {}, "example"), demo);
+    expect(example).toMatchObject({ role: "viewer", isExample: true, canChange: false, isAdmin: false });
+    expect(example.canRead("finance")).toBe(true);
+    expect(example.canWrite("finance")).toBe(false);
+    expect(readOnlyReason(example)).toBe(EXAMPLE_READ_ONLY_REASON);
+    expect(EXAMPLE_READ_ONLY_REASON).toBe("This is an example business: look around, then start your own.");
+    // The viewer role and the example source make an example; a business that is known not to be a demo never does.
+    expect(isExampleViewer({ role: "viewer", sectionPermissions: {}, source: "example" }, demo)).toBe(true);
+    expect(isExampleViewer({ role: "viewer", sectionPermissions: {}, source: "example" })).toBe(true);
+    expect(isExampleViewer({ role: "viewer", sectionPermissions: {}, source: "example" }, { isDemo: false })).toBe(false);
+    expect(isExampleViewer({ role: "viewer", sectionPermissions: {}, source: "invite" }, demo)).toBe(false);
+    expect(isExampleViewer({ role: "owner", sectionPermissions: {}, source: "founder" }, demo)).toBe(false);
+    expect(isExampleViewer(null, demo)).toBe(false);
+    expect(accessFor(membership("viewer"), demo).isExample).toBe(false);
+    expect(accessFor(membership("owner", {}, "founder"), demo).isExample).toBe(false);
+    // The business context reads the membership alone (0065 holds every example row to the viewer role of a demo).
+    expect(accessFor(membership("viewer", {}, "example")).isExample).toBe(true);
+    expect(FULL_ACCESS.isExample).toBe(false);
   });
 
   it("the sidebar lists neither a walled department nor a walled CRM", () => {

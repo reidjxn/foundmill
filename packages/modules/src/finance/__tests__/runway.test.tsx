@@ -218,3 +218,66 @@ describe("RunwayScreen", () => {
     expect(failing.refetches["finance.forecast.list"]).toBe(1);
   });
 });
+
+describe("the example scenario (UX plan §6.2 ExampleToggle, Phase 3)", () => {
+  it("is not offered while guidance is off", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <RunwayScreen {...props} />);
+    expect(screen.queryByTestId("runway-example-toggle")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Show me an example" })).toBeNull();
+  });
+
+  it("fills the driver form with the example, tagged Example and never saved; Hide the example restores the real values", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <RunwayScreen {...props} />, {}, { guidance: "on" });
+    const form = () => screen.getByRole("form", { name: "Base drivers" });
+    const field = (label: string) => within(form()).getByLabelText(label) as HTMLInputElement;
+    // The founder has a change of their own in the form first.
+    fireEvent.change(field("Monthly costs"), { target: { value: "95000" } });
+    fireEvent.blur(field("Monthly costs"));
+    expect(field("Starting cash").value).toBe("150,000");
+    expect(field("Monthly costs").value).toBe("95,000");
+    expect(screen.getByText(/Continue is blocked until the warning is acknowledged/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show me an example" }));
+    const frame = screen.getByTestId("runway-example");
+    expect(frame.className).toContain("border-dashed");
+    expect(within(frame).getByText("Example")).toBeTruthy();
+    expect(form().hasAttribute("data-example")).toBe(true);
+    // The example scenario, in the business's currency, read-only.
+    expect(field("Starting cash").value).toBe("30,000");
+    expect(field("Monthly revenue").value).toBe("4,000");
+    expect(field("Revenue growth").value).toBe("5");
+    expect(field("Monthly costs").value).toBe("7,500");
+    expect(field("Cost growth").value).toBe("1");
+    expect(field("Horizon").value).toBe("24");
+    expect(field("Starting cash").readOnly).toBe(true);
+    fireEvent.change(field("Monthly costs"), { target: { value: "1" } });
+    expect(field("Monthly costs").value).toBe("7,500");
+    // The runway line is the example's (about eleven months: the 12-month warning has something to point at), still a forecast.
+    const line = document.querySelector("[data-driver-runway]") as HTMLElement;
+    expect(line.textContent).toMatch(/^Example runway with these drivers: 1[012](\.\d)? mo/);
+    expect(line.textContent).toMatch(/Forecast$/);
+    expect(screen.getByText(/^Example: revenue up 5% and costs up 1% a month, over 24 months\. An example is never saved\./)).toBeTruthy();
+    // Never saved: Save and Reset wait, and Enter in the form saves nothing.
+    expect((within(form()).getByRole("button", { name: "Save Base forecast" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(form()).getByRole("button", { name: "Reset" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.submit(form());
+    expect(fake.mutations).toHaveLength(0);
+    // The chart and the warnings never read the example: the real drafts still block Continue.
+    expect(screen.getByText(/Continue is blocked until the warning is acknowledged/)).toBeTruthy();
+    expect(screen.getByText(/Base · unsaved/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide the example" }));
+    expect(screen.queryByTestId("runway-example")).toBeNull();
+    expect(form().hasAttribute("data-example")).toBe(false);
+    // The founder's own values are back, their change included, and Save is live again.
+    expect(field("Starting cash").value).toBe("150,000");
+    expect(field("Monthly costs").value).toBe("95,000");
+    expect(field("Starting cash").readOnly).toBe(false);
+    expect((within(form()).getByRole("button", { name: "Save Base forecast" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((within(form()).getByRole("button", { name: "Reset" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((document.querySelector("[data-driver-runway]") as HTMLElement).textContent).toMatch(/^Base runway with these drivers: 2(\.\d)? mo/);
+    expect(screen.getByText(/Saving creates a new forecast version/)).toBeTruthy();
+  });
+});

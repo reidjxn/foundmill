@@ -1,11 +1,21 @@
 import "./setup";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { VisionScreen } from "../VisionScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
 import { BID, BLOCK, dataResponses, emptyResponses } from "./fixtures";
 
 const departments = [{ id: "d1", name: "Product", slug: "product", colourToken: "dept-1", position: 0, moduleKeys: ["product"], lead: null, squad: [], tabs: [{ id: "t1", slug: "specification", title: "Specification", position: 1 }, { id: "t2", slug: "roadmap", title: "Roadmap", position: 2 }] }];
+
+// The fixture's "Usage-based billing" item ends Oct 20, 2026: pin the clock inside its window so the computed status
+// pill reads "In progress" whatever day the suite runs (it read "At risk" from Oct 21 on).
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-07T12:00:00Z"));
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 describe("VisionScreen", () => {
   it("renders the narrative sections, pinned paragraphs, the specification summary line and Now items", () => {

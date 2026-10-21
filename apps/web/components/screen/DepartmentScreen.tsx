@@ -28,6 +28,7 @@ import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
+import { DepartmentTour } from "./DepartmentTour";
 
 const WidgetScreen = dynamic(() => import("./WidgetScreen").then((m) => m.WidgetScreen), { loading: () => <ScreenSkeleton /> });
 
@@ -166,6 +167,8 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
       <div className="min-h-full" data-testid="module-screen" data-module={`${moduleScreen.moduleKey}/${moduleScreen.tabSlug}`}>
         {stale}
         <Component businessId={businessId} departmentId={department.id} subView={subView} />
+        {/* The first-visit tour (once per account, guidance on), on whichever department tab is opened first. */}
+        <DepartmentTour />
       </div>
     );
   }
@@ -173,6 +176,7 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
   return (
     <>
       {stale}
+      <DepartmentTour />
       <WidgetScreen
         businessId={businessId}
         screenId={screenRow.id}

@@ -8,11 +8,12 @@
  * on its own once the deck is on screen, unless the visitor prefers reduced motion.
  */
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { ArrowRight, ArrowUp, Check, Inbox as InboxIcon, Pause, Play, Star, ThumbsUp, Trophy } from "lucide-react";
+import { ArrowRight, Check, Inbox as InboxIcon, Pause, Play, Star, ThumbsUp, Trophy } from "lucide-react";
 import {
   Avatar,
   AvatarStack,
   Button,
+  Callout,
   Chip,
   ContinueButton,
   BusinessLogo,
@@ -26,7 +27,6 @@ import {
   cn,
   kitBarGradient,
   kitStyle,
-  useGuided,
   usePrefersReducedMotion,
   type ProcessingSegment,
 } from "@foundmill/dugout";
@@ -43,10 +43,16 @@ const FEED_MAX = 6;
 /** A second click this soon after Continue is a double click, not a request to pause the cycle it just started. */
 const PAUSE_GRACE_MS = 800;
 /**
- * The callout under Continue, in the words the app's first-Continue callout uses (docs/UX_AUDIT_AND_PLAN.md §5.1,
- * §7.1), so the loop is taught with one voice.
+ * The callout under Continue: the same single-step Callout (Dugout firstrun/Coachmark) and the same words as the app's
+ * first-Continue callout (docs/UX_AUDIT_AND_PLAN.md §5.1, §7.1, apps/web/components/shell/BusinessShell.tsx
+ * FIRST_CONTINUE_CALLOUT), so the loop is taught with one voice. The landing page has no GuidanceProvider, so guidance
+ * reads as on there; the tour is never marked anywhere (no account), and the deck shows it until the visitor presses
+ * Continue. Its target is the deck's own Continue (a wrapper the deck marks `data-coachmark="deck-continue"`), never
+ * the one the How-it-works beat draws.
  */
-export const CONTINUE_CALLOUT = "This is how you move forward. Press it when you have answered what needs you.";
+export const DECK_CALLOUT = { tourId: "deck-continue", targetId: "deck-continue", title: "This is how you move forward", body: "Press it when you have answered what needs you." } as const;
+/** The callout's sentence as one line, for copy that quotes it. */
+export const CONTINUE_CALLOUT = `${DECK_CALLOUT.title}. ${DECK_CALLOUT.body}`;
 
 export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
   const business = useExample();
@@ -126,15 +132,19 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
           <span className="flex-1" />
           <RunwayChip date={today} runwayMonths={deck.runwayMonths} estimate />
           <ModeChip mode="assisted" />
-          <ContinueButton
-            ref={continueRef}
-            state={continueStateFor(state)}
-            pulseKey={state.phase === "idle" ? undefined : `${state.phase}-${state.cycle}`}
-            onContinue={() => start(true)}
-            onPause={stop}
-            onRespond={() => decisionRef.current?.focus()}
-            onGoToJourney={openWin}
-          />
+          {/* The callout's anchor: ContinueButton marks its button data-coachmark="continue", as the app's does, and the
+              How-it-works beat draws another one; the wrapper's own id keeps the deck's callout on the deck's button. */}
+          <span className="inline-flex shrink-0" data-coachmark={DECK_CALLOUT.targetId} data-testid="deck-continue">
+            <ContinueButton
+              ref={continueRef}
+              state={continueStateFor(state)}
+              pulseKey={state.phase === "idle" ? undefined : `${state.phase}-${state.cycle}`}
+              onContinue={() => start(true)}
+              onPause={stop}
+              onRespond={() => decisionRef.current?.focus()}
+              onGoToJourney={openWin}
+            />
+          </span>
           <StopAllAgents onConfirm={stop} runningCount={working ? cycleTasks(state.cycle).tasks : 0} />
         </div>
         <ProcessingStrip segments={segments} active={working} label={working ? `Cycle ${state.cycle} running` : "No cycle running"} />
@@ -153,24 +163,10 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
         </div>
       </div>
 
-      {state.phase === "idle" && !state.pressed && (autoRan || reduced) ? <PressHint /> : null}
-    </div>
-  );
-}
-
-/**
- * The callout under Continue once the deck has run a cycle by itself and the visitor has not pressed it yet. A
- * tutoring surface: hidden when guidance is off (`useGuided`), like the app's coach marks.
- */
-// TODO(guided-layer): replace with the single-step `Callout` (Dugout firstrun/Coachmark) anchored to the deck's
-// `data-coachmark="continue"`, the same component the app's first Continue uses, with CONTINUE_CALLOUT as its body.
-function PressHint() {
-  const guided = useGuided();
-  if (!guided) return null;
-  return (
-    <div aria-hidden className="pointer-events-none absolute right-3 top-16 z-10 flex animate-rise-in flex-col items-end" data-testid="deck-callout">
-      <Icon icon={ArrowUp} size={16} className="mr-26 animate-bounce text-primary" />
-      <span className="max-w-xs rounded-chip border border-subtle bg-panel-alt px-2.5 py-1 text-small text-primary shadow-overlay">{CONTINUE_CALLOUT}</span>
+      {/* The callout under Continue once the deck has run a cycle by itself and the visitor has not pressed it yet. A
+          tutoring surface, so the Coachmark keeps it off when guidance is off (a signed-in page's provider), like the
+          app's coach marks; "Got it" closes it, pressing Continue takes it away for good. */}
+      {state.phase === "idle" && !state.pressed && (autoRan || reduced) ? <Callout tourId={DECK_CALLOUT.tourId} targetId={DECK_CALLOUT.targetId} title={DECK_CALLOUT.title} body={DECK_CALLOUT.body} side="bottom" align="end" /> : null}
     </div>
   );
 }

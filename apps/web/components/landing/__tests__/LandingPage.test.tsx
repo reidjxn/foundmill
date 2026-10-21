@@ -6,7 +6,7 @@ import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
 import { GuidanceProvider, TooltipProvider } from "@foundmill/dugout";
 import { MONOGRAM_HEIGHT, MONOGRAM_WIDTH } from "@foundmill/dugout/brand";
 import { LandingPage } from "../LandingPage";
-import { CONTINUE_CALLOUT, DECK_CYCLE_MS } from "../CycleDeck";
+import { CONTINUE_CALLOUT, DECK_CALLOUT, DECK_CYCLE_MS } from "../CycleDeck";
 import { INCLUDED_CREDITS_ASSURANCE } from "../Hero";
 import { FIRST_DAY_PANEL_TITLE, FIRST_DAY_SENTENCE, FIRST_DAY_SIGNOFFS } from "../HowItWorks";
 import { resetExampleCache } from "../examples";
@@ -155,14 +155,24 @@ describe("LandingPage (signed-out /)", () => {
       vi.advanceTimersByTime(10);
     });
     expect(document.activeElement).toBe(within(deck).getByRole("button", { name: "Continue" }));
-    // The callout under Continue says what the app's first-Continue callout says, until the visitor presses it.
+    // The callout under Continue is the app's own single-step Callout (Dugout Coachmark) with the app's words, anchored
+    // to the deck's Continue (its ring, no backdrop), until the visitor presses it.
     expect(CONTINUE_CALLOUT).toBe("This is how you move forward. Press it when you have answered what needs you.");
-    expect(within(deck).getByTestId("deck-callout").textContent).toBe(CONTINUE_CALLOUT);
+    const callout = screen.getByRole("dialog", { name: DECK_CALLOUT.title });
+    expect(callout.getAttribute("data-tour")).toBe(DECK_CALLOUT.tourId);
+    expect(callout.textContent).toContain(DECK_CALLOUT.body);
+    expect(within(callout).getByRole("button", { name: "Got it" })).toBeTruthy();
+    expect(within(deck).getByTestId("deck-continue").hasAttribute("data-coachmark-active")).toBe(true);
+    expect(within(deck).getByTestId("deck-continue").contains(within(deck).getByRole("button", { name: "Continue" }))).toBe(true);
+    // Nothing modal: no backdrop, the page is not made inert.
+    expect(document.querySelector("[aria-hidden='true'][data-aria-hidden]")).toBeNull();
 
     // The visitor presses Continue: the next cycle brings a customer, and Continue turns gold.
     fireEvent.click(within(deck).getByRole("button", { name: "Continue" }));
     expect(deck.getAttribute("data-phase")).toBe("processing");
-    expect(within(deck).queryByTestId("deck-callout")).toBeNull();
+    // The callout and its ring leave with the press (synchronously: waitFor never settles under fake timers).
+    expect(screen.queryByRole("dialog", { name: DECK_CALLOUT.title })).toBeNull();
+    expect(document.querySelector("[data-coachmark-ring]")).toBeNull();
     await act(async () => {
       vi.advanceTimersByTime(DECK_CYCLE_MS);
     });
@@ -195,7 +205,11 @@ describe("LandingPage (signed-out /)", () => {
     expect(deck.getAttribute("data-phase")).toBe("decision");
     fireEvent.click(within(screen.getByTestId("deck-decision")).getByRole("button", { name: "Merge" }));
     expect(deck.getAttribute("data-phase")).toBe("idle");
-    expect(within(deck).queryByTestId("deck-callout")).toBeNull();
+    await act(async () => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(screen.queryByRole("dialog", { name: DECK_CALLOUT.title })).toBeNull();
+    expect(document.querySelector("[data-coachmark-ring]")).toBeNull();
     // The deck itself, the decision it brought back and the Inbox stay: guidance off hides tutoring only.
     expect(within(deck).getByText("Photo grading merged")).toBeTruthy();
   });

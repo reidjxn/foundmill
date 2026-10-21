@@ -239,6 +239,8 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
       aria-label="Decision"
       data-testid="decision-bar"
       data-state={answered ? "answered" : executing ? "executing" : disabled ? "disabled" : "open"}
+      // The Inbox tour (Coachmark) rings the bar ("Every option says what it costs…") and then its ask button.
+      data-coachmark="decision-bar"
       className={cn("decision-glass decision-layout flex min-h-decision-bar shrink-0 flex-col justify-center px-gutter py-2", sticky && "sticky bottom-0 z-10", className)}
       {...rest}
     >
@@ -269,7 +271,7 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
             </span>
             {leftLine ? <span className="text-small text-tertiary tabular-nums">{leftLine}</span> : null}
             {onAsk ? (
-              <Button size="sm" variant="default" icon={MessageCircle} disabled={!!disabled || !!executing} onClick={onAsk} className="decision-ask" data-decision-ask>
+              <Button size="sm" variant="default" icon={MessageCircle} disabled={!!disabled || !!executing} onClick={onAsk} className="decision-ask" data-decision-ask data-coachmark="decision-ask">
                 <span>{askLabel}</span>
                 <span className="font-normal opacity-70">{askDescription}</span>
               </Button>

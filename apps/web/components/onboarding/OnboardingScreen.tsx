@@ -9,6 +9,12 @@
  * account's own choice. → founder.profile.update → /new. A rail on the left tracks the four questions and the
  * optional section as one ("N of 5 done"); the form sits in Dugout panels on the right.
  *
+ * "Show me an example" on the optional section (UX plan §6.2 ExampleToggle, Phase 3) fills every answer but the name
+ * with a labeled example founder (`EXAMPLE_PROFILE`): the detail section opens inside a dashed Example frame and the
+ * first-pass panels it touched carry the Example chip. Continue waits until the example is hidden ("Replace the
+ * example with your own answers to continue"); "Hide the example" puts back only what the example filled, so an
+ * answer the founder typed over it stays. Guidance off: no toggle, no example.
+ *
  * `OnboardingForm` is pure (props in, `onSubmit(patch)` out) so it is tested without tRPC; `OnboardingScreen` wires
  * the mutation, the toasts (including "Guidance is off for experienced founders" when the save turned it off) and the
  * redirect.
@@ -37,6 +43,9 @@ import { APP_NAME } from "@foundmill/config";
 import {
   Button,
   Chip,
+  EXAMPLE_TAG,
+  ExampleFrame,
+  ExampleToggle,
   Field,
   Icon,
   Input,
@@ -53,6 +62,7 @@ import {
   StatusPill,
   cn,
   ratingClass,
+  useGuided,
   useToast,
 } from "@foundmill/dugout";
 import { errorMessage, trpcPathPrefix, validationIssues } from "@/lib/trpc";
@@ -74,10 +84,12 @@ import {
   SKILL_LABELS,
   TIME_OPTIONS,
   addChip,
+  clearExampleProfile,
   defaultCurrency,
   defaultMarket,
   detailOpenByDefault,
   detailStorageKey,
+  fillExampleProfile,
   firstInvalidSection,
   formFromProfile,
   profilePatch,
@@ -115,6 +127,9 @@ export const PROFILE_REASSURANCE = "Everything here can be changed later in Sett
 
 /** Above the skill sliders: honest ratings are what the team hires around (UX plan §7.3, A2). */
 export const SKILLS_HINT = "Be honest: the team hires to cover what you don't have.";
+
+/** Under Continue while the example founder is in: the example is never saved as the founder's own profile. */
+export const EXAMPLE_PROFILE_LINE = "Replace the example with your own answers to continue.";
 
 export function OnboardingScreen({ profile, email, accountId = null }: OnboardingScreenProps) {
   const router = useRouter();
@@ -189,8 +204,26 @@ export function OnboardingForm({
     setForm((f) => ({ ...f, [key]: value }));
   const detail = useDetailOpen(accountId, editing, form.experience);
 
+  // The example founder (UX plan §6.2): the form as it was before the example went in, or null while it is out. Only
+  // while guidance is on: the toggle renders nothing otherwise, so the example can never be in without it.
+  const guided = useGuided();
+  const [exampleBefore, setExampleBefore] = useState<ProfileForm | null>(null);
+  const exampleOn = guided && exampleBefore !== null;
+  const showExample = () => {
+    setExampleBefore(form);
+    setForm((f) => fillExampleProfile(f));
+    detail.set(true);
+  };
+  const hideExample = () => {
+    if (!exampleBefore) return;
+    setForm((f) => clearExampleProfile(f, exampleBefore));
+    setExampleBefore(null);
+  };
+
   function submit(e: FormEvent) {
     e.preventDefault();
+    // An example is never saved as the founder's own answers (the buttons are disabled; Enter in a field lands here).
+    if (exampleOn) return;
     setTouched(true);
     if (!valid) {
       const first = firstInvalidSection(errors);
@@ -240,6 +273,7 @@ export function OnboardingForm({
           iconRight={ArrowRight}
           onClick={submit}
           loading={saving}
+          disabled={exampleOn}
           data-testid="profile-submit"
         >
           {editing ? "Save and continue" : "Continue"}
@@ -290,7 +324,7 @@ export function OnboardingForm({
                 </ol>
               </nav>
             </Panel>
-            <Panel title="How the team reads you" data-testid="profile-summary">
+            <Panel title="How the team reads you" meta={exampleOn ? <ExampleMeta /> : undefined} data-testid="profile-summary">
               <p
                 className={cn(
                   "text-body [overflow-wrap:anywhere]",
@@ -350,7 +384,7 @@ export function OnboardingForm({
             </div>
           </Section>
 
-          <Section id="experience" title="Experience">
+          <Section id="experience" title="Experience" example={exampleOn}>
             <Field
               htmlFor="profile-experience"
               label="Which fits you best"
@@ -378,7 +412,7 @@ export function OnboardingForm({
             </Field>
           </Section>
 
-          <Section id="time" title="Time you can give">
+          <Section id="time" title="Time you can give" example={exampleOn}>
             <Field
               htmlFor="profile-time"
               label="Time commitment"
@@ -409,6 +443,7 @@ export function OnboardingForm({
           <Section
             id="place"
             title="Where you live"
+            example={exampleOn}
             hint="Where you live decides which countries we suggest for registering the business, the currency you see and the first market the ideas aim at."
           >
             <div className="grid grid-cols-2 gap-gutter">
@@ -445,22 +480,36 @@ export function OnboardingForm({
             data-open={detail.open || undefined}
             className="scroll-mt-20"
             actions={
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                icon={detail.open ? ChevronUp : ChevronDown}
-                aria-expanded={detail.open}
-                aria-controls="profile-detail"
-                onClick={() => detail.set(!detail.open)}
-                data-testid="profile-detail-toggle"
-              >
-                {detail.open ? "Hide detail" : "Add detail"}
-              </Button>
+              <>
+                {/* The example founder (UX plan §6.2): fills every answer but the name; Continue waits until it is hidden. */}
+                <ExampleToggle
+                  shown={exampleOn}
+                  onFill={showExample}
+                  onClear={hideExample}
+                  disabled={saving}
+                  data-testid="profile-example-toggle"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  icon={detail.open ? ChevronUp : ChevronDown}
+                  aria-expanded={detail.open}
+                  aria-controls="profile-detail"
+                  onClick={() => {
+                    // Closing the section with the example in takes the example out with it.
+                    if (detail.open && exampleOn) hideExample();
+                    detail.set(!detail.open);
+                  }}
+                  data-testid="profile-detail-toggle"
+                >
+                  {detail.open ? "Hide detail" : "Add detail"}
+                </Button>
+              </>
             }
           >
             {detail.open ? (
-              <div id="profile-detail" className="flex flex-col gap-6">
+              <DetailBody example={exampleOn}>
                 <div className="flex flex-col gap-4" data-testid="profile-skills">
                   <div className="flex flex-col gap-1">
                     <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -642,7 +691,7 @@ export function OnboardingForm({
                     </RadioGroup>
                   </Field>
                 </div>
-              </div>
+              </DetailBody>
             ) : (
               <p className="text-body text-secondary" data-testid="profile-detail-closed">
                 Skills, budget, target markets, constraints and risk appetite. The ideas get sharper
@@ -657,6 +706,10 @@ export function OnboardingForm({
                 <StatusPill tone="bad" role="alert">
                   {error}
                 </StatusPill>
+              ) : exampleOn ? (
+                <ReassuranceLine icon="undo" data-testid="profile-example-line">
+                  {EXAMPLE_PROFILE_LINE}
+                </ReassuranceLine>
               ) : touched && !valid ? (
                 <StatusPill tone="warn" role="alert">
                   {errorCount} field{errorCount === 1 ? "" : "s"} to complete
@@ -672,6 +725,7 @@ export function OnboardingForm({
               variant="primary"
               iconRight={ArrowRight}
               loading={saving}
+              disabled={exampleOn}
               data-testid="profile-submit-bottom"
             >
               {editing ? "Save and continue" : "Continue"}
@@ -715,25 +769,54 @@ function useDetailOpen(
   return { open, set };
 }
 
+/** The Example chip in a panel's meta slot: the answers under it are the example founder's, not the founder's own. */
+function ExampleMeta() {
+  return (
+    <Chip tone="neutral" data-example-meta="">
+      {EXAMPLE_TAG}
+    </Chip>
+  );
+}
+
+/**
+ * The open detail section's body: a plain stack, or the dashed Example frame while the example founder is in (its
+ * padding stepped down, since the panel body already has the panel's).
+ */
+function DetailBody({ example, children }: { example: boolean; children: ReactNode }) {
+  return example ? (
+    <ExampleFrame id="profile-detail" className="gap-6 p-3" data-testid="profile-detail-example">
+      {children}
+    </ExampleFrame>
+  ) : (
+    <div id="profile-detail" className="flex flex-col gap-6">
+      {children}
+    </div>
+  );
+}
+
 function Section({
   id,
   title,
   meta,
   hint,
+  example,
   children,
 }: {
   id: ProfileSectionId;
   title: string;
   meta?: ReactNode;
   hint?: string;
+  /** The answers here are the example founder's: the Example chip takes the meta slot. */
+  example?: boolean;
   children: ReactNode;
 }) {
   return (
     <Panel
       id={`section-${id}`}
       title={title}
-      meta={meta}
+      meta={example ? <ExampleMeta /> : meta}
       data-section={id}
+      data-example={example ? "" : undefined}
       className="scroll-mt-20"
     >
       <div className="flex flex-col gap-4">

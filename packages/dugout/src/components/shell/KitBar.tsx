@@ -165,6 +165,8 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
     <header
       ref={ref}
       data-testid="kit-bar"
+      // A coach-mark anchor for the whole bar (Continue carries its own, data-coachmark="continue").
+      data-coachmark="top-bar"
       className={cn("kitbar-slab z-10 flex h-kitbar shrink-0 items-center gap-2 px-3 text-kit-on-primary", className)}
       style={{ ...kitStyle(kit), ...style }}
       {...rest}

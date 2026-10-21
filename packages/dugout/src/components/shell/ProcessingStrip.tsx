@@ -64,7 +64,8 @@ export function ProcessingStrip({ segments, active, cycleNumber, label, classNam
   const text = label ?? processingStatusText(segments, active, cycleNumber);
   return (
     <Tooltip content={text} side="bottom">
-      <div role="status" aria-live="polite" aria-label={text} data-active={active || undefined} className={cn("processing-strip", className)} {...rest}>
+      {/* The Home tour (Coachmark) rings the strip: "A light here means the team is working". */}
+      <div role="status" aria-live="polite" aria-label={text} data-active={active || undefined} data-coachmark="processing-strip" className={cn("processing-strip", className)} {...rest}>
         <span className="sr-only">{text}</span>
         {segments.map((seg, i) => {
           const state = segmentState(seg, active);

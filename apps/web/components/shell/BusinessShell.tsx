@@ -16,7 +16,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useTransition, type ReactNode } from "react";
-import { AppShell, Avatar, Callout, EntityLinkProvider, ShellLinkProvider, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
+import { AppShell, Avatar, BusinessLogo, Callout, Chip, EntityLinkProvider, ShellLinkProvider, Tooltip, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
 import { ModuleEnvProvider, type ModuleEnv } from "@foundmill/modules/env";
 import { readWidgetEvent, type WidgetEvent } from "@foundmill/widgets/data";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -25,7 +25,7 @@ import { agentsStoppedView } from "@/lib/agents-stopped";
 import { SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
 import { rememberLastBusiness } from "@/lib/auth/last-business";
 import { accountRoutes } from "@/lib/account-routes";
-import { readOnlyReason } from "@/lib/access";
+import { EXAMPLE_CHIP_TOOLTIP, readOnlyReason, type Access } from "@/lib/access";
 import { awayReportId, computeContinueState, journeyHref, respondHref, unviewedWin } from "@/lib/continue-state";
 import { CYCLE_EVENT_TYPES, cycleFromSnapshot, initialCycle, nextPulseKey, reduceCycleEvent, setPaused, type CycleEvent, type CycleStatus } from "@/lib/cycle";
 import type { AgentSummary } from "@/lib/entity-links";
@@ -188,6 +188,49 @@ export function wantsFirstContinueCallout(cycle: { completedCount: number }, can
 }
 
 export const FIRST_CONTINUE_CALLOUT = { tourId: "first-continue", targetId: "continue", title: "This is how you move forward", body: "Press it when you have answered what needs you." } as const;
+
+/**
+ * The Example frame (docs/UX_AUDIT_AND_PLAN.md §12 item 5): what the shell changes for an example viewer (a read-only
+ * walk around a seeded demo business, `lib/access.ts isExampleViewer`). The neutral "Example" chip sits beside the
+ * business name; Stop all agents is hidden (nothing here is theirs to stop); the first-Continue callout gives way to
+ * one that points at "Start your own", the primary action in Continue's slot (its own tour id, so the real
+ * first-Continue callout still teaches the loop on the founder's own business later). Every write stays refused with
+ * the example wording (`readOnlyReason`), and the first-week checklist, the next step and the tours stay: they teach
+ * here too. Pure: the shell reads it and the unit tests pin it.
+ */
+export interface ExampleFrame {
+  /** The "Example" chip beside the name, with `EXAMPLE_CHIP_TOOLTIP`. */
+  chip: boolean;
+  /** Stop all agents is hidden (not merely refused). */
+  stopAllHidden: boolean;
+  /** The callout under Continue's slot: the Start-your-own one in the example, the first-Continue one otherwise. */
+  callout: typeof EXAMPLE_START_CALLOUT | typeof FIRST_CONTINUE_CALLOUT | null;
+}
+
+export const EXAMPLE_START_CALLOUT = { tourId: "example-start", targetId: "start-your-own", title: "This is an example", body: "When you are ready, start your own business here." } as const;
+
+export function exampleFrame(access: Pick<Access, "isExample" | "canChange">, cycle: { completedCount: number }): ExampleFrame {
+  if (access.isExample) return { chip: true, stopAllHidden: true, callout: EXAMPLE_START_CALLOUT };
+  return { chip: false, stopAllHidden: false, callout: wantsFirstContinueCallout(cycle, access.canChange) ? FIRST_CONTINUE_CALLOUT : null };
+}
+
+/**
+ * The top bar's identity in the Example frame: the logo tile, then the neutral "Example" chip beside the business name
+ * (KitBar renders the name after this slot). The chip's tooltip explains the frame; pointer moves stop at the chip so
+ * the switcher's own "Switch business" tooltip does not open over it.
+ */
+function ExampleIdentity({ src, name, primary }: { src: string | null; name: string; primary: string }) {
+  return (
+    <span className="flex items-center gap-2.5">
+      <BusinessLogo src={src} name={name} primary={primary} size={32} data-testid="kitbar-logo" />
+      <Tooltip content={EXAMPLE_CHIP_TOOLTIP} side="bottom">
+        <Chip className="shrink-0 text-kit-on-primary" data-testid="example-chip" onPointerMove={(e) => e.stopPropagation()}>
+          Example
+        </Chip>
+      </Tooltip>
+    </span>
+  );
+}
 
 export function BusinessShell(props: BusinessShellProps) {
   const [registry] = useState(createKeyboardRegistry);
@@ -613,6 +656,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   }, [financeDept, router, businessId]);
 
   const stopAllError = stopAll.error ? errorMessage(stopAll.error) : undefined;
+  // The Example frame (UX plan §12 item 5): the chip beside the name, Stop all agents hidden, the Start-your-own callout.
+  const frame = exampleFrame(access, cycle);
 
   return (
     <BusinessProvider value={businessCtx}>
@@ -626,6 +671,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 businessMode={business.businessMode}
                 kit={data.kit}
                 logoSrc={logoSrc}
+                // The Example frame's identity: the logo tile and the "Example" chip beside the name.
+                logo={frame.chip ? <ExampleIdentity src={logoSrc} name={business.name} primary={data.kit.primary} /> : undefined}
                 businessName={business.name}
                 screenTitle={chrome.title ?? "Home"}
                 sidebar={{ items: sidebarItems, activeId, collapsed, onCollapsedChange, brand: SIDEBAR_BRAND }}
@@ -639,7 +686,11 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                   pulseKey,
                   // Pending, not disabled: Continue keeps keyboard focus while its own request is in flight.
                   pending: refreshInbox.isPending || endHoliday.isPending || continueCycle.isPending || pauseCycle.isPending,
-                  // Viewers and advisors follow the business; they do not run cycles (audit RUI-05).
+                  // Viewers and advisors follow the business; they do not run cycles (audit RUI-05). In the Example
+                  // frame this slot is to hold a primary "Start your own" (→ /new, Continue's size; it anchors the
+                  // Start-your-own callout as data-coachmark="start-your-own"): KitBar renders ContinueButton itself,
+                  // so the swap waits on a `continueSlot` prop there (requested with this slice); until then Continue
+                  // stays disabled here as for every viewer.
                   disabled: !access.canChange,
                   onContinue,
                   onRespond,
@@ -651,8 +702,10 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                   canStop: access.isAdmin,
                   onConfirm: () => stopAll.mutateAsync({ businessId, reason: "kill_switch" }).then(() => undefined),
                   runningCount: cycle.activeAgentIds.length,
-                  disabled: stopAll.isPending || resumeAll.isPending,
+                  disabled: stopAll.isPending || resumeAll.isPending || frame.stopAllHidden,
                   stopped: stopped ? { ...stopped, onResume: () => resumeAll.mutateAsync({ businessId }).then(() => undefined) } : null,
+                  // Hidden in the Example frame: nothing there is the viewer's to stop (the trigger keeps its slot's width rule: it is gone, not blank).
+                  className: frame.stopAllHidden ? "hidden" : undefined,
                 }}
                 processing={{ segments, active: cycle.running, cycleNumber: cycle.cycleNumber }}
                 tabs={chrome.tabs}
@@ -696,8 +749,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 data-business-id={businessId}
               >
                 {stopAllError ? <p className="sr-only" role="alert">{stopAllError}</p> : null}
-                {/* The first-Continue callout, anchored to the top bar's button (ContinueButton marks it data-coachmark="continue"). */}
-                {wantsFirstContinueCallout(cycle, access.canChange) ? <Callout tourId={FIRST_CONTINUE_CALLOUT.tourId} targetId={FIRST_CONTINUE_CALLOUT.targetId} title={FIRST_CONTINUE_CALLOUT.title} body={FIRST_CONTINUE_CALLOUT.body} side="bottom" /> : null}
+                {/* The first-Continue callout, anchored to the top bar's button (ContinueButton marks it data-coachmark="continue"); in the Example frame the Start-your-own one, anchored to its button (data-coachmark="start-your-own"). */}
+                {frame.callout ? <Callout tourId={frame.callout.tourId} targetId={frame.callout.targetId} title={frame.callout.title} body={frame.callout.body} side="bottom" /> : null}
                 <AgentDeskHost apiRef={deskApi}>{children}</AgentDeskHost>
               </AppShell>
             </ShellLinkProvider>

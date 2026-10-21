@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
 import {
   DEMO_OWNER_DISPLAY_NAME,
   LONG,
@@ -9,6 +9,16 @@ import {
   restoreFounderProfile,
   type FounderProfileSnapshot,
 } from "./helpers";
+
+/** The dev founder's guidance switch (Settings › Preferences): the example founder is offered only while it is on. */
+async function guidanceOn(playwright: PlaywrightWorkerArgs["playwright"]): Promise<boolean> {
+  const api = await devApi(playwright);
+  const res = await api.get("/trpc/founder.preferences.guidance");
+  expect(res.ok(), `founder.preferences.guidance answered ${res.status()}`).toBe(true);
+  const body = (await res.json()) as { result: { data: { json: { guidance: "on" | "off" } } } };
+  await api.dispose();
+  return body.result.data.json.guidance === "on";
+}
 
 /**
  * /onboarding — the founder profile (BUILD §11.1, AC-11.1.1; docs/UX_AUDIT_AND_PLAN.md §7.3 two passes). Stack and
@@ -150,6 +160,62 @@ test.describe("onboarding", () => {
     const account = page.getByTestId("profile-account-id");
     await account.locator("summary").click();
     await expect(account.getByTestId("account-id")).toContainText(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+  });
+
+  test("Show me an example fills every answer but the name with a labeled example founder, holds Continue, and Hide the example clears only what it filled (§6.2 ExampleToggle)", async ({
+    page,
+    playwright,
+  }) => {
+    await page.goto("/onboarding");
+    await expect(page.getByTestId("onboarding-form")).toBeVisible({ timeout: LONG });
+    const toggle = page.getByTestId("profile-example-toggle");
+    // Tutoring: no toggle, no example, while guidance is off.
+    if (!(await guidanceOn(playwright))) {
+      await expect(toggle).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Show me an example" })).toHaveCount(0);
+      return;
+    }
+    const name = page.getByLabel(/What the team calls you/);
+    const nameBefore = await name.inputValue();
+    const residence = page.getByLabel("Residence");
+    const residenceBefore = await residence.inputValue();
+    await toggle.getByRole("button", { name: "Show me an example" }).click();
+    // The section opens inside the dashed Example frame; the first-pass panels it filled carry the chip; the name stays.
+    const frame = page.getByTestId("profile-detail-example");
+    await expect(frame).toBeVisible();
+    await expect(frame.getByText("Example", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("profile-detail-toggle")).toHaveAttribute("aria-expanded", "true");
+    for (const id of ["experience", "time", "place"])
+      await expect(page.locator(`[data-section="${id}"] [data-example-meta]`)).toHaveText("Example");
+    await expect(page.locator('[data-section="name"] [data-example-meta]')).toHaveCount(0);
+    await expect(name).toHaveValue(nameBefore);
+    // The example founder: first time, evenings and weekends, £5,000, the UK, the UK and Ireland, two constraints, low risk.
+    await expect(page.getByLabel("First-time founder")).toBeChecked();
+    await expect(page.getByLabel("Evenings and weekends")).toBeChecked();
+    await expect(residence).toHaveValue("United Kingdom");
+    await expect(page.getByLabel(/Budget you can commit/)).toHaveValue(/^5,?000$/);
+    await expect(page.locator('[data-section="detail"]').getByText("GBP").first()).toBeVisible();
+    await expect(page.getByRole("list", { name: "Target markets chosen" })).toContainText("Ireland");
+    await expect(page.getByRole("list", { name: "Constraints chosen" })).toContainText("Keep my day job for now");
+    await expect(page.getByRole("list", { name: "Constraints chosen" })).toContainText("No physical inventory");
+    await expect(page.getByLabel("Low", { exact: true })).toBeChecked();
+    await expect(page.locator('[data-skill-value="domain"]')).toHaveText("16");
+    await expect(page.getByTestId("profile-summary")).toContainText("First-time founder · evenings and weekends · GBP 5,000 · UK, Ireland");
+    // Continue waits, and says why where the reassurance line was.
+    await expect(page.getByTestId("profile-submit")).toBeDisabled();
+    await expect(page.getByTestId("profile-submit-bottom")).toBeDisabled();
+    await expect(page.getByTestId("profile-example-line")).toHaveText("Replace the example with your own answers to continue.");
+    await expect(page.getByTestId("profile-reassurance")).toHaveCount(0);
+    // Hide the example: what it filled goes back to what it was; Continue is live again; nothing was saved.
+    await toggle.getByRole("button", { name: "Hide the example" }).click();
+    await expect(frame).toHaveCount(0);
+    await expect(page.locator("[data-example-meta]")).toHaveCount(0);
+    await expect(residence).toHaveValue(residenceBefore);
+    await expect(name).toHaveValue(nameBefore);
+    await expect(page.getByTestId("profile-submit")).toBeEnabled();
+    await expect(page.getByTestId("profile-example-line")).toHaveCount(0);
+    await expect(page.getByTestId("profile-reassurance")).toBeVisible();
+    await expect(page).toHaveURL(/\/onboarding$/);
   });
 
   test("refuses values the API would reject, inline and in plain words (audit FR-14)", async ({

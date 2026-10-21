@@ -29,6 +29,12 @@ export const DEMO_BUSINESS_IDS = [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID] a
 export const demoBusinessIdForSlug = (slug: string): string | null => (slug === NORTHWIND_SLUG ? NORTHWIND_BUSINESS_ID : slug === LEDGERLY_SLUG ? LEDGERLY_BUSINESS_ID : null);
 /** The audit entry each demo business's build writes last; Ledgerly's (built second) marks the whole seed complete. */
 export const DEMO_SEED_AUDIT_ACTION = "seed.demo";
+/**
+ * The demo business "Explore an example" opens for a signed-in founder (docs/UX_AUDIT_AND_PLAN.md §12 item 5): Northwind
+ * Skincare, the one a first sign-in lands on. `business.example.get` prefers it and falls back to the first committed
+ * demo business when it is missing (a deployment seeded without it); with no demo business at all there is no example.
+ */
+export const EXAMPLE_BUSINESS_ID = NORTHWIND_BUSINESS_ID;
 
 export const LEDGERLY_COMMUNITY_SLUG = "fintech-ops-founders";
 /** A public community with no members yet, so the demo founder sees Join on offer. */

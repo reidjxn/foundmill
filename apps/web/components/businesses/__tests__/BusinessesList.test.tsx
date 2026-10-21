@@ -14,6 +14,7 @@ const row = (over: Partial<FounderBusiness>): FounderBusiness => ({
   gameMode: "personal",
   businessMode: "assisted",
   isDemo: true,
+  isExample: false,
   kitPrimary: "#2B6CB0",
   kitSecondary: "#FFFFFF",
   createdAt: new Date("2026-10-07T09:30:00Z"),

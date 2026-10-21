@@ -26,6 +26,7 @@ import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { RefreshFailedNotice, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { InboxList, type InboxListRow } from "./InboxList";
+import { InboxTour } from "./InboxTour";
 import { ReadingPane } from "./ReadingPane";
 import { INBOX_TAB_LABELS, OLDER_PAGE_REUSE_MS, REFRESH_DEBOUNCE_MS, agentIndex, inboxTabs, itemIdFromPath, mergeFirstPage, neighbourId, parseInboxTab, refreshGate, rowModel, type InboxTab } from "./logic";
 
@@ -238,6 +239,8 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
           </EmptyState>
         )}
       </section>
+      {/* The first-visit tour (once per account, guidance on). */}
+      <InboxTour />
     </div>
   );
 }

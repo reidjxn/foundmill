@@ -3,7 +3,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { GuidanceProvider, type GuidanceState } from "../guidance/GuidanceProvider";
-import { Callout, Coachmark, findCoachmarkTarget, isCoachmarkPaused, type CoachmarkStep } from "./Coachmark";
+import { Callout, Coachmark, findCoachmarkTarget, focusAfterTour, isCoachmarkPaused, type CoachmarkStep } from "./Coachmark";
 
 const steps: CoachmarkStep[] = [
   { targetId: "journey", title: "Your story on one line", body: "Revenue, customers and milestones on one time axis." },
@@ -205,6 +205,91 @@ describe("Coachmark", () => {
     expect(findCoachmarkTarget("by-id")?.textContent).toBe("a");
     expect(findCoachmarkTarget("by-attr")?.textContent).toBe("b");
     expect(findCoachmarkTarget("nowhere")).toBeNull();
+  });
+
+  it("keeps the ring on its target through a scroll and a resize", async () => {
+    render(<Page />);
+    await screen.findByRole("dialog", { name: "Your story on one line" });
+    const journey = document.getElementById("journey")!;
+    const ring = () => document.querySelector<HTMLElement>("[data-coachmark-ring]")!;
+    // The target moves (the page scrolled, the window resized): the ring is measured again and follows it.
+    let rect = { top: 0, left: 0, width: 100, height: 20 };
+    journey.getBoundingClientRect = () => ({ ...rect, right: rect.left + rect.width, bottom: rect.top + rect.height, x: rect.left, y: rect.top, toJSON: () => rect }) as DOMRect;
+    rect = { top: 120, left: 40, width: 300, height: 48 };
+    await act(async () => {
+      window.dispatchEvent(new Event("scroll"));
+    });
+    // 4 px of room between the target and its ring on every side.
+    expect(ring().style.top).toBe("116px");
+    expect(ring().style.left).toBe("36px");
+    expect(ring().style.width).toBe("308px");
+    expect(ring().style.height).toBe("56px");
+    rect = { top: 200, left: 60, width: 320, height: 48 };
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(ring().style.top).toBe("196px");
+    expect(ring().style.left).toBe("56px");
+    expect(ring().style.width).toBe("328px");
+  });
+
+  it("gives focus back to the element that started the tour, and after a tour that started by itself to the last target when it is a control", async () => {
+    const user = userEvent.setup();
+    function Replay() {
+      const [open, setOpen] = useState(false);
+      return (
+        <Page>
+          <button type="button" onClick={() => setOpen(true)} data-testid="replay">
+            Replay the tour
+          </button>
+          <Coachmark tourId="home" steps={steps} autoStart={false} open={open} />
+        </Page>
+      );
+    }
+    const replay = render(<Replay />);
+    await user.click(screen.getByTestId("replay"));
+    await screen.findByRole("dialog", { name: "Your story on one line" });
+    expect(document.activeElement).toBe(card());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(screen.getByTestId("replay"));
+    replay.unmount();
+
+    // Started on page load (nothing had focus): Done on the Continue step leaves focus on Continue, the next thing to press.
+    render(<Page />);
+    await screen.findByRole("dialog", { name: "Your story on one line" });
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("dialog", { name: "This is how you move forward" });
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Continue" }));
+  });
+
+  it("focusAfterTour: the opener first, then a focusable last target, else nothing", () => {
+    render(
+      <div>
+        <button type="button" id="opener">
+          Replay
+        </button>
+        <button type="button" id="target">
+          Continue
+        </button>
+        <section id="panel">Not a control</section>
+      </div>,
+    );
+    const opener = document.getElementById("opener") as HTMLElement;
+    const target = document.getElementById("target") as HTMLElement;
+    const panel = document.getElementById("panel") as HTMLElement;
+    expect(focusAfterTour(opener, target)).toBe(opener);
+    expect(focusAfterTour(null, target)).toBe(target);
+    expect(focusAfterTour(null, panel)).toBeNull();
+    expect(focusAfterTour(document.body, panel)).toBeNull();
+    const gone = document.createElement("button");
+    expect(focusAfterTour(gone, null)).toBeNull();
+    panel.tabIndex = -1;
+    expect(focusAfterTour(null, panel)).toBeNull();
+    panel.tabIndex = 0;
+    expect(focusAfterTour(null, panel)).toBe(panel);
   });
 });
 

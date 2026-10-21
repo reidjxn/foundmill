@@ -81,6 +81,8 @@ test.describe("switch business and Your businesses", () => {
     await expect(northwind.getByRole("link", { name: "Settings of Northwind Skincare" })).toHaveAttribute("href", `/b/${NORTHWIND_BUSINESS_ID}/settings/business`);
     await expect(page.locator(`[data-business-row="${LEDGERLY_BUSINESS_ID}"]`)).toContainText("Scale plan");
     await expect(page.getByTestId("businesses-create")).toHaveAttribute("href", "/new");
+    // The owner belongs to both demos for real: nothing is listed under "Example" (example-business.spec.ts covers an example viewer).
+    await expect(page.getByTestId("example-businesses")).toHaveCount(0);
 
     await page.getByRole("link", { name: "Open Ledgerly" }).click();
     await page.waitForURL(new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/home$`), { timeout: LONG });

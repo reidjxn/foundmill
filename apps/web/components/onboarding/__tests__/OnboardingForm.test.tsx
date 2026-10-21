@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   GuidanceProvider,
@@ -8,6 +8,7 @@ import {
   TooltipProvider,
 } from "@foundmill/dugout";
 import {
+  EXAMPLE_PROFILE_LINE,
   GUIDANCE_OFF_TOAST,
   OnboardingForm,
   PROFILE_REASSURANCE,
@@ -392,5 +393,114 @@ describe("OnboardingForm (BUILD §11.1 founder profile; UX plan §7.3 two passes
       title: "Guidance is off for experienced founders",
       description: "Turn it on any time in Settings › Preferences.",
     });
+  });
+});
+
+describe("the example founder (UX plan §6.2 ExampleToggle, Phase 3)", () => {
+  const exampleToggle = () => screen.getByTestId("profile-example-toggle");
+  const selected = (option: string) => document.querySelector(`[data-option="${option}"]`)?.getAttribute("data-selected");
+
+  it("fills every answer but the name, tags them Example, opens the section, and holds Continue until it is hidden", async () => {
+    const onSubmit = renderForm();
+    expect(screen.getByTestId("profile-detail-toggle").getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(within(exampleToggle()).getByRole("button", { name: "Show me an example" }));
+    // The section opens inside the dashed Example frame; the first-pass panels it filled carry the chip too.
+    expect(screen.getByTestId("profile-detail-toggle").getAttribute("aria-expanded")).toBe("true");
+    const frame = screen.getByTestId("profile-detail-example");
+    expect(frame.className).toContain("border-dashed");
+    expect(within(frame).getAllByText("Example")).toHaveLength(1);
+    for (const id of ["experience", "time", "place"]) expect(document.querySelector(`[data-section="${id}"]`)?.hasAttribute("data-example")).toBe(true);
+    expect(document.querySelector('[data-section="name"]')?.hasAttribute("data-example")).toBe(false);
+    expect(document.querySelectorAll("[data-example-meta]")).toHaveLength(4); // three panels and the summary
+    // The example founder, everywhere but the name.
+    expect((screen.getByLabelText(/What the team calls you/) as HTMLInputElement).value).toBe("Reid Jackson");
+    expect(selected("first_time")).toBe("true");
+    expect(selected("evenings_weekends")).toBe("true");
+    expect((screen.getByLabelText("Residence") as HTMLInputElement).value).toBe("United Kingdom");
+    expect((screen.getByLabelText(/Budget you can commit/) as HTMLInputElement).value).toMatch(/^5,?000$/);
+    expect(screen.getByRole("list", { name: "Target markets chosen" }).textContent).toMatch(/UK.*Ireland/);
+    expect(screen.getByRole("list", { name: "Constraints chosen" }).textContent).toMatch(/Keep my day job for now.*No physical inventory/);
+    expect(selected("low")).toBe("true");
+    expect(document.querySelector('[data-skill-value="domain"]')?.textContent).toBe("16");
+    expect(document.querySelector('[data-skill="domain"] [data-scale-label]')?.textContent).toBe("Excellent");
+    expect(screen.getByTestId("profile-summary").textContent).toMatch(/First-time founder · evenings and weekends · GBP 5,000 · UK, Ireland/);
+    // Continue waits, and says why where the reassurance line was; Enter in a field saves nothing.
+    expect((screen.getByTestId("profile-submit") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("profile-submit-bottom") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("profile-example-line").textContent).toBe(EXAMPLE_PROFILE_LINE);
+    expect(screen.queryByTestId("profile-reassurance")).toBeNull();
+    await act(async () => {
+      fireEvent.submit(screen.getByTestId("onboarding-form"));
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+    // Hide the example: everything it filled goes back to empty, and Continue is live again.
+    fireEvent.click(within(exampleToggle()).getByRole("button", { name: "Hide the example" }));
+    expect(screen.queryByTestId("profile-detail-example")).toBeNull();
+    expect(document.querySelectorAll("[data-example-meta]")).toHaveLength(0);
+    expect(document.querySelectorAll("[data-section][data-example]")).toHaveLength(0);
+    expect(selected("first_time")).toBeNull();
+    expect(selected("evenings_weekends")).toBeNull();
+    expect((screen.getByLabelText("Residence") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText(/Budget you can commit/) as HTMLInputElement).value).toBe("");
+    expect(screen.queryByRole("list", { name: "Target markets chosen" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Constraints chosen" })).toBeNull();
+    expect(selected("medium")).toBe("true");
+    expect(document.querySelector('[data-skill-value="domain"]')?.textContent).toBe("10");
+    expect((screen.getByTestId("profile-submit") as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByTestId("profile-reassurance").textContent).toBe(PROFILE_REASSURANCE);
+    // The section stays open: the founder asked to see it.
+    expect(screen.getByTestId("profile-detail-toggle").getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("clears only what it filled: answers typed over the example, and answers given before it, are kept", async () => {
+    const onSubmit = renderForm();
+    answerFirstPass();
+    openDetail();
+    fireEvent.change(screen.getByLabelText(/Budget you can commit/), { target: { value: "25k" } });
+    fireEvent.click(screen.getByRole("button", { name: "Remote only" }));
+    fireEvent.click(within(exampleToggle()).getByRole("button", { name: "Show me an example" }));
+    expect(selected("evenings_weekends")).toBe("true");
+    expect(screen.getByRole("list", { name: "Constraints chosen" }).textContent).not.toContain("Remote only");
+    // Over the example: a budget of their own and a different risk.
+    fireEvent.change(screen.getByLabelText(/Budget you can commit/), { target: { value: "12k" } });
+    fireEvent.click(screen.getByLabelText(/^High/));
+    fireEvent.click(within(exampleToggle()).getByRole("button", { name: "Hide the example" }));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("profile-submit-bottom"));
+    });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({
+      // Theirs, typed over the example.
+      budgetMinor: 1_200_000,
+      riskAppetite: "high",
+      // Back to what they had before the example.
+      experience: "first_time",
+      timeCommitment: "full_time",
+      residence: "United Kingdom",
+      currency: "GBP",
+      targetMarkets: ["UK"],
+      constraints: ["Remote only"],
+    });
+  });
+
+  it("closing the section with the example in takes the example out; guidance off offers no example", () => {
+    renderForm();
+    fireEvent.click(within(exampleToggle()).getByRole("button", { name: "Show me an example" }));
+    expect((screen.getByTestId("profile-submit") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("profile-detail-toggle"));
+    expect(screen.getByTestId("profile-detail-toggle").getAttribute("aria-expanded")).toBe("false");
+    expect((screen.getByTestId("profile-submit") as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByTestId("profile-example-line")).toBeNull();
+    expect((screen.getByLabelText("Residence") as HTMLInputElement).value).toBe("");
+    cleanup();
+    render(
+      <GuidanceProvider value={{ guidance: "off" }}>
+        <TooltipProvider>
+          <OnboardingForm profile={null} email="reid.jackson@example.com" onSubmit={vi.fn()} />
+        </TooltipProvider>
+      </GuidanceProvider>,
+    );
+    expect(screen.queryByTestId("profile-example-toggle")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Show me an example" })).toBeNull();
   });
 });
