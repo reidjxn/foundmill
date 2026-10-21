@@ -103,15 +103,18 @@ export const businessesRepo = {
     return maybeOne(await db.select().from(businesses).where(and(eq(businesses.slug, slug), notArchived)).limit(1));
   },
 
-  /** Account-scoped: every business the user is a member of, newest first. */
-  async listForUser(db: Executor, userId: string): Promise<(Business & { role: string })[]> {
+  /**
+   * Account-scoped: every business the user is a member of, newest first. `isExample` marks an example membership
+   * (0065): a demo the person is walking around, never "their" business (pickers prefer a real one).
+   */
+  async listForUser(db: Executor, userId: string): Promise<(Business & { role: string; isExample: boolean })[]> {
     const rows = await db
-      .select({ business: businesses, role: memberships.role })
+      .select({ business: businesses, role: memberships.role, source: memberships.source })
       .from(memberships)
       .innerJoin(businesses, eq(businesses.id, memberships.businessId))
       .where(and(eq(memberships.userId, userId), notArchived))
       .orderBy(desc(businesses.createdAt));
-    return rows.map((r) => ({ ...r.business, role: r.role }));
+    return rows.map((r) => ({ ...r.business, role: r.role, isExample: r.source === "example" }));
   },
 
   /**

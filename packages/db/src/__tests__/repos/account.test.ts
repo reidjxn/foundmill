@@ -47,6 +47,15 @@ describe("repos.founders.account", () => {
     expect(wire.roundTrips()).toBe(1);
   });
 
+  it("marks a business held through an example membership (0065) as isExample, and only that one", async () => {
+    const explorer = await r.h.createUser("explorer@account.test");
+    await r.db.insert(s.memberships).values({ businessId: r.B.businessId, userId: explorer, role: "viewer", source: "example" });
+    const account = await repos.founders.account(r.db, explorer);
+    expect(account.businesses.map((b) => [b.id, b.isExample])).toEqual([[r.B.businessId, true]]);
+    expect(await repos.founders.account(wire.db, explorer)).toEqual(account);
+    expect((await repos.founders.account(r.db, r.B.ownerId)).businesses.find((b) => b.id === r.B.businessId)?.isExample).toBe(false);
+  });
+
   it("answers no profile and empty lists for an account with nothing yet, and an archived profile reads as none", async () => {
     const nobody = await r.h.createUser("nobody@account.test");
     expect(await repos.founders.account(r.db, nobody)).toEqual({ profile: null, memberships: [], businesses: [] });

@@ -81,9 +81,10 @@ export const foundersRepo = {
    * The signed-in account in one statement, one round trip (founder.profile.get): the profile as `get` answers it, every
    * membership as `memberships.listForUser` answers them (oldest first, archived businesses included) and the open
    * businesses with the role held in each as `businesses.listForUser` answers them (newest first). Until 2026-10-15 these
-   * were three statements on three pooled connections.
+   * were three statements on three pooled connections. Each business says whether it is held through an example
+   * membership (`isExample`, 0065), so the index route and the LIVE pages never take a demo for the founder's own.
    */
-  async account(db: Executor, userId: string): Promise<{ profile: FounderProfile | null; memberships: Membership[]; businesses: (Business & { role: string })[] }> {
+  async account(db: Executor, userId: string): Promise<{ profile: FounderProfile | null; memberships: Membership[]; businesses: (Business & { role: string; isExample: boolean })[] }> {
     const id = parseInput(Id, userId, "user id");
     // One row per membership (one row of nulls when there is none), each carrying the profile.
     const rows = await db
@@ -100,7 +101,7 @@ export const foundersRepo = {
       businesses: held
         .filter((r): r is typeof r & { business: Business } => r.business !== null)
         .sort((a, b) => a.businessOrder - b.businessOrder)
-        .map((r) => ({ ...r.business, role: r.membership.role })),
+        .map((r) => ({ ...r.business, role: r.membership.role, isExample: r.membership.source === "example" })),
     };
   },
 
