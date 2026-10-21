@@ -446,10 +446,14 @@ function splitWords(s) {
   return s.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[/_.-]+/g, " ");
 }
 
-/** Term matches in `text` that no `allow` span covers; `allowContext` is left for the caller, who knows the source line. */
-function findTermHits(text) {
+/**
+ * Term matches in `text` that no `allow` span covers; `allowContext` is left for the caller, who knows the source line.
+ * `terms` defaults to the football list; another scanner (scripts/plain-language.mjs) passes its own list of the same
+ * shape ({ term, re, allow?, allowContext? }, `re` global).
+ */
+function findTermHits(text, terms = VOCAB_TERMS) {
   const out = [];
-  for (const { term, re, allow = [], allowContext = [] } of VOCAB_TERMS) {
+  for (const { term, re, allow = [], allowContext = [] } of terms) {
     re.lastIndex = 0;
     let m;
     while ((m = re.exec(text))) {
@@ -475,8 +479,9 @@ function findTermHits(text) {
   return out;
 }
 
-function lineHasAllowMarker(lines, lineIdx) {
-  return ALLOW_MARKER.test(lines[lineIdx] ?? "") || ALLOW_MARKER.test(lines[lineIdx - 1] ?? "");
+/** The source line or the line above carries the allow marker (`vocab-allow` here; another scanner passes its own). */
+function lineHasAllowMarker(lines, lineIdx, marker = ALLOW_MARKER) {
+  return marker.test(lines[lineIdx] ?? "") || marker.test(lines[lineIdx - 1] ?? "");
 }
 
 /** The source line (and its neighbours) carries a word that fixes the non-football sense of the term. */
@@ -529,15 +534,18 @@ function calleeIsLogger(call) {
 }
 
 /**
- * Classify a string-ish node: "skip" (identifier context), "prose" (always copy) or "maybe" (apply the token test).
- * Walks up through parentheses, `as`/`satisfies`, conditionals, binary `+`/`??`/`||`, arrays and template spans so a
- * string that ends up in a prose slot is treated as prose and one inside cn()/className is skipped.
+ * Classify a string-ish node: "skip" (identifier context), "prose" (always copy), "story-title" (a Storybook `title:`,
+ * read as words) or "maybe" (apply the token test). Walks up through parentheses, `as`/`satisfies`, conditionals,
+ * binary `+`/`??`/`||`, arrays and template spans so a string that ends up in a prose slot is treated as prose and one
+ * inside cn()/className is skipped. `key` is the object key or JSX attribute the string is the value of (null for JSX
+ * text, call arguments and the rest), so another scanner can tell a `hint` from a `title`.
  */
-function classify(node, file) {
+function classifyNode(node, file) {
   const isStory = /\.stories\.[jt]sx?$/.test(file);
   let child = node;
   let parent = node.parent;
   let verdict = "maybe";
+  const skip = { verdict: "skip", key: null };
   while (parent) {
     if (
       ts.isImportDeclaration(parent) ||
@@ -545,17 +553,17 @@ function classify(node, file) {
       ts.isExternalModuleReference(parent) ||
       ts.isImportTypeNode(parent)
     )
-      return "skip";
+      return skip;
     if (ts.isCallExpression(parent)) {
       const e = parent.expression;
       if (e.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(e) && e.text === "require"))
-        return "skip";
-      if (calleeIsClassUtil(parent) || calleeIsLogger(parent)) return "skip";
+        return skip;
+      if (calleeIsClassUtil(parent) || calleeIsLogger(parent)) return skip;
     }
-    if (ts.isLiteralTypeNode(parent) || ts.isTypeNode(parent)) return "skip";
-    if (ts.isEnumMember(parent)) return "skip";
-    if (ts.isElementAccessExpression(parent) && parent.argumentExpression === child) return "skip";
-    if (ts.isComputedPropertyName(parent)) return "skip";
+    if (ts.isLiteralTypeNode(parent) || ts.isTypeNode(parent)) return skip;
+    if (ts.isEnumMember(parent)) return skip;
+    if (ts.isElementAccessExpression(parent) && parent.argumentExpression === child) return skip;
+    if (ts.isComputedPropertyName(parent)) return skip;
     if (
       (ts.isPropertyAssignment(parent) ||
         ts.isPropertySignature(parent) ||
@@ -567,24 +575,24 @@ function classify(node, file) {
         ts.isEnumMember(parent)) &&
       parent.name === child
     )
-      return "skip";
+      return skip;
     if (ts.isPropertyAssignment(parent) && parent.initializer === child) {
       const key = nameText(parent.name);
-      if (STRUCTURAL_NAMES.has(key)) return "skip";
-      if (PROSE_NAMES.has(key)) return isStory && key === "title" ? "story-title" : "prose";
-      return verdict;
+      if (STRUCTURAL_NAMES.has(key)) return skip;
+      if (PROSE_NAMES.has(key)) return { verdict: isStory && key === "title" ? "story-title" : "prose", key };
+      return { verdict, key };
     }
     if (ts.isJsxAttribute(parent)) {
       const key = nameText(parent.name);
-      if (key.startsWith("data-") || STRUCTURAL_NAMES.has(key)) return "skip";
+      if (key.startsWith("data-") || STRUCTURAL_NAMES.has(key)) return skip;
       if (
         /^aria-(?:describedby|labelledby|controls|owns|activedescendant|flowto|details|errormessage)$/.test(
           key,
         )
       )
-        return "skip";
-      if (PROSE_NAMES.has(key)) return "prose";
-      return verdict;
+        return skip;
+      if (PROSE_NAMES.has(key)) return { verdict: "prose", key };
+      return { verdict, key };
     }
     if (
       ts.isJsxExpression(parent) &&
@@ -593,11 +601,11 @@ function classify(node, file) {
     ) {
       // {"Injured"} is copy; {`/b/${id}/trophies`} is a path, so templates still get the token test.
       return ts.isTemplateExpression(node) || ts.isNoSubstitutionTemplateLiteral(node)
-        ? verdict
-        : "prose";
+        ? { verdict, key: null }
+        : { verdict: "prose", key: null };
     }
-    if (ts.isJsxElement(parent) || ts.isJsxFragment(parent)) return "prose";
-    if (ts.isTemplateSpan(parent) || ts.isTemplateExpression(parent)) return verdict; // an expression inside `${}`: decide by content
+    if (ts.isJsxElement(parent) || ts.isJsxFragment(parent)) return { verdict: "prose", key: null };
+    if (ts.isTemplateSpan(parent) || ts.isTemplateExpression(parent)) return { verdict, key: null }; // an expression inside `${}`: decide by content
     const passThrough =
       ts.isParenthesizedExpression(parent) ||
       ts.isAsExpression(parent) ||
@@ -614,22 +622,36 @@ function classify(node, file) {
           ts.SyntaxKind.BarBarToken,
           ts.SyntaxKind.AmpersandAmpersandToken,
         ].includes(parent.operatorToken.kind));
-    if (ts.isBinaryExpression(parent) && !passThrough) return "skip"; // `status === "injured"`, `x !== "match_day"`
-    if (ts.isCaseClause(parent) && parent.expression === child) return "skip";
+    if (ts.isBinaryExpression(parent) && !passThrough) return skip; // `status === "injured"`, `x !== "match_day"`
+    if (ts.isCaseClause(parent) && parent.expression === child) return skip;
     if (!passThrough) {
       // Variable initialisers, return values, call arguments, object literals inside arrays, etc.: decide by content.
-      if (ts.isCallExpression(parent) || ts.isNewExpression(parent)) return verdict;
+      if (ts.isCallExpression(parent) || ts.isNewExpression(parent)) return { verdict, key: null };
       if (ts.isObjectLiteralExpression(parent)) {
         child = parent;
         parent = parent.parent;
         continue;
       }
-      return verdict;
+      return { verdict, key: null };
     }
     child = parent;
     parent = parent.parent;
   }
-  return verdict;
+  return { verdict, key: null };
+}
+
+/** The verdict alone (see `classifyNode`). */
+function classify(node, file) {
+  return classifyNode(node, file).verdict;
+}
+
+/** The tag name of the nearest JSX element around `node` (`InfoTip` for text inside `<InfoTip>` or for its props), or null. */
+function enclosingElement(node) {
+  for (let p = node.parent; p; p = p.parent) {
+    if (ts.isJsxElement(p)) return p.openingElement.tagName.getText();
+    if (ts.isJsxSelfClosingElement(p) || ts.isJsxOpeningElement(p)) return p.tagName.getText();
+  }
+  return null;
 }
 
 /** Literal pieces of a string-ish node as { text, pos } in source coordinates (raw text, escapes untouched). */
@@ -653,53 +675,32 @@ function piecesOf(node, sf) {
   return [];
 }
 
-function scanCodeFile(abs, hits) {
-  const text = readFileSync(abs, "utf8");
+/**
+ * Every user-facing string piece of a code file: string literals, template literal parts and JSX text that survive the
+ * classification above (identifier contexts skipped, single identifier-like tokens and class lists dropped). Each piece
+ * carries its source offset (`pos`, escapes untouched), the `verdict` ("prose" | "maybe" | "story-title"), the object
+ * key or JSX attribute it is the value of (`key`, or null) and the nearest JSX element around it (`element`, or null).
+ * The source file and its lines come back with the pieces so a scanner can place a match on its line.
+ */
+function extractCodePieces(abs, text = readFileSync(abs, "utf8")) {
   const file = rel(abs);
   const lines = text.split("\n");
   const sf = ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, true, scriptKindFor(abs));
-  const seen = new Set();
-
-  function record(piece, offset, hit) {
-    const { line } = sf.getLineAndCharacterOfPosition(piece.pos + offset);
-    if (lineHasAllowMarker(lines, line) || contextAllows(hit, lines, line)) return;
-    const key = `${line}:${hit.term}:${offset}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    hits.push({
-      scan: "vocab",
-      file,
-      line: line + 1,
-      term: hit.term,
-      match: hit.match,
-      snippet: (lines[line] ?? "").trim().slice(0, 140),
-    });
-  }
+  const pieces = [];
 
   function check(node) {
-    const verdict = classify(node, file);
+    const { verdict, key } = classifyNode(node, file);
     if (verdict === "skip") return;
-    const pieces = piecesOf(node, sf);
-    if (pieces.length === 0) return;
+    const parts = piecesOf(node, sf);
+    if (parts.length === 0) return;
     if (ts.isJsxText(node) && node.containsOnlyTriviaWhiteSpaces) return;
     if (verdict === "maybe") {
       // Placeholders joined as a neutral word so `${n} trophies` reads as a phrase and `/b/${id}/trophies` as a path.
-      const joined = pieces.map((p) => p.text).join("X");
+      const joined = parts.map((p) => p.text).join("X");
       if (looksLikeIdentifier(joined) || looksLikeClassList(joined)) return;
     }
-    for (const piece of pieces) {
-      const haystack = verdict === "story-title" ? splitWords(piece.text) : piece.text;
-      for (const h of findTermHits(haystack)) {
-        // splitWords only inserts/replaces characters one for one except camel splits; the line is still right.
-        const offset = verdict === "story-title" ? 0 : h.start;
-        record(piece, offset, h);
-      }
-      if (PRODUCT_NAME_HOME.test(file)) continue;
-      const { re } = PRODUCT_NAME_TERM;
-      re.lastIndex = 0;
-      for (const m of piece.text.matchAll(re))
-        record(piece, m.index, { term: PRODUCT_NAME_TERM.term, start: m.index, end: m.index + m[0].length, match: m[0], allowContext: [] });
-    }
+    const element = enclosingElement(node);
+    for (const part of parts) pieces.push({ ...part, verdict, key, element });
   }
 
   function visit(node) {
@@ -716,14 +717,63 @@ function scanCodeFile(abs, hits) {
     ts.forEachChild(node, visit);
   }
   visit(sf);
+  return { file, lines, sf, pieces };
+}
+
+/**
+ * Options every per-file scanner takes: `terms` (the list `findTermHits` matches, default the football list), `marker`
+ * (the allow comment, default `vocab-allow`) and `scan` (the label on each hit, default "vocab"). Defaults reproduce the
+ * vocabulary scan exactly; scripts/plain-language.mjs passes its own.
+ */
+function scanOptions(options) {
+  return { terms: VOCAB_TERMS, marker: ALLOW_MARKER, scan: "vocab", productName: true, ...options };
+}
+
+function scanCodeFile(abs, hits, options = {}) {
+  const { terms, marker, scan, productName } = scanOptions(options);
+  const { file, lines, sf, pieces } = extractCodePieces(abs);
+  const seen = new Set();
+
+  function record(piece, offset, hit) {
+    const { line } = sf.getLineAndCharacterOfPosition(piece.pos + offset);
+    if (lineHasAllowMarker(lines, line, marker) || contextAllows(hit, lines, line)) return;
+    const key = `${line}:${hit.term}:${offset}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    hits.push({
+      scan,
+      file,
+      line: line + 1,
+      term: hit.term,
+      match: hit.match,
+      snippet: (lines[line] ?? "").trim().slice(0, 140),
+    });
+  }
+
+  for (const piece of pieces) {
+    const haystack = piece.verdict === "story-title" ? splitWords(piece.text) : piece.text;
+    for (const h of findTermHits(haystack, terms)) {
+      // splitWords only inserts/replaces characters one for one except camel splits; the line is still right.
+      const offset = piece.verdict === "story-title" ? 0 : h.start;
+      record(piece, offset, h);
+    }
+    if (!productName || PRODUCT_NAME_HOME.test(file)) continue;
+    const { re } = PRODUCT_NAME_TERM;
+    re.lastIndex = 0;
+    for (const m of piece.text.matchAll(re))
+      record(piece, m.index, { term: PRODUCT_NAME_TERM.term, start: m.index, end: m.index + m[0].length, match: m[0], allowContext: [] });
+  }
 }
 
 // ----- prose files (Markdown / MDX) -----
 
-function scanProseFile(abs, hits) {
-  const text = readFileSync(abs, "utf8");
-  const file = rel(abs);
+/**
+ * The prose of a Markdown / MDX text, line by line: fenced code and MDX imports are dropped, inline code, link targets,
+ * comments and tags are blanked. Returns `{ lines, prose: [{ index, text }] }` (index into `lines`).
+ */
+function proseLines(text) {
   const lines = text.split("\n");
+  const prose = [];
   let inFence = false;
   lines.forEach((line, i) => {
     const fence = /^\s*(```|~~~)/.test(line);
@@ -733,24 +783,36 @@ function scanProseFile(abs, hits) {
     }
     if (inFence) return;
     if (/^\s*(import|export)\s.*from\s+["']/.test(line)) return; // MDX imports
-    if (lineHasAllowMarker(lines, i)) return;
-    const prose = line
-      .replace(/`[^`]*`/g, " ") // inline code: identifiers, tokens, routes
-      .replace(/\]\([^)]*\)/g, "]") // link and image targets
-      .replace(/<!--[\s\S]*?-->/g, " ")
-      .replace(/<\/?[A-Za-z][^>]*>/g, " "); // raw HTML / MDX tags (their attributes are not prose)
-    for (const h of findTermHits(prose)) {
+    prose.push({
+      index: i,
+      text: line
+        .replace(/`[^`]*`/g, " ") // inline code: identifiers, tokens, routes
+        .replace(/\]\([^)]*\)/g, "]") // link and image targets
+        .replace(/<!--[\s\S]*?-->/g, " ")
+        .replace(/<\/?[A-Za-z][^>]*>/g, " "), // raw HTML / MDX tags (their attributes are not prose)
+    });
+  });
+  return { lines, prose };
+}
+
+function scanProseFile(abs, hits, options = {}) {
+  const { terms, marker, scan } = scanOptions(options);
+  const file = rel(abs);
+  const { lines, prose } = proseLines(readFileSync(abs, "utf8"));
+  for (const { index: i, text } of prose) {
+    if (lineHasAllowMarker(lines, i, marker)) continue;
+    for (const h of findTermHits(text, terms)) {
       if (contextAllows(h, lines, i)) continue;
       hits.push({
-        scan: "vocab",
+        scan,
         file,
         line: i + 1,
         term: h.term,
         match: h.match,
-        snippet: line.trim().slice(0, 140),
+        snippet: lines[i].trim().slice(0, 140),
       });
     }
-  });
+  }
 }
 
 // ----- SVG files (the text people and link previews read) -----
@@ -758,7 +820,8 @@ function scanProseFile(abs, hits) {
 const SVG_ENTITIES = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'", "&#39;": "'" };
 
 /** `<text>`, `<tspan>`, `<title>` and `<desc>` content and aria-label / aria-description values of an SVG file. */
-function scanSvgFile(abs, hits) {
+function scanSvgFile(abs, hits, options = {}) {
+  const { terms, marker, scan } = scanOptions(options);
   const text = readFileSync(abs, "utf8");
   const file = rel(abs);
   const lines = text.split("\n");
@@ -771,34 +834,55 @@ function scanSvgFile(abs, hits) {
   for (const piece of pieces) {
     // Nested tags (a <tspan> inside a <text>) are dropped so their words read as one sentence; entities are decoded.
     const prose = piece.text.replace(/<[^>]*>/g, " ").replace(/&(?:amp|lt|gt|quot|apos|#39);/g, (e) => SVG_ENTITIES[e]);
-    for (const h of findTermHits(prose)) {
+    for (const h of findTermHits(prose, terms)) {
       const line = lineOf(piece.pos);
-      if (lineHasAllowMarker(lines, line) || contextAllows(h, lines, line)) continue;
-      hits.push({ scan: "vocab", file, line: line + 1, term: h.term, match: h.match, snippet: prose.trim().slice(0, 140) });
+      if (lineHasAllowMarker(lines, line, marker) || contextAllows(h, lines, line)) continue;
+      hits.push({ scan, file, line: line + 1, term: h.term, match: h.match, snippet: prose.trim().slice(0, 140) });
     }
   }
 }
 
 // ----- Cedar policies (the `@reason` annotation is the deny reason) -----
 
-function scanCedarFile(abs, hits) {
+function scanCedarFile(abs, hits, options = {}) {
+  const { terms, marker, scan } = scanOptions(options);
   const text = readFileSync(abs, "utf8");
   const file = rel(abs);
   const lines = text.split("\n");
   lines.forEach((line, i) => {
-    if (lineHasAllowMarker(lines, i)) return;
+    if (lineHasAllowMarker(lines, i, marker)) return;
     for (const m of line.matchAll(/@(?:reason|description|label)\s*\(\s*"((?:[^"\\]|\\.)*)"\s*\)/g)) {
-      for (const h of findTermHits(m[1])) {
+      for (const h of findTermHits(m[1], terms)) {
         if (contextAllows(h, lines, i)) continue;
-        hits.push({ scan: "vocab", file, line: i + 1, term: h.term, match: h.match, snippet: line.trim().slice(0, 140) });
+        hits.push({ scan, file, line: i + 1, term: h.term, match: h.match, snippet: line.trim().slice(0, 140) });
       }
     }
   });
 }
 
-function vocabScan(roots) {
-  const hits = [];
-  const docFiles = new Set(VOCAB_DOC_FILES.map((f) => join(REPO_ROOT, f)));
+/**
+ * The files a vocabulary-style scan reads under `roots` (directories or files, relative to the repo root), each as
+ * `{ abs, file, kind }` with kind "code" | "prose" | "svg" | "cedar". Skips build output, test paths, fixtures and the
+ * developer documents in VOCAB_SKIP_FILES; a file reachable twice (overlapping roots) is listed once.
+ */
+function listScanFiles(roots) {
+  const out = [];
+  const seen = new Set();
+  function add(p) {
+    const r = rel(p);
+    const base = r.split("/").pop();
+    if (VOCAB_SKIP_FILES.test(base)) return;
+    let kind = null;
+    if (CODE_EXT.test(base)) {
+      if (TEST_PATH.test(r)) return;
+      kind = "code";
+    } else if (PROSE_EXT.test(base)) kind = "prose";
+    else if (SVG_EXT.test(base)) kind = "svg";
+    else if (CEDAR_EXT.test(base)) kind = "cedar";
+    if (!kind || seen.has(p)) return;
+    seen.add(p);
+    out.push({ abs: p, file: r, kind });
+  }
   function walk(dir) {
     for (const name of readdirSync(dir)) {
       if (SKIP_DIRS.has(name)) continue;
@@ -808,32 +892,28 @@ function vocabScan(roots) {
         if (!TEST_PATH.test(`${rel(p)}/`)) walk(p);
         continue;
       }
-      scanFile(p);
-    }
-  }
-  function scanFile(p) {
-    const r = rel(p);
-    const base = r.split("/").pop();
-    if (VOCAB_SKIP_FILES.test(base)) return;
-    if (CODE_EXT.test(base)) {
-      if (TEST_PATH.test(r)) return;
-      scanCodeFile(p, hits);
-    } else if (PROSE_EXT.test(base)) {
-      scanProseFile(p, hits);
-    } else if (SVG_EXT.test(base)) {
-      scanSvgFile(p, hits);
-    } else if (CEDAR_EXT.test(base)) {
-      scanCedarFile(p, hits);
+      add(p);
     }
   }
   for (const r of roots) {
     const abs = resolve(REPO_ROOT, r);
     if (!existsSync(abs)) continue;
     if (statSync(abs).isDirectory()) walk(abs);
-    else scanFile(abs);
+    else add(abs);
   }
+  return out;
+}
+
+const FILE_SCANNERS = { code: scanCodeFile, prose: scanProseFile, svg: scanSvgFile, cedar: scanCedarFile };
+
+function vocabScan(roots, options = {}) {
+  const hits = [];
+  for (const f of listScanFiles(roots)) FILE_SCANNERS[f.kind](f.abs, hits, options);
   if (roots === VOCAB_CODE_ROOTS)
-    for (const f of docFiles) if (existsSync(f)) scanProseFile(f, hits);
+    for (const f of VOCAB_DOC_FILES) {
+      const abs = join(REPO_ROOT, f);
+      if (existsSync(abs)) scanProseFile(abs, hits, options);
+    }
   return hits;
 }
 
@@ -1005,12 +1085,22 @@ export {
   scanProseFile,
   scanSvgFile,
   scanCedarFile,
+  listScanFiles,
+  extractCodePieces,
+  proseLines,
+  classifyNode,
   findTermHits,
+  lineHasAllowMarker,
   looksLikeIdentifier,
   looksLikeClassList,
+  splitWords,
+  mdTable,
+  packageOf,
   VOCAB_TERMS,
   VOCAB_CODE_ROOTS,
   VOCAB_DOC_FILES,
+  SKIP_DIRS,
+  REPO_ROOT,
   writeSweep,
 };
 
