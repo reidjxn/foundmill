@@ -119,6 +119,9 @@ test.describe("keyboard and screen readers", () => {
     const label = (await first.getAttribute("aria-label")) ?? "";
     expect(label).not.toBe("");
     const token = page.getByRole("button", { name: label, exact: true });
+    // Keyboard only: the sign-in click left the mouse mid-screen, and when the profile opens the board shifts under it,
+    // so a token's hover card could open by pointer and rightly take the first Esc (WCAG 1.4.13). Park it off the board.
+    await page.mouse.move(0, 0);
     await token.focus();
     await page.keyboard.press("o");
     const drawer = page.locator("[data-channel-drawer]");

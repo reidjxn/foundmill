@@ -83,6 +83,9 @@ import {
 import { SavedViewSelector } from "./SavedViewSelector";
 import { ROW_HEIGHT, type RowAction, type SavedView, type TableDensity } from "./types";
 
+/** A defined word in a column head is a button, which the browser keeps out of the head's data caps: it inherits them. */
+const HEAD_TERM = "[text-transform:inherit] [letter-spacing:inherit]";
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Column meta (TanStack's extension point). Declared here so every consumer of @foundmill/dugout gets it.
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1173,7 +1176,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                       // A defined head: the label is the Term (its card), the arrow beside it is the sort control.
                       <span className={cn("t-data group/sort -mx-1 flex min-w-0 items-center gap-1 px-1 py-0.5", align === "right" && "flex-row-reverse", sorted && "text-secondary")} data-header-term={termId}>
                         <span className="truncate" data-header-label="">
-                          <Term id={termId}>{flexRender(col.columnDef.header, header.getContext())}</Term>
+                          <Term id={termId} className={HEAD_TERM}>{flexRender(col.columnDef.header, header.getContext())}</Term>
                         </span>
                         <button
                           type="button"
@@ -1188,7 +1191,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                       </span>
                     ) : termId ? (
                       <span className="t-data truncate" data-header-label="" data-header-term={termId}>
-                        <Term id={termId}>{flexRender(col.columnDef.header, header.getContext())}</Term>
+                        <Term id={termId} className={HEAD_TERM}>{flexRender(col.columnDef.header, header.getContext())}</Term>
                       </span>
                     ) : canSort ? (
                       <button

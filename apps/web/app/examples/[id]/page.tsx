@@ -10,6 +10,8 @@ import { calendarDay } from "@/components/landing/examples/helpers";
 
 export const revalidate = 3600;
 export const dynamicParams = false;
+// Static despite the root layout's cookie reads, like `/` (app/page.tsx).
+export const dynamic = "force-static";
 
 export function generateStaticParams(): { id: string }[] {
   return EXAMPLE_IDS.filter((id) => id !== DEFAULT_EXAMPLE_ID).map((id) => ({ id }));

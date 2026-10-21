@@ -65,6 +65,8 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await period.getByRole("button", { name: "6 months" }).click();
     await expect(period.getByRole("button", { name: "6 months" })).toHaveAttribute("aria-pressed", "true");
     await expect(table).toContainText("£");
+    // Transactions is in the full view; Simple (UX plan principle 10) keeps every line with the amount and its share only.
+    await chooseTableView(page, "Management P&L");
     // The line column takes the spare width, so Amount, % of revenue and Transactions sit together at the right.
     const box = await table.boundingBox();
     const amount = await table.getByRole("columnheader", { name: "Amount" }).boundingBox();
@@ -233,8 +235,11 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(table.getByRole("row").nth(1)).toBeVisible({ timeout: LONG });
     // The open view is saved per person (audit #204), so the test picks Simple itself rather than trusting the default.
     await chooseTableView(page, "Simple");
-    const heads = (await table.getByRole("columnheader").allInnerTexts()).map((t) => t.trim()).filter(Boolean);
+    // The heads' words as written: column heads render in data caps (docs/DESIGN.md, t-data), so innerText is upper case.
+    const heads = (await table.getByRole("columnheader").allTextContents()).map((t) => t.trim()).filter(Boolean);
     expect(heads.slice(0, 4)).toEqual(["Channel", "Fit", "Status", "Cost per customer"]);
+    // A defined head (Fit, Cost per customer) is in the same caps as the plain ones, not left in sentence case.
+    await expect(table.locator("[data-header-term='fit'] [data-term='fit']")).toHaveCSS("text-transform", "uppercase");
     await expect(table.getByRole("row").filter({ hasText: "Acquisition" })).toHaveCount(0);
     // The panel's help tip (guidance on, the product default) and the footer's defined words.
     await expect(page.getByRole("button", { name: "About Channels" })).toBeVisible();

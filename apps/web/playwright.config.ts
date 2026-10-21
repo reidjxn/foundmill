@@ -55,6 +55,9 @@ export const STACK_ENV: Record<string, string> = {
   PORT: String(API_PORT),
   // The api falls back to its in-process composer when the service does not answer; nothing listens here.
   COMPOSER_URL: process.env.COMPOSER_URL ?? "http://127.0.0.1:1",
+  // The specs press Take charge and the other model-backed buttons far more often than one person does in an hour, all as
+  // one signed-in founder: the allowances scale on the test stack as they do on CI (model-limits.ts modelLimitScale).
+  MODEL_LIMIT_SCALE: process.env.MODEL_LIMIT_SCALE ?? "50",
   // Seed flags (only read when the database directory is missing, see the api command below).
   SEED_TARGET: "pglite",
   SEED_PGLITE_DIR: E2E_PGLITE_DIR,

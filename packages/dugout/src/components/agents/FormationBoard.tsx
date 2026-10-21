@@ -7,6 +7,7 @@ import { usePrefersReducedMotion } from "../../lib/reducedMotion";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../foundation/HoverCard";
 import { Tooltip } from "../foundation/Tooltip";
 import { Term } from "../guidance/Term";
+import { isKeyboardFocus, trackKeyboardFocus } from "../guidance/keyboardFocus";
 import { ChannelProfileCard } from "./ChannelProfileCard";
 import { Icon } from "../foundation/Icon";
 import { ChannelToken } from "./ChannelToken";
@@ -98,6 +99,8 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
   const [announce, setAnnounce] = useState("");
   const dragRef = useRef<DragState | null>(null);
   const order = useMemo(() => entranceOrder(channels), [channels]);
+  // The hover cards open on keyboard focus only; the tracker must be listening before the key that brings focus here.
+  useEffect(trackKeyboardFocus, []);
 
   // Entrance: after a short beat, channels join the board one by one; anything enabled later is on the board at once.
   useEffect(() => {
@@ -238,7 +241,9 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
       >
         {hoverCards ? (
           <HoverCard open={dragging ? false : undefined}>
-            <HoverCardTrigger asChild>
+            {/* Focus moved by script (O opening the profile, Esc giving focus back to the token) must not open the card:
+                its layer would take the next Esc away from the profile (guidance/keyboardFocus.ts). Tab and hover still do. */}
+            <HoverCardTrigger asChild onFocus={(e) => !isKeyboardFocus() && e.preventDefault()}>
               <span className="inline-flex">{token}</span>
             </HoverCardTrigger>
             <HoverCardContent side="right" className="w-80">
