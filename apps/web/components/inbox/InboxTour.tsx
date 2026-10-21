@@ -7,11 +7,9 @@
  * included: two coach marks never show at once), marks the tour done on Done, Skip tour or Esc, and replays only after
  * "Replay the tour" in Settings › Preferences. The two panes are stamped with their target ids.
  */
-import { Coachmark } from "@foundmill/dugout";
-import { INBOX_TOUR } from "@/components/tours/definitions";
-import { useCoachmarkStamps } from "@/components/tours/stamps";
+import { LazyTour } from "@/components/tours/LazyTour";
 
+/** Renders nothing (and loads nothing) unless this account will see the tour: see LazyTour. */
 export function InboxTour() {
-  useCoachmarkStamps(INBOX_TOUR.stamps);
-  return <Coachmark tourId={INBOX_TOUR.id} steps={INBOX_TOUR.steps} />;
+  return <LazyTour id="inbox" />;
 }

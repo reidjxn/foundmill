@@ -7,11 +7,9 @@
  * and the table's view selector are stamped with their target ids (they live in @foundmill/modules and the data
  * table); the tabs carry theirs in the shell's TabBar.
  */
-import { Coachmark } from "@foundmill/dugout";
-import { DEPARTMENT_TOUR } from "@/components/tours/definitions";
-import { useCoachmarkStamps } from "@/components/tours/stamps";
+import { LazyTour } from "@/components/tours/LazyTour";
 
+/** Renders nothing (and loads nothing) unless this account will see the tour: see LazyTour. */
 export function DepartmentTour() {
-  useCoachmarkStamps(DEPARTMENT_TOUR.stamps);
-  return <Coachmark tourId={DEPARTMENT_TOUR.id} steps={DEPARTMENT_TOUR.steps} />;
+  return <LazyTour id="department" />;
 }

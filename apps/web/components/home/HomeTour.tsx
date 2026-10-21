@@ -7,11 +7,9 @@
  * dashboard is on screen, so the grid's widgets are there to be pointed at; the status strip and the department card
  * are stamped with their target ids (they live in @foundmill/widgets).
  */
-import { Coachmark } from "@foundmill/dugout";
-import { HOME_TOUR } from "@/components/tours/definitions";
-import { useCoachmarkStamps } from "@/components/tours/stamps";
+import { LazyTour } from "@/components/tours/LazyTour";
 
+/** Renders nothing (and loads nothing) unless this account will see the tour: see LazyTour. */
 export function HomeTour() {
-  useCoachmarkStamps(HOME_TOUR.stamps);
-  return <Coachmark tourId={HOME_TOUR.id} steps={HOME_TOUR.steps} />;
+  return <LazyTour id="home" />;
 }
