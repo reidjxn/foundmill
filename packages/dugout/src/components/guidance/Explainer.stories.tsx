@@ -20,7 +20,7 @@ const meta = {
     screenId: "home",
     purpose: "Your business at a glance: what the team did last cycle and what it needs from you.",
     action: "Read the notes in the Inbox, then press Continue to run the next cycle.",
-    watchFor: "The runway tile turning amber: the team will slow its spending until you decide.",
+    watchFor: "The runway tile turning amber: under 9 months of cash left.",
   },
   decorators: [
     (Story) => (

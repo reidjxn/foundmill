@@ -15,4 +15,9 @@ test("probe", async ({ page }) => {
   let diffs = 0;
   for (let i = 0; i < before.length; i++) if (before[i] !== after[i]) { diffs++; if (diffs < 15) console.log(before[i], "=>", after[i]); }
   console.log("boxes", before.length, "diffs", diffs);
+  console.log(await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>(".fit-box[data-fit=scaled] > .fit-ghost")).slice(0, 3).map((g) => `${g.clientWidth}/${g.scrollWidth}`).join(" ")));
+  await page.setViewportSize({ width: 1300, height: 900 }); await page.waitForTimeout(500); await page.setViewportSize({ width: 1280, height: 900 }); await page.waitForTimeout(800);
+  const again = await snap();
+  let d2 = 0; for (let i = 0; i < before.length; i++) if (after[i] !== again[i]) { d2++; if (d2 < 6) console.log(after[i], "=>", again[i]); }
+  console.log("after refit diffs", d2);
 });

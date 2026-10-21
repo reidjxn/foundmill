@@ -21,7 +21,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const NotReversible: Story = {};
-export const Reversible: Story = { args: { consequence: "Pauses every agent until you press Continue.", cost: "No cost", reversible: true } };
+export const Reversible: Story = { args: { consequence: "Pauses every agent until an owner or admin resumes them.", cost: "No cost", reversible: true } };
 export const ConsequenceOnly: Story = { name: "Consequence only (cost and reversibility unknown)", args: { cost: undefined, reversible: undefined } };
 
 /** Under the actions it belongs to: Stop all agents, Vacation, Forget, Apply to all agents, Go live. */
