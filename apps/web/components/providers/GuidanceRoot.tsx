@@ -21,7 +21,13 @@ type Terms = Record<string, TermDefinition>;
 let termsLoad: Promise<Terms> | null = null;
 /** Loads `TERMS` in its own chunk (never in the root bundle). Exported for tests. */
 export function loadSignedOutTerms(): Promise<Terms> {
-  termsLoad ??= import("@foundmill/shared/terms").then((m) => m.TERMS as Terms);
+  termsLoad ??= import("@foundmill/shared/terms").then(
+    (m) => m.TERMS as Terms,
+    (err: unknown) => {
+      termsLoad = null; // the next mount tries again
+      throw err;
+    },
+  );
   return termsLoad;
 }
 
