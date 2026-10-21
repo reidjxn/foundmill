@@ -1,8 +1,9 @@
 /**
  * Cross-tenant: an example viewer (0065, `memberships.source = 'example'`) of business A is a viewer of A and nothing
  * else. They read A, read nothing of B, and write nothing anywhere: an Inbox decision, a settings update and a note
- * read mark on B are each refused by the policies 0001/0002/0048 already hold viewers to. Nothing here changes RLS;
- * the suite pins that the example row rides the viewer's walls unchanged, and that leaving is the one write they own.
+ * read mark on B are each refused by the policies 0001/0002/0048 already hold viewers to. The suite pins that the
+ * example row rides the viewer's walls unchanged, that leaving is the one write they own, and (0066) that an example
+ * row is visible to the person it belongs to only: two explorers of A never see each other, and staff never see them.
  */
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -88,6 +89,29 @@ describe("memberships: an example viewer of A", () => {
     await expect(h.service().run((tx) => tx.update(s.memberships).set({ role: "member" }).where(and(eq(s.memberships.businessId, A.businessId), eq(s.memberships.userId, explorer))))).rejects.toThrow(/memberships_example_is_viewer/);
     const stranger = await h.createUser("example-stranger@test.local");
     await expect(h.service().run((tx) => tx.insert(s.memberships).values({ businessId: B.businessId, userId: stranger, role: "admin", source: "example" }))).rejects.toThrow(/memberships_example_is_viewer/);
+  });
+
+  it("never sees another explorer's row, and staff never see example rows (0066 memberships_select)", async () => {
+    const second = await h.createUser("example-explorer-2@test.local");
+    await h.service().run((tx) => repos.memberships.openExample(tx as unknown as Executor, A.businessId, second));
+    try {
+      const onA = (as: string) => h.asUser(as).run((tx) => tx.select({ userId: s.memberships.userId, source: s.memberships.source }).from(s.memberships).where(eq(s.memberships.businessId, A.businessId)));
+      // Each explorer sees their own row and A's staff, never the other explorer's user id.
+      for (const [me, other] of [[explorer, second], [second, explorer]] as const) {
+        const seen = (await onA(me)).map((m) => m.userId);
+        expect(seen).toContain(me);
+        expect(seen).toContain(A.ownerId);
+        expect(seen).not.toContain(other);
+      }
+      // The owner sees the staff and no example row at all.
+      const owner = await onA(A.ownerId);
+      expect(owner.map((m) => m.userId)).toContain(A.viewerId);
+      expect(owner.filter((m) => m.source === "example")).toEqual([]);
+      // The rows are there (the service connection sees both).
+      expect((await repos.memberships.list(h.db as unknown as Executor, A.businessId, { includeExample: true })).map((m) => m.userId)).toEqual(expect.arrayContaining([explorer, second]));
+    } finally {
+      await h.service().run((tx) => tx.delete(s.memberships).where(and(eq(s.memberships.businessId, A.businessId), eq(s.memberships.userId, second))));
+    }
   });
 
   it("may leave (the one write that is theirs), and then reads nothing of A either", async () => {
