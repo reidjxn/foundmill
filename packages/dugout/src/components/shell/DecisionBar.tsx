@@ -153,7 +153,7 @@ export function optionDescription(o: DecisionOption): string {
  * The DecisionBar (BUILD §5.4, §11.3, DESIGN §8, DIRECTION #7): sticky at the bottom of the reading pane, at least
  * 64 px, glass (surface 2 at 86 % over a 16 px blur) with a top light line and an upward shadow. Compact, so the
  * conversation above keeps its room: one heading line ("Your decision", with "Pick one. Nothing runs until you do."
- * under it while guidance is on, the deadline and, at its right, "Ask <agent> · Talk it through first"), then the
+ * beside it while guidance is on, the deadline and, at its right, "Ask <agent> · Talk it through first"), then the
  * options in a tight grid across the whole bar. Options are two-line buttons, each carrying its own consequence under
  * its label and, when the agent said why, a small "because" line; the recommended one is primary with an inline
  * thumbs-up "Recommended" tag. Options wrap and the bar grows — nothing truncates or overlaps. Hover (or focus) still
@@ -274,7 +274,9 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
       ) : (
         <div className="decision-inner">
           <div className="decision-heading" data-decision-heading>
-            <div className="flex min-w-0 flex-col gap-0.5">
+            {/* One heading line (DESIGN §8): the guided line sits beside the heading and wraps under it only when the bar
+                has no room, so guidance never makes the sticky bar a row taller. */}
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5" data-decision-heading-line="">
               <span className="t-data">{heading}</span>
               {/* Tutoring: ReassuranceLine renders only while guidance is on. */}
               <ReassuranceLine data-decision-guided-line="">{DECISION_GUIDED_LINE}</ReassuranceLine>

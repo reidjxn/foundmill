@@ -46,6 +46,12 @@ describe("DecisionBar", () => {
     expect(line.getAttribute("data-reassurance")).toBe("undo");
     expect(line.className).toContain("text-small");
     expect(line.querySelector("svg")).not.toBeNull();
+    // Beside the heading on one line (DESIGN §8, review F46): a wrapping row, never a stacked column.
+    const row = line.parentElement!;
+    expect(row.contains(screen.getByText("Your decision"))).toBe(true);
+    expect(row.className).toContain("flex-wrap");
+    expect(row.className).toContain("items-baseline");
+    expect(row.className).not.toContain("flex-col");
     unmount();
     render(quiet(<DecisionBar options={REORDER_OPTIONS} onChoose={() => {}} />));
     expect(screen.getByText("Your decision")).toBeTruthy();
