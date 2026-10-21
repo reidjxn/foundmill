@@ -3,15 +3,19 @@
  * stamps the targets outside the shell, skips a step whose target is missing, marks itself done on Skip, and never
  * starts when the account has done it, when guidance is off, or while a dialog is open. The stamping helper is tested
  * on its own (it adds `data-coachmark` to the first match, leaves native anchors alone, and takes its marks off again).
+ * The gate in front of them (LazyTour) mounts nothing for an account that will not see the tour, unmounts the tour once
+ * it is done, mounts it again on "Replay the tour", and the tours report how they ended (guidance.tour_*).
  */
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { GuidanceProvider } from "@foundmill/dugout";
+import { GuidanceSignalProvider, type GuidanceSignalFn } from "@/components/providers/GuidanceHost";
 import { DepartmentTour } from "@/components/screen/DepartmentTour";
 import { HomeTour } from "@/components/home/HomeTour";
 import { InboxTour } from "@/components/inbox/InboxTour";
 import { HOME_TOUR } from "../definitions";
+import { tourWanted } from "../LazyTour";
 import { applyCoachmarkStamps, removeCoachmarkStamps } from "../stamps";
 
 /** Home as the tour sees it: the shell's anchors, a status strip and a department card widget (by `data-widget`). */
@@ -98,6 +102,7 @@ describe("HomeTour", () => {
     );
     await settle();
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.querySelector("[data-coachmark='status-strip']")).toBeNull();
     done.unmount();
 
     const off = render(
@@ -110,10 +115,9 @@ describe("HomeTour", () => {
     await settle();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.querySelector("[data-coachmark-ring]")).toBeNull();
-    // The stamps are plain attributes (nothing a person sees); they go when the tour unmounts.
-    expect(document.querySelector("[data-widget='status_strip']")?.getAttribute("data-coachmark")).toBe("status-strip");
-    off.unmount();
+    // Nothing of the tour runs for someone who will not see it: not even the stamping.
     expect(document.querySelector("[data-coachmark='status-strip']")).toBeNull();
+    off.unmount();
 
     const markTourDone = vi.fn();
     function WithDialog() {
@@ -218,6 +222,55 @@ describe("DepartmentTour", () => {
     await screen.findByRole("dialog", { name: "Simple view and row actions" });
     expect(screen.getByRole("button", { name: "View: Simple" }).getAttribute("data-coachmark")).toBe("table-views");
     expect(screen.getByText("3 of 3")).toBeTruthy();
+  });
+});
+
+describe("LazyTour", () => {
+  it("wants a tour only once the preferences answered, with guidance on and the tour not done", () => {
+    expect(tourWanted({ loaded: true, guidance: "on", toursDone: {} }, "home")).toBe(true);
+    expect(tourWanted({ loaded: false, guidance: "on", toursDone: {} }, "home")).toBe(false);
+    expect(tourWanted({ loaded: true, guidance: "off", toursDone: {} }, "home")).toBe(false);
+    expect(tourWanted({ loaded: true, guidance: "on", toursDone: { home: true } }, "home")).toBe(false);
+    expect(tourWanted({ loaded: true, guidance: "on", toursDone: { inbox: true } }, "home")).toBe(true);
+  });
+
+  it("mounts nothing before the preferences answer; once done it unmounts (stamps off), sends its signal, and Replay brings it back", async () => {
+    const signal = vi.fn<GuidanceSignalFn>();
+    function Account({ loaded }: { loaded: boolean }) {
+      const [toursDone, setToursDone] = useState<Record<string, true>>({});
+      const value = useMemo(() => ({ loaded, toursDone }), [loaded, toursDone]);
+      const actions = useMemo(
+        () => ({ markTourDone: (id: string) => setToursDone((d) => ({ ...d, [id]: true as const })), resetGuidance: () => setToursDone({}) }),
+        [],
+      );
+      return (
+        <GuidanceProvider value={value} actions={actions}>
+          <GuidanceSignalProvider value={signal}>
+            <HomeStandIn>
+              <button type="button" onClick={actions.resetGuidance}>
+                Replay the tour
+              </button>
+              <HomeTour />
+            </HomeStandIn>
+          </GuidanceSignalProvider>
+        </GuidanceProvider>
+      );
+    }
+    const view = render(<Account loaded={false} />);
+    await settle();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.querySelector("[data-coachmark='status-strip']")).toBeNull();
+    view.rerender(<Account loaded />);
+    await screen.findByRole("dialog", { name: "Your departments" });
+    expect(document.querySelector("[data-widget='status_strip']")?.getAttribute("data-coachmark")).toBe("status-strip");
+    click("Skip tour");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // Done: the tour is gone whole, its stamps with it, and it said how it ended.
+    await waitFor(() => expect(document.querySelector("[data-coachmark='status-strip']")).toBeNull());
+    expect(signal).toHaveBeenCalledWith("guidance.tour_skipped", { tourId: "home", atStep: 1, steps: 5 });
+    click("Replay the tour");
+    await screen.findByRole("dialog", { name: "Your departments" });
+    expect(screen.getByText("1 of 5")).toBeTruthy();
   });
 });
 
