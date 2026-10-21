@@ -346,7 +346,7 @@ function CampaignDetail({ row, agents, businessId, pending, onStatus, onEnd, onE
         )}
       </section>
       <p className="text-small text-secondary">
-        Spend above the approval threshold, any contract and anything in the founder's name goes to the Inbox before it happens. Results are an <ProvenanceChip kind="estimate" /> until the conversion API confirms them.
+        Spend above the approval threshold, any contract and anything in the founder's name goes to the Inbox before it happens. Results are an <ProvenanceChip kind="estimate" /> until the channel's own sales reports confirm them.
       </p>
     </div>
   );

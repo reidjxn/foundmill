@@ -12,7 +12,7 @@ export const POSITION_LEVEL_LABELS: Record<PositionLevel, string> = { natural: "
 /** The panel title the profile gives this map. */
 export const POSITION_MAP_TITLE = "Other roles it could take";
 /** What the map is based on, for the panel footer. */
-export const POSITION_MAP_BASIS = "Based on the skills each role needs. Estimate.";
+export const POSITION_MAP_BASIS = "Based on the skills each role needs. Estimate: worked out, not measured.";
 
 /** Tint per level in the rating ramp (DESIGN §9 Agent profile). */
 const LEVEL_CLASS: Record<PositionLevel, string> = {

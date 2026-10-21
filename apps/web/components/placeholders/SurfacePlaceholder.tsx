@@ -7,7 +7,7 @@ import { ComingSoon } from "@/components/shell/ComingSoon";
 export type PlaceholderSurface = "inbox" | "journey" | "agent" | "crm" | "entity" | "milestones";
 
 const COPY: Record<PlaceholderSurface, { title: string; description: string; icon: LucideIcon }> = {
-  inbox: { title: "Inbox", icon: Inbox, description: "A 380 px list with Respond, Customers, Updates and Archive tabs, the reading pane with the note, status strip, exhibit and the DecisionBar. The Inbox build renders it here." },
+  inbox: { title: "Inbox", icon: Inbox, description: "A 380 px list with Respond, Customers, Updates and Archive tabs, and the reading pane with the note, its figures, a chart and the decision buttons. The Inbox build renders it here." },
   journey: { title: "Customer Update", icon: Route, description: "The replay of a won customer: first touch, who was involved, the win moment and the debrief. The Journey build renders it here." },
   agent: { title: "Agent profile", icon: Bot, description: "Profile header, skill grid, position map, traits, coach report and training. The agents build renders it here." },
   crm: { title: "CRM", icon: Users, description: "Every person and organization with saved views, filters and universal search. The CRM build renders it here." },

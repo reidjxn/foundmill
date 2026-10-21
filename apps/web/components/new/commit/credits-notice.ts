@@ -21,5 +21,6 @@ export function creditsNoticeOf(pool: PoolView | null | undefined, formatDay: (d
   if (!pool || pool.places === null || pool.taken < pool.places || pool.amountMinor <= 0) return null;
   const amount = formatMoney({ amountMinor: pool.amountMinor, currency: "USD" });
   const others = pool.places === 1 ? "another business" : `${pool.places} other businesses`;
+  // plain-allow: shown on Commit, which defines "credits" with a Term (the autopilot hint).
   return `This month's included credits (${amount}) already went to ${others} you took charge of, so this one starts with its team paused. Add your own Anthropic key in Settings › Keys to run it now, or wait for next month's credits on ${formatDay(pool.nextGrantAt)}.`;
 }

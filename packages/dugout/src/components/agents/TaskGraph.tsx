@@ -7,6 +7,8 @@ import { generateAvatar } from "../foundation/Avatar";
 import { Icon, type IconComponent } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";
 import { StatusPill, type StatusTone } from "../foundation/StatusPill";
+import { Tooltip } from "../foundation/Tooltip";
+import { useTerm } from "../guidance/GuidanceProvider";
 import type { TaskGraphNode } from "./types";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -258,6 +260,8 @@ export function TaskGraph({ nodes, selectedId, onSelect, layout: layoutOpts, hei
   const [size, setSize] = useState({ w: 0, h: height });
   const drag = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  // What a task graph is, on the header's hover (hosts often put their own Term on the panel, so no second button here).
+  const taskGraph = useTerm("task_graph");
 
   const fit = useCallback(() => {
     const el = hostRef.current;
@@ -341,9 +345,11 @@ export function TaskGraph({ nodes, selectedId, onSelect, layout: layoutOpts, hei
   return (
     <div className={cn("flex min-w-0 flex-col surface-panel overflow-hidden", className)} data-task-graph>
       <div className="flex h-panel-header shrink-0 items-center gap-2 px-panel-pad pr-2 rule-fade">
-        <span className="t-title flex-1 text-primary">
-          Task graph <span className="font-mono text-micro font-normal text-tertiary">· {nodes.length} tasks</span>
-        </span>
+        <Tooltip content={taskGraph ? `${taskGraph.word}: ${taskGraph.short}` : null}>
+          <span className="t-title flex-1 text-primary">
+            Task graph <span className="font-mono text-micro font-normal text-tertiary">· {nodes.length} tasks</span>
+          </span>
+        </Tooltip>
         <span className="font-mono text-micro text-tertiary tabular-nums" aria-live="polite">
           {Math.round(t.k * 100)}%
         </span>

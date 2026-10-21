@@ -275,37 +275,36 @@ export const CONCEPT_ATTRIBUTE_KEYS = [
 ] as const;
 export type ConceptAttributeKey = (typeof CONCEPT_ATTRIBUTE_KEYS)[number];
 
-export const CONCEPT_ATTRIBUTE_LABELS: Record<ConceptAttributeKey, string> = {
-  market_pull: "Market pull",
-  market_size: "Market size",
-  competition: "Competition",
-  speed_to_first_customer: "Speed to first customer",
-  capital_intensity: "Capital intensity",
-  agent_executability: "Agent-executability",
-  founder_fit: "Founder fit",
-  defensibility: "Defensibility",
-  regulatory_load: "Regulatory load",
-  distribution_clarity: "Distribution clarity",
+/**
+ * Each attribute as a definition: `word` is its label, `short` what it measures and which way it reads (one sentence,
+ * shown as a tooltip on the label wherever a bar is drawn: docs/UX_AUDIT_AND_PLAN.md §7.5, A6), `axis` the short name
+ * on the radar. Every attribute is 1–20 and higher is always the better side for the business, so a "load" or an
+ * "intensity" reads inverted: a high Competition means a less crowded market, a high Capital intensity means less money
+ * needed before the first sale.
+ */
+export const CONCEPT_ATTRIBUTE_DEFINITIONS: Record<ConceptAttributeKey, { word: string; short: string; axis: string }> = {
+  market_pull: { word: "Market pull", short: "How strongly people already want this. Higher means more demand.", axis: "Market pull" },
+  market_size: { word: "Market size", short: "How many people or businesses could pay for it. Higher means a bigger market.", axis: "Market size" },
+  competition: { word: "Competition", short: "How crowded the market is. Higher means less crowded.", axis: "Competition" },
+  speed_to_first_customer: { word: "Speed to first customer", short: "How soon the first customer could pay. Higher means sooner.", axis: "Speed" },
+  capital_intensity: { word: "Capital intensity", short: "How much money it takes before the first sale. Higher means less money needed.", axis: "Capital" },
+  agent_executability: { word: "Agent-executability", short: "How much of the work your agent team can do on its own. Higher means more of it.", axis: "Agents" },
+  founder_fit: { word: "Founder fit", short: "How well your skills and constraints match what this needs. Higher means a closer match.", axis: "Founder fit" },
+  defensibility: { word: "Defensibility", short: "How hard it is for others to copy. Higher means harder to copy.", axis: "Defensibility" },
+  regulatory_load: { word: "Regulatory load", short: "How much regulation applies. Higher means fewer rules to deal with.", axis: "Regulatory" },
+  distribution_clarity: { word: "Distribution clarity", short: "How clear the path to the first customers is. Higher means a clearer path.", axis: "Distribution" },
 };
 
-/**
- * What each attribute measures and which way it reads, one sentence per attribute, shown as a tooltip on the label
- * wherever a bar is drawn (docs/UX_AUDIT_AND_PLAN.md §7.5, A6). Every attribute is 1–20 and higher is always the
- * better side for the business, so a "load" or an "intensity" reads inverted: a high Competition means a less
- * crowded market, a high Capital intensity means less money needed before the first sale.
- */
-export const CONCEPT_ATTRIBUTE_HINTS: Record<ConceptAttributeKey, string> = {
-  market_pull: "How strongly people already want this. Higher means more demand.",
-  market_size: "How many people or businesses could pay for it. Higher means a bigger market.",
-  competition: "How crowded the market is. Higher means less crowded.",
-  speed_to_first_customer: "How soon the first customer could pay. Higher means sooner.",
-  capital_intensity: "How much money it takes before the first sale. Higher means less money needed.",
-  agent_executability: "How much of the work your agent team can do on its own. Higher means more of it.",
-  founder_fit: "How well your skills and constraints match what this needs. Higher means a closer match.",
-  defensibility: "How hard it is for others to copy. Higher means harder to copy.",
-  regulatory_load: "How much regulation applies. Higher means fewer rules to deal with.",
-  distribution_clarity: "How clear the path to the first customers is. Higher means a clearer path.",
-};
+const mapAttributes = <T,>(pick: (d: (typeof CONCEPT_ATTRIBUTE_DEFINITIONS)[ConceptAttributeKey]) => T): Record<ConceptAttributeKey, T> =>
+  Object.fromEntries(CONCEPT_ATTRIBUTE_KEYS.map((k) => [k, pick(CONCEPT_ATTRIBUTE_DEFINITIONS[k])])) as Record<ConceptAttributeKey, T>;
+
+export const CONCEPT_ATTRIBUTE_LABELS: Record<ConceptAttributeKey, string> = mapAttributes((d) => d.word);
+
+/** What each attribute measures and which way it reads (`CONCEPT_ATTRIBUTE_DEFINITIONS[key].short`). */
+export const CONCEPT_ATTRIBUTE_HINTS: Record<ConceptAttributeKey, string> = mapAttributes((d) => d.short);
+
+/** The short axis names on the radar. */
+export const CONCEPT_ATTRIBUTE_AXIS_LABELS: Record<ConceptAttributeKey, string> = mapAttributes((d) => d.axis);
 
 export interface ConceptEvidence {
   text: string;

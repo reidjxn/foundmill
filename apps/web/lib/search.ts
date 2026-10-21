@@ -98,12 +98,12 @@ export function localPaletteItems(input: LocalPaletteInput): PaletteItem[] {
     keywords: ["settings", "date format", "time format", "24-hour", "12-hour", "clock", "day first", "ISO 8601", "guidance", "explain", "text size", "comfortable", "checklist", "tour"],
   });
   // Commands a role cannot use are not offered (they would only answer with a refusal).
-  if (access.canChange) items.push({ id: "command:refresh-inbox", kind: "command", label: "Refresh Inbox", description: "Ask the team for one quick note (does not start a cycle)", shortcut: ["R"] });
+  if (access.canChange) items.push({ id: "command:refresh-inbox", kind: "command", label: "Refresh Inbox", description: "Ask the team for one quick note; no new work starts", shortcut: ["R"] });
   // Only where the screen on view has a layout: elsewhere the command did nothing (audit OL-29).
   if (input.canEditLayout) items.push({ id: "command:edit-layout", kind: "command", label: "Edit layout", description: "Rearrange the widgets on this screen", shortcut: ["E"] });
   if (access.isAdmin) items.push({ id: "command:stop-all", kind: "command", label: "Stop all agents", description: "Pause the whole team. An owner can resume.", keywords: ["pause", "stop", "agents"] });
   items.push({ id: "command:sign-out", kind: "command", label: "Sign out", description: "End your session on this device", keywords: ["log out", "logout", "sign off"] });
-  if (access.isAdmin) items.push({ id: "command:holiday", kind: "command", label: "Go on vacation", description: "Hand the business to the Chief of Staff", href: routes.settings(bid, "mode") });
+  if (access.isAdmin) items.push({ id: "command:holiday", kind: "command", label: "Go on vacation", description: "Let the team run the business while you are away", href: routes.settings(bid, "mode") });
   // Every other business the founder can open, a new one and the list of them all (audit IAE-08, WEB-13).
   for (const b of input.businesses ?? []) {
     if (b.id === bid) continue;

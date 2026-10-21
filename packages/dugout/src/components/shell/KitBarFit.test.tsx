@@ -99,7 +99,7 @@ describe("KitBarFit", () => {
   it("tells the stakes of each mode in plain words and where to change it (B3)", () => {
     expect(modeChipTooltip("assisted")).toBe("Assisted mode: the team does routine work alone and asks you before spending above your limit, signing anything or contacting new people. Change it in Settings › Mode.");
     expect(modeChipTooltip("augmented")).toBe("Augmented mode: the team prepares and asks before every outside action or spend. Change it in Settings › Mode.");
-    expect(modeChipTooltip("automated")).toBe("Automated mode: the Chief of Staff decides inside your limits; money, signatures and contracts still wait for you. Change it in Settings › Mode.");
+    expect(modeChipTooltip("automated")).toBe("Automated mode: the team decides on its own inside your limits; money, signatures and contracts still wait for you. Change it in Settings › Mode.");
     expect(modeChipTooltip("assisted", true)).toMatch(/^On vacation\. Automated mode: .* Assisted again when you come back\.$/);
     render(
       <>

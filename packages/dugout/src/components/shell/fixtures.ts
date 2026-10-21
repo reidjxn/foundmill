@@ -3,6 +3,7 @@
  * six departments. Deterministic; no network. Not exported from the package barrel.
  */
 import { Bot, BookOpen, Code2, Globe, Home, Inbox, Medal, Megaphone, PiggyBank, Scale, Settings, Users, Users2, Wrench } from "lucide-react";
+import { TERMS, type TermId } from "@foundmill/shared/terms";
 import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import type { SwitcherBusiness } from "./BusinessSwitcher";
 import type { DecisionOption } from "./DecisionBar";
@@ -47,18 +48,20 @@ export const DISTRIBUTION_TABS: TabItem[] = [
   { id: "leads", label: "Leads", href: "#leads", badge: 12, subViews: [{ id: "new", label: "New this week" }, { id: "warm", label: "Warm" }, { id: "all", label: "All leads" }] },
   { id: "campaigns", label: "Campaigns", href: "#campaigns" },
   { id: "creative", label: "Creative", href: "#creative" },
-  { id: "attribution", label: "Attribution", href: "#attribution" },
+  { id: "attribution", label: "Customer sources", href: "#attribution" },
 ];
 
 export const PALETTE_ITEMS: PaletteItem[] = [
   { id: "cmd-continue", kind: "command", label: "Continue", description: "Let the team work on their next tasks", shortcut: ["Space"] },
-  { id: "cmd-refresh", kind: "command", label: "Refresh Inbox", description: "Ask the team for one quick note (does not start a cycle)", shortcut: ["R"] },
+  { id: "cmd-refresh", kind: "command", label: "Refresh Inbox", description: "Ask the team for one quick note without starting new work", shortcut: ["R"] },
   { id: "cmd-stop", kind: "command", label: "Stop all agents", description: "Pause the whole team. An owner can resume." },
+  // plain-allow: the palette's Help rows (HELP_PALETTE_ITEMS, from TERMS) define Chief of Staff in the same list.
   { id: "cmd-holiday", kind: "command", label: "Go on vacation", description: "Hand the business to the Chief of Staff" },
   { id: "cmd-edit", kind: "command", label: "Edit layout", shortcut: ["E"] },
   { id: "scr-home", kind: "screen", label: "Home", href: "/b/northwind", shortcut: ["G", "H"] },
   { id: "scr-inbox", kind: "screen", label: "Inbox", href: "/b/northwind/inbox", shortcut: ["G", "I"] },
   { id: "scr-formation", kind: "screen", label: "Board", description: "Distribution", dept: "dept-3", href: "/b/northwind/d/distribution/formation" },
+  // plain-allow: the palette's Help rows (HELP_PALETTE_ITEMS, from TERMS) define Runway in the same list.
   { id: "scr-runway", kind: "screen", label: "Runway", description: "Finance", dept: "dept-4", href: "/b/northwind/d/finance/runway" },
   { id: "dept-product", kind: "department", label: "Product", description: "Product", dept: "dept-1", href: "/b/northwind/d/product/vision" },
   { id: "dept-lab", kind: "department", label: "Formulation Lab", description: "Formulation Lab", dept: "dept-2", href: "/b/northwind/d/formulation-lab/training-ground", keywords: ["development"] },
@@ -70,6 +73,7 @@ export const PALETTE_ITEMS: PaletteItem[] = [
   { id: "o-nordic", kind: "organisation", label: "Nordic Beauty AB", description: "Retailer · Stockholm", keywords: ["retailer"] },
   { id: "o-meridian", kind: "organisation", label: "Meridian Labs", description: "Contract manufacturer · Malmö" },
   { id: "a-scout", kind: "agent", label: "Scout", description: "Distribution lead · Sonnet", icon: Bot },
+  // plain-allow: "Ledger" here is the Finance lead's name, not the word.
   { id: "a-ledger", kind: "agent", label: "Ledger", description: "Finance lead · Opus", icon: Bot },
   { id: "a-forge", kind: "agent", label: "Forge", description: "Formulation Lab · backend worker", icon: Bot },
   { id: "t-reid", kind: "team_member", label: "Reid Jackson", description: "Founder" },
@@ -78,14 +82,21 @@ export const PALETTE_ITEMS: PaletteItem[] = [
 
 export const RECENT_PALETTE_ITEMS: PaletteItem[] = [PALETTE_ITEMS[13] as PaletteItem, PALETTE_ITEMS[18] as PaletteItem, PALETTE_ITEMS[7] as PaletteItem];
 
-/** A few Help rows, as the app builds them from `TERMS` (apps/web/lib/search.ts); the keyboard shortcuts row is the shell's own. */
-export const HELP_PALETTE_ITEMS: PaletteHelpItem[] = [
-  { id: "help:runway", title: "Runway", line: "How many months your cash lasts at today's spending.", href: "/b/northwind/d/finance/runway" },
-  { id: "help:burn", title: "Burn", line: "How much cash the business uses up each month.", href: "/b/northwind/d/finance/overview" },
-  { id: "help:cycle", title: "Cycle", line: "One round of work: the team works for a while, then reports back in the Inbox.", href: "/b/northwind/home" },
-  { id: "help:estimate", title: "Estimate", line: "Worked out, not measured.", long: "The figure is calculated from what is known, such as archetype averages or a model's price list. It is replaced by a measured one as soon as a bank, Stripe or an ad account is connected." },
-  { id: "help:chief_of_staff", title: "Chief of Staff", line: "The agent that plans each cycle, hands work to the department leads and turns your replies into plans.", href: "/b/northwind/d/team/squad" },
-];
+/** A few Help rows, built from `TERMS` the way the app builds them (apps/web/lib/search.ts); the keyboard shortcuts row is the shell's own. */
+const HELP_HREFS = {
+  runway: "/b/northwind/d/finance/runway",
+  burn: "/b/northwind/d/finance/overview",
+  cycle: "/b/northwind/home",
+  estimate: undefined,
+  chief_of_staff: "/b/northwind/d/team/squad",
+} as const satisfies Partial<Record<TermId, string | undefined>>;
+
+export const HELP_PALETTE_ITEMS: PaletteHelpItem[] = (Object.keys(HELP_HREFS) as Array<keyof typeof HELP_HREFS>).map((id) => {
+  const def = TERMS[id];
+  const href = HELP_HREFS[id];
+  // The Estimate row has no page, so the palette shows its longer explanation in place.
+  return { id: `help:${id}`, title: def.word, line: def.short, ...(href ? { href } : { long: def.long }) };
+});
 
 export const REORDER_OPTIONS: DecisionOption[] = [
   { id: "a", label: "Reorder 2,000 units", recommended: true, consequence: "Meridian Labs ships in 12 days; stock covers 9 weeks at the current run rate.", cost: { amountMinor: 1840000, currency: "EUR" }, reversible: false },

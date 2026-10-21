@@ -67,13 +67,14 @@ describe("LandingPage (signed-out /)", () => {
     const hero = screen.getByRole("heading", { level: 1 }).closest("section")!;
     // The figure is the free plan's included credits, from packages/config, in credits' own currency.
     expect(INCLUDED_CREDITS_ASSURANCE).toBe("Starts with $5.00 of included credits · no card");
-    expect(within(hero).getByText(INCLUDED_CREDITS_ASSURANCE)).toBeTruthy();
+    expect(within(hero).getByTestId("hero-credits").textContent).toBe(INCLUDED_CREDITS_ASSURANCE);
     expect(within(hero).getByText("Nothing moves money or signs in your name without you")).toBeTruthy();
     expect(within(hero).queryByText(/Anthropic key/)).toBeNull();
     // The key assurance sits beside "Your key, sealed", and nowhere else.
     const control = document.getElementById("control")!;
     expect(within(control).getByText("Your key, sealed")).toBeTruthy();
-    expect(within(control).getByText(/^Bring your own Anthropic key, or stay on the included credits\./)).toBeTruthy();
+    // "credits" and "sandbox" are defined words (Term buttons), so the sentence is read whole from its paragraph.
+    expect(within(control).getByText(/^Bring your own Anthropic key, or stay on the included/).textContent).toMatch(/^Bring your own Anthropic key, or stay on the included credits\./);
     expect(screen.getAllByText(/Bring your own Anthropic key/)).toHaveLength(1);
   });
 
@@ -86,7 +87,7 @@ describe("LandingPage (signed-out /)", () => {
     expect(within(how).getByText(FIRST_DAY_SENTENCE)).toBeTruthy();
     // The foundations drafting panel as Home shows it, with the agents writing it named.
     const panel = within(how).getByRole("region", { name: FIRST_DAY_PANEL_TITLE });
-    expect(within(panel).getByText("Vision, specification and roadmap")).toBeTruthy();
+    expect(panel.textContent).toContain("Vision, specification and roadmap");
     expect(within(panel).getByText("Drafting")).toBeTruthy();
     expect(within(panel).getByText("Drafting your vision, specification and roadmap…")).toBeTruthy();
     expect(within(panel).getByText(/^Iris, Product lead, writes it from your idea and your profile\. Orla, Chief of Staff, plans the first cycle from the roadmap\.$/)).toBeTruthy();
@@ -266,7 +267,7 @@ describe("LandingPage (signed-out /)", () => {
     const note = screen.getByRole("article", { name: "Example Inbox note" });
     expect(note.querySelector('[data-value="$480.00"]')).toBeTruthy();
     expect(within(note).getByText(/^It costs \$480, above the \$250 cap/)).toBeTruthy();
-    expect(within(note).getByText("Mon, Oct 12 · cycle 215")).toBeTruthy();
+    expect(within(note).getByText(/^Mon, Oct 12 · /).textContent).toBe("Mon, Oct 12 · cycle 215");
     expect(screen.getByText("$10K MRR")).toBeTruthy();
     // Nothing of the earlier sterling, UK-schooled example is left.
     const text = container.textContent ?? "";
@@ -354,7 +355,7 @@ describe("LandingPage (signed-out /)", () => {
     vi.setSystemTime(new Date("2026-10-15T12:00:00Z"));
     renderPage();
     expect(within(screen.getByTestId("cycle-deck")).getByTestId("kitbar-date").textContent).toBe("Oct 15, 2026");
-    expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText("Thu, Oct 15 · cycle 215")).toBeTruthy();
+    expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText(/^Thu, Oct 15 · /).textContent).toBe("Thu, Oct 15 · cycle 215");
     // The Customer Update moves with the story: first seen on Sunday, Sep 20 on its calendar, eight days later today.
     expect(within(screen.getByRole("region", { name: "Customer Update" })).getByText(/to the site on a Monday evening\.$/)).toBeTruthy();
   });

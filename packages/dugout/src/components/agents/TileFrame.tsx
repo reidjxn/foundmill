@@ -34,7 +34,7 @@ import { IconButton } from "../foundation/IconButton";
 import { ProgressRing } from "../foundation/ProgressRing";
 import { StatusPill, type StatusTone } from "../foundation/StatusPill";
 import { Tooltip } from "../foundation/Tooltip";
-import { useGuided } from "../guidance/GuidanceProvider";
+import { useGuided, useTerm } from "../guidance/GuidanceProvider";
 import { elapsedLabel, etaLabel } from "./progress";
 import { SHOUT_PRESETS, ShoutMenu } from "./ShoutMenu";
 import type { AgentTileSession, TileControls, TileTask } from "./types";
@@ -140,6 +140,8 @@ export interface TileFrameProps {
 export function TileFrame({ session, views, view, onViewChange, focused, compact, controls = {}, onFocus, onOpenTask, now, children, className }: TileFrameProps) {
   const id = useId();
   const guided = useGuided();
+  // The footer's token count says what a token is on hover (the definitions map's own sentence; "AI usage" outside a provider).
+  const tokensDef = useTerm("tokens");
   const pill = sessionPill(session);
   const pct = Math.round(session.progress * 100);
   // A queued session has not started for real: no clock runs and nothing pulses until a worker picks it up.
@@ -403,7 +405,7 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
           </span>
         )}
         {!compact || focused ? (
-          <span className="hidden shrink-0 items-center gap-1 @xl/foot:inline-flex" title="Tokens">
+          <span className="hidden shrink-0 items-center gap-1 @xl/foot:inline-flex" title={tokensDef ? `${tokensDef.word}: ${tokensDef.short}` : "AI usage"}>
             <Icon icon={CircleDot} size={12} className="text-tertiary" />
             {formatCompact(session.tokens)}
             <span className="text-tertiary">tokens</span>

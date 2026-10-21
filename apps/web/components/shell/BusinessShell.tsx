@@ -421,7 +421,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
         awaitingAwayReport.current = true;
         void invalidate(["business", "inbox"]);
         router.push(routes.inbox(businessId));
-        toast({ title: "Welcome back", description: "The Chief of Staff handed the business back to you. “While you were away” opens here as soon as it is written.", tone: "good" });
+        toast({ title: "Welcome back", description: "You are back in charge. “While you were away” opens here as soon as it is written.", tone: "good" });
       },
       onError: (err) => toast({ title: "Could not end the vacation", description: errorMessage(err), tone: "bad" }),
     }),

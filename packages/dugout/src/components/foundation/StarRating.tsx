@@ -65,8 +65,9 @@ function StarGlyph({ fill, outlined, size }: { fill: Fill; outlined: boolean; si
 export function StarRating({ value, potential, size = 12, label = "Rating", showValue, className, ...rest }: StarRatingProps) {
   const current = fills(value);
   const pot = potential === undefined ? null : fills(potential);
-  // The accessible name keeps its shape (ProfileHeader and its hosts read it); the band word is the caption's neighbor.
-  const text = `${label}: ${value} of ${STARS_SCALE}${potential === undefined ? "" : `, potential ${potential}`}`;
+  // The accessible name keeps its shape (ProfileHeader and its hosts read it) and says the ceiling the way the caption does
+  // ("could reach"); the band word is the caption's neighbor.
+  const text = `${label}: ${value} of ${STARS_SCALE}${potential === undefined ? "" : `, could reach ${potential}`}`;
   const caption = starsCaption(value, potential);
   const band = scaleWord(value, STARS_SCALE);
   return (

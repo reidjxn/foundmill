@@ -142,7 +142,7 @@ export function ProfileScreen({ kind, id }: { kind: "business" | "founder"; id: 
           )}
           <Panel title="What is public" span={4} footer="Only these fields are shown. Everything else stays in the business.">
             <p className="text-small text-secondary">
-              {profile.kind === "founder" ? "A founder's name, when they choose to make it public, and the live businesses they run." : "A live business's name, logo, archetype, region and when it went live, and its founders who made their name public."}
+              {profile.kind === "founder" ? "A founder's name, when they choose to make it public, and the live businesses they run." : "A live business's name, logo, kind of business, region and when it went live, and its founders who made their name public."}
             </p>
           </Panel>
           {!q.data && <EmptyState icon={UsersRound}>Nothing to show.</EmptyState>}

@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Clock, Coins, MousePointerClick, Radio, Star, Trophy } from "lucide-react";
-import { Avatar, Chip, EntityLinkProvider, EntityText, Icon, JourneyRibbon, ProvenanceChip, TrophyCabinet, cn } from "@foundmill/dugout";
+import { Avatar, Chip, EntityLinkProvider, EntityText, Icon, JourneyRibbon, ProvenanceChip, Term, TrophyCabinet, cn } from "@foundmill/dugout";
 import { useExample } from "./examples/context";
 import { datedCustomerUpdate, datedMilestones, exampleJourney, exampleMoney, type ExampleJourneyData } from "./examples/helpers";
 import type { ExampleBusiness } from "./examples/types";
@@ -29,7 +29,11 @@ export function JourneySection() {
         id="journey"
         eyebrow="The journey"
         title="Watch the business grow, chapter by chapter."
-        lede="The Journey puts the whole business on one time axis: revenue, signups, paying customers and agent hours, in chapters, with every milestone pinned. When a customer pays, a Customer Update shows who made it happen, touch by touch."
+        lede={
+          <>
+            The Journey puts the whole business on one time axis: revenue, signups, paying customers and agent hours, in <Term id="chapter">chapters</Term>, with every milestone pinned. When a customer pays, a Customer Update shows who made it happen, touch by touch.
+          </>
+        }
       />
       <Reveal>
         <div ref={ref}>

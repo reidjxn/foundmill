@@ -67,6 +67,7 @@ function agents(n: number): string {
 
 /** The line that says a cycle is under way: "Cycle 3 is running · 4 agents at work" (the agents part only when known). */
 export function cycleRunningLine(cycleNumber: number, agentsWorking: number): string {
+  // plain-allow: the strip that shows this line (NextStep.tsx StepLabel) renders "Cycle" as a Term.
   const base = `Cycle ${Math.max(1, cycleNumber)} is running`;
   return agentsWorking > 0 ? `${base} · ${agents(agentsWorking)} at work` : base;
 }
@@ -96,7 +97,7 @@ export function nextStepsFor(facts: NextStepFacts, router: NextStepRouter): Next
     const drafting = facts.foundationsStatus !== "ready";
     const signedOff = !drafting && facts.blockingNotes === 0;
     const read: NextStepItem = drafting
-      ? { id: "read-draft", label: "Wait for the team's first draft of the specification and roadmap" }
+      ? { id: "read-draft", label: "Wait for the team's first draft of what to build and in what order" }
       : { id: "read-draft", label: "Read what the team drafted", href: href("vision"), done: signedOff };
     const answer: NextStepItem =
       facts.blockingNotes > 0

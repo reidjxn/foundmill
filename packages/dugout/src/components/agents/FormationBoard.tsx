@@ -477,9 +477,9 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
             )}
           </div>
 
-          {/* The key under the board: fit is the defined word; the four bands are the rating ramp's own words (ScaleLabel). */}
+          {/* The key under the board: the board's name and fit are the defined words; the four bands are the rating ramp's own words (ScaleLabel). */}
           <p className="text-small text-secondary" data-board-key="">
-            Rings mark the <Term id="fit">fit</Term> bands: {FIT_RINGS.map((r) => `${r.band} ${r.range}`).join(", ")}. A moving line is a running channel; a dashed one is paused.
+            On the <Term id="channel_board">Channel Board</Term>, rings mark the <Term id="fit">fit</Term> bands: {FIT_RINGS.map((r) => `${r.band} ${r.range}`).join(", ")}. A moving line is a running channel; a dashed one is paused.
           </p>
         </section>
       </LayoutGroup>

@@ -9,11 +9,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { CREDITS_CURRENCY } from "@foundmill/config";
-import { ApplyScopeDialog, Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, MODEL_LABELS, ModelPicker, SkeletonText, useToast, type ApplyScope } from "@foundmill/dugout";
+import { ApplyScopeDialog, Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, MODEL_LABELS, ModelPicker, SkeletonText, Term, useToast, type ApplyScope } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { agentTypeNoun, describeModelSet, localPeriod, modelChangeWarnings, modelOptions, type AgentProfile } from "./logic";
+import { agentTypeNoun, chiefOfStaffDowngradeWarning, describeModelSet, isChiefOfStaffDowngrade, localPeriod, modelOptions, type AgentProfile } from "./logic";
 
 export interface ModelChangeDialogProps {
   businessId: string;
@@ -46,7 +46,7 @@ export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typ
       return;
     }
     if (preselect && preselect !== agent.modelKey && !profile.modelLock) {
-      const needsWarning = modelChangeWarnings(agent, profile.route, preselect).some((w) => w.includes("Chief of Staff"));
+      const needsWarning = isChiefOfStaffDowngrade(agent, preselect);
       setCandidate((c) => c ?? preselect);
       setStep((s) => (s === "pick" ? (needsWarning ? "warn" : "scope") : s));
     }
@@ -67,13 +67,12 @@ export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typ
   const current = compareQ.data?.current ?? agent.modelKey;
   const options = compareQ.data ? modelOptions(compareQ.data, currency) : [];
   const locked = profile.modelLock || compareQ.data?.locked === true;
-  const warnings = candidate ? modelChangeWarnings(agent, profile.route, candidate) : [];
-  const cosWarning = warnings.find((w) => w.includes("Chief of Staff"));
+  const cosWarning = candidate && isChiefOfStaffDowngrade(agent, candidate) ? chiefOfStaffDowngradeWarning(candidate) : undefined;
 
   const choose = (m: ModelKey) => {
     if (m === current || locked) return;
     setCandidate(m);
-    setStep(modelChangeWarnings(agent, profile.route, m).some((w) => w.includes("Chief of Staff")) ? "warn" : "scope");
+    setStep(isChiefOfStaffDowngrade(agent, m) ? "warn" : "scope");
   };
   const reset = () => {
     setCandidate(null);
@@ -108,7 +107,9 @@ export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typ
       <Dialog open={open && step === "warn"} onOpenChange={(o) => !o && reset()}>
         <DialogContent size="sm" data-testid="cos-downgrade-warning">
           <DialogHeader>
-            <DialogTitle>Downgrade the Chief of Staff?</DialogTitle>
+            <DialogTitle>
+              Downgrade the <Term id="chief_of_staff">Chief of Staff</Term>?
+            </DialogTitle>
             <DialogDescription>{cosWarning}</DialogDescription>
           </DialogHeader>
           <DialogFooter>

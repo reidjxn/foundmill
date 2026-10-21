@@ -80,7 +80,7 @@ const BRAND_OPTIONS: ExampleBusiness["howItWorks"]["brandOptions"] = LANDING_LOG
 /** The Chief of Staff's plan for cycle 1. */
 const FIRST_CYCLE_PLAN: readonly ExampleCyclePlanItem[] = [
   { department: "product", task: "Interview twelve tutors", tasks: 2, done: 72 },
-  { department: "development", task: "Build the lesson recap pipeline", tasks: 4, done: 45 },
+  { department: "development", task: "Build the lesson recaps", tasks: 4, done: 45 },
   { department: "distribution", task: "Test SEO and tutor communities", tasks: 3, done: 88 },
   { department: "finance", task: "Set up Stripe and the AI cost model", tasks: 1, done: 30 },
   { department: "legal", task: "Incorporation and consent", tasks: 1, done: 60 },
@@ -91,8 +91,9 @@ const FIRST_CYCLE_PLAN: readonly ExampleCyclePlanItem[] = [
 // ---------------------------------------------------------------------------------------------------------------------
 
 const ACTIVITY: readonly ActivityLine[] = [
-  { who: "Forge", dept: "dept-2", text: "opened a pull request for photo grading" },
-  { who: "Scout", dept: "dept-3", text: "put SEO on the board at a fit of 17" },
+  { who: "Forge", dept: "dept-2", text: "sent photo grading for review" },
+  { who: "Scout", dept: "dept-3", text: "put SEO on the board, scored 17 of 20" },
+  // plain-allow: "Ledger" here is the Finance lead's name, not the word.
   { who: "Ledger", dept: "dept-6", text: "reconciled this week's Stripe payouts, 64 of 64 matched" },
   { who: "Lex", dept: "dept-5", text: "drafted the parental consent flow for your review" },
   { who: "Iris", dept: "dept-1", text: "turned twelve tutor interviews into three roadmap changes" },
@@ -118,7 +119,7 @@ const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
     department: "Development",
     subject: "Merge photo grading to production?",
     body: "The companion now grades handwritten work from photos. Agreement with tutors' own grades rose from 74% to 93% on 200 past answers, and every check is green.",
-    stake: "Pull request #148 · all checks passing",
+    stake: "Change #148 · all checks passing",
     options: [
       { id: "merge", label: "Merge", recommended: true, done: "Photo grading merged", outcome: "Every tutor gets it on the next release." },
       { id: "hold", label: "Test on 100 more", done: "Merge held for more testing", outcome: "Forge adds 100 more answers to the test set and comes back to you." },
@@ -144,10 +145,11 @@ const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
     from: { name: "Ledger", seed: "ledger", dept: "dept-6", role: "Finance lead" },
     department: "Finance",
     subject: "Raise the AI budget to $600 a month?",
-    body: "Photo grading doubled model use. The cost per student is $1.90 against the $8 tutors pay for the companion, and the runway still holds at 14 months.",
+    body: "Photo grading doubled model use. The cost per student is $1.90 against the $8 tutors pay for the companion, and the cash still lasts 14 months.",
     stake: "+$250 a month · Estimate",
     options: [
       // The Inbox line is one line in a 21rem column: short enough that the dollar figure is never cut off.
+      // plain-allow: "Ledger" here is the Finance lead's name, not the word.
       { id: "raise", label: "Raise to $600", recommended: true, done: "AI budget raised to $600", outcome: "Ledger watches the cost per student every day." },
       { id: "keep", label: "Keep $350", done: "AI budget kept at $350", outcome: "Forge routes routine grading to a smaller model to stay inside it." },
     ],
@@ -178,7 +180,7 @@ const CHANNELS: ExampleBusiness["channels"] = {
   seed: "tutorlane",
   fits: FITS,
   recommended: ["seo", "content", "email_automation", "affiliate"],
-  why: "{channel} fits a tool tutors find while looking for practice material and recommend to other tutors. The first signal comes within a cycle and the cost per tutor sits inside the runway budget.",
+  why: "{channel} fits a tool tutors find while looking for practice material and recommend to other tutors. The first signal comes within one round of work, and the cost per tutor stays inside the budget.",
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -267,8 +269,10 @@ const MILESTONES: ExampleBusiness["milestones"] = [
   { key: "customer_1", label: "First customer", description: "The first paying tutor.", achievedAt: "2024-11-08T12:00:00", customerName: "Patel Physics", ...usd(2900), shareable: true },
   { key: "first_agency", label: "First tutoring agency", description: "An agency puts its 10 tutors on Pro, $290 a month.", achievedAt: "2024-12-26T12:00:00", customerName: "Rivera Languages", ...usd(29_000), shareable: true },
   { key: "customer_10", label: "10th customer", description: "Ten paying tutors.", achievedAt: "2024-12-31T12:00:00", shareable: true },
+  // plain-allow: MRR is spelled out in the description on the same line.
   { key: "mrr_1k", label: "$1K MRR", description: "Monthly recurring revenue crosses $1,000.", achievedAt: "2025-03-20T12:00:00", shareable: true },
   { key: "customer_100", label: "100th customer", description: "One hundred paying tutors.", achievedAt: "2025-09-25T12:00:00", shareable: true },
+  // plain-allow: MRR is spelled out in the description on the same line.
   { key: "mrr_10k", label: "$10K MRR", description: "Monthly recurring revenue crosses $10,000.", achievedAt: "2026-09-18T12:00:00", shareable: true },
 ];
 
@@ -280,7 +284,7 @@ const INBOX_NOTE: ExampleInboxNote = {
   /** When the note arrived: today on the example business. */
   paragraphs: [
     "Tutor communities are Tutorlane's strongest channel after search: four of the last ten tutors who upgraded came from one. A one-month sponsorship of the largest tutors' newsletter in the US is ready to book, with the copy written.",
-    "It costs $480, above the $250 cap you set for new spend, so it waits for you. The runway stays at 14 months either way.",
+    "It costs $480, above the $250 cap you set for new spend, so it waits for you. Either way, the cash lasts 14 months.",
   ],
   costMinor: 48_000,
   fit: "16 of 20",
@@ -288,7 +292,7 @@ const INBOX_NOTE: ExampleInboxNote = {
   options: [
     { id: "approve", label: "Approve", recommended: true, consequence: "Scout books the sponsorship and the copy runs next week.", costMinor: 48_000, reversible: false },
     { id: "smaller", label: "Try a smaller list first", consequence: "Scout finds a smaller tutors' list to test the copy on, inside your cap.", costMinor: null, reversible: true },
-    { id: "later", label: "Not this chapter", consequence: "Communities stay at search and referrals until the next chapter.", costMinor: null, reversible: true },
+    { id: "later", label: "Not now", consequence: "Communities stay at search and referrals for the next three months.", costMinor: null, reversible: true },
   ],
 };
 
@@ -304,10 +308,10 @@ const LEADS: readonly ExampleLead[] = [
     role: "Product lead",
     model: "Opus",
     stars: { current: 3.5, potential: 4.5 },
-    remit: "A vision, a living specification and a roadmap shaped by what tutors, parents and students actually do.",
+    remit: "A vision, a living description of the product and a roadmap shaped by what tutors, parents and students actually do.",
     now: "Turning twelve tutor interviews into three roadmap changes",
     training: "Version 3 promoted: interview synthesis",
-    skills: [skill("research", "Research synthesis", "craft", 16, 2, 18), skill("spec", "Specification writing", "craft", 15, 1, 17), skill("prioritize", "Prioritization", "judgement", 17, 1, 18), skill("no", "Saying no", "judgement", 14, 3, 17), skill("pace", "Pace", "execution", 13, 0, 15), skill("reliability", "Reliability", "execution", 15, 1, 17)],
+    skills: [skill("research", "Research synthesis", "craft", 16, 2, 18), skill("spec", "Product writing", "craft", 15, 1, 17), skill("prioritize", "Prioritization", "judgement", 17, 1, 18), skill("no", "Saying no", "judgement", 14, 3, 17), skill("pace", "Pace", "execution", 13, 0, 15), skill("reliability", "Reliability", "execution", 15, 1, 17)],
     traits: [
       { id: "verbatim", label: "Quotes tutors word for word", tone: "good" },
       { id: "cuts", label: "Cuts scope before adding it", tone: "good" },
@@ -321,13 +325,13 @@ const LEADS: readonly ExampleLead[] = [
     role: "Lead developer",
     model: "Sonnet",
     stars: { current: 3.5, potential: 5 },
-    remit: "Agents build the AI product itself: the recap pipeline, the practice companion and the tests every prompt change must pass.",
-    now: "Opening a pull request for photo grading",
+    remit: "Agents build the AI product itself: the lesson recaps, the practice companion and the tests every prompt change must pass.",
+    now: "Sending photo grading for review",
     training: "Version 4 promoted: tests before every prompt change",
     skills: [skill("prompts", "Prompt design", "craft", 16, 3, 18), skill("testing", "Testing", "craft", 16, 6, 18), skill("planning", "Planning", "judgement", 13, 1, 16), skill("scope", "Scope control", "judgement", 12, 3, 16), skill("reliability", "Reliability", "execution", 14, 1, 17), skill("cost", "Cost efficiency", "execution", 12, -2, 16)],
     traits: [
       { id: "tests_first", label: "Writes the test set first", tone: "good" },
-      { id: "small_prs", label: "Small pull requests", tone: "good" },
+      { id: "small_prs", label: "Small, easy-to-review changes", tone: "good" },
       { id: "slow_evals", label: "Slower on long test runs", tone: "warn" },
     ],
   },
@@ -338,10 +342,10 @@ const LEADS: readonly ExampleLead[] = [
     role: "Distribution Strategist",
     model: "Sonnet",
     stars: { current: 3, potential: 4.5 },
-    remit: "Fifteen channels scored for fit; search, content and tutor referrals start first, inside the budget caps you set.",
-    now: "Putting SEO on the board at a fit of 17",
+    remit: "Fifteen channels scored for how well they suit Tutorlane; search, content and tutor referrals start first, inside the budget caps you set.",
+    now: "Putting SEO on the board, scored 17 of 20",
     training: "Version 2 promoted: test small before scaling",
-    skills: [skill("fit", "Channel fit", "craft", 17, 1, 19), skill("copy", "Copywriting", "craft", 14, 2, 17), skill("experiments", "Experiment design", "judgement", 15, 2, 18), skill("budget", "Budget discipline", "judgement", 16, 0, 17), skill("attribution", "Attribution", "execution", 13, 1, 16), skill("speed", "Speed to test", "execution", 15, 1, 17)],
+    skills: [skill("fit", "Channel scoring", "craft", 17, 1, 19), skill("copy", "Copywriting", "craft", 14, 2, 17), skill("experiments", "Experiment design", "judgement", 15, 2, 18), skill("budget", "Budget discipline", "judgement", 16, 0, 17), skill("attribution", "Source tracking", "execution", 13, 1, 16), skill("speed", "Speed to test", "execution", 15, 1, 17)],
     traits: [
       { id: "small_tests", label: "Tests small before scaling", tone: "good" },
       { id: "caps", label: "Never exceeds a spend cap", tone: "good" },
@@ -355,13 +359,13 @@ const LEADS: readonly ExampleLead[] = [
     role: "Finance lead",
     model: "Opus",
     stars: { current: 4, potential: 4.5 },
-    remit: "Cash, burn, runway, AI cost per student and a reconciled ledger. Anything that is not a real figure is labeled Forecast or Estimate.",
+    remit: "Cash, spending, months of cash left, AI cost per student and the books, reconciled. A figure that is not measured carries a label: Estimate means worked out, Forecast means projected.",
     now: "Reconciling this week's Stripe payouts, 64 of 64 matched",
     training: "Version 5 promoted: AI cost per student",
-    skills: [skill("reconcile", "Reconciliation", "craft", 18, 1, 19), skill("forecast", "Forecasting", "craft", 14, 2, 17), skill("cash", "Cash discipline", "judgement", 17, 0, 18), skill("unit", "Unit economics", "judgement", 14, 2, 17), skill("reporting", "Reporting clarity", "execution", 15, 1, 17), skill("audit", "Audit trail", "execution", 18, 0, 19)],
+    skills: [skill("reconcile", "Reconciliation", "craft", 18, 1, 19), skill("forecast", "Forecasting", "craft", 14, 2, 17), skill("cash", "Cash discipline", "judgement", 17, 0, 18), skill("unit", "Profit per sale", "judgement", 14, 2, 17), skill("reporting", "Reporting clarity", "execution", 15, 1, 17), skill("audit", "Audit trail", "execution", 18, 0, 19)],
     traits: [
       { id: "labels", label: "Labels every estimate", tone: "good" },
-      { id: "runway", label: "Flags runway under nine months", tone: "good" },
+      { id: "runway", label: "Flags cash under nine months", tone: "good" },
       { id: "conservative", label: "Conservative forecasts" },
     ],
   },

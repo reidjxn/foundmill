@@ -32,14 +32,14 @@ export function Exhibit({ exhibit, entityIds, fromAgentId, currency }: ExhibitPr
   if (ref.kind === "entity_card") return <EntityExhibit entityId={entityIds[0] ?? (ref.specRef && UUID_RE.test(ref.specRef) ? ref.specRef : null)} />;
   if (ref.kind === "diff") return <DiffExhibit proposalId={ref.specRef && UUID_RE.test(ref.specRef) ? ref.specRef : null} />;
   if (ref.kind === "agent_tile") return <AgentExhibit agentId={ref.specRef && UUID_RE.test(ref.specRef) ? ref.specRef : fromAgentId} />;
-  if (!isNamedQueryId(ref.specRef)) return <Unavailable title="Exhibit" reason="This note references a query that is not in the catalog." />;
+  if (!isNamedQueryId(ref.specRef)) return <Unavailable title="Live data" reason="This note asks for a view of your data that does not exist." />;
   return <NamedQueryExhibit id={ref.specRef} kind={ref.kind} currency={currency} />;
 }
 
 function Unavailable({ title, reason }: { title: string; reason: string }) {
   return (
     <Panel title={title} span={12} data-testid="exhibit" data-exhibit="unavailable">
-      <EmptyState icon={ImageOff} title="Exhibit unavailable">
+      <EmptyState icon={ImageOff} title="Nothing to show">
         {reason}
       </EmptyState>
     </Panel>
@@ -61,16 +61,17 @@ function NamedQueryExhibit({ id, kind, currency }: { id: Exclude<ReturnType<type
   const roadmapQ = useQuery(trpc.product.roadmap.list.queryOptions({ businessId }, { enabled: src?.path === "product.roadmap.list", staleTime: 60_000 }));
   const active = src?.path === "dev.tasks.list" ? tasksQ : src?.path === "journey.ribbon" ? ribbonQ : src?.path === "distribution.channels.list" ? channelsQ : src?.path === "finance.overview" ? financeQ : roadmapQ;
   const data = useMemo(() => (isNamedQueryId(id) && active.data ? transform(id, active.data, { currency, from, to }) : null), [id, active.data, currency, from, to]);
-  const title = isNamedQueryId(id) ? EXHIBIT_TITLES[id] : "Exhibit";
+  const title = isNamedQueryId(id) ? EXHIBIT_TITLES[id] : "Live data";
   const shape = data ? chartShape(kind, data) : "empty";
   return (
     <Panel
       title={title}
       span={12}
       loading={active.isLoading}
-      error={active.error ? "The exhibit's query failed." : undefined}
+      error={active.error ? "The data could not be loaded." : undefined}
+      help={data?.help ?? "Live data from your business, not typed by the agent."}
       onRetry={() => void active.refetch()}
-      empty={data && shape === "empty" ? { children: "No rows yet for this exhibit." } : undefined}
+      empty={data && shape === "empty" ? { children: "No data yet." } : undefined}
       actions={data?.label ? data.label === "Estimate" || data.label === "Forecast" ? <ProvenanceChip kind={data.label === "Forecast" ? "forecast" : "estimate"} /> : <Chip tone="neutral">{data.label}</Chip> : undefined}
       footer={data ? <span title={data.source}>Source: {data.source}</span> : undefined}
       data-testid="exhibit"
@@ -145,14 +146,14 @@ function EntityExhibit({ entityId }: { entityId: string | null }) {
         subtitle: typeof q.data.entity.identifiers.domain === "string" ? q.data.entity.identifiers.domain : typeof q.data.entity.identifiers.email === "string" ? q.data.entity.identifiers.email : undefined,
         chips: q.data.roles.slice(0, 2).map((r) => ({ label: String((r as { role?: string }).role ?? "role") })),
         facts: [
-          { label: "Conversions", value: String(q.data.conversions.length) },
+          { label: "Signups and payments", value: String(q.data.conversions.length) },
           { label: "Interactions", value: String(q.data.interactions.length) },
           { label: "Mentions", value: String(q.data.mentions.length) },
         ],
       }
     : null;
   return (
-    <Panel title="Entity" span={12} loading={q.isLoading} error={q.error ? "Could not load the entity." : undefined} onRetry={() => void q.refetch()} data-testid="exhibit" data-exhibit="entity_card">
+    <Panel title="Record" span={12} loading={q.isLoading} error={q.error ? "Could not load the record." : undefined} onRetry={() => void q.refetch()} data-testid="exhibit" data-exhibit="entity_card">
       {details ? <EntityCard details={details} /> : null}
     </Panel>
   );
@@ -175,7 +176,7 @@ function DiffExhibit({ proposalId }: { proposalId: string | null }) {
   if (!proposalId) return <Unavailable title="Change proposal" reason="The note references no change proposal." />;
   const hunk = q.data?.hunks[0];
   return (
-    <Panel title="Change proposal" span={12} loading={q.isLoading} error={q.error ? "Could not load the proposal." : undefined} onRetry={() => void q.refetch()} empty={q.data && !hunk ? { children: "The proposal has no hunks." } : undefined} footer={q.data ? <span>{q.data.hunks.length} hunk{q.data.hunks.length === 1 ? "" : "s"} · decide them in {changesTab}</span> : undefined} data-testid="exhibit" data-exhibit="diff">
+    <Panel title="Change proposal" span={12} loading={q.isLoading} error={q.error ? "Could not load the proposal." : undefined} onRetry={() => void q.refetch()} help="A proposal is a change an agent suggests to the specification or the roadmap, with its reasoning. You accept or decline each change." empty={q.data && !hunk ? { children: "The proposal has no changes." } : undefined} footer={q.data ? <span>{q.data.hunks.length} change{q.data.hunks.length === 1 ? "" : "s"} · decide them in {changesTab}</span> : undefined} data-testid="exhibit" data-exhibit="diff">
       {hunk ? <DiffView original={hunkText(hunk.ours)} proposed={hunkText(hunk.theirs)} base={hunk.base ? hunkText(hunk.base) : undefined} readOnly maxHeight={320} labels={{ original: "Current", proposed: "Proposed", base: "Base" }} /> : null}
     </Panel>
   );

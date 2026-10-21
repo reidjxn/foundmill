@@ -7,7 +7,7 @@
  * the cycle comes back with a decision (Continue turns into "Respond · 1") or a customer (gold). The first cycle runs
  * on its own once the deck is on screen, unless the visitor prefers reduced motion.
  */
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import { ArrowRight, Check, Inbox as InboxIcon, Pause, Play, Star, ThumbsUp, Trophy } from "lucide-react";
 import {
   Avatar,
@@ -24,6 +24,7 @@ import {
   RunwayChip,
   StopAllAgents,
   TeamOrbit,
+  Term,
   cn,
   kitBarGradient,
   kitStyle,
@@ -316,10 +317,12 @@ function LiveColumn({ business, feed, state, progress, paused, onTogglePaused, c
         ))}
       </ul>
       <div className="flex shrink-0 flex-col gap-1.5 border-t border-subtle px-3 py-3">
-        <span className="t-label">This cycle</span>
+        <span className="t-label">
+          This <Term id="cycle">cycle</Term>
+        </span>
         <dl className="flex flex-col gap-1.5">
           <DeckStat label="Tasks done" value={`${done} of ${t.tasks}`} />
-          <DeckStat label="Pull requests merged" value={String(Math.min(t.prs, Math.floor(progress * t.prs)))} />
+          <DeckStat label={<><Term id="pull_request">Pull requests</Term> merged</>} value={String(Math.min(t.prs, Math.floor(progress * t.prs)))} />
           <DeckStat label="Agent spend" value={exampleMoney(business, Math.round(progress * t.tasks * business.deck.costPerTaskMinor))} estimate />
         </dl>
       </div>
@@ -327,7 +330,7 @@ function LiveColumn({ business, feed, state, progress, paused, onTogglePaused, c
   );
 }
 
-function DeckStat({ label, value, estimate }: { label: string; value: string; estimate?: boolean }) {
+function DeckStat({ label, value, estimate }: { label: ReactNode; value: string; estimate?: boolean }) {
   return (
     <div className="flex items-center gap-2 text-small">
       <dt className="flex-1 text-secondary">{label}</dt>

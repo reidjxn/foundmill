@@ -169,7 +169,7 @@ describe("FormationBoard", () => {
     const paid = within(pitch).getByRole("button", { name: /Paid advertising, fit 17 of 20 \(Excellent\), recommended, on the board/ });
     expect(paid.getAttribute("aria-pressed")).toBe("true");
     // The legend names the bands with the ramp's words; the screen above the board says what fit is.
-    expect(screen.getByText(/Rings mark the fit bands: Excellent 16–20, Good 11–15, Average 6–10, Poor 1–5/)).toBeTruthy();
+    expect(screen.getByText(/On the Channel Board, rings mark the fit bands: Excellent 16–20, Good 11–15, Average 6–10, Poor 1–5/)).toBeTruthy();
   });
 
   it("a ghost says which channel it is and how to start it, on hover (UX plan §7.13)", () => {

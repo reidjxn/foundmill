@@ -150,7 +150,7 @@ export function wageColumns(businessId: string, currency: string, sizes: Record<
     { id: "department", accessorFn: (r) => r.department?.name ?? "", header: "Department", size: sizes.department, cell: ({ row }) => (row.original.department ? <DeptChip dept={row.original.department.colourToken} fit>{row.original.department.name}</DeptChip> : <span className="text-secondary">—</span>), meta: { filter: "text" } },
     { id: "model", accessorKey: "modelKey", header: "Model", size: sizes.model, cell: ({ getValue }) => (getValue() ? <Chip tone="neutral" mono>{String(getValue())}</Chip> : null), meta: { filter: "select", filterOptions: ["opus", "sonnet", "haiku"].map((m) => ({ value: m, label: m })), term: "model" } },
     { id: "status", accessorFn: (r) => r.status ?? "", header: "Status", size: sizes.status, cell: ({ row }) => (row.original.status ? <AgentStatusPill status={row.original.status} /> : <span className="text-secondary">Released</span>) },
-    { id: "tokens", accessorKey: "tokens", header: "Tokens", size: sizes.tokens, cell: ({ getValue }) => <span className="tabular-nums">{formatCompact(getValue() as number)}</span>, meta: { numeric: true } },
+    { id: "tokens", accessorKey: "tokens", header: "Tokens", size: sizes.tokens, cell: ({ getValue }) => <span className="tabular-nums">{formatCompact(getValue() as number)}</span>, meta: { numeric: true, term: "tokens" } },
     { id: "sandbox", accessorKey: "sandboxMinutes", header: "Sandbox", size: sizes.sandbox, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(getValue() as number, { digits: 0 })} min</span>, meta: { numeric: true, label: "Sandbox minutes", csv: (r) => r.sandboxMinutes } },
     { id: "tools", accessorKey: "toolCalls", header: "Tool calls", size: sizes.tools, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(getValue() as number, { digits: 0 })}</span>, meta: { numeric: true } },
     { id: "training", accessorKey: "trainingMinor", header: "Training", size: sizes.training, cell: ({ getValue }) => <span className="tabular-nums">{fmtMoney(getValue() as number, currency)}</span>, meta: { numeric: true, csv: (r) => (r.trainingMinor / 100).toFixed(2) } },
@@ -291,7 +291,7 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
         footer={
           wages.data ? (
             <span className="tabular-nums">
-              {rows.length} agents · {fmtMoney(squadMinor, teamCurrency)} in {formatMonth(period, datePrefs)} · Estimate: {teamCurrency.toUpperCase() === "USD" ? "AI usage metered in US dollars at list prices" : "metered usage at list prices"} · a <Term id="wage_cap">wage cap</Term> is the most an agent may cost in a month
+              {rows.length} agents · {fmtMoney(squadMinor, teamCurrency)} in {formatMonth(period, datePrefs)} · Estimate: {teamCurrency.toUpperCase() === "USD" ? "AI usage metered in US dollars at list prices" : "metered usage at list prices"}, counted in <Term id="tokens">tokens</Term> · a <Term id="wage_cap">wage cap</Term> is the most an agent may cost in a month
             </span>
           ) : undefined
         }

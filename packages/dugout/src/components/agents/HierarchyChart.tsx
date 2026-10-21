@@ -4,6 +4,7 @@ import { cn } from "../../lib/cn";
 import { Avatar } from "../foundation/Avatar";
 import { FitText } from "../foundation/FitText";
 import { agentStatusTone } from "../foundation/StatusPill";
+import { useTerm } from "../guidance/GuidanceProvider";
 import { MODEL_LABELS } from "./SquadCells";
 import type { HierarchyKind, HierarchyNode } from "./types";
 
@@ -268,6 +269,8 @@ export function HierarchyChart({ nodes, selectedId, onSelect, layout: layoutOpts
   const placedById = useMemo(() => new Map(layout.nodes.map((p) => [p.id, p])), [layout]);
   const [active, setActive] = useState<string | null>(layout.nodes[0]?.id ?? null);
   const refs = useRef(new Map<string, HTMLButtonElement>());
+  // The Chief of Staff node's tooltip says what the role is (the node is a button, so no Term inside it).
+  const chiefOfStaff = useTerm("chief_of_staff");
 
   const focusNode = (id: string | undefined) => {
     if (!id) return;
@@ -366,7 +369,7 @@ export function HierarchyChart({ nodes, selectedId, onSelect, layout: layoutOpts
               onFocus={() => setActive(n.id)}
               onKeyDown={(e) => onKey(e, p)}
               onClick={() => onSelect?.(n)}
-              title={n.model ? `${n.name} · ${n.role} · ${MODEL_LABELS[n.model]}` : `${n.name} · ${n.role}`}
+              title={`${n.model ? `${n.name} · ${n.role} · ${MODEL_LABELS[n.model]}` : `${n.name} · ${n.role}`}${n.kind === "assistant" && chiefOfStaff ? `\n${chiefOfStaff.word}: ${chiefOfStaff.short}` : ""}`}
               className={cn(
                 "pressable absolute flex items-center overflow-hidden rounded-md border bg-surface-1 text-left shadow-elev-1 outline-none",
                 compact ? "gap-2 px-2" : "gap-2.5 px-2.5",

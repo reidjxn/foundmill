@@ -64,7 +64,7 @@ describe("SimulatePanel (Settings › Integrations › Simulate)", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(screen.getByTestId("simulate-result").textContent).toContain("payment.received → 200");
     expect(screen.getByTestId("simulate-result").textContent).toContain('"written": 1');
-    expect(toast.saved).toHaveBeenCalledWith("Simulated", "payment.received went through the webhook path.");
+    expect(toast.saved).toHaveBeenCalledWith("Simulated", "payment.received went through the same path as a real event.");
     expect(invalidate).toHaveBeenCalledWith(["inbox", "journey", "finance", "integrations", "distribution"]);
   });
 

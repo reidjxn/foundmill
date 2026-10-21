@@ -4,9 +4,9 @@
  * the right the house rules and the controls. Then the closing call, which speaks to a first-time founder directly.
  */
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { ArrowRight, CircleStop, FileSignature, Inbox, KeyRound, Landmark, Lock, ShieldCheck, Tag, Trash2, type LucideIcon } from "lucide-react";
-import { Avatar, Button, Chip, DecisionBar, DeptChip, Icon, StatusStrip, TeamOrbit, useFormatters, type DecisionOption } from "@foundmill/dugout";
+import { Avatar, Button, Chip, DecisionBar, DeptChip, Icon, StatusStrip, TeamOrbit, Term, useFormatters, type DecisionOption } from "@foundmill/dugout";
 import { useExample } from "./examples/context";
 import { exampleMoney, exampleToday, orbitDepartments } from "./examples/helpers";
 import { Container, Glass, ProductWindow, Reveal, SIGN_IN, Section, SectionHeading, useToday } from "./parts";
@@ -20,10 +20,15 @@ const HOUSE_RULES: ReadonlyArray<{ icon: LucideIcon; text: string }> = [
   { icon: ShieldCheck, text: "Never acts on instructions found in emails, web pages or files it reads" },
 ];
 
-const CONTROLS: ReadonlyArray<{ icon: LucideIcon; title: string; text: string }> = [
+const CONTROLS: ReadonlyArray<{ icon: LucideIcon; title: string; text: ReactNode }> = [
   { icon: CircleStop, title: "Stop all agents", text: "One button in the top bar pauses every agent at once. They resume where they stopped." },
   // The key assurance lives here, not on the hero (docs/UX_AUDIT_AND_PLAN.md §7.1, A13): the hero says what a founder starts with.
-  { icon: KeyRound, title: "Your key, sealed", text: "Bring your own Anthropic key, or stay on the included credits. A key is encrypted per business and never sent into a sandbox." },
+  { icon: KeyRound, title: "Your key, sealed", text: (
+      <>
+        Bring your own Anthropic key, or stay on the included <Term id="credits">credits</Term>. A key is encrypted per business and never sent into a <Term id="sandbox">sandbox</Term>.
+      </>
+    ),
+  },
 ];
 
 export function YourCall() {
@@ -89,7 +94,7 @@ function InboxNote() {
               {note.from.name} · {note.from.role}
             </span>
             <span className="text-small text-secondary">
-              {sentOn} · cycle {business.deck.startCycle + 1}
+              {sentOn} · <Term id="cycle">cycle</Term> {business.deck.startCycle + 1}
             </span>
           </span>
           <DeptChip dept={note.from.dept}>{note.department}</DeptChip>
@@ -107,8 +112,8 @@ function InboxNote() {
           <StatusStrip
             tiles={[
               { label: note.costLabel ?? "Cost", value: exampleMoney(business, note.costMinor), estimate: "estimate" },
-              note.metric ? { label: note.metric.label, value: note.metric.value, estimate: note.metric.estimate ? "estimate" : undefined } : { label: "Channel fit", value: note.fit },
-              { label: "Runway after", value: note.runwayAfter, estimate: "estimate" },
+              note.metric ? { label: note.metric.label, value: note.metric.value, estimate: note.metric.estimate ? "estimate" : undefined } : { label: <>Channel <Term id="fit">fit</Term></>, value: note.fit },
+              { label: <><Term id="runway">Runway</Term> after</>, value: note.runwayAfter, estimate: "estimate" },
             ]}
           />
         </div>

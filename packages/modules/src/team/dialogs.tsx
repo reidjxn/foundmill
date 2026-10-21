@@ -199,7 +199,7 @@ export function ReleaseDialog({ agent, onOpenChange, onReleased }: ReleaseDialog
           <DialogDescription id={`${id}-desc`}>
             {cos ? (
               <>
-                The <Term id="chief_of_staff">Chief of Staff</Term> plans every cycle and cannot be let go.
+                The <Term id="chief_of_staff">Chief of Staff</Term> plans every <Term id="cycle">cycle</Term> and cannot be let go.
               </>
             ) : (
               `${agent?.name} leaves the team.`

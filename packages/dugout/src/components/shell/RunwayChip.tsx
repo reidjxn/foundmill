@@ -118,7 +118,11 @@ export function RunwayChip({ date, runwayMonths, words, cash, estimate = true, o
   // The year sits apart so the top bar can drop it first: "Oct 9" + ", 2026", "9 Oct" + " 2026", "2026-" + "10-09".
   const parts = hasDate ? formatDateYearParts(date) : null;
   const lead = runwayTooltipLead(useTerm("runway"));
+  const showEstimate = estimate && (known || said.estimate === true);
+  // The dashed "Estimate" tag sits inside the chip (a button when clickable), so its definition is the tooltip's last line.
+  const estimateDef = useTerm("estimate");
   const lines = runwayTooltipLines({ runwayMonths, words, cash, estimate, lead });
+  if (showEstimate && estimateDef) lines.push(`${estimateDef.word}: ${estimateDef.short.charAt(0).toLowerCase()}${estimateDef.short.slice(1)}`);
   const tip = (
     <span className="flex flex-col gap-0.5">
       {lines.map((line) => (
@@ -128,7 +132,6 @@ export function RunwayChip({ date, runwayMonths, words, cash, estimate = true, o
   );
   const runwayLabel = known ? `Runway ${runway}${estimate ? ", estimate" : ""}${tone === "bad" ? ", critical" : tone === "warn" ? ", low" : ""}` : `Runway: ${said.value}. ${said.caption}`;
   const label = hasDate ? `${dateText}. ${runwayLabel}` : runwayLabel;
-  const showEstimate = estimate && (known || said.estimate === true);
   const content = (
     <>
       {/* The date gives way in the top bar's last compaction step; the year goes first (KitBarFit). */}

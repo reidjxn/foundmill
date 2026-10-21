@@ -381,17 +381,17 @@ export interface CoachProposal {
 }
 
 const PROPOSAL_TEMPLATES: Record<string, { section: CoachProposal["section"]; text: string }[]> = {
-  testing: [{ section: "playbook", text: "Write the failing test before the implementation and run the full suite before opening a pull request." }],
-  debugging: [{ section: "playbook", text: "Reproduce the bug with a minimal failing case and record the root cause in the pull request description." }],
-  speed: [{ section: "rules", text: "Time-box exploration to 15 minutes; after that, ask or ship the simplest safe version." }],
-  reliability: [{ section: "rules", text: "Never report a task done until acceptance tests pass in a clean sandbox." }],
+  testing: [{ section: "playbook", text: "Write the failing test before the implementation and run the full suite before handing the change in for review." }],
+  debugging: [{ section: "playbook", text: "Reproduce the bug with a minimal failing case and record the root cause in the change's description." }],
+  speed: [{ section: "rules", text: "Limit exploration to 15 minutes; after that, ask or ship the simplest safe version." }],
+  reliability: [{ section: "rules", text: "Never report a task done until the tests for what counts as done pass on a clean, throwaway copy." }],
   cost_efficiency: [{ section: "rules", text: "Reuse cached context and avoid re-reading files you already summarized in this session." }],
   communication: [{ section: "playbook", text: "End every session with a three-line note: what changed, what is risky, what you need from the founder." }],
   knowing_when_to_ask: [{ section: "rules", text: "Ask before any action that spends money, contacts a third party or changes a schema." }],
   risk_awareness: [{ section: "rules", text: "List the two most likely ways the change could break production before starting." }],
   scope_control: [{ section: "rules", text: "Do only what the task asks; log unrelated improvements as follow-ups instead of doing them." }],
   prioritisation: [{ section: "playbook", text: "Order work by customer impact first, then by risk, then by effort." }],
-  planning: [{ section: "playbook", text: "Write a numbered plan with acceptance criteria before touching code." }],
+  planning: [{ section: "playbook", text: "Write a numbered plan that says what counts as done before touching code." }],
   deliverability: [{ section: "rules", text: "Check the suppression list and the sender's warm-up status before every send." }],
   copywriting: [{ section: "examples", text: "Subject lines under 45 characters; one call to action per email." }],
 };
@@ -421,7 +421,7 @@ export function applyProposal(instructions: AgentInstructions, proposal: CoachPr
 // ---------------------------------------------------------------------------------------------------------------------
 
 export const MODEL_DESCRIPTIONS: Record<ModelKey, string> = {
-  opus: "Deepest judgment; the default for the Chief of Staff and leads.",
+  opus: "Deepest judgment; the default for the agent that plans the work and for department leads.",
   sonnet: "Fast and capable; the default for workers.",
   haiku: "Cheapest; classification, linking and other utility work.",
 };
@@ -454,11 +454,21 @@ export function modelOptions(compare: ModelCompare, currency: string): ModelOpti
   }));
 }
 
+/** A Chief of Staff moving to a smaller model: the dialog asks first (BUILD §11.10 exceptions). */
+export function isChiefOfStaffDowngrade(agent: Pick<AgentRow, "agentType" | "layer" | "modelKey">, candidate: ModelKey): boolean {
+  return isChiefOfStaff(agent) && MODEL_RANK[candidate] < MODEL_RANK[agent.modelKey];
+}
+
+/** The Chief of Staff downgrade warning; the dialog's title names the agent, so the sentence says what is at stake. */
+export function chiefOfStaffDowngradeWarning(candidate: ModelKey): string {
+  return `Moving it to ${MODEL_LABELS[candidate]} weakens how it plans the team's work and every decision it makes for you. Expect lower Judgment ratings.`;
+}
+
 /** Warnings shown before the scope dialog: Chief of Staff downgrade, Composer lock (BUILD §11.10 exceptions). */
 export function modelChangeWarnings(agent: Pick<AgentRow, "agentType" | "layer" | "modelKey">, route: string, candidate: ModelKey): string[] {
   const out: string[] = [];
   if (isComposerRoute(route)) out.push("The Inbox Composer is locked to Opus; this model cannot change.");
-  if (isChiefOfStaff(agent) && MODEL_RANK[candidate] < MODEL_RANK[agent.modelKey]) out.push(`Downgrading the Chief of Staff to ${MODEL_LABELS[candidate]} weakens cycle planning and every decision it makes for you. Expect lower Judgment ratings.`);
+  if (isChiefOfStaffDowngrade(agent, candidate)) out.push(chiefOfStaffDowngradeWarning(candidate));
   return out;
 }
 
@@ -515,7 +525,7 @@ export function negotiationFromAgent(raw: unknown): NegotiationForm {
 export const AUTONOMY_MODE_COPY: Record<AutonomyMode, { label: string; description: string }> = {
   inherit: { label: "Follow the business mode", description: "Acts and asks exactly as the business mode says." },
   lower: { label: "Ask more often", description: "One notch more cautious than the business mode: every external action and spend becomes a decision for you." },
-  higher: { label: "Act more freely", description: "One notch more autonomous than the business mode, within the caps below. Hard gates still apply." },
+  higher: { label: "Act more freely", description: "One notch more autonomous than the business mode, within the limits below. Moving money, signing and deleting for good still need you." },
 };
 
 /**
@@ -747,7 +757,7 @@ export function statusWord(status: AgentStatus): string {
 const PLAIN_IDS: Record<string, string> = {
   request_human_action: "a task for you",
   reply_only: "a clarifying question",
-  "cycle.completed": "a cycle summary",
+  "cycle.completed": "a summary of each round of work",
   "plans.compile": "plan compiling",
   "inbox.decide": "your decision",
 };
@@ -867,6 +877,7 @@ export function profileChips(agent: Pick<AgentRow, "role" | "agentType" | "layer
     out.push(tone ? { label, tone } : { label });
   };
   add(agent.role || humaniseKey(agent.agentType));
+  // plain-allow: the role's name on the profile chip; the profile's Model dialog and the Hierarchy screen define it with a Term.
   add(agent.layer === "assistant" ? "Chief of Staff" : humaniseKey(agent.layer));
   for (const d of departments) add(d.name, d.colourToken);
   return out;

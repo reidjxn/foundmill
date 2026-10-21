@@ -214,11 +214,11 @@ export const STATUS_WORD: Record<AgentStatus, string> = { healthy: "Healthy", de
 export const STATUS_ORDER: readonly AgentStatus[] = ["failing", "injured", "degraded", "paused", "idle", "healthy"];
 
 export const STATUS_DESCRIPTION: Record<AgentStatus, string> = {
-  failing: "Loop detected or repeated errors. It rests (10 minutes, longer after each failure in a row), then the next cycle gives it work again.",
+  failing: "Loop detected or repeated errors. It rests (10 minutes, longer after each failure in a row), then it is given work again.",
   injured: "A credential expired or a rate limit hit. Back once the integration is reconnected.",
   degraded: "Error rate above 10% over the last day. Still working, watch the next tasks.",
-  paused: "Paused by Stop all agents, a revoked key, used-up credits or the agent's wage cap. Resume agents in the top bar; a wage cap lifts next month or when you raise it.",
-  idle: "No task assigned. The Chief of Staff routes work on the next cycle.",
+  paused: "Paused by Stop all agents, a revoked key, the prepaid AI balance running out, or its wage cap. A wage cap is the most an agent may cost a month; it lifts next month or when you raise it. Resume agents in the top bar.",
+  idle: "No task assigned. New work comes when the team next plans.",
   healthy: "Active recently, few failed sessions, budget available.",
 };
 

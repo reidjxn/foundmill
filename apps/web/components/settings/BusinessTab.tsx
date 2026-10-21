@@ -153,7 +153,7 @@ export function BusinessTab() {
             <Input id="biz-slug" mono value={slug} onChange={(e) => set({ slug: e.target.value.toLowerCase() })} maxLength={80} invalid={!!slugError || !/^[a-z0-9-]+$/.test(slug)} data-testid="business-slug" />
           </Field>
         </FormRow>
-        <Field htmlFor="biz-archetype" label="Archetype" hint="Drives the default departments, channels and the Board's first decisions.">
+        <Field htmlFor="biz-archetype" label="Archetype" hint="The archetype is the kind of business this is; it drives the default departments, channels and the Board's first decisions.">
           <SimpleSelect id="biz-archetype" value={archetype} onValueChange={(v) => set({ archetype: v || null })} placeholder="Choose an archetype" options={ARCHETYPES.map((a) => ({ value: a, label: ARCHETYPE_LABELS[a] }))} />
         </Field>
         <Field htmlFor="biz-currency" label="Currency" hint="Cash, budgets, wage caps and plans read in it. Amounts already set keep their own currency; model costs stay in US dollars.">

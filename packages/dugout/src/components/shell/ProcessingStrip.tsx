@@ -1,7 +1,9 @@
+"use client";
 import type { CSSProperties, HTMLAttributes } from "react";
 import type { DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { Tooltip } from "../foundation/Tooltip";
+import { useGuided, useTerm } from "../guidance/GuidanceProvider";
 import type { ProcessingSegment } from "./types";
 
 export interface ProcessingStripProps extends HTMLAttributes<HTMLDivElement> {
@@ -62,8 +64,21 @@ export function segmentState(segment: ProcessingSegment, active: boolean): "work
  */
 export function ProcessingStrip({ segments, active, cycleNumber, label, className, ...rest }: ProcessingStripProps) {
   const text = label ?? processingStatusText(segments, active, cycleNumber);
+  // The sentence names a cycle, so the tooltip says what one is while guidance is on (UX plan §8.3: define on first use).
+  const cycle = useTerm("cycle");
+  const guided = useGuided();
+  const tip = guided && cycle ? (
+    <span className="flex max-w-72 flex-col gap-0.5">
+      <span>{text}</span>
+      <span className="text-secondary">
+        {cycle.word}: {cycle.short}
+      </span>
+    </span>
+  ) : (
+    text
+  );
   return (
-    <Tooltip content={text} side="bottom">
+    <Tooltip content={tip} side="bottom">
       {/* The Home tour (Coachmark) rings the strip: "A light here means the team is working". */}
       <div role="status" aria-live="polite" aria-label={text} data-active={active || undefined} data-coachmark="processing-strip" className={cn("processing-strip", className)} {...rest}>
         <span className="sr-only">{text}</span>

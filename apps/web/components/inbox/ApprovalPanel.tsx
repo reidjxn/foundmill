@@ -13,7 +13,7 @@ import { EntityLink, Field, Icon, KeyValueList, Panel, StatusPill, Textarea, fie
 import { routes } from "@foundmill/widgets/shared/routes";
 import type { RouterOutputs } from "@/lib/trpc";
 import { approvalLockedReason, approvalStatus, taskHref, type DepartmentForLinks } from "./logic";
-import { describeRequest } from "./request";
+import { describeRequest, toolKeyOf } from "./request";
 
 type ApprovalView = NonNullable<RouterOutputs["inbox"]["get"]["approval"]>;
 
@@ -72,7 +72,7 @@ export function ApprovalPanel({ approval, businessId, departments, reason, onRea
     ...(approval.reasons.length ? [{ label: "Why it asks", value: approval.reasons.join("; ") }] : []),
   ];
   return (
-    <Panel title="Agent request" span={12} actions={<StatusPill tone={status.tone}>{status.word}</StatusPill>} footer={<span data-testid="approval-status-detail">{status.detail}</span>} data-testid="approval-panel">
+    <Panel title="Agent request" span={12} help={toolKeyOf(approval) === "merge_pull_request" ? "A pull request is a finished piece of code an agent asks to add to the product, with its changes laid out for review. Merging adds it." : undefined} actions={<StatusPill tone={status.tone}>{status.word}</StatusPill>} footer={<span data-testid="approval-status-detail">{status.detail}</span>} data-testid="approval-panel">
       <div className="flex flex-col gap-3">
         {/* The business thing first (UX plan §5.2); the system's words wait behind Details. */}
         <p className="text-body-strong text-pretty text-primary" data-testid="approval-summary">

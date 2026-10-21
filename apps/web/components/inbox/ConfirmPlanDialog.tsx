@@ -7,7 +7,7 @@
  * sentence is always "Nothing runs until you say go."
  */
 import { Check } from "lucide-react";
-import { Button, Chip, ConsequenceLine, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, KeyValueList, Markdown, ProvenanceChip, ReassuranceLine, StatusPill, formatMoney, type ConsequenceParts } from "@foundmill/dugout";
+import { Button, Chip, ConsequenceLine, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, KeyValueList, Markdown, ProvenanceChip, ReassuranceLine, StatusPill, Term, formatMoney, type ConsequenceParts } from "@foundmill/dugout";
 import { totalCost, type ConfirmationLine } from "./confirmation";
 
 export interface ConfirmPlanDialogProps {
@@ -152,7 +152,7 @@ export function ConfirmPlanDialog({ open, onOpenChange, lines, summary, loading,
                       ) : null}
                     </span>
                     {l.hardGate ? <Chip tone="ink">{HARD_GATE_WORDS}</Chip> : null}
-                    <span className="shrink-0 text-small text-secondary tabular-nums">{l.cost ? `${formatMoney(l.cost)} (Estimate)` : "No cost"}</span>
+                    <span className="shrink-0 text-small text-secondary tabular-nums">{l.cost ? <>{formatMoney(l.cost)} (<Term id="estimate" always>Estimate</Term>)</> : "No cost"}</span>
                   </li>
                 );
               })}

@@ -13,6 +13,7 @@ import { cn } from "../../lib/cn";
 import { Button, buttonVariants } from "../foundation/Button";
 import { Icon } from "../foundation/Icon";
 import { useGuided } from "../guidance/GuidanceProvider";
+import { Term } from "../guidance/Term";
 import { useShellLink } from "../shell/ShellLink";
 import type { NextStepItem } from "./nextSteps";
 
@@ -58,6 +59,18 @@ function Go({ step, label }: { step: NextStepItem; label: string }) {
   return null;
 }
 
+/** A step's line; "Cycle 3 is running" (nextSteps.ts `cycleRunningLine`) leads with the defined word as a `Term`. */
+function StepLabel({ label }: { label: string }) {
+  const m = /^Cycle\b/.exec(label);
+  if (!m) return <>{label}</>;
+  return (
+    <>
+      <Term id="cycle">Cycle</Term>
+      {label.slice(m[0].length)}
+    </>
+  );
+}
+
 function Disc({ n, done }: { n: number; done: boolean }) {
   if (done) return <Icon icon={CircleCheck} size="default" className="text-status-good" label="Done" />;
   return (
@@ -79,7 +92,9 @@ export function NextStep({ steps, title = "Next step", compact, className, ...re
     return (
       <li key={step.id} className={rowClass} data-next-step-row={step.id} data-done={done || undefined}>
         {single && !done ? null : <Disc n={i + 1} done={done} />}
-        <span className={cn("t-body min-w-0 flex-1 text-pretty", done ? "text-tertiary" : "text-primary")}>{step.label}</span>
+        <span className={cn("t-body min-w-0 flex-1 text-pretty", done ? "text-tertiary" : "text-primary")}>
+          <StepLabel label={step.label} />
+        </span>
         {done ? null : <Go step={step} label={`Go: ${step.label}`} />}
       </li>
     );

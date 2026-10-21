@@ -77,7 +77,7 @@ describe("AgentTile", () => {
     await user.click(screen.getByRole("tab", { name: "Plan" }));
     expect(onViewChange).toHaveBeenCalledWith("plan");
     expect(screen.getByText("Write Playwright tests")).toBeTruthy();
-    expect(screen.getByText(/Acceptance tests: 3 of 3 passing/)).toBeTruthy();
+    expect(document.querySelector("[data-plan-tests]")?.textContent).toMatch(/Acceptance tests: 3 of 3 passing/);
     const planTab = screen.getByRole("tab", { name: "Plan" });
     planTab.focus();
     fireEvent.keyDown(screen.getByRole("tablist"), { key: "ArrowLeft" });
@@ -258,7 +258,7 @@ describe("SpecialistTile empty views", () => {
     expect(screen.getByText("Paused · no supplier records yet")).toBeTruthy();
     expect(screen.queryByText(/no RFQs sent/)).toBeNull();
     expect(screen.getByText("Review the second carton proof against the labelling checklist.")).toBeTruthy();
-    expect(screen.queryByText(/funnel fills as RFQs go out/)).toBeNull();
+    expect(screen.queryByText(/fills as requests for quotes go out/)).toBeNull();
     await user.click(screen.getByRole("tab", { name: "Samples" }));
     expect(screen.getByText("Paused · no samples requested")).toBeTruthy();
   });

@@ -7,7 +7,18 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { MODULE_KEYS } from "./constants";
 import type { Glossary } from "./glossary";
-import { isKnownDepartmentLearn, LEARN_SLUG_ALIASES, learnPath, PLAIN_LANGUAGE_TIERS, TERM_IDS, TERMS, termsWithGlossary, type TermDefinition } from "./terms";
+import {
+  DEFINE_TIER_IDS,
+  isKnownDepartmentLearn,
+  LEARN_SLUG_ALIASES,
+  learnPath,
+  PLAIN_LANGUAGE_TIERS,
+  PLAIN_TIER_IDS,
+  TERM_IDS,
+  TERMS,
+  termsWithGlossary,
+  type TermDefinition,
+} from "./terms";
 
 /** scripts/us-english.mjs's spelling families, when the script loads under vitest (it needs `typescript` on the path). */
 const usEnglish: { findSpellingHits(text: string): { match: string; us: string }[] } | null = await import(
@@ -187,14 +198,40 @@ describe("termsWithGlossary", () => {
 });
 
 describe("PLAIN_LANGUAGE_TIERS", () => {
-  it("lists the replace tier of Appendix E and defines every TERMS word", () => {
+  it("lists the replace tier of Appendix E", () => {
     expect(PLAIN_LANGUAGE_TIERS.replace).toEqual([
       "ICP", "CPA", "CAC", "COGS", "RLS", "Cedar", "named query", "exhibit", "request_human_action", "concurrency", "time box",
       "counterparty", "webhook", "OAuth", "BYOK", "unit economics", "hunk", "triage",
     ]);
-    expect(PLAIN_LANGUAGE_TIERS.define).toEqual(entries.map(([, t]) => t.word));
     const replace = new Set(PLAIN_LANGUAGE_TIERS.replace.map((w) => w.toLowerCase()));
-    for (const w of PLAIN_LANGUAGE_TIERS.define) expect(replace.has(w.toLowerCase()), w).toBe(false);
+    for (const w of [...PLAIN_LANGUAGE_TIERS.define, ...PLAIN_LANGUAGE_TIERS.plain]) expect(replace.has(w.toLowerCase()), w).toBe(false);
+  });
+
+  it("puts every TERMS id in exactly one of the define and plain tiers, in the map's order", () => {
+    const define = new Set<string>(DEFINE_TIER_IDS);
+    const plain = new Set<string>(PLAIN_TIER_IDS);
+    expect(define.size, "duplicate in DEFINE_TIER_IDS").toBe(DEFINE_TIER_IDS.length);
+    expect(plain.size, "duplicate in PLAIN_TIER_IDS").toBe(PLAIN_TIER_IDS.length);
+    for (const id of TERM_IDS) expect(Number(define.has(id)) + Number(plain.has(id)), id).toBe(1);
+    expect(define.size + plain.size).toBe(TERM_IDS.length);
+    expect(PLAIN_LANGUAGE_TIERS.define).toEqual(TERM_IDS.filter((id) => define.has(id)).map((id) => TERMS[id].word));
+    expect(PLAIN_LANGUAGE_TIERS.plain).toEqual(TERM_IDS.filter((id) => plain.has(id)).map((id) => TERMS[id].word));
+  });
+
+  it("keeps the jargon of §8.2 in the define tier and moves the everyday words to the plain tier", () => {
+    for (const w of [
+      "Runway", "Burn", "MRR", "ARR", "Churn", "P&L", "Cash basis", "Ledger", "Cap table", "SAFE", "Vesting", "Funnel",
+      "Attribution", "Conversion", "Pipeline", "Playbook", "SKU", "Gross margin", "Payback", "Tokens", "Credits", "API key",
+      "Pull request", "Branch", "Repository", "Sandbox", "Task graph", "Acceptance", "Hard gate", "Autonomy", "Wage cap",
+      "Chief of Staff", "Cycle", "Chapter", "Estimate", "Forecast", "Specification", "Proposal", "Sign-off", "Jurisdiction",
+      "Lawful basis", "Archetype", "Fit", "Potential", "Cost trend",
+    ])
+      expect(PLAIN_LANGUAGE_TIERS.define, w).toContain(w);
+    for (const w of [
+      "Revenue", "Training", "Coach", "Campaign", "Creative", "Competition", "Integration", "Rating", "Lead", "Model", "Health",
+      "Session", "Form", "Policy", "Market size", "Filing", "Tested", "Proven", "Contacts", "Hierarchy", "Milestone",
+    ])
+      expect(PLAIN_LANGUAGE_TIERS.plain, w).toContain(w);
   });
 });
 

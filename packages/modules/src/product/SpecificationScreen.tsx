@@ -392,7 +392,7 @@ export function SpecificationScreen({ businessId }: ModuleScreenProps) {
         loading={spec.isLoading}
         error={spec.error ? spec.error.message : undefined}
         onRetry={spec.refetch}
-        empty={spec.data && spec.data.blocks.length === 0 ? { icon: FileText, title: "No spec yet", children: "The outline is seeded from the archetype when the business is created; the Product lead fills it in the first cycle." } : undefined}
+        empty={spec.data && spec.data.blocks.length === 0 ? { icon: FileText, title: "No spec yet", children: "The outline starts from the kind of business this is; the Product lead fills it in during the team's first round of work." } : undefined}
         footer={spec.data ? <span className="tabular-nums">{spec.data.blocks.length} paragraph{spec.data.blocks.length === 1 ? "" : "s"} in {groups.length} section{groups.length === 1 ? "" : "s"} · ↑↓ to move</span> : undefined}
         flush
       >

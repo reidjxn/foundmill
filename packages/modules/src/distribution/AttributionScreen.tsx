@@ -242,7 +242,7 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
         meta={reach === null ? WINDOW_WORDS : `${WINDOW_WORDS} · ${formatNumber(reach, { digits: 0 })} impressions`}
         actions={stages.length ? <ProvenanceChip kind="estimate" /> : undefined}
         empty={channels.data && stages.every((s) => s.value === 0) ? "The funnel fills as channels report impressions, leads, signups, activations and customers." : undefined}
-        footer={<span>Counts come from links, codes, webhooks and conversion APIs across every channel; a stage no channel measures yet is left out.</span>}
+        footer={<span>Counts come from tracked links, codes and the conversion reports each channel sends back; a stage no channel measures yet is left out.</span>}
       >
         <FunnelChart stages={stages} label={`Touch funnel, ${(stages[0]?.label ?? "impressions").toLowerCase()} to customers`} />
       </Panel>
@@ -253,7 +253,7 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
         error={channels.error ? channels.error.message : undefined}
         onRetry={channels.refetch}
         meta={`${rows.length} channel${rows.length === 1 ? "" : "s"} with activity · ${WINDOW_WORDS}`}
-        footer={<span>Share is of measured customers. Offline channels carry partial journeys because the touches before a code redemption are unknown.</span>}
+        footer={<span>Share is of measured customers. Cost per customer is an <Term id="estimate" always>Estimate</Term>: spend divided by the customers a channel brought in. Offline channels carry partial journeys because the touches before a code redemption are unknown.</span>}
         flush
       >
         <div className="min-w-0">

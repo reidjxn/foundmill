@@ -27,7 +27,7 @@ export interface BusinessModeInfo {
 export const BUSINESS_MODE_INFO: Record<BusinessMode, BusinessModeInfo> = {
   augmented: { word: "Augmented", icon: Hand, summary: "The team prepares and asks before every outside action or spend.", brief: "asks before acting" },
   assisted: { word: "Assisted", icon: Handshake, summary: "The team does routine work alone and asks you before spending above your limit, signing anything or contacting new people.", brief: "asks before spending" },
-  automated: { word: "Automated", icon: Zap, summary: "The Chief of Staff decides inside your limits; money, signatures and contracts still wait for you.", brief: "runs inside limits" },
+  automated: { word: "Automated", icon: Zap, summary: "The team decides on its own inside your limits; money, signatures and contracts still wait for you.", brief: "runs inside limits" },
 };
 
 /** Where the mode is changed; the tooltip ends with it so the chip is never a dead end. */

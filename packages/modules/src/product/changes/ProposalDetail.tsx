@@ -8,7 +8,7 @@
  */
 import { useMemo, useState } from "react";
 import { Check, CheckCheck, ExternalLink, FileText, GitCommitVertical, Map as MapIcon, Save, X } from "lucide-react";
-import { Button, Chip, DiffView, EntityLink, Icon, KeyValueList, Markdown, Panel, ProvenanceChip, StatusPill, cn, useEntityLinkContext, useFormatters, type HunkDecisionState, type HunkDecisions } from "@foundmill/dugout";
+import { Button, Chip, DiffView, EntityLink, Icon, KeyValueList, Markdown, Panel, ProvenanceChip, StatusPill, Term, cn, useEntityLinkContext, useFormatters, type HunkDecisionState, type HunkDecisions } from "@foundmill/dugout";
 import { pmToText, textToPm } from "../prosemirror";
 import { InlineError, PinnedChip, blockTitle, findBlock, useAction, useAgentNames } from "../shared";
 import type { ProposalHunkRow, ProposalWithHunks, RoadmapRow, SourceRow, SpecBlockRow, SpecVersionRow } from "../types";
@@ -179,7 +179,7 @@ export function ProposalDetail({ proposal, blocks, roadmapItems, sources, latest
       {!settled ? (
         <div className="flex flex-wrap items-center gap-2 rounded-panel border border-subtle bg-panel-alt p-2">
           <span className="text-body text-primary">
-            {progress.pending} of {progress.total} changes still wait for you. Deciding the last one publishes a new spec version with a changelog.
+            {progress.pending} of {progress.total} changes in this <Term id="proposal">proposal</Term> still wait for you. Deciding the last one publishes a new spec version with a changelog.
           </span>
           <span className="flex-1" />
           <InlineError error={action.error} />
@@ -203,13 +203,13 @@ export function ProposalDetail({ proposal, blocks, roadmapItems, sources, latest
                 {resultVersion.changelogMd ? <span className="text-secondary">· {resultVersion.changelogMd}</span> : null}
               </p>
             ) : proposal.status !== "rejected" ? (
-              <p className="text-small text-secondary">The new version appears in the Specification history once published.</p>
+              <p className="text-small text-secondary">The new version appears in the <Term id="specification">Specification</Term> history once published.</p>
             ) : null}
           </div>
         </Panel>
       )}
 
-      <div className="flex flex-col gap-2" aria-label="Hunks">
+      <div className="flex flex-col gap-2" aria-label="Proposed changes">
         {hunks.map((h, i) => (
           <HunkCard key={h.id} hunk={h} index={i} blocks={blocks} roadmapItems={roadmapItems} settled={settled} onChanged={onChanged} onOpenBlock={onOpenBlock} onOpenRoadmapItem={onOpenRoadmapItem} />
         ))}

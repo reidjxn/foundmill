@@ -11,7 +11,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, Download, GitMerge, Handshake, Mail, MessageSquare, Pencil, Phone, Play, ScrollText, StickyNote, Trash2, Undo2, UserRoundPlus, Users } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Avatar, Button, Chip, ENTITY_KIND_ICONS, ENTITY_KIND_LABELS, EntityLink, Icon, KeyValueList, Panel, ProfileHeader, ProvenanceChip, RatingBar, StarRating, StatusPill, StatusStrip, Textarea, Timeline, formatMoney, formatRelative, useToast, useFormatters, type MetricTileProps, type ProfileChip, type ProfileFact, type TabItem, type TimelineEvent } from "@foundmill/dugout";
+import { Avatar, Button, Chip, ENTITY_KIND_ICONS, ENTITY_KIND_LABELS, EntityLink, Icon, KeyValueList, Panel, ProfileHeader, ProvenanceChip, RatingBar, StarRating, StatusPill, StatusStrip, Term, Textarea, Timeline, formatMoney, formatRelative, useToast, useFormatters, type MetricTileProps, type ProfileChip, type ProfileFact, type TabItem, type TimelineEvent } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage, trpcErrorCode } from "@/lib/trpc";
@@ -167,7 +167,7 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
                     { label: "LinkedIn", value: identifier(entity.identifiers.linkedin), mono: typeof entity.identifiers.linkedin === "string" },
                     { label: "Other names", value: entity.aliases.length ? entity.aliases.join(", ") : <span className="text-tertiary">None</span> },
                     { label: "Source", value: sourceWord(entity.source) || "Unknown" },
-                    { label: "Lawful basis", value: entity.lawfulBasis ? LAWFUL_BASIS_LABEL[entity.lawfulBasis] ?? plainWords(entity.lawfulBasis) : entity.kind === "person" ? <Chip tone="warn">Not recorded</Chip> : <span className="text-tertiary">Only recorded for people</span> },
+                    { label: <Term id="lawful_basis">Lawful basis</Term>, value: entity.lawfulBasis ? LAWFUL_BASIS_LABEL[entity.lawfulBasis] ?? plainWords(entity.lawfulBasis) : entity.kind === "person" ? <Chip tone="warn">Not recorded</Chip> : <span className="text-tertiary">Only recorded for people</span> },
                     { label: "Visibility", value: VISIBILITY_WORD[entity.visibility] ?? plainWords(entity.visibility) },
                     { label: "Updated", value: formatDateTime(entity.updatedAt) },
                   ]}
@@ -364,7 +364,7 @@ function CommercialTab({ get, currency }: { get: EntityGet; currency: string }) 
 function DocumentsTab({ get, businessId }: { get: EntityGet; businessId: string }) {
   const docs = documentItems(get, { inbox: (id) => routes.inbox(businessId, id) });
   return (
-    <Panel title="Documents" span={12} empty={docs.length === 0 ? { icon: ScrollText, children: "Emails, contracts, proposals and notes that mention this record list here. Bodies stay encrypted; this is the index." } : undefined} footer="Encrypted bodies are opened through the integration that holds them, never decrypted into this list." data-testid="documents-list">
+    <Panel title="Documents" span={12} empty={docs.length === 0 ? { icon: ScrollText, children: "Emails, contracts, sales proposals and notes that mention this record list here. Bodies stay encrypted; this is the index." } : undefined} footer="Encrypted bodies are opened through the integration that holds them, never decrypted into this list." data-testid="documents-list">
       <ul className="flex flex-col divide-y divide-subtle">
         {docs.map((d) => (
           <li key={d.id} className="flex items-center gap-3 py-1.5 text-body">

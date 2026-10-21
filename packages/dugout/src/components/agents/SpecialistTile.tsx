@@ -89,21 +89,27 @@ export function rfqFunnelRates(stages: readonly RfqStage[]): Array<{ stage: RfqS
   });
 }
 
+/** What the view shows, under the steps (RFQ and funnel are both new words to most founders). */
+export const RFQ_FUNNEL_CAPTION = "RFQ funnel: each request for a quote (RFQ), step by step. The share is how many moved on from the step above.";
+
 export function RfqFunnel({ stages }: { stages: readonly RfqStage[] }) {
-  if (stages.length === 0) return <EmptyState icon={Funnel}>The funnel fills as RFQs go out and suppliers reply.</EmptyState>;
+  if (stages.length === 0) return <EmptyState icon={Funnel}>This fills as requests for quotes go out and suppliers reply.</EmptyState>;
   return (
-    <ol className="flex flex-col gap-1.5 p-panel-pad" aria-label="RFQ funnel">
-      {rfqFunnelRates(stages).map(({ stage, rate, widthPct }) => (
-        <li key={stage.id} className="grid grid-cols-[7rem_1fr_3.5rem] items-center gap-2 text-small">
-          <span className="truncate text-secondary">{stage.label}</span>
-          <span className="relative h-5 overflow-hidden rounded-xs bg-white/6">
-            <span className="absolute inset-y-0 left-0 rounded-xs bg-kit-lift/60" style={{ width: `${widthPct}%` }} aria-hidden />
-            <span className="relative px-1.5 font-mono text-mono leading-5 text-primary tabular-nums">{stage.count}</span>
-          </span>
-          <span className="text-right text-secondary tabular-nums">{rate === null ? "—" : `${Math.round(rate * 100)}%`}</span>
-        </li>
-      ))}
-    </ol>
+    <div className="flex flex-col gap-1.5 p-panel-pad">
+      <ol className="flex flex-col gap-1.5" aria-label="RFQ funnel">
+        {rfqFunnelRates(stages).map(({ stage, rate, widthPct }) => (
+          <li key={stage.id} className="grid grid-cols-[7rem_1fr_3.5rem] items-center gap-2 text-small">
+            <span className="truncate text-secondary">{stage.label}</span>
+            <span className="relative h-5 overflow-hidden rounded-xs bg-white/6">
+              <span className="absolute inset-y-0 left-0 rounded-xs bg-kit-lift/60" style={{ width: `${widthPct}%` }} aria-hidden />
+              <span className="relative px-1.5 font-mono text-mono leading-5 text-primary tabular-nums">{stage.count}</span>
+            </span>
+            <span className="text-right text-secondary tabular-nums">{rate === null ? "—" : `${Math.round(rate * 100)}%`}</span>
+          </li>
+        ))}
+      </ol>
+      <p className="text-micro text-tertiary">{RFQ_FUNNEL_CAPTION}</p>
+    </div>
   );
 }
 

@@ -12,6 +12,7 @@ import { cn } from "../../lib/cn";
 import { Button, buttonVariants } from "../foundation/Button";
 import { Icon } from "../foundation/Icon";
 import { useGuided } from "../guidance/GuidanceProvider";
+import { Term } from "../guidance/Term";
 import { Panel, type PanelMenu } from "../shell/Panel";
 import { useShellLink } from "../shell/ShellLink";
 import type { GridSpan } from "../shell/types";
@@ -90,11 +91,36 @@ function Go({ item }: { item: FirstWeekItem }) {
   return null;
 }
 
+/**
+ * The defined word in an item's line, by item id (the widget passes id and label only): the checklist is where a new
+ * founder first meets "specification" and "cycle", so each is a `Term` there (UX plan §8.3: define on first use).
+ */
+const ITEM_TERMS: Partial<Record<string, { id: string; text: string }>> = {
+  sign_off_specification: { id: "specification", text: "specification" },
+  run_cycle: { id: "cycle", text: "cycle" },
+};
+
+/** The item's line, with its defined word as a `Term` when the line still contains it. */
+function ItemLabel({ item }: { item: FirstWeekItem }) {
+  const term = ITEM_TERMS[item.id];
+  const at = term ? item.label.indexOf(term.text) : -1;
+  if (!term || at < 0) return <>{item.label}</>;
+  return (
+    <>
+      {item.label.slice(0, at)}
+      <Term id={term.id}>{term.text}</Term>
+      {item.label.slice(at + term.text.length)}
+    </>
+  );
+}
+
 function Row({ item }: { item: FirstWeekItem }) {
   return (
     <li className="flex min-h-row-comfortable items-center gap-2 border-b border-line-faint last:border-b-0" data-first-week-item={item.id} data-done={item.done || undefined}>
       {item.done ? <Icon icon={CircleCheck} className="text-status-good" label="Done" /> : <Icon icon={Circle} className="text-tertiary" label="Not done" />}
-      <span className={cn("t-body min-w-0 flex-1 text-pretty", item.done ? "text-tertiary" : "text-primary")}>{item.label}</span>
+      <span className={cn("t-body min-w-0 flex-1 text-pretty", item.done ? "text-tertiary" : "text-primary")}>
+        <ItemLabel item={item} />
+      </span>
       {item.done ? null : <Go item={item} />}
     </li>
   );

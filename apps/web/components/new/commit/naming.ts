@@ -97,6 +97,9 @@ export interface DomainCheck {
 
 export const DOMAIN_STATUS_WORDS: Record<DomainStatus, string> = { available: "Available", taken: "Taken", unknown: "Couldn't check" };
 
+/** The DNS chip's tooltip: what "Estimate" means on a domain answer (UX plan §8.1, define on first use). */
+export const DNS_ESTIMATE_HINT = "Estimate: a DNS lookup only suggests whether a domain is free; the registry has the final word.";
+
 /** The chip beside an answer: "Domain registry", "DNS lookup (Estimate)" or "Mock" (the acronym gets its word, A12). */
 export function domainProvenanceWord(provenance: DomainProvenance): string {
   if (provenance === "DNS") return "DNS lookup (Estimate)";
@@ -262,7 +265,8 @@ export const BUSINESS_MODE_CARDS: ModeCard<BusinessMode>[] = [
   {
     value: "automated",
     label: "Automated",
-    tagline: "The Chief of Staff runs the day.",
+    tagline: "The team runs the day.",
+    // plain-allow: CommitScreen, where the mode cards show, defines "hard gate" with a Term (the autopilot hint).
     details: ["You review outcomes, not actions", "Hard gates still stop at you"],
     example: "Example: publishes the pricing page and pays for the domain within your limit; asks before signing a contract.",
   },

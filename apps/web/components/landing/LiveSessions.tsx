@@ -9,7 +9,7 @@
  */
 import { useState } from "react";
 import { Radio } from "lucide-react";
-import { AgentTile, Chip, FormationBoard, ProvenanceChip, TileGrid, toggleChannel, useLiveMockSessions, usePrefersReducedMotion, type AgentTileSession, type ChannelTokenData, type TileGridItem } from "@foundmill/dugout";
+import { AgentTile, Chip, FormationBoard, ProvenanceChip, Term, TileGrid, toggleChannel, useLiveMockSessions, usePrefersReducedMotion, type AgentTileSession, type ChannelTokenData, type TileGridItem } from "@foundmill/dugout";
 import { useExample } from "./examples/context";
 import { exampleChannels } from "./examples/helpers";
 import { LIVE_REPLAY } from "./examples/sessions/shared";
@@ -22,7 +22,12 @@ export function LiveSessions({ terminalRenderer }: { terminalRenderer?: "plain" 
   const [ref, seen] = useSeen<HTMLDivElement>("400px");
   return (
     <Section id="live">
-      <SectionHeading id="live" eyebrow="Live sessions" title="Watch the work happen." lede="Every agent works in its own sandbox and streams what it is doing: terminal, diff, preview and plan. Nudge one, pause one, or stop them all with a single button." />
+      <SectionHeading id="live" eyebrow="Live sessions" title="Watch the work happen." lede={
+          <>
+            Every agent works in its own <Term id="sandbox">sandbox</Term> and streams what it is doing: terminal, diff, preview and plan. Nudge one, pause one, or stop them all with a single button.
+          </>
+        }
+      />
       <Reveal>
         <div ref={ref}>
           <ProductWindow
@@ -80,7 +85,12 @@ export function Channels() {
   return (
     <Section id="channels">
       <div className="flex items-end justify-between gap-10">
-        <SectionHeading id="channels" eyebrow="Distribution" title="Fifteen channels. The right few first." lede="The Distribution Strategist scores every channel 1–20 for fit, puts the strongest on the board within your runway, and shows you why. Drag a channel on or off to try it." />
+        <SectionHeading id="channels" eyebrow="Distribution" title="Fifteen channels. The right few first." lede={
+            <>
+              The Distribution Strategist scores every channel 1–20 for <Term id="fit">fit</Term>, puts the strongest on the board within your <Term id="runway">runway</Term>, and shows you why. Drag a channel on or off to try it.
+            </>
+          }
+        />
         <span className="flex shrink-0 items-center gap-2 pb-1">
           <Chip tone="neutral">Example business</Chip>
           <ProvenanceChip kind="estimate" />

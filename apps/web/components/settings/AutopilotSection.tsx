@@ -148,7 +148,7 @@ export function AutopilotSection() {
         </div>
       ) : null}
       <Hint>
-        Off by default. When on, the next cycle starts on its own, the way Continue starts one: every approval, hard gate and policy check applies, and Autopilot never approves anything for you. Stop all agents stops it, and Resume does not turn it back on.
+        Off by default. When on, the next <Term id="cycle">cycle</Term> starts on its own, the way Continue starts one: every approval, <Term id="hard_gate">hard gate</Term> and policy check applies, and Autopilot never approves anything for you. Stop all agents stops it, and Resume does not turn it back on.
       </Hint>
       <dl className="grid grid-cols-3 gap-3 text-body" data-testid="autopilot-today">
         <div>
@@ -156,7 +156,9 @@ export function AutopilotSection() {
           <dd className="tabular">{cyclesTodayLine(s.cyclesToday, s.settings.maxCyclesPerDay)}</dd>
         </div>
         <div>
-          <dt className="text-label text-secondary">Spent today (Estimate)</dt>
+          <dt className="text-label text-secondary">
+            Spent today (<Term id="estimate" always>Estimate</Term>)
+          </dt>
           <dd className="tabular">{usd(s.spentTodayMinor)}</dd>
         </div>
         <div>

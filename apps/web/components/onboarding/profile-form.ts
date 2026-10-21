@@ -26,7 +26,7 @@ export interface Option<V extends string = string> {
 export const EXPERIENCE_OPTIONS: Option[] = [
   { value: "first_time", label: "First-time founder", description: "This is the first business you run." },
   { value: "exited", label: "Exited founder", description: "You have built and sold or closed a business before." },
-  { value: "operator", label: "Operator", description: "You have run teams, budgets or P&Ls inside someone else's company." },
+  { value: "operator", label: "Operator", description: "You have run teams, budgets or a business unit inside someone else's company." },
   { value: "domain_expert", label: "Domain expert", description: "Deep expertise in one field; the business is the vehicle." },
 ];
 
@@ -38,7 +38,7 @@ export const TIME_OPTIONS: Option[] = [
 ];
 
 export const RISK_OPTIONS: Option[] = [
-  { value: "low", label: "Low", description: "Prefer steady, reversible moves and a long runway." },
+  { value: "low", label: "Low", description: "Prefer steady, reversible moves and plenty of cash in hand." },
   { value: "medium", label: "Medium", description: "Take measured bets when the evidence is there." },
   { value: "high", label: "High", description: "Move fast, accept bigger swings for bigger outcomes." },
 ];

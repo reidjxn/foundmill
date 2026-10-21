@@ -109,7 +109,7 @@ function moduleTab(businessId: string, departments: readonly DepartmentForPalett
 export function generatePaletteItems(businessId: string, departments: readonly DepartmentForPalette[]): PaletteItem[] {
   const rows: PaletteItem[] = [{ id: "generate:logos", kind: "generate", label: "Generate logos", description: "Four marks from the logo designer · Settings › Business", keywords: ["logo", "mark", "brand", "draft"], href: routes.settings(businessId, "business") }];
   const plan = moduleTab(businessId, departments, "development", "plan");
-  if (plan) rows.push({ id: "generate:task-graph", kind: "generate", label: "Build a task graph", description: `The Planner drafts tasks from a roadmap item or a goal · ${plan.where}`, keywords: ["plan", "tasks", "planner", "draft"], href: plan.href });
+  if (plan) rows.push({ id: "generate:task-graph", kind: "generate", label: "Plan the tasks for a goal", description: `The Planner breaks a roadmap item or a goal into tasks · ${plan.where}`, keywords: ["plan", "tasks", "planner", "draft"], href: plan.href });
   const board = moduleTab(businessId, departments, "distribution", "formation");
   if (board) rows.push({ id: "generate:channels", kind: "generate", label: "Recommend channels", description: `Scores every channel for this business · ${board.where}`, keywords: ["channels", "distribution", "recommend", "board"], href: board.href });
   return rows;

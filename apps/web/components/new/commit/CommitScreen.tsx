@@ -44,6 +44,7 @@ import {
   commitInput,
   couldNotCheck,
   domainCandidates,
+  DNS_ESTIMATE_HINT,
   domainProvenanceWord,
   initialCommitForm,
   nameSuggestions,
@@ -116,7 +117,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
         // A second Take charge of this idea (another tab, a retried request) answers with the business the first created.
         // The first days are about the product (founder, 2026-10-18): Home shows the foundations drafting; the Inbox has
         // the Chief of Staff's welcome note and, once drafted, the two sign-off notes.
-        toast({ title: res.alreadyCommitted ? `${res.business.name} is already yours` : `${res.business.name} is yours`, description: "Your team is drafting the vision, specification and roadmap; two notes will ask for your sign-off.", tone: "good" });
+        toast({ title: res.alreadyCommitted ? `${res.business.name} is already yours` : `${res.business.name} is yours`, description: "Your team is drafting the vision, specification and roadmap; two notes will ask you to sign them off.", tone: "good" });
         const to = routes.home(res.business.id);
         // The new business is in the founder's lists at once (Switch business, Your businesses).
         void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("founder") as unknown[] });
@@ -426,7 +427,15 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
       title={form.name.trim() ? `Commit to ${form.name.trim()}` : "Commit"}
       // While the business is set up the header says so, beside the button that started it (the panel's own status line
       // sits at the foot of a long column, usually off screen).
-      lede={committing ? SETTING_UP : "Name it, give it a logo, choose how it is run. Taking charge hires the team, which starts by drafting your vision, specification and roadmap."}
+      lede={
+        committing ? (
+          SETTING_UP
+        ) : (
+          <>
+            Name it, give it a logo, choose how it is run. Taking charge hires the team, which starts by drafting your vision, <Term id="specification">specification</Term> and roadmap.
+          </>
+        )
+      }
       viewer={viewer}
       actions={
         <>
@@ -656,7 +665,7 @@ export function CommitForm({ idea, viewer, currency, initialName, suggestedArche
                     <div className="flex flex-col gap-1">
                       <Label htmlFor="run-on-autopilot">Run on autopilot</Label>
                       <p id="run-on-autopilot-hint" className="text-small text-secondary">
-                        Off by default. The team starts its own <Term id="cycle">cycles</Term>, about every 4 hours, the way Continue does: every approval and <Term id="hard_gate">hard gate</Term> still waits for you, and Autopilot pauses itself when credits run out or Inbox decisions are waiting.
+                        Off by default. The team starts its own <Term id="cycle">cycles</Term>, about every 4 hours, the way Continue does: every approval and <Term id="hard_gate">hard gate</Term> still waits for you, and Autopilot pauses itself when <Term id="credits">credits</Term> run out or Inbox decisions are waiting.
                       </p>
                     </div>
                   </div>
@@ -800,7 +809,7 @@ function ModeCardOption({ id, value, label, tagline, details, example, selected,
 /** "Registry", "DNS (Estimate)" or "Mock": where the domain answers came from. Only a DNS answer is an estimate. */
 function DomainProvenanceChip({ provenance }: { provenance: DomainProvenance }) {
   return (
-    <Chip data-testid="domain-provenance" data-source={provenance}>
+    <Chip data-testid="domain-provenance" data-source={provenance} title={provenance === "DNS" ? DNS_ESTIMATE_HINT : undefined}>
       {domainProvenanceWord(provenance)}
     </Chip>
   );

@@ -311,7 +311,7 @@ describe("TabBar", () => {
       await user.click(await screen.findByRole("menuitem", { name: "Creative" }));
       expect(onChange).toHaveBeenCalledWith("creative");
       rerender(<TabBar tabs={DISTRIBUTION_TABS} activeId="attribution" onChange={onChange} />);
-      expect(await screen.findByRole("button", { name: "More tabs, Attribution selected" })).toBeTruthy();
+      expect(await screen.findByRole("button", { name: "More tabs, Customer sources selected" })).toBeTruthy();
     } finally {
       if (offset) Object.defineProperty(HTMLElement.prototype, "offsetWidth", offset);
       else delete (HTMLElement.prototype as { offsetWidth?: number }).offsetWidth;

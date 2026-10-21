@@ -40,7 +40,7 @@ type InboxPage = RouterOutputs["inbox"]["list"];
 
 /** The empty line per tab (UX plan §5.1: the loop, stated where it is needed). The R hint is added for operators only. */
 export const EMPTY_TEXT: Record<InboxTab, string> = {
-  all: "Notes from your team land here after each cycle. Press Continue to start one.",
+  all: "Your team works in cycles: rounds of work whose notes land here. Press Continue to start one.",
   respond: "Nothing waits for an answer. Continue is free to run.",
   customers: "Won customers appear here with their Customer Update.",
   updates: "Updates, milestones and reports from the team land here.",

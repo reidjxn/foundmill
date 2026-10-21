@@ -34,7 +34,7 @@ test.describe("specification editor", () => {
     const seeded = ["Problem", "Customers", "Value proposition", "Features", "Formulation / BOM", "Manufacturing", "Packaging", "Compliance", "Fulfillment", "Non-functional requirements", "Data", "Integrations", "Pricing", "Metrics", "Risks"];
     expect(sections.filter((s) => seeded.includes(s)), `outline order: ${sections.join(", ")}`).toEqual(seeded.filter((s) => sections.includes(s)));
     // The founder can write: no read-only hint (viewers and advisors get a read-only editor without Pin, Publish or Restore, RUI-07).
-    await expect(page.getByText("Read only: you can read the specification")).toHaveCount(0);
+    await expect(page.getByText("Read only: you can read this document")).toHaveCount(0);
     const marker = `Edited in the e2e run ${Date.now().toString(36)}.`;
     await surface.click();
     await page.keyboard.press("End");

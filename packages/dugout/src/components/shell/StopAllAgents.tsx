@@ -7,6 +7,7 @@ import { useFormatters } from "../foundation/DateFormatProvider";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../foundation/Dialog";
 import { Icon } from "../foundation/Icon";
 import { Tooltip } from "../foundation/Tooltip";
+import { Term } from "../guidance/Term";
 
 /** The team is stopped (Stop all agents, a revoked key, used-up credits): the kill switch becomes the way back. */
 export interface AgentsStoppedState {
@@ -225,7 +226,13 @@ function ResumeAgents({ stopped, open, onOpenChange, disabled, className, varian
             <DialogTitle>{stopped.canResume ? "Resume agents?" : "Agents are stopped"}</DialogTitle>
             <DialogDescription>
               The team stopped{since ? ` on ${since}` : ""} because {stopped.reason}. Nothing starts work until it is resumed.{" "}
-              {stopped.canResume ? "Resuming puts every agent the stop paused back to work; the next cycle picks up the paused tasks. Campaigns the stop paused stay paused until you resume them in Distribution." : "An owner or admin resumes the agents."}
+              {stopped.canResume ? (
+                <>
+                  Resuming puts every agent the stop paused back to work; the next <Term id="cycle">cycle</Term> picks up the paused tasks. Campaigns the stop paused stay paused until you resume them in Distribution.
+                </>
+              ) : (
+                "An owner or admin resumes the agents."
+              )}
             </DialogDescription>
           </DialogHeader>
           {stopped.hint || error || slow ? (

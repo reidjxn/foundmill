@@ -46,7 +46,7 @@ export function foundationsSummary(f: Pick<FoundationsResponse, "summary">): str
 /** Shown when an attempt ran past its window without finishing (a restarted api, a lost worker). */
 export const FOUNDATIONS_INTERRUPTED = "The drafting stopped before it finished. Try again.";
 /** Home's ready line: the drafting brought two sign-off notes (founder, 2026-10-18). */
-export const READY_SIGNOFF_LINE = "Your vision, specification and roadmap are drafted. Two notes in the Inbox ask for your sign-off.";
+export const READY_SIGNOFF_LINE = "Your vision, specification and roadmap are drafted. Two notes in the Inbox ask for your sign-off. Your sign-off is the yes that lets the team start building.";
 
 /** The state to show: an attempt past its window (`stale`) reads as failed, with Try again, and is no longer polled. */
 export function foundationsDisplayState(f: Pick<FoundationsResponse, "status" | "stale">): FoundationsResponse["status"] {
@@ -228,6 +228,7 @@ export function FoundationsProgressPanel({ progress: p, vision, state, span = 12
   return (
     <Panel
       title="Vision, specification and roadmap"
+      help="The vision says what the business is for. The specification is the written description of what the product is and does. The roadmap is the order the team builds it in."
       span={span}
       data-testid="foundations-status"
       data-foundations-state={state}

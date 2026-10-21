@@ -37,7 +37,7 @@ describe("ProfitAndLossScreen", () => {
     expect(within(table).getByText("87.5%")).toBeTruthy();
     expect(within(table).getByText("Payroll").parentElement!.className).toContain("pl-4");
     // The API's label, in plain words (UX plan §7.14): what "cash basis" means is said, the term kept in brackets.
-    expect(screen.getByText("Management view, unaudited, counted when the cash moves (cash basis)")).toBeTruthy();
+    expect(screen.getByText("Management view, unaudited, cash basis: counted when the cash moves")).toBeTruthy();
     expect(screen.queryByText("Management P&L, unaudited, cash basis")).toBeNull();
     expect(screen.getByText("Jul 2026 – Sep 2026")).toBeTruthy();
     expect(screen.getByText(/Uncategorized −€3,000/)).toBeTruthy();
@@ -62,7 +62,7 @@ describe("ProfitAndLossScreen", () => {
     await user.click(within(panel).getByRole("button", { name: "Recategorize Amazon Web Services" }));
     const dialog = await screen.findByRole("dialog", { name: "Recategorize transaction" });
     expect(within(dialog).getAllByText(/Amazon Web Services/).length).toBeGreaterThan(0);
-    const rule = within(dialog).getByRole("checkbox", { name: "Apply to every transaction of this counterparty" });
+    const rule = within(dialog).getByRole("checkbox", { name: "Apply to every transaction with the same other side" });
     expect(rule.getAttribute("aria-checked")).toBe("true");
     await act(async () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "Save category" }));
@@ -83,7 +83,7 @@ describe("ProfitAndLossScreen", () => {
     const panel = await screen.findByRole("region", { name: "Transactions · Uncategorized transactions" });
     await user.click(within(panel).getByRole("button", { name: "Recategorize Figma Inc" }));
     const dialog = await screen.findByRole("dialog");
-    const rule = within(dialog).getByRole("checkbox", { name: "Apply to every transaction of this counterparty" });
+    const rule = within(dialog).getByRole("checkbox", { name: "Apply to every transaction with the same other side" });
     expect(rule.getAttribute("aria-disabled")).not.toBe("true"); // disabled only while the category is Uncategorised
     expect((rule as HTMLButtonElement).disabled).toBe(true);
     await act(async () => {

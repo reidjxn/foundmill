@@ -316,7 +316,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
         meta={`${rows.filter((r) => r.enabled).length} on the board · ${scored} of 15 scored`}
         footer={
           <span className="inline-flex flex-wrap items-center gap-1.5">
-            <RecommendedMark /> marks the <Term id="distribution_strategist">Distribution Strategist</Term>'s picks. <Term id="acquisition_cost">Cost per customer</Term> is an <ProvenanceChip kind="estimate" /> until the conversion API confirms it. Use the … button or right-click a channel to move it on or off the board, pause it or set its budget.
+            <RecommendedMark /> marks the <Term id="distribution_strategist">Distribution Strategist</Term>'s picks. <Term id="acquisition_cost">Cost per customer</Term> is an <Term id="estimate" always>Estimate</Term> until the channel's own sales reports confirm it. Potential is the strategist's rating of how much a channel could bring in. Use the … button or right-click a channel to move it on or off the board, pause it or set its budget.
           </span>
         }
         flush

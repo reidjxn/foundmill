@@ -80,7 +80,7 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
               <dt className="t-label">How I work</dt>
               <dd>
                 <ol className="mt-1 flex list-decimal flex-col gap-0.5 pl-4 text-body text-primary">
-                  {about.outputs.length ? about.outputs.slice(0, 5).map((g, i) => <li key={i}>{g}</li>) : <li className="list-none text-secondary">No playbook yet</li>}
+                  {about.outputs.length ? about.outputs.slice(0, 5).map((g, i) => <li key={i}>{g}</li>) : <li className="list-none text-secondary">No steps written yet</li>}
                 </ol>
               </dd>
             </div>
@@ -150,7 +150,7 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
             { label: wageLabel(profile.wage.period, undefined, datePrefs).replace(/^AI cost/, "Spent"), value: <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: profile.wage.costMinor, currency: profile.wage.currency })} <ProvenanceChip kind="estimate" /></span>, numeric: true },
             { label: "Spend cap per action", value: money(autonomy.spendCapMinor), numeric: true },
             { label: "Needs your OK above", value: asksAbove, numeric: true },
-            { label: <Term id="autonomy">Autonomy</Term>, value: autonomy.mode === "inherit" ? "Business mode" : autonomy.mode === "lower" ? "Asks more often" : "Acts more freely" },
+            { label: <Term id="autonomy">Autonomy</Term>, value: autonomy.mode === "inherit" ? <Term id="business_mode">Business mode</Term> : autonomy.mode === "lower" ? "Asks more often" : "Acts more freely" },
             { label: "Schedule", value: schedule.cron ? <span className="font-mono text-mono">{schedule.cron}</span> : schedule.triggers?.length ? `${schedule.triggers.length} ${schedule.triggers.length === 1 ? "trigger" : "triggers"}` : <span className="inline-flex items-center gap-1 text-secondary"><Icon icon={CalendarClock} size="inline" /> On demand</span> },
           ]}
         />

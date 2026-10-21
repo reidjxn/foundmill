@@ -8,27 +8,34 @@
 //
 //  replace  ICP, CPA, CAC, COGS, RLS, Cedar, named query, exhibit, request_human_action, concurrency, time box,
 //           counterparty, webhook, OAuth, BYOK, unit economics, hunk, triage. Fails on sight: say the plain thing.
-//  define   The display word of every TERMS entry (runway, burn, MRR, cycle, pull request, Estimate, ...). Allowed when
-//           the same file defines the word, decided statically per file (each screen is one component file or module
-//           pack):
+//  define   The display word of the TERMS entries a student would not know (runway, burn, MRR, cycle, pull request,
+//           Estimate, ...: terms.ts DEFINE_TIER_IDS). The other TERMS words (Revenue, Lead, Model, Training, ...:
+//           PLAIN_TIER_IDS, the `plain` list) mean in the product about what they mean in everyday English and are not
+//           linted. A define word is allowed when the same file defines it, decided statically per file (each screen is
+//           one component file or module pack):
 //             (a) it wraps the word in <Term …>, Term( or useTerm( (the term's id as a string, or the word as the
 //                 Term's children);
-//             (b) the word sits in a hint / definition / tooltip / help / caption / footer / plain prop (or inside an
-//                 InfoTip, DefinitionCard, Tooltip or HoverCard), or any string in the file is itself a definition
-//                 (the word followed by a colon, "is", "are" or "means");
+//             (b) the word sits in a hint / definition / tooltip / help / caption / footer / plain prop, as a string or
+//                 as JSX (`footer={<span>…</span>}`), or inside an InfoTip, DefinitionCard, Tooltip or HoverCard, or
+//                 any string in the file is itself a definition (the word followed by a colon, "is", "are" or "means");
 //             (c) the line, or the line above, carries `plain-allow`;
 //             (d) the file mounts an <Explainer …> (the screen defines its terms in prose).
 //           An Explainer's `purpose` / `action` / `watchFor` fields and a TermDefinition's `word` / `short` / `long`
 //           count as definition props too, the first three only in a file that names a `screenId` (an explainer's
-//           content module), because `action` alone is a common key.
+//           content module), because `action` alone is a common key. An aria-label that repeats a word the file also
+//           shows as visible text is not a second hit: the visible word carries the check.
 //  leak     Developer notes that shipped as copy: "Mock citation", "replace with", "See note.", "TODO", "FIXME",
 //           "lorem ipsum". Always a hit.
 //
 // Matching is by whole word, plural-tolerant, case-insensitive except for all-caps acronyms (SAFE the agreement, not
-// "safe"). Overlapping matches keep the longest ("Runway horizon" is one hit, not two). Allowances for the obvious false
-// friends (ALLOWANCES): "business model" and "revenue model", "Live sessions" and a sign-in session, a bank branch,
-// merging CRM records, an insurance, privacy or platform policy, a web form and paperwork forms, "lead" as a verb and a
-// department lead, a person's health, "model" and "fit" as verbs, "tested" and "proven" as adjectives, customer ratings.
+// "safe") and the two provenance labels (LABEL_WORDS: "Estimate" and "Forecast" as a label on a figure, not "an
+// estimate" or "the cash forecast" in a sentence). Overlapping matches keep the longest ("Runway horizon" is one hit,
+// not two). Never a hit: a word inside a URL, a path, a file name, a query parameter or an #anchor, and the value of a
+// test id or a data-* key. Allowances for the obvious false friends (ALLOWANCES): "fit" as a verb, "potential" before a
+// noun, a tax or partial credit, an access token and design tokens, a billing or sales cycle, a sales proposal, a
+// currency conversion, acceptance of terms; and, for the words now in the plain tier should one move back, "business
+// model", "Live sessions", a bank branch, merging CRM records, an insurance policy, a web form, "lead" as a verb, a
+// person's health, "tested" and "proven" as adjectives, customer ratings.
 //
 // Scope: the same idea of "user-facing" as scripts/banned-terms.mjs, whose extractor this script reuses: string
 // literals, template literals and JSX text in VOCAB_CODE_ROOTS (apps/web, packages/dugout, packages/widgets,
@@ -73,6 +80,16 @@ const ts = require("typescript");
 /** The definitions source; PLAIN_LANGUAGE_TIERS and TERMS are read from it at run time. */
 const TERMS_FILE = "packages/shared/src/terms.ts";
 const DEFAULT_SWEEP = "docs/PLAIN_LANGUAGE_SWEEP.md";
+/** The UI roots Gate 2 counts (docs/UX_AUDIT_AND_PLAN.md §10): under 300 undefined define-tier hits across them. */
+const GATE_UI_ROOTS = [
+  "apps/web",
+  "packages/dugout",
+  "packages/modules",
+  "packages/widgets",
+  "apps/composer",
+];
+const GATE_DEFINE_LIMIT = 300;
+const inGateUi = (file) => GATE_UI_ROOTS.some((r) => file === r || file.startsWith(`${r}/`));
 const ALLOW_MARKER = /plain-allow/;
 
 /** The banned-terms roots plus the three places the plan names explicitly (already inside them; listed so a later narrowing of VOCAB_CODE_ROOTS keeps them). */
@@ -110,6 +127,38 @@ const DEFINITION_KEYS = new Set([
  * treats `action` as structural, so it never reaches this script; it stays listed for the day it does.
  */
 const EXPLAINER_KEYS = new Set(["purpose", "action", "watchFor"]);
+/** Accessible names: a hit here that the file also shows as visible text is the same word twice, checked once. */
+const ARIA_KEYS = new Set([
+  "aria-label",
+  "aria-description",
+  "aria-roledescription",
+  "aria-valuetext",
+]);
+/**
+ * Keys whose value is for code or tests, never read: a test id and a data-* key written as an object property
+ * (`{ "data-testid": … }`, `{ testID: … }`; the JSX attributes are already skipped by the extractor).
+ */
+const TECHNICAL_KEY =
+  /^(?:data-[\w-]+|dataTestId|testID|testId|testid|test-id|test_id|learn|screenId)$/;
+/**
+ * Spans that are addresses, not words: a URL, a path that starts with "/" or "./" or has two slashes, a file name with
+ * an extension, a query parameter, an #anchor. A tier word inside one ("/d/finance/runway", "tokens.css",
+ * "?tab=pull-requests") is a slug.
+ */
+const ADDRESS_SPAN =
+  /(?:https?:\/\/|www\.)[^\s"'`<>)\]]+|(?<![\w/.])\.{0,2}\/[\w.~${}:@%+-]+(?:\/[\w.~${}:@%+?=&#-]*)*|(?<![\w/])[a-z0-9_.~${}-]+(?:\/[a-z0-9_.~${}-]+){2,}\/?|\b[\w-]+\.(?:css|scss|ts|tsx|js|jsx|mjs|json|md|mdx|html|yml|yaml|toml|png|svg|jpg|webp|csv|pdf)\b|[?&][\w-]+=[\w.,-]*|(?<![\w&])#[a-z][\w-]*/g;
+
+function addressSpans(text) {
+  const out = [];
+  ADDRESS_SPAN.lastIndex = 0;
+  let m;
+  while ((m = ADDRESS_SPAN.exec(text))) {
+    out.push([m.index, m.index + m[0].length]);
+    if (m[0].length === 0) ADDRESS_SPAN.lastIndex++;
+  }
+  return out;
+}
+
 /** JSX elements whose text defines a word (condition b), and Term itself (condition a). */
 const DEFINITION_ELEMENTS = new Set([
   "Term",
@@ -165,12 +214,26 @@ function loadTiers(entry = join(REPO_ROOT, TERMS_FILE)) {
     throw new Error(
       `plain-language: ${TERMS_FILE} exports no PLAIN_LANGUAGE_TIERS { replace, define }`,
     );
-  return { tiers: PLAIN_LANGUAGE_TIERS, terms: TERMS ?? {} };
+  // `plain` is optional: the TERMS words the linter leaves alone, listed in the sweep and never matched.
+  const tiers = { ...PLAIN_LANGUAGE_TIERS, plain: PLAIN_LANGUAGE_TIERS.plain ?? [] };
+  return { tiers, terms: TERMS ?? {} };
 }
 
 /** "SAFE", "P&L", "ICP": no lowercase letter at all, so the match is case-sensitive. */
 function isAcronym(word) {
   return /[A-Z]/.test(word) && !/[a-z]/.test(word);
+}
+
+/**
+ * Provenance labels matched case-sensitively, as written on a figure ("$4,700 · Estimate", "(Estimate)", the Forecast
+ * chip). In a sentence the lowercase word is the everyday one ("an estimate from this month's usage", "the cash
+ * forecast") and needs no definition.
+ */
+const LABEL_WORDS = new Set(["estimate", "forecast"]);
+
+/** Case-sensitive: an acronym or a provenance label. */
+function isCaseSensitive(word) {
+  return isAcronym(word.replace(/\s+/g, "")) || LABEL_WORDS.has(word.toLowerCase());
 }
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -190,7 +253,7 @@ function termPattern(word) {
 }
 
 function termRegex(word, flags = "") {
-  return new RegExp(termPattern(word), `${flags}${isAcronym(word.replace(/\s+/g, "")) ? "" : "i"}`);
+  return new RegExp(termPattern(word), `${flags}${isCaseSensitive(word) ? "" : "i"}`);
 }
 
 /**
@@ -274,6 +337,57 @@ const ALLOWANCES = {
       /\bfit\s+for\s+purpose\b/i,
       /\b(?:to|will|would|can|could|should|may|might|must|that|which|who|and|they|we|you|it|I|not|doesn't|don't|won't|didn't|still|also|all|everything|nothing)\s+fit\b/i, // the verb
       /\bkeep(?:s|ing)?\s+fit\b/i,
+      // "Which fits you best", "the budget fits": the verb. "The highest fits" is the score's plural and stays a hit.
+      /(?<!\b(?:the|their|its|highest|lowest|best|worst|high|low|top|strong|weak|good|poor)\s+)\bfits\b/i,
+      /\bfit\s+(?:you|me|us|them|him|her|it)\b/i,
+    ],
+  },
+  potential: {
+    // The score is a noun ("Potential 4", "its potential"); before a noun the word is the everyday adjective.
+    allow: [
+      /\bpotential\s+(?!(?:is|are|was|were|of|to|in|and|or|for|with|at|on|by|as|from|stars?|rating|score)\b)[a-z][a-z-]*/i,
+    ],
+  },
+  credits: {
+    // The singular "credit" is credit in the money or the praise sense, not the prepaid balance.
+    allow: [
+      /\b(?:partial|full|equal|tax|store|research|r&d|carbon|course|film|trade|line\s+of|letter\s+of|on)\s+credits?\b/i,
+      /\b(?:earn|earns|earned|earning|get|gets|got|give|gives|gave|giving|take|takes|took|taking|deserve|deserves|claim|claims|claimed|share|shares|split|splits|assign|assigns|assigned|receive|receives|received)\s+(?:the\s+|most\s+|all\s+|more\s+|less\s+|some\s+|no\s+|partial\s+|full\s+|equal\s+)?credit\b/i,
+      /\b(?:to|can|could|will|would|should|may|might|must)\s+credit\b/i, // the verb
+      /\bcredit\s+(?:card|cards|score|scores|line|lines|limit|limits|note|notes|union|unions|check|checks|rating|ratings|terms|risk|history|report|reports|facility|memo|memos|for|to|where|each|every|the|a|an|it|them)\b/i,
+    ],
+  },
+  tokens: {
+    // A credential or a design-system value, not the unit AI usage is metered in.
+    allow: [
+      /\b(?:access|auth|authentication|api|app|bearer|refresh|session|csrf|verification|invite|invitation|reset|github|user|per-business|per-user|signing|security|install|installation|personal\s+access|storefront(?:'s)?|design|color|colour|spacing|size|type|typography|motion|radius|css|style|theme|system)\s+tokens?\b/i,
+      /\btokens?\s+only\b/i,
+    ],
+  },
+  cycle: {
+    // Other cycles a business has; the product's cycle is one round of the team's work.
+    allow: [
+      /\b(?:billing|life|sales|news|economic|product|release|budget|buying|purchase|replenishment|reorder|restock|wash|charge|charging|sleep|menstrual|seasonal|payment|invoice|invoicing|hype|refill|subscription|renewal|harvest|growing|production|manufacturing)\s+cycles?\b/i,
+    ],
+  },
+  proposal: {
+    // A proposal a business sends a customer or a partner; the product's proposal is a change to the specification.
+    allow: [
+      /\b(?:sales|client|customer|project|business|grant|funding|pricing|partnership|commercial|listing|retail|wholesale|sponsorship|speaking|tender|investment|price|quote|written|formal|marriage)\s+proposals?\b/i,
+    ],
+  },
+  conversion: {
+    // Converting one thing into another: a SAFE into shares, money between currencies, a file between formats.
+    allow: [
+      /\b(?:safe|note|currency|currencies|unit|units|file|format|fx|data|type|text|image|pdf|video|audio|equity|share|stock|debt|loan|lead-to-cash)\s+conversions?\b/i,
+      /\bconversions?\s+(?:of|into)\s+(?:the\s+|a\s+|an\s+|your\s+)?(?:safe|safes|note|notes|shares?|equity|stock|currency|currencies|debt|loan|file|files)\b/i,
+    ],
+  },
+  acceptance: {
+    // Accepting terms, an offer or a payment; the product's acceptance is what counts as done for a task.
+    allow: [
+      /\bacceptance\s+(?:of|by|rate|rates|letter|letters|email|emails|speech)\b/i,
+      /\b(?:terms|offer|card|payment|payments|order|quote|bid|contract|delivery|market|social|public)\s+acceptance\b/i,
     ],
   },
   tested: {
@@ -334,7 +448,7 @@ function buildTerms({ tiers, terms }) {
       test: termRegex(word),
       definition: new RegExp(
         `${termPattern(word)}\\s*(?::|—|–|(?:is|are|means)\\b)`,
-        isAcronym(word.replace(/\s+/g, "")) ? "" : "i",
+        isCaseSensitive(word) ? "" : "i",
       ),
       // findTermHits walks allow spans with exec(), which needs the global flag.
       allow: (extra.allow ?? []).map((re) =>
@@ -397,8 +511,62 @@ function termIdRef(id, dynamic = false) {
 /** The file hands Term or useTerm an id that is an expression, not a literal. */
 const DYNAMIC_TERM_ID = /<Term\b[^>]*?\bid=\{\s*(?![\s"'`])|\b(?:Term|useTerm)\(\s*(?![\s"'`)])/;
 
-/** What a file already defines (conditions a, b, d), computed once from its text and pieces. */
-function fileContext(text, pieces, terms) {
+/** The name of a property or JSX attribute (`footer`, `"aria-label"`), or "". */
+function propName(name) {
+  if (!name) return "";
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name))
+    return name.text;
+  if (ts.isJsxNamespacedName?.(name)) return `${name.namespace.text}:${name.name.text}`;
+  return "";
+}
+
+/**
+ * The text of every definition slot whose value is not a plain string, which the extractor leaves out or files under
+ * its inner element: `footer={<span>Runway is …</span>}`, `hint={\`…\`}`, an explainer's `purpose: (<>…</>)`, and an
+ * explainer's `action`, which the extractor skips as a structural key. Only JSX text and string literals count (never
+ * identifiers in the expression), and of the strings inside, only those that are not other attributes' values.
+ * `explainerContent`: the file names a `screenId`, so purpose / action / watchFor are explainer fields.
+ */
+function definitionSlotTexts(sf, explainerContent) {
+  const out = [];
+  const isSlot = (name) =>
+    DEFINITION_KEYS.has(name) || (explainerContent && EXPLAINER_KEYS.has(name));
+  const collect = (node) => {
+    const visit = (n) => {
+      if (ts.isJsxText(n)) {
+        out.push(n.text);
+        return;
+      }
+      if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
+        const p = n.parent;
+        if (!(p && ts.isJsxAttribute(p) && !isSlot(propName(p.name)))) out.push(n.text);
+        return;
+      }
+      if (ts.isTemplateExpression(n)) {
+        out.push(n.head.text, ...n.templateSpans.map((s) => s.literal.text));
+        for (const s of n.templateSpans) visit(s.expression);
+        return;
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(node);
+  };
+  const walk = (n) => {
+    if (ts.isPropertyAssignment(n) && isSlot(propName(n.name))) collect(n.initializer);
+    else if (ts.isJsxAttribute(n) && n.initializer && isSlot(propName(n.name)))
+      collect(n.initializer);
+    ts.forEachChild(n, walk);
+  };
+  walk(sf);
+  return out;
+}
+
+/**
+ * What a file already defines (conditions a, b, d), computed once from its text and pieces. `extraSlots`: definition
+ * text the pieces do not carry (`definitionSlotTexts`). `visible`: the define words the file shows outside an
+ * accessible name, so an aria-label repeating one is not counted twice.
+ */
+function fileContext(text, pieces, terms, extraSlots = []) {
   const usesTerm = /<Term\b|\bTerm\(|\buseTerm\(/.test(text);
   const hasExplainer = /<Explainer\b/.test(text);
   const explainerContent = /\bscreenId\s*[:=]/.test(text);
@@ -406,19 +574,27 @@ function fileContext(text, pieces, terms) {
   const termWraps = usesTerm
     ? [...text.matchAll(/<Term\b[^>]*>([\s\S]*?)<\/Term>/g)].map((m) => m[1]).join(PIECE_SEPARATOR)
     : "";
-  const slots = pieces
-    .filter(
-      (p) =>
-        DEFINITION_KEYS.has(p.key) ||
-        (explainerContent && EXPLAINER_KEYS.has(p.key)) ||
-        DEFINITION_ELEMENTS.has(p.element),
-    )
+  const slots = [
+    ...pieces
+      .filter(
+        (p) =>
+          DEFINITION_KEYS.has(p.key) ||
+          (explainerContent && EXPLAINER_KEYS.has(p.key)) ||
+          DEFINITION_ELEMENTS.has(p.element),
+      )
+      .map((p) => p.text),
+    ...extraSlots,
+  ].join(PIECE_SEPARATOR);
+  const everything = pieces.map((p) => p.text).join(PIECE_SEPARATOR);
+  const shown = pieces
+    .filter((p) => !ARIA_KEYS.has(p.key))
     .map((p) => p.text)
     .join(PIECE_SEPARATOR);
-  const everything = pieces.map((p) => p.text).join(PIECE_SEPARATOR);
   const defined = new Map();
+  const visible = new Set();
   for (const t of terms) {
     if (t.tier !== "define" || !t.test.test(everything)) continue; // a word no piece holds can be neither a hit nor defined
+    if (t.test.test(shown)) visible.add(t.term);
     let how = null;
     if (usesTerm) {
       if (t.ids.some((id) => termIdRef(id, dynamicIds).test(text))) how = "Term";
@@ -428,7 +604,7 @@ function fileContext(text, pieces, terms) {
     if (!how && t.definition.test(everything)) how = "definition sentence";
     if (how) defined.set(t.term, how);
   }
-  return { hasExplainer, defined };
+  return { hasExplainer, defined, visible };
 }
 
 /**
@@ -443,8 +619,13 @@ function scanPieces({ file, lines, pieces, lineOf, ctx, terms, hits, silenced })
   for (const piece of pieces) {
     const haystack = piece.verdict === "story-title" ? splitWords(piece.text) : piece.text;
     if (!prefilter.test(haystack)) continue;
+    const addresses = addressSpans(haystack);
     const found = longestOnly(
-      findTermHits(haystack, terms).filter((h) => !h.allowContext.some((re) => re.test(haystack))),
+      findTermHits(haystack, terms).filter(
+        (h) =>
+          !h.allowContext.some((re) => re.test(haystack)) &&
+          !addresses.some(([s, e]) => s <= h.start && e >= h.end),
+      ),
     );
     for (const h of found) {
       const t = byTerm.get(h.term);
@@ -469,6 +650,7 @@ function scanPieces({ file, lines, pieces, lineOf, ctx, terms, hits, silenced })
         if (ctx.hasExplainer) continue;
         if (ctx.defined.has(h.term)) continue;
         if (t.definition.test(piece.text)) continue;
+        if (ARIA_KEYS.has(piece.key) && ctx.visible?.has(h.term)) continue; // the visible word carries the check
       }
       hits.push(record);
     }
@@ -476,8 +658,15 @@ function scanPieces({ file, lines, pieces, lineOf, ctx, terms, hits, silenced })
 }
 
 function scanCode(abs, terms, hits, silenced) {
-  const { file, lines, sf, pieces } = extractCodePieces(abs);
-  const ctx = fileContext(lines.join("\n"), pieces, terms);
+  const { file, lines, sf, pieces: all } = extractCodePieces(abs);
+  const pieces = all.filter((p) => !TECHNICAL_KEY.test(p.key ?? ""));
+  const text = lines.join("\n");
+  const ctx = fileContext(
+    text,
+    pieces,
+    terms,
+    definitionSlotTexts(sf, /\bscreenId\s*[:=]/.test(text)),
+  );
   scanPieces({
     file,
     lines,
@@ -586,7 +775,9 @@ const SCANNERS = { code: scanCode, prose: scanProse, svg: scanSvg, cedar: scanCe
  * the parser cannot read is reported in `errors` and never stops the run. `options.terms` replaces the tier list (tests).
  */
 function plainScan(roots = PLAIN_CODE_ROOTS, options = {}) {
-  const terms = options.terms ?? buildTerms(loadTiers());
+  const loaded = options.terms ? null : loadTiers();
+  const terms = options.terms ?? buildTerms(loaded);
+  const tiers = options.tiers ?? loaded?.tiers ?? null;
   const hits = [];
   const silenced = [];
   const errors = [];
@@ -605,7 +796,7 @@ function plainScan(roots = PLAIN_CODE_ROOTS, options = {}) {
       errors.push({ file: f.file, error: err?.message ?? String(err) });
     }
   }
-  return { hits, silenced, errors, files, developerDocs, terms };
+  return { hits, silenced, errors, files, developerDocs, terms, tiers };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -625,7 +816,7 @@ function tierCounts(list) {
   return Object.fromEntries(TIERS.map((t) => [t, c.get(t) ?? 0]));
 }
 
-function writeSweep(path, { hits, silenced, errors, files, terms }, roots) {
+function writeSweep(path, { hits, silenced, errors, files, terms, tiers = null }, roots) {
   const date = new Date().toISOString().slice(0, 10);
   const byPkg = new Map();
   for (const h of hits) {
@@ -654,18 +845,38 @@ function writeSweep(path, { hits, silenced, errors, files, terms }, roots) {
       (errors.length ? ` ${errors.length} file(s) could not be parsed (listed at the end).` : ""),
   );
   out.push("");
+  const uiDefine = hits.filter((h) => h.tier === "define" && inGateUi(h.file)).length;
+  out.push(
+    `Gate 2 counts the UI roots (${GATE_UI_ROOTS.map(code).join(", ")}): **${uiDefine} undefined define-tier hit(s)**, ` +
+      `${uiDefine < GATE_DEFINE_LIMIT ? "under" : "not yet under"} the ${GATE_DEFINE_LIMIT} the gate allows.`,
+  );
+  out.push("");
   out.push("## Tiers");
   out.push("");
   out.push(
     "- **replace** fails on sight: say the plain thing (Appendix E of the plan has the replacement for each word).",
   );
   out.push(
-    '- **define** passes when the same file wraps the word in `Term` (its id as a string, or the word as the children), holds it in a `hint` / `definition` / `tooltip` / `help` / `caption` / `footer` / `plain` prop, a TermDefinition\'s `word` / `short` / `long`, an explainer\'s `purpose` / `watchFor` (in a file that names a `screenId`) or inside an `InfoTip` or `DefinitionCard`, writes a definition sentence (the word followed by a colon, "is", "are" or "means"), or mounts an `Explainer`. Guidance-off rendering changes nothing here: the definition exists in the file either way.',
+    '- **define** passes when the same file wraps the word in `Term` (its id as a string, or the word as the children), holds it in a `hint` / `definition` / `tooltip` / `help` / `caption` / `footer` / `plain` prop (a string or JSX), a TermDefinition\'s `word` / `short` / `long`, an explainer\'s `purpose` / `action` / `watchFor` (in a file that names a `screenId`) or inside an `InfoTip` or `DefinitionCard`, writes a definition sentence (the word followed by a colon, "is", "are" or "means"), or mounts an `Explainer`. An aria-label that repeats a word the file also shows is not counted twice. Guidance-off rendering changes nothing here: the definition exists in the file either way.',
   );
   out.push(
     '- **leak** is a developer note that shipped as copy ("Mock citation", "replace with", "See note.", "TODO"). Delete or rewrite it.',
   );
+  if (tiers?.plain?.length)
+    out.push(
+      "- **plain** is not linted: TERMS words whose meaning in the product is close to everyday English. `Term` and `InfoTip` still define them; the reason for each is beside its id in `PLAIN_TIER_IDS` (`packages/shared/src/terms.ts`).",
+    );
   out.push("");
+  if (tiers) {
+    out.push(
+      `Define (${tiers.define.length}): ${tiers.define.join(", ")}. "Estimate" and "Forecast" are matched as the capitalized label only.`,
+    );
+    out.push("");
+    if (tiers.plain?.length) {
+      out.push(`Plain (${tiers.plain.length}): ${tiers.plain.join(", ")}.`);
+      out.push("");
+    }
+  }
   out.push("## By package");
   out.push("");
   const pkgRows = [...byPkg.entries()]
@@ -793,7 +1004,7 @@ function writeSweep(path, { hits, silenced, errors, files, terms }, roots) {
     "- A sentence that must name a word on purpose gets `plain-allow` in a comment on the same or the previous line. Never on a replace-tier word (Gate 2), and never to hide copy.",
   );
   out.push(
-    '- Allowed false friends: "business model" and "revenue model", "Live sessions" and a sign-in session, a bank branch, an insurance or privacy policy, a web form, "lead" as a verb, a person\'s health, "fit" as a verb, "tested" and "proven" as adjectives, customer ratings.',
+    '- Allowed false friends: "fit" as a verb, "potential" before a noun, a tax or partial credit, an access token and design tokens, a billing or sales cycle, a sales proposal, a currency or SAFE conversion, acceptance of terms, a bank branch. A word inside a URL, a path, a file name, a query parameter or an #anchor is never a hit, nor is the value of a test id or a data-* key.',
   );
   out.push(
     "- Agent templates, archetype task titles and option labels, and the mock completions count: what an agent is told to say, it says, and the mock is what the founder reads on the golden path.",
@@ -876,16 +1087,24 @@ function main(argv) {
 }
 
 export {
+  ADDRESS_SPAN,
+  GATE_UI_ROOTS,
   ALLOWANCES,
+  ARIA_KEYS,
   DEFINITION_ELEMENTS,
   DEFINITION_KEYS,
   DEVELOPER_DOC,
   EXPLAINER_KEYS,
+  LABEL_WORDS,
   LEAK_TERMS,
   PLAIN_CODE_ROOTS,
+  TECHNICAL_KEY,
+  addressSpans,
   buildTerms,
+  definitionSlotTexts,
   fileContext,
   isAcronym,
+  isCaseSensitive,
   loadTiers,
   longestOnly,
   plainScan,

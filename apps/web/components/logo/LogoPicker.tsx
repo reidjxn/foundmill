@@ -17,7 +17,7 @@
  */
 import { Check, Eraser, Palette, Upload } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { BusinessLogo, Button, Chip, FitText, GenerateControl, ProvenanceChip, Skeleton, StatusPill, cn, type Kit } from "@foundmill/dugout";
+import { BusinessLogo, Button, Chip, FitText, GenerateControl, ProvenanceChip, Skeleton, StatusPill, Term, cn, type Kit } from "@foundmill/dugout";
 import { nextRovingIndex, rovingTabStop } from "@/lib/roving";
 import { errorMessage } from "@/lib/trpc";
 import { LOGO_FILE_ACCEPT, LOGO_FILE_HINT, formatCostEstimate, readLogoFile, sameKit, suggestKit, type LogoDraft } from "@/lib/logo";
@@ -343,7 +343,7 @@ export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, 
                 <Chip mono>Opus</Chip>
                 {/* The first cost a founder meets says where it comes from (A13): included credits, never a card. */}
                 <span data-testid="logo-cost" className="inline-flex flex-wrap items-center gap-1.5">
-                  This set: {formatCostEstimate(set.cost)} <ProvenanceChip kind="estimate" /> from your included credits
+                  This set: {formatCostEstimate(set.cost)} <ProvenanceChip kind="estimate" /> from your included <Term id="credits">credits</Term>
                 </span>
                 <span>· {set.remaining} more {set.remaining === 1 ? "set" : "sets"} this hour</span>
               </div>

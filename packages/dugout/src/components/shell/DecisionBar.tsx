@@ -96,6 +96,9 @@ export interface DecisionBarProps extends Omit<HTMLAttributes<HTMLDivElement>, "
  * so it is an Estimate (CLAUDE.md: label every non-real number). A cost the option never stated reads "Not stated"
  * in the hover card and is left out of the subline (never "unknown", UX plan B11). Exported for tests.
  */
+/** What "(Estimate)" on a cost means, under the figure in the hover card (UX plan §8.3: define on first use). */
+export const COST_ESTIMATE_NOTE = "Estimate: worked out from the option before anything runs, not measured.";
+
 export function costText(cost: Money | null | undefined): string {
   if (cost === undefined) return NOT_STATED;
   if (cost === null || cost.amountMinor === 0) return "No cost";
@@ -361,6 +364,7 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
                             </dd>
                           </div>
                         </dl>
+                        {o.cost && o.cost.amountMinor !== 0 ? <p className="text-small text-tertiary">{COST_ESTIMATE_NOTE}</p> : null}
                       </div>
                     </HoverCardContent>
                   </HoverCard>

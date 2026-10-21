@@ -145,6 +145,7 @@ export const PROVENANCE_SENTENCE: Record<ProvenanceKind, string> = {
  * client piece; finding D3 replaced the native title). The chip itself is server-safe.
  */
 export function ProvenanceChip({ kind, appearance = "chip", showIcon, className, mono: _mono, dot: _dot, fit: _fit, onRemove: _onRemove, removeLabel: _removeLabel, selected: _selected, ...rest }: ProvenanceChipProps) {
+  // plain-allow: this chip is the definition; ProvenanceTip opens the word's meaning on hover and focus.
   const word = kind === "forecast" ? "Forecast" : "Estimate";
   const chip =
     appearance === "word" ? (

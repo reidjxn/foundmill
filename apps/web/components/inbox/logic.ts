@@ -99,7 +99,7 @@ export function headerTag(type: InboxItemType, answered: boolean, blocksContinue
 }
 
 /** The tooltip of the "Holds Continue" chip: what the chip means for the team (UX plan B7). */
-export const HOLDS_CONTINUE_HINT = "The team waits for this answer before the next cycle";
+export const HOLDS_CONTINUE_HINT = "The team waits for this answer before its next round of work";
 
 export interface InboxRowModel {
   id: string;
@@ -311,6 +311,7 @@ export interface DecisionAttribution {
 export function decisionAttribution(decisions: readonly { decidedBy?: string | null; decidedByKind?: string | null; decidedAt: Date | string }[] | undefined, viewerId: string | null | undefined, nameOf: (userId: string) => string | null = () => null): DecisionAttribution | null {
   if (!decisions?.length) return null;
   const latest = [...decisions].sort((a, b) => Date.parse(String(b.decidedAt)) - Date.parse(String(a.decidedAt)))[0]!;
+  // plain-allow: "Chief of Staff" is a Term where the answer shows (ReadingPane's Decided panel).
   if (latest.decidedByKind === "chief_of_staff") return { label: "Chief of Staff's answer", by: "the Chief of Staff", mine: false, decidedAt: latest.decidedAt };
   const mine = !!viewerId && latest.decidedBy === viewerId;
   if (mine || !latest.decidedBy) return { label: "Your answer", by: "You", mine: true, decidedAt: latest.decidedAt };
@@ -380,13 +381,13 @@ const SOURCE_WORDS: Record<string, string> = {
   bank: "Bank accounts",
   forecasts: "The cash forecast",
   forecast: "The cash forecast",
-  conversions: "Customer conversions",
-  conversions_30d: "Customer conversions, last 30 days",
+  conversions: "Signups, activations and payments",
+  conversions_30d: "Signups, activations and payments, last 30 days",
   filings: "The filing calendar",
   usage_ledger: "Model and tool usage",
   tasks_by_status: "Team tasks",
   channel_cpa: "Channel spend and customers",
-  cash_position: "Bank balances and burn",
+  cash_position: "Bank balances and monthly spending",
   runway_forecast: "The cash forecast",
   roadmap_status: "The roadmap",
   metrics: "Business metrics",
@@ -490,29 +491,33 @@ function statusStripFigures(strip: readonly unknown[], sources: MetricSources): 
           // No figure: the shared runway words (Home, Finance and the note say the same), never a bare "—"; a balance
           // below zero reads "Cash is below zero" with its Estimate tag, never "No limit" (widgets/shared/runway).
           const words = runwayWords(f);
+          // plain-allow: the strip's labels are wrapped in a Term where they show (ReadingPane tilesWithTerms, STRIP_TERM_IDS).
           if (words) return { label: "Runway", value: words.value, caption: words.caption, estimate: words.estimate ? "estimate" : undefined, provenance: provenance(m, "Cash ÷ net burn") };
+          // plain-allow: the strip's labels are wrapped in a Term where they show (ReadingPane tilesWithTerms, STRIP_TERM_IDS).
           return { label: "Runway", value: runwayFigure(f), format: "decimal", unit: "months", estimate: "estimate", provenance: provenance(m, "Cash ÷ net burn") };
         }
         case "burn":
         case "net_burn":
+          // plain-allow: the strip's labels are wrapped in a Term where they show (ReadingPane tilesWithTerms, STRIP_TERM_IDS).
           return { label: "Net burn", value: f ? { amountMinor: f.burn.netBurnMinor, currency: f.cash.currency } : null, estimate: "estimate", provenance: provenance(m, "Trailing 3-month average") };
         case "mrr":
         case "revenue": {
           // The same definitions as Finance: revenue over the trailing 3 full months, MRR a third of it.
           const revenue = trailingRevenueMinor(sources, now);
           const amountMinor = revenue === null ? null : key === "mrr" ? Math.round(revenue / TRAILING_MONTHS) : revenue;
-          return { label: key === "mrr" ? "MRR" : "Revenue", value: amountMinor === null || !f ? null : { amountMinor, currency: f.cash.currency }, estimate: key === "mrr" ? "estimate" : undefined, caption: key === "mrr" ? "per month" : `trailing ${TRAILING_MONTHS} months`, provenance: provenance(m, "Cash basis, trailing 3 months") };
+          // plain-allow: the strip's labels are wrapped in a Term where they show (ReadingPane tilesWithTerms, STRIP_TERM_IDS).
+          return { label: key === "mrr" ? "MRR" : "Revenue", value: amountMinor === null || !f ? null : { amountMinor, currency: f.cash.currency }, estimate: key === "mrr" ? "estimate" : undefined, caption: key === "mrr" ? "per month" : `trailing ${TRAILING_MONTHS} months`, provenance: provenance(m, "Money received, last 3 full months") };
         }
         case "customers_week":
-          return { label: "Customers this week", value: countKind(sources.conversions, "payment", 7, now), format: "integer", provenance: provenance(m, "Conversions, last 7 days") };
+          return { label: "Customers this week", value: countKind(sources.conversions, "payment", 7, now), format: "integer", provenance: provenance(m, "Payments, last 7 days") };
         case "customers_30d":
-          return { label: "Customers, 30 days", value: f?.customers30d ?? countKind(sources.conversions, "payment", 30, now), format: "integer", provenance: provenance(m, "Conversions, last 30 days") };
+          return { label: "Customers, 30 days", value: f?.customers30d ?? countKind(sources.conversions, "payment", 30, now), format: "integer", provenance: provenance(m, "Payments, last 30 days") };
         case "signups_week":
-          return { label: "Signups this week", value: countKind(sources.conversions, "signup", 7, now), format: "integer", provenance: provenance(m, "Conversions, last 7 days") };
+          return { label: "Signups this week", value: countKind(sources.conversions, "signup", 7, now), format: "integer", provenance: provenance(m, "Signups, last 7 days") };
         case "signups_30d":
-          return { label: "Signups, 30 days", value: countKind(sources.conversions, "signup", 30, now), format: "integer", provenance: provenance(m, "Conversions, last 30 days") };
+          return { label: "Signups, 30 days", value: countKind(sources.conversions, "signup", 30, now), format: "integer", provenance: provenance(m, "Signups, last 30 days") };
         case "activations_week":
-          return { label: "Activations this week", value: countKind(sources.conversions, "activation", 7, now), format: "integer", provenance: provenance(m, "Conversions, last 7 days") };
+          return { label: "Activations this week", value: countKind(sources.conversions, "activation", 7, now), format: "integer", provenance: provenance(m, "Activations, last 7 days") };
         case "tasks_running":
           return { label: "Tasks running", value: sources.tasks ? sources.tasks.filter((t) => t.status === "running").length : null, format: "integer", provenance: provenance(m, "Team tasks") };
         case "channels_enabled":
@@ -590,7 +595,7 @@ export function approvalStatus(a: ApprovalLike): { word: string; tone: "good" | 
       return { word: "Expired", tone: "neutral", detail: "Nobody answered in time, so nothing ran." };
     default:
       if (a.sessionWaiting) return { word: "Needs your answer", tone: "warn", detail: "The agent's session is waiting for your answer. Approve and it carries on." };
-      return { word: "Needs your answer", tone: "warn", detail: a.task ? "The session stopped waiting and freed its place. Approve and the task runs again on the next cycle." : "Approve and it runs once, exactly as asked." };
+      return { word: "Needs your answer", tone: "warn", detail: a.task ? "The session stopped waiting and freed its place. Approve and the task runs again in the team's next round of work." : "Approve and it runs once, exactly as asked." };
   }
 }
 
@@ -646,6 +651,7 @@ export function followUpLinks(actions: readonly PlanActionLike[], businessId: st
       }
       case "update_spec": {
         const t = moduleTab(departments, "product", "specification");
+        // plain-allow: a link to the Specification tab, which defines the word where it opens.
         push(id, "Open the specification", t ? routes.department(businessId, t.slug, t.tab) : null);
         break;
       }
@@ -816,6 +822,7 @@ export function goAheadState(plan: { id: string; status: string } | null | undef
 /** The Decided panel's label for the answer: the founder's own, or the Chief of Staff's while they were on vacation. */
 export function answerLabel(decisions: readonly { decidedByKind?: string | null; decidedAt: Date | string }[] | undefined): string {
   const latest = [...(decisions ?? [])].sort((a, b) => Date.parse(String(b.decidedAt)) - Date.parse(String(a.decidedAt)))[0];
+  // plain-allow: "Chief of Staff" is a Term where the answer shows (ReadingPane's Decided panel).
   return latest?.decidedByKind === "chief_of_staff" ? "Chief of Staff's answer" : "Your answer";
 }
 

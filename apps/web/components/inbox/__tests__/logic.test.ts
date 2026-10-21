@@ -102,7 +102,7 @@ describe("rows (DESIGN §9)", () => {
     expect(headerTag("warning", false, true)).toMatchObject({ word: "Needs your answer", tone: "bad", icon: "respond" });
     expect(headerTag("decision", true, true)).toMatchObject({ word: "Decided" });
     expect(headerTag("update", false, false)).toMatchObject({ word: "Update" });
-    expect(HOLDS_CONTINUE_HINT).toBe("The team waits for this answer before the next cycle");
+    expect(HOLDS_CONTINUE_HINT).toBe("The team waits for this answer before its next round of work");
   });
   it("an answered note whose plan waits for the go-ahead still asks: Respond in the list, Needs your go-ahead on the note", () => {
     const waiting = rowModel({ ...base, type: "decision", state: "answered", blocksContinue: false, awaitingConfirmation: true });
@@ -293,7 +293,7 @@ describe("status strip (AC-11.3.6: numbers come from live queries, never the not
     );
     expect(tiles[0]).toMatchObject({ label: "Cash", value: { amountMinor: 1_250_000, currency: "EUR" }, provenance: { source: "Bank accounts" } });
     expect(tiles[1]).toMatchObject({ label: "Runway", value: "No limit", provenance: { source: "The cash forecast" } });
-    expect(tiles[2]).toMatchObject({ label: "Customers", value: "1,101", provenance: { source: "Customer conversions" } });
+    expect(tiles[2]).toMatchObject({ label: "Customers", value: "1,101", provenance: { source: "Signups, activations and payments" } });
     expect(tiles[3]).toMatchObject({ label: "Due in", value: "9 days", provenance: { source: "The filing calendar" } });
     expect(tiles.some((t) => t.value === null)).toBe(false);
   });
@@ -572,7 +572,7 @@ describe("an agent's request in the Inbox (audit FR-01)", () => {
   const waiting = { outcome: null, sessionWaiting: true, task: { id: "t-1", title: "Index the usage events" }, canAnswer: true, section: "development" } as const;
   it("says where the request stands and what Approve does from here", () => {
     expect(approvalStatus(waiting)).toEqual({ word: "Needs your answer", tone: "warn", detail: "The agent's session is waiting for your answer. Approve and it carries on." });
-    expect(approvalStatus({ ...waiting, sessionWaiting: false }).detail).toBe("The session stopped waiting and freed its place. Approve and the task runs again on the next cycle.");
+    expect(approvalStatus({ ...waiting, sessionWaiting: false }).detail).toBe("The session stopped waiting and freed its place. Approve and the task runs again in the team's next round of work.");
     expect(approvalStatus({ ...waiting, sessionWaiting: false, task: null }).detail).toBe("Approve and it runs once, exactly as asked.");
     expect(approvalStatus({ ...waiting, outcome: "approved" })).toMatchObject({ word: "Approved", tone: "good" });
     expect(approvalStatus({ ...waiting, outcome: "rejected" })).toMatchObject({ word: "Rejected", tone: "bad", detail: "Nothing ran. The task stays blocked until you start it again." });

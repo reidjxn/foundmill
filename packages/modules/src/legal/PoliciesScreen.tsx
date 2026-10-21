@@ -202,7 +202,7 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
         />
       </Panel>
 
-      <Panel title="Open change proposals" span={12} loading={proposals.isLoading} error={proposals.error ? proposals.error.message : undefined} onRetry={proposals.refetch} empty={!proposals.isLoading && policyProposals.length === 0 ? `When an integration or data flow changes, the Source Watcher raises a change proposal for the policies; it appears here and in ${changesTab}.` : undefined} actions={<Button size="sm" variant="ghost" icon={FileDiff} onClick={() => navigate(changesHref)}>{changesTab}</Button>}>
+      <Panel title="Open change proposals" help="A change proposal is an edit an agent suggests to a policy, with its reasons; nothing changes until you accept it." span={12} loading={proposals.isLoading} error={proposals.error ? proposals.error.message : undefined} onRetry={proposals.refetch} empty={!proposals.isLoading && policyProposals.length === 0 ? `When an integration or data flow changes, the Source Watcher raises a change proposal for the policies; it appears here and in ${changesTab}.` : undefined} actions={<Button size="sm" variant="ghost" icon={FileDiff} onClick={() => navigate(changesHref)}>{changesTab}</Button>}>
         <ul aria-label="Policy proposals" className="flex flex-col gap-1">
           {policyProposals.map((p) => (
             <li key={p.id} className="flex items-center gap-2">

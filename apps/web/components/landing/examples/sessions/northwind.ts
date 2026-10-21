@@ -61,7 +61,7 @@ const SERUM_STABILITY: MockTaskScript = {
       { label: "pH at 40°C", value: "5.2 (spec 5.0 to 5.8)", tone: "good" },
       { label: "Viscosity at 40°C", value: "−6% (limit ±10%)", tone: "good" },
       { label: "Color at 40°C", value: "L* 92.1 (spec ≥ 90)", tone: "good" },
-      { label: "Freeze-thaw, three cycles", value: "No separation", tone: "good" },
+      { label: "Freeze-thaw, three rounds", value: "No separation", tone: "good" },
     ],
     footer: "In spec at every condition. Source: Cranbury report CCL-SR-1012.",
   },
@@ -70,7 +70,7 @@ const SERUM_STABILITY: MockTaskScript = {
 const PUMP_RFQ: MockTaskScript = {
   title: "RFQ: 30 ml airless pumps, three suppliers",
   goal: "Compare three suppliers' quotes for the serum's 30 ml airless pump and recommend one for batch 007.",
-  plan: ["Log the three pump quotes", "Check minimum order and lead time against batch 007", "Compare the samples' fit and seal", "Work out landed cost per pump", "Write the recommendation"],
+  plan: ["Log the three pump quotes", "Check minimum order and lead time against batch 007", "Check how well the samples seal and fit", "Work out landed cost per pump", "Write the recommendation"],
   readPath: "lab/sourcing/rfq-pumps-30ml.md",
   terminal: {
     setup: SYNC,
@@ -197,7 +197,7 @@ const PO_PACK: MockTaskScript = {
   notes: [
     "Reading Cranbury's quotes and the last batch record before writing a line.",
     "Every order line carries its quote number, so each cost can be traced.",
-    "Landed cost per routine comes to $11.78 at 5,000 units (Estimate).",
+    "Landed cost per routine comes to $11.78 at 5,000 units. Estimate means worked out from the quotes, not measured.",
     "The pack is missing the serum's week-12 readout. Attaching Aloe's readout from the lab.",
     "Review: Cranbury's serum quote had expired; Reed had it reissued at the same price.",
   ],

@@ -23,6 +23,13 @@ export interface ChannelProfileCardProps {
   className?: string;
 }
 
+/** A channel's Potential is not an agent's (TERMS.potential), so the card defines it in place. */
+const CHANNEL_POTENTIAL_DEFINITION = {
+  id: "channel_potential",
+  word: "Potential",
+  short: "How much this channel could bring in for this business once it is running well, from 0 to 5 stars.",
+};
+
 /** Channel profile (BUILD §11.7 "Click → channel profile"): agents, budget, rules, results, pause. Fits a hover card or a rail. */
 export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, className }: ChannelProfileCardProps) {
   const meta = CHANNEL_META[channel.key];
@@ -63,7 +70,11 @@ export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
         {channel.potential !== undefined && channel.scored !== false ? (
           <div>
-            <dt className="t-label">Potential</dt>
+            <dt className="t-label">
+              <Term id="channel_potential" definition={CHANNEL_POTENTIAL_DEFINITION}>
+                Potential
+              </Term>
+            </dt>
             <dd>
               <StarRating value={channel.potential} label="Potential" showValue />
             </dd>

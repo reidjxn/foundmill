@@ -238,7 +238,7 @@ describe("plain words on the Overview (UX plan §7.14, C6)", () => {
 
   it("reads the P&L source label in plain words and passes a ledger's own label through", () => {
     expect(pnlLabelWords(PNL_CASH_BASIS_LABEL)).toBe(PNL_CASH_BASIS_WORDS);
-    expect(pnlLabelWords("Management view, unaudited, counted when the cash moves (cash basis)")).toBe("Management view, unaudited, counted when the cash moves (cash basis)");
+    expect(pnlLabelWords("Management view, unaudited, cash basis: counted when the cash moves")).toBe("Management view, unaudited, cash basis: counted when the cash moves");
     expect(pnlLabelWords(undefined)).toBe(PNL_CASH_BASIS_WORDS);
     expect(pnlLabelWords("Xero ledger, accrual basis")).toBe("Xero ledger, accrual basis");
   });

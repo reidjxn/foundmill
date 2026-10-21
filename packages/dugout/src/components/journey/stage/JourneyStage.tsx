@@ -16,6 +16,7 @@ import { IconButton } from "../../foundation/IconButton";
 import { ProgressRing } from "../../foundation/ProgressRing";
 import { Slider } from "../../foundation/Slider";
 import { Tooltip } from "../../foundation/Tooltip";
+import { Term } from "../../guidance/Term";
 import { LineChart } from "../charts/LineChart";
 import { EntityText } from "../EntityText";
 import type { CustomerFacts, Journey, JourneyAgent, Kit, StageAgentMeta, Touch } from "../types";
@@ -278,7 +279,7 @@ function MatchFeed({ journey, touches, playedIds, commentaryShown, agents, onOpe
       </Panelette>
       <Panelette title="xC">
         <div className="flex flex-col items-center gap-2 py-2">
-          <ProgressRing value={xc} size={72} strokeWidth={5} tone="kit" label="Expected conversion" />
+          <ProgressRing value={xc} size={72} strokeWidth={5} tone="kit" label="Chance of converting" />
           <span className="t-display-lg tabular-nums">{formatPercent(xc, { digits: 0 })}</span>
           <span className="text-center text-small text-secondary">
             Chance of this customer converting after {rows.length} of {touches.length} touches
@@ -292,7 +293,7 @@ function MatchFeed({ journey, touches, playedIds, commentaryShown, agents, onOpe
 
 const RAIL_PANELS = ["attribution", "touches", "time", "cost", "xc"] as const;
 type RailPanel = (typeof RAIL_PANELS)[number];
-const RAIL_LABELS: Record<RailPanel, string> = { attribution: "Attribution", touches: "Touch count", time: "Time to convert", cost: "Acquisition cost", xc: "xC curve" };
+const RAIL_LABELS: Record<RailPanel, string> = { attribution: "Channel share", touches: "Touch count", time: "Time to convert", cost: "Acquisition cost", xc: "xC curve" };
 
 /** Months for the win's revenue to pay its acquisition cost back; null when nothing was spent (nothing to pay back). */
 function paybackMonths(journey: Journey): number | null {
@@ -405,13 +406,13 @@ function Rails({ journey, customer, touches, currency, onOpenEntity, entityKinds
             <div className="flex flex-col gap-2">
               <AcquisitionCost journey={journey} currency={currency} size="xl" />
               <span className="text-small text-secondary">
-                {journey.stats.acquisitionCostMinor === 0 ? "The channels behind this win spent nothing to win it." : `Σ attribution weight × channel cost per acquisition${payback !== null ? ` · payback ${formatNumber(payback, { maxDigits: 1 })} months` : ""}`}
+                {journey.stats.acquisitionCostMinor === 0 ? "The channels behind this win spent nothing to win it." : `Each channel's share of the win × its cost per customer${payback !== null ? ` · earned back in ${formatNumber(payback, { maxDigits: 1 })} months` : ""}`}
               </span>
             </div>
           ) : null}
           {panel === "xc" ? (
             <LineChart
-              label="Expected conversion over the journey"
+              label="Chance of converting over the journey"
               height={180}
               xType="linear"
               yDomain={[0, 1]}
@@ -502,7 +503,9 @@ function FullTime({ journey, customer, agents, currency, onReplay, onClose, clos
             {/* Nothing spent, nothing to pay back: the payback is left out rather than shown as "0 mo". */}
             {journey.stats.acquisitionCostMinor === 0 ? null : (
               <div>
-                <dt className="t-data">Payback</dt>
+                <dt className="t-data">
+                  <Term id="payback">Payback</Term>
+                </dt>
                 <dd className="inline-flex items-center gap-2">
                   <span className="t-display-lg tabular-nums">{payback === null ? "—" : `${formatNumber(payback, { maxDigits: 1 })} mo`}</span>
                   {payback !== null ? <ProvenanceChip kind="estimate" /> : null}
@@ -551,7 +554,7 @@ function FullTime({ journey, customer, agents, currency, onReplay, onClose, clos
                     ) : null}
                   </span>
                   <span className="block truncate text-small text-secondary">
-                    {a.role ?? "Agent"} · {formatPercent(a.contribution, { digits: 0 })} of the attribution
+                    {a.role ?? "Agent"} · {formatPercent(a.contribution, { digits: 0 })} of the win
                   </span>
                 </span>
                 <span className={cn("t-display-lg", ratingClass(a.rating * 2))} aria-label={`Rating ${a.rating} of 10`}>

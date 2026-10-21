@@ -54,7 +54,7 @@ describe("universal search", () => {
     expect(words).toMatchObject({ label: "Settings · Your words", href: `/b/${BID}/settings/glossary` });
     expect(filterLocal(items, "glossary")[0]?.id).toBe("command:settings:glossary");
     expect(filterLocal(items, "your words")[0]?.id).toBe("command:settings:glossary");
-    expect(items.find((i) => i.id === "command:refresh-inbox")?.description).toBe("Ask the team for one quick note (does not start a cycle)");
+    expect(items.find((i) => i.id === "command:refresh-inbox")?.description).toBe("Ask the team for one quick note; no new work starts");
   });
 
   it("offers Edit layout only where the screen has a layout to edit (audit OL-29)", () => {

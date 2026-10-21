@@ -18,6 +18,7 @@ import { Chip } from "../foundation/Chip";
 import { Icon, type IconComponent } from "../foundation/Icon";
 import { AgentStatusPill } from "../foundation/StatusPill";
 import { Tooltip } from "../foundation/Tooltip";
+import { useTerm } from "../guidance/GuidanceProvider";
 import { FormKey, ScaleLabel, formKeySentence } from "../guidance/ScaleLabel";
 import type { FormResult, SquadRow } from "./types";
 
@@ -168,12 +169,14 @@ export function ToolIcons({ tools, max = 5, className }: ToolIconsProps) {
   const shown = tools.slice(0, max);
   const extra = tools.length - shown.length;
   const names = tools.map((t) => TOOL_ICONS[t]?.label ?? t);
+  // The sandbox icon's tooltip says what a sandbox is (the definitions map's own sentence when there is one).
+  const sandbox = useTerm("sandbox");
   return (
     <span className={cn("inline-flex items-center gap-0.5", className)} role="img" aria-label={names.length ? `Tools: ${names.join(", ")}` : "No tools"}>
       {shown.map((t) => {
         const meta = TOOL_ICONS[t] ?? { icon: Wrench, label: t };
         return (
-          <Tooltip key={t} content={meta.label}>
+          <Tooltip key={t} content={t === "e2b" && sandbox ? `${meta.label}: ${sandbox.short}` : meta.label}>
             <span className="inline-flex size-control-xs items-center justify-center rounded-sm bg-white/5 text-secondary ring-1 ring-inset ring-line" tabIndex={-1}>
               <Icon icon={meta.icon} size={12} />
             </span>
@@ -194,7 +197,7 @@ export const WAGE_COLUMN_LABEL = "AI cost (USD)";
 
 export function WageCell({ wage, className }: { wage: SquadRow["wage"]; className?: string }) {
   return (
-    <span className={cn("inline-flex items-baseline gap-1 tabular-nums", className)} title="This month's AI cost so far, in US dollars: tokens, sandbox minutes and tool calls. Estimate.">
+    <span className={cn("inline-flex items-baseline gap-1 tabular-nums", className)} title="This month's AI cost so far, in US dollars: AI usage, sandbox minutes and tool calls. An estimate, not a measurement.">
       {formatMoney(wage)}
       <span className="t-unit">/mo</span>
     </span>

@@ -537,7 +537,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
               <KeyValueList
                 items={[
                   { label: attribution?.label ?? "Your answer", value: answered?.optionId ? options.find((o) => o.id === answered.optionId)?.label ?? answered.optionId : answered?.text ? <q>{answered.text}</q> : "Recorded" },
-                  ...(attribution && !attribution.mine ? [{ label: "Decided by", value: <span data-testid="decided-by">{attribution.by}{attribution.decidedAt && hydrated ? ` · ${formatDateTime(attribution.decidedAt)}` : ""}</span> }] : []),
+                  ...(attribution && !attribution.mine ? [{ label: "Decided by", value: <span data-testid="decided-by">{attribution.by === "the Chief of Staff" ? <>the <Term id="chief_of_staff">Chief of Staff</Term></> : attribution.by}{attribution.decidedAt && hydrated ? ` · ${formatDateTime(attribution.decidedAt)}` : ""}</span> }] : []),
                   ...(plan ? [{ label: "Plan", value: <Markdown variant="body">{plan.summaryMd || "No actions"}</Markdown> }] : []),
                 ]}
               />

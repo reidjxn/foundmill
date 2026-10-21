@@ -242,9 +242,9 @@ export function channelStatus(view: Pick<ChannelView, "enabled" | "paused" | "sc
 /* ---------- Guardrails (BUILD §11.7 table; shown in the channel profile under "Rules") ---------- */
 
 export const CHANNEL_RULES: Record<ChannelKey, readonly string[]> = {
-  lead_generation: ["Lawful basis recorded per country before outreach", "Suppression list checked on every send", "No cold email to EU consumers"],
+  lead_generation: ["The legal reason to contact people recorded per country before outreach", "Suppression list checked on every send", "No cold email to EU consumers"],
   email_automation: ["Sending subdomain with SPF, DKIM and DMARC", "Warm-up before volume", "One-click unsubscribe on every message", "Auto-pause when the spam rate passes 0.3%"],
-  seo: ["No link schemes or doorway pages", "Changes land through pull requests"],
+  seo: ["No link schemes or doorway pages", "Site changes are reviewed before they go live"],
   geo: ["No fake reviews or sock puppets", "Share-of-answer panels are labeled approximate"],
   content: ["Brand voice applied", "AI audio and video labeled where required", "Anything in the founder's name needs founder approval"],
   social: ["Brand accounts only", "Platform rate limits respected"],

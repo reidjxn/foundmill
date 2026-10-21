@@ -21,7 +21,7 @@ export const SECTION_HINTS: Record<InstructionSection, string> = {
   role: "One or two sentences: who this agent is and what it owns.",
   goals: "Outcomes, in priority order.",
   rules: "Hard constraints the agent follows every time. The house rules always apply on top and cannot be changed here.",
-  playbook: "The steps it takes on a typical task, in order.",
+  playbook: "The playbook is the steps it takes on a typical task, in order.",
   tone: "How it writes: to customers, in pull requests, in notes.",
   examples: "Input and the output you expect. These shape behavior more than rules do.",
 };

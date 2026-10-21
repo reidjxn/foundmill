@@ -56,7 +56,7 @@ export function TeamOrbit({ centreLabel = "You", centreCaption = "Founder", chie
   const workers = departments.flatMap((d, i) => d.workers.map((w, j) => ({ ...w, dept: d.dept, angle: (360 / n) * i + (j - (d.workers.length - 1) / 2) * (360 / n / 3) + 360 / n / 2 })));
   const spin = (seconds: number, reverse = false): CSSProperties => ({ animationDuration: `${seconds}s`, animationDirection: reverse ? "reverse" : "normal" });
   const workerCount = workers.length;
-  const label = `Your team: you at the center, a Chief of Staff, and ${n} departments with ${n} leads and ${workerCount} agents.`;
+  const label = `Your team: you at the center, a Chief of Staff, and ${n} departments with ${n} leads and ${workerCount} agents. Chief of Staff: the agent that plans the work and hands it to the department leads.`;
 
   return (
     <div role="img" aria-label={label} className={cn("relative aspect-square w-full select-none", className)} data-team-orbit>

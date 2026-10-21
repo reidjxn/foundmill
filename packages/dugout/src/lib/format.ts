@@ -316,6 +316,7 @@ export function formatDuration(ms: number): string {
 
 /** Token counts: "12.4K tokens" (compact). */
 export function formatTokens(n: number): string {
+  // plain-allow: a formatter, not a screen; the screen that prints the count defines Tokens (a Term or a column `term`).
   return `${formatCompact(n)} tokens`;
 }
 

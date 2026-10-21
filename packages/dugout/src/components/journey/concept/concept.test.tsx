@@ -57,7 +57,7 @@ describe("ConceptCard", () => {
     // The name steps down, then wraps to two lines before it is ever cut.
     expect(document.querySelector("h3 [data-fit-box]")?.getAttribute("data-lines")).toBe("2");
     expect(screen.getByRole("img", { name: `${c.name} logo` })).toBeTruthy();
-    expect(screen.getByRole("img", { name: /Current ability: 3 of 5, potential 4.5/ })).toBeTruthy();
+    expect(screen.getByRole("img", { name: /Current ability: 3 of 5, could reach 4.5/ })).toBeTruthy();
     expect(screen.getAllByRole("meter").length).toBe(10);
     expect(conceptOverall(c)).toBe(12);
     // Shortlist, "More like this" (fork) and Ask are on the card; Merge and Discard are in the More menu.

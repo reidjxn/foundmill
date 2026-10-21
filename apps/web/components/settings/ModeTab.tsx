@@ -220,7 +220,9 @@ export function ModeTab() {
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            <p className="text-body text-secondary">Hand the business to the Chief of Staff: cycles run on their own, decisions within the authority you set, gated items queue in the Inbox.</p>
+            <p className="text-body text-secondary">
+              Hand the business to the <Term id="chief_of_staff">Chief of Staff</Term>: <Term id="cycle">cycles</Term> run on their own, decisions within the authority you set, gated items queue in the Inbox.
+            </p>
             <div className="flex flex-col gap-1.5">
               <div>
                 <Button variant="default" icon={Palmtree} onClick={() => setHolidayOpen(true)} data-testid="start-holiday">

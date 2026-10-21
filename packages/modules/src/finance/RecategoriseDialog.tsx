@@ -68,10 +68,10 @@ export function RecategoriseDialog({ transaction, onClose, onSaved }: Recategori
             <SimpleSelect id={`${id}-category`} options={options} value={category} onValueChange={setCategory} aria-label="Category" />
           </Field>
           <label className="flex items-start gap-2 text-body text-primary">
-            <Checkbox checked={applyToCounterparty} disabled={!transaction?.counterparty || category === UNCATEGORISED} onCheckedChange={(v) => setApply(v === true)} aria-label="Apply to every transaction of this counterparty" />
+            <Checkbox checked={applyToCounterparty} disabled={!transaction?.counterparty || category === UNCATEGORISED} onCheckedChange={(v) => setApply(v === true)} aria-label="Apply to every transaction with the same other side" />
             <span>
-              Apply to every transaction from <span className="text-body-strong">{transaction?.counterparty ?? "this counterparty"}</span> and keep it as a rule for new ones.
-              {!transaction?.counterparty ? <span className="block text-small text-secondary">This transaction has no counterparty, so no rule can be made.</span> : null}
+              Apply to every transaction from <span className="text-body-strong">{transaction?.counterparty ?? "the same other side"}</span> and keep it as a rule for new ones.
+              {!transaction?.counterparty ? <span className="block text-small text-secondary">This transaction does not name who paid or was paid, so no rule can be made.</span> : null}
             </span>
           </label>
           <InlineError error={action.error} />

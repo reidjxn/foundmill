@@ -5,7 +5,7 @@ import { ProvenanceChip } from "../foundation/Chip";
 import { useFormatters } from "../foundation/DateFormatProvider";
 import { StatusPill, type StatusTone } from "../foundation/StatusPill";
 import { Tooltip } from "../foundation/Tooltip";
-import { useGuided } from "../guidance/GuidanceProvider";
+import { useGuided, useTerm } from "../guidance/GuidanceProvider";
 import { Term } from "../guidance/Term";
 
 export type AutopilotChipState = "off" | "on" | "waiting" | "paused";
@@ -54,6 +54,9 @@ export function AutopilotChip({ state, label, detail, nextAt, onClick, guide, cl
   const guided = useGuided();
   const s = STATE[state];
   const hasNext = nextAt !== null && nextAt !== undefined && (state === "on" || state === "waiting");
+  // "Next cycle" sits inside the chip (a button when clickable), so the definition rides in its tooltip while guided.
+  const cycle = useTerm("cycle");
+  const cycleLine = hasNext && guided && cycle ? `${cycle.word}: ${cycle.short}` : null;
   const content = (
     <>
       <span className="text-label font-medium text-secondary">Autopilot</span>
@@ -85,7 +88,16 @@ export function AutopilotChip({ state, label, detail, nextAt, onClick, guide, cl
       {content}
     </span>
   );
-  const chip = detail ? <Tooltip content={detail}>{body}</Tooltip> : body;
+  const tip =
+    detail && cycleLine ? (
+      <span className="flex max-w-72 flex-col gap-0.5">
+        <span>{detail}</span>
+        <span className="text-secondary">{cycleLine}</span>
+      </span>
+    ) : (
+      (detail ?? cycleLine)
+    );
+  const chip = tip ? <Tooltip content={tip}>{body}</Tooltip> : body;
   if (!guide || !guided) return chip;
   // The sentence sits beside the chip, outside its button, so the chip's name stays its state and the line is read as
   // ordinary text; "Autopilot" is the defined word there (a Term inside the chip's own button would nest two buttons).

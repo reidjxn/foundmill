@@ -2,7 +2,7 @@
 /** Add a source by hand (a link, a pasted note, a competitor page). Saves through `product.sources.add`. */
 import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
-import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, SimpleSelect, Textarea } from "@foundmill/dugout";
+import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, SimpleSelect, Term, Textarea } from "@foundmill/dugout";
 import type { SourceKind } from "@foundmill/shared";
 import { InlineError, useAction } from "../shared";
 import { SOURCE_KIND_OPTIONS } from "./kinds";
@@ -64,7 +64,7 @@ export function AddSourceDialog({ open, kind, onClose, onSaved }: { open: boolea
       <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Add a source</DialogTitle>
-          <DialogDescription>The Source Watcher reads it, scores its relevance to each specification paragraph and raises a change proposal when it matters.</DialogDescription>
+          <DialogDescription>The Source Watcher reads it, checks which parts of the <Term id="specification">specification</Term> it touches and suggests a change when it matters.</DialogDescription>
         </DialogHeader>
         <DialogBody className="grid grid-cols-2 gap-3">
           <Field htmlFor="src-kind" label="Kind">

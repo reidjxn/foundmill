@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from "react";
 import { Code2, Compass, FlaskConical, Gamepad2, GraduationCap, Megaphone, Pause, Play, Scale, Store, Users, Wallet, type LucideIcon } from "lucide-react";
-import { Avatar, Button, Chip, DeptChip, Icon, SkillGrid, StarRating, StatusPill, TraitChips, cn, usePrefersReducedMotion } from "@foundmill/dugout";
+import { Avatar, Button, Chip, DeptChip, Icon, SkillGrid, StarRating, StatusPill, Term, TraitChips, cn, usePrefersReducedMotion } from "@foundmill/dugout";
 import { useExample } from "./examples/context";
 import { departmentScreens, leadOf } from "./examples/helpers";
 import type { ExampleDepartment, ExampleDepartmentIcon, ExampleLead } from "./examples/types";
@@ -48,7 +48,11 @@ export function TeamSection() {
         id="team"
         eyebrow="Your team"
         title="Hire them. Train them. Watch them get better."
-        lede="Every department has a lead agent and the specialists it needs. Each agent has attribute ratings from 1 to 20, earned in tests and on real tasks, and is trained between cycles. Ratings only move with evidence."
+        lede={
+          <>
+            Every department has a lead agent and the specialists it needs. Each agent has attribute ratings from 1 to 20, earned in tests and on real tasks, and is trained between <Term id="cycle">cycles</Term>. Ratings only move with evidence.
+          </>
+        }
       />
       <Reveal>
         <div
@@ -148,7 +152,9 @@ function LeadProfile({ department, lead }: { department: ExampleDepartment; lead
           </span>
         </span>
         <span className="flex flex-col items-end gap-2">
-          <span className="t-label">Current · potential</span>
+          <span className="t-label">
+            Current · <Term id="potential">potential</Term>
+          </span>
           <StarRating value={lead.stars.current} potential={lead.stars.potential} size={20} label="Ability" />
         </span>
       </header>

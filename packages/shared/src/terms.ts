@@ -712,12 +712,165 @@ export function termsWithGlossary(glossary: Glossary | null | undefined): Record
 }
 
 /**
+ * The define tier, by id: jargon a student would not know (runway, MRR, pull request, SAFE), or a product idea with no
+ * everyday meaning to lean on (cycle, chapter, hard gate, task graph, Chief of Staff), or an everyday word the product
+ * gives a narrow, numeric meaning (Fit and Potential are 1-to-20 and star scores, Estimate and Forecast are labels on a
+ * figure, Proposal and Sign-off are steps a founder must take). The linter wants each one defined where a founder meets
+ * it. Every TERMS id is in exactly one of this list and `PLAIN_TIER_IDS` (terms.test.ts holds it).
+ */
+export const DEFINE_TIER_IDS = [
+  // Finance: accounting and fundraising words.
+  "runway",
+  "burn",
+  "gross_burn",
+  "net_burn",
+  "cash_basis",
+  "pnl",
+  "ledger",
+  "mrr",
+  "arr",
+  "churn",
+  "gross_margin",
+  "payback",
+  "cap_table",
+  "safe",
+  "vesting",
+  "wage_cap",
+  // Distribution: marketing words and the product's own board and score.
+  "funnel",
+  "attribution",
+  "conversion",
+  "pipeline",
+  "fit",
+  "channel_board",
+  "cost_trend",
+  // Product.
+  "specification",
+  "proposal",
+  "sign_off",
+  "sku",
+  // Concept scores whose names are business jargon or coined; each also reads in a direction that needs saying.
+  "attr_market_pull",
+  "attr_capital_intensity",
+  "attr_agent_executability",
+  "attr_founder_fit",
+  "attr_defensibility",
+  "attr_regulatory_load",
+  "attr_distribution_clarity",
+  // Development: the code-hosting words.
+  "pull_request",
+  "branch",
+  "repository",
+  "sandbox",
+  "task_graph",
+  "acceptance",
+  // Limits and modes.
+  "hard_gate",
+  "autonomy",
+  "business_mode",
+  "api_key",
+  "archetype",
+  // AI usage.
+  "tokens",
+  "credits",
+  // Team.
+  "chief_of_staff",
+  "potential",
+  "playbook",
+  // The loop and provenance.
+  "cycle",
+  "chapter",
+  "runway_horizon",
+  "estimate",
+  "forecast",
+  // Legal.
+  "jurisdiction",
+  "lawful_basis",
+] as const satisfies readonly TermId[];
+
+/**
+ * The plain tier, by id: ordinary words whose meaning in the product is close to everyday English, so a founder reads
+ * them correctly without a definition. They stay in TERMS (a `Term` or an `InfoTip` can still define them, and the
+ * Composer still gets the glossary), but the linter does not ask for a definition, because almost every hit was the
+ * everyday sense ("competition", "revenue", "health insurance", "a web form"). The reason for each move is beside it.
+ */
+export const PLAIN_TIER_IDS = [
+  // "Money customers paid you": the everyday meaning. The cash-basis detail is defined by "Cash basis".
+  "revenue",
+  // The plain replacement for CAC; the phrase is its own definition.
+  "acquisition_cost",
+  // CLAUDE.md keeps "wage" as an ordinary word: what a worker costs per month. "Wage cap" stays defined.
+  "wage",
+  // A possible customer, the everyday sales word; the verb and "department lead" were most of the hits.
+  "lead",
+  // An everyday word ("an ad campaign") with the everyday meaning.
+  "campaign",
+  // The ads and posts themselves; the adjective "creative" was most of the hits, and the Creative tab shows the ads.
+  "creative",
+  // Job titles that say what the agent does; the profile card describes each role.
+  "distribution_strategist",
+  "source_watcher",
+  "product_lead",
+  "planner",
+  "line_manager",
+  // The people the business knows, the everyday word (an address book's contacts).
+  "contacts",
+  // A plan of what comes next, the everyday meaning ("a roadmap for the year").
+  "roadmap",
+  // Concept scores named in plain words: how big the market is, how crowded, how soon someone pays.
+  "attr_market_size",
+  "attr_competition",
+  "attr_speed_to_first_customer",
+  // "A session" of work, the everyday word; "Live sessions" and sign-in sessions were most of the hits.
+  "session",
+  // "Your limits"; privacy, refund and insurance policies were most of the hits.
+  "policy",
+  // "Runs on its own", the everyday meaning ("on autopilot").
+  "autopilot",
+  // Away from work, the everyday meaning; the top bar says what the team may do meanwhile.
+  "vacation",
+  // A connection to another service; Settings › Integrations lists them with a line each.
+  "integration",
+  // "The AI an agent runs on" is how people already say it; the model picker shows sizes and costs beside each.
+  "model",
+  // Ordinary words for a team: who reports to whom, how good someone is, how they have been doing lately.
+  "hierarchy",
+  "rating",
+  "tested",
+  "proven",
+  "form",
+  "position_map",
+  // CLAUDE.md keeps training and coach as ordinary words for a team of agents.
+  "training",
+  "coach",
+  // Whether something is working, the everyday meaning; a person's health was most of the hits.
+  "health",
+  "team_health",
+  // A first the business reached, the everyday meaning.
+  "milestone",
+  // A ranking, the everyday meaning.
+  "leaderboard",
+  // A note about a customer, said in two ordinary words; the note itself narrates what happened.
+  "customer_update",
+  // A form or report sent to a government office by a date, the everyday meaning ("a tax filing").
+  "filing",
+] as const satisfies readonly TermId[];
+
+const DEFINE_TIER = new Set<string>(DEFINE_TIER_IDS);
+const PLAIN_TIER = new Set<string>(PLAIN_TIER_IDS);
+
+/**
  * The jargon tiers of docs/UX_AUDIT_AND_PLAN.md §8.2 and Appendix E, as plain words and phrases for the plain-language
  * linter (scripts/plain-language.mjs) and the Composer eval. "replace" fails on sight in anything a founder reads;
- * "define" is allowed where the screen or the note defines the word (a `Term`, an explainer, a hint). Matching is by
- * whole word, case-insensitive except for the all-caps acronyms.
+ * "define" is allowed where the screen or the note defines the word (a `Term`, an explainer, a hint); "plain" lists the
+ * TERMS words the linter leaves alone (see `PLAIN_TIER_IDS`). Matching is by whole word, case-insensitive except for
+ * the all-caps acronyms (and for Estimate and Forecast, which the linter reads as the capitalized label).
  */
-export const PLAIN_LANGUAGE_TIERS: { readonly replace: readonly string[]; readonly define: readonly string[] } = {
+export const PLAIN_LANGUAGE_TIERS: {
+  readonly replace: readonly string[];
+  readonly define: readonly string[];
+  readonly plain: readonly string[];
+} = {
   replace: [
     "ICP",
     "CPA",
@@ -738,7 +891,8 @@ export const PLAIN_LANGUAGE_TIERS: { readonly replace: readonly string[]; readon
     "hunk",
     "triage",
   ],
-  define: Object.values(TERMS).map((t) => t.word),
+  define: TERM_IDS.filter((id) => DEFINE_TIER.has(id)).map((id) => TERMS[id].word),
+  plain: TERM_IDS.filter((id) => PLAIN_TIER.has(id)).map((id) => TERMS[id].word),
 };
 
 /**

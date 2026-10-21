@@ -237,7 +237,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   return (
     <Screen name="development/plan">
       {stage.stage === "awaiting_signoff" || stage.stage === "drafting" ? (
-        <Panel span={12} title="Building starts on your sign-off" data-testid="plan-stage-banner" data-product-stage={stage.stage}>
+        <Panel span={12} title="Building starts on your sign-off" help="The specification is the written description of what the product is and does. Your sign-off is your yes on it and the roadmap, which lets the team build from them." data-testid="plan-stage-banner" data-product-stage={stage.stage}>
           <p className="text-body text-secondary">
             {stage.stage === "drafting" ? "The specification and roadmap are being drafted. " : "Building starts when the specification and the roadmap are signed off. "}
             <button type="button" className="text-link hover:underline focus-visible:outline-2 focus-visible:outline-link" onClick={() => navigate(routes.inbox(businessId))}>

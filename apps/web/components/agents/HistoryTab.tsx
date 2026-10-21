@@ -72,7 +72,7 @@ export function HistoryTab({ profile, currency }: TabProps) {
             { label: "Success rate", value: recent.successRate, format: "percent", caption: recent.sessions ? `${recent.tasksDone} of ${recent.sessions} sessions` : undefined },
             { label: "Review findings", value: recent.reviewFindings, format: "integer", delta: recent.reviewFindings ? { value: recent.reviewFindings, goodWhen: "down", label: "open" } : undefined },
             { label: "Approvals rejected", value: recent.approvalsRejected, format: "integer" },
-            { label: "AI cost · 30 d (USD)", value: { amountMinor: recent.costMinor, currency: recent.currency }, estimate: "estimate", provenance: { source: "Model and tool usage, last 30 days (the usage ledger, as the profile's AI cost)" } },
+            { label: "AI cost · 30 d (USD)", value: { amountMinor: recent.costMinor, currency: recent.currency }, estimate: "estimate", provenance: { source: "Model and tool usage, last 30 days (the usage records, as the profile's AI cost)" } },
           ] satisfies MetricTileProps[]}
         />
       </div>
@@ -86,7 +86,7 @@ export function HistoryTab({ profile, currency }: TabProps) {
           ]}
         />
       </Panel>
-      <Panel title="History" span={8} empty={events.length === 0 ? { children: "Versions, training runs and sessions appear here as they happen." } : undefined} data-testid="history-timeline">
+      <Panel title="History" span={8} footer="Tokens are the units AI usage is metered in, roughly three quarters of a word each." empty={events.length === 0 ? { children: "Versions, training runs and sessions appear here as they happen." } : undefined} data-testid="history-timeline">
         <Timeline events={events} absolute />
       </Panel>
     </div>

@@ -11,11 +11,17 @@ import { fileURLToPath } from "node:url";
 import { after, before, describe, it } from "node:test";
 
 import {
+  ARIA_KEYS,
   DEVELOPER_DOC,
+  LABEL_WORDS,
   LEAK_TERMS,
   PLAIN_CODE_ROOTS,
+  TECHNICAL_KEY,
+  addressSpans,
   buildTerms,
+  definitionSlotTexts,
   isAcronym,
+  isCaseSensitive,
   loadTiers,
   longestOnly,
   plainScan,
@@ -89,15 +95,44 @@ function write(name, source) {
   return p;
 }
 
-function scan(name, source, scanner = scanCode) {
+function scan(name, source, scanner = scanCode, terms = TERMS) {
   const hits = [];
   const silenced = [];
-  scanner(write(name, source), TERMS, hits, silenced);
+  scanner(write(name, source), terms, hits, silenced);
   return { hits, silenced };
 }
 
 const words = ({ hits }) => hits.map((h) => h.term).sort();
 const hitsOf = (name, source, scanner) => words(scan(name, source, scanner));
+
+/** The define words with their own allowances and the two provenance labels; a second list so the first suites keep their counts. */
+const MORE = buildTerms({
+  tiers: {
+    replace: ["webhook", "triage"],
+    define: [
+      "Runway",
+      "Estimate",
+      "Forecast",
+      "Fit",
+      "Potential",
+      "Credits",
+      "Tokens",
+      "Cycle",
+      "Proposal",
+      "Conversion",
+      "Acceptance",
+      "Pull request",
+    ],
+    plain: ["Revenue", "Lead"],
+  },
+  terms: {
+    runway: { id: "runway", word: "Runway", short: "Months of cash left at today's spending." },
+    estimate: { id: "estimate", word: "Estimate", short: "Worked out, not measured." },
+    cycle: { id: "cycle", word: "Cycle", short: "One round of work." },
+    revenue: { id: "revenue", word: "Revenue", short: "Money customers paid you." },
+  },
+});
+const moreHits = (name, source, scanner = scanCode) => words(scan(name, source, scanner, MORE));
 
 describe("tiers come from packages/shared/src/terms.ts", () => {
   it("reads PLAIN_LANGUAGE_TIERS and TERMS by transpiling the source", () => {
@@ -115,11 +150,20 @@ describe("tiers come from packages/shared/src/terms.ts", () => {
       "triage",
     ])
       assert.ok(tiers.replace.includes(w), w);
-    assert.deepEqual(
-      [...tiers.define],
-      Object.values(terms).map((t) => t.word),
-    );
-    assert.ok(tiers.define.includes("Runway"));
+    // Every TERMS word is in exactly one of define (linted) and plain (not linted).
+    const words = Object.values(terms).map((t) => t.word);
+    assert.deepEqual([...tiers.define, ...tiers.plain].sort(), [...words].sort());
+    for (const w of tiers.define) assert.ok(!tiers.plain.includes(w), w);
+    for (const w of ["Runway", "MRR", "Pull request", "Cycle", "Estimate", "Chief of Staff"])
+      assert.ok(tiers.define.includes(w), w);
+    for (const w of ["Revenue", "Lead", "Model", "Session", "Training", "Health", "Form"])
+      assert.ok(tiers.plain.includes(w), w);
+  });
+
+  it("never matches a plain-tier word", () => {
+    const built = buildTerms(loadTiers());
+    for (const w of ["Revenue", "Lead", "Model", "Competition"])
+      assert.ok(!built.some((t) => t.term === w), w);
   });
 
   it("builds one entry per tier word plus the leak tier", () => {
@@ -584,7 +628,237 @@ describe("files", () => {
   });
 });
 
+describe("the plain tier", () => {
+  it("is never matched, while the define words still are", () => {
+    assert.deepEqual(
+      moreHits(
+        "plain.tsx",
+        `export const A = () => <p>Revenue grew; a new lead came in. Your runway dropped.</p>;`,
+      ),
+      ["Runway"],
+    );
+  });
+});
+
+describe("provenance labels (Estimate, Forecast)", () => {
+  it("matches the capitalized label only", () => {
+    assert.equal(isCaseSensitive("Estimate"), true);
+    assert.equal(isCaseSensitive("Forecast"), true);
+    assert.equal(isCaseSensitive("Runway"), false);
+    assert.ok(LABEL_WORDS.has("estimate"));
+    assert.deepEqual(
+      moreHits(
+        "labels.tsx",
+        `export const A = () => <><p>$4,700 · Estimate</p><p>Base case (Forecast)</p><p>Cost is an estimate from usage; see the cash forecast.</p></>;`,
+      ),
+      ["Estimate", "Forecast"],
+    );
+  });
+
+  it("is defined by its Term like any define word", () => {
+    assert.deepEqual(
+      moreHits(
+        "label-term.tsx",
+        `export const A = () => <><Term id="estimate" /><p>$40 (Estimate)</p></>;`,
+      ),
+      [],
+    );
+  });
+});
+
+describe("definition slots written as JSX and explainer actions", () => {
+  it("reads a footer, caption or hint whose value is JSX", () => {
+    const src = `export const A = () => (
+  <>
+    <Panel title="Cash" footer={<span>Runway, the months of cash left at today's spending.</span>} />
+    <p>Your runway dropped.</p>
+  </>
+);`;
+    assert.deepEqual(hitsOf("footer-jsx.tsx", src), []);
+    assert.deepEqual(
+      hitsOf(
+        "hint-template.tsx",
+        "export const A = () => <><Field hint={`Runway ${n}: months of cash left`} /><p>Your runway dropped.</p></>;",
+      ),
+      [],
+    );
+  });
+
+  it("does not read identifiers or other attributes inside the slot as a definition", () => {
+    const src = `export const A = () => (
+  <>
+    <Panel footer={<span className="runway">{formatRunway(runway)}</span>} />
+    <p>Your runway dropped.</p>
+  </>
+);`;
+    assert.deepEqual(hitsOf("footer-identifiers.tsx", src), ["Runway"]);
+  });
+
+  it("reads an explainer's action, string or JSX, in a file that names a screenId", () => {
+    const str = `export const EXPLAINER = { screenId: "finance", purpose: "Where the money goes.", action: "Check the runway, the months of cash left." };
+export const A = () => <p>Your runway dropped.</p>;`;
+    assert.deepEqual(hitsOf("explainer-action.tsx", str), []);
+    const jsx = `export const EXPLAINER = { screenId: "dev", purpose: "The code.", action: (<>Review each pull request before it merges.</>) };
+export const A = () => <p>Open pull requests</p>;`;
+    assert.deepEqual(hitsOf("explainer-action-jsx.tsx", jsx), []);
+    const plain = `export const STEP = { action: "Check the runway, the months of cash left." };
+export const A = () => <p>Your runway dropped.</p>;`;
+    assert.deepEqual(hitsOf("plain-action.tsx", plain), ["Runway"]);
+    assert.ok(definitionSlotTexts !== undefined);
+  });
+});
+
+describe("accessible names that repeat visible text", () => {
+  it("drops an aria-label hit when the file shows the word as visible text", () => {
+    const { hits } = scan(
+      "aria-dup.tsx",
+      `export const A = () => (\n  <section aria-label="Runway chart">\n    <h2>Runway</h2>\n  </section>\n);`,
+    );
+    // One hit, the visible heading on line 3; the aria-label on line 2 repeats it.
+    assert.deepEqual(
+      hits.map((h) => h.line),
+      [3],
+    );
+    assert.ok(ARIA_KEYS.has("aria-label"));
+  });
+
+  it("keeps an aria-label hit when the word appears nowhere else", () => {
+    assert.deepEqual(
+      hitsOf(
+        "aria-only.tsx",
+        `export const A = () => <section aria-label="Runway chart"><Chart /></section>;`,
+      ),
+      ["Runway"],
+    );
+  });
+
+  it("keeps a replace-tier word in an aria-label (it fails on sight)", () => {
+    assert.deepEqual(
+      hitsOf(
+        "aria-replace.tsx",
+        `export const A = () => <div aria-label="ICP list"><p>ICP</p></div>;`,
+      ),
+      ["ICP", "ICP"],
+    );
+  });
+});
+
+describe("addresses, test ids and data-* keys", () => {
+  it("never reads a word inside a URL, a path, a file name, a query parameter or an anchor", () => {
+    const spans = addressSpans(
+      "Open /b/x/d/finance/runway or https://example.com/runway, see tokens.css, ?tab=pull-requests, #runway",
+    );
+    assert.equal(spans.length, 5);
+    assert.deepEqual(
+      moreHits(
+        "addresses.ts",
+        `export const LINES = ["$ pnpm vitest run src/triage/unity", "Open /d/finance/runway to see it", "Docs at https://docs.example.com/webhook-setup", "Edit tokens.css first", "Jump to #runway", "Load ?tab=pull-requests now"];`,
+      ),
+      [],
+    );
+  });
+
+  it("still reads the word in the sentence beside the address", () => {
+    assert.deepEqual(
+      hitsOf(
+        "slash-prose.ts",
+        `export const R = "A GitHub personal/OAuth/user token, an ICP/persona/segment note";`,
+      ),
+      ["ICP"],
+    );
+    assert.deepEqual(
+      moreHits(
+        "address-sentence.ts",
+        `export const LINE = "Your runway dropped; see /d/finance/overview, and triage happens later";`,
+      ),
+      ["Runway", "triage"],
+    );
+  });
+
+  it("skips the value of a test id or a data-* key written as an object property", () => {
+    assert.ok(TECHNICAL_KEY.test("data-testid"));
+    assert.ok(TECHNICAL_KEY.test("testID"));
+    assert.ok(!TECHNICAL_KEY.test("label"));
+    const src = `export const PROPS = { "data-testid": "runway chart", "data-term": "pull request card", testID: "runway panel", label: "Cash" };
+export const A = () => <div {...PROPS} data-section="runway panel">Cash</div>;`;
+    assert.deepEqual(hitsOf("test-ids.tsx", src), []);
+  });
+});
+
+describe("allowances for the define words that stay", () => {
+  const cases = [
+    ["fits as a verb", "Fit", "Which fits you best? The budget fits."],
+    ["fit you", "Fit", "We will find a plan to fit you."],
+    ["potential before a noun", "Potential", "Talk to potential customers and potential partners."],
+    ["partial credit", "Credits", "Steps earn partial credit; the channel gets the credit."],
+    ["tax credit", "Credits", "Claim the R&D tax credit and pay by credit card."],
+    ["access token", "Tokens", "Paste an access token; use design tokens and tokens only."],
+    ["billing cycle", "Cycle", "Your billing cycle and the sales cycle are both monthly."],
+    ["sales proposal", "Proposal", "Send the sales proposal and the partnership proposal."],
+    ["SAFE conversion", "Conversion", "The SAFE conversion and currency conversion fees."],
+    [
+      "acceptance of terms",
+      "Acceptance",
+      "Acceptance of the terms by the buyer, and payment acceptance.",
+    ],
+  ];
+  for (const [name, term, text] of cases) {
+    it(`does not read "${name}" as ${term}`, () => {
+      const hits = scan(
+        `more-${name.replace(/\W+/g, "-")}.tsx`,
+        `export const A = () => <p>${text}</p>;`,
+        scanCode,
+        MORE,
+      ).hits;
+      assert.deepEqual(
+        hits.filter((h) => h.term === term).map((h) => h.match),
+        [],
+        text,
+      );
+    });
+  }
+
+  it("still reads the product sense", () => {
+    const src = `export const A = () => <p>The highest fits win. A fit of 16. Potential 4 of 5. Credits ran out. Tokens used: 12,000. The next cycle starts. Accept the proposal. Conversions this week. Acceptance criteria pass.</p>;`;
+    assert.deepEqual(moreHits("more-product-sense.tsx", src), [
+      "Acceptance",
+      "Conversion",
+      "Credits",
+      "Cycle",
+      "Fit",
+      "Fit",
+      "Potential",
+      "Proposal",
+      "Tokens",
+    ]);
+  });
+});
+
 describe("report", () => {
+  it("lists the define and plain words in the sweep when the tiers are known", () => {
+    const out = join(dir, "TIERS-SWEEP.md");
+    writeSweep(
+      out,
+      {
+        hits: [],
+        silenced: [],
+        errors: [],
+        files: 0,
+        terms: MORE,
+        tiers: { replace: ["ICP"], define: ["Runway", "Cycle"], plain: ["Revenue", "Lead"] },
+      },
+      ["fixture"],
+    );
+    const md = readFileSync(out, "utf8");
+    assert.match(md, /Define \(2\): Runway, Cycle\./);
+    assert.match(md, /Plain \(2\): Revenue, Lead\./);
+    assert.match(
+      md,
+      /Gate 2 counts the UI roots .*\*\*0 undefined define-tier hit\(s\)\*\*, under the 300/,
+    );
+    assert.match(md, /\*\*plain\*\* is not linted/);
+  });
+
   it("counts by tier and writes the per-package sweep", () => {
     const { hits } = scan(
       "sweep.tsx",

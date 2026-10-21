@@ -84,7 +84,7 @@ export const DOORS: LinkDoor[] = [
     icon: FolderInput,
     kicker: "Door B",
     title: "I already run something",
-    lede: "Point the import at your repository, documents, trackers, revenue and registry; it checks what is there and writes an Import report. The reading starts once you take charge, and it never writes to your sources.",
+    lede: "Point the import at your code, documents, trackers, revenue and registry; it checks what is there and writes an Import report. The reading starts once you take charge, and it never writes to your sources.",
     steps: ["Pick sources: GitHub, Drive, Notion, Linear, Jira, your website", "Stripe, Shopify, a bank, the company registry", "An Import report: what exists, what is missing, first decisions", "Commit and take charge; the import reads your sources then"],
     cta: "Choose sources",
   },
@@ -97,7 +97,7 @@ export const EXAMPLE_DOOR: Door = {
   kicker: "Example",
   title: "Explore an example",
   lede: "Walk around a running business before you start yours. Nothing you do there is saved.",
-  steps: ["Open a running example business as a viewer: Home, the Inbox, every department and its agents", "Read what the team drafted and how it reports back", "Nothing you do there is saved: no cycle runs and no decision is taken", "Leave it from Your businesses, or start your own from its top bar"],
+  steps: ["Open a running example business as a viewer: Home, the Inbox, every department and its agents", "Read what the team drafted and how it reports back", "Nothing you do there is saved: the team does no work and no decision is taken", "Leave it from Your businesses, or start your own from its top bar"],
   cta: "Open the example",
 };
 

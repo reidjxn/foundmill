@@ -29,6 +29,7 @@ import {
   ReassuranceLine,
   SegmentedControl,
   Switch,
+  Term,
   TIME_FORMAT_LABELS,
   bindFormatters,
   type DateFormatPrefs,
@@ -119,7 +120,9 @@ export function GuidanceSection() {
 
   return (
     <SettingsSection title="Guidance" data-testid="guidance-panel">
-      <Hint>How much the product explains as you go, in every business you open. Consequences, provenance and Estimate labels always show.</Hint>
+      <Hint>
+        How much the product explains as you go, in every business you open. Consequences, provenance and <Term id="estimate" always>Estimate</Term> labels always show.
+      </Hint>
       <div className="flex items-start gap-3" data-testid="guidance-choice">
         <Switch
           id="guidance-switch"

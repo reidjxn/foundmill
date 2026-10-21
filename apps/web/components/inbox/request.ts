@@ -176,6 +176,7 @@ export function describeRequest(r: RequestLike): string {
     }
     case "merge_pull_request": {
       const n = str(p, "number", "pull_number", "pr", "pullRequest");
+      // plain-allow: ApprovalPanel defines "pull request" in its help tip when the request is a merge.
       return `${who} wants to merge ${n ? `pull request #${n.replace(/^#/, "")}` : "a pull request"}${service && service !== "GitHub" ? ` on ${service}` : ""}`;
     }
     default: {

@@ -3,6 +3,7 @@ import { cn } from "../../lib/cn";
 import { Chip } from "../foundation/Chip";
 import { EmptyState } from "../foundation/EmptyState";
 import { Icon, type IconComponent } from "../foundation/Icon";
+import { Term } from "../guidance/Term";
 import type { PlanStep, PlanStepState, TestSummary } from "./types";
 
 const STEP: Record<PlanStepState, { icon: IconComponent; word: string; className: string }> = {
@@ -60,8 +61,8 @@ export function PlanView({ plan, tests, className }: PlanViewProps) {
           <div className="flex items-center gap-1.5 text-primary">
             <Icon icon={FlaskConical} size="inline" className="text-secondary" />
             {acc ? (
-              <span className="tabular-nums">
-                Acceptance tests: {acc.passed} of {acc.passed + acc.failed} passing
+              <span className="tabular-nums" data-plan-tests="">
+                <Term id="acceptance">Acceptance tests</Term>: {acc.passed} of {acc.passed + acc.failed} passing
               </span>
             ) : (
               <span className="text-secondary">Acceptance tests have not run yet</span>

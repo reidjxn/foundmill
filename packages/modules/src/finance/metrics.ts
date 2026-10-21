@@ -149,10 +149,11 @@ export function plainLine(key: MetricKey): string {
 
 /**
  * The P&L's source label in plain words: the API's "Management P&L, unaudited, cash basis" reads "Management view,
- * unaudited, counted when the cash moves (cash basis)"; any other label (a ledger's own) passes through.
+ * unaudited, cash basis: counted when the cash moves"; any other label (a ledger's own) passes through.
  */
+// plain-allow: the API's label, matched here and never shown (pnlLabelWords swaps it for PNL_CASH_BASIS_WORDS).
 export const PNL_CASH_BASIS_LABEL = "Management P&L, unaudited, cash basis";
-export const PNL_CASH_BASIS_WORDS = "Management view, unaudited, counted when the cash moves (cash basis)";
+export const PNL_CASH_BASIS_WORDS = "Management view, unaudited, cash basis: counted when the cash moves";
 export function pnlLabelWords(label: string | null | undefined): string {
   if (!label) return PNL_CASH_BASIS_WORDS;
   return label.trim() === PNL_CASH_BASIS_LABEL ? PNL_CASH_BASIS_WORDS : label;
@@ -624,6 +625,7 @@ export function modelRound(cap: { securities: readonly SecurityRow[]; entries: r
   rows.sort((a, b) => b.afterQuantity - a.afterQuantity);
 
   return {
+    // plain-allow: a provenance tag typed as the literal "Estimate" (RoundModel), never rendered as text.
     label: "Estimate",
     postMoneyMinor: input.preMoneyMinor + input.investmentMinor,
     pricePerShareMinor: r4(price),

@@ -624,6 +624,20 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
             <Icon icon={Trophy} size={13} className="text-gold" />
             Milestones
           </li>
+          {geometry.runway ? (
+            <li className="flex items-center gap-1.5 whitespace-nowrap" data-legend-runway>
+              <svg width={16} height={10} aria-hidden>
+                <line x1={8} x2={8} y1={0} y2={10} stroke={RUNWAY_COLOUR[geometry.runway.tone]} strokeWidth={1.5} strokeDasharray="3 2" />
+              </svg>
+              {/* Worked out, not measured: defined even with guidance off, like Forecast (UX plan §7.8). */}
+              <span>
+                Cash runs out ·{" "}
+                <Term id="estimate" always>
+                  Estimate
+                </Term>
+              </span>
+            </li>
+          ) : null}
           {geometry.roadmap.length > 0 ? (
             <li className="flex items-center gap-1.5 whitespace-nowrap">
               <Icon icon={Flag} size={13} className="text-tertiary" />

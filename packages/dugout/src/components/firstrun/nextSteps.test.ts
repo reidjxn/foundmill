@@ -33,7 +33,7 @@ describe("nextStepsFor: day one", () => {
   it("asks the founder to wait while the team is still drafting, and before a draft was asked for", () => {
     for (const status of ["drafting", null] as const) {
       const steps = nextStepsFor({ ...dayOne, foundationsStatus: status, blockingNotes: 0 }, routes);
-      expect(steps[0]?.label).toBe("Wait for the team's first draft of the specification and roadmap");
+      expect(steps[0]?.label).toBe("Wait for the team's first draft of what to build and in what order");
       expect(steps[0]?.href).toBeUndefined();
       expect(steps[0]?.done).toBeFalsy();
       // Nothing to answer yet: the second row is not done either.

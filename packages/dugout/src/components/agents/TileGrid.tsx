@@ -5,6 +5,8 @@ import type { AgentStatus, DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { Avatar } from "../foundation/Avatar";
 import { Icon } from "../foundation/Icon";
+import { Tooltip } from "../foundation/Tooltip";
+import { useGuided, useTerm } from "../guidance/GuidanceProvider";
 
 /** Grid sizes the Training Ground adapts to (BUILD §11.6). */
 export const TILE_CAPACITIES = [1, 2, 4, 6, 9, 12, 16, 24] as const;
@@ -232,6 +234,9 @@ export interface GroundViewToggleProps {
 
 /** Tiles / Task graph toggle for the Live sessions header (BUILD §11.6 "Formation view toggle"). */
 export function GroundViewToggle({ value, onChange, className }: GroundViewToggleProps) {
+  // The Task graph option says what one is on hover while guided (a radio is a button: no Term inside it).
+  const taskGraph = useTerm("task_graph");
+  const guided = useGuided();
   return (
     <div role="radiogroup" aria-label="Live sessions view" className={cn("seg-track h-control-sm", className)}>
       {(
@@ -240,17 +245,18 @@ export function GroundViewToggle({ value, onChange, className }: GroundViewToggl
           { v: "formation", label: "Task graph", icon: Network },
         ] as const
       ).map((o) => (
-        <button
-          key={o.v}
-          type="button"
-          role="radio"
-          aria-checked={value === o.v}
-          onClick={() => onChange(o.v)}
-          className={cn("seg-item font-body text-action-sm font-medium focus-visible:shadow-ring", value === o.v && "tile-tab-on text-primary")}
-        >
-          <Icon icon={o.icon} size="inline" />
-          {o.label}
-        </button>
+        <Tooltip key={o.v} content={o.v === "formation" && guided && taskGraph ? `${taskGraph.word}: ${taskGraph.short}` : null}>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={value === o.v}
+            onClick={() => onChange(o.v)}
+            className={cn("seg-item font-body text-action-sm font-medium focus-visible:shadow-ring", value === o.v && "tile-tab-on text-primary")}
+          >
+            <Icon icon={o.icon} size="inline" />
+            {o.label}
+          </button>
+        </Tooltip>
       ))}
     </div>
   );

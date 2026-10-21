@@ -27,7 +27,7 @@ export const EXAMPLE_IDENTITIES: Readonly<Record<ExampleId, ExampleIdentity>> = 
     // Vermilion (white text passes APCA Lc 75 on it) and the logo's cyan.
     kit: { primary: "#c94a2c", secondary: "#5fd4e6" },
     vertical: "Developer tools",
-    description: "AI playtesters that play every build of an indie game, file each bug to GitHub with a replay, and check every pull request.",
+    description: "AI playtesters that play every build of an indie game, file each bug to GitHub with a replay, and check every code change before it ships.",
   },
   northwind: {
     id: "northwind",

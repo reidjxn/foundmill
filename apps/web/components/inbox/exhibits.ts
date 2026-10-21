@@ -30,6 +30,8 @@ export interface ExhibitData {
   title: string;
   label: ExhibitLabel | null;
   source: string;
+  /** One sentence defining the panel's words, shown as the panel's help tip (UX plan §8.1: define on first use). */
+  help?: string;
   currency?: string;
   columns?: readonly ExhibitColumn[];
   rows?: Record<string, string | number | null>[];
@@ -155,6 +157,7 @@ export function conversions30d(input: RibbonLike | undefined, from: string, to: 
     title: EXHIBIT_TITLES.conversions_30d,
     label: null,
     source: "Customer journeys across the business, one point per day",
+    help: "A conversion is a person taking the step you wanted: signing up, activating or paying.",
     columns: [
       { key: "stage", label: "Stage", unit: "text" },
       { key: "count", label: "Count", unit: "count" },
@@ -182,6 +185,7 @@ export function channelCpa(input: ChannelsLike | undefined, currency: string): E
     title: EXHIBIT_TITLES.channel_cpa,
     label: "Estimate",
     source: "Channel spend ÷ new customers, last 35 days",
+    help: "Estimate: worked out from each channel's spend and its new customers, not measured.",
     currency: input?.channels[0]?.currency ?? currency,
     columns: [
       { key: "channel", label: "Channel", unit: "text" },
@@ -208,6 +212,7 @@ export function cashPosition(input: FinanceLike | undefined, businessCurrency: s
     title: EXHIBIT_TITLES.cash_position,
     label: "Estimate",
     source: "Bank balances and the trailing 3-month burn (financing excluded)",
+    help: "Gross burn is everything spent in a month; net burn is what is spent minus what comes in; runway is how many months the cash lasts at that rate.",
     currency,
     columns: [
       { key: "metric", label: "Metric", unit: "text" },
@@ -246,7 +251,7 @@ export function runwayForecast(input: FinanceLike | undefined, businessCurrency:
     const points = forecastPoints(f.series);
     if (points.length > 0) series.push({ key: s, label: s.charAt(0).toUpperCase() + s.slice(1), points });
   }
-  return { id: "runway_forecast", title: EXHIBIT_TITLES.runway_forecast, label: "Forecast", source: "Driver-based forecast (base / upside / downside)", currency, series };
+  return { id: "runway_forecast", title: EXHIBIT_TITLES.runway_forecast, label: "Forecast", source: "Driver-based forecast (base / upside / downside)", help: "Forecast: a projection of the cash ahead in three cases, not a measurement.", currency, series };
 }
 
 export interface RoadmapLike {

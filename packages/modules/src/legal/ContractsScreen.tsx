@@ -64,7 +64,7 @@ const NEXT_LABEL: Partial<Record<ContractStatus, { label: string; icon: typeof A
 };
 
 /** What ending a contract does, under its button (UX plan §6.2 ConsequenceLine, principle 6); always shown. */
-export const TERMINATE_CONSEQUENCE = { consequence: "The contract ends here and its obligations stop being tracked; the counterparty is not told by the product.", reversible: false } as const;
+export const TERMINATE_CONSEQUENCE = { consequence: "The contract ends here and its obligations stop being tracked; the other side is not told by the product.", reversible: false } as const;
 
 export function contractColumns(businessId: string, currency: string, now: Date, sizes: Record<ContractColumnId, number> = fitColumns<ContractColumnId>(null, CONTRACT_FIT, [])): DataTableColumn<ContractRow>[] {
   return [
@@ -73,7 +73,7 @@ export function contractColumns(businessId: string, currency: string, now: Date,
     {
       id: "counterparty",
       accessorFn: (r) => r.counterparty?.displayName ?? "",
-      header: "Counterparty",
+      header: "Other side",
       size: sizes.counterparty,
       cell: ({ row }) => (row.original.counterparty ? <EntityLink entity={{ id: row.original.counterparty.id, kind: "organisation", name: row.original.counterparty.displayName, href: routes.crm(businessId, row.original.counterparty.id) }} hoverCard={false} /> : <span className="text-secondary">—</span>),
       meta: { filter: "text" },
@@ -90,7 +90,7 @@ export function contractColumns(businessId: string, currency: string, now: Date,
 export function obligationColumns() {
   return [
     { id: "title", header: "Obligation", cell: (o: Obligation) => <span className="t-body-strong text-primary">{o.title}</span> },
-    { id: "party", header: "Owed by", width: 100, cell: (o: Obligation) => <span className="text-secondary">{o.party === "us" ? "Us" : o.party === "them" ? "Counterparty" : "Both"}</span> },
+    { id: "party", header: "Owed by", width: 100, cell: (o: Obligation) => <span className="text-secondary">{o.party === "us" ? "Us" : o.party === "them" ? "Them" : "Both"}</span> },
     { id: "due", header: "Due", width: 110, cell: (o: Obligation) => <DateText className="tabular-nums" value={o.dueAt} /> },
     { id: "status", header: "Status", width: 110, cell: (o: Obligation) => <Pill tone={o.status === "met" ? "good" : o.status === "overdue" ? "bad" : "neutral"} word={o.status === "met" ? "Met" : o.status === "overdue" ? "Overdue" : "Open"} /> },
   ];
@@ -140,7 +140,7 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
     const moves = CONTRACT_NEXT[row.status].filter((s) => s !== "signed");
     return [
       { id: "open", label: "Open", icon: FileText, onSelect: (r) => setSelectedId(r.id) },
-      { id: "crm", label: "Open counterparty in CRM", icon: ExternalLink, disabled: !row.counterpartyEntityId, onSelect: (r) => r.counterpartyEntityId && navigate(routes.crm(businessId, r.counterpartyEntityId)) },
+      { id: "crm", label: "Open the other side in CRM", icon: ExternalLink, disabled: !row.counterpartyEntityId, onSelect: (r) => r.counterpartyEntityId && navigate(routes.crm(businessId, r.counterpartyEntityId)) },
       ...moves.map((s, i) => {
         const meta = NEXT_LABEL[s];
         return { id: `to-${s}`, label: meta?.label ?? `Move to ${CONTRACT_STATUS_WORD[s].toLowerCase()}`, icon: meta?.icon, variant: meta?.variant, separatorBefore: i === 0, onSelect: (r: ContractRow) => void setStatus(r, s) } satisfies RowAction<ContractRow>;
@@ -261,7 +261,7 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
             layout="grid"
             items={[
               { label: "Kind", value: contractKindLabel(selectedRow.kind) },
-              { label: "Counterparty", value: selectedRow.counterparty ? <EntityLink entity={{ id: selectedRow.counterparty.id, kind: "organisation", name: selectedRow.counterparty.displayName, href: routes.crm(businessId, selectedRow.counterparty.id) }} /> : "—" },
+              { label: "Other side", value: selectedRow.counterparty ? <EntityLink entity={{ id: selectedRow.counterparty.id, kind: "organisation", name: selectedRow.counterparty.displayName, href: routes.crm(businessId, selectedRow.counterparty.id) }} /> : "—" },
               { label: "Value", value: selectedRow.valueMinor === null || selectedRow.valueMinor === undefined ? "—" : fmtMoney(selectedRow.valueMinor, selectedRow.currency || currency), numeric: true },
               { label: "Term", value: `${selectedRow.startsAt ? formatDate(selectedRow.startsAt) : "—"} → ${selectedRow.endsAt ? formatDate(selectedRow.endsAt) : "open-ended"}` },
               { label: "Signed", value: selectedRow.signedAt ? formatDate(selectedRow.signedAt) : "Not signed" },
@@ -295,7 +295,7 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
                   </Button>
                   <FounderOnlyChip />
                 </div>
-                <p className="t-small text-secondary">Agents never sign. Marking a contract awaiting signature sends nothing: send the envelope from your e-signature tool and paste its link into the document field. You sign there, then record it here; when Dropbox Sign is connected and the document link names the signature request, its webhook records the signature for you.</p>
+                <p className="t-small text-secondary">Agents never sign. Marking a contract awaiting signature sends nothing: send the envelope from your e-signature tool and paste its link into the document field. You sign there, then record it here; when Dropbox Sign is connected and the document link names the signature request, Dropbox Sign tells the product once it is signed and the signature is recorded for you.</p>
               </>
             ) : (
               <p className="t-body text-primary">{selectedRow.signedAt ? `Signed ${formatDate(selectedRow.signedAt)} by the founder.` : CONTRACT_STATUS_WORD[selectedRow.status]}</p>

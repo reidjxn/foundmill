@@ -7,7 +7,7 @@
  */
 import { useMemo, useState, type ReactNode } from "react";
 import { Flag, Lightbulb, LoaderCircle, Play, Sunrise, type LucideIcon } from "lucide-react";
-import { Avatar, AvatarStack, BusinessLogo, Chip, ConceptCard, ContinueButton, DRAFTING_LINE, Icon, ProgressRing, ProvenanceChip, StatusPill, cn, kitBarGradient, kitStyle, type Kit } from "@foundmill/dugout";
+import { Avatar, AvatarStack, BusinessLogo, Chip, ConceptCard, ContinueButton, DRAFTING_LINE, Icon, ProgressRing, ProvenanceChip, StatusPill, Term, cn, kitBarGradient, kitStyle, type Kit } from "@foundmill/dugout";
 import { NOTE_TAG_ICONS, RESPOND_TAG } from "@foundmill/widgets/shared/note-tags";
 import { useExample } from "./examples/context";
 import { departmentOf, exampleMoney, leadOf } from "./examples/helpers";
@@ -26,13 +26,21 @@ export function HowItWorks() {
       <SectionHeading id="how" eyebrow="How it works" title="From an idea to a running business, one cycle at a time." lede="You do not manage prompts. You run a business: set the direction, approve what matters, and let the team carry the rest." />
       {/* Two by two: each step's product part keeps the width it has in the app (a concept card, the brand picker). */}
       <ol className="grid grid-cols-2 gap-6">
-        <Step n="01" icon={Lightbulb} title="Shape the idea" text="Start from a sentence, or import what already exists: your repository, documents, trackers, revenue and company registry. Concepts are drafted around your skills, time and money, and rated for fit." delay={0}>
+        <Step n="01" icon={Lightbulb} title="Shape the idea" text={
+            <>
+              Start from a sentence, or import what already exists: your <Term id="repository">repository</Term>, documents, trackers, revenue and company registry. Concepts are drafted around your skills, time and money, and rated for <Term id="fit">fit</Term>.
+            </>
+          } delay={0}>
           <ConceptStack />
         </Step>
         <Step n="02" icon={Flag} title="Make it yours" text="Name it, choose a logo and brand colors, and decide how hands-on you want to be. Committing creates the departments, hires the team and drafts the first roadmap." delay={90}>
           <BrandPicker />
         </Step>
-        <Step n="03" icon={Play} title="Press Continue" text="Each cycle the Chief of Staff plans the work, agents do it in sandboxes, and your Inbox gets a short note with anything that needs your decision." delay={180}>
+        <Step n="03" icon={Play} title="Press Continue" text={
+            <>
+              Each <Term id="cycle">cycle</Term> the <Term id="chief_of_staff">Chief of Staff</Term> plans the work, agents do it in <Term id="sandbox">sandboxes</Term>, and your Inbox gets a short note with anything that needs your decision.
+            </>
+          } delay={180}>
           <CyclePlan />
         </Step>
         <Step n="04" icon={Sunrise} title="Your first day" text={FIRST_DAY_SENTENCE} delay={270}>
@@ -43,7 +51,7 @@ export function HowItWorks() {
   );
 }
 
-function Step({ n, icon, title, text, children, delay }: { n: string; icon: LucideIcon; title: string; text: string; children: ReactNode; delay: number }) {
+function Step({ n, icon, title, text, children, delay }: { n: string; icon: LucideIcon; title: string; text: ReactNode; children: ReactNode; delay: number }) {
   return (
     <Reveal as="li" delay={delay}>
       <Glass className="flex h-full flex-col overflow-hidden">
@@ -191,7 +199,9 @@ function FirstDay() {
     <div className="flex size-full flex-col gap-2.5 p-4">
       <section aria-label={FIRST_DAY_PANEL_TITLE} className="flex flex-col rounded-panel border border-subtle bg-panel/80">
         <div className="flex h-panel-header items-center gap-2 border-b border-subtle px-3">
-          <span className="t-title text-primary">Vision, specification and roadmap</span>
+          <span className="t-title text-primary">
+            Vision, <Term id="specification">specification</Term> and roadmap
+          </span>
           <span className="flex-1" />
           <StatusPill tone="info" icon={LoaderCircle} pulse>
             Drafting

@@ -11,7 +11,7 @@
  */
 import { useCallback, useMemo, useState } from "react";
 import { FlaskConical, ShieldCheck } from "lucide-react";
-import { Avatar, Chip, Icon, MiniTable, Panel, ShoutMenu, SpecialistTile, TileGrid, formatDuration, formatMoney, type AgentTileSession, type TileControls, type TileGridItem } from "@foundmill/dugout";
+import { Avatar, Chip, Icon, MiniTable, Panel, ShoutMenu, SpecialistTile, Term, TileGrid, formatDuration, formatMoney, type AgentTileSession, type TileControls, type TileGridItem } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { plural } from "../fit";
@@ -141,7 +141,7 @@ export function SpecialistsScreen({ businessId, departmentId }: ModuleScreenProp
         loading={tasks.isLoading || (sessions.isLoading && !sessions.data)}
         error={tasks.error ? tasks.error.message : sessions.error ? sessions.error.message : undefined}
         onRetry={refetchAll}
-        empty={tasks.data && list.length === 0 ? { icon: FlaskConical, title: "No specialists at work", children: "Sourcing, formulation, certification, packaging, quality, logistics and costing specialists show their RFQ funnel, quotes, samples and shipments here once a specialist task starts. Hire one from the Team tab or plan a task on the Plan tab.", action: { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug ?? "development", "plan")) } } : undefined}
+        empty={tasks.data && list.length === 0 ? { icon: FlaskConical, title: "No specialists at work", children: "Sourcing, formulation, certification, packaging, quality, logistics and costing specialists show their quote requests, quotes, samples and shipments here once a specialist task starts. Hire one from the Team tab or plan a task on the Plan tab.", action: { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug ?? "development", "plan")) } } : undefined}
         meta={
           list.length ? (
             <span data-testid="specialist-counts">
@@ -175,7 +175,7 @@ export function SpecialistsScreen({ businessId, departmentId }: ModuleScreenProp
           <section aria-label="Not started yet" className={tiles.length || quiet.length ? "border-t border-line" : undefined} data-testid="specialists-waiting">
             <div className="flex min-w-0 flex-col gap-0.5 px-panel-pad pb-2 pt-3">
               <p className="text-body-strong">{waiting.length === 1 ? "1 specialist task has not started yet" : `${waiting.length} specialist tasks have not started yet`}</p>
-              <p className="text-small text-secondary">They are queued for the next cycle. A tile appears here as soon as one starts.</p>
+              <p className="text-small text-secondary">They are queued for the next <Term id="cycle">cycle</Term>. A tile appears here as soon as one starts.</p>
             </div>
             <MiniTable<SpecialistItem>
               aria-label="Specialist tasks not started"
@@ -211,7 +211,7 @@ export function SpecialistsScreen({ businessId, departmentId }: ModuleScreenProp
               </span>
               <div className="flex min-w-0 flex-col gap-0.5">
                 <p className="text-body-strong">{quiet.length === 1 ? "1 finished specialist task left no supplier records" : `${quiet.length} finished specialist tasks left no supplier records`}</p>
-                <p className="text-small text-secondary">The funnel, quotes, samples and shipments fill from a specialist's notes as RFQs go out and suppliers reply. These sessions ended before any arrived; open a task to read what happened.</p>
+                <p className="text-small text-secondary">Quote requests, quotes, samples and shipments fill in from a specialist's notes as requests go out and suppliers reply. These sessions ended before any arrived; open a task to read what happened.</p>
               </div>
             </div>
             <MiniTable<SpecialistItem>

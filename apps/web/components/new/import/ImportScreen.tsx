@@ -248,7 +248,7 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, r
                             {on ? (
                               <div className="mt-2 flex flex-col gap-2">
                                 {s.input !== "none" ? (
-                                  <Field htmlFor={`src-${s.key}-value`} label={s.input === "repo" ? "Repository" : s.input === "url" ? "Address" : "Registration number"} error={err}>
+                                  <Field htmlFor={`src-${s.key}-value`} label={s.input === "repo" ? "Repository" : s.input === "url" ? "Address" : "Registration number"} hint={s.input === "repo" ? "A repository is where your product's code lives, with the history of every change." : undefined} error={err}>
                                     <Input id={`src-${s.key}-value`} value={chosen.get(s.key) ?? ""} onChange={(e) => setValue(s.key, e.target.value)} placeholder={s.placeholder} mono={s.input !== "url"} invalid={Boolean(err)} autoFocus />
                                   </Field>
                                 ) : null}
@@ -300,7 +300,7 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, r
               </Panel>
               <Panel title="What the agent will not do">
                 <ul className="flex flex-col gap-1 text-body text-secondary">
-                  <li>Push to a repository or open a pull request</li>
+                  <li>Change your code or propose changes to it</li>
                   <li>Move money, change settings or accept terms</li>
                   <li>Read pages a website asks crawlers to skip</li>
                   <li>Keep credentials in the browser</li>

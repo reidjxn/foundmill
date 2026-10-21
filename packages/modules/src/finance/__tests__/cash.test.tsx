@@ -94,7 +94,7 @@ describe("CashScreen", () => {
     const table = screen.getByRole("grid", { name: "Transactions" });
     fireEvent.contextMenu(within(table).getByText("September salaries"));
     const menu = await screen.findByRole("menu");
-    expect(within(menu).getByRole("menuitem", { name: "Counterparty not linked" }).getAttribute("aria-disabled")).toBe("true");
+    expect(within(menu).getByRole("menuitem", { name: "Other side not in the CRM" }).getAttribute("aria-disabled")).toBe("true");
     await user.click(within(menu).getByRole("menuitem", { name: "Recategorize…" }));
     const dialog = await screen.findByRole("dialog", { name: "Recategorize transaction" });
     await act(async () => {

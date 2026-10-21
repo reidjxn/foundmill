@@ -158,7 +158,7 @@ describe("DiffView", () => {
       );
     }
     render(<Harness />);
-    const hunks = screen.getAllByRole("region", { name: /^Hunk/ });
+    const hunks = screen.getAllByRole("region", { name: /^Change \d+$/ });
     expect(hunks).toHaveLength(2);
     expect(screen.getByText("+5")).toBeTruthy();
     expect(screen.getByText("−3")).toBeTruthy();
@@ -175,7 +175,7 @@ describe("DiffView", () => {
     expect(merged).not.toContain("CPNP");
     expect(screen.getByText(/1 accepted, 1 rejected, 0 pending/)).toBeTruthy();
     await user.click(within(hunks[1]!).getByRole("button", { name: "Edit" }));
-    const editor = screen.getByRole("textbox", { name: "Edit this hunk" });
+    const editor = screen.getByRole("textbox", { name: "Edit this change" });
     await user.clear(editor);
     await user.type(
       editor,

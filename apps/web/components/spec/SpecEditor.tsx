@@ -140,6 +140,7 @@ function CollabSurface({ session, status, pinned, readOnly, user }: { session: C
         Collaboration.configure({ document: session.doc, field: COLLAB_FIELD }),
         CollaborationCaret.configure({ provider: session.provider, user }),
       ],
+      // plain-allow: the editor's accessible name; the Product tab that mounts it shows and defines "Specification".
       editorProps: { attributes: { class: "spec-editor-surface t-reading", "aria-label": "Specification block", "data-spec-editor": "collab" } },
     },
     [session, readOnly],
@@ -171,6 +172,7 @@ function LocalBlockEditor({ businessId, blockId, initialContent, pinned, readOnl
       editable: !readOnly,
       extensions: [StarterKit],
       content: initialContent,
+      // plain-allow: the editor's accessible name; the Product tab that mounts it shows and defines "Specification".
       editorProps: { attributes: { class: "spec-editor-surface t-reading", "aria-label": "Specification block", "data-spec-editor": "local" } },
     },
     [blockId, readOnly],
@@ -246,7 +248,7 @@ const STATUS_TONE: Record<SpecEditorStatus, { tone: "info" | "good" | "bad" | "n
 function EditorFrame({ status, pinned, readOnly, note, actions, error, children }: { status: SpecEditorStatus; pinned: boolean; readOnly?: boolean; note?: string; actions?: ReactNode; error?: string; children?: ReactNode }) {
   const st = STATUS_TONE[status];
   const hint = useMemo(() => {
-    if (readOnly) return "Read only: you can read the specification but your role cannot change it.";
+    if (readOnly) return "Read only: you can read this document but your role cannot change it.";
     if (status === "connected") return pinned ? "Human-edited block: agents propose changes here instead of writing." : "Edits sync live; the first human edit pins the block for agents.";
     if (status === "local") return "⌘/Ctrl+S saves this block; Esc undoes your changes.";
     if (status === "disconnected") return "Connection lost; edits continue locally and sync when the server is back.";

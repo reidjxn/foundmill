@@ -17,10 +17,10 @@ export const DECISION_LABELS: Record<DecisionType, string> = {
 export const DECISION_DESCRIPTIONS: Record<DecisionType, string> = {
   spend_above_threshold: "Any purchase or budget above the business's approval threshold.",
   publish_content: "Posts, pages, newsletters and ads going live under the business's name.",
-  merge_to_main: "Pull requests merging into the main branch.",
+  merge_to_main: "Code changes going into the main copy of the product's code.",
   sign_contracts: "Signatures and accepted terms. A hard gate: an agent can never hold this.",
   message_customers: "Outbound messages to customers and leads.",
-  hire_agents: "Adding agents to the team and their wage caps.",
+  hire_agents: "Adding agents to the team and setting the most each may cost a month.",
   change_models: "Moving an agent to a different model.",
 };
 

@@ -186,7 +186,7 @@ describe("DataTable", () => {
     expect(bodyRows()).toHaveLength(hot.length);
     expect(screen.queryByRole("columnheader", { name: /Owner/ })).toBeNull();
     expect(
-      screen.getByRole("button", { name: /Edit filter: Stage is any of Qualified, Proposal/ }),
+      screen.getByRole("button", { name: /Edit filter: Stage is any of Qualified, Quote sent/ }),
     ).toBeTruthy();
     const scores = bodyRows().map((r) =>
       Number(within(r).getAllByRole("gridcell")[3]?.textContent),

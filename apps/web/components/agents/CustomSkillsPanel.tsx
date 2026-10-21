@@ -9,7 +9,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ClipboardCheck, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useId, useState } from "react";
-import { Button, Checkbox, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, ProvenanceChip, Textarea, formatMoney, useToast } from "@foundmill/dugout";
+import { Button, Checkbox, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, ProvenanceChip, Term, Textarea, formatMoney, useToast } from "@foundmill/dugout";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import type { AgentProfile } from "./logic";
@@ -120,6 +120,7 @@ function AddSkillDialog({ businessId, agentId, agentName, open, onOpenChange, on
   const create = useMutation(
     trpc.agent.skills.createCustom.mutationOptions({
       onSuccess: (r, vars) => {
+        // plain-allow: the provenance label on a figure; the dialog's ProvenanceChip defines Estimate on hover and focus.
         toast({ title: `Tests drafted for “${vars.name}”`, description: `${r.drafts.length} to review, ${r.draftsHeldOut} held out. Drafting cost ${formatMoney({ amountMinor: r.cost.amountMinor, currency: r.cost.currency })} (Estimate).`, tone: "good" });
         onDrafted({ definitionId: r.definitionId, name: vars.name, drafts: r.drafts, heldOut: r.draftsHeldOut });
       },
@@ -144,7 +145,7 @@ function AddSkillDialog({ businessId, agentId, agentName, open, onOpenChange, on
             <Textarea id={`${id}-examples`} rows={3} value={examples} onChange={(e) => setExamples(e.target.value)} placeholder="Call: Horizon EIC Accelerator => a 300-word excellence section that cites the call's criteria" />
           </Field>
           <p className="inline-flex items-center gap-1.5 text-small text-secondary">
-            Drafting is one Opus call charged to credits <ProvenanceChip kind="estimate" />
+            Drafting is one Opus call charged to <Term id="credits">credits</Term> <ProvenanceChip kind="estimate" />
           </p>
           {create.error ? (
             <p role="alert" className="text-small text-status-bad">

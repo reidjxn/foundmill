@@ -6,7 +6,7 @@
  */
 import { useMemo } from "react";
 import { BookOpenText, ExternalLink, FileText, Swords } from "lucide-react";
-import { Button, Chip, EntityText, Icon, Panel, ProvenanceChip, formatRelative, useFormatters } from "@foundmill/dugout";
+import { Button, Chip, EntityText, Icon, Panel, ProvenanceChip, Term, formatRelative, useFormatters } from "@foundmill/dugout";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import { plural } from "../fit";
 import type { ModuleScreenProps } from "../registry";
@@ -198,7 +198,7 @@ export function ResearchScreen({ businessId }: ModuleScreenProps) {
         loading={list.isLoading}
         error={err}
         onRetry={list.refetch}
-        empty={list.data && notes.length === 0 ? { icon: BookOpenText, title: "No research notes yet", children: "Interviews, feedback, documents and issues the team has read appear here with a summary and the specification paragraphs they touch." } : undefined}
+        empty={list.data && notes.length === 0 ? { icon: BookOpenText, title: "No research notes yet", children: <>Interviews, feedback, documents and issues the team has read appear here with a summary and the <Term id="specification">specification</Term> paragraphs they touch.</> } : undefined}
         footer={<span className="tabular-nums">{notes.length} notes{unsummarised ? ` · ${unsummarised} waiting for a summary` : ""} · names link to the CRM</span>}
         flush
       >

@@ -60,7 +60,7 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(table.getByText("Cost of sales", { exact: true }).first()).toBeVisible();
     await expect(table.getByText("cost_of_goods")).toHaveCount(0);
     // The API's "cash basis" label reads in plain words (UX plan §7.14).
-    await expect(page.getByText("Management view, unaudited, counted when the cash moves (cash basis)")).toBeVisible();
+    await expect(page.getByText("Management view, unaudited, cash basis: counted when the cash moves")).toBeVisible();
     const period = page.getByRole("group", { name: "Period" });
     await period.getByRole("button", { name: "6 months" }).click();
     await expect(period.getByRole("button", { name: "6 months" })).toHaveAttribute("aria-pressed", "true");
@@ -399,7 +399,7 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(page.getByText(/UK General Data Protection Regulation \(UK GDPR\)/)).toBeVisible();
     await expect(page.getByText(/^Last updated [A-Z][a-z]+ \d{1,2}, \d{4}$/)).toBeVisible();
     await openTab(page, "legal", "incorporate");
-    await expect(page.getByRole("radio", { name: /Document pack · Any other jurisdiction/ })).toBeVisible();
+    await expect(page.getByRole("radio", { name: /Document pack · Any other country or state/ })).toBeVisible();
     await expect(page.getByRole("radio", { name: /^Kit\b/ })).toHaveCount(0);
   });
 

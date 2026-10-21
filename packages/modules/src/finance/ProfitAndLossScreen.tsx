@@ -245,7 +245,7 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
             </Button>
           }
           empty={transactions.data && lineTransactions.length === 0 ? "No transactions in this line for the period." : undefined}
-          footer={<span>Pick a transaction to recategorize it. Applying to a counterparty creates a rule for future syncs.</span>}
+          footer={<span>Pick a transaction to recategorize it. Applying it to every transaction with the same other side makes a rule for future syncs.</span>}
         >
           <MiniTable<TransactionRow>
             aria-label={`Transactions in ${selected.label}`}
@@ -257,8 +257,8 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
               { id: "date", header: "Date", width: 84, cell: (t) => <span className="tabular-nums">{formatDateShort(t.bookedAt)}</span> },
               {
                 id: "who",
-                header: "Counterparty",
-                cell: (t) => (t.counterpartyEntityId ? <EntityLink entity={{ id: t.counterpartyEntityId, kind: "organisation", name: t.counterparty ?? "Counterparty" }} hoverCard={false} /> : <span className="truncate">{t.counterparty ?? t.description}</span>),
+                header: "Paid to / from",
+                cell: (t) => (t.counterpartyEntityId ? <EntityLink entity={{ id: t.counterpartyEntityId, kind: "organisation", name: t.counterparty ?? "Unnamed" }} hoverCard={false} /> : <span className="truncate">{t.counterparty ?? t.description}</span>),
               },
               { id: "amount", header: "Amount", numeric: true, width: 100, cell: (t) => <span className="tabular-nums">{fmtSigned(t.amountMinor, t.currency)}</span> },
               {

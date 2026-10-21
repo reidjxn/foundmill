@@ -100,7 +100,7 @@ export function NewEntityDialog({ businessId, open, onOpenChange, onCreated, onO
             </Field>
           )}
           {kind === "person" ? (
-            <Field htmlFor="new-basis" label="Lawful basis" hint="Why the business may hold this person's data (recorded per person).">
+            <Field htmlFor="new-basis" label="Lawful basis" hint="The lawful basis is the legal reason the business may hold this person's data, recorded per person.">
               <SimpleSelect id="new-basis" value={lawfulBasis} onValueChange={setLawfulBasis} options={LAWFUL_BASES.map((b) => ({ value: b, label: LAWFUL_BASIS_LABEL[b]! }))} />
             </Field>
           ) : null}
@@ -358,7 +358,7 @@ export function ExportDialog({ get, open, onOpenChange }: { get: EntityGet; open
       <DialogContent size="md" data-testid="export-dialog">
         <DialogHeader>
           <DialogTitle>Export everything held on {get.entity.displayName}</DialogTitle>
-          <DialogDescription>Identifiers, roles, relationships, interaction summaries, mentions, conversions and merge history. Encrypted bodies are referenced, never decrypted here.</DialogDescription>
+          <DialogDescription>Identifiers, roles, relationships, interaction summaries, mentions, signups and payments, and merge history. Encrypted bodies are referenced, never decrypted here.</DialogDescription>
         </DialogHeader>
         <DialogBody>
           <Textarea readOnly mono value={json} rows={14} aria-label="Export JSON" onFocus={(e) => e.currentTarget.select()} />

@@ -34,6 +34,7 @@ export const LINE_HINTS: Record<ChannelLine, string> = {
 export const FORM_WORDS: Record<FormCell, string> = { good: "under target", warn: "near target", bad: "over target", none: "no data" };
 
 /** The user-facing name of the five-cell strip (the identifier `form` stays). */
+// plain-allow: a label constant; every screen that shows it defines it (<Term id="cost_trend"> or a DataTable column `term`).
 export const COST_TREND_LABEL = "Cost trend";
 
 /**

@@ -20,7 +20,7 @@ export const SKILL_GROUP_LABELS: Record<SkillGroup, string> = {
 export const MAX_FOCUS_SKILLS = 3;
 
 /** What the grid's figures mean, in one line for a panel footer (UX plan §7.15). */
-export const SKILL_GRID_FOOTER = `Scores 1–${RATING_MAX}. 'Tested' is the result on practice tests, 'Proven' the result on real work; more real work makes Proven count for more.`;
+export const SKILL_GRID_FOOTER = `Scores 1–${RATING_MAX}. 'Tested' is the result on practice tests, 'Proven' the result on real work; more real work makes Proven count for more. Potential is how good the agent could become with training.`;
 /** Why the scores matter, for guided mode. */
 export const SKILL_GRID_WHY = "Higher skills mean fewer failed tasks and fewer questions to you.";
 

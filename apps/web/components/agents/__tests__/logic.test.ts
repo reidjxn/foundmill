@@ -28,6 +28,7 @@ import {
   instructionVersions,
   isAgentTab,
   modelChangeWarnings,
+  isChiefOfStaffDowngrade,
   modelOptions,
   negotiationFromAgent,
   negotiationToInput,
@@ -259,7 +260,9 @@ describe("model", () => {
     expect(opts.find((o) => o.key === "haiku")).toMatchObject({ lockedReason: "locked route" });
   });
   it("warns on a Chief of Staff downgrade and on the Composer lock", () => {
-    expect(modelChangeWarnings({ agentType: "chief_of_staff", layer: "assistant", modelKey: "opus" }, "chiefOfStaff", "haiku")[0]).toMatch(/Downgrading the Chief of Staff/);
+    expect(modelChangeWarnings({ agentType: "chief_of_staff", layer: "assistant", modelKey: "opus" }, "chiefOfStaff", "haiku")[0]).toMatch(/Moving it to Haiku weakens how it plans/);
+    expect(isChiefOfStaffDowngrade({ agentType: "chief_of_staff", layer: "assistant", modelKey: "opus" }, "haiku")).toBe(true);
+    expect(isChiefOfStaffDowngrade({ agentType: "chief_of_staff", layer: "assistant", modelKey: "sonnet" }, "opus")).toBe(false);
     expect(modelChangeWarnings({ agentType: "chief_of_staff", layer: "assistant", modelKey: "sonnet" }, "chiefOfStaff", "opus")).toEqual([]);
     expect(modelChangeWarnings({ agentType: "composer", layer: "utility", modelKey: "opus" }, "inboxComposer", "sonnet")[0]).toMatch(/locked to Opus/);
   });
