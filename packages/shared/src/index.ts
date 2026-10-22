@@ -22,3 +22,4 @@ export * from "./autopilot";
 export * from "./vacation";
 export * from "./playbook";
 export * from "./terms";
+export * from "./personas";
