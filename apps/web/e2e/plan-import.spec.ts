@@ -51,7 +51,7 @@ test.describe("import a plan", () => {
 
     await dialog.getByTestId("plan-import-submit").click();
     await expect(dialog).toBeHidden({ timeout: LONG });
-    await expect(page.getByText("Plan imported")).toBeVisible({ timeout: LONG });
+    await expect(page.getByText("Plan imported", { exact: true })).toBeVisible({ timeout: LONG });
     await expect(page.locator(`[data-outline-section='${SECTION}']`)).toBeVisible({ timeout: LONG });
 
     await openProductTab(page, "roadmap");
