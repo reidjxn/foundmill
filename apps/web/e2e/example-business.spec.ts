@@ -143,9 +143,17 @@ test.describe("the example business, as an example viewer", () => {
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/inbox`);
     await expect(page.getByTestId("inbox-list")).toBeVisible({ timeout: LONG });
     await settled(page);
-    await page.getByTestId("inbox-list").getByRole("option").first().click();
-    await expect(page.getByTestId("inbox-item")).toBeVisible({ timeout: LONG });
-    await expect(page.getByText("This is an example business: look around, then start your own.")).toBeVisible({ timeout: LONG });
+    // The reason sits in the decision bar of an open decision, and the first item is not always one (answered items show none): look down the list.
+    const rows = page.getByTestId("inbox-list").getByRole("option");
+    const readOnlyNote = page.getByTestId("decision-read-only");
+    let openDecision = false;
+    for (let i = 0; i < (await rows.count()) && !openDecision; i++) {
+      await rows.nth(i).click();
+      await expect(page.getByTestId("inbox-item")).toBeVisible({ timeout: LONG });
+      openDecision = await readOnlyNote.waitFor({ state: "visible", timeout: 3_000 }).then(() => true, () => false);
+    }
+    expect(openDecision, "an open decision in Northwind shows the example's read-only reason").toBe(true);
+    await expect(readOnlyNote).toContainText("This is an example business: look around, then start your own.");
 
     await start.click();
     await page.waitForURL(/\/new$/, { timeout: LONG });

@@ -142,7 +142,11 @@ export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<Seed
     log(`demo owner profile skipped${deleted.length ? " (existing profile removed)" : ""}: the onboarding gate applies to ${owner.email}`);
   }
   for (const o of owners) {
-    if (!ownerProfile && o.userId === owner.userId) continue;
+    if (!ownerProfile && o.userId === owner.userId) {
+      // Without a profile the owner still confirms 18+ for the network: joins, connections and posts ask for it.
+      await repos.social.confirmAdult(db, o.userId);
+      continue;
+    }
     if (!(await repos.founders.get(db, o.userId))) {
       await repos.founders.upsert(db, o.userId, {
         displayName: o.userId === owner.userId ? DEMO_OWNER_DISPLAY_NAME : freeDisplayName(o.email.split("@")[0]),

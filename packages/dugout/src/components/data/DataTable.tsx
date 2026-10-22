@@ -1094,6 +1094,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
       ref={scrollRef}
       className="relative overflow-auto"
       style={{ height }}
+      data-scroll-region="table"
       data-density={density}
       data-state={state}
       onScroll={updateCues}

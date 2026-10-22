@@ -2950,3 +2950,8 @@ Judgment calls the slices of waves A, B and C took while building `docs/UX_AUDIT
 - **`PLAIN_LANGUAGE_TIERS.define` lists display words** (what a linter matches in text); `TERM_IDS` carries the ids. Generic words in it (Lead, Form, Health, Model, Session, Policy, Revenue, Competition, Contacts, Filing, Tested, Proven) rely on the linter's false-friend allowances. Reversal: a curated define list.
 - **Sku, vacation, estimate and leaderboard have no `learn`** (no screen owns SKU; Vacation is a top-bar dialog; Estimate is defined on the chip; Leaderboard lives outside `/b/<id>`). Reversal: add targets when those screens exist.
 - **A wave A test failure that looked like a regression was a rename,** not missing behavior: the api's "confirming a plan twice" failure was the renamed archetype task title ("Build the first prospect list"), fixed in wave B. Reversal: none needed.
+
+### CI shard 1 (2026-10-22)
+
+- **The seeded demo owner confirms 18+ even when the seed skips their profile** (`SEED_OWNER_PROFILE=0`). The attestation is the network's, not the profile's, and every network write asks for it. Reversal: confirm adults in shard 1 through the Network screen instead.
+- **A table's own scroll body is a declared scroll region** (`data-scroll-region="table"` on `DataTable`). The design rule allows a table wider than its panel inside its own `overflow-x: auto` container; the no-clip check counts only panels and text that clip, not a table's scroll. Reversal: fit the CRM "All" view by dropping a column at 1280 px.
