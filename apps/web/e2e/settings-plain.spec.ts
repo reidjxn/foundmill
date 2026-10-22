@@ -176,10 +176,12 @@ test.describe("settings, plain words", () => {
     await expect(row).toBeVisible({ timeout: LONG });
     // The page first shows the list it was rendered with; Connect asks for the key once the replayed list marks it Live.
     await expect(row).toContainText("Live", { timeout: LONG });
-    await row.getByRole("button", { name: "Connect" }).click();
-    // The dialog is a portal outside the shell, so it is looked up on the page; only one can be open.
+    // The row re-renders when the list settles; a Connect pressed in that moment can miss, so press until the dialog opens.
     const dialog = page.getByTestId("connect-fields-dialog");
-    await expect(dialog).toBeVisible();
+    await expect(async () => {
+      await row.getByRole("button", { name: "Connect" }).click();
+      await expect(dialog).toBeVisible({ timeout: 5_000 });
+    }).toPass({ timeout: LONG });
     await expect(dialog).toContainText("Connect SendGrid");
     await expect(dialog).toContainText("billed to your SendGrid account");
     const key = dialog.getByLabel("API key");

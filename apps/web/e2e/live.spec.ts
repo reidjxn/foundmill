@@ -106,13 +106,17 @@ test.describe("live pages from the sidebar", () => {
       await expect(join).toBeVisible({ timeout: LONG });
     } else {
       // An earlier run was interrupted outside the community: join, leave and join again.
-      await join.click();
-      await expect(leave).toBeVisible({ timeout: LONG });
+      await expect(async () => {
+        await join.click();
+        await expect(leave).toBeVisible({ timeout: 5_000 });
+      }).toPass({ timeout: LONG });
       await leave.click();
       await expect(join).toBeVisible({ timeout: LONG });
     }
-    await join.click();
-    await expect(leave).toBeVisible({ timeout: LONG });
+    await expect(async () => {
+      await join.click();
+      await expect(leave).toBeVisible({ timeout: 5_000 });
+    }).toPass({ timeout: LONG });
 
     // Open it (double-click, as Enter on the focused row does) and read the feed.
     await fintech.dblclick();
