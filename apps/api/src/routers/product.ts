@@ -8,7 +8,7 @@ import { z } from "zod";
 import { ensureFoundations, foundationsView, isStale, retryFoundations } from "../services/foundations";
 import { ensureResearchPlan, loadResearchView, retryResearchPlan } from "../services/product-research";
 import { modelLimited } from "../services/model-limits";
-import { PlanImportInput, importPlan, previewPlanImport } from "../services/plan-import";
+import { PlanImportInput, importPlan, parsePlanForImport, previewPlanImport } from "../services/plan-import";
 import { decideProductSignoff, reopenSpecSignoffAfterPublish, signoffViews } from "../services/signoff";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { Id, audit, businessProcedure, effectivePermission, emit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
@@ -233,8 +233,14 @@ export const productRouter = router({
    * trained version write there); every write is scoped to the caller's business by the repos.
    */
   plan: router({
-    preview: admin.input(PlanImportInput).mutation(({ ctx, input }) => ctx.rls((tx) => previewPlanImport(tx, ctx.businessId, input))),
-    import: admin.input(PlanImportInput).mutation(({ ctx, input }) => ctx.db.transaction((tx) => importPlan(tx, ctx, input))),
+    preview: admin.input(PlanImportInput).mutation(({ ctx, input }) => {
+      const preview = previewPlanImport(input);
+      return "failed" in preview ? preview.failed : ctx.rls((tx) => preview.run(tx, ctx.businessId));
+    }),
+    import: admin.input(PlanImportInput).mutation(({ ctx, input }) => {
+      const plan = parsePlanForImport(input.fileText);
+      return ctx.db.transaction((tx) => importPlan(tx, ctx, plan, input.replaceUnstarted));
+    }),
   }),
 
   /** Sources the Source Watcher reads (docs, issues, feedback, transcripts, competitor pages, legal, finance). */

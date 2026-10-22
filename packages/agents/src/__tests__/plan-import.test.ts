@@ -3,7 +3,7 @@
  * every error case (each naming its line), the limits, and the Markdown subset.
  */
 import { describe, expect, it } from "vitest";
-import { PLAN_IMPORT_LIMITS, ParsedPlan, PlanDoc, inlineMarkdown, inlinePlain, markdownToPlanBlocks, markdownToPlanDoc, northStarLabel, parsePlanFile, roadmapItemDescription, type NumberedLine, type PlanImportError } from "../plan-import";
+import { PLAN_IMPORT_LIMITS, ParsedPlan, PlanDoc, headingOf, inlineMarkdown, inlinePlain, markdownToPlanBlocks, markdownToPlanDoc, northStarLabel, parsePlanFile, roadmapItemDescription, type NumberedLine, type PlanImportError } from "../plan-import";
 
 const VISION = `# Vision
 ## Statement
@@ -214,7 +214,7 @@ describe("parsePlanFile: errors name the line", () => {
     expect(errorsOf(`# Specification\n${sections}\n`)).toEqual([{ line: 62, message: "The specification has 31 sections; a plan file holds at most 30." }]);
     const items = Array.from({ length: 41 }, (_, i) => `### Item ${i}`).join("\n");
     expect(errorsOf(`# Roadmap\n## Next\n${items}\n`)).toEqual([{ line: 43, message: "The roadmap has 41 items; a plan file holds at most 40." }]);
-    expect(errorsOf(`# Specification\n## Big\n${"word ".repeat(14_000)}\n`)).toEqual([{ line: 2, message: 'The section "Big" is larger than 64 KB. Split it into two sections.' }]);
+    expect(errorsOf(`# Specification\n## Big\n${"word word word word word word word word word word word word word word word word word word word word\n".repeat(700)}\n`)).toEqual([{ line: 2, message: 'The section "Big" is larger than 64 KB. Split it into two sections.' }]);
     // Bytes, not characters: 100,000 three-byte characters are 300,000 bytes.
     expect(errorsOf(`# Specification\n## Big\n${"€".repeat(100_000)}\n`)).toEqual([{ line: null, message: expect.stringContaining("larger than 256 KB") }]);
   });
@@ -286,5 +286,38 @@ describe("Markdown to Tiptap", () => {
       { line: 41, message: "Use ### or #### for headings inside a section (this one has 2 #)." },
       { line: 42, message: expect.stringContaining("Code blocks are not supported") },
     ]);
+  });
+});
+
+describe("hostile files stay fast", () => {
+  const timed = (text: string) => {
+    const t0 = performance.now();
+    const result = parsePlanFile(text);
+    return { result, ms: performance.now() - t0 };
+  };
+  const spaces = (n: number) => " ".repeat(n);
+  const cases: [string, string][] = [
+    ["a heading with a long space run", `# Specification\n## Goals\n# a${spaces(9_990)}b\n`],
+    ["an acceptance line of spaces", `# Roadmap\n## Now\n### Item\nacceptance:${spaces(9_980)}x\n`],
+    ["trailing spaces in an item description", `# Roadmap\n## Now\n### Item\na${spaces(9_980)}x\n`],
+    ["nested emphasis", `# Vision\n## Statement\n${"*".repeat(4_990)}a${"*".repeat(4_990)}\n`],
+    ["many emphasis pairs", `# Vision\n## Statement\n${"*a ".repeat(1_600)}${"a* ".repeat(1_600)}\n`],
+  ];
+  it.each(cases)("parses %s quickly", (_name, line) => {
+    const text = Array.from({ length: 20 }, () => line).join("");
+    expect(timed(text).ms).toBeLessThan(2_000);
+  });
+
+  it("refuses a line longer than the limit, naming it, before reading it", () => {
+    const { result, ms } = timed(`# Vision\n## Statement\n${"*".repeat(PLAN_IMPORT_LIMITS.lineChars + 1)}\n`);
+    expect(ms).toBeLessThan(500);
+    expect(result).toEqual({ ok: false, errors: [{ line: 3, message: expect.stringContaining("longer than 10,000 characters") }] });
+  });
+
+  it("keeps the closing # run out of a heading's title", () => {
+    expect(headingOf("### Launch ##")).toEqual({ level: 3, title: "Launch" });
+    expect(headingOf("### C# tooling")).toEqual({ level: 3, title: "C# tooling" });
+    expect(headingOf("#### ###")).toEqual({ level: 4, title: "" });
+    expect(headingOf("#nospace")).toBeNull();
   });
 });

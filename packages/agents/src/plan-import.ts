@@ -49,6 +49,8 @@ export const PLAN_IMPORT_LIMITS = {
   principleTitle: 120,
   principleDetail: 1000,
   northStarField: 500,
+  /** One line, in characters: checked before any line is read, so no line can make the parser slow. */
+  lineChars: LIMITS.planLineMaxChars,
   /** Errors reported for one file (the rest are dropped, so a wrong file does not flood the dialog). */
   errors: 20,
 } as const;
@@ -208,6 +210,10 @@ export function inlineMarkdown(input: string): PlanText[] {
     runs.push({ start: i, length: j - i, left: j - i, canOpen: !/\s/.test(after), canClose: !/\s/.test(before), closerUsed: 0 });
     i = j;
   }
+  // Each pair marks a span; the spans are summed once at the end (a difference array), so nested or widening pairs never
+  // re-mark the same characters: linear in the line, whatever its markers.
+  const boldDiff = new Int32Array(chars.length + 1);
+  const italicDiff = new Int32Array(chars.length + 1);
   const openers: Run[] = [];
   for (const run of runs) {
     if (run.canClose) {
@@ -219,9 +225,10 @@ export function inlineMarkdown(input: string): PlanText[] {
         const use = opener.left >= 2 && run.left >= 2 ? 2 : 1;
         const from = opener.start + opener.left; // first content character
         const to = run.start + run.closerUsed; // one past the last content character
-        for (let c = from; c < to; c++) {
-          if (use === 2) chars[c]!.bold = true;
-          else chars[c]!.italic = true;
+        if (from < to) {
+          const diff = use === 2 ? boldDiff : italicDiff;
+          diff[from]!++;
+          diff[to]!--;
         }
         for (let c = opener.start + opener.left - use; c < opener.start + opener.left; c++) chars[c]!.removed = true;
         for (let c = run.start + run.closerUsed; c < run.start + run.closerUsed + use; c++) chars[c]!.removed = true;
@@ -234,6 +241,15 @@ export function inlineMarkdown(input: string): PlanText[] {
       }
     }
     if (run.left > 0 && run.canOpen) openers.push(run);
+  }
+
+  let bold = 0;
+  let italic = 0;
+  for (let c = 0; c < chars.length; c++) {
+    bold += boldDiff[c]!;
+    italic += italicDiff[c]!;
+    chars[c]!.bold = bold > 0;
+    chars[c]!.italic = italic > 0;
   }
 
   // Consecutive characters with the same marks make one text node.
@@ -273,7 +289,20 @@ export interface NumberedLine {
   text: string;
 }
 
-const HEADING_RE = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
+/** `#`-heading prefix; the title is everything after it (`headingOf` strips a closing `#` run). Linear: one greedy run. */
+const HEADING_RE = /^ {0,3}(#{1,6})[ \t]+(.*)$/;
+const isSpaceOrTab = (ch: string | undefined) => ch === " " || ch === "\t";
+
+/** An ATX heading's level and title, or null. The optional closing `#` run (after a space) is not part of the title. */
+export function headingOf(line: string): { level: number; title: string } | null {
+  const m = HEADING_RE.exec(line);
+  if (!m) return null;
+  const title = m[2]!.trimEnd();
+  let j = title.length;
+  while (j > 0 && title[j - 1] === "#") j--;
+  if (j === 0) return { level: m[1]!.length, title: "" };
+  return { level: m[1]!.length, title: j < title.length && isSpaceOrTab(title[j - 1]) ? title.slice(0, j).trimEnd() : title };
+}
 const BULLET_RE = /^([ \t]*)[-*+][ \t]+(.*)$/;
 const ORDERED_RE = /^([ \t]*)(\d{1,9})[.)][ \t]+(.*)$/;
 const FENCE_RE = /^ {0,3}(```|~~~)/;
@@ -309,10 +338,10 @@ export function markdownToPlanBlocks(lines: readonly NumberedLine[], errors: Pla
       i++;
       continue;
     }
-    const heading = HEADING_RE.exec(text);
+    const heading = headingOf(text);
     if (heading) {
-      const level = heading[1]!.length;
-      const content = inlineMarkdown(heading[2]!);
+      const level = heading.level;
+      const content = inlineMarkdown(heading.title);
       if (level < 3 || level > 4) errors.push({ line: n, message: `Use ### or #### for headings inside a section (this one has ${level} #).` });
       else if (!content.length) errors.push({ line: n, message: "This heading has no text." });
       else blocks.push({ type: "heading", attrs: { level }, content });
@@ -397,9 +426,9 @@ function splitAt(lines: readonly NumberedLine[], level: number): { lead: Numbere
   let inFence = false;
   lines.forEach((l, index) => {
     if (FENCE_RE.test(l.text)) inFence = !inFence;
-    const m = inFence ? null : HEADING_RE.exec(l.text);
-    if (m && m[1]!.length === level) {
-      parts.push({ heading: { level, title: m[2]!.trim(), line: l.n, index }, body: [] });
+    const m = inFence ? null : headingOf(l.text);
+    if (m && m.level === level) {
+      parts.push({ heading: { level, title: m.title.trim(), line: l.n, index }, body: [] });
       return;
     }
     if (parts.length) parts[parts.length - 1]!.body.push(l);
@@ -424,6 +453,10 @@ export function parsePlanFile(fileText: string): ParsePlanResult {
     return fail();
   }
   const lines: NumberedLine[] = text.split("\n").map((t, i) => ({ n: i + 1, text: t }));
+  for (const l of lines) {
+    if (l.text.length > L.lineChars) errors.push({ line: l.n, message: `This line is longer than ${L.lineChars.toLocaleString("en-US")} characters. Break it into shorter paragraphs.` });
+  }
+  if (errors.length) return fail();
   const top = splitAt(lines, 1);
   const stray = firstText(top.lead);
   if (stray) errors.push({ line: stray.n, message: "A plan file starts with # Vision, # Specification or # Roadmap. Move this text under one of them." });
@@ -611,7 +644,9 @@ function listItemText(line: string): string | null {
   return ordered ? ordered[3]! : null;
 }
 
-const ACCEPTANCE_RE =/^\s*(?:\*\*)?\s*acceptance(?:\s+criteria)?\s*(?::\s*(?:\*\*)?|(?:\*\*)\s*:)\s*$/i;
+/** "Acceptance:" (or "Acceptance criteria:"), optionally bold, read after the bold markers are dropped: linear. */
+const ACCEPTANCE_RE = /^acceptance(?: criteria)?:$/i;
+const isAcceptanceLine = (line: string) => ACCEPTANCE_RE.test(line.replaceAll("**", "").trim().split(/\s+/).join(" ").replace(/ :$/, ":"));
 
 function parseRoadmap(partLine: number, body: NumberedLine[], errors: PlanImportError[]): PlanRoadmapItem[] {
   const { lead, parts } = splitAt(body, 2);
@@ -644,7 +679,7 @@ function parseRoadmap(partLine: number, body: NumberedLine[], errors: PlanImport
         continue;
       }
       if (tooLong(errors, itemHeading.line, `The item title "${title.slice(0, 40)}…"`, title, L.itemTitle)) continue;
-      const at = itemLines.findIndex((l) => ACCEPTANCE_RE.test(l.text));
+      const at = itemLines.findIndex((l) => isAcceptanceLine(l.text));
       const description = at === -1 ? itemLines : itemLines.slice(0, at);
       const acceptance: string[] = [];
       if (at !== -1) {
@@ -662,7 +697,7 @@ function parseRoadmap(partLine: number, body: NumberedLine[], errors: PlanImport
         if (acceptance.length > L.acceptanceCriteria) errors.push({ line: itemLines[at]!.n, message: `"${title.slice(0, 60)}" has ${acceptance.length} acceptance criteria; keep it to ${L.acceptanceCriteria}.` });
       }
       // The description keeps the founder's Markdown as written, without the blank lines around it.
-      const descLines = description.map((l) => l.text.replace(/\s+$/, ""));
+      const descLines = description.map((l) => l.text.trimEnd());
       while (descLines.length && !descLines[0]!.trim()) descLines.shift();
       while (descLines.length && !descLines[descLines.length - 1]!.trim()) descLines.pop();
       items.push({ title, line: itemHeading.line, horizon, descriptionMd: descLines.join("\n"), acceptance });

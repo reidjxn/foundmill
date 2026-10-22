@@ -67,6 +67,8 @@ export const LIMITS = {
   planFileMaxBytes: 256 * 1024,
   /** Largest body of one specification section in an imported plan file (UTF-8 bytes). */
   planSectionMaxBytes: 64 * 1024,
+  /** Longest line of an imported plan file (characters); longer lines are refused before the parser reads them. */
+  planLineMaxChars: 10_000,
 } as const;
 
 /**

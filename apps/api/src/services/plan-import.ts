@@ -125,12 +125,17 @@ function errorMessage(errors: readonly PlanImportError[]): string {
 }
 
 /** `product.plan.preview`: what the import would write, or the file's problems. Writes nothing. */
-export async function previewPlanImport(tx: Executor, businessId: string, input: PlanImportInput): Promise<PlanPreview> {
+export function previewPlanImport(input: PlanImportInput): { failed: PlanPreview } | { plan: ParsedPlan; run: (tx: Executor, businessId: string) => Promise<PlanPreview> } {
   const empty: PlanPreview = { ok: false, errors: [], vision: false, sections: { write: [], create: [], paragraphsRetired: 0 }, roadmap: zeroCounts(), archive: 0 };
+  // Parsed before the caller opens a transaction, so a slow or failing parse never holds a connection.
   const parsed = parsePlanFile(input.fileText);
-  if (!parsed.ok) return { ...empty, errors: parsed.errors };
+  if (!parsed.ok) return { failed: { ...empty, errors: parsed.errors } };
   const plan = parsed.plan;
-  const t = await planTargets(tx, businessId, plan, input.replaceUnstarted ?? false);
+  return { plan, run: (tx, businessId) => previewTargets(tx, businessId, plan, input.replaceUnstarted ?? false) };
+}
+
+async function previewTargets(tx: Executor, businessId: string, plan: ParsedPlan, replaceUnstarted: boolean): Promise<PlanPreview> {
+  const t = await planTargets(tx, businessId, plan, replaceUnstarted);
   return {
     ok: !t.drafting,
     errors: t.drafting ? [{ line: null, message: FOUNDATIONS_DRAFTING_MESSAGE }] : [],
@@ -142,15 +147,20 @@ export async function previewPlanImport(tx: Executor, businessId: string, input:
 }
 
 /**
- * `product.plan.import`: writes the plan in the caller's transaction (see the module comment) and appends one audit
- * entry. A file with problems is refused with the first of them, naming their lines.
+ * `product.plan.import`, step one: parse the file, outside any transaction. A file with problems is refused with the
+ * first of them, naming their lines. Step two, `importPlan`, writes it in the caller's transaction (see the module
+ * comment) and appends one audit entry.
  */
-export async function importPlan(tx: Executor, ctx: Pick<BusinessContext, "businessId" | "userId">, input: PlanImportInput): Promise<PlanImportResult> {
-  const parsed = parsePlanFile(input.fileText);
+export function parsePlanForImport(fileText: string): ParsedPlan {
+  const parsed = parsePlanFile(fileText);
   if (!parsed.ok) throw new ValidationError(errorMessage(parsed.errors), { errors: parsed.errors });
-  const plan = parsed.plan;
+  return parsed.plan;
+}
+
+/** Writes a plan parsed by `parsePlanForImport` (parse first, outside the transaction). */
+export async function importPlan(tx: Executor, ctx: Pick<BusinessContext, "businessId" | "userId">, plan: ParsedPlan, replaceUnstarted = false): Promise<PlanImportResult> {
   const { businessId, userId } = ctx;
-  const t = await planTargets(tx, businessId, plan, input.replaceUnstarted ?? false);
+  const t = await planTargets(tx, businessId, plan, replaceUnstarted);
   if (t.drafting) throw new ValidationError(FOUNDATIONS_DRAFTING_MESSAGE);
 
   if (plan.vision) await repos.foundations.setVision(tx, businessId, plan.vision, { importedBy: userId, importedAt: new Date().toISOString() });
@@ -184,7 +194,7 @@ export async function importPlan(tx: Executor, ctx: Pick<BusinessContext, "busin
   await audit(tx, ctx, {
     action: "product.plan.import",
     target: { kind: "business", id: businessId },
-    details: { ...result, archivedItemIds: t.archive.map((i) => i.id), replaceUnstarted: input.replaceUnstarted ?? false, horizons: ROADMAP_HORIZONS.filter((h) => itemsAdded[h] > 0) },
+    details: { ...result, archivedItemIds: t.archive.map((i) => i.id), replaceUnstarted, horizons: ROADMAP_HORIZONS.filter((h) => itemsAdded[h] > 0) },
   });
   return result;
 }
