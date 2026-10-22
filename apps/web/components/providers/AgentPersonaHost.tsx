@@ -7,7 +7,7 @@
  *
  * - On: `team.personas.ensure` for the business on screen says which of its agents' persona keys have a face and starts
  *   making the missing ones in the background. While any is `pending` the query runs again every 15 seconds; a face is
- *   used only for keys in `ready`, loaded from the API's public `GET /personas/<key>` (immutable, cached for a year).
+ *   used only for keys in `ready`, loaded from the API's public `GET /personas/<key>` (cached for a day).
  *   Until a face is ready the drawn portrait stands in, so a screen never waits on one.
  * - Off: nothing is asked, nothing is fetched; every value is today's.
  */

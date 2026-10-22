@@ -1,6 +1,6 @@
 /**
  * `GET /personas/:key` (Anthropomorphic agents): the stored face of a catalog key, public like a static asset (no sign-in),
- * served with the stored mime and a year-long immutable cache; a key outside the catalog, a face not generated yet and a
+ * served with the stored mime and a one-day cache; a key outside the catalog, a face not generated yet and a
  * key that only looks like a path are plain 404s that are not cached.
  */
 import { repos } from "@foundmill/db";
@@ -23,11 +23,11 @@ beforeAll(async () => {
 afterAll(() => hz.close());
 
 describe("GET /personas/:key", () => {
-  it("serves the stored bytes with the stored mime, no sign-in, and a one-year immutable cache", async () => {
+  it("serves the stored bytes with the stored mime, no sign-in, and a one-day cache", async () => {
     const res = await app.request(`/personas/${STORED}`);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/webp");
-    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(res.headers.get("cache-control")).toBe("public, max-age=86400");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("cross-origin-resource-policy")).toBe("cross-origin");
     expect(res.headers.get("x-request-id")).toBeTruthy();
