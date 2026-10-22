@@ -310,11 +310,11 @@ test.describe("ideation studio", () => {
     await expect(history).toBeVisible();
     await expect(history.locator("[data-version]")).toHaveCount(2);
     await expect(history.locator("[data-version='2']")).toContainText("Version 2");
-    // The version row reads exactly "Forked"; the lineage line below it reads "Forked to <name>".
-    await expect(history.getByText("Forked", { exact: true })).toBeVisible();
+    // The version row reads exactly "Variant made" (never "Forked", the copy rule); the lineage line below it reads "Variant: <name>".
+    await expect(history.getByText("Variant made", { exact: true })).toBeVisible();
     await history.getByRole("button", { name: "Older" }).click();
     await expect(history.locator('[data-version][aria-current="true"]')).toHaveAttribute("data-version", "1");
-    await expect(history.getByTestId("lineage")).toContainText("Forked to");
+    await expect(history.getByTestId("lineage")).toContainText("Variant:");
     // The dialog has two Close buttons (Dugout's corner icon and the footer's text button): the footer one is last.
     await history.getByRole("button", { name: "Close" }).last().click();
     await expect(history).toBeHidden();

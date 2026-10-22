@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { devApi, LONG, NORTHWIND_BUSINESS_ID, signIn } from "./helpers";
+import { chooseTableView, devApi, LONG, NORTHWIND_BUSINESS_ID, signIn } from "./helpers";
 
 /**
  * Nothing the founder reads is ever cut off (founder, 2026-10-09: "some buttons cut off text ... make sure the spacing
@@ -160,6 +160,13 @@ async function measureEveryScreen(page: Page, width: number) {
   await page.setViewportSize({ width, height: 900 });
   await signIn(page);
   const routes = await screensUnder(page);
+  // The Channels table keeps whichever view an earlier spec left open (the general view is wider than 1280 px); this
+  // measures its default, the Simple view that opens while guidance is on.
+  const channels = routes.find((r) => r.endsWith("/distribution/channels"));
+  if (channels) {
+    await page.goto(channels);
+    await chooseTableView(page, "Simple");
+  }
   const found: string[] = [];
   for (const route of routes) {
     await page.goto(route);

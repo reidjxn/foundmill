@@ -445,6 +445,9 @@ test.describe("distribution, finance and legal tables fit at 1280", () => {
     ];
     for (const [dept, tab] of routes) {
       await openTab(page, dept, tab);
+      // Channels keeps whatever view an earlier test left open (the general view is wider than 1280 px); this test
+      // measures the default, the Simple view that opens while guidance is on.
+      if (dept === "distribution" && tab === "channels") await chooseTableView(page, "Simple");
       const grids = page.getByTestId("module-screen").getByRole("grid");
       await expect(grids.first()).toBeVisible({ timeout: LONG });
       // Column widths settle after the first layout pass (they follow the measured width).
