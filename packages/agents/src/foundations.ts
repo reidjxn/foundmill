@@ -547,7 +547,8 @@ export function knownNumbers(inputs: FoundationsInputs): Set<string> {
   return numbersIn(JSON.stringify({ idea, founder: inputs.founder, pinned: inputs.outline.filter((o) => o.pinned).map((o) => o.currentText) }));
 }
 
-const MAX_ROADMAP_ITEMS = 40;
+/** The most roadmap items a drafting (or an imported plan file, ./plan-import.ts) writes at once. */
+export const MAX_ROADMAP_ITEMS = 40;
 
 /** Model text made plain (M1), then its figures labelled; counts what it labelled. */
 function labeller(known: ReadonlySet<string>) {
