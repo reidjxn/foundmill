@@ -14,6 +14,10 @@ export interface PaletteAgent {
   name: string;
   role: string | null;
   avatarSeed: string;
+  /** `agents.persona_key`: the first name and face shown when anthropomorphic agents are on. */
+  personaKey?: string | null;
+  /** The name to show and to match typed words against (the persona's first name when anthropomorphic agents are on); default `name`. */
+  displayName?: string;
   dept: DeptColourToken;
   departmentName: string;
   lead: boolean;
@@ -26,8 +30,8 @@ interface DepartmentForPalette {
   colourToken: string;
   hidden?: boolean;
   moduleKeys: readonly string[];
-  lead?: { id: string; name: string; role: string | null; avatarSeed: string | null } | null;
-  squad: readonly { id: string; name: string; role: string | null; avatarSeed: string | null }[];
+  lead?: { id: string; name: string; role: string | null; avatarSeed: string | null; personaKey?: string | null } | null;
+  squad: readonly { id: string; name: string; role: string | null; avatarSeed: string | null; personaKey?: string | null }[];
   tabs: readonly { slug: string; position: number; title?: string }[];
 }
 
@@ -36,10 +40,10 @@ export function paletteAgents(departments: readonly DepartmentForPalette[]): Pal
   const out = new Map<string, PaletteAgent>();
   const visible = departments.filter((d) => !d.hidden);
   for (const d of visible) {
-    if (d.lead && !out.has(d.lead.id)) out.set(d.lead.id, { id: d.lead.id, name: d.lead.name, role: d.lead.role, avatarSeed: d.lead.avatarSeed || d.lead.id, dept: d.colourToken as DeptColourToken, departmentName: d.name, lead: true });
+    if (d.lead && !out.has(d.lead.id)) out.set(d.lead.id, { id: d.lead.id, name: d.lead.name, role: d.lead.role, avatarSeed: d.lead.avatarSeed || d.lead.id, personaKey: d.lead.personaKey ?? null, dept: d.colourToken as DeptColourToken, departmentName: d.name, lead: true });
   }
   for (const d of visible) {
-    for (const a of d.squad) if (!out.has(a.id)) out.set(a.id, { id: a.id, name: a.name, role: a.role, avatarSeed: a.avatarSeed || a.id, dept: d.colourToken as DeptColourToken, departmentName: d.name, lead: false });
+    for (const a of d.squad) if (!out.has(a.id)) out.set(a.id, { id: a.id, name: a.name, role: a.role, avatarSeed: a.avatarSeed || a.id, personaKey: a.personaKey ?? null, dept: d.colourToken as DeptColourToken, departmentName: d.name, lead: false });
   }
   return [...out.values()];
 }
@@ -52,14 +56,14 @@ const words = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w
  */
 export function askPaletteItems(agents: readonly PaletteAgent[], text: string, avatar: (a: PaletteAgent) => ReactNode, max = 3): PaletteItem[] {
   const q = words(text);
-  const matched = q.length ? agents.filter((a) => q.some((w) => words(`${a.name} ${a.role ?? ""}`).some((x) => x.startsWith(w)))) : [];
+  const matched = q.length ? agents.filter((a) => q.some((w) => words(`${a.name} ${a.displayName ?? ""} ${a.role ?? ""}`).some((x) => x.startsWith(w)))) : [];
   const pick = (matched.length ? matched : agents.filter((a) => a.lead)).slice(0, max);
   return pick.map((a) => ({
     id: `ask:${a.id}`,
     kind: "ask" as const,
-    label: `Ask ${a.name}`,
+    label: `Ask ${a.displayName ?? a.name}`,
     description: [a.role && a.role !== a.name ? a.role : null, a.departmentName].filter(Boolean).join(" · "),
-    keywords: [a.name, a.role ?? "", a.departmentName, "ask", "talk"],
+    keywords: [a.name, a.displayName ?? "", a.role ?? "", a.departmentName, "ask", "talk"],
     avatar: avatar(a),
     dept: a.dept,
   }));
@@ -69,8 +73,8 @@ export function askPaletteItems(agents: readonly PaletteAgent[], text: string, a
  * The question the palette carries to the agent: the typed words without the ones that only picked the agent
  * ("ask juno why is cash down?" → "Why is cash down?"); empty when nothing else was typed.
  */
-export function askQuestion(text: string, agent: Pick<PaletteAgent, "name" | "role">): string {
-  const picks = words(`${agent.name} ${agent.role ?? ""}`);
+export function askQuestion(text: string, agent: Pick<PaletteAgent, "name" | "role"> & { displayName?: string }): string {
+  const picks = words(`${agent.name} ${agent.displayName ?? ""} ${agent.role ?? ""}`);
   const tokens = text.trim().split(/\s+/).filter(Boolean);
   let i = 0;
   while (i < tokens.length) {

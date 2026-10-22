@@ -207,7 +207,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         header: "Agent",
         size: movesSizes.name,
         meta: { locked: true },
-        cell: ({ row }) => <AgentCell businessId={businessId} agent={{ id: row.original.id, name: row.original.name, seed: row.original.avatarSeed || row.original.id, dept: agentDept(row.original), status: row.original.status }} details={agentEntity(businessId, row.original, currency)} onOpen={open} />,
+        cell: ({ row }) => <AgentCell businessId={businessId} agent={{ id: row.original.id, name: row.original.name, seed: row.original.avatarSeed || row.original.id, dept: agentDept(row.original), status: row.original.status, role: row.original.role, personaKey: row.original.personaKey }} details={agentEntity(businessId, row.original, currency)} onOpen={open} />,
       },
       { id: "role", accessorFn: (r) => r.role ?? "", header: "Role", size: movesSizes.role },
       {

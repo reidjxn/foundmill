@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, Copy, Cpu, ExternalLink, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
-import { Button, DataTable, Explainer, FormCells, MODEL_LABELS, Panel, SQUAD_VIEWS, Term, formatRelative, squadColumns, useGuided, type DataTableColumn, type RowAction, type SavedView, type SquadRow } from "@foundmill/dugout";
+import { Button, DataTable, Explainer, FormCells, MODEL_LABELS, Panel, SQUAD_VIEWS, Term, formatRelative, squadColumns, useAgentPersona, useGuided, type DataTableColumn, type RowAction, type SavedView, type SquadRow } from "@foundmill/dugout";
 import { AGENT_STATUSES } from "@foundmill/shared/constants";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { useWidgetData } from "@foundmill/widgets/data";
@@ -104,6 +104,7 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
   const [loan, setLoan] = useState<AgentRow | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const persona = useAgentPersona();
   const open = (agentId: string) => navigate(agentHref(businessId, agentId));
   const recruitHref = moduleTabHref(businessId, departments.data, "team", "recruitment");
 
@@ -111,6 +112,7 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
     // Sized from SQUAD_FIT; the table shares its spare width by the specs' weights itself (DataTable `meta.grow`).
     const base = fitToGrow(squadColumns({
       now,
+      displayName: (r) => persona.nameFor(r),
       onModelClick: (row) => {
         const a = byId.get(row.id);
         if (a) setModelAgent(a);
@@ -138,7 +140,7 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
           ...sized,
           cell: ({ row }) => {
             const agent = byId.get(row.original.id);
-            return <AgentCell businessId={businessId} agent={{ id: row.original.id, name: row.original.name, seed: row.original.seed, dept: row.original.dept, status: row.original.status }} details={agent ? agentEntity(businessId, agent, currency) : undefined} onOpen={open} />;
+            return <AgentCell businessId={businessId} agent={{ id: row.original.id, name: row.original.name, seed: row.original.seed, dept: row.original.dept, status: row.original.status, role: row.original.role, personaKey: row.original.personaKey }} details={agent ? agentEntity(businessId, agent, currency) : undefined} onOpen={open} />;
           },
         };
       }
@@ -157,7 +159,7 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
       return sized;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `open`/`navigate` are stable per data source
-  }, [businessId, byId, currency, now]);
+  }, [businessId, byId, currency, now, persona]);
 
   const rowActions = (row: SquadRow): RowAction<SquadRow>[] => {
     const agent = byId.get(row.id);

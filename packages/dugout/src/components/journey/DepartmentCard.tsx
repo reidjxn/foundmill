@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { ArrowRight, CircleCheck, CircleX, Clock, Inbox, MessageSquareReply, Moon, RefreshCw, TriangleAlert } from "lucide-react";
 import type { EntityKind } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
+import { useAgentPersona } from "../foundation/AgentPersona";
 import { Avatar } from "../foundation/Avatar";
 import { Button } from "../foundation/Button";
 import { ProvenanceChip } from "../foundation/Chip";
@@ -84,6 +85,9 @@ export function teamStripWords(squad: readonly { status: SquadMember["status"]; 
  */
 export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntity, onOpenQuiet, entityKinds, maxSquad = 8, metricId, metricPlain, className }: DepartmentCardProps) {
   const health = HEALTH[d.health];
+  const persona = useAgentPersona();
+  const leadMember = d.squad.find((m) => m.name === d.lead.name);
+  const lead = { name: d.lead.name, role: d.lead.role ?? leadMember?.role, personaKey: d.lead.personaKey ?? leadMember?.personaKey };
   const squad = d.squad.slice(0, maxSquad);
   const extra = d.squad.length - squad.length;
   const stripWords = teamStripWords(d.squad);
@@ -99,12 +103,12 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
         <h3 className="min-w-0 shrink t-title text-primary">
           <FitText minPx={11}>{d.name}</FitText>
         </h3>
-        <Tooltip content={`${d.lead.name} · lead`}>
-          <button type="button" className="ml-1 inline-flex min-w-0 shrink-2 items-center gap-1.5 rounded-pill pr-1 text-small text-secondary outline-none transition-colors duration-hover hover:text-primary focus-visible:shadow-ring" onClick={() => onOpenAgent?.(d.squad.find((m) => m.name === d.lead.name)?.id ?? d.lead.name)} aria-label={`${d.lead.name}, department lead`}>
-            <Avatar size={22} name={d.lead.name} agent={{ seed: d.lead.seed, dept: d.dept }} status={d.lead.status} />
+        <Tooltip content={`${persona.labelFor(lead)} · lead`}>
+          <button type="button" className="ml-1 inline-flex min-w-0 shrink-2 items-center gap-1.5 rounded-pill pr-1 text-small text-secondary outline-none transition-colors duration-hover hover:text-primary focus-visible:shadow-ring" onClick={() => onOpenAgent?.(d.squad.find((m) => m.name === d.lead.name)?.id ?? d.lead.name)} aria-label={`${persona.labelFor(lead)}, department lead`}>
+            <Avatar size={22} name={persona.nameFor(lead)} agent={{ seed: d.lead.seed, dept: d.dept, personaKey: lead.personaKey }} status={d.lead.status} />
             {/* The lead's name only where the header has room for it beside the department's own name. */}
             <span className="hidden min-w-0 truncate @md:inline" aria-hidden>
-              {d.lead.name}
+              {persona.nameFor(lead)}
             </span>
           </button>
         </Tooltip>
@@ -124,7 +128,7 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
                     content={
                       <span className="flex flex-col gap-0.5">
                         <span className="font-medium">
-                          {m.name} · {word}
+                          {persona.nameFor(m)} · {word}
                         </span>
                         <span className="text-secondary">
                           {m.role} · <span className="font-mono text-mono">{m.model}</span>
@@ -133,8 +137,8 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
                       </span>
                     }
                   >
-                    <button type="button" className="inline-flex rounded-full outline-none transition-transform duration-hover ease-out hover:-translate-y-0.5 focus-visible:shadow-ring" onClick={() => onOpenAgent?.(m.id)} aria-label={`${m.name}, ${m.role}, ${word}${m.task ? `: ${m.task}` : ""}`} data-squad-member={m.id}>
-                      <Avatar size={26} name={m.name} agent={{ seed: m.seed, dept: d.dept }} status={m.status} stacked surface="surface-1" />
+                    <button type="button" className="inline-flex rounded-full outline-none transition-transform duration-hover ease-out hover:-translate-y-0.5 focus-visible:shadow-ring" onClick={() => onOpenAgent?.(m.id)} aria-label={`${persona.nameFor(m)}, ${m.role}, ${word}${m.task ? `: ${m.task}` : ""}`} data-squad-member={m.id}>
+                      <Avatar size={26} name={persona.nameFor(m)} agent={{ seed: m.seed, dept: d.dept, personaKey: m.personaKey }} status={m.status} stacked surface="surface-1" />
                     </button>
                   </Tooltip>
                 </li>

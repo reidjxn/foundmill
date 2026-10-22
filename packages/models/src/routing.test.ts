@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALWAYS_THINKS, LOW_EFFORT_MAX_TOKENS, MODELS, MODEL_CAPABILITIES, PLAIN_MAX_TOKENS, ROUTES, THINKING_MAX_TOKENS, maxTokensFor, resolveModel } from "./routing";
+import { ALWAYS_THINKS, IMAGE_MODELS, LOW_EFFORT_MAX_TOKENS, MODELS, MODEL_CAPABILITIES, PLAIN_MAX_TOKENS, ROUTES, THINKING_MAX_TOKENS, maxTokensFor, resolveModel } from "./routing";
 
 describe("routing (BUILD §10.1)", () => {
   it("MODELS and ROUTES are exactly the spec table", () => {
@@ -115,5 +115,12 @@ describe("routing (BUILD §10.1)", () => {
   it("plain routes accept any override silently", () => {
     expect(resolveModel("codeReview", "haiku")).toMatchObject({ modelKey: "haiku", warning: undefined });
     expect(resolveModel("classifier", "opus").modelId).toBe(MODELS.opus);
+  });
+});
+
+describe("image models", () => {
+  it("the portrait image model lives here and is not a Claude route", () => {
+    expect(IMAGE_MODELS).toEqual({ portrait_image: "gpt-image-2.5-flare" });
+    expect(Object.keys(ROUTES)).not.toContain("portrait_image");
   });
 });

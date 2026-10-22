@@ -42,7 +42,8 @@ export type SeenMap = Record<string, true>;
  * 0022 — one row per signed-in account: how that person reads dates and times, in every business. Beside
  * founder_profiles (not on it) so a preference never creates a profile (the onboarding gate); no row reads the defaults.
  * 0064 adds the guided layer's preferences: the guidance switch, the text size, the explainers seen, the tours done
- * and when the first-week checklist was dismissed (null: showing).
+ * and when the first-week checklist was dismissed (null: showing). 0067 adds `anthropomorphic_agents`: agents show a
+ * persona's first name and AI-generated face (off: exactly as before).
  */
 export const accountPreferences = pgTable("account_preferences", {
   id: id(),
@@ -54,6 +55,7 @@ export const accountPreferences = pgTable("account_preferences", {
   explainersSeen: jsonb("explainers_seen").$type<SeenMap>().notNull().default(emptyObject),
   toursDone: jsonb("tours_done").$type<SeenMap>().notNull().default(emptyObject),
   checklistDismissedAt: tstz("checklist_dismissed_at"),
+  anthropomorphicAgents: boolean("anthropomorphic_agents").notNull().default(false),
   ...timestamps(),
 });
 export type AccountPreferences = typeof accountPreferences.$inferSelect;

@@ -24,6 +24,8 @@ export const THIRD_PARTY_CONNECTOR_KEYS = [
   // Phase 1
   "anthropic",
   "voyage",
+  /** AI-generated portraits for anthropomorphic agents; the platform asks it through the gateway, agents get no grant. */
+  "openai_images",
   "recraft",
   "github",
   "google_drive",

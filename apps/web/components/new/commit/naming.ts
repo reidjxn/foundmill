@@ -313,9 +313,11 @@ export interface CommitForm {
   currency: string;
   /** "Run on autopilot": the business starts its own cycles (Settings › Mode can change it later). Off by default. */
   autopilot: boolean;
+  /** "Anthropomorphic agents": the team shows human first names and AI-generated faces. Starts as the founder's account preference. */
+  anthropomorphicAgents: boolean;
 }
 
-export function initialCommitForm(idea: { title: string; archetype: Archetype | null }, kit: Kit, currency: string): CommitForm {
+export function initialCommitForm(idea: { title: string; archetype: Archetype | null }, kit: Kit, currency: string, anthropomorphicAgents = false): CommitForm {
   return {
     name: idea.title.replace(VARIANT_SUFFIX_RE, "").trim(),
     kit,
@@ -327,6 +329,7 @@ export function initialCommitForm(idea: { title: string; archetype: Archetype | 
     spendCap: String(DEFAULT_SPEND_CAP_MINOR.assisted / 100),
     currency,
     autopilot: false,
+    anthropomorphicAgents,
   };
 }
 
@@ -374,6 +377,8 @@ export function commitInput(ideaId: string, form: CommitForm) {
     // Sent only when the founder ticked it for a LIVE start (the server records it once).
     ...(form.gameMode === "live" && form.adult ? { confirmAdult: true as const } : {}),
     autopilot: form.autopilot,
+    // The Launch step's choice; the server also stores it as the founder's account preference.
+    anthropomorphicAgents: form.anthropomorphicAgents,
   };
 }
 

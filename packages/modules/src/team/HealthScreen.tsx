@@ -6,7 +6,7 @@
  */
 import { useMemo } from "react";
 import { Activity, CircleCheck, ExternalLink, HeartPulse, TriangleAlert, UserRoundPlus } from "lucide-react";
-import { Avatar, Button, Chip, DeptChip, EntityLink, Panel, StatusPill, StatusStrip, Term, cn, formatPercent, formatRelative, type HealthDetails, type MetricTileProps } from "@foundmill/dugout";
+import { Avatar, useAgentPersona, Button, Chip, DeptChip, EntityLink, Panel, StatusPill, StatusStrip, Term, cn, formatPercent, formatRelative, type HealthDetails, type MetricTileProps } from "@foundmill/dugout";
 import { AGENT_STATUSES, type AgentStatus } from "@foundmill/shared/constants";
 import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { teamHealthCounts, teamHealthSummary } from "@foundmill/widgets/shared/health";
@@ -89,6 +89,7 @@ function showGroup(status: AgentStatus) {
 }
 
 export function HealthScreen({ businessId }: ModuleScreenProps) {
+  const persona = useAgentPersona();
   const { navigate, currency } = useWidgetData();
   const { liveRefetchMs } = useTeamOptions();
   const now = useNow();
@@ -152,9 +153,9 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
               return (
                 <li key={agent.id} data-agent-id={agent.id} className="edge flex min-w-0 flex-col gap-3 rounded-md bg-surface-2 p-panel-pad">
                   <div className="flex min-w-0 items-center gap-2.5">
-                    <Avatar size={32} name={agent.name} agent={{ seed: agent.avatarSeed || agent.id, dept: agentDept(agent) }} status={agent.status} />
+                    <Avatar size={32} name={persona.nameFor(agent)} agent={{ seed: agent.avatarSeed || agent.id, dept: agentDept(agent), personaKey: agent.personaKey }} status={agent.status} />
                     <span className="flex min-w-0 flex-1 flex-col">
-                      <EntityLink entity={{ id: agent.id, kind: "agent", name: agent.name, href: agentHref(businessId, agent.id) }} details={agentEntity(businessId, agent, currency)} hideIcon className="min-w-0 truncate text-body-strong" onOpen={(e) => e.href && navigate(e.href)} onVerb={(verb, e) => verb === "open_profile" && e.href && navigate(e.href)} />
+                      <EntityLink entity={{ id: agent.id, kind: "agent", name: agent.name, href: agentHref(businessId, agent.id) }} details={agentEntity(businessId, agent, currency)} personaText="name" hideIcon className="min-w-0 truncate text-body-strong" onOpen={(e) => e.href && navigate(e.href)} onVerb={(verb, e) => verb === "open_profile" && e.href && navigate(e.href)} />
                       {roleLine ? <span className="truncate text-small text-secondary">{roleLine}</span> : null}
                     </span>
                     <AgentStatusWordPill status={agent.status} expectedReturnAt={back} now={now} withReturn={false} className="shrink-0" />

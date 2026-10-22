@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render } from "@testing-library/react";
 import { APP_NAME } from "@foundmill/config";
-import { GuidanceProvider } from "@foundmill/dugout";
+import { AgentPersonaProvider, GuidanceProvider } from "@foundmill/dugout";
 import { InboxList, type InboxListRow } from "../InboxList";
 import { goAheadConsequence } from "../ConfirmPlanDialog";
 import { ConfirmPlanDialog } from "../ReadingPane";
@@ -24,6 +24,36 @@ const row = (over: Partial<InboxListRow>): InboxListRow => ({
   agent: { id: "a1", name: "Mara", role: "Lifecycle", seed: "s", dept: "dept-1", departmentId: "d1", departmentName: "Growth" },
   fromUser: false,
   ...over,
+});
+
+describe("InboxList with anthropomorphic agents", () => {
+  const props = { selectedId: null, onSelect: vi.fn(), loading: false, hasMore: false, onLoadMore: vi.fn(), emptyText: "" };
+  const withPersona = { ...row({}).agent!, name: "Chief of Staff", role: "Chief of Staff", personaKey: "malik" };
+
+  it("names the sender \"Name (Position)\" on a row when the switch is on", () => {
+    const r = render(
+      <AgentPersonaProvider anthropomorphic>
+        <InboxList {...props} rows={[row({ agent: withPersona })]} />
+      </AgentPersonaProvider>,
+    );
+    expect(r.getByTestId("row-sender").textContent).toBe("Malik (Chief of Staff)");
+  });
+
+  it("shows nothing extra when the switch is off, for a person's note, or for an agent without a persona", () => {
+    const off = render(
+      <AgentPersonaProvider anthropomorphic={false}>
+        <InboxList {...props} rows={[row({ agent: withPersona })]} />
+      </AgentPersonaProvider>,
+    );
+    expect(off.queryByTestId("row-sender")).toBeNull();
+    off.unmount();
+    const on = render(
+      <AgentPersonaProvider anthropomorphic>
+        <InboxList {...props} rows={[row({ id: "own", agent: undefined, fromUser: true }), row({ id: "plain", agent: { ...withPersona, personaKey: null } })]} />
+      </AgentPersonaProvider>,
+    );
+    expect(on.queryByTestId("row-sender")).toBeNull();
+  });
 });
 
 describe("InboxList (DESIGN §9 rows)", () => {

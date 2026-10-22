@@ -39,10 +39,17 @@ export const agents = pgTable(
     /** The wage cap caps metered model cost: US dollars (0024, 0025), never the business's currency. */
     currency: usdCurrency(),
     avatarSeed: text("avatar_seed").notNull().default(""),
+    /**
+     * 0067 — the agent's persona (`PERSONAS` in @foundmill/shared): the first name and face shown when the founder turns
+     * anthropomorphic agents on. Given at hire, unique within the business; a rename never changes it. Null only until
+     * the boot backfill (`agentsRepo.backfillPersonas`) has run.
+     */
+    personaKey: text("persona_key"),
     ...timestampsWithArchive(),
   },
   (t) => [
     index("agents_business_id_idx").on(t.businessId),
+    index("agents_persona_key_idx").on(t.businessId, t.personaKey).where(sql`${t.personaKey} is not null`),
     index("agents_status_idx").on(t.businessId, t.status),
     index("agents_line_manager_id_idx").on(t.lineManagerId),
     index("agents_current_version_id_idx").on(t.currentVersionId),

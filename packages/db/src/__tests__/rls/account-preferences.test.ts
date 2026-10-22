@@ -63,13 +63,13 @@ describe("account_preferences (table)", () => {
     await expect(h.service().execute(sql`insert into account_preferences (user_id, guidance) values (${cy}::uuid, 'quiet')`)).rejects.toThrow(/check constraint/);
     await expect(h.service().execute(sql`insert into account_preferences (user_id, text_size) values (${cy}::uuid, 'large')`)).rejects.toThrow(/check constraint/);
     const [row] = await h.asUser(cy).run((tx) => tx.insert(s.accountPreferences).values({ userId: cy }).returning());
-    expect([row!.guidance, row!.textSize, row!.explainersSeen, row!.toursDone, row!.checklistDismissedAt]).toEqual(["on", "standard", {}, {}, null]);
+    expect([row!.guidance, row!.textSize, row!.explainersSeen, row!.toursDone, row!.checklistDismissedAt, row!.anthropomorphicAgents]).toEqual(["on", "standard", {}, {}, null, false]);
     await h.db.delete(s.accountPreferences).where(eq(s.accountPreferences.userId, cy));
   });
 });
 
 /** The defaults everyone reads until they choose. */
-const DEFAULTS = { date: "us", time: "12h", guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null };
+const DEFAULTS = { date: "us", time: "12h", guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false };
 
 describe("repos.preferences under RLS", () => {
   it("reads the defaults without writing a row, then upserts only what changed", async () => {

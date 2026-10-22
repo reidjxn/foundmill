@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "../../lib/cn";
+import { useAgentPersona } from "../foundation/AgentPersona";
 import { Avatar } from "../foundation/Avatar";
 import { FitText } from "../foundation/FitText";
 import { agentStatusTone } from "../foundation/StatusPill";
@@ -259,6 +260,8 @@ export interface HierarchyChartProps {
  * arrow keys walk the tree (Up parent, Down first child, Left/Right siblings), Enter selects.
  */
 export function HierarchyChart({ nodes, selectedId, onSelect, layout: layoutOpts, fit = true, className }: HierarchyChartProps) {
+  // Anthropomorphic agents: a node reads as the persona's first name over the position it already shows.
+  const persona = useAgentPersona();
   // The scroller's inner width, for fitting (null until measured: server markup and the first paint use the defaults).
   const scroller = useRef<HTMLDivElement>(null);
   const [avail, setAvail] = useState<number | null>(null);
@@ -351,6 +354,7 @@ export function HierarchyChart({ nodes, selectedId, onSelect, layout: layoutOpts
           if (!n) return null;
           const selected = selectedId === n.id;
           const unwell = n.status && n.status !== "healthy" ? agentStatusTone(n.status) : null;
+          const shown = persona.nameFor({ name: n.name, role: n.role, personaKey: n.avatar?.personaKey });
           return (
             <button
               key={n.id}
@@ -363,13 +367,13 @@ export function HierarchyChart({ nodes, selectedId, onSelect, layout: layoutOpts
               aria-level={p.depth + 1}
               aria-selected={selected}
               aria-expanded={p.childIds.length ? true : undefined}
-              aria-label={`${n.name}, ${n.role}${n.department ? `, ${n.department}` : ""}, ${KIND_LABEL[n.kind]}${n.model ? `, ${MODEL_LABELS[n.model]}` : ""}`}
+              aria-label={`${shown}, ${n.role}${n.department ? `, ${n.department}` : ""}, ${KIND_LABEL[n.kind]}${n.model ? `, ${MODEL_LABELS[n.model]}` : ""}`}
               tabIndex={active === n.id ? 0 : -1}
               data-kind={n.kind}
               onFocus={() => setActive(n.id)}
               onKeyDown={(e) => onKey(e, p)}
               onClick={() => onSelect?.(n)}
-              title={`${n.model ? `${n.name} · ${n.role} · ${MODEL_LABELS[n.model]}` : `${n.name} · ${n.role}`}${n.kind === "assistant" && chiefOfStaff ? `\n${chiefOfStaff.word}: ${chiefOfStaff.short}` : ""}`}
+              title={`${n.model ? `${shown} · ${n.role} · ${MODEL_LABELS[n.model]}` : `${shown} · ${n.role}`}${n.kind === "assistant" && chiefOfStaff ? `\n${chiefOfStaff.word}: ${chiefOfStaff.short}` : ""}`}
               className={cn(
                 "pressable absolute flex items-center overflow-hidden rounded-md border bg-surface-1 text-left shadow-elev-1 outline-none",
                 compact ? "gap-2 px-2" : "gap-2.5 px-2.5",
@@ -379,12 +383,12 @@ export function HierarchyChart({ nodes, selectedId, onSelect, layout: layoutOpts
               )}
               style={{ left: p.x, top: p.y, width: o.nodeWidth, height: o.nodeHeight }}
             >
-              <Avatar size={compact ? 28 : 34} name={n.name} agent={n.avatar ? { seed: n.avatar.seed, dept: n.avatar.dept } : undefined} status={n.status} />
+              <Avatar size={compact ? 28 : 34} name={shown} agent={n.avatar ? { seed: n.avatar.seed, dept: n.avatar.dept, personaKey: n.avatar.personaKey } : undefined} status={n.status} />
               <span className="flex min-w-0 flex-1 flex-col justify-center">
                 {/* Names fit: two lines first, then a step down; the full name is in the node's tooltip. */}
                 <span className="text-action font-semibold leading-4 text-primary">
                   <FitText lines={2} minPx={11}>
-                    {n.name}
+                    {shown}
                   </FitText>
                 </span>
                 <span className="mt-0.5 flex min-w-0 items-baseline gap-1 text-small">

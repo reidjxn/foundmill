@@ -257,6 +257,8 @@ export interface StageAgentMeta {
   dept: DeptColourToken;
   status?: AgentStatus;
   model?: string;
+  /** `agents.persona_key`: the name and face shown when anthropomorphic agents are on. */
+  personaKey?: string | null;
 }
 
 /* ---------- Concept cards (BUILD §11.1) ---------- */
@@ -349,6 +351,8 @@ export interface SquadMember {
   id: string;
   name: string;
   seed: string | number;
+  /** `agents.persona_key`: the name and face shown when anthropomorphic agents are on. */
+  personaKey?: string | null;
   status: AgentStatus;
   role: string;
   model: string;
@@ -378,7 +382,7 @@ export interface DepartmentCardData {
   id: string;
   name: string;
   dept: DeptColourToken;
-  lead: { name: string; seed: string | number; status: AgentStatus };
+  lead: { name: string; seed: string | number; status: AgentStatus; role?: string; personaKey?: string | null };
   health: HealthTone;
   /** Word next to the health icon ("Healthy", "Waiting", "Failing"). */
   healthWord?: string;

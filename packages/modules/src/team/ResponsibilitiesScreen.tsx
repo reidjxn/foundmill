@@ -6,7 +6,7 @@
  */
 import { useEffect, useId, useMemo, useState } from "react";
 import { ArrowLeftRight, Bot, Lock, ScrollText, Undo2, UserRound, UserRoundPlus } from "lucide-react";
-import { Avatar, Button, Chip, DataTable, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, IconButton, MiniTable, Panel, RadioCard, RadioGroup, SimpleSelect, Term, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Avatar, useAgentPersona, Button, Chip, DataTable, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, IconButton, MiniTable, Panel, RadioCard, RadioGroup, SimpleSelect, Term, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { DECISION_TYPES, type DecisionType } from "@foundmill/shared/constants";
 import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -187,6 +187,7 @@ export function DelegateDialog({ row, onOpenChange, agents, humans, departments,
 /* ---------- Screen ---------- */
 
 export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
+  const persona = useAgentPersona();
   const { navigate, currency } = useWidgetData();
   const data = useWidgetQuery<ResponsibilitiesResponse>("team.responsibilities.get", undefined);
   const agentsQuery = useAgents();
@@ -229,7 +230,7 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
       const agent = agentIndex.get(h.id);
       return (
         <span className="flex min-w-0 items-center gap-2">
-          {agent ? <Avatar size={20} name={agent.name} agent={{ seed: agent.avatarSeed || agent.id, dept: agentDept(agent) }} status={agent.status} /> : null}
+          {agent ? <Avatar size={20} name={persona.nameFor(agent)} agent={{ seed: agent.avatarSeed || agent.id, dept: agentDept(agent), personaKey: agent.personaKey }} status={agent.status} /> : null}
           <EntityLink entity={{ id: h.id, kind: "agent", name, href: agentHref(businessId, h.id) }} details={agent ? agentEntity(businessId, agent, currency) : undefined} className="min-w-0 truncate" onOpen={(e) => e.href && navigate(e.href)} onVerb={(verb, e) => verb === "open_profile" && e.href && navigate(e.href)} />
         </span>
       );

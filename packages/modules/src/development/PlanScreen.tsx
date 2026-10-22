@@ -163,7 +163,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
           const tile = toTileAgent(a, a.id);
           return (
             <span className="flex min-w-0 items-center gap-1.5">
-              <Avatar size={20} name={a.name} agent={{ seed: tile.seed, dept: tile.dept }} status={a.status} />
+              <Avatar size={20} name={a.name} agent={{ seed: tile.seed, dept: tile.dept, personaKey: tile.personaKey }} status={a.status} />
               <EntityLink entity={{ id: a.id, kind: "agent", name: a.name, href: agentHref(businessId, a.id) }} hideIcon hoverCard={false} className="min-w-0 truncate" />
             </span>
           );

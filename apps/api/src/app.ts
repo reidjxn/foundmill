@@ -1,6 +1,6 @@
 /**
  * The Hono app (docs/ARCHITECTURE.md §13): `/health` (db + redis + temporal + composer reachability flags, never
- * throws), `/trpc/*` via tRPC's fetch adapter (gzip-compressed, streamed answers left alone), CORS for the web origin(s)
+ * throws), `GET /personas/:key` (the public AI-generated face of one persona catalog key, immutable), `/trpc/*` via tRPC's fetch adapter (gzip-compressed, streamed answers left alone), CORS for the web origin(s)
  * and localhost:3000, request logging with pino.
  * `createApp(deps)` is pure so tests can boot it on an ephemeral port.
  */
@@ -15,6 +15,7 @@ import type { ApiDeps } from "./context";
 import { createContextFactory } from "./context";
 import { requestIdFrom } from "./request-id";
 import { appRouter } from "./router";
+import { storedPortrait } from "./services/personas";
 import { checkWorker } from "./services/worker-health";
 import { getTracer } from "@foundmill/shared/telemetry";
 
@@ -174,6 +175,26 @@ export function createApp(deps: ApiDeps) {
       },
       db ? 200 : 503,
     );
+  });
+
+  // The face of one persona catalog key (Anthropomorphic agents): a platform asset, not business data, so it needs no sign-in
+  // and any <img> may load it. Only catalog keys are looked up; anything else, and a face not generated yet, is a plain 404
+  // that must not be cached (the web polls team.personas.ensure and loads the image once it is ready). A stored face never
+  // changes, hence `immutable`. The mime comes from the row (webp, or png for the mock placeholder); `nosniff` and a
+  // sandboxing CSP keep the bytes an image whatever a browser is shown.
+  app.get("/personas/:key", async (c) => {
+    const portrait = await storedPortrait(deps.db, c.req.param("key"));
+    if (!portrait) {
+      c.header("cache-control", "no-store");
+      return c.json({ error: "not_found" }, 404);
+    }
+    return c.body(portrait.content as unknown as ArrayBuffer, 200, {
+      "content-type": portrait.mime,
+      "cache-control": "public, max-age=31536000, immutable",
+      "x-content-type-options": "nosniff",
+      "cross-origin-resource-policy": "cross-origin",
+      "content-security-policy": "default-src 'none'; sandbox",
+    });
   });
 
   // tRPC answers are JSON and shrink 5–10× with gzip (or deflate, whichever the client accepts). Hono's compress also

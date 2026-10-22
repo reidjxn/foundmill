@@ -87,7 +87,7 @@ function AgentOfTheWeekWidget({ settings }: WidgetProps<AgentOfTheWeekSettings>)
       {agent ? (
         <div className="flex h-full min-h-0 flex-col gap-3">
           <div className="flex items-start gap-3">
-            <Avatar size={48} name={agent.name} agent={{ seed: agent.avatarSeed || agent.id, dept: dept?.colourToken ?? "dept-1" }} status={agent.status} />
+            <Avatar size={48} name={agent.name} agent={{ seed: agent.avatarSeed || agent.id, dept: dept?.colourToken ?? "dept-1", personaKey: agent.personaKey }} status={agent.status} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 {/* An agent mention like any other (hover card, in-app navigation), not inert text. */}
@@ -95,6 +95,7 @@ function AgentOfTheWeekWidget({ settings }: WidgetProps<AgentOfTheWeekSettings>)
                   entity={{ id: agent.id, kind: "agent", name: agent.name, href: routes.agent(businessId, agent.id) }}
                   onOpen={() => navigate(routes.agent(businessId, agent.id))}
                   contextMenu={false}
+                  personaText="name"
                   className="t-display-md truncate text-primary"
                 />
                 {/* The /20 mean with its band word (the team table's cell), never a bare number. */}

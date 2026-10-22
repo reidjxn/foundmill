@@ -5,9 +5,9 @@
  * one screen_definition per module tab rendered by `module:<moduleKey>/<tabSlug>`.
  */
 import { departmentTabs, getSkillDefinition, getTemplate, type AgentTemplate, type ArchetypeSeed } from "@foundmill/agents";
-import type { AgentStatus } from "@foundmill/shared";
+import { pickPersonaKeys, type AgentStatus } from "@foundmill/shared";
 import { eq } from "drizzle-orm";
-import { repos } from "../repos";
+import { personaContext, repos } from "../repos";
 import { agents as agentsTable, type Agent, type Department } from "../schema";
 import type { SeedCtx } from "./context";
 
@@ -34,8 +34,19 @@ export interface SeedSquadOptions {
   extraMembers?: Array<{ templateKey: string; departmentSlug: string }>;
 }
 
+/**
+ * The demo agent's persona: the next key of the business's own seeded order that its agents do not hold yet. Unlike a
+ * live hire it ignores the owner's other businesses, so a demo business gets the same faces whatever else was seeded
+ * before it (and a reseed of one demo business never shifts another's).
+ */
+async function seedPersonaKey(ctx: SeedCtx, businessId: string): Promise<string> {
+  const { taken } = await personaContext(ctx.db, businessId);
+  return pickPersonaKeys(1, { seed: businessId, taken })[0]!;
+}
+
 async function hireFromTemplate(ctx: SeedCtx, businessId: string, templateKey: string, opts: { departmentIds?: string[]; lineManagerId?: string | null; currency: string }): Promise<SeededAgent> {
   const template = getTemplate(templateKey);
+  const personaKey = await seedPersonaKey(ctx, businessId);
   const agent = await repos.agents.create(ctx.db, businessId, {
     name: template.name,
     role: template.role,
@@ -52,6 +63,7 @@ async function hireFromTemplate(ctx: SeedCtx, businessId: string, templateKey: s
     wageCapMinor: template.wageCapMinor,
     currency: opts.currency,
     avatarSeed: `${businessId}:${template.key}`,
+    personaKey,
     initialVersion: { instructions: template.instructions, tools: template.tools, modelKey: template.modelKey, createdByKind: "system", createdBy: ctx.owner.userId },
   });
   await repos.skills.upsertForAgent(

@@ -30,6 +30,7 @@ import { shopifyTools } from "./connectors/shopify/tools";
 import { stripeTools } from "./connectors/stripe/tools";
 import { tinkTools } from "./connectors/tink/tools";
 import { voyageTools } from "./connectors/voyage/tools";
+import { openaiImagesTools } from "./connectors/openai_images/tools";
 import { webTools } from "./connectors/web/tools";
 import { e2bTools } from "./connectors/e2b/tools";
 
@@ -39,6 +40,7 @@ const names = (tools: readonly { name: string }[]) => Object.freeze(tools.map((t
 export const GATEWAY_TOOL_NAMES: Readonly<Record<string, readonly string[]>> = Object.freeze({
   anthropic: names(anthropicTools),
   voyage: names(voyageTools),
+  openai_images: names(openaiImagesTools),
   github: names(githubTools),
   google_drive: names(googleDriveTools),
   gmail: names(gmailTools),

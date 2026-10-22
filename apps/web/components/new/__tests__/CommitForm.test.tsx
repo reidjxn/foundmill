@@ -278,6 +278,57 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(onCommit.mock.calls[1]![0]).toMatchObject({ autopilot: true });
   });
 
+  it("offers Anthropomorphic agents, starting from the account preference, sends the choice with idea.commit and keeps the five chips", async () => {
+    const onCommit = renderForm();
+    const toggle = screen.getByRole("switch", { name: "Anthropomorphic agents" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByTestId("anthropomorphic-choice").textContent).toContain("still AI agents");
+    // The summary line stays the five choices the step is laid out around.
+    expect(screen.getByTestId("how-it-runs-summary").querySelectorAll("[data-summary]")).toHaveLength(5);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ anthropomorphicAgents: false });
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge"));
+    });
+    expect(onCommit.mock.calls[1]![0]).toMatchObject({ anthropomorphicAgents: true });
+  });
+
+  it("starts the Anthropomorphic agents switch on when the account preference is on, and follows it until the founder chooses", () => {
+    const view = render(
+      <GuidanceProvider value={{ guidance: "on", terms: TERMS }}>
+        <TooltipProvider>
+          <CommitForm idea={idea} viewer={{ email: null }} currency="EUR" onCommit={vi.fn()} logoApi={fakeLogoApi()} domainApi={fakeDomainApi()} anthropomorphicDefault />
+        </TooltipProvider>
+      </GuidanceProvider>,
+    );
+    openHowItRuns();
+    const toggle = screen.getByRole("switch", { name: "Anthropomorphic agents" });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    // The preference arrives late: the switch follows it while untouched ...
+    view.rerender(
+      <GuidanceProvider value={{ guidance: "on", terms: TERMS }}>
+        <TooltipProvider>
+          <CommitForm idea={idea} viewer={{ email: null }} currency="EUR" onCommit={vi.fn()} logoApi={fakeLogoApi()} domainApi={fakeDomainApi()} anthropomorphicDefault={false} />
+        </TooltipProvider>
+      </GuidanceProvider>,
+    );
+    expect(screen.getByRole("switch", { name: "Anthropomorphic agents" }).getAttribute("aria-checked")).toBe("false");
+    // ... and stops following once the founder has chosen here.
+    fireEvent.click(screen.getByRole("switch", { name: "Anthropomorphic agents" }));
+    view.rerender(
+      <GuidanceProvider value={{ guidance: "on", terms: TERMS }}>
+        <TooltipProvider>
+          <CommitForm idea={idea} viewer={{ email: null }} currency="EUR" onCommit={vi.fn()} logoApi={fakeLogoApi()} domainApi={fakeDomainApi()} anthropomorphicDefault />
+        </TooltipProvider>
+      </GuidanceProvider>,
+    );
+    expect(screen.getByRole("switch", { name: "Anthropomorphic agents" }).getAttribute("aria-checked")).toBe("true");
+  });
+
   it("submits the idea.commit input and blocks an empty name", async () => {
     const onCommit = renderForm();
     fireEvent.change(screen.getByLabelText(/Business name/), { target: { value: "  " } });

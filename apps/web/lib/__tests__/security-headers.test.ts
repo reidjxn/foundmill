@@ -32,6 +32,13 @@ describe("security headers (audit SECX-7, PAS-3)", () => {
     expect(directive(csp, "default-src")).toEqual(["'self'"]);
   });
 
+  it("lets images load from the API's origin, for the AI-generated faces of anthropomorphic agents (a local API is plain http)", () => {
+    expect(directive(contentSecurityPolicy(PROD), "img-src")).toEqual(["'self'", "data:", "blob:", "https:", "https://api.foundmill.com"]);
+    const local = contentSecurityPolicy({ ...PROD, NEXT_PUBLIC_API_URL: "http://localhost:4000" });
+    expect(directive(local, "img-src")).toContain("http://localhost:4000");
+    expect(directive(contentSecurityPolicy({ ...PROD, NEXT_PUBLIC_API_URL: "" }), "img-src")).toEqual(["'self'", "data:", "blob:", "https:"]);
+  });
+
   it("allows scripts from the app only, and eval only on the dev server", () => {
     expect(directive(contentSecurityPolicy(PROD), "script-src")).toEqual(["'self'", "'unsafe-inline'"]);
     expect(directive(contentSecurityPolicy(PROD, { dev: true }), "script-src")).toContain("'unsafe-eval'");

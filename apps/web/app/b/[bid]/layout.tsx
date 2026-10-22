@@ -25,6 +25,7 @@ import { startBusinessShell } from "@/lib/shell-data.server";
 import { serverApi } from "@/lib/trpc-server";
 import { handOverProfile } from "@/lib/profile-handover";
 import { errorMessage, trpcErrorCode } from "@/lib/trpc";
+import { AgentPersonaHost } from "@/components/providers/AgentPersonaHost";
 import { DateFormatHost } from "@/components/providers/DateFormatHost";
 import { GuidanceHost } from "@/components/providers/GuidanceHost";
 import { BusinessShell } from "@/components/shell/BusinessShell";
@@ -84,10 +85,12 @@ export default async function BusinessLayout({ params, children }: { params: Par
     <Prefetched queryClient={handOverProfile(shell.prefetch(), profile)}>
       <GuidanceHost initial={guided.prefs} signedIn textSizeOwner={date.owner}>
         <DateFormatHost initial={date.prefs} owner={date.owner}>
-          <BusinessShell businessId={bid} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId, name: profile.profile?.displayName ?? null }}>
-            <BusinessTitle />
-            {children}
-          </BusinessShell>
+          <AgentPersonaHost businessId={bid}>
+            <BusinessShell businessId={bid} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId, name: profile.profile?.displayName ?? null }}>
+              <BusinessTitle />
+              {children}
+            </BusinessShell>
+          </AgentPersonaHost>
         </DateFormatHost>
       </GuidanceHost>
     </Prefetched>

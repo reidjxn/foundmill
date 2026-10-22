@@ -48,12 +48,15 @@ export function contentSecurityPolicy(env: SecurityHeaderEnv, options: { dev?: b
   }
   // The dev server hot-reloads over a WebSocket on its own origin and evaluates source maps.
   if (options.dev) connect.add("ws:");
+  const apiOrigin = originOf(env.NEXT_PUBLIC_API_URL);
   const directives: [string, string[]][] = [
     ["default-src", ["'self'"]],
     ["script-src", ["'self'", "'unsafe-inline'", ...(options.dev ? ["'unsafe-eval'"] : [])]],
     ["style-src", ["'self'", "'unsafe-inline'"]],
-    // Agent avatars and logos are data: SVGs; a business's own logo and previews may be https images.
-    ["img-src", ["'self'", "data:", "blob:", "https:"]],
+    // Agent avatars and logos are data: SVGs; a business's own logo and previews may be https images. The AI-generated
+    // faces of anthropomorphic agents load from the API's public /personas/<key> route: its origin is named, since a
+    // local API is plain http (https: alone would block it).
+    ["img-src", ["'self'", "data:", "blob:", "https:", ...(apiOrigin ? [apiOrigin] : [])]],
     ["font-src", ["'self'", "data:"]],
     ["connect-src", [...connect]],
     // The Development preview shows the branch's own deployment in a sandboxed iframe.

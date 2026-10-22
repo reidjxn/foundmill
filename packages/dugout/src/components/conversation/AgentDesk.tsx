@@ -11,6 +11,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { ListChecks, Lock, RotateCcw, X } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { usePrefersReducedMotion } from "../../lib/reducedMotion";
+import { useAgentPersona } from "../foundation/AgentPersona";
 import { Avatar } from "../foundation/Avatar";
 import { Button } from "../foundation/Button";
 import { useDateFormat } from "../foundation/DateFormatProvider";
@@ -123,6 +124,7 @@ const GREETING_ID = "desk-greeting";
  * (house rules, hard gates). Agents never claim to be human; the presence carries an "AI agent" marker.
  */
 export function AgentDesk(props: AgentDeskProps) {
+  const agentPersona = useAgentPersona();
   const {
     persona,
     messages,
@@ -189,7 +191,7 @@ export function AgentDesk(props: AgentDeskProps) {
           replies={replies}
           onChoose={onQuickReply}
           onSend={onSend}
-          agentName={persona.name}
+          agentName={agentPersona.nameFor(persona)}
           hotkeys={keysOn}
           keyModifier={keyModifier}
           pendingId={pendingReplyId}
@@ -300,6 +302,8 @@ function DeskThread({
   label,
   threadRef,
 }: AgentDeskProps & { variant: AgentDeskVariant; threadRef: RefObject<HTMLDivElement | null> }) {
+  const agentPersona = useAgentPersona();
+  const personaName = agentPersona.nameFor(persona);
   const reduced = usePrefersReducedMotion();
   const datePrefs = useDateFormat();
   const ref = threadRef;
@@ -367,8 +371,8 @@ function DeskThread({
                           {isLast ? (
                             <Avatar
                               size={26}
-                              name={persona.name}
-                              agent={{ seed: persona.avatarSeed, dept: persona.dept }}
+                              name={personaName}
+                              agent={{ seed: persona.avatarSeed, dept: persona.dept, personaKey: persona.personaKey }}
                               status={persona.status}
                               presence={state === "live" ? "live" : undefined}
                               surface={variant === "sheet" ? "surface-3" : "surface-1"}
@@ -384,7 +388,7 @@ function DeskThread({
                         data-greeting={row.message.id === GREETING_ID || undefined}
                         data-testid="agent-bubble"
                       >
-                        <span className="sr-only">{persona.name}: </span>
+                        <span className="sr-only">{personaName}: </span>
                         {streaming ? (
                           <StreamingText
                             text={row.bubble}
@@ -433,7 +437,7 @@ function DeskThread({
                       <span className="sr-only">You: </span>
                       {renderFounder(row.bubble)}
                       {reaction ? (
-                        <Reaction reaction={reaction} by={persona.name} dept={persona.dept} />
+                        <Reaction reaction={reaction} by={personaName} dept={persona.dept} />
                       ) : null}
                     </div>
                   </div>
@@ -464,7 +468,7 @@ function DeskThread({
       })}
       {replying ? (
         <TypingLine
-          name={persona.name}
+          name={personaName}
           phrase={thinkingPhraseFor(persona, thinkingPhrase)}
           dept={persona.dept}
           indent={portraits}

@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { AgentPersonaProvider } from "../foundation/AgentPersona";
 import { EntityLink, EntityLinkProvider } from "./EntityLink";
 import { EntityText } from "./EntityText";
 import { Markdown, preloadMarkdown } from "./Markdown";
@@ -236,5 +237,42 @@ describe("Markdown", () => {
     );
     expect(document.querySelector("img")).toBeNull();
     expect(screen.getByText("the chart")).toBeTruthy();
+  });
+});
+
+describe("EntityLink for an agent with anthropomorphic agents", () => {
+  const scout = { ...resolveFixtureEntity(ENTITY_IDS.scout)!, personaKey: "malik", role: "Scout" };
+  const mount = (anthropomorphic: boolean, extra?: { hoverCard?: boolean }) =>
+    render(
+      <AgentPersonaProvider anthropomorphic={anthropomorphic}>
+        <EntityLinkProvider value={{ resolve: (id) => (id === ENTITY_IDS.scout ? scout : undefined) }}>
+          <EntityLink entity={{ id: ENTITY_IDS.scout, kind: "agent", name: "Scout" }} {...extra} />
+          <EntityLink entity={{ id: ENTITY_IDS.sara, kind: "person", name: "Sara Lindqvist" }} />
+          <EntityLink entity={{ id: "11111111-1111-4111-8111-111111111111", kind: "agent", name: "Unknown helper" }} />
+        </EntityLinkProvider>
+      </AgentPersonaProvider>,
+    );
+
+  it("on: reads the live display name with the position, whatever the markup said; unknown agents keep the markup text", () => {
+    mount(true);
+    expect(screen.getByRole("link", { name: "Malik (Scout)" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Sara Lindqvist" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Unknown helper" })).toBeTruthy();
+  });
+
+  it("on: the hover card leads with the first name, keeps the position and says it is an AI agent", async () => {
+    const user = userEvent.setup();
+    mount(true);
+    await user.hover(screen.getByRole("link", { name: "Malik (Scout)" }));
+    const card = await screen.findByText("AI agent", {}, { timeout: 1500 });
+    const root = card.closest("[data-entity-card]") as HTMLElement;
+    expect(root.textContent).toContain("Malik");
+    expect(root.textContent).toContain("Distribution lead");
+  });
+
+  it("off: today's markup text", () => {
+    mount(false);
+    expect(screen.getByRole("link", { name: "Scout" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Malik/ })).toBeNull();
   });
 });

@@ -6,6 +6,7 @@ import { deptColourVar, mixWith } from "../../lib/colour";
 import { initials } from "../../lib/format";
 import { createRng, hashSeed } from "../../lib/seed";
 import { Icon, type IconComponent } from "./Icon";
+import { PersonaAvatar } from "./PersonaAvatar";
 import { agentStatusTone } from "./StatusPill";
 
 /** DESIGN §6: 18–64, plus 68 for the conversation's presence portrait. Any number works; these are the steps. */
@@ -183,8 +184,13 @@ export interface AvatarProps extends Omit<HTMLAttributes<HTMLSpanElement>, "chil
   size?: AvatarSize | number;
   /** Display name; used for the accessible label and for human initials. */
   name: string;
-  /** Agent portrait when set; otherwise a human initials avatar. */
-  agent?: { seed: string | number; dept: DeptColourToken };
+  /**
+   * Agent portrait when set; otherwise a human initials avatar. `src` is the agent's AI-generated face: shown (cover,
+   * round, same ring) over the drawn portrait, which stays underneath as the fallback while the image loads or if it
+   * fails. Without a `src`, `personaKey` asks the AgentPersonaProvider for the face and the first name (only when
+   * anthropomorphic agents are on); that path is the one client piece (PersonaAvatar).
+   */
+  agent?: { seed: string | number; dept: DeptColourToken; src?: string | null; personaKey?: string | null };
   /** Status ring (1.5 px, a few px out). Pass `status` from the shared vocabulary or a ring tone directly. */
   status?: AgentStatus;
   ring?: AvatarRing;
@@ -200,9 +206,10 @@ export interface AvatarProps extends Omit<HTMLAttributes<HTMLSpanElement>, "chil
 
 /**
  * Agents get a procedural portrait; humans get initials (Inter 600, text-2) on surface 2, or their photo. A 10 % white
- * hairline keeps every face apart from its surface. Server-safe: the breathing ring is CSS.
+ * hairline keeps every face apart from its surface. An agent's AI-generated face (`agent.src`) covers the drawn
+ * portrait, which stays underneath as the fallback. Server-safe (no hooks beyond useId; the breathing ring is CSS).
  */
-export function Avatar({ size = 32, name, agent, status, ring, presence, surface, src, stacked, className, style, ...rest }: AvatarProps) {
+export function AvatarBase({ size = 32, name, agent, status, ring, presence, surface, src, stacked, className, style, ...rest }: AvatarProps) {
   const uid = useId();
   const tone = ring ?? ringForStatus(status);
   // The status's own word ("degraded", "paused", "down"), as its pill says it; a bare ring falls back to its tone's word.
@@ -234,7 +241,11 @@ export function Avatar({ size = 32, name, agent, status, ring, presence, surface
     >
       <span aria-hidden className={cn("avatar-face", agent ? null : "bg-surface-2")}>
         {agent ? (
-          <span className="contents" dangerouslySetInnerHTML={{ __html: generateAvatar({ seed: agent.seed, dept: agent.dept, size, title: name, uid }) }} />
+          <>
+            <span className="contents" dangerouslySetInnerHTML={{ __html: generateAvatar({ seed: agent.seed, dept: agent.dept, size, title: name, uid }) }} />
+            {/* The AI-generated face covers the drawn portrait; if it is still loading or fails, the portrait shows through. */}
+            {agent.src ? <img src={agent.src} alt="" className="absolute inset-0 object-cover" data-avatar="photo" draggable={false} /> : null}
+          </>
         ) : src ? (
           <img src={src} alt="" className="object-cover" />
         ) : (
@@ -260,6 +271,15 @@ export function Avatar({ size = 32, name, agent, status, ring, presence, surface
       ) : null}
     </span>
   );
+}
+
+/**
+ * An avatar. With anthropomorphic agents, an agent drawn with its `personaKey` goes through PersonaAvatar (the one client
+ * piece, which reads the AgentPersonaProvider for the first name and the face); everything else, and every server render
+ * of an avatar without a key, is AvatarBase exactly as before.
+ */
+export function Avatar(props: AvatarProps) {
+  return props.agent?.personaKey ? <PersonaAvatar {...props} /> : <AvatarBase {...props} />;
 }
 
 export interface AvatarStackProps {

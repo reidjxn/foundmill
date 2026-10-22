@@ -205,7 +205,7 @@ export function CodeScreen({ businessId, departmentId }: ModuleScreenProps) {
           const tile = toTileAgent(a, row.original.latest.agentId ?? row.original.assigneeAgentId);
           return (
             <span className="flex min-w-0 items-center gap-1.5" title={`${row.original.title} · ${row.original.agentName}`}>
-              <Avatar size={20} name={tile.name} agent={{ seed: tile.seed, dept: tile.dept }} status={a?.status} />
+              <Avatar size={20} name={tile.name} agent={{ seed: tile.seed, dept: tile.dept, personaKey: tile.personaKey }} status={a?.status} />
               <span className="truncate text-body-strong">{row.original.title}</span>
             </span>
           );

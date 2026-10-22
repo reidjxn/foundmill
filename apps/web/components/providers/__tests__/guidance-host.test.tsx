@@ -9,13 +9,13 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GuidanceTermsProvider, useGuidance, useTerm } from "@foundmill/dugout";
 
-type Prefs = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null };
-type Patch = Partial<{ guidance: Prefs["guidance"]; textSize: Prefs["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; reset: true }>;
+type Prefs = { guidance: "on" | "off"; textSize: "standard" | "comfortable"; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissedAt: string | null; anthropomorphicAgents: boolean };
+type Patch = Partial<{ guidance: Prefs["guidance"]; textSize: Prefs["textSize"]; explainersSeen: Record<string, true>; toursDone: Record<string, true>; checklistDismissed: boolean; anthropomorphicAgents: boolean; reset: true }>;
 
 const BUSINESS = "b1e5e5e5-0000-4000-8000-000000000001";
 const GUIDANCE_KEY = [["founder", "preferences", "guidance"], { type: "query" }];
 const businessKey = (businessId: string) => [["business", "get"], { input: { businessId }, type: "query" }];
-const defaults = (): Prefs => ({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null });
+const defaults = (): Prefs => ({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false });
 
 let stored: Prefs = defaults();
 let pathname: string | null = `/b/${BUSINESS}/home`;
@@ -26,6 +26,7 @@ async function serverUpdate(change: Patch) {
   const next: Prefs = { ...stored, explainersSeen: { ...stored.explainersSeen }, toursDone: { ...stored.toursDone } };
   if (change.guidance) next.guidance = change.guidance;
   if (change.textSize) next.textSize = change.textSize;
+  if (change.anthropomorphicAgents !== undefined) next.anthropomorphicAgents = change.anthropomorphicAgents;
   if (change.reset) Object.assign(next, { explainersSeen: {}, toursDone: {}, checklistDismissedAt: null });
   for (const id of Object.keys(change.explainersSeen ?? {})) next.explainersSeen[id] = true;
   for (const id of Object.keys(change.toursDone ?? {})) next.toursDone[id] = true;
@@ -491,13 +492,18 @@ describe("helpers", () => {
   });
 
   it("applyGuidancePatch: the optimistic answer follows the API's rules without touching the previous state", () => {
-    const prev: Prefs = { guidance: "on", textSize: "standard", explainersSeen: { home: true }, toursDone: {}, checklistDismissedAt: null };
+    const prev: Prefs = { guidance: "on", textSize: "standard", explainersSeen: { home: true }, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false };
     const now = "2026-10-20T15:45:00.000Z";
     expect(applyGuidancePatch(prev, { guidance: "off", textSize: "comfortable" }, now)).toEqual({ ...prev, guidance: "off", textSize: "comfortable" });
     expect(applyGuidancePatch(prev, { explainersSeen: { inbox: true }, toursDone: { home: true } }, now)).toEqual({ ...prev, explainersSeen: { home: true, inbox: true }, toursDone: { home: true } });
     expect(applyGuidancePatch(prev, { checklistDismissed: true }, now).checklistDismissedAt).toBe(now);
     expect(applyGuidancePatch({ ...prev, checklistDismissedAt: now }, { checklistDismissed: false }, now).checklistDismissedAt).toBeNull();
-    expect(applyGuidancePatch({ ...prev, toursDone: { home: true }, checklistDismissedAt: now }, { reset: true, guidance: "off" }, now)).toEqual({ guidance: "off", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null });
-    expect(prev).toEqual({ guidance: "on", textSize: "standard", explainersSeen: { home: true }, toursDone: {}, checklistDismissedAt: null });
+    // The Anthropomorphic agents switch travels with the guided layer's preferences.
+    expect(applyGuidancePatch(prev, { anthropomorphicAgents: true }, now).anthropomorphicAgents).toBe(true);
+    expect(applyGuidancePatch({ ...prev, anthropomorphicAgents: true }, { guidance: "off" }, now).anthropomorphicAgents).toBe(true);
+    expect(applyGuidancePatch({ ...prev, anthropomorphicAgents: true }, { reset: true }, now).anthropomorphicAgents).toBe(true);
+    expect(sameGuidancePrefs(prev, { ...prev, anthropomorphicAgents: true })).toBe(false);
+    expect(applyGuidancePatch({ ...prev, toursDone: { home: true }, checklistDismissedAt: now }, { reset: true, guidance: "off" }, now)).toEqual({ guidance: "off", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false });
+    expect(prev).toEqual({ guidance: "on", textSize: "standard", explainersSeen: { home: true }, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false });
   });
 });

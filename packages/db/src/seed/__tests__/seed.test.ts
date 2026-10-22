@@ -3,7 +3,7 @@
  * two years of journey_daily rows, inbox items of every type with valid entity links, LIVE extras for Ledgerly,
  * RLS (the demo owner sees both businesses, a stranger none) and idempotent, deterministic re-runs.
  */
-import { CHANNEL_KEYS, INBOX_ITEM_TYPES, VestingSchedule, readVesting } from "@foundmill/shared";
+import { CHANNEL_KEYS, INBOX_ITEM_TYPES, VestingSchedule, pickPersonaKeys, readVesting } from "@foundmill/shared";
 import { projectForecast, type ForecastDrivers } from "@foundmill/shared/forecast";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -50,6 +50,17 @@ describe("seedDemo on PGlite", () => {
     expect([ledgerly.gameMode, ledgerly.businessMode, ledgerly.archetype]).toEqual(["live", "automated", "b2b_saas"]);
     expect(northwind.committedAt).toBeInstanceOf(Date);
     expect(await repos.founders.get(db, result.owner.userId)).not.toBeNull();
+  });
+
+  it("gives every demo agent a persona key, unique in its business, in the business's own seeded order (0067)", async () => {
+    for (const bid of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
+      const agents = await db.select({ k: s.agents.personaKey }).from(s.agents).where(eq(s.agents.businessId, bid)).orderBy(s.agents.createdAt, s.agents.id);
+      expect(agents.length).toBeGreaterThan(0);
+      const keys = agents.map((a) => a.k);
+      expect(new Set(keys).size).toBe(keys.length);
+      // Independent of the other demo business: the same keys whichever was seeded first.
+      expect(new Set(keys)).toEqual(new Set(pickPersonaKeys(keys.length, { seed: bid })));
+    }
   });
 
   it("builds the departments of each archetype, renamed for Northwind, each with its module tabs", async () => {

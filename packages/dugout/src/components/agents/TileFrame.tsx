@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { formatCompact, formatMoney } from "../../lib/format";
+import { useAgentPersona } from "../foundation/AgentPersona";
 import { Avatar } from "../foundation/Avatar";
 import { FitText } from "../foundation/FitText";
 import { ProvenanceChip } from "../foundation/Chip";
@@ -140,6 +141,8 @@ export interface TileFrameProps {
 export function TileFrame({ session, views, view, onViewChange, focused, compact, controls = {}, onFocus, onOpenTask, now, children, className }: TileFrameProps) {
   const id = useId();
   const guided = useGuided();
+  // Anthropomorphic agents: "Bob (Frontend engineer)" when on, the agent's own name otherwise.
+  const who = useAgentPersona().labelFor(session.agent);
   // The footer's token count says what a token is on hover (the definitions map's own sentence; "AI usage" outside a provider).
   const tokensDef = useTerm("tokens");
   const pill = sessionPill(session);
@@ -184,7 +187,7 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
 
   return (
     <article
-      aria-label={`${session.agent.name}: ${session.task.title}`}
+      aria-label={`${who}: ${session.task.title}`}
       data-session-id={session.id}
       data-status={session.status}
       data-focused={focused || undefined}
@@ -211,12 +214,12 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
         data-tile-header
       >
         <div className="flex min-w-0 basis-full items-center gap-2 @min-[600px]:basis-0 @min-[600px]:flex-1" data-tile-identity>
-          <Avatar size={24} name={session.agent.name} agent={{ seed: session.agent.seed, dept: session.agent.dept }} status={session.agent.status} presence={live ? "live" : undefined} />
+          <Avatar size={24} name={who} agent={{ seed: session.agent.seed, dept: session.agent.dept, personaKey: session.agent.personaKey }} status={session.agent.status} presence={live ? "live" : undefined} />
           {/* Name over task, each on one line of the slot's full width. */}
           <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
-            <span className="block min-w-0 text-action font-semibold leading-4 text-primary" title={session.agent.name} data-tile-name>
+            <span className="block min-w-0 text-action font-semibold leading-4 text-primary" title={who} data-tile-name>
               <FitText minPx={11} tooltip={false}>
-                {session.agent.name}
+                {who}
               </FitText>
             </span>
             {onOpenTask || session.task.href ? (
@@ -297,10 +300,10 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
           {guided && hasControls ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <IconButton icon={Ellipsis} label={`More actions for ${session.agent.name}`} size="sm" variant="ghost" className="shrink-0" data-tile-actions="" />
+                <IconButton icon={Ellipsis} label={`More actions for ${who}`} size="sm" variant="ghost" className="shrink-0" data-tile-actions="" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-64">
-                <DropdownMenuLabel>{session.agent.name}</DropdownMenuLabel>
+                <DropdownMenuLabel>{who}</DropdownMenuLabel>
                 {canResume ? (
                   <DropdownMenuItem onSelect={() => controls.onResume?.(session.id)}>
                     <Icon icon={Play} size="inline" className="text-secondary" />
@@ -364,7 +367,7 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div
           role="toolbar"
-          aria-label={`Controls for ${session.agent.name}`}
+          aria-label={`Controls for ${who}`}
           className={cn(
             "surface-overlay absolute right-2 top-2 z-10 flex items-center gap-0.5 p-0.5",
             "transition-opacity duration-hover ease-out",
@@ -376,7 +379,7 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
           ) : (
             <IconButton icon={Pause} label="Pause" size="sm" disabled={!canPause} onClick={() => controls.onPause?.(session.id)} />
           )}
-          {controls.onShout ? <ShoutMenu target={session.agent.name} disabled={over} onShout={(s) => controls.onShout?.(session.id, s)} /> : null}
+          {controls.onShout ? <ShoutMenu target={who} disabled={over} onShout={(s) => controls.onShout?.(session.id, s)} /> : null}
           {controls.onReassign ? <IconButton icon={UserRoundCog} label="Reassign" size="sm" disabled={over} onClick={() => controls.onReassign?.(session.id)} /> : null}
           {canUpgrade ? <IconButton icon={ArrowUpCircle} label={STRONGEST_MODEL_LABEL} size="sm" disabled={over} onClick={() => controls.onUpgradeModel?.(session.id)} /> : null}
           {controls.onOpenInClaudeCode ? <IconButton icon={ExternalLink} label="Open in Claude Code" size="sm" onClick={() => controls.onOpenInClaudeCode?.(session.id)} /> : null}

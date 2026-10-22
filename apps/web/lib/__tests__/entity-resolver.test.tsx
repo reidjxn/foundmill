@@ -40,6 +40,13 @@ describe("useEntityResolver (audit GTM-26: a failed lookup must not unlink menti
     expect(calls).toBe(1);
   });
 
+  it("resolves an agent of the business with its persona key and position, for the live display name", () => {
+    const AGENT = "33333333-3333-4333-8333-333333333333";
+    const { result } = renderHook(() => useEntityResolver({ businessId: BID, agents: [{ id: AGENT, name: "Chief of Staff", role: "Chief of Staff", avatarSeed: "cos", dept: "dept-1", personaKey: "malik" }], canReadCrm: true, navigate: () => undefined }));
+    expect(result.current.resolve?.(AGENT)).toMatchObject({ kind: "agent", name: "Chief of Staff", personaKey: "malik", role: "Chief of Staff" });
+    expect(calls).toBe(0);
+  });
+
   it("an id the lookup does not return is known not to exist, so its mention is plain text", async () => {
     answer = () => Promise.resolve([]);
     const { result } = render();

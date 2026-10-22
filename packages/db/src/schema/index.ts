@@ -21,3 +21,4 @@ export * from "./research";
 export * from "./conversations";
 export * from "./payments";
 export * from "./table-views";
+export * from "./personas";

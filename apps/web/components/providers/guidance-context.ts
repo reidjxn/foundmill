@@ -36,7 +36,7 @@ export function useGuidanceSignal(): GuidanceSignalFn {
 }
 
 /** What everyone reads until the account answers, and on every signed-out page. */
-export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null });
+export const DEFAULT_GUIDANCE_PREFS: Readonly<GuidancePrefs> = Object.freeze({ guidance: "on", textSize: "standard", explainersSeen: {}, toursDone: {}, checklistDismissedAt: null, anthropomorphicAgents: false });
 
 /** True on the pages the proxy reserves for a signed-in founder; `/` is the landing page for a visitor, so it is not one. */
 export function isSignedInPath(pathname: string | null | undefined): boolean {

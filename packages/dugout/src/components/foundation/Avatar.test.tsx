@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { AgentPersonaProvider } from "./AgentPersona";
 import { Avatar, AvatarStack, avatarGeometry, deptPalette, generateAvatar, ringForStatus, statusGlyph } from "./Avatar";
 
 describe("generateAvatar", () => {
@@ -146,5 +147,54 @@ describe("AvatarStack", () => {
     render(<AvatarStack max={2} items={[{ name: "A", agent: { seed: "a", dept: "dept-1" } }, { name: "B" }, { name: "C" }]} />);
     expect(screen.getAllByRole("img")).toHaveLength(2);
     expect(screen.getByLabelText("1 more").textContent).toBe("+1");
+  });
+});
+
+describe("Avatar with an AI-generated face", () => {
+  it("shows the image over the drawn portrait, keeping the ring and the label", () => {
+    const { container } = render(<Avatar name="Bob" agent={{ seed: "s1", dept: "dept-3", src: "/faces/bob.png" }} status="healthy" size={36} />);
+    const el = screen.getByRole("img", { name: "Bob, healthy" });
+    const img = container.querySelector<HTMLImageElement>("img[data-avatar='photo']")!;
+    expect(img.getAttribute("src")).toBe("/faces/bob.png");
+    expect(img.className).toContain("object-cover");
+    expect(img.getAttribute("alt")).toBe("");
+    // The drawn portrait stays underneath: it is what shows while the face loads or if it never does.
+    expect(el.querySelector("svg[data-avatar='portrait']")).not.toBeNull();
+    expect(el.querySelector(".avatar-ring")).not.toBeNull();
+    expect(el.getAttribute("data-ring")).toBe("good");
+  });
+
+  it("draws the portrait as before when there is no image", () => {
+    const { container } = render(<Avatar name="Bob" agent={{ seed: "s1", dept: "dept-3" }} />);
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("svg[data-avatar='portrait']")).not.toBeNull();
+  });
+
+  it("asks the persona provider for the face by key, only while the preference is on", () => {
+    const portraitUrl = (k: string) => (k === "malik" ? "/personas/malik" : null);
+    const agent = { seed: "s1", dept: "dept-3" as const, personaKey: "malik" };
+    const on = render(
+      <AgentPersonaProvider anthropomorphic portraitUrl={portraitUrl}>
+        <Avatar name="Malik" agent={agent} />
+      </AgentPersonaProvider>,
+    );
+    expect(on.container.querySelector("img[data-avatar='photo']")?.getAttribute("src")).toBe("/personas/malik");
+    // Named by the persona's first name.
+    expect(screen.getByRole("img", { name: "Malik" })).toBeTruthy();
+    on.unmount();
+    const off = render(
+      <AgentPersonaProvider anthropomorphic={false} portraitUrl={portraitUrl}>
+        <Avatar name="Malik" agent={agent} />
+      </AgentPersonaProvider>,
+    );
+    expect(off.container.querySelector("img")).toBeNull();
+    off.unmount();
+    // A key whose portrait is not ready keeps the drawn portrait.
+    const pending = render(
+      <AgentPersonaProvider anthropomorphic portraitUrl={portraitUrl}>
+        <Avatar name="Amara" agent={{ ...agent, personaKey: "amara" }} />
+      </AgentPersonaProvider>,
+    );
+    expect(pending.container.querySelector("svg[data-avatar='portrait']")).not.toBeNull();
   });
 });

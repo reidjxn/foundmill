@@ -35,6 +35,12 @@ describe("the hover card (audit GTM-26)", () => {
     expect(d.verbs).toEqual(AGENT_VERBS);
   });
 
+  it("an agent's card carries its persona key and position, for the first name and the AI agent marker", () => {
+    const d = agentDetails(BID, { id: AGENT_ID, name: "Scout", role: "SEO specialist", avatarSeed: "scout", dept: "dept-3", personaKey: "malik" });
+    expect(d).toMatchObject({ personaKey: "malik", role: "SEO specialist", name: "Scout", portrait: { type: "agent", personaKey: "malik" } });
+    expect(agentDetails(BID, { id: AGENT_ID, name: "Scout" })).toMatchObject({ personaKey: null, role: null });
+  });
+
   it("a record's card has its roles as chips, up to three facts, and the four right-click verbs", () => {
     const d = recordDetails(BID, { id: PERSON_ID, kind: "organisation", displayName: "Pennine Contract Cosmetics", agentId: null, email: "buy@pennine.example", domain: "pennine.example", roles: [{ role: "customer", stage: "won" }, { role: "supplier", stage: null }] });
     expect(d.chips).toEqual([{ label: "Customer" }, { label: "Supplier" }]);

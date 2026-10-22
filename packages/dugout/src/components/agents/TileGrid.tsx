@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type Reac
 import { LayoutGrid, Network } from "lucide-react";
 import type { AgentStatus, DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
+import { useAgentPersona } from "../foundation/AgentPersona";
 import { Avatar } from "../foundation/Avatar";
 import { Icon } from "../foundation/Icon";
 import { Tooltip } from "../foundation/Tooltip";
@@ -77,7 +78,7 @@ export interface TileGridItem {
   id: string;
   /** Accessible label for the cell and the overflow chip ("Juno: Add a bundle picker"). */
   label: string;
-  avatar?: { name: string; seed: string | number; dept: DeptColourToken; status?: AgentStatus };
+  avatar?: { name: string; seed: string | number; dept: DeptColourToken; status?: AgentStatus; role?: string; personaKey?: string | null };
 }
 
 export interface TileRenderContext {
@@ -108,6 +109,7 @@ export interface TileGridProps<T extends TileGridItem> {
  * rail of the others, arrow keys to move between tiles, Esc to leave focus.
  */
 export function TileGrid<T extends TileGridItem>({ items, renderTile, focusedId: focusedProp, defaultFocusedId = null, onFocusedChange, maxTiles = 24, railTileHeight = 180, className, "aria-label": ariaLabel = "Agent tiles" }: TileGridProps<T>) {
+  const persona = useAgentPersona();
   const [focusedState, setFocusedState] = useState<string | null>(defaultFocusedId);
   const focusedId = focusedProp === undefined ? focusedState : focusedProp;
   const setFocused = useCallback(
@@ -211,11 +213,11 @@ export function TileGrid<T extends TileGridItem>({ items, renderTile, focusedId:
               role="listitem"
               type="button"
               onClick={() => setFocused(item.id)}
-              title={item.label}
+              title={item.avatar ? persona.labelFor(item.avatar) : item.label}
               className="surface-raised pressable inline-flex h-control-sm shrink-0 items-center gap-1.5 rounded-pill pl-0.5 pr-2.5 text-small font-medium text-primary hover:brightness-125 focus-visible:shadow-ring"
             >
-              {item.avatar ? <Avatar size={22} name={item.avatar.name} agent={{ seed: item.avatar.seed, dept: item.avatar.dept }} status={item.avatar.status} surface="surface-2" /> : null}
-              <span className="whitespace-nowrap">{item.avatar?.name ?? item.label}</span>
+              {item.avatar ? <Avatar size={22} name={persona.nameFor(item.avatar)} agent={{ seed: item.avatar.seed, dept: item.avatar.dept, personaKey: item.avatar.personaKey }} status={item.avatar.status} surface="surface-2" /> : null}
+              <span className="whitespace-nowrap">{item.avatar ? persona.nameFor(item.avatar) : item.label}</span>
             </button>
           ))}
         </div>

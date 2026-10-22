@@ -14,6 +14,7 @@ import { platformSecretsFromEnv, type PlatformSecrets } from "../platform";
 const EVERY_SECRET: Record<keyof Required<PlatformSecrets>, true> = {
   anthropicApiKey: true,
   voyageApiKey: true,
+  openaiApiKey: true,
   e2bApiKey: true,
   stripeSecretKey: true,
   stripeWebhookSecret: true,

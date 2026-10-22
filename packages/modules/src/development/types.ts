@@ -85,6 +85,8 @@ export interface AgentRow {
   status: AgentStatus;
   modelKey: ModelKey;
   avatarSeed?: string;
+  /** `agents.persona_key`: the first name and face shown when anthropomorphic agents are on. */
+  personaKey?: string | null;
   departmentIds?: string[];
   departments?: { id: string; name: string; colourToken: DeptColourToken }[];
   currentTask?: { id: string; title: string } | null;

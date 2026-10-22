@@ -164,6 +164,8 @@ export interface ConversationPersona {
   name: string;
   role: string;
   avatarSeed: string;
+  /** The agent's persona (anthropomorphic agents, 0067); null until it has one. */
+  personaKey: string | null;
   layer: string;
   /** The first department's colour (the bubble tint and the portrait ring); null for agents outside a department. */
   colourToken: DeptColourToken | null;
@@ -355,6 +357,7 @@ async function personaOf(tx: DbTx, ctx: BusinessContext, r: Resolved, seed: stri
     name: r.agent.name,
     role: r.agent.role || getTemplateByAgentType(r.agent.agentType)?.role || "Agent",
     avatarSeed: r.agent.avatarSeed || r.agent.id,
+    personaKey: r.agent.personaKey ?? null,
     layer: r.agent.layer,
     colourToken: (dept?.colourToken as DeptColourToken | undefined) ?? null,
     status: r.agent.status,

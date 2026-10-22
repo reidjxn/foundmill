@@ -27,6 +27,18 @@ export type ModelId = (typeof MODELS)[keyof typeof MODELS];
 export type ModelKey = keyof typeof MODELS;
 
 /**
+ * Image models (the other half of "model ids live only here"). Verified against OpenAI's docs on 2026-10-22: gpt-image-1
+ * is deprecated (shutdown 2026-10-23) and gpt-image-2.5-flare is its fast, everyday replacement. Called only by the
+ * gateway's `openai_images` connector; never routed through the Claude client or priced in the usage ledger.
+ */
+export const IMAGE_MODELS = {
+  /** The AI-generated faces of anthropomorphic agents: one 1024 px portrait per persona catalog key (at most 240 ever). */
+  portrait_image: "gpt-image-2.5-flare",
+} as const;
+export type ImageModelKey = keyof typeof IMAGE_MODELS;
+export type ImageModelId = (typeof IMAGE_MODELS)[ImageModelKey];
+
+/**
  * Older models a real Anthropic account still lists. Nothing routes to them; the mock `list_models` tool reports them
  * as not routed, so an agent reading the list sees what a live account shows.
  */

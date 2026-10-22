@@ -24,13 +24,16 @@ export const crmRouter = router({
     lookup: read.input(z.object({ entityIds: z.array(Id).min(1).max(50) })).query(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const rows = await repos.entities.byIds(tx, ctx.businessId, [...new Set(input.entityIds)]);
-        const roles = await repos.entities.activeRoles(tx, ctx.businessId, rows.map((e) => e.id));
+        const agentIds = rows.flatMap((e) => (e.agentId ? [e.agentId] : []));
+        const [roles, personaKeys] = await Promise.all([repos.entities.activeRoles(tx, ctx.businessId, rows.map((e) => e.id)), repos.agents.personaKeysByIds(tx, ctx.businessId, agentIds)]);
         const text = (v: unknown) => (typeof v === "string" && v ? v : null);
         return rows.map((e) => ({
           id: e.id,
           kind: e.kind,
           displayName: e.displayName,
           agentId: e.agentId,
+          /** An agent record's persona (anthropomorphic agents, 0067): this business's agent only; null otherwise. */
+          personaKey: e.agentId ? (personaKeys.get(e.agentId) ?? null) : null,
           avatarUrl: e.avatarUrl,
           mergedIntoId: e.mergedIntoId,
           email: text(e.identifiers?.email),
