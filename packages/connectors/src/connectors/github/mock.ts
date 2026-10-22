@@ -2,7 +2,7 @@ import { buildMockConnector } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord, stableHash } from "../../mock-utils";
 import { makeWebhookRequest, ReplayGuard } from "../../webhooks";
 import { commitSha, fileSha, GH_MERGED_PR, GH_REPOS, MOCK_GITHUB_WEBHOOK_SECRET, MOCK_INSTALLATION_ID, MOCK_OWNER, type GhFixtureRepo } from "./fixtures/repos";
-import { fileWriteBuffer, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapPullRequest, mapRepository, MAX_TREE_ENTRIES, type GhPullRequest, type PullRequestT } from "./tools";
+import { ciState, CI_WORKFLOW, fileWriteBuffer, githubChangedMessage, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapCheckRun, mapPullRequest, mapRepository, MAX_TREE_ENTRIES, type GhCheckRun, type GhPullRequest, type GhWorkflowRun, type PullRequestT } from "./tools";
 import { createGithubWebhook, GITHUB_DELIVERY_HEADER, GITHUB_EVENT_HEADER, GITHUB_SIGNATURE_HEADER, githubSignature, normaliseGithubEvent, type GhWebhookPayload } from "./webhooks";
 
 const notFound = (what: string) => Object.assign(new Error(`${what} not found`), { status: 404 });
@@ -27,8 +27,10 @@ export function mergedPullRequestPayload(pr: GhPullRequest = GH_MERGED_PR, repo 
 const blobShaOf = (path: string, content: Buffer) => stableHash(`blob:${path}:${content.toString("base64")}`, 40);
 
 /** One business's GitHub: the fixture repositories (copied), repositories it created, branch contents and pull requests. */
-function newWorld(bytesPerBusiness: number) {
-  const repos = new Map<string, GhFixtureRepo>(GH_REPOS.map((r) => [r.repo.full_name, { ...r, branches: { ...r.branches }, files: [...r.files] }]));
+function newWorld(bytesPerBusiness: number, publicRepos: ReadonlySet<string>) {
+  const repos = new Map<string, GhFixtureRepo>(GH_REPOS.map((r) => [r.repo.full_name, { ...r, repo: publicRepos.has(r.repo.full_name) ? { ...r.repo, private: false } : r.repo, branches: { ...r.branches }, files: [...r.files] }]));
+  /** `owner/repo@branch` → the head sha `run_checks` last dispatched CI on (the checks below exist only for that exact head). */
+  const dispatched = new Map<string, string>();
   /** `owner/repo@branch` → path → bytes, for branches with their own commits (oldest written first). */
   const trees = new Map<string, Map<string, Buffer>>();
   let stored = 0;
@@ -91,7 +93,30 @@ function newWorld(bytesPerBusiness: number) {
     repos.set(created.repo.full_name, created);
     return created;
   };
-  return { repos, find, resolveRef, prList, branchOf, ownTree, filesAt, setTree, findOrCreate, bytes: () => stored };
+  /** Record a CI dispatch on a branch head; the oldest records go once a business holds more than MOCK_CI_DISPATCHES. */
+  const recordDispatch = (r: GhFixtureRepo, branch: string, sha: string) => {
+    const key = treeKey(r, branch);
+    dispatched.delete(key);
+    dispatched.set(key, sha);
+    while (dispatched.size > MOCK_CI_DISPATCHES) dispatched.delete(dispatched.keys().next().value!);
+  };
+  const dispatchedSha = (r: GhFixtureRepo, branch: string) => dispatched.get(treeKey(r, branch));
+  return { repos, find, resolveRef, prList, branchOf, ownTree, filesAt, setTree, findOrCreate, recordDispatch, dispatchedSha, bytes: () => stored };
+}
+
+/** CI dispatches one business's mock GitHub remembers. */
+const MOCK_CI_DISPATCHES = 1_000;
+
+/**
+ * The fixed check runs a mock CI produces for a branch head once `run_checks` has dispatched it (`lint`, `typecheck`,
+ * `test`, `e2e`): all succeed, except `test` fails when the mock is told the branch fails, and `e2e` is skipped. A head
+ * `run_checks` has not dispatched has no check runs at all. Ids in the links derive from the head, so they are stable.
+ */
+export function mockCheckRuns(r: GhFixtureRepo, headSha: string, failing: boolean): GhCheckRun[] {
+  const run = parseInt(stableHash(`run:${r.repo.full_name}:${headSha}`, 8), 16);
+  const job = (name: string) => parseInt(stableHash(`job:${r.repo.full_name}:${headSha}:${name}`, 8), 16);
+  const check = (name: string, conclusion: string): GhCheckRun => ({ name, status: "completed", conclusion, html_url: `${r.repo.html_url}/actions/runs/${run}/job/${job(name)}`, details_url: null });
+  return [check("lint", "success"), check("typecheck", "success"), check("test", failing ? "failure" : "success"), check("e2e", "skipped")];
 }
 
 /**
@@ -110,15 +135,27 @@ export const MOCK_BUSINESSES = 200;
  * Written files are bounded per business (the oldest written branches are dropped first) and the least recently used
  * businesses are forgotten beyond MOCK_BUSINESSES.
  */
-export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal?: number; businesses?: number } = {}) {
+export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal?: number; businesses?: number; failingBranches?: readonly string[]; publicRepos?: readonly string[]; branchesWithChangedGithub?: readonly string[] } = {}) {
   const bytesTotal = limits.bytesTotal ?? MOCK_BYTES_TOTAL;
   const bytesPerBusiness = limits.bytesPerBusiness ?? MOCK_BYTES_PER_BUSINESS;
   const businesses = limits.businesses ?? MOCK_BUSINESSES;
+  /** Branches whose mock CI fails (its `test` check concludes "failure"); every other branch passes. */
+  const failingBranches = new Set(limits.failingBranches ?? []);
+  /**
+   * Branches whose `.github` tree differs from the default branch's (someone else pushed a workflow change there). Every
+   * other branch shares the default branch's `.github`: `commit_files` refuses `.github` paths, so a commit through it
+   * can never change the tree, and neither can this mock.
+   */
+  const changedGithub = new Set(limits.branchesWithChangedGithub ?? []);
+  /** The sha of a branch's `.github` tree: the default branch's, unless the mock is told the branch changed it. */
+  const githubTreeSha = (r: GhFixtureRepo, branch: string): string => stableHash(`github-tree:${r.repo.full_name}:${branch !== r.repo.default_branch && changedGithub.has(branch) ? branch : r.repo.default_branch}`, 40);
+  /** Fixture repositories (`owner/name`) that are public; agents may not push to or run CI on them. */
+  const publicRepos = new Set(limits.publicRepos ?? []);
   const worlds = new Map<string, ReturnType<typeof newWorld>>();
   const world = (businessId: string) => {
     let w = worlds.get(businessId);
     if (w) worlds.delete(businessId);
-    else w = newWorld(bytesPerBusiness);
+    else w = newWorld(bytesPerBusiness, publicRepos);
     worlds.set(businessId, w);
     while (worlds.size > businesses) worlds.delete(worlds.keys().next().value!);
     return w;
@@ -224,6 +261,34 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
         g.setTree(r, branch, next);
         fitTotal(ctx.businessId);
         return { branch, created: !existed, committed: true, sha, parentSha, filesWritten: written, filesDeleted: deleted, url: `${r.repo.html_url}/commit/${sha}` };
+      },
+      run_checks: async ({ owner, repo, branch }, ctx) => {
+        const g = world(ctx.businessId);
+        const r = g.find(owner, repo);
+        if (branch === r.repo.default_branch) throw Object.assign(new Error(`run_checks never runs the default branch (${branch}); it runs an agent's working branch`), { status: 422 });
+        if (!r.repo.private) throw Object.assign(new Error(`${owner}/${repo} is public; agents push only to private repositories`), { status: 422 });
+        // The real tool dispatches `refs/heads/<branch>`; the mock resolves the same ref.
+        const dispatchRef = `refs/heads/${branch}`;
+        const dispatchBranch = g.branchOf(r, dispatchRef);
+        const head = dispatchBranch ? r.branches[dispatchBranch] : undefined;
+        if (!dispatchBranch || !head) throw Object.assign(new Error(`branch ${branch} does not exist in ${r.repo.full_name}`), { status: 422 });
+        // GitHub runs the workflow file of the dispatched ref with the repository's secrets, so `.github` must be the default branch's.
+        if (githubTreeSha(r, branch) !== githubTreeSha(r, r.repo.default_branch)) throw Object.assign(new Error(githubChangedMessage(branch)), { status: 422 });
+        g.recordDispatch(r, dispatchBranch, head);
+        return { dispatched: true as const, branch, workflow: CI_WORKFLOW };
+      },
+      get_checks: async ({ owner, repo, branch }, ctx) => {
+        const g = world(ctx.businessId);
+        const r = g.find(owner, repo);
+        const headSha = r.branches[branch];
+        if (!headSha) throw notFound(`branch ${branch} in ${r.repo.full_name}`);
+        // Checks exist only for a head CI was dispatched on; a new commit on the branch starts again with none.
+        const dispatched = g.dispatchedSha(r, branch) === headSha;
+        const failing = failingBranches.has(branch);
+        const checks = dispatched ? mockCheckRuns(r, headSha, failing).map(mapCheckRun) : [];
+        // The mock's CI finishes the moment it is dispatched; before that (or on a head it was not dispatched on) there is no run.
+        const run: GhWorkflowRun | null = dispatched ? { status: "completed", conclusion: failing ? "failure" : "success" } : null;
+        return { headSha, state: ciState(run, checks), checks };
       },
       open_pr: async ({ owner, repo, title, body, head, base, draft }, ctx) => {
         const g = world(ctx.businessId);

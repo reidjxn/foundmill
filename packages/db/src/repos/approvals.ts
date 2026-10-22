@@ -145,7 +145,7 @@ export interface ApprovalRouting {
  * handler when every department agrees. A staff member who left, or an agent released or paused, hands it back to the
  * founder. Signing is a hard gate: an agent never decides it, nor its own request.
  */
-export async function routeApproval(db: Executor, businessId: string, input: { agentId?: string | null; decisionType: DecisionType | null }): Promise<ApprovalRouting> {
+export async function routeApproval(db: Executor, businessId: string, input: { agentId?: string | null; decisionType: DecisionType | null; founderOnly?: boolean }): Promise<ApprovalRouting> {
   const none: ApprovalRouting = { decisionType: input.decisionType, handlerKind: null, handlerId: null, decidedByAgent: null };
   if (!input.decisionType) return none;
   const live = await db.select({ id: departments.id, approvers: departments.approvers }).from(departments).where(and(eq(departments.businessId, businessId), isNull(departments.archivedAt)));
@@ -164,8 +164,10 @@ export async function routeApproval(db: Executor, businessId: string, input: { a
     return member.length ? { ...none, handlerKind: "user", handlerId: handler.id } : none;
   }
   const agent = (await db.select({ id: agents.id, status: agents.status, archivedAt: agents.archivedAt }).from(agents).where(and(eq(agents.businessId, businessId), eq(agents.id, handler.id))).limit(1))[0];
-  // An agent never approves its own request: that would be no approval at all, so the founder answers it.
-  if (!agent || agent.archivedAt || agent.status === "paused" || agent.id === input.agentId || input.decisionType === "sign_contracts") return none;
+  // An agent never approves its own request: that would be no approval at all, so the founder answers it. Signing and
+  // merges to the default branch are the founder's whoever is delegated (a merge changes the product for everyone).
+  const founderOnly = input.founderOnly === true || input.decisionType === "sign_contracts" || input.decisionType === "merge_to_main";
+  if (!agent || agent.archivedAt || agent.status === "paused" || agent.id === input.agentId || founderOnly) return none;
   return { ...none, handlerKind: "agent", handlerId: agent.id, decidedByAgent: agent.id };
 }
 
@@ -183,7 +185,12 @@ export const approvalsRepo = {
       if (own.length === 0) throw new ValidationError("taskId is not a task of this business", { taskId });
     }
     // An explicit null (a hard gate) is the founder's and is not routed; omitted, the tool says what it is.
-    const routing = await routeApproval(db, businessId, { agentId: v.agentId, decisionType: v.decisionType === undefined ? inferDecisionType(v.connectorKey, v.tool) : v.decisionType });
+    // A merge to the default branch is the founder's even when the caller routed the call as something else (a spend above the threshold).
+    const routing = await routeApproval(db, businessId, {
+      agentId: v.agentId,
+      decisionType: v.decisionType === undefined ? inferDecisionType(v.connectorKey, v.tool) : v.decisionType,
+      founderOnly: inferDecisionType(v.connectorKey, v.tool) === "merge_to_main",
+    });
     return one(
       await db
         .insert(approvals)

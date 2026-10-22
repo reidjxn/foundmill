@@ -46,7 +46,7 @@ export const engineeringLead = defineTemplate({
   },
   tools: [
     grant("platform", [...PLATFORM_LEAD_TOOLS, "sessions.list", "sessions.pause", "sessions.resume", "sessions.reassign", "sessions.shout", "merge_queue.read"]),
-    grant("github", ["repos.read", "pulls.list", "pulls.read", "checks.read", "branches.list"]),
+    grant("github", ["repos.read", "pulls.list", "pulls.read", "checks.read", "checks.run", "branches.list"]),
     grant("vercel", ["deployments.list", "deployments.read"]),
     grant("sentry", ["issues.list"]),
   ],

@@ -193,13 +193,18 @@ describe("team.humans and team.responsibilities (W19)", () => {
     expect((await hz.caller({ userId: ownerId }).team.approvals.resolve({ businessId, approvalId: forAdmin.id, outcome: "rejected" })).outcome).toBe("rejected");
   });
 
-  it("an approval delegated to an agent is decided by it as it opens (TPD-04)", async () => {
+  it("an approval delegated to an agent is decided by it as it opens (TPD-04); a merge to the default branch stays with the founder", async () => {
     const { businessId, ownerId, departmentId, agent2Id } = hz.A;
     const decider = await repos.agents.create(hz.db, businessId, { name: "Merge decider", agentType: "review_agent", departmentIds: [departmentId] });
+    await hz.caller({ userId: ownerId }).team.responsibilities.set({ businessId, decisionType: "message_customers", handler: { kind: "agent", id: decider.id }, departmentId });
+    const message = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey: "gmail", tool: "send_email", decisionType: "message_customers" });
+    expect(message).toMatchObject({ outcome: "approved", byKind: "agent", byId: decider.id });
+    expect((await hz.caller({ userId: ownerId }).team.approvals.pending({ businessId })).map((a) => a.id)).not.toContain(message.id);
+    // Delegating merges does not hand them to the agent: the founder answers every merge.
     await hz.caller({ userId: ownerId }).team.responsibilities.set({ businessId, decisionType: "merge_to_main", handler: { kind: "agent", id: decider.id }, departmentId });
-    const approval = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey: "github", tool: "merge_pr" });
-    expect(approval).toMatchObject({ outcome: "approved", byKind: "agent", byId: decider.id });
-    expect((await hz.caller({ userId: ownerId }).team.approvals.pending({ businessId })).map((a) => a.id)).not.toContain(approval.id);
+    const merge = await repos.approvals.create(hz.db, businessId, { agentId: agent2Id, connectorKey: "github", tool: "merge_pr" });
+    expect(merge).toMatchObject({ outcome: null, handlerKind: null });
+    expect((await hz.caller({ userId: ownerId }).team.approvals.pending({ businessId })).map((a) => a.id)).toContain(merge.id);
     await expect(hz.caller({ userId: ownerId }).team.responsibilities.set({ businessId, decisionType: "sign_contracts", handler: { kind: "agent", id: decider.id } })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });

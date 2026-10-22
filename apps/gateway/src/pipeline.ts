@@ -125,7 +125,7 @@ export function platformKeyConnected(row: Pick<Integration, "status" | "archived
 /** Policy id on a call refused by the founder's GitHub push settings (audited like any deny). */
 export const GITHUB_PUSH_SETTINGS_POLICY_ID = "github-push-settings";
 /** GitHub tools that change a repository: held to the founder's push settings. */
-const GITHUB_WRITE_TOOLS = new Set(["create_branch", "commit_files", "open_pr", "merge_pr"]);
+const GITHUB_WRITE_TOOLS = new Set(["create_branch", "commit_files", "open_pr", "run_checks", "merge_pr"]);
 
 /**
  * The founder's push settings, enforced here rather than trusted from the caller: a GitHub tool that changes a
@@ -568,9 +568,10 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
 
 function decisionTypeFor(loaded: Loaded, req: CallRequestParsed, decision: EvaluateResult) {
   const hints = loaded.connector.policyHints[loaded.tool.name] ?? {};
+  // A merge is a merge whatever its amount: checked before the spend threshold, so a merge carrying an amount is not routed as spend.
+  if (loaded.connector.key === "github" && loaded.tool.name === "merge_pr") return "merge_to_main" as const;
   if (decision.policyIds.some((id) => id.endsWith("above-threshold")) || (hints.spendsMoney && (req.context.amountMinor ?? 0) > 0)) return "spend_above_threshold" as const;
   if (toolAttributes(loaded.connector.key, loaded.tool.name).contract || loaded.connector.key === "dropbox_sign") return "sign_contracts" as const;
-  if (loaded.connector.key === "github" && loaded.tool.name === "merge_pr") return "merge_to_main" as const;
   if (hints.contactsThirdParty) return "message_customers" as const;
   return null;
 }

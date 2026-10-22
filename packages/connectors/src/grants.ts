@@ -71,8 +71,11 @@ export const CAPABILITY_TOOLS: Readonly<Record<string, Readonly<Record<string, r
     "repos.read": ["list_repos", "read_tree", "read_file"],
     "pulls.list": ["list_pull_requests"],
     "pulls.read": ["list_pull_requests", "get_pull_request"],
-    // A pull request's checks come with it (get_pull_request reports their state).
-    "checks.read": ["get_pull_request"],
+    // A pull request reports its merge state (get_pull_request); get_checks reads the check runs of an agent's branch head.
+    "checks.read": ["get_pull_request", "get_checks"],
+    "actions.read": ["get_checks"],
+    // Starts the CI workflow on an agent/ branch (the founder's push settings still apply). Granted to the QA engineer and the engineering lead.
+    "checks.run": ["run_checks"],
     "pulls.create": ["create_branch", "commit_files", "open_pr"],
     "pulls.update": ["commit_files"],
     "pulls.review": ["get_pull_request", "read_file"],
@@ -184,7 +187,7 @@ export const SESSION_MANAGED_CAPABILITIES: Readonly<Record<string, Readonly<Reco
  * a new gap is a deliberate entry here, never a silent one.
  */
 export const NOT_YET_SERVED: Readonly<Record<string, Readonly<Record<string, string>>>> = {
-  github: { "actions.read": "no Actions tool on the GitHub connector yet", "issues.list": "no Issues tool on the GitHub connector yet", "branches.list": "no branch listing tool yet (read_tree reads one ref)" },
+  github: { "issues.list": "no Issues tool on the GitHub connector yet", "branches.list": "no branch listing tool yet (read_tree reads one ref)" },
   dropbox_sign: { "templates.list": "no template tool on the Dropbox Sign connector yet" },
   stripe: { "subscriptions.list": "no subscription tool on the Stripe connector yet" },
   sendgrid: { "subusers.read": "subusers are not modeled", "inbound.read": "inbound mail arrives as pushed events, not a tool" },

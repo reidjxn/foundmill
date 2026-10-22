@@ -18,7 +18,7 @@ import { ConfigError, type Connector, type IntegrationRecord, type ToolContext }
 import { buildLiveConnector, healthResult } from "../../define";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { githubMock } from "./mock";
-import { fileWriteBuffer, gitBlobSha, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapPullRequest, mapRepository, mapTreeEntry, MAX_FILE_BYTES, MAX_TREE_ENTRIES, type GhPullRequest, type GhRepository } from "./tools";
+import { ciState, CI_WORKFLOW, fileWriteBuffer, githubChangedMessage, gitBlobSha, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapCheckRun, mapPullRequest, mapRepository, mapTreeEntry, MAX_FILE_BYTES, MAX_TREE_ENTRIES, type GhCheckRun, type GhPullRequest, type GhRepository } from "./tools";
 import { createGithubWebhook } from "./webhooks";
 
 type RestOctokit = InstanceType<typeof Octokit>;
@@ -35,6 +35,10 @@ const INSTALL_STATE = /^[A-Za-z0-9_-]{1,400}\.[A-Za-z0-9_-]{1,100}$/;
 const OAUTH_CODE = /^[A-Za-z0-9_-]{1,100}$/;
 /** How long one request to GitHub may take. */
 const GITHUB_REQUEST_TIMEOUT_MS = 60_000;
+
+/** Check runs read per branch head: 100 a page, at most 5 pages (a head with more is never reported as a success). */
+const CHECKS_PER_PAGE = 100;
+const MAX_CHECK_PAGES = 5;
 
 /** commit_files calls one gateway process runs at once. */
 const MAX_CONCURRENT_COMMITS = 4;
@@ -167,6 +171,13 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
     return typeof res.data === "string" ? res.data : res.data.sha;
   };
 
+  /** The sha of the `.github` entry in a branch's root tree, or null when the root has none. */
+  const githubTreeSha = async (o: RestOctokit, owner: string, repo: string, ref: string): Promise<string | null> => {
+    const commit = (await o.rest.repos.getCommit({ owner, repo, ref })).data;
+    const root = await o.rest.git.getTree({ owner, repo, tree_sha: commit.commit.tree.sha });
+    return root.data.tree.find((e) => e.path === ".github")?.sha ?? null;
+  };
+
   return buildLiveConnector(
     {
       key: GITHUB_KEY,
@@ -263,6 +274,36 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
             else await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: commit.data.sha });
             return result(commit.data.sha, true, commit.data.html_url ?? `${info.html_url}/commit/${commit.data.sha}`);
           }),
+        run_checks: async ({ owner, repo, branch }, ctx) => {
+          const o = await octokitFor(ctx);
+          const info = (await o.rest.repos.get({ owner, repo })).data;
+          if (branch === info.default_branch) throw Object.assign(new Error(`run_checks never runs the default branch (${branch}); it runs an agent's working branch`), { status: 422 });
+          // Same rule as commit_files: what agents work on stays in repositories the founder controls access to.
+          if (!info.private) throw Object.assign(new Error(`${owner}/${repo} is public; agents push only to private repositories`), { status: 422 });
+          // GitHub answers 204 (older API) or 200 with the run id (newer); any 2xx means the run was queued, and a missing branch, a missing ci.yml or one without `workflow_dispatch` is a 404/422 that surfaces as the tool error.
+          // GitHub runs the copy of ci.yml on the dispatched ref, with the repository's secrets: it must be the default branch's copy.
+          // `.github` (workflows and local actions) has to be the very same tree on both; a tree on one side only counts as a difference.
+          const [onBranch, onDefault] = [await githubTreeSha(o, owner, repo, branch), await githubTreeSha(o, owner, repo, info.default_branch)];
+          if (onBranch !== onDefault) throw Object.assign(new Error(githubChangedMessage(branch)), { status: 422 });
+          await o.rest.actions.createWorkflowDispatch({ owner, repo, workflow_id: CI_WORKFLOW, ref: `refs/heads/${branch}` });
+          return { dispatched: true as const, branch, workflow: CI_WORKFLOW };
+        },
+        get_checks: async ({ owner, repo, branch }, ctx) => {
+          const o = await octokitFor(ctx);
+          const headSha = (await o.rest.git.getRef({ owner, repo, ref: `heads/${branch}` })).data.object.sha;
+          const runs: GhCheckRun[] = [];
+          let total = 0;
+          for (let page = 1; page <= MAX_CHECK_PAGES; page++) {
+            const res = await o.rest.checks.listForRef({ owner, repo, ref: headSha, per_page: CHECKS_PER_PAGE, page });
+            total = res.data.total_count;
+            runs.push(...res.data.check_runs);
+            if (res.data.check_runs.length < CHECKS_PER_PAGE || runs.length >= total) break;
+          }
+          const checks = runs.map(mapCheckRun);
+          // Check runs from other workflows or apps can be green before CI has run on this head: the CI workflow's own newest run decides first.
+          const ci = (await o.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: CI_WORKFLOW, head_sha: headSha, per_page: 1 })).data.workflow_runs[0];
+          return { headSha, state: ciState(ci, checks, runs.length >= total), checks };
+        },
         open_pr: async ({ owner, repo, title, body, head, base, draft }, ctx) => {
           const o = await octokitFor(ctx);
           const open = await o.rest.pulls.list({ owner, repo, state: "open", head: `${owner}:${head}`, base, per_page: 1 });

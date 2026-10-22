@@ -111,7 +111,7 @@ describe("approvals routed by Responsibilities (TPD-04)", () => {
     expect(inferDecisionType("search", "lookup")).toBeNull();
   });
 
-  it("names the department's handler; a delegated agent decides at once; signing and hard gates stay with the founder", async () => {
+  it("names the department's handler; a delegated agent decides at once; merges, signing and hard gates stay with the founder", async () => {
     const { businessId, adminId, memberId } = r.A;
     const dept = await repos.departments.create(r.db, businessId, { name: "Routing dept" });
     const requester = await agent("Routing requester", { departmentIds: [dept.id] });
@@ -124,14 +124,16 @@ describe("approvals routed by Responsibilities (TPD-04)", () => {
         { decisionType: "publish_content", handler: { kind: "user", id: r.B.ownerId } },
       ],
     });
+    // A merge to the default branch is the founder's even when an agent is delegated it: the agent never decides it.
     const merge = await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "github", tool: "merge_pr" });
-    expect(merge).toMatchObject({ decisionType: "merge_to_main", handlerKind: "agent", handlerId: approver.id, outcome: "approved", byKind: "agent", byId: approver.id });
-    expect(merge.resolvedAt).toBeInstanceOf(Date);
+    expect(merge).toMatchObject({ decisionType: "merge_to_main", handlerKind: null, outcome: null, resolvedAt: null });
     const message = await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "gmail", tool: "send_email" });
     expect(message).toMatchObject({ decisionType: "message_customers", handlerKind: "user", handlerId: memberId, outcome: null, resolvedAt: null });
     // An agent never decides a signature, and an explicit null (a hard gate) is not routed.
     expect(await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "dropbox_sign", tool: "send_envelope" })).toMatchObject({ decisionType: "sign_contracts", handlerKind: null, outcome: null });
     expect(await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "github", tool: "merge_pr", decisionType: null })).toMatchObject({ decisionType: null, handlerKind: null, outcome: null });
+    // A merge routed as spend above the threshold (the gateway's route for an amount) is still the founder's.
+    expect(await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "github", tool: "merge_pr", decisionType: "spend_above_threshold" })).toMatchObject({ handlerKind: null, outcome: null });
     // A handler who is not a member of this business hands it back to the founder.
     expect(await repos.approvals.create(r.db, businessId, { agentId: requester.id, connectorKey: "x", tool: "schedule_post" })).toMatchObject({ decisionType: "publish_content", handlerKind: null });
     // A paused agent handler hands it back too.

@@ -6,6 +6,13 @@
  * writes `.git` or `.github` (so it cannot add or edit workflow files), a commit can always be reverted, and the
  * default branch changes only through `merge_pr`. Code it writes can still run in CI that the repository's own
  * workflows start (scripts, local actions elsewhere, `on: create`): pushing is the founder's opt-in for that reason.
+ *
+ * `run_checks` starts the repository's own `.github/workflows/ci.yml` on an agent's branch (the file must already be on
+ * the branch and listen for `workflow_dispatch`; agents cannot write it) and `get_checks` reads the check runs of the
+ * branch head back. Like `commit_files`, `run_checks` only touches `agent/` branches of private repositories, and only
+ * when the branch's `.github` tree is identical to the default branch's (GitHub runs the workflow file of the ref it is
+ * dispatched on, with the repository's secrets). It spends the repository owner's CI minutes, so it is a write even
+ * though it changes no repository content. `get_checks` is pending until the CI workflow has run on the head.
  */
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -13,7 +20,8 @@ import { defineTool } from "../../define";
 
 export const GITHUB_KEY = "github";
 export const GITHUB_API_URL = "https://api.github.com";
-export const GITHUB_APP_SCOPES = ["contents:write", "pull_requests:write", "metadata:read", "members:read"];
+// actions:write starts a workflow run (run_checks); checks:read lists check runs (get_checks).
+export const GITHUB_APP_SCOPES = ["contents:write", "pull_requests:write", "metadata:read", "members:read", "actions:write", "checks:read"];
 
 const Owner = z.string().min(1).max(100).regex(/^[A-Za-z0-9-]+$/, "GitHub owner");
 const RepoName = z
@@ -136,6 +144,55 @@ export const CommitFilesOutput = z.object({
 });
 export type CommitFilesOutputT = z.infer<typeof CommitFilesOutput>;
 
+/** The only workflow `run_checks` dispatches: the repository's own CI, which agents cannot edit (nothing under .github). */
+export const CI_WORKFLOW = "ci.yml";
+const AgentBranch = z.string().regex(AGENT_BRANCH, "an agent/ working branch");
+
+export const RunChecksInput = RepoRef.extend({ branch: AgentBranch });
+export const RunChecksOutput = z.object({ dispatched: z.literal(true), branch: z.string(), workflow: z.literal(CI_WORKFLOW) });
+
+/** One check run as GitHub reports it (`status`: queued, in_progress, completed...; `conclusion`: null until completed). */
+export const CheckRun = z.object({ name: z.string(), status: z.string(), conclusion: z.string().nullable(), url: z.string().nullable() });
+export type CheckRunT = z.infer<typeof CheckRun>;
+export const ChecksState = z.enum(["pending", "success", "failure"]);
+export type ChecksStateT = z.infer<typeof ChecksState>;
+
+export const GetChecksInput = RepoRef.extend({ branch: AgentBranch });
+export const GetChecksOutput = z.object({ headSha: z.string(), state: ChecksState, checks: z.array(CheckRun) });
+
+const PASSED_CONCLUSIONS: ReadonlySet<string> = new Set(["success", "neutral", "skipped"]);
+
+/**
+ * One verdict for a branch head's check runs. Pending while anything has not completed (queued, in_progress, waiting...)
+ * and when there are no check runs yet; failure when a completed run concluded failure, timed_out, cancelled or
+ * action_required (or with a conclusion this code does not know, such as "stale": never read as a pass); success only when
+ * every run concluded success, neutral or skipped. `complete` is false when the list was cut short, which can never be
+ * success.
+ */
+export const checksState = (checks: readonly Pick<CheckRunT, "status" | "conclusion">[], complete = true): ChecksStateT => {
+  if (checks.length === 0 || checks.some((c) => c.status !== "completed")) return "pending";
+  if (checks.some((c) => c.conclusion === null || !PASSED_CONCLUSIONS.has(c.conclusion))) return "failure";
+  return complete ? "success" : "pending";
+};
+
+/** A workflow run (`GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs`): `conclusion` is null until it completes. */
+export interface GhWorkflowRun { status?: string | null; conclusion?: string | null }
+
+/**
+ * The verdict for a branch head once the CI workflow's own run is taken into account. Check runs alone can look green
+ * before CI has run on the head (other workflows or apps report checks too), so: no run yet or one that has not
+ * completed is pending; a completed run whose conclusion is not "success" is a failure; only a successful run defers to
+ * the check runs (`checksState`).
+ */
+export const ciState = (run: GhWorkflowRun | null | undefined, checks: readonly Pick<CheckRunT, "status" | "conclusion">[], complete = true): ChecksStateT => {
+  if (!run || run.status !== "completed") return "pending";
+  if (run.conclusion !== "success") return "failure";
+  return checksState(checks, complete);
+};
+
+/** Why `run_checks` refuses a branch whose `.github` tree is not the default branch's. */
+export const githubChangedMessage = (branch: string): string => `run_checks refuses to run a workflow that differs from the default branch (.github changed on ${branch}); rebase the branch onto the default branch`;
+
 export const githubTools = [
   defineTool({
     name: "list_repos",
@@ -184,6 +241,24 @@ export const githubTools = [
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
   }),
   defineTool({
+    name: "run_checks",
+    description: "Start the repository's CI (the .github/workflows/ci.yml workflow, which must listen for workflow_dispatch) on an agent's working branch (agent/<name>) of a private repository. Refused when .github on the branch differs from the default branch's. Uses the repository owner's CI minutes; each call starts a new run. Read the outcome with get_checks. Never runs the default branch.",
+    input: RunChecksInput,
+    output: RunChecksOutput,
+    hints: {},
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  }),
+  defineTool({
+    name: "get_checks",
+    description: "The check runs of an agent's working branch head (agent/<name>) and one verdict: pending (the CI workflow has not run on this head yet or is still running, or a check is queued or running, or none exists yet), failure (the CI workflow did not succeed, or a check failed, timed out, was canceled or needs action) or success (the CI workflow succeeded and every check succeeded, was neutral or was skipped). Check names and links come from the repository: they are quarantined.",
+    input: GetChecksInput,
+    output: GetChecksOutput,
+    hints: {},
+    untrusted: "repo",
+    untrustedRef: (a) => `${a.owner}/${a.repo}@${a.branch}:checks`,
+    annotations: { readOnlyHint: true },
+  }),
+  defineTool({
     name: "open_pr",
     description: "Open a pull request from head to base. Draft by default so humans see it before review requests go out.",
     input: RepoRef.extend({ title: z.string().min(1).max(256), body: z.string().max(60_000).default(""), head: BranchName, base: BranchName, draft: z.boolean().default(true) }),
@@ -230,7 +305,12 @@ export interface GhPullRequest {
   head: { ref: string; sha: string }; base: { ref: string; sha: string }; user?: { login: string } | null; additions?: number; deletions?: number; changed_files?: number; merge_commit_sha?: string | null;
 }
 
-export const mapRepository = (r: GhRepository): RepositoryT => ({ id: r.id, fullName: r.full_name, owner: r.owner.login, name: r.name, private: r.private, defaultBranch: r.default_branch, description: r.description ?? null, url: r.html_url, pushedAt: r.pushed_at ?? null, language: r.language ?? null });
+/** A check run (`GET /repos/{owner}/{repo}/commits/{ref}/check-runs`): `html_url` and `details_url` are each null when unset. */
+export interface GhCheckRun { name: string; status: string; conclusion?: string | null; html_url?: string | null; details_url?: string | null }
+
+export const mapCheckRun = (c: GhCheckRun): CheckRunT => ({ name: c.name, status: c.status, conclusion: c.conclusion ?? null, url: c.html_url ?? c.details_url ?? null });
+
+export const mapRepository =(r: GhRepository): RepositoryT => ({ id: r.id, fullName: r.full_name, owner: r.owner.login, name: r.name, private: r.private, defaultBranch: r.default_branch, description: r.description ?? null, url: r.html_url, pushedAt: r.pushed_at ?? null, language: r.language ?? null });
 
 export const mapPullRequest = (p: GhPullRequest): PullRequestT => ({
   number: p.number, title: p.title, body: p.body ?? null, state: p.state === "closed" ? "closed" : "open", draft: p.draft ?? false, merged: Boolean(p.merged ?? p.merged_at), mergeable: p.mergeable ?? null,
