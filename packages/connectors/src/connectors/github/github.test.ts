@@ -252,6 +252,43 @@ describe("github mock: run_checks and get_checks", () => {
     expect((await checks(mock, other, "agent/bad")).state).toBe("pending");
   });
 
+  it("refuses a branch whose .github differs from the default branch's, before anything is dispatched", async () => {
+    const mock = createGithubMock({ branchesWithChangedGithub: ["agent/changed"] });
+    const ctx = makeToolContext(mock);
+    await pushed(mock, ctx, "agent/changed");
+    await pushed(mock, ctx, "agent/clean");
+    const refused = await mock.callTool("run_checks", { ...repo, branch: "agent/changed" }, ctx);
+    expect(refused.ok).toBe(false);
+    expect(refused.error).toMatchObject({ status: 422, message: "run_checks refuses to run a workflow that differs from the default branch (.github changed on agent/changed); rebase the branch onto the default branch" });
+    // Nothing was dispatched: still no run and no checks.
+    expect(await checks(mock, ctx, "agent/changed")).toMatchObject({ state: "pending", checks: [] });
+    // Other branches of the same repository are unaffected.
+    expect((await mock.callTool("run_checks", { ...repo, branch: "agent/clean" }, ctx)).ok).toBe(true);
+    expect((await checks(mock, ctx, "agent/clean")).state).toBe("success");
+  });
+
+  it("never lets commit_files change .github: a commit leaves a clean branch runnable and a workflow path is refused", async () => {
+    const mock = createGithubMock();
+    const ctx = makeToolContext(mock);
+    await pushed(mock, ctx, "agent/t1");
+    await pushed(mock, ctx, "agent/t1", "v2\n");
+    expect((await mock.callTool("commit_files", { ...repo, branch: "agent/t1", message: "x", files: [{ path: ".github/workflows/ci.yml", content: "on: push" }] }, ctx)).error?.code).toBe("invalid_args");
+    expect((await mock.callTool("commit_files", { ...repo, branch: "agent/t1", message: "x", deletions: [".github/workflows/ci.yml"] }, ctx)).error?.code).toBe("invalid_args");
+    expect((await mock.callTool("run_checks", { ...repo, branch: "agent/t1" }, ctx)).ok).toBe(true);
+  });
+
+  it("reports the CI run as pending until dispatched, success after, and failure for a failing branch", async () => {
+    const mock = createGithubMock({ failingBranches: ["agent/bad"] });
+    const ctx = makeToolContext(mock);
+    for (const branch of ["agent/ok", "agent/bad"]) {
+      await pushed(mock, ctx, branch);
+      expect((await checks(mock, ctx, branch)).state).toBe("pending");
+      expect((await mock.callTool("run_checks", { ...repo, branch }, ctx)).ok).toBe(true);
+    }
+    expect((await checks(mock, ctx, "agent/ok")).state).toBe("success");
+    expect((await checks(mock, ctx, "agent/bad")).state).toBe("failure");
+  });
+
   it("fails for a branch or repository that does not exist", async () => {
     const mock = createGithubMock();
     const ctx = makeToolContext(mock);
@@ -689,7 +726,8 @@ describe("github live: run_checks and get_checks against the Actions and Checks 
   it("refuses a branch whose .github differs from the default branch's, and dispatches nothing", async () => {
     const message = "run_checks refuses to run a workflow that differs from the default branch (.github changed on agent/t1); rebase the branch onto the default branch";
     // The branch changed a workflow, dropped .github, or added one the default branch does not have.
-    for (const githubTrees of [{ "agent/t1": "d".repeat(40) }, { "agent/t1": null }, { main: null }]) {
+    const cases: Record<string, string | null>[] = [{ "agent/t1": "d".repeat(40) }, { "agent/t1": null }, { main: null }];
+    for (const githubTrees of cases) {
       const { api, runChecks } = setup({ githubTrees });
       const r = await runChecks("agent/t1");
       expect(r.ok, JSON.stringify(githubTrees)).toBe(false);
@@ -699,7 +737,8 @@ describe("github live: run_checks and get_checks against the Actions and Checks 
   });
 
   it("still dispatches a branch whose .github matches the default branch's, including when neither has one", async () => {
-    for (const githubTrees of [{ "agent/t1": "e".repeat(40), main: "e".repeat(40) }, { "agent/t1": null, main: null }]) {
+    const cases: Record<string, string | null>[] = [{ "agent/t1": "e".repeat(40), main: "e".repeat(40) }, { "agent/t1": null, main: null }];
+    for (const githubTrees of cases) {
       const { api, runChecks } = setup({ githubTrees });
       expect((await runChecks("agent/t1")).ok, JSON.stringify(githubTrees)).toBe(true);
       expect(api.log.filter((l) => l.method === "POST")).toHaveLength(1);
@@ -756,6 +795,36 @@ describe("github live: run_checks and get_checks against the Actions and Checks 
     expect(cut.checks).toHaveLength(500);
     expect(cut.state).toBe("pending");
     expect(many.api.log.filter((l) => l.path.endsWith("/check-runs"))).toHaveLength(5);
+  });
+
+  describe("the CI workflow's own run decides before the check runs do", () => {
+    const green = [checkRun("lint", "completed", "success"), checkRun("test", "completed", "success")];
+
+    it("is pending when check runs exist (even successful ones from another workflow) but CI has not run on the head", async () => {
+      const t = setup({ checkRuns: green, workflowRun: null });
+      const r = content(await t.getChecks("agent/t1"));
+      expect(r.state).toBe("pending");
+      // The checks are still reported as read.
+      expect(r.checks.map((c) => [c.name, c.conclusion])).toEqual([["lint", "success"], ["test", "success"]]);
+      // The newest run is asked for by workflow file, for this head only.
+      expect(t.api.log.find((l) => l.path.endsWith("/actions/workflows/ci.yml/runs"))).toMatchObject({ query: `?head_sha=${"c".repeat(40)}&per_page=1` });
+    });
+
+    it("is pending while the CI run is queued or in progress, even when the check runs so far are green", async () => {
+      for (const status of ["queued", "in_progress", "waiting"]) expect(content(await setup({ checkRuns: green, workflowRun: { status, conclusion: null } }).getChecks("agent/t1")).state, status).toBe("pending");
+    });
+
+    it("is failure when the CI run concludes anything but success, even when the check runs look successful", async () => {
+      for (const conclusion of ["failure", "cancelled", "timed_out", "action_required", "skipped", "neutral", null]) expect(content(await setup({ checkRuns: green, workflowRun: { status: "completed", conclusion } }).getChecks("agent/t1")).state, String(conclusion)).toBe("failure");
+    });
+
+    it("is success only after the CI run concludes success and every check is success", async () => {
+      expect(content(await setup({ checkRuns: green, workflowRun: { status: "completed", conclusion: "success" } }).getChecks("agent/t1")).state).toBe("success");
+      // A successful run does not excuse a failing, running or missing check.
+      expect(content(await setup({ checkRuns: [...green, checkRun("e2e", "completed", "failure")] }).getChecks("agent/t1")).state).toBe("failure");
+      expect(content(await setup({ checkRuns: [...green, checkRun("e2e", "in_progress", null)] }).getChecks("agent/t1")).state).toBe("pending");
+      expect(content(await setup({ checkRuns: [] }).getChecks("agent/t1")).state).toBe("pending");
+    });
   });
 });
 
