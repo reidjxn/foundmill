@@ -1,6 +1,6 @@
 # Skill: Foundmill's rules for building
 
-Use this whenever you write code, copy, or agent behaviour. The authoritative version is `CLAUDE.md` in the repo root; this is the working summary.
+Use this whenever you write code, copy, or agent behavior. The authoritative version is `CLAUDE.md` in the repo root; this is the working summary.
 
 ## Vocabulary (user-facing text, and agent prompts)
 
@@ -47,8 +47,8 @@ The never-list in `CLAUDE.md` applies to every task, in full. Read it before you
 - Desktop only: 1280 px and wider. No mobile layouts.
 - Label every number that is not from real data "Forecast" or "Estimate".
 - Departments are labels over modules. Never hard-code a department name.
-- Use the design tokens. A colour is never defined only inside a media query or a theme block.
+- Use the design tokens. A color is never defined only inside a media query or a theme block.
 
 ## Definition of done for any task
 
-Typecheck, lint, unit tests, a Playwright spec for any screen touched, a Storybook story for any new component, an eval for any new agent behaviour, and an update to `docs/PROGRESS.md`. A judgement call goes in `docs/DECISIONS.md`.
+Typecheck, lint, unit tests, a Playwright spec for any screen touched, a Storybook story for any new component, an eval for any new agent behavior, and an update to `docs/PROGRESS.md`. A judgment call goes in `docs/DECISIONS.md`.
