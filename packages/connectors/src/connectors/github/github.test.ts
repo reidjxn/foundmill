@@ -6,7 +6,7 @@ import { describeConnectorContract, envKeysPresent, makeToolContext, TEST_BUSINE
 import { GH_MERGED_PR, GH_REPOS, MOCK_OWNER } from "./fixtures/repos";
 import { createGithubConnector, slots } from "./index";
 import { createGithubMock, githubMock, mergedPullRequestPayload, signedDeliveryRequest } from "./mock";
-import { CommitFilesInput, gitBlobSha } from "./tools";
+import { checksState, CommitFilesInput, GetChecksOutput, GITHUB_APP_SCOPES, gitBlobSha, RunChecksOutput } from "./tools";
 
 /** A signed install state as apps/api issues it (the connector checks only its shape). */
 const STATE = "eyJiIjoiYTEiLCJ1IjoidTEifQ.c2lnbmF0dXJl";
@@ -28,6 +28,8 @@ describeConnectorContract("github (mock)", {
     { tool: "open_pr", args: { owner: MOCK_OWNER, repo: "northwind-site", title: "Annual plan", head: "feat/annual-plan", base: "main" }, check: (r) => expect(r.data).toMatchObject({ state: "open", draft: true, merged: false }) },
     { tool: "list_pull_requests", args: { owner: MOCK_OWNER, repo: "northwind-site", state: "all" }, check: (r) => expect(isUntrusted(r.data) && (r.data.content as { items: unknown[] }).items).toHaveLength(2) },
     { tool: "get_pull_request", args: { owner: MOCK_OWNER, repo: "northwind-site", prNumber: 41 }, check: (r) => expect(isUntrusted(r.data) && r.data.content).toMatchObject({ merged: true, mergeCommitSha: GH_MERGED_PR.merge_commit_sha }) },
+    { tool: "run_checks", args: { owner: MOCK_OWNER, repo: "northwind-site", branch: "main" }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
+    { tool: "get_checks", args: { owner: MOCK_OWNER, repo: "northwind-site", branch: "feat/annual-plan" }, expectOk: false, check: (r) => expect(r.error?.code).toBe("invalid_args") },
   ],
   webhooks: [
     {
@@ -131,6 +133,131 @@ describe("github mock: merge flow and simulation", () => {
     expect(a).toEqual(b);
     expect(a[0]!.type).toBe("pr.merged");
     expect(a[0]!.payload).toMatchObject({ repo: `${MOCK_OWNER}/northwind-site`, prNumber: 41, branch: "feat/annual-plan", baseBranch: "main", additions: 48, mergedBy: { kind: "webhook", id: "github:reidjxn" } });
+  });
+});
+
+describe("checksState", () => {
+  const run = (status: string, conclusion: string | null = null) => ({ status, conclusion });
+  it("is pending while a check is queued or running, or when no check exists", () => {
+    expect(checksState([])).toBe("pending");
+    expect(checksState([run("queued")])).toBe("pending");
+    expect(checksState([run("in_progress")])).toBe("pending");
+    expect(checksState([run("completed", "success"), run("in_progress")])).toBe("pending");
+    expect(checksState([run("waiting")])).toBe("pending");
+    // A failure does not settle the verdict while another check is still running.
+    expect(checksState([run("completed", "failure"), run("queued")])).toBe("pending");
+  });
+  it("is failure when a check failed, timed out, was canceled or needs action", () => {
+    for (const conclusion of ["failure", "timed_out", "cancelled", "action_required"]) expect(checksState([run("completed", "success"), run("completed", conclusion)]), conclusion).toBe("failure");
+  });
+  it("is failure for a conclusion it does not know, never success", () => {
+    expect(checksState([run("completed", "stale")])).toBe("failure");
+    expect(checksState([run("completed", null)])).toBe("failure");
+  });
+  it("is success only when every check succeeded, was neutral or was skipped", () => {
+    expect(checksState([run("completed", "success"), run("completed", "neutral"), run("completed", "skipped")])).toBe("success");
+    // The list was cut short: the rest could hold a failure.
+    expect(checksState([run("completed", "success")], false)).toBe("pending");
+  });
+});
+
+describe("github mock: run_checks and get_checks", () => {
+  const repo = { owner: MOCK_OWNER, repo: "northwind-site" };
+  const pushed = async (mock: ReturnType<typeof createGithubMock>, ctx: ReturnType<typeof makeToolContext>, branch = "agent/t1", content = "v1\n") => {
+    const r = await mock.callTool("commit_files", { ...repo, branch, message: "Session", files: [{ path: "NOTES.md", content }] }, ctx);
+    expect(r.ok, JSON.stringify(r.error)).toBe(true);
+    return (r.data as { sha: string }).sha;
+  };
+  const checks = async (mock: ReturnType<typeof createGithubMock>, ctx: ReturnType<typeof makeToolContext>, branch = "agent/t1") => {
+    const r = await mock.callTool("get_checks", { ...repo, branch }, ctx);
+    expect(r.ok, JSON.stringify(r.error)).toBe(true);
+    expect(r.untrusted).toBe(true);
+    expect(isUntrusted(r.data) && r.data.source).toMatchObject({ connector: "github", kind: "repo", ref: `${MOCK_OWNER}/northwind-site@${branch}:checks` });
+    return GetChecksOutput.parse(isUntrusted(r.data) ? r.data.content : null);
+  };
+
+  it("declares run_checks as a write and get_checks as a quarantined read, and asks for the two App permissions", () => {
+    const tool = (name: string) => githubMock.tools.find((t) => t.name === name)!;
+    expect(tool("run_checks").annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
+    expect(tool("get_checks").annotations).toMatchObject({ readOnlyHint: true });
+    expect(githubMock.policyHints.run_checks).toEqual({});
+    expect(githubMock.policyHints.get_checks).toEqual({});
+    expect(githubMock.auth.scopes).toEqual(expect.arrayContaining(["contents:write", "pull_requests:write", "metadata:read", "members:read", "actions:write", "checks:read"]));
+    expect(GITHUB_APP_SCOPES).toEqual(["contents:write", "pull_requests:write", "metadata:read", "members:read", "actions:write", "checks:read"]);
+  });
+
+  it("refuses a branch that is not an agent/ working branch, before anything happens", async () => {
+    const mock = createGithubMock();
+    const ctx = makeToolContext(mock);
+    await pushed(mock, ctx);
+    for (const branch of ["main", "production", "feat/annual-plan", "release/1.2", "agent/", "agent/a/b", "agent/../main", "agent/x.lock"]) {
+      for (const tool of ["run_checks", "get_checks"]) expect((await mock.callTool(tool, { ...repo, branch }, ctx)).error?.code, `${tool} ${branch}`).toBe("invalid_args");
+    }
+    expect((await checks(mock, ctx)).checks).toEqual([]);
+  });
+
+  it("refuses to run CI in a public repository", async () => {
+    const mock = createGithubMock({ publicRepos: [`${MOCK_OWNER}/northwind-site`] });
+    const ctx = makeToolContext(mock);
+    await mock.callTool("create_branch", { ...repo, branch: "agent/t1" }, ctx);
+    const refused = await mock.callTool("run_checks", { ...repo, branch: "agent/t1" }, ctx);
+    expect(refused.ok).toBe(false);
+    expect(refused.error).toMatchObject({ status: 422, message: `${MOCK_OWNER}/northwind-site is public; agents push only to private repositories` });
+    expect((await mock.callTool("commit_files", { ...repo, branch: "agent/t2", message: "x", files: [{ path: "a", content: "b" }] }, ctx)).error?.message).toBe(refused.error?.message);
+    expect((await checks(mock, ctx)).checks).toEqual([]);
+    // The other fixture repository is still private.
+    await mock.callTool("create_branch", { owner: MOCK_OWNER, repo: "ledgerly-app", branch: "agent/t1" }, ctx);
+    expect((await mock.callTool("run_checks", { owner: MOCK_OWNER, repo: "ledgerly-app", branch: "agent/t1" }, ctx)).ok).toBe(true);
+  });
+
+  it("reports pending until run_checks dispatches CI, then success, and starts over on a new commit", async () => {
+    const mock = createGithubMock();
+    const ctx = makeToolContext(mock);
+    const sha = await pushed(mock, ctx);
+    const before = await checks(mock, ctx);
+    expect(before).toEqual({ headSha: sha, state: "pending", checks: [] });
+
+    const started = await mock.callTool("run_checks", { ...repo, branch: "agent/t1" }, ctx);
+    expect(started.ok, JSON.stringify(started.error)).toBe(true);
+    expect(RunChecksOutput.parse(started.data)).toEqual({ dispatched: true, branch: "agent/t1", workflow: "ci.yml" });
+
+    const after = await checks(mock, ctx);
+    expect(after).toMatchObject({ headSha: sha, state: "success" });
+    expect(after.checks.map((c) => [c.name, c.status, c.conclusion])).toEqual([["lint", "completed", "success"], ["typecheck", "completed", "success"], ["test", "completed", "success"], ["e2e", "completed", "skipped"]]);
+    expect(after.checks.every((c) => c.url?.startsWith(`https://github.com/${MOCK_OWNER}/northwind-site/actions/runs/`))).toBe(true);
+    // Deterministic, and reading does not change anything.
+    expect(await checks(mock, ctx)).toEqual(after);
+
+    // A new commit moves the head: the old run says nothing about it.
+    const next = await pushed(mock, ctx, "agent/t1", "v2\n");
+    expect(next).not.toBe(sha);
+    expect(await checks(mock, ctx)).toEqual({ headSha: next, state: "pending", checks: [] });
+  });
+
+  it("produces a failure for a branch the mock is told fails, and keeps businesses apart", async () => {
+    const mock = createGithubMock({ failingBranches: ["agent/bad"] });
+    const ctx = makeToolContext(mock);
+    const other = makeToolContext(mock, { businessId: "6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f61" });
+    await pushed(mock, ctx, "agent/bad");
+    await pushed(mock, ctx, "agent/good");
+    await mock.callTool("run_checks", { ...repo, branch: "agent/bad" }, ctx);
+    await mock.callTool("run_checks", { ...repo, branch: "agent/good" }, ctx);
+    const bad = await checks(mock, ctx, "agent/bad");
+    expect(bad.state).toBe("failure");
+    expect(bad.checks.find((c) => c.name === "test")).toMatchObject({ status: "completed", conclusion: "failure" });
+    expect((await checks(mock, ctx, "agent/good")).state).toBe("success");
+    // Another business has no such branch, and a dispatch in one does not start CI in the other.
+    expect((await mock.callTool("get_checks", { ...repo, branch: "agent/bad" }, other)).error?.code).toBe("not_found");
+    await pushed(mock, other, "agent/bad");
+    expect((await checks(mock, other, "agent/bad")).state).toBe("pending");
+  });
+
+  it("fails for a branch or repository that does not exist", async () => {
+    const mock = createGithubMock();
+    const ctx = makeToolContext(mock);
+    expect((await mock.callTool("get_checks", { ...repo, branch: "agent/none" }, ctx)).error?.code).toBe("not_found");
+    expect((await mock.callTool("run_checks", { ...repo, branch: "agent/none" }, ctx)).error?.status).toBe(422);
+    expect((await mock.callTool("run_checks", { owner: "acme", repo: "nope", branch: "agent/t1" }, ctx)).error?.code).toBe("not_found");
   });
 });
 
@@ -481,7 +608,117 @@ describe("github live: commit_files against the Git Data API", () => {
   });
 });
 
-describe.skipIf(!envKeysPresent("GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_TEST_INSTALLATION_ID"))("github (live)", () => {
+/**
+ * The slice of GitHub's REST API run_checks and get_checks use: repository, branch ref, workflow dispatch
+ * (`status` 204 or 200 with a run id) and the paged check runs of a commit. Requests are logged.
+ */
+function fakeCiApi(owner: string, repo: string, options: { public?: boolean; dispatchStatus?: number; branches?: Record<string, string>; checkRuns?: Record<string, unknown>[]; totalCount?: number } = {}) {
+  const branches = options.branches ?? { "agent/t1": "c".repeat(40) };
+  const checkRuns = options.checkRuns ?? [];
+  const log: { method: string; path: string; query: string; body?: unknown }[] = [];
+  const base = `/repos/${owner}/${repo}`;
+  const fetch: FetchLike = async (input, init) => {
+    const req = new Request(input, init);
+    const url = new URL(req.url);
+    const path = decodeURIComponent(url.pathname);
+    const body = req.method === "GET" ? undefined : await req.json();
+    log.push({ method: req.method, path, query: url.search, body });
+    if (req.method === "GET" && path === base) return jsonResponse({ id: 1, name: repo, full_name: `${owner}/${repo}`, default_branch: "main", html_url: `https://github.com/${owner}/${repo}`, private: !options.public, owner: { login: owner } });
+    let m: RegExpMatchArray | null;
+    if (req.method === "GET" && (m = path.match(new RegExp(`^${base}/git/ref/heads/(.+)$`)))) {
+      const sha = branches[m[1]!];
+      return sha ? jsonResponse({ ref: `refs/heads/${m[1]}`, object: { sha, type: "commit" } }) : jsonResponse({ message: "Not Found" }, { status: 404 });
+    }
+    if (req.method === "POST" && path === `${base}/actions/workflows/ci.yml/dispatches`) {
+      const ref = (body as { ref?: string }).ref ?? "";
+      if (!branches[ref]) return jsonResponse({ message: "No ref found for: " + ref }, { status: 422 });
+      return options.dispatchStatus === 200 ? jsonResponse({ workflow_run_id: 7, run_url: "https://api.github.com/x", html_url: "https://github.com/x" }) : new Response(null, { status: 204 });
+    }
+    if (req.method === "GET" && new RegExp(`^${base}/commits/[0-9a-f]{40}/check-runs$`).test(path)) {
+      const perPage = Number(url.searchParams.get("per_page"));
+      const page = Number(url.searchParams.get("page") ?? "1");
+      return jsonResponse({ total_count: options.totalCount ?? checkRuns.length, check_runs: checkRuns.slice((page - 1) * perPage, page * perPage) });
+    }
+    throw new Error(`fakeCiApi: no route for ${req.method} ${path}`);
+  };
+  return { fetch, log, branches };
+}
+
+describe("github live: run_checks and get_checks against the Actions and Checks APIs", () => {
+  const OWNER = "acme";
+  const REPO = "shop";
+  const setup = (options: Parameters<typeof fakeCiApi>[2] = {}) => {
+    const api = fakeCiApi(OWNER, REPO, options);
+    const connector = createGithubConnector({ secrets: {}, fetch: api.fetch });
+    const ctx = makeToolContext(connector, { mode: "live", credential: { kind: "app", secret: "ghs_installation_token" } });
+    return { api, runChecks: (branch: string) => connector.callTool("run_checks", { owner: OWNER, repo: REPO, branch }, ctx), getChecks: (branch: string) => connector.callTool("get_checks", { owner: OWNER, repo: REPO, branch }, ctx) };
+  };
+  const checkRun = (name: string, status: string, conclusion: string | null, extra: Record<string, unknown> = {}) => ({ id: 1, name, status, conclusion, html_url: `https://github.com/acme/shop/runs/${name}`, details_url: null, ...extra });
+  const content = (r: { data?: unknown }) => GetChecksOutput.parse(isUntrusted(r.data) ? r.data.content : null);
+
+  it("dispatches ci.yml on the branch, whether GitHub answers 204 or 200 with a run id", async () => {
+    for (const dispatchStatus of [204, 200]) {
+      const { api, runChecks } = setup({ dispatchStatus });
+      const r = await runChecks("agent/t1");
+      expect(r.ok, JSON.stringify(r.error)).toBe(true);
+      expect(RunChecksOutput.parse(r.data)).toEqual({ dispatched: true, branch: "agent/t1", workflow: "ci.yml" });
+      expect(r.untrusted).toBeUndefined();
+      expect(api.log.filter((l) => l.method === "POST")).toEqual([{ method: "POST", path: `/repos/${OWNER}/${REPO}/actions/workflows/ci.yml/dispatches`, query: "", body: { ref: "agent/t1" } }]);
+    }
+  });
+
+  it("refuses non-agent branches before any request, and public repositories before dispatching", async () => {
+    const { api, runChecks, getChecks } = setup();
+    for (const branch of ["main", "production", "release/1.2", "agent/", "agent/../main"]) {
+      expect((await runChecks(branch)).error?.code, `run_checks ${branch}`).toBe("invalid_args");
+      expect((await getChecks(branch)).error?.code, `get_checks ${branch}`).toBe("invalid_args");
+    }
+    expect(api.log).toEqual([]);
+
+    const open = setup({ public: true });
+    const r = await open.runChecks("agent/t1");
+    expect(r.error).toMatchObject({ status: 422, message: "acme/shop is public; agents push only to private repositories" });
+    expect(open.api.log.filter((l) => l.method !== "GET")).toEqual([]);
+  });
+
+  it("returns GitHub's refusal when the branch is missing or ci.yml cannot be dispatched", async () => {
+    const { runChecks, getChecks } = setup();
+    expect((await runChecks("agent/none")).error).toMatchObject({ status: 422 });
+    expect((await getChecks("agent/none")).error?.code).toBe("not_found");
+  });
+
+  it("reads the head's check runs and maps them to one verdict, as quarantined repository text", async () => {
+    const head = "c".repeat(40);
+    const pending = setup({ checkRuns: [checkRun("lint", "completed", "success"), checkRun("test", "in_progress", null, { html_url: null, details_url: "https://ci.example/test" })] });
+    const r = await pending.getChecks("agent/t1");
+    expect(r.ok, JSON.stringify(r.error)).toBe(true);
+    expect(r.untrusted).toBe(true);
+    expect(isUntrusted(r.data) && r.data.source).toMatchObject({ connector: "github", kind: "repo", ref: "acme/shop@agent/t1:checks" });
+    expect(content(r)).toEqual({ headSha: head, state: "pending", checks: [{ name: "lint", status: "completed", conclusion: "success", url: "https://github.com/acme/shop/runs/lint" }, { name: "test", status: "in_progress", conclusion: null, url: "https://ci.example/test" }] });
+    expect(pending.api.log.find((l) => l.path.endsWith("/check-runs"))).toMatchObject({ path: `/repos/${OWNER}/${REPO}/commits/${head}/check-runs`, query: "?per_page=100&page=1" });
+
+    expect(content(await setup({}).getChecks("agent/t1"))).toEqual({ headSha: head, state: "pending", checks: [] });
+    expect(content(await setup({ checkRuns: [checkRun("lint", "completed", "success"), checkRun("e2e", "completed", "skipped"), checkRun("docs", "completed", "neutral")] }).getChecks("agent/t1")).state).toBe("success");
+    for (const conclusion of ["failure", "timed_out", "cancelled", "action_required"]) expect(content(await setup({ checkRuns: [checkRun("lint", "completed", "success"), checkRun("test", "completed", conclusion)] }).getChecks("agent/t1")).state, conclusion).toBe("failure");
+  });
+
+  it("reads further pages, and never reports success for a list it did not finish", async () => {
+    const pass = (n: number) => Array.from({ length: n }, (_, i) => checkRun(`job-${i}`, "completed", "success"));
+    const second = setup({ checkRuns: [...pass(100), checkRun("late", "completed", "failure")] });
+    const failed = content(await second.getChecks("agent/t1"));
+    expect(failed.state).toBe("failure");
+    expect(failed.checks).toHaveLength(101);
+    expect(second.api.log.filter((l) => l.path.endsWith("/check-runs")).map((l) => l.query)).toEqual(["?per_page=100&page=1", "?per_page=100&page=2"]);
+
+    const many = setup({ checkRuns: pass(600) });
+    const cut = content(await many.getChecks("agent/t1"));
+    expect(cut.checks).toHaveLength(500);
+    expect(cut.state).toBe("pending");
+    expect(many.api.log.filter((l) => l.path.endsWith("/check-runs"))).toHaveLength(5);
+  });
+});
+
+describe.skipIf(!envKeysPresent("GITHUB_APP_ID","GITHUB_APP_PRIVATE_KEY", "GITHUB_TEST_INSTALLATION_ID"))("github (live)", () => {
   const connector = createGithubConnector({ secrets: { githubAppId: process.env.GITHUB_APP_ID, githubAppPrivateKey: process.env.GITHUB_APP_PRIVATE_KEY, githubWebhookSecret: process.env.GITHUB_WEBHOOK_SECRET } });
   // connect() needs the OAuth code GitHub sends the installer, which a test cannot fabricate: the installation is given.
   const integration = { ...makeToolContext(connector, { mode: "live" }).integration, externalAccountId: String(process.env.GITHUB_TEST_INSTALLATION_ID) };
