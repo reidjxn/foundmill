@@ -137,7 +137,7 @@ export function vacationVerdict(item: Pick<InboxItem, "subject" | "bodyMd" | "de
   const decisionType = classifyDecision(item, needs);
   const safeUnknown = kinds.length === 0 && recommended.reversible === true && (recommended.cost_minor ?? 0) === 0;
   const allowed = kinds.length === 0 ? safeUnknown : kinds.every((k) => !GATED.has(k) && ctx.authority.has(k));
-  if (!allowed) return { kind: "wait", reason: kinds.some((k) => GATED.has(k)) ? "signing is always yours" : kinds.length > 0 ? "it is outside the authority you gave" : "the recommended option is not free and reversible" };
+  if (!allowed) return { kind: "wait", reason: kinds.includes("sign_contracts") ? "signing is always yours" : kinds.length > 0 ? "it is outside the authority you gave" : "the recommended option is not free and reversible" };
   // Money is the founder's (CLAUDE.md "Never"): an option that costs anything waits, whatever authority was given.
   if ((recommended.cost_minor ?? 0) > 0) return { kind: "wait", reason: `it costs money (${formatMoney({ amountMinor: recommended.cost_minor ?? 0, currency: ctx.currency })})` };
 
