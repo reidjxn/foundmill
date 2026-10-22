@@ -25,7 +25,7 @@ Use this whenever you change code or docs in `reidjxn/foundmill`.
 5. Run the unit tests for that package.
 6. If you touched a screen, run its Playwright spec. If you added a component, add a Storybook story.
 7. Update `docs/PROGRESS.md` with one line: what you did and where.
-8. If you made a judgement call (a trade-off, a substitution, a rule you decided), add it to `docs/DECISIONS.md`.
+8. If you made a judgment call (a trade-off, a substitution, a rule you decided), add it to `docs/DECISIONS.md`.
 
 ## The pull request body
 

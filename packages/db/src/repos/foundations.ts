@@ -10,9 +10,9 @@
  * each part as it lands (0019; kept across attempts so a retry resumes, cleared by `apply`). Service-written (read-only policy):
  * the api writes it after its membership check, the orchestrator through its service role.
  */
-import { and, eq, inArray, sql } from "drizzle-orm";
-import type { FoundationsDraft, FoundationsInputs, FoundationsNoteStats, FoundationsOutlineEntry, FoundationsProgressAuthor, FoundationsProgressPatch, ImportReportSnapshot } from "@foundmill/agents";
-import { FOUNDATIONS_DOORS, ROADMAP_HORIZONS, type Archetype, type FoundationsRunner, type FoundationsStatus, type RoadmapHorizon } from "@foundmill/shared";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import type { FoundationsDraft, FoundationsInputs, FoundationsNoteStats, FoundationsOutlineEntry, FoundationsProgressAuthor, FoundationsProgressPatch, FoundationsVisionRecord, ImportReportSnapshot } from "@foundmill/agents";
+import { FOUNDATIONS_DOORS, ROADMAP_HORIZONS, ValidationError, type Archetype, type FoundationsRunner, type FoundationsStatus, type RoadmapHorizon } from "@foundmill/shared";
 import { z } from "zod";
 import { agents, businessFoundations, type BusinessFoundationsRow, type InboxItem, type SpecBlock } from "../schema";
 import { agentsRepo } from "./agents";
@@ -23,7 +23,7 @@ import { foundersRepo } from "./founders";
 import { ideasRepo } from "./ideas";
 import { productRepo } from "./product";
 import { productSignoffsRepo, signoffDecisionBlock } from "./product-signoffs";
-import { Id, JsonObject, maybeOne, parseInput, type Executor } from "./_shared";
+import { Id, JsonObject, maybeOne, one, parseInput, type Executor } from "./_shared";
 
 export const CreateFoundationsInput = z.object({
   door: z.enum(FOUNDATIONS_DOORS),
@@ -32,6 +32,9 @@ export const CreateFoundationsInput = z.object({
   importReport: JsonObject.nullable().optional(),
 });
 export type CreateFoundationsInput = z.input<typeof CreateFoundationsInput>;
+
+/** Why nothing can be written over the foundations while the first drafting runs (`setVision`, `product.plan.*`). */
+export const FOUNDATIONS_DRAFTING_MESSAGE = "Your first draft is still being written. Import your plan once it is ready.";
 
 /** Plain text of a Tiptap document (one line per paragraph, heading or list item). */
 export function pmText(doc: unknown): string {
@@ -159,6 +162,33 @@ export const foundationsRepo = {
     const rows = await db.select({ id: agents.id, name: agents.name, role: agents.role }).from(agents).where(and(eq(agents.businessId, businessId), eq(agents.id, agentId))).limit(1);
     const a = rows[0];
     return a ? { agentId: a.id, name: a.name || null, role: a.role || null } : null;
+  },
+
+  /**
+   * The founder's own vision (an imported plan, `product.plan.import`): stored on the row, which reads ready from then on
+   * so a first drafting that has not run (pending) or failed never writes over it. A business without a row (created
+   * before the foundations existed) gets one. Refused while a drafting runs: its apply would replace the vision. `meta`
+   * is kept in the summary as `importedPlan`. Service-written like the rest of the row (read-only policy).
+   */
+  async setVision(db: Executor, businessId: string, vision: FoundationsVisionRecord, meta: Record<string, unknown> = {}): Promise<BusinessFoundationsRow> {
+    const now = new Date();
+    const row = await foundationsRepo.get(db, businessId);
+    if (!row) {
+      return one(
+        await db
+          .insert(businessFoundations)
+          .values({ businessId, door: "ideation", status: "ready", vision: { ...vision }, summary: { importedPlan: meta }, finishedAt: now })
+          .returning(),
+        "business foundations",
+      );
+    }
+    const rows = await db
+      .update(businessFoundations)
+      .set({ status: "ready", vision: { ...vision }, summary: { ...(row.summary ?? {}), importedPlan: meta }, progress: null, error: null, finishedAt: row.status === "ready" ? row.finishedAt : now, updatedAt: now })
+      .where(and(eq(businessFoundations.businessId, businessId), ne(businessFoundations.status, "drafting")))
+      .returning();
+    if (!rows[0]) throw new ValidationError(FOUNDATIONS_DRAFTING_MESSAGE);
+    return rows[0];
   },
 
   /** drafting → failed for the current attempt (a later retry claims it again). */

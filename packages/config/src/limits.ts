@@ -63,6 +63,12 @@ export const LIMITS = {
   trpcMaxLogoBodyBytes: 6 * 1024 * 1024,
   /** Largest skill file a founder may upload for an agent (UTF-8 bytes); checked in the browser and again by the api. */
   skillFileMaxBytes: 64 * 1024,
+  /** Largest plan file a founder may import on Product › Vision (UTF-8 bytes); checked in the browser and again by the api. */
+  planFileMaxBytes: 256 * 1024,
+  /** Largest body of one specification section in an imported plan file (UTF-8 bytes). */
+  planSectionMaxBytes: 64 * 1024,
+  /** Longest line of an imported plan file (characters); longer lines are refused before the parser reads them. */
+  planLineMaxChars: 10_000,
 } as const;
 
 /**

@@ -25,7 +25,7 @@ The codebase is a pnpm and Turborepo monorepo:
 1. `CLAUDE.md` (repo root): the rules. Vocabulary, never-list, definition of done. Authoritative.
 2. `docs/ARCHITECTURE.md`: package ownership and cross-package contracts.
 3. `docs/DESIGN.md`: the design direction. Every pixel follows it.
-4. `docs/DECISIONS.md`: decisions already taken. Do not re-decide them. Add new judgement calls here.
+4. `docs/DECISIONS.md`: decisions already taken. Do not re-decide them. Add new judgment calls here.
 5. `docs/PROGRESS.md`: what was built, wave by wave. Update it after every task.
 6. `docs/DEPLOY.md`: how production is set up, including the GitHub App (section 4) and the live connectors (section 6).
 7. `docs/BUILD.md`: the original build plan.
@@ -49,7 +49,7 @@ The codebase is a pnpm and Turborepo monorepo:
 
 - Never push to `main`. Work on your own `agent/<name>` branch, open a pull request, and wait for the founder. Never merge. Never approve your own merge.
 - Secrets live in Railway variables and nowhere else: not in the repo, not in a pull request, not in chat.
-- Every change: typecheck, lint, unit tests, and a Playwright spec for any screen you touched, a Storybook story for any new component, an eval for any new agent behaviour, and an update to `docs/PROGRESS.md`.
+- Every change: typecheck, lint, unit tests, and a Playwright spec for any screen you touched, a Storybook story for any new component, an eval for any new agent behavior, and an update to `docs/PROGRESS.md`.
 - Business-scoped tables need a `business_id`, a row-level security policy, and a cross-tenant test in the same change.
 - Outside calls go only through `apps/gateway`. Never call a vendor API from another service.
 - Events are declared in `packages/events` with Zod, and written through the outbox.
@@ -64,7 +64,7 @@ The codebase is a pnpm and Turborepo monorepo:
 - `pnpm typecheck`, `pnpm lint`, `pnpm test` (unit, runs on CI)
 - `pnpm --filter @foundmill/web exec playwright test <spec>` for browser specs (run one spec at a time, from the repo root with the local stack)
 - `node scripts/banned-terms.mjs`, `node scripts/us-english.mjs`, `node scripts/plain-language.mjs --gate`
-- `pnpm evals` for agent behaviour
+- `pnpm evals` for agent behavior
 
 CI runs on every pull request. A full CI run takes about 40 to 50 minutes, because the unit-test job is long. The agent's own commits carry `[skip ci]`, so CI does not run on them until you start it with `run_checks`.
 
