@@ -42,7 +42,7 @@ export const qaEngineer = defineTemplate({
       },
     ],
   },
-  tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.read", "checks.read"]), grant("sentry", ["issues.list", "issues.read"])],
+  tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("github", ["repos.read", "pulls.read", "checks.read", "checks.run"]), grant("sentry", ["issues.list", "issues.read"])],
   skills: withCoreSkills(["test_design", "exploratory_testing", "test_automation", "debugging"]),
   autonomy: AUTONOMY_INHERIT,
   neverDoes: ["Pass a criterion without a test", "Test against production data", "Fix bugs inside a QA task", "Retry flaky tests into green"],
