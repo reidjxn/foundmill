@@ -6,6 +6,7 @@
 import { CONVERSATION_MAX_TOKENS, CONVERSATION_RESERVE_TOKENS, REFUSED_REPLY_LINES, hasClubRulesPrefix } from "@foundmill/agents";
 import { inboxItems, repos } from "@foundmill/db";
 import { eq } from "drizzle-orm";
+import { personaByKey } from "@foundmill/shared";
 import { MockModelClient, ModelOutputError, PRICING_CURRENCY, type CompleteRequest, type ModelClient } from "@foundmill/models";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { ManifestEntityInput } from "@foundmill/entity-linker";
@@ -154,6 +155,31 @@ describe("agent.conversation.send", () => {
     expect(view.messages.map((m) => m.id)).toEqual(res.messages.map((m) => m.id));
     expect(view.quickReplies).toEqual(reply.quickReplies);
     expect(res.thread.messageCount).toBe(2);
+  });
+
+  it("with anthropomorphic agents on, the agent goes by its persona's first name with that founder, and is still told it is an AI agent", async () => {
+    // The fixture's agent is inserted directly, as agents from before 0067 were: the boot backfill gives it a key.
+    await repos.agents.assignMissingPersonas(hz.db, hz.A.businessId);
+    const agent = await repos.agents.get(hz.db, hz.A.businessId, hz.A.agentId);
+    const persona = personaByKey(agent!.personaKey);
+    expect(persona, "the backfill gives every agent a persona").not.toBeNull();
+    const ask = async () => {
+      const client = recordingModels();
+      const item = await decisionItem("Which channel first?");
+      await owner().agent.conversation.send({ businessId: hz.A.businessId, subject: { kind: "inbox_item", id: item.id }, quickReplyId: "why_that_one" });
+      return systemBlocks(conversationRequests(client)[0]!)[1]!;
+    };
+    try {
+      await repos.preferences.update(hz.db, hz.A.ownerId, { anthropomorphicAgents: true });
+      const on = await ask();
+      expect(on).toContain(`You are ${persona!.name}, `);
+      expect(on).toContain("an AI agent");
+      expect(on).toContain("Never claim to be human.");
+      await repos.preferences.update(hz.db, hz.A.ownerId, { anthropomorphicAgents: false });
+      expect(await ask()).toContain(`You are ${agent!.name}, `);
+    } finally {
+      await repos.preferences.update(hz.db, hz.A.ownerId, { anthropomorphicAgents: false });
+    }
   });
 
   it("a thanks, an OK and a Not now are answered from the agent's voice kit with no model call; a question still reaches the model", async () => {
