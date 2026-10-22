@@ -125,7 +125,7 @@ export function platformKeyConnected(row: Pick<Integration, "status" | "archived
 /** Policy id on a call refused by the founder's GitHub push settings (audited like any deny). */
 export const GITHUB_PUSH_SETTINGS_POLICY_ID = "github-push-settings";
 /** GitHub tools that change a repository: held to the founder's push settings. */
-const GITHUB_WRITE_TOOLS = new Set(["create_branch", "commit_files", "open_pr", "merge_pr"]);
+const GITHUB_WRITE_TOOLS = new Set(["create_branch", "commit_files", "open_pr", "run_checks", "merge_pr"]);
 
 /**
  * The founder's push settings, enforced here rather than trusted from the caller: a GitHub tool that changes a

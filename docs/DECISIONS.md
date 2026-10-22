@@ -2955,3 +2955,8 @@ Judgment calls the slices of waves A, B and C took while building `docs/UX_AUDIT
 
 - **The seeded demo owner confirms 18+ even when the seed skips their profile** (`SEED_OWNER_PROFILE=0`). The attestation is the network's, not the profile's, and every network write asks for it. Reversal: confirm adults in shard 1 through the Network screen instead.
 - **A table's own scroll body is a declared scroll region** (`data-scroll-region="table"` on `DataTable`). The design rule allows a table wider than its panel inside its own `overflow-x: auto` container; the no-clip check counts only panels and text that clip, not a table's scroll. Reversal: fit the CRM "All" view by dropping a column at 1280 px.
+
+### Merges to main are the founder's (2026-10-22)
+
+- **A delegated agent never decides `merge_to_main`.** Team › Responsibilities could name an agent to approve merges, and the routing then let it approve the merge at once. The founder asked to approve every pull request before anything merges, so the routing now treats `merge_to_main` like `sign_contracts`: the agent is left undecided and the founder answers in the Inbox. The routing test is updated to match. Reversal: drop `merge_to_main` from `founderOnly` in `packages/db/src/repos/approvals.ts`.
+- **`run_checks` is held to the push settings** like the other GitHub writes (the repository chosen on Development › Code, pushing on). It starts the CI workflow on an `agent/` branch and needs no founder approval, because it spends no money and changes no branch.
