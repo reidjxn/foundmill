@@ -119,7 +119,7 @@ describe("parsePlanFile: good files", () => {
   });
 
   it("accepts Windows line endings, a byte-order mark, part names in any case and bold acceptance labels", () => {
-    const text = `﻿# SPECIFICATION\r\n## Risks\r\nSupply.\r\n# roadmap\r\n## next\r\n### Second supplier\r\n**Acceptance criteria:**\r\n1. Two suppliers quote\r\n`;
+    const text = `\uFEFF# SPECIFICATION\r\n## Risks\r\nSupply.\r\n# roadmap\r\n## next\r\n### Second supplier\r\n**Acceptance criteria:**\r\n1. Two suppliers quote\r\n`;
     const plan = parse(text);
     expect(plan.sections[0]!.name).toBe("Risks");
     expect(plan.roadmap[0]).toMatchObject({ horizon: "next", title: "Second supplier", descriptionMd: "", acceptance: ["Two suppliers quote"] });
