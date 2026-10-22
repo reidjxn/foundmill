@@ -4,15 +4,18 @@
  * the roadmap: statement, who it is for, the problem, why now, principles, the north-star metric), the narrative
  * sections of the spec read as one page, the pinned (human-edited) blocks, the spec at a glance and what the team is
  * building now. While the foundations are drafting the tab shows the vision as soon as it is written, the narrative
- * sections as they land (marked Drafting) and fills in the rest when they are ready.
+ * sections as they land (marked Drafting) and fills in the rest when they are ready. Owners and admins can import a
+ * plan they already wrote (a vision, a specification and a roadmap in one Markdown file) from the first panel.
  */
-import { useMemo } from "react";
-import { BookOpen, Lock, Map as MapIcon } from "lucide-react";
-import { Chip, EmptyState, Explainer, Panel, StatusPill, Term, formatNumber, formatRelative, useFormatters } from "@foundmill/dugout";
+import { useMemo, useState } from "react";
+import { BookOpen, FileUp, Lock, Map as MapIcon } from "lucide-react";
+import { Button, Chip, EmptyState, Explainer, Panel, StatusPill, Term, formatNumber, formatRelative, useFormatters } from "@foundmill/dugout";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { useCanWrite } from "../env";
 import type { ModuleScreenProps } from "../registry";
 import { FoundationsBanner, VisionPanels, useFoundations } from "./foundations";
 import { PlainDoc } from "./PlainDoc";
+import { PlanImportDialog } from "./plan/PlanImportDialog";
 import { pmExcerpt, pmWordCount } from "./prosemirror";
 import { computeRoadmapStatus, taskSummary } from "./roadmap-status";
 import { AuthorRef, PRODUCT_EXPLAINER, PinnedChip, Screen, blockTitle, groupBySection } from "./shared";
@@ -48,6 +51,16 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
   const signoffLine = signoffSummaryLine(signoffs.data);
   // The vision shows as soon as the drafting has written it (within seconds of the first open), before the rest.
   const vision = foundations.data && foundations.data.status !== "none" ? foundations.data.vision : null;
+  // Import a plan: owners and admins who may change the product (the api refuses everyone else).
+  const canWrite = useCanWrite("product");
+  const business = useWidgetQuery<{ role?: string }>("business.get", {});
+  const canImport = canWrite && (business.data?.role === "owner" || business.data?.role === "admin");
+  const [importing, setImporting] = useState(false);
+  const importButton = canImport ? (
+    <Button size="sm" icon={FileUp} onClick={() => setImporting(true)} data-testid="plan-import-open">
+      Import a plan
+    </Button>
+  ) : null;
   // While drafting, a narrative section's empty block reads what has been written for it so far.
   const drafted = useMemo(() => new Map((foundations.data?.progress?.sections ?? []).filter((s) => s.done && s.content).map((s) => [s.section.toLowerCase(), s.content!] as const)), [foundations.data?.progress]);
 
@@ -67,9 +80,10 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
   return (
     <Screen name="product/vision">
       <FoundationsBanner foundations={foundations} />
-      {vision ? <VisionPanels vision={vision} intro={<Explainer {...PRODUCT_EXPLAINER} className="mb-4" />} /> : null}
+      {vision ? <VisionPanels vision={vision} intro={<Explainer {...PRODUCT_EXPLAINER} className="mb-4" />} actions={importButton} /> : null}
       <Panel
         title={vision ? <>From the <Term id="specification">specification</Term></> : "Vision"}
+        actions={vision ? undefined : importButton}
         span={8}
         loading={spec.isLoading}
         error={spec.error ? spec.error.message : undefined}
@@ -213,6 +227,18 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
             </section>
           ))}
       </Panel>
+      {/* Mounted only while open: the dialog's toast needs the shell's toaster. */}
+      {importing ? (
+        <PlanImportDialog
+          open
+          onOpenChange={setImporting}
+          onImported={() => {
+            spec.refetch();
+            roadmap.refetch();
+            foundations.refetch();
+          }}
+        />
+      ) : null}
     </Screen>
   );
 }

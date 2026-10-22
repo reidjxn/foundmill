@@ -489,6 +489,26 @@ export const productRepo = {
       .limit(Math.min(Math.max(Math.trunc(limit), 1), 200));
   },
 
+  /**
+   * Live roadmap items nobody has started: not done (`done`, `shipped`), and no task linked to them (live or archived)
+   * has left `planned`. What an imported plan may retire (`product.plan.import` with `replaceUnstarted`); an item with
+   * work in progress or finished is never among them.
+   */
+  async unstartedRoadmap(db: Executor, businessId: string): Promise<RoadmapItem[]> {
+    return db
+      .select()
+      .from(roadmapItems)
+      .where(
+        and(
+          eq(roadmapItems.businessId, businessId),
+          isNull(roadmapItems.archivedAt),
+          sql`${roadmapItems.status} not in ('done', 'shipped')`,
+          sql`not exists (select 1 from tasks t where t.business_id = ${roadmapItems.businessId} and t.roadmap_item_id = ${roadmapItems.id} and t.status <> 'planned')`,
+        ),
+      )
+      .orderBy(asc(roadmapItems.horizon), asc(roadmapItems.position), asc(roadmapItems.createdAt));
+  },
+
   async getRoadmapItem(db: Executor, businessId: string, itemId: string): Promise<RoadmapItem> {
     return one(await db.select().from(roadmapItems).where(and(eq(roadmapItems.businessId, businessId), eq(roadmapItems.id, itemId))).limit(1), "roadmap item", itemId);
   },

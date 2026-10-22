@@ -1,6 +1,6 @@
 /**
  * product.foundations.* / product.signoff.* / product.spec.* / product.roadmap.* / product.proposals.* /
- * product.sources.* (BUILD §11.1 first open, §11.5; AC-11.5.2, AC-11.5.3; founder 2026-10-18 sign-offs).
+ * product.sources.* / product.plan.* (BUILD §11.1 first open, §11.5; AC-11.5.2, AC-11.5.3; founder 2026-10-18 sign-offs).
  */
 import { EditSpecBlockInput, UpsertRoadmapItemInput, repos, type AppliedHunk, type DbTx, type Executor, type ProposalDecisionResult } from "@foundmill/db";
 import { HUNK_DECISIONS, RESEARCH_ARTIFACT_STATUSES, SOURCE_KINDS, ValidationError, WRITE_ROLES } from "@foundmill/shared";
@@ -8,12 +8,15 @@ import { z } from "zod";
 import { ensureFoundations, foundationsView, isStale, retryFoundations } from "../services/foundations";
 import { ensureResearchPlan, loadResearchView, retryResearchPlan } from "../services/product-research";
 import { modelLimited } from "../services/model-limits";
+import { PlanImportInput, importPlan, previewPlanImport } from "../services/plan-import";
 import { decideProductSignoff, reopenSpecSignoffAfterPublish, signoffViews } from "../services/signoff";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
-import { Id, audit, businessProcedure, effectivePermission, emit, router, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
+import { Id, audit, businessProcedure, effectivePermission, emit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 
 const read = sectionRead("product");
 const write = sectionWrite("product");
+/** Owner or admin with product write: importing a plan rewrites the vision, the specification and the roadmap at once. */
+const admin = sectionAdmin("product");
 
 /** How much of the founder's notes reads as the summary before the Source Watcher writes its own. */
 const SUMMARY_PREVIEW_CHARS = 400;
@@ -219,6 +222,19 @@ export const productRouter = router({
         return repos.product.getRoadmapItem(tx, ctx.businessId, item.id);
       }),
     ),
+  }),
+
+  /**
+   * Import a plan (founder-only): one Markdown file with a vision, a specification and a roadmap, written into the
+   * business (services/plan-import.ts). Owners and admins with product write only; members, viewers, advisors and
+   * example viewers are refused. `preview` reads the file and the business and writes nothing (a mutation only because
+   * the file travels in the body). `import` runs in one transaction on the service connection after that check: the
+   * vision lives on the foundations row, which app roles only read under RLS (the same reason hiring and promoting a
+   * trained version write there); every write is scoped to the caller's business by the repos.
+   */
+  plan: router({
+    preview: admin.input(PlanImportInput).mutation(({ ctx, input }) => ctx.rls((tx) => previewPlanImport(tx, ctx.businessId, input))),
+    import: admin.input(PlanImportInput).mutation(({ ctx, input }) => ctx.db.transaction((tx) => importPlan(tx, ctx, input))),
   }),
 
   /** Sources the Source Watcher reads (docs, issues, feedback, transcripts, competitor pages, legal, finance). */

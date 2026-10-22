@@ -315,13 +315,14 @@ export function FoundationsProgressPanel({ progress: p, vision, state, span = 12
 
 /**
  * The stored vision on the Vision tab: the statement with who it is for, the problem and why now, the principles, and
- * the north-star metric. `intro` (the department's Explainer) sits at the top of the first panel's body.
+ * the north-star metric. `intro` (the department's Explainer) sits at the top of the first panel's body; `actions` sits
+ * in the Vision panel's header (Import a plan).
  */
-export function VisionPanels({ vision, intro }: { vision: FoundationsVision; intro?: ReactNode }) {
+export function VisionPanels({ vision, intro, actions }: { vision: FoundationsVision; intro?: ReactNode; actions?: ReactNode }) {
   const label = vision.northStar.label === "Forecast" ? "forecast" : "estimate";
   return (
     <>
-      <Panel title="Vision" span={8} data-testid="vision-record">
+      <Panel title="Vision" span={8} actions={actions} data-testid="vision-record">
         {intro}
         <div className="flex max-w-reading flex-col gap-4">
           <p className="t-display-sm text-primary" data-vision-statement>
