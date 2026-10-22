@@ -612,9 +612,13 @@ describe("github live: commit_files against the Git Data API", () => {
  * The slice of GitHub's REST API run_checks and get_checks use: repository, branch ref, workflow dispatch
  * (`status` 204 or 200 with a run id) and the paged check runs of a commit. Requests are logged.
  */
-function fakeCiApi(owner: string, repo: string, options: { public?: boolean; dispatchStatus?: number; branches?: Record<string, string>; checkRuns?: Record<string, unknown>[]; totalCount?: number } = {}) {
-  const branches = options.branches ?? { "agent/t1": "c".repeat(40) };
+function fakeCiApi(owner: string, repo: string, options: { public?: boolean; dispatchStatus?: number; branches?: Record<string, string>; checkRuns?: Record<string, unknown>[]; totalCount?: number; githubTrees?: Record<string, string | null>; workflowRun?: { status: string; conclusion: string | null } | null } = {}) {
+  const branches = options.branches ?? { "agent/t1": "c".repeat(40), main: "a".repeat(40) };
   const checkRuns = options.checkRuns ?? [];
+  /** The sha of each branch's `.github` entry in its root tree (null: no such entry); every branch shares one tree unless told otherwise. */
+  const githubTree = (branch: string): string | null => (options.githubTrees && branch in options.githubTrees ? options.githubTrees[branch]! : "g".repeat(40));
+  /** The newest CI workflow run for a head (default: completed, success); null: CI has not run on it. */
+  const workflowRun = options.workflowRun === undefined ? { status: "completed", conclusion: "success" } : options.workflowRun;
   const log: { method: string; path: string; query: string; body?: unknown }[] = [];
   const base = `/repos/${owner}/${repo}`;
   const fetch: FetchLike = async (input, init) => {
@@ -630,7 +634,7 @@ function fakeCiApi(owner: string, repo: string, options: { public?: boolean; dis
       return sha ? jsonResponse({ ref: `refs/heads/${m[1]}`, object: { sha, type: "commit" } }) : jsonResponse({ message: "Not Found" }, { status: 404 });
     }
     if (req.method === "POST" && path === `${base}/actions/workflows/ci.yml/dispatches`) {
-      const ref = (body as { ref?: string }).ref ?? "";
+      const ref = ((body as { ref?: string }).ref ?? "").replace(/^refs\/heads\//, "");
       if (!branches[ref]) return jsonResponse({ message: "No ref found for: " + ref }, { status: 422 });
       return options.dispatchStatus === 200 ? jsonResponse({ workflow_run_id: 7, run_url: "https://api.github.com/x", html_url: "https://github.com/x" }) : new Response(null, { status: 204 });
     }
@@ -638,6 +642,21 @@ function fakeCiApi(owner: string, repo: string, options: { public?: boolean; dis
       const perPage = Number(url.searchParams.get("per_page"));
       const page = Number(url.searchParams.get("page") ?? "1");
       return jsonResponse({ total_count: options.totalCount ?? checkRuns.length, check_runs: checkRuns.slice((page - 1) * perPage, page * perPage) });
+    }
+    // A branch's commit (only `commit.tree.sha` is read) and its root tree, which holds a `.github` entry unless told otherwise.
+    if (req.method === "GET" && (m = path.match(new RegExp(`^${base}/commits/(.+)$`)))) {
+      const sha = branches[m[1]!];
+      return sha ? jsonResponse({ sha, commit: { tree: { sha: `root:${m[1]}` } } }) : jsonResponse({ message: "No commit found for SHA: " + m[1] }, { status: 422 });
+    }
+    if (req.method === "GET" && (m = path.match(new RegExp(`^${base}/git/trees/root:(.+)$`)))) {
+      const sha = githubTree(m[1]!);
+      return jsonResponse({ sha: `root:${m[1]}`, truncated: false, tree: [{ path: "README.md", type: "blob", sha: "b".repeat(40), mode: "100644" }, ...(sha ? [{ path: ".github", type: "tree", sha, mode: "040000" }] : [])] });
+    }
+    // Workflow runs are listed for one head only; asking without `head_sha` would return another head's run.
+    if (req.method === "GET" && path === `${base}/actions/workflows/ci.yml/runs`) {
+      const head = url.searchParams.get("head_sha");
+      const known = head !== null && Object.values(branches).includes(head);
+      return jsonResponse({ total_count: known && workflowRun ? 1 : 0, workflow_runs: known && workflowRun ? [{ id: 9, head_sha: head, ...workflowRun }] : [] });
     }
     throw new Error(`fakeCiApi: no route for ${req.method} ${path}`);
   };
@@ -663,7 +682,29 @@ describe("github live: run_checks and get_checks against the Actions and Checks 
       expect(r.ok, JSON.stringify(r.error)).toBe(true);
       expect(RunChecksOutput.parse(r.data)).toEqual({ dispatched: true, branch: "agent/t1", workflow: "ci.yml" });
       expect(r.untrusted).toBeUndefined();
-      expect(api.log.filter((l) => l.method === "POST")).toEqual([{ method: "POST", path: `/repos/${OWNER}/${REPO}/actions/workflows/ci.yml/dispatches`, query: "", body: { ref: "agent/t1" } }]);
+      expect(api.log.filter((l) => l.method === "POST")).toEqual([{ method: "POST", path: `/repos/${OWNER}/${REPO}/actions/workflows/ci.yml/dispatches`, query: "", body: { ref: "refs/heads/agent/t1" } }]);
+    }
+  });
+
+  it("refuses a branch whose .github differs from the default branch's, and dispatches nothing", async () => {
+    const message = "run_checks refuses to run a workflow that differs from the default branch (.github changed on agent/t1); rebase the branch onto the default branch";
+    // The branch changed a workflow, dropped .github, or added one the default branch does not have.
+    for (const githubTrees of [{ "agent/t1": "d".repeat(40) }, { "agent/t1": null }, { main: null }]) {
+      const { api, runChecks } = setup({ githubTrees });
+      const r = await runChecks("agent/t1");
+      expect(r.ok, JSON.stringify(githubTrees)).toBe(false);
+      expect(r.error, JSON.stringify(githubTrees)).toMatchObject({ status: 422, message });
+      expect(api.log.filter((l) => l.method === "POST")).toEqual([]);
+    }
+  });
+
+  it("still dispatches a branch whose .github matches the default branch's, including when neither has one", async () => {
+    for (const githubTrees of [{ "agent/t1": "e".repeat(40), main: "e".repeat(40) }, { "agent/t1": null, main: null }]) {
+      const { api, runChecks } = setup({ githubTrees });
+      expect((await runChecks("agent/t1")).ok, JSON.stringify(githubTrees)).toBe(true);
+      expect(api.log.filter((l) => l.method === "POST")).toHaveLength(1);
+      // Both refs were compared through their root trees.
+      expect(api.log.filter((l) => l.path.includes("/git/trees/")).map((l) => l.path).sort()).toEqual([`/repos/${OWNER}/${REPO}/git/trees/root:agent/t1`, `/repos/${OWNER}/${REPO}/git/trees/root:main`]);
     }
   });
 

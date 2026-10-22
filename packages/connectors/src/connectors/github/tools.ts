@@ -9,8 +9,10 @@
  *
  * `run_checks` starts the repository's own `.github/workflows/ci.yml` on an agent's branch (the file must already be on
  * the branch and listen for `workflow_dispatch`; agents cannot write it) and `get_checks` reads the check runs of the
- * branch head back. Like `commit_files`, `run_checks` only touches `agent/` branches of private repositories. It spends
- * the repository owner's CI minutes, so it is a write even though it changes no repository content.
+ * branch head back. Like `commit_files`, `run_checks` only touches `agent/` branches of private repositories, and only
+ * when the branch's `.github` tree is identical to the default branch's (GitHub runs the workflow file of the ref it is
+ * dispatched on, with the repository's secrets). It spends the repository owner's CI minutes, so it is a write even
+ * though it changes no repository content. `get_checks` is pending until the CI workflow has run on the head.
  */
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -173,6 +175,24 @@ export const checksState = (checks: readonly Pick<CheckRunT, "status" | "conclus
   return complete ? "success" : "pending";
 };
 
+/** A workflow run (`GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs`): `conclusion` is null until it completes. */
+export interface GhWorkflowRun { status?: string | null; conclusion?: string | null }
+
+/**
+ * The verdict for a branch head once the CI workflow's own run is taken into account. Check runs alone can look green
+ * before CI has run on the head (other workflows or apps report checks too), so: no run yet or one that has not
+ * completed is pending; a completed run whose conclusion is not "success" is a failure; only a successful run defers to
+ * the check runs (`checksState`).
+ */
+export const ciState = (run: GhWorkflowRun | null | undefined, checks: readonly Pick<CheckRunT, "status" | "conclusion">[], complete = true): ChecksStateT => {
+  if (!run || run.status !== "completed") return "pending";
+  if (run.conclusion !== "success") return "failure";
+  return checksState(checks, complete);
+};
+
+/** Why `run_checks` refuses a branch whose `.github` tree is not the default branch's. */
+export const githubChangedMessage = (branch: string): string => `run_checks refuses to run a workflow that differs from the default branch (.github changed on ${branch}); rebase the branch onto the default branch`;
+
 export const githubTools = [
   defineTool({
     name: "list_repos",
@@ -222,7 +242,7 @@ export const githubTools = [
   }),
   defineTool({
     name: "run_checks",
-    description: "Start the repository's CI (the .github/workflows/ci.yml workflow, which must listen for workflow_dispatch) on an agent's working branch (agent/<name>) of a private repository. Uses the repository owner's CI minutes; each call starts a new run. Read the outcome with get_checks. Never runs the default branch.",
+    description: "Start the repository's CI (the .github/workflows/ci.yml workflow, which must listen for workflow_dispatch) on an agent's working branch (agent/<name>) of a private repository. Refused when .github on the branch differs from the default branch's. Uses the repository owner's CI minutes; each call starts a new run. Read the outcome with get_checks. Never runs the default branch.",
     input: RunChecksInput,
     output: RunChecksOutput,
     hints: {},
@@ -230,7 +250,7 @@ export const githubTools = [
   }),
   defineTool({
     name: "get_checks",
-    description: "The check runs of an agent's working branch head (agent/<name>) and one verdict: pending (a check is queued or running, or none exists yet), failure (a check failed, timed out, was canceled or needs action) or success (every check succeeded, was neutral or was skipped). Check names and links come from the repository: they are quarantined.",
+    description: "The check runs of an agent's working branch head (agent/<name>) and one verdict: pending (the CI workflow has not run on this head yet or is still running, or a check is queued or running, or none exists yet), failure (the CI workflow did not succeed, or a check failed, timed out, was canceled or needs action) or success (the CI workflow succeeded and every check succeeded, was neutral or was skipped). Check names and links come from the repository: they are quarantined.",
     input: GetChecksInput,
     output: GetChecksOutput,
     hints: {},
