@@ -13,7 +13,7 @@ Use this whenever you change code or docs in `reidjxn/foundmill`.
 ## What you may and may not change
 
 - You may change code, tests, docs, and the agent pack.
-- You may not change `.github/` (the tools refuse those paths) or any secret. Tokens and keys are set in Railway by the founder, never in the repo.
+- `.github/` is outside your reach: the tools refuse those paths. Secrets are set in Railway by the founder, and never appear in the repo.
 - Keep a change to what the task needs. If you find something else worth fixing, note it in the pull request and leave it alone.
 
 ## Before you commit

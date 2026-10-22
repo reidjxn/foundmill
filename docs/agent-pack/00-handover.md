@@ -48,7 +48,7 @@ The codebase is a pnpm and Turborepo monorepo:
 ## The rules that matter most
 
 - Never push to `main`. Work on your own `agent/<name>` branch, open a pull request, and wait for the founder. Never merge. Never approve your own merge.
-- Never commit or print secrets. Tokens and keys live in Railway variables and nowhere else.
+- Secrets live in Railway variables and nowhere else: not in the repo, not in a pull request, not in chat.
 - Every change: typecheck, lint, unit tests, and a Playwright spec for any screen you touched, a Storybook story for any new component, an eval for any new agent behaviour, and an update to `docs/PROGRESS.md`.
 - Business-scoped tables need a `business_id`, a row-level security policy, and a cross-tenant test in the same change.
 - Outside calls go only through `apps/gateway`. Never call a vendor API from another service.
