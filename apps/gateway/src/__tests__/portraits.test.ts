@@ -36,6 +36,8 @@ interface Opts {
   seen?: { auth: string | null; body: Record<string, unknown> }[];
   liveConnectors?: string[];
   status?: number;
+  /** The vendor's error body when `status` is not 200 (default: a 5xx server_error). */
+  errorBody?: unknown;
   now?: () => Date;
   rateLimits?: MemoryRateLimitStore;
   logs?: { level: string; args: unknown[] }[];
@@ -47,7 +49,7 @@ function appFor(opts: Opts = {}) {
     fetch: routedFetch({
       "POST https://api.openai.com/v1/images/generations": async (req) => {
         opts.seen?.push({ auth: req.headers.get("authorization"), body: (await req.json()) as Record<string, unknown> });
-        if (opts.status && opts.status !== 200) return jsonResponse({ error: { message: "The server had an error", type: "server_error", code: null } }, { status: opts.status });
+        if (opts.status && opts.status !== 200) return jsonResponse(opts.errorBody ?? { error: { message: "The server had an error", type: "server_error", code: null } }, { status: opts.status });
         return jsonResponse({ data: [{ b64_json: WEBP }] });
       },
     }),
@@ -145,6 +147,28 @@ describe("persona portraits through the gateway", () => {
     const res = await post(appFor({ mode: "live", key: "sk-platform-key-0000", status: 500 }), { personaKey: PERSONA.key });
     expect(res).toMatchObject({ status: 502, body: { error: { code: "portrait_unavailable" } } });
     expect(JSON.stringify(res.body)).not.toContain("sk-platform-key-0000");
+  });
+
+  it("tells the api a code and a status, never the vendor's words: a refusal is a 422 the api will not retry", async () => {
+    const vendorWords = "Your request was rejected by the safety system. Key sk-proj-****abcd was used.";
+    const blocked = await post(appFor({ mode: "live", key: "sk-platform-key-0000", status: 400, errorBody: { error: { message: vendorWords, type: "image_generation_user_error", code: "moderation_blocked" } } }), { personaKey: PERSONA.key });
+    expect(blocked).toMatchObject({ status: 422, body: { error: { code: "portrait_refused", details: { vendorStatus: 400, vendorCode: "moderation_blocked" } } } });
+    const text = JSON.stringify(blocked.body);
+    expect(text).not.toContain("safety system");
+    expect(text).not.toContain("sk-proj");
+
+    const down = await post(appFor({ mode: "live", key: "sk-platform-key-0000", status: 503 }), { personaKey: PERSONA.key });
+    expect(down).toMatchObject({ status: 502, body: { error: { code: "portrait_unavailable" } } });
+    expect(JSON.stringify(down.body)).not.toContain("The server had an error");
+
+    const badKey = await post(appFor({ mode: "live", key: "sk-platform-key-0000", status: 401, errorBody: { error: { message: "Incorrect API key provided: sk-proj-****wxyz.", type: "invalid_request_error", code: "invalid_api_key" } } }), { personaKey: PERSONA.key });
+    // The platform key is the gateway's configuration, not this persona: retryable, not a refusal.
+    expect(badKey.status).toBe(502);
+    expect(JSON.stringify(badKey.body)).not.toContain("wxyz");
+
+    const busy = await post(appFor({ mode: "live", key: "sk-platform-key-0000", status: 429, errorBody: { error: { message: "Rate limit reached for images.", type: "rate_limit_exceeded", code: "rate_limit_exceeded" } } }), { personaKey: PERSONA.key });
+    expect(busy).toMatchObject({ status: 429, body: { error: { code: "portrait_rate_limited" } } });
+    expect(JSON.stringify(busy.body)).not.toContain("Rate limit reached");
   });
 
   it("the platform's window limits the calls (20 a minute) and frees up in the next minute", async () => {

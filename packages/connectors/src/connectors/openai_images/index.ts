@@ -23,8 +23,11 @@ interface OpenAiErrorBody {
   error?: { message?: string; type?: string; code?: string | null };
 }
 
-/** Anything shaped like a key is masked before text from the vendor reaches an error. */
-const redactKeys = (text: string): string => text.replace(/\bsk-[A-Za-z0-9_-]{6,}/g, "sk-…");
+/**
+ * Anything shaped like a key is masked before text from the vendor reaches an error, a masked one too: OpenAI's
+ * bad-key answer quotes the key as `sk-proj-****…abcd`, whose visible tail is still part of the secret.
+ */
+export const redactKeys = (text: string): string => text.replace(/\bsk-[A-Za-z0-9_*.-]+/g, "sk-…");
 
 export function createOpenaiImagesConnector(options: LiveConnectorOptions = {}): Connector {
   const { secrets, fetch, now } = resolveLiveOptions(options);
@@ -86,3 +89,5 @@ export function createOpenaiImagesConnector(options: LiveConnectorOptions = {}):
 
 export { openaiImagesMock, placeholderPortraitPng, MOCK_IMAGE_MODEL } from "./mock";
 export { openaiImagesTools, OPENAI_IMAGES_KEY, estimateImageCostMinor } from "./tools";
+/** How long the live connector waits for OpenAI to render one image; the api's wait for the gateway must be longer. */
+export { GENERATION_TIMEOUT_MS as OPENAI_IMAGES_GENERATION_TIMEOUT_MS };

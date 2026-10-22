@@ -8,6 +8,7 @@
  * prompt, and OPENAI_API_KEY lives only in the gateway.
  */
 import { randomUUID } from "node:crypto";
+import { OPENAI_IMAGES_GENERATION_TIMEOUT_MS } from "@foundmill/connectors";
 import { AppError, type IntegrationStatus } from "@foundmill/shared";
 import { SignJWT } from "jose";
 
@@ -72,8 +73,12 @@ export interface GatewayPortrait {
   model: string;
 }
 
-/** A portrait takes 10 to 60 seconds to render, so its call waits longer than the others. */
-export const PORTRAIT_TIMEOUT_MS = 120_000;
+/**
+ * A portrait takes 10 to 60 seconds to render, so its call waits longer than the others: longer than the connector waits
+ * for OpenAI (`OPENAI_IMAGES_GENERATION_TIMEOUT_MS`, 120 s) plus room for the gateway's own work, so the api never gives
+ * up on an image the gateway is still about to return (and pay for).
+ */
+export const PORTRAIT_TIMEOUT_MS = OPENAI_IMAGES_GENERATION_TIMEOUT_MS + 30_000;
 
 export interface ApiGatewayClient {
   connect(businessId: string, connector: string, input: Record<string, unknown>): Promise<GatewayIntegrationRecord>;

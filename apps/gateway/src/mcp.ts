@@ -14,7 +14,7 @@ import { APP_NAME } from "@foundmill/config";
 import { AppError, NotFoundError } from "@foundmill/shared";
 import type { Connector, McpToolDefinition } from "@foundmill/connectors";
 import { CallRequest } from "./types";
-import { GatewayError, modeFor, safeError, type GatewayDeps } from "./pipeline";
+import { GatewayError, modeFor, refuseServiceOnly, safeError, type GatewayDeps } from "./pipeline";
 import { tracedToolCall } from "./tracing";
 import { toolAllowed, type SessionToken } from "./tokens";
 
@@ -67,6 +67,8 @@ export function createMcpServer(deps: GatewayDeps, session: SessionToken, connec
 
 /** Serves one HTTP request of the MCP streamable-HTTP transport for `connectorKey`. */
 export async function handleMcpRequest(deps: GatewayDeps, session: SessionToken, connectorKey: string, request: Request): Promise<Response> {
+  // No MCP server for a connector only the platform calls (openai_images), whatever the session token allows.
+  refuseServiceOnly(connectorKey);
   let connector: Connector;
   try {
     connector = deps.registry.get(connectorKey, modeFor(deps, connectorKey));

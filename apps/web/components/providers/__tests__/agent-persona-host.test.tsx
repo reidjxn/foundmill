@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 /**
  * AgentPersonaHost: with the account's switch on it asks `team.personas.ensure` for the business, uses a face only for a
- * key in `ready` (from the API's public /personas/<key>), asks again every 15 s while any is pending, and with the switch
- * off asks nothing and leaves every name and portrait as it was.
+ * key in `ready` (from the API's public /personas/<key>), asks again every 15 s while any is pending (a key refused for
+ * good, in `failed`, keeps the drawn portrait and is not polled for), and with the switch off asks nothing and leaves every
+ * name and portrait as it was.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -13,7 +14,7 @@ const BUSINESS = "b1e5e5e5-0000-4000-8000-000000000001";
 const ENSURE_KEY = (businessId: string) => [["team", "personas", "ensure"], { input: { businessId }, type: "query" }];
 
 let anthropomorphicAgents = true;
-let ensureAnswer: { ready: string[]; pending: string[] } = { ready: ["malik"], pending: ["amara"] };
+let ensureAnswer: PersonaPortraitStatus = { ready: ["malik"], pending: ["amara"], failed: [] };
 const ensure = vi.fn(async (_input: { businessId: string }) => ensureAnswer);
 
 vi.mock("@/lib/trpc-react", () => ({
@@ -29,7 +30,7 @@ vi.mock("@/lib/trpc-react", () => ({
 }));
 vi.mock("../guidance-context", () => ({ useGuidancePreferences: () => ({ prefs: { anthropomorphicAgents } }) }));
 
-import { AgentPersonaHost, PERSONA_POLL_MS, personaPortraitUrl, personaRefetchInterval } from "../AgentPersonaHost";
+import { AgentPersonaHost, PERSONA_POLL_MS, personaPortraitUrl, personaRefetchInterval, type PersonaPortraitStatus } from "../AgentPersonaHost";
 
 function Probe() {
   const p = useAgentPersona();
@@ -55,7 +56,7 @@ function mount() {
 
 afterEach(() => {
   anthropomorphicAgents = true;
-  ensureAnswer = { ready: ["malik"], pending: ["amara"] };
+  ensureAnswer = { ready: ["malik"], pending: ["amara"], failed: [] };
   ensure.mockClear();
 });
 
@@ -68,6 +69,16 @@ describe("AgentPersonaHost", () => {
     // The drawn portrait stays under every face (and alone for the pending key) until its face is ready.
     expect(container.querySelectorAll("svg[data-avatar='portrait']")).toHaveLength(2);
     expect(ensure).toHaveBeenCalledWith({ businessId: BUSINESS });
+  });
+
+  it("on: a key refused for good keeps the drawn portrait, and with nothing pending it asks only once", async () => {
+    ensureAnswer = { ready: ["malik"], pending: [], failed: ["amara"] };
+    const { container } = mount();
+    await waitFor(() => expect(container.querySelectorAll("img[data-avatar='photo']")).toHaveLength(1));
+    expect(container.querySelector("img[data-avatar='photo']")?.getAttribute("src")).toBe("http://localhost:4000/personas/malik");
+    expect(container.querySelectorAll("svg[data-avatar='portrait']")).toHaveLength(2);
+    expect(personaRefetchInterval(ensureAnswer)).toBe(false);
+    expect(ensure).toHaveBeenCalledTimes(1);
   });
 
   it("off: asks nothing, and every name and portrait is today's", async () => {
@@ -86,6 +97,9 @@ describe("persona polling and URLs", () => {
     expect(PERSONA_POLL_MS).toBe(15_000);
     expect(personaRefetchInterval({ pending: ["amara"] })).toBe(15_000);
     expect(personaRefetchInterval({ pending: [] })).toBe(false);
+    // Failed keys are never waited on.
+    expect(personaRefetchInterval({ ready: [], pending: [], failed: ["amara"] })).toBe(false);
+    expect(personaRefetchInterval({ ready: [], pending: ["mei"], failed: ["amara"] })).toBe(15_000);
     expect(personaRefetchInterval(undefined)).toBe(false);
   });
 

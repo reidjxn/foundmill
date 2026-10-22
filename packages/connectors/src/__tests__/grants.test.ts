@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { BUILTIN_CONNECTOR_KEYS, CONNECTOR_KEYS, createAllConnectors, createBuiltinConnectors } from "../catalogue";
-import { CAPABILITY_TOOLS, GATEWAY_TOOL_NAMES, NOT_YET_SERVED, resolveGrants, SDK_BUILTIN_CAPABILITIES, SESSION_MANAGED_CAPABILITIES, toolsForCapability } from "../grants";
+import { CAPABILITY_TOOLS, GATEWAY_TOOL_NAMES, NOT_YET_SERVED, resolveGrants, SDK_BUILTIN_CAPABILITIES, SERVICE_ONLY_CONNECTORS, SERVICE_ONLY_REASON, SESSION_MANAGED_CAPABILITIES, toolsForCapability } from "../grants";
 
 describe("the capability map", () => {
   it("knows every tool of every connector the gateway serves, and nothing else", () => {
@@ -73,5 +73,18 @@ describe("resolveGrants", () => {
       { connectorKey: "github", capability: "issues.list", reason: NOT_YET_SERVED.github!["issues.list"] },
       { connectorKey: "github", capability: "repos.delete", reason: 'github has no tool for "repos.delete"' },
     ]);
+  });
+
+  it("never gives an agent a service-only connector (openai_images), whatever the grant names", () => {
+    expect([...SERVICE_ONLY_CONNECTORS]).toEqual(["openai_images"]);
+    const r = resolveGrants([{ connectorKey: "openai_images", tools: ["generate_image", "*"] }, { connectorKey: "platform", tools: ["tasks.list"] }]);
+    expect(r.servers).toEqual(["platform"]);
+    expect(r.toolRefs.some((t) => t.startsWith("openai_images"))).toBe(false);
+    expect(r.mcpTools.some((t) => t.startsWith("mcp__openai_images"))).toBe(false);
+    expect(r.unresolved).toEqual([
+      { connectorKey: "openai_images", capability: "generate_image", reason: SERVICE_ONLY_REASON },
+      { connectorKey: "openai_images", capability: "*", reason: SERVICE_ONLY_REASON },
+    ]);
+    expect(SERVICE_ONLY_REASON).toBe("the platform calls this connector itself; agents never do");
   });
 });

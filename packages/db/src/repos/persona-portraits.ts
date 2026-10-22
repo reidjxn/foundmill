@@ -3,11 +3,12 @@
  * service role reaches the table (RLS on, no policies, no app-role grants), so callers pass the service connection.
  *
  * `put` is an idempotent upsert by key (a second generation of the same key replaces the first); `get` returns the
- * bytes for GET /personas/:key; `readyKeys` says which of some keys already have a portrait (team.personas.ensure).
+ * bytes for GET /personas/:key; `readyKeys` says which of some keys already have a portrait (team.personas.ensure),
+ * optionally counting the rows of some models (the mock placeholder, when portraits are live) as missing.
  * Keys outside the catalog are refused on write and read as absent, so the table only ever holds catalog faces.
  */
 import { personaByKey } from "@foundmill/shared";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, notInArray } from "drizzle-orm";
 import { z } from "zod";
 import { PERSONA_PORTRAIT_MIMES, personaPortraits, type PersonaPortraitMime } from "../schema";
 import { maybeOne, one, parseInput, type Executor } from "./_shared";
@@ -63,11 +64,19 @@ export const personaPortraitsRepo = {
     return { key: row.personaKey, mime: row.mime, content: v.content, model: row.model, createdAt: row.createdAt };
   },
 
-  /** Which of `keys` already have a portrait, in the order given (duplicates and non-catalog keys dropped). */
-  async readyKeys(db: Executor, keys: readonly string[]): Promise<string[]> {
+  /**
+   * Which of `keys` already have a portrait, in the order given (duplicates and non-catalog keys dropped). A row made by
+   * one of `excludeModels` counts as missing: with live portraits the api passes the mock model, so a placeholder left
+   * by a mock deployment is regenerated (and `put` replaces it).
+   */
+  async readyKeys(db: Executor, keys: readonly string[], options: { excludeModels?: readonly string[] } = {}): Promise<string[]> {
     const wanted = [...new Set(keys)].filter((k) => personaByKey(k) !== null);
     if (wanted.length === 0) return [];
-    const rows = await db.select({ key: personaPortraits.personaKey }).from(personaPortraits).where(inArray(personaPortraits.personaKey, wanted));
+    const excluded = [...new Set(options.excludeModels ?? [])];
+    const rows = await db
+      .select({ key: personaPortraits.personaKey })
+      .from(personaPortraits)
+      .where(and(inArray(personaPortraits.personaKey, wanted), excluded.length > 0 ? notInArray(personaPortraits.model, excluded) : undefined));
     const have = new Set(rows.map((r) => r.key));
     return wanted.filter((k) => have.has(k));
   },

@@ -127,6 +127,28 @@ describe("assignment at hire", () => {
     const next = await hire(bid, "Next");
     expect(next.personaKey).not.toBe(key);
   });
+
+  it("replaces a given key a live agent of the business already holds with a fresh pick (a released agent's key may be given back)", async () => {
+    const bid = await businessOwnedBy(r.B.ownerId, "personas-given-taken");
+    const first = await hire(bid, "First", { personaKey: PERSONAS[20]!.key });
+    expect(first.personaKey).toBe(PERSONAS[20]!.key);
+    const second = await hire(bid, "Second", { personaKey: PERSONAS[20]!.key });
+    expect(second.personaKey).not.toBe(PERSONAS[20]!.key);
+    expect(personaByKey(second.personaKey)).not.toBeNull();
+    // Twice in one batch: the first keeps it, the second gets a fresh pick.
+    const batch = await repos.agents.createMany(r.db, bid, [
+      { id: crypto.randomUUID(), name: "Batch one", agentType: "engineer", personaKey: PERSONAS[21]!.key },
+      { id: crypto.randomUUID(), name: "Batch two", agentType: "engineer", personaKey: PERSONAS[21]!.key },
+    ]);
+    expect(batch[0]!.personaKey).toBe(PERSONAS[21]!.key);
+    expect(batch[1]!.personaKey).not.toBe(PERSONAS[21]!.key);
+    const keys = await keysOf(bid);
+    expect(new Set(keys).size).toBe(keys.length);
+    // Released: the key is no longer held by a live agent, so a caller that names it on purpose gets it.
+    await repos.agents.release(r.db, bid, first.id);
+    const rehired = await hire(bid, "Rehired", { personaKey: PERSONAS[20]!.key });
+    expect(rehired.personaKey).toBe(PERSONAS[20]!.key);
+  });
 });
 
 describe("reads carry the key and stay in their business", () => {
@@ -188,6 +210,17 @@ describe("persona_portraits (repos.personaPortraits)", () => {
     expect(await repos.personaPortraits.readyKeys(r.db, [other, key])).toEqual([other, key]);
   });
 
+  it("readyKeys counts a row of an excluded model as missing (a mock placeholder while portraits are live), and put replaces it", async () => {
+    const k = PERSONAS[5]!.key;
+    await repos.personaPortraits.put(r.db, { key: k, mime: "image/png", content: png(5), model: "mock-portrait" });
+    expect(await repos.personaPortraits.readyKeys(r.db, [k, key])).toEqual([k, key]);
+    expect(await repos.personaPortraits.readyKeys(r.db, [k, key], { excludeModels: ["mock-portrait"] })).toEqual([key]);
+    expect(await repos.personaPortraits.readyKeys(r.db, [k], { excludeModels: [] })).toEqual([k]);
+    await repos.personaPortraits.put(r.db, { key: k, mime: "image/webp", content: png(6), model: "gpt-image-real" });
+    expect(await repos.personaPortraits.readyKeys(r.db, [k], { excludeModels: ["mock-portrait"] })).toEqual([k]);
+    expect(await repos.personaPortraits.get(r.db, k)).toMatchObject({ mime: "image/webp", model: "gpt-image-real" });
+  });
+
   it("refuses keys outside the catalog, empty content and other image types", async () => {
     await expect(repos.personaPortraits.put(r.db, { key: "nobody", mime: "image/png", content: png(1), model: "m" })).rejects.toMatchObject({ code: "validation" });
     await expect(repos.personaPortraits.put(r.db, { key, mime: "image/png", content: new Uint8Array(), model: "m" })).rejects.toMatchObject({ code: "validation" });
@@ -222,5 +255,21 @@ describe("account preference (anthropomorphic_agents)", () => {
     // Someone else reads their own defaults, not this row.
     expect((await r.as(r.B.memberId, (tx) => repos.preferences.get(tx, u))).anthropomorphicAgents).toBe(false);
     await expect(r.as(u, (tx) => repos.preferences.update(tx, u, { anthropomorphicAgents: "yes" } as never))).rejects.toMatchObject({ code: "validation" });
+  });
+});
+
+describe("the display preference rides with the membership (repos.memberships.access)", () => {
+  it("is false without a preferences row, and follows the member's own choice", async () => {
+    const userId = r.A.ownerId;
+    try {
+      await r.db.delete(s.accountPreferences).where(eq(s.accountPreferences.userId, userId));
+      expect((await repos.memberships.access(r.db, r.A.businessId, userId)).anthropomorphicAgents).toBe(false);
+      await repos.preferences.update(r.db, userId, { anthropomorphicAgents: true });
+      expect((await repos.memberships.access(r.db, r.A.businessId, userId)).anthropomorphicAgents).toBe(true);
+      // A non-member learns nothing, not even the preference.
+      expect(await repos.memberships.access(r.db, r.B.businessId, userId)).toEqual({ membership: null, business: null, anthropomorphicAgents: false });
+    } finally {
+      await repos.preferences.update(r.db, userId, { anthropomorphicAgents: false });
+    }
   });
 });

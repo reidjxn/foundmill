@@ -171,15 +171,18 @@ async function lockPersonas(db: Executor, businessId: string): Promise<void> {
 
 /**
  * What persona assignment must respect for one business, in one statement: `taken`, every key the business's agents
- * hold (archived ones too, so a released agent's face never comes back as someone else), and `avoid`, the keys live
- * agents hold in the other businesses owned by this business's owners (membership role owner), so one founder's
- * businesses greet them with different names while the catalog allows.
+ * hold (archived ones too, so a released agent's face never comes back as someone else), `live`, the keys its live
+ * (not released) agents hold, and `avoid`, the keys live agents hold in the other businesses owned by this business's
+ * owners (membership role owner), so one founder's businesses greet them with different names while the catalog allows.
  */
-export async function personaContext(db: Executor, businessId: string): Promise<{ taken: string[]; avoid: string[] }> {
-  const rows = rowsOf<{ kind: "taken" | "avoid"; key: string }>(
+export async function personaContext(db: Executor, businessId: string): Promise<{ taken: string[]; live: string[]; avoid: string[] }> {
+  const rows = rowsOf<{ kind: "taken" | "live" | "avoid"; key: string }>(
     await db.execute(sql`
       select 'taken' as kind, a.persona_key as key from agents a
        where a.business_id = ${businessId}::uuid and a.persona_key is not null
+      union
+      select 'live' as kind, a.persona_key as key from agents a
+       where a.business_id = ${businessId}::uuid and a.persona_key is not null and a.archived_at is null
       union
       select 'avoid' as kind, a.persona_key as key from agents a
        where a.persona_key is not null and a.archived_at is null and a.business_id <> ${businessId}::uuid
@@ -188,22 +191,30 @@ export async function personaContext(db: Executor, businessId: string): Promise<
             where o.role = 'owner'
               and o.user_id in (select m.user_id from memberships m where m.business_id = ${businessId}::uuid and m.role = 'owner'))`),
   );
-  return { taken: rows.filter((r) => r.kind === "taken").map((r) => r.key), avoid: rows.filter((r) => r.kind === "avoid").map((r) => r.key) };
+  const of = (kind: "taken" | "live" | "avoid") => rows.filter((r) => r.kind === kind).map((r) => r.key);
+  return { taken: of("taken"), live: of("live"), avoid: of("avoid") };
 }
 
 /**
- * Persona keys for new agents of one business: the ones asked for are kept, the rest are picked with `pickPersonaKeys`
- * seeded by the business id (so the same business and history always pick the same keys). Takes the business's persona
- * lock; call inside a transaction so the lock holds until the agents are inserted.
+ * Persona keys for new agents of one business: a key the caller asks for is kept unless a live agent of the business
+ * already holds it (or an earlier agent of the same call asked for it), in which case it is replaced like a missing one;
+ * the rest are picked with `pickPersonaKeys` seeded by the business id (so the same business and history always pick the
+ * same keys). Takes the business's persona lock; call inside a transaction so the lock holds until the agents are inserted.
  */
 export async function assignPersonaKeys(db: Executor, businessId: string, requested: readonly (string | null | undefined)[]): Promise<string[]> {
   if (requested.length === 0) return [];
   await lockPersonas(db, businessId);
   const ctx = await personaContext(db, businessId);
-  const given = requested.filter((k): k is string => typeof k === "string");
-  const picked = pickPersonaKeys(requested.length - given.length, { seed: businessId, taken: [...ctx.taken, ...given], avoid: ctx.avoid });
+  const held = new Set(ctx.live);
+  const kept = requested.map((k) => {
+    if (typeof k !== "string" || held.has(k)) return null;
+    held.add(k);
+    return k;
+  });
+  const given = kept.filter((k): k is string => k !== null);
+  const picked = pickPersonaKeys(kept.length - given.length, { seed: businessId, taken: [...ctx.taken, ...given], avoid: ctx.avoid });
   let next = 0;
-  return requested.map((k) => k ?? picked[next++]!);
+  return kept.map((k) => k ?? picked[next++]!);
 }
 
 export const agentsRepo = {

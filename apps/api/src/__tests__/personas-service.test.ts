@@ -1,14 +1,31 @@
 /**
  * Portraits for anthropomorphic agents (services/personas.ts): `ensurePortraits` answers at once and generates the missing
  * faces in the background; a key in flight is not started twice, three images at most are made at a time, a failure is
- * logged and retried by a later call (never in a loop), a stored face is never made again, and mock mode draws the
- * placeholder here with no gateway while live mode asks the gateway with the key alone.
+ * logged and retried by a later call after an exponential backoff (one minute doubling to a day, shared through Redis
+ * when there is one), a refusal for good is reported in `failed` and never retried, a stored face is never made again
+ * (a mock placeholder is, once portraits are live), and mock mode draws the placeholder here with no gateway while live
+ * mode asks the gateway with the key alone.
  */
 import { repos } from "@foundmill/db";
 import { PERSONAS } from "@foundmill/shared";
+import { OPENAI_IMAGES_GENERATION_TIMEOUT_MS } from "@foundmill/connectors";
+import { AppError } from "@foundmill/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { ApiGatewayClient, GatewayPortrait } from "../services/gateway";
-import { ensurePortraits, generatePortraitFor, PORTRAIT_CONCURRENCY, PORTRAIT_RETRY_MS, portraitsIdle, resetPortraitState, type PortraitDeps } from "../services/personas";
+import { PORTRAIT_TIMEOUT_MS, type ApiGatewayClient, type GatewayPortrait } from "../services/gateway";
+import {
+  ensurePortraits,
+  generatePortraitFor,
+  isPermanentPortraitFailure,
+  PORTRAIT_BACKOFF_BASE_MS,
+  PORTRAIT_BACKOFF_MAX_MS,
+  PORTRAIT_BACKOFF_REDIS_PREFIX,
+  PORTRAIT_CONCURRENCY,
+  portraitBackoffMs,
+  portraitsIdle,
+  resetPortraitState,
+  type PortraitDeps,
+  type PortraitRedis,
+} from "../services/personas";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 const WEBP_BYTES = Buffer.from("RIFF\u0000\u0000\u0000\u0000WEBPVP8 ", "latin1");
@@ -25,7 +42,7 @@ interface Call {
   key: string;
   businessId: string | undefined;
   release(image?: GatewayPortrait): void;
-  fail(message: string): void;
+  fail(message: string | Error): void;
 }
 
 /** A gateway whose portraits wait until the test releases them. */
@@ -59,7 +76,7 @@ function controlledGateway() {
           },
           fail: (message) => {
             running -= 1;
-            reject(new Error(message));
+            reject(typeof message === "string" ? new Error(message) : message);
           },
         });
       }),
@@ -67,11 +84,41 @@ function controlledGateway() {
   return { gateway, calls, peak: () => peak };
 }
 
-const logs: { level: "info" | "warn"; obj: Record<string, unknown> }[] = [];
-const log = { info: (obj: Record<string, unknown>) => void logs.push({ level: "info", obj }), warn: (obj: Record<string, unknown>) => void logs.push({ level: "warn", obj }) } as unknown as PortraitDeps["log"];
+const logs: { level: "info" | "warn" | "error"; obj: Record<string, unknown> }[] = [];
+const log = {
+  info: (obj: Record<string, unknown>) => void logs.push({ level: "info", obj }),
+  warn: (obj: Record<string, unknown>) => void logs.push({ level: "warn", obj }),
+  error: (obj: Record<string, unknown>) => void logs.push({ level: "error", obj }),
+} as unknown as PortraitDeps["log"];
 
 let clock = 1_000_000;
-const depsWith = (gateway: ApiGatewayClient, env: PortraitDeps["env"] = { INTEGRATIONS_MODE: "live", LIVE_CONNECTORS: "" }): PortraitDeps => ({ db: hz.db, env, gateway, log, now: () => clock });
+const depsWith = (gateway: ApiGatewayClient, env: PortraitDeps["env"] = { INTEGRATIONS_MODE: "live", LIVE_CONNECTORS: "" }, redis: PortraitRedis | null = null): PortraitDeps => ({ db: hz.db, env, gateway, log, now: () => clock, redis });
+
+/** A Redis double with the three commands the shared backoff uses (PX expiry on the test clock). */
+function fakeRedis() {
+  const store = new Map<string, { value: string; expiresAt: number }>();
+  let down = false;
+  const check = () => {
+    if (down) throw new Error("Connection is closed.");
+  };
+  const redis: PortraitRedis = {
+    get: async (key) => {
+      check();
+      const hit = store.get(key);
+      return hit && hit.expiresAt > clock ? hit.value : null;
+    },
+    set: async (key, value, _px, ms) => {
+      check();
+      store.set(key, { value, expiresAt: clock + ms });
+      return "OK";
+    },
+    del: async (key) => {
+      check();
+      return store.delete(key) ? 1 : 0;
+    },
+  };
+  return { redis, store, setDown: (v: boolean) => void (down = v) };
+}
 const tick = () => new Promise((r) => setTimeout(r, 10));
 
 beforeEach(async () => {
@@ -89,7 +136,7 @@ describe("ensurePortraits", () => {
     const deps = depsWith(gateway);
     await repos.personaPortraits.put(hz.db, { key: KEYS[0]!, mime: "image/webp", content: WEBP_BYTES, model: "x" });
     const status = await ensurePortraits(deps, [KEYS[0], KEYS[1], KEYS[2], KEYS[1], null, "not-a-persona"]);
-    expect(status).toEqual({ ready: [KEYS[0]], pending: [KEYS[1], KEYS[2]] });
+    expect(status).toEqual({ ready: [KEYS[0]], pending: [KEYS[1], KEYS[2]], failed: [] });
     await tick();
     expect(calls.map((c) => c.key)).toEqual([KEYS[1], KEYS[2]]);
     // The request has returned while both images are still being made.
@@ -153,23 +200,148 @@ describe("ensurePortraits", () => {
     await portraitsIdle();
     expect(calls).toHaveLength(1);
     expect(logs.filter((l) => l.level === "warn")).toHaveLength(1);
-    expect(logs[0]!.obj).toMatchObject({ personaKey: KEYS[9], err: "The gateway did not answer" });
+    expect(logs[0]!.obj).toMatchObject({ personaKey: KEYS[9], err: "The gateway did not answer", attempts: 1, retryInSeconds: 60 });
     expect(JSON.stringify(logs)).not.toMatch(/headshot|base64/);
 
     // Asked again at once: the failure is still cooling down, so nothing starts and the key stays pending.
-    expect(await ensurePortraits(deps, [KEYS[9]!])).toEqual({ ready: [], pending: [KEYS[9]] });
+    expect(await ensurePortraits(deps, [KEYS[9]!])).toEqual({ ready: [], pending: [KEYS[9]], failed: [] });
     await tick();
     expect(calls).toHaveLength(1);
 
     // Asked again after the window: tried once more, and this time it works.
-    clock += PORTRAIT_RETRY_MS;
+    clock += PORTRAIT_BACKOFF_BASE_MS;
     await ensurePortraits(deps, [KEYS[9]!]);
     await tick();
     expect(calls).toHaveLength(2);
     calls[1]!.release();
     await portraitsIdle();
-    expect(await ensurePortraits(deps, [KEYS[9]!])).toEqual({ ready: [KEYS[9]], pending: [] });
+    expect(await ensurePortraits(deps, [KEYS[9]!])).toEqual({ ready: [KEYS[9]], pending: [], failed: [] });
     expect(calls).toHaveLength(2);
+  });
+
+  it("backs off exponentially: one minute, doubling each failure in a row, up to a day", async () => {
+    expect([1, 2, 3, 4, 10, 11, 12, 50].map(portraitBackoffMs)).toEqual([60_000, 120_000, 240_000, 480_000, 30_720_000, 61_440_000, PORTRAIT_BACKOFF_MAX_MS, PORTRAIT_BACKOFF_MAX_MS]);
+    expect(PORTRAIT_BACKOFF_MAX_MS).toBe(24 * 60 * 60_000);
+    const { gateway, calls } = controlledGateway();
+    const deps = depsWith(gateway);
+    const key = KEYS[10]!;
+    const ask = async () => {
+      await ensurePortraits(deps, [key]);
+      await tick();
+    };
+    await ask();
+    calls[0]!.fail("The gateway did not answer");
+    await portraitsIdle();
+    for (const [i, wait] of [[1, 60_000], [2, 120_000], [3, 240_000]] as const) {
+      // Just short of the window: nothing starts.
+      clock += wait - 1;
+      await ask();
+      expect(calls, `before ${wait}`).toHaveLength(i);
+      clock += 1;
+      await ask();
+      expect(calls, `after ${wait}`).toHaveLength(i + 1);
+      calls[i]!.fail("The gateway did not answer");
+      await portraitsIdle();
+    }
+    expect(logs.filter((l) => l.level === "warn").map((l) => l.obj.retryInSeconds)).toEqual([60, 120, 240, 480]);
+    // A success clears the record.
+    clock += 480_000;
+    await ask();
+    calls[4]!.release();
+    await portraitsIdle();
+    expect(await ensurePortraits(deps, [key])).toEqual({ ready: [key], pending: [], failed: [] });
+    expect(calls).toHaveLength(5);
+  });
+
+  it("shares the backoff through Redis, so another replica waits out the same window", async () => {
+    const { redis, store, setDown } = fakeRedis();
+    const one = controlledGateway();
+    const key = KEYS[11]!;
+    await ensurePortraits(depsWith(one.gateway, undefined, redis), [key]);
+    await tick();
+    one.calls[0]!.fail("The gateway did not answer");
+    await portraitsIdle();
+    expect(JSON.parse(store.get(PORTRAIT_BACKOFF_REDIS_PREFIX + key)!.value)).toEqual({ attempts: 1, nextTryAt: clock + 60_000 });
+
+    // Another replica: its own process state is empty, Redis still says wait.
+    resetPortraitState();
+    const two = controlledGateway();
+    expect(await ensurePortraits(depsWith(two.gateway, undefined, redis), [key])).toEqual({ ready: [], pending: [key], failed: [] });
+    await tick();
+    expect(two.calls).toHaveLength(0);
+
+    // After the window it tries; a second failure doubles the shared window.
+    clock += 60_000;
+    await ensurePortraits(depsWith(two.gateway, undefined, redis), [key]);
+    await tick();
+    two.calls[0]!.fail("The gateway did not answer");
+    await portraitsIdle();
+    expect(JSON.parse(store.get(PORTRAIT_BACKOFF_REDIS_PREFIX + key)!.value)).toEqual({ attempts: 2, nextTryAt: clock + 120_000 });
+
+    // A Redis that does not answer falls back to this process's record: still no retry storm.
+    setDown(true);
+    await ensurePortraits(depsWith(two.gateway, undefined, redis), [key]);
+    await tick();
+    expect(two.calls).toHaveLength(1);
+    setDown(false);
+
+    // A success clears the shared record.
+    clock += 120_000;
+    await ensurePortraits(depsWith(two.gateway, undefined, redis), [key]);
+    await tick();
+    two.calls[1]!.release();
+    await portraitsIdle();
+    expect(store.has(PORTRAIT_BACKOFF_REDIS_PREFIX + key)).toBe(false);
+  });
+
+  it("a refusal for good (a non-429 4xx from the gateway) is reported in failed and never tried again", async () => {
+    const { gateway, calls } = controlledGateway();
+    const deps = depsWith(gateway);
+    const [refused, unknown, ok] = [KEYS[12]!, KEYS[13]!, KEYS[14]!];
+    expect(await ensurePortraits(deps, [refused, unknown, ok])).toEqual({ ready: [], pending: [refused, unknown, ok], failed: [] });
+    await tick();
+    calls[0]!.fail(new AppError("portrait_refused", "The image service refused to make this portrait.", 422));
+    calls[1]!.fail(new AppError("unknown_persona", "That is not a persona in the catalog", 400));
+    calls[2]!.release();
+    await portraitsIdle();
+    const errors = logs.filter((l) => l.level === "error").map((l) => l.obj);
+    expect(errors).toEqual([expect.objectContaining({ personaKey: refused, code: "portrait_refused", status: 422 }), expect.objectContaining({ personaKey: unknown, code: "unknown_persona", status: 400 })]);
+
+    // Whenever asked, even a day later: failed, not pending, and nothing starts.
+    clock += PORTRAIT_BACKOFF_MAX_MS * 2;
+    expect(await ensurePortraits(deps, [refused, unknown, ok])).toEqual({ ready: [ok], pending: [], failed: [refused, unknown] });
+    await tick();
+    expect(calls).toHaveLength(3);
+  });
+
+  it("only a 4xx about the key itself is permanent: tokens, timeouts, setup and rate limits are retried", () => {
+    for (const status of [400, 404, 413, 422]) expect(isPermanentPortraitFailure(new AppError("x", "x", status)), String(status)).toBe(true);
+    for (const status of [401, 403, 408, 409, 412, 425, 429, 500, 502, 503]) expect(isPermanentPortraitFailure(new AppError("x", "x", status)), String(status)).toBe(false);
+    expect(isPermanentPortraitFailure(new Error("The gateway did not answer"))).toBe(false);
+  });
+
+  it("live, a stored mock placeholder counts as missing and is replaced by the real face", async () => {
+    const { gateway, calls } = controlledGateway();
+    const key = KEYS[15]!;
+    await repos.personaPortraits.put(hz.db, { key, mime: "image/png", content: new Uint8Array([0x89, 0x50, 0x4e, 0x47]), model: "mock-portrait" });
+    // Mock mode keeps it as it is.
+    const mock = depsWith(gateway, { INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "" });
+    expect(await ensurePortraits(mock, [key])).toEqual({ ready: [key], pending: [], failed: [] });
+    // Live mode makes the real one and replaces the row (put is an upsert).
+    const live = depsWith(gateway);
+    expect(await ensurePortraits(live, [key])).toEqual({ ready: [], pending: [key], failed: [] });
+    await tick();
+    expect(calls.map((c) => c.key)).toEqual([key]);
+    calls[0]!.release();
+    await portraitsIdle();
+    expect(await repos.personaPortraits.get(hz.db, key)).toMatchObject({ mime: "image/webp", model: "test-image-model" });
+    expect(await ensurePortraits(live, [key])).toEqual({ ready: [key], pending: [], failed: [] });
+  });
+
+  it("waits for the gateway longer than the connector waits for OpenAI", () => {
+    expect(OPENAI_IMAGES_GENERATION_TIMEOUT_MS).toBe(120_000);
+    expect(PORTRAIT_TIMEOUT_MS).toBe(150_000);
+    expect(PORTRAIT_TIMEOUT_MS).toBeGreaterThan(OPENAI_IMAGES_GENERATION_TIMEOUT_MS);
   });
 
   it("never makes a stored face again, and skips a queued key another replica stored meanwhile", async () => {
@@ -213,7 +385,7 @@ describe("mock mode", () => {
     const stored = await repos.personaPortraits.get(hz.db, KEYS[60]!);
     expect(stored).toMatchObject({ mime: "image/png", model: "mock-portrait" });
     expect(Buffer.from(stored!.content).subarray(1, 4).toString("ascii")).toBe("PNG");
-    expect(await ensurePortraits(deps, [KEYS[60]!, KEYS[61]!])).toEqual({ ready: [KEYS[60], KEYS[61]], pending: [] });
+    expect(await ensurePortraits(deps, [KEYS[60]!, KEYS[61]!])).toEqual({ ready: [KEYS[60], KEYS[61]], pending: [], failed: [] });
   });
 
   it("LIVE_CONNECTORS=openai_images turns it live while everything else stays mock", async () => {

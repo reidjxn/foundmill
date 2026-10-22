@@ -3,7 +3,7 @@
  * OAuth consents are founder clicks (hard gate): `connect` hands back the vendor's consent URL when the connector
  * needs one; secrets returned by a connector are encrypted into `credentials` and never echoed.
  */
-import type { HealthResult, IntegrationRecord } from "@foundmill/connectors";
+import { isServiceOnlyConnector, type HealthResult, type IntegrationRecord } from "@foundmill/connectors";
 import { INTEGRATION_CREDENTIAL_KIND, repos, type Executor } from "@foundmill/db";
 import { AppError, connectorMode, ForbiddenError } from "@foundmill/shared";
 import { buildAad, encryptJson, redactSecret } from "@foundmill/shared/crypto";
@@ -36,7 +36,8 @@ export const integrationsRouter = router({
   list: read.query(({ ctx }) =>
     ctx.rls(async (tx) => {
       const rows = await repos.integrations.list(tx, ctx.businessId);
-      const catalogue = ctx.connectors.catalogue(ctx.env.INTEGRATIONS_MODE);
+      // A connector only the platform calls (openai_images, the faces of anthropomorphic agents) is not a business's to connect.
+      const catalogue = ctx.connectors.catalogue(ctx.env.INTEGRATIONS_MODE).filter((c) => !isServiceOnlyConnector(c.key));
       return {
         mode: ctx.env.INTEGRATIONS_MODE,
         integrations: rows,
@@ -51,6 +52,8 @@ export const integrationsRouter = router({
     // The Anthropic key decides who pays for model calls and resumes a stopped team: it is stored only through
     // Settings › Keys (`storeAnthropicKey`), never as a generic connection that would skip all of that (audit ARB-04).
     if (input.connectorKey === ANTHROPIC) throw new AppError("validation", "The Anthropic key is stored in Settings › Keys, where it is checked and the team moves onto it.", 400, { manageIn: "keys" });
+    // The platform's own connectors (openai_images) run on the platform key in the gateway; a business never connects one.
+    if (isServiceOnlyConnector(input.connectorKey)) throw new AppError("service_only_connector", "This connector is run by the platform itself and cannot be connected for a business.", 400, { connector: input.connectorKey });
     const connector = ctx.connectors.get(input.connectorKey, mode);
 
     let record: Omit<IntegrationRecord, "id" | "businessId" | "connectorKey" | "credentialRef" | "lastHealthAt" | "createdAt"> & { credentialToStore?: IntegrationRecord["credentialToStore"] };

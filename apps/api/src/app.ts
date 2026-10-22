@@ -15,7 +15,7 @@ import type { ApiDeps } from "./context";
 import { createContextFactory } from "./context";
 import { requestIdFrom } from "./request-id";
 import { appRouter } from "./router";
-import { storedPortrait } from "./services/personas";
+import { etagMatches, storedPortrait } from "./services/personas";
 import { checkWorker } from "./services/worker-health";
 import { getTracer } from "@foundmill/shared/telemetry";
 
@@ -178,24 +178,29 @@ export function createApp(deps: ApiDeps) {
   });
 
   // The face of one persona catalog key (Anthropomorphic agents): a platform asset, not business data, so it needs no sign-in
-  // and any <img> may load it. Only catalog keys are looked up; anything else, and a face not generated yet, is a plain 404
-  // that must not be cached (the web polls team.personas.ensure and loads the image once it is ready). A stored face is
-  // cached for a day, not for good: a deployment that moves from the mock placeholder to real faces (or regenerates one)
-  // shows the new face within a day without any change to the URL. The mime comes from the row (webp, or png for the mock placeholder); `nosniff` and a
-  // sandboxing CSP keep the bytes an image whatever a browser is shown.
+  // and any <img> on the web origin may load it. Only catalog keys are looked up; anything else, and a face not generated
+  // yet, is a plain 404 that must not be cached (the web polls team.personas.ensure and loads the image once it is ready).
+  // A stored face is cached for a day, not for good: a deployment that moves from the mock placeholder to real faces (or
+  // regenerates one) shows the new face within a day without any change to the URL, and the strong ETag (sha256 of the
+  // bytes) lets a browser revalidate for a 304 instead of a download. The bytes come from an in-memory LRU
+  // (services/personas.ts `storedPortrait`), so a screen of faces does not read the table per <img>. The mime comes from
+  // the row (webp, or png for the mock placeholder); `nosniff` and a sandboxing CSP keep the bytes an image whatever a
+  // browser is shown, and `same-site` keeps other sites from embedding them (the web and the api share a site).
   app.get("/personas/:key", async (c) => {
     const portrait = await storedPortrait(deps.db, c.req.param("key"));
     if (!portrait) {
       c.header("cache-control", "no-store");
       return c.json({ error: "not_found" }, 404);
     }
-    return c.body(portrait.content as unknown as ArrayBuffer, 200, {
-      "content-type": portrait.mime,
+    const headers = {
+      etag: portrait.etag,
       "cache-control": "public, max-age=86400",
       "x-content-type-options": "nosniff",
-      "cross-origin-resource-policy": "cross-origin",
+      "cross-origin-resource-policy": "same-site",
       "content-security-policy": "default-src 'none'; sandbox",
-    });
+    };
+    if (etagMatches(c.req.header("if-none-match"), portrait.etag)) return c.body(null, 304, headers);
+    return c.body(portrait.bytes.buffer, 200, { ...headers, "content-type": portrait.mime });
   });
 
   // tRPC answers are JSON and shrink 5–10× with gzip (or deflate, whichever the client accepts). Hono's compress also

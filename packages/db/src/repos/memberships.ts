@@ -9,7 +9,7 @@
 import { ConflictError, MEMBERSHIP_ROLES, ValidationError, type MembershipRole } from "@foundmill/shared";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { businesses, entities, memberships, MEMBERSHIP_SOURCES, type Business, type Membership } from "../schema";
+import { accountPreferences, businesses, entities, memberships, MEMBERSHIP_SOURCES, type Business, type Membership } from "../schema";
 import { Id, maybeOne, one, parseInput, type Executor } from "./_shared";
 
 export const SectionPermissions = z.record(z.string(), z.enum(["read", "write", "none"]));
@@ -92,15 +92,17 @@ export const membershipsRepo = {
    * with a null business, as `businesses.get` would not find it, unless `includeArchived` (the few things an archived
    * business still allows: restore, export, deletion requests).
    */
-  async access(db: Executor, businessId: string, userId: string, options: { includeArchived?: boolean } = {}): Promise<{ membership: Membership | null; business: Business | null }> {
+  async access(db: Executor, businessId: string, userId: string, options: { includeArchived?: boolean } = {}): Promise<{ membership: Membership | null; business: Business | null; anthropomorphicAgents: boolean }> {
+    // The member's own display preference rides along (anthropomorphic agents), so nothing downstream reads it again.
     const rows = await db
-      .select({ membership: memberships, business: businesses })
+      .select({ membership: memberships, business: businesses, anthropomorphicAgents: accountPreferences.anthropomorphicAgents })
       .from(memberships)
       .leftJoin(businesses, options.includeArchived ? eq(businesses.id, memberships.businessId) : and(eq(businesses.id, memberships.businessId), isNull(businesses.archivedAt)))
+      .leftJoin(accountPreferences, eq(accountPreferences.userId, memberships.userId))
       .where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId)))
       .limit(1);
     const row = rows[0];
-    return row ? { membership: row.membership, business: row.business } : { membership: null, business: null };
+    return row ? { membership: row.membership, business: row.business, anthropomorphicAgents: row.anthropomorphicAgents === true } : { membership: null, business: null, anthropomorphicAgents: false };
   },
 
   /** True when the user holds one of the roles in this business. */

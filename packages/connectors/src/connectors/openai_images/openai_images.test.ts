@@ -5,7 +5,7 @@ import { personaPortraitPrompt, PERSONAS } from "@foundmill/shared";
 import { jsonResponse, routedFetch } from "../../http";
 import { describeConnectorContract, envKeysPresent, makeToolContext } from "../../testing/contract-suite";
 import { IMAGES_BAD_KEY, IMAGES_MODERATION_BLOCKED, IMAGES_OK, IMAGES_RATE_LIMITED, TINY_WEBP_BASE64 } from "./fixtures/images";
-import { createOpenaiImagesConnector } from "./index";
+import { createOpenaiImagesConnector, redactKeys } from "./index";
 import { openaiImagesMock } from "./mock";
 import { PROMPT_MAX_CHARS } from "./tools";
 
@@ -148,6 +148,23 @@ describe("openai_images live (canned)", () => {
 
     const down = await call(connector({ error: { message: "The server had an error", type: "server_error", code: null } }, 503));
     expect(down.error).toMatchObject({ code: "vendor_error", status: 503, retryable: true });
+  });
+
+  it("masks every key-shaped string, a masked or dotted one too", () => {
+    // The pattern takes dots too (a key never ends a sentence safely), so a trailing period goes with it.
+    expect(redactKeys("Incorrect API key provided: sk-proj-****************************abcd.")).toBe("Incorrect API key provided: sk-…");
+    expect(redactKeys("key sk-abc.def_ghi-jkl and sk-****1234 here")).toBe("key sk-… and sk-… here");
+    expect(redactKeys("sk-")).toBe("sk-");
+    expect(redactKeys("no key in this sentence")).toBe("no key in this sentence");
+  });
+
+  it("never passes on a masked key the vendor quoted back", async () => {
+    const masked = { error: { message: "Incorrect API key provided: sk-proj-****************************wxyz. You can find your API key at https://platform.openai.com/account/api-keys.", type: "invalid_request_error", param: null, code: "invalid_api_key" } };
+    const connector = connectorWith(() => jsonResponse(masked, { status: 401 }));
+    const result = await connector.callTool("generate_image", { prompt: "a face" }, makeToolContext(connector, { mode: "live" }));
+    expect(result.error).toMatchObject({ code: "unauthorized", status: 401 });
+    expect(JSON.stringify(result)).not.toContain("wxyz");
+    expect(JSON.stringify(result)).not.toContain("****");
   });
 
   it("treats an answer without an image as a vendor failure", async () => {

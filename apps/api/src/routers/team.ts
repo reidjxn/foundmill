@@ -48,8 +48,10 @@ export const teamRouter = router({
   /**
    * The faces of anthropomorphic agents. `ensure` (any member of the business: the faces show in the shell, so it is not a
    * Team-section permission) says which of the business's agents' persona keys have a portrait, and starts generating the
-   * missing ones in the background (services/personas.ts: deduped, three at a time, never awaited). The web polls it
-   * until `pending` is empty and loads each face from `GET /personas/:key`. Keys are read from this business's own agents
+   * missing ones in the background (services/personas.ts: deduped, three at a time, never awaited, with a backoff shared
+   * across replicas). `{ ready, pending, failed }`: `failed` holds the keys refused for good (moderation, a key the gateway
+   * does not know), which are not tried again. The web polls it until `pending` is empty, loads each ready face from
+   * `GET /personas/:key` and keeps the drawn portrait for a failed one. Keys are read from this business's own agents
    * under RLS; the input carries nothing but the business, so a caller cannot ask for a key of another business.
    */
   personas: router({

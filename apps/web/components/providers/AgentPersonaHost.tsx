@@ -5,10 +5,12 @@
  * system's `AgentPersonaProvider`, so every surface that names or pictures an agent (Inbox, Team, profile, palette,
  * conversation, hover cards) shows the persona's first name and face, or today's name and portrait when the switch is off.
  *
- * - On: `team.personas.ensure` for the business on screen says which of its agents' persona keys have a face and starts
- *   making the missing ones in the background. While any is `pending` the query runs again every 15 seconds; a face is
- *   used only for keys in `ready`, loaded from the API's public `GET /personas/<key>` (cached for a day).
- *   Until a face is ready the drawn portrait stands in, so a screen never waits on one.
+ * - On: `team.personas.ensure` for the business on screen says which of its agents' persona keys have a face (`ready`),
+ *   which are still being made (`pending`) and which were refused for good (`failed`), and starts making the missing ones
+ *   in the background. While any is `pending` the query runs again every 15 seconds; a `failed` key is never waited on,
+ *   so once nothing is pending the polling stops. A face is used only for keys in `ready`, loaded from the API's public
+ *   `GET /personas/<key>` (cached for a day). Until a face is ready, and for good for a failed key, the drawn portrait
+ *   stands in, so a screen never waits on one.
  * - Off: nothing is asked, nothing is fetched; every value is today's.
  */
 import { useQuery } from "@tanstack/react-query";
@@ -26,8 +28,16 @@ export function personaPortraitUrl(apiUrl: string, personaKey: string): string {
   return `${apiUrl.replace(/\/+$/, "")}/personas/${encodeURIComponent(personaKey)}`;
 }
 
-/** The poll interval for an `ensure` answer: every 15 s while faces are pending, never once all are ready. */
-export function personaRefetchInterval(data: { pending: readonly string[] } | undefined): number | false {
+/** What `team.personas.ensure` answers (apps/api services/personas.ts `PortraitStatus`). */
+export interface PersonaPortraitStatus {
+  ready: readonly string[];
+  pending: readonly string[];
+  /** Refused for good: never polled for, the drawn portrait stays. */
+  failed: readonly string[];
+}
+
+/** The poll interval for an `ensure` answer: every 15 s while faces are pending, never once none is (ready or failed). */
+export function personaRefetchInterval(data: (Pick<PersonaPortraitStatus, "pending"> & Partial<PersonaPortraitStatus>) | undefined): number | false {
   return data && data.pending.length > 0 ? PERSONA_POLL_MS : false;
 }
 

@@ -38,6 +38,35 @@ const NIL_ID = "00000000-0000-0000-0000-000000000000";
 /** The same ceiling the api's table enforces (persona_portraits check, 8 MiB). */
 const MAX_PORTRAIT_BYTES = 8 * 1024 * 1024;
 
+/** A vendor's own code (`moderation_blocked`), kept only when it is a plain identifier; never its message. */
+const VENDOR_CODE = /^[a-z][a-z0-9_]{0,59}$/;
+
+export interface PortraitFailure {
+  code: "portrait_refused" | "portrait_rate_limited" | "portrait_unavailable";
+  message: string;
+  status: number;
+  details: { vendorStatus: number | null; vendorCode: string | null };
+}
+
+/**
+ * What the api is told when the image vendor did not make the portrait: a code, a status and a fixed sentence, never the
+ * vendor's own words (they can quote the request or, in a bad-key answer, a masked key). The status says what the api
+ * should do: 422 `portrait_refused` (the vendor refused this prompt: moderation, a bad request) will never succeed for the
+ * key, so it is not retried; 429 waits; 502 (the vendor failed, or refused the platform key) is retried with backoff.
+ */
+export function portraitFailure(error: { code?: string; status?: number; details?: unknown } | undefined): PortraitFailure {
+  const vendorStatus = typeof error?.status === "number" ? error.status : null;
+  const raw = (error?.details as { code?: unknown; type?: unknown } | undefined) ?? {};
+  const candidate = typeof raw.code === "string" ? raw.code : typeof raw.type === "string" ? raw.type : null;
+  const details = { vendorStatus, vendorCode: candidate && VENDOR_CODE.test(candidate) ? candidate : null };
+  if (vendorStatus === 429 || error?.code === "rate_limited") return { code: "portrait_rate_limited", message: "The image service is busy. Try again later.", status: 429, details };
+  // A refused platform key (401, 403) is the gateway's configuration, not this persona: retried once it is fixed.
+  if (vendorStatus !== null && vendorStatus >= 400 && vendorStatus < 500 && vendorStatus !== 401 && vendorStatus !== 403 && vendorStatus !== 408) {
+    return { code: "portrait_refused", message: "The image service refused to make this portrait.", status: 422, details };
+  }
+  return { code: "portrait_unavailable", message: "The portrait could not be generated right now.", status: 502, details };
+}
+
 export async function generatePortrait(deps: GatewayDeps, input: PortraitRequest, service: string): Promise<PortraitResponse> {
   const persona = personaByKey(input.personaKey);
   if (!persona) throw new GatewayError("unknown_persona", "That is not a persona in the catalog", 400);
@@ -57,8 +86,9 @@ export async function generatePortrait(deps: GatewayDeps, input: PortraitRequest
     throw e;
   }
   if (!result.ok) {
-    deps.log.warn({ personaKey: persona.key, code: result.error?.code, status: result.error?.status }, "persona portrait refused");
-    throw new GatewayError("portrait_unavailable", `The portrait could not be generated: ${result.error?.message ?? "unknown error"}`, 502);
+    const failure = portraitFailure(result.error);
+    deps.log.warn({ personaKey: persona.key, code: result.error?.code, status: result.error?.status, vendorCode: failure.details.vendorCode }, "persona portrait refused");
+    throw new GatewayError(failure.code, failure.message, failure.status, failure.details);
   }
   const data = PortraitData.safeParse(result.data);
   if (!data.success || Math.floor((data.data.base64.length * 3) / 4) > MAX_PORTRAIT_BYTES) {

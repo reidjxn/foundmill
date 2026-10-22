@@ -86,6 +86,7 @@ export function checkConversationReply(c: ConversationCase, raw: unknown, rawTex
 
   const lower = rawText.toLowerCase();
   for (const bad of c.mustNotContain) if (lower.includes(bad.toLowerCase())) problems.push(`contains "${bad}"`);
+  if (c.mustSayOneOf?.length && !c.mustSayOneOf.some((want) => bubbles.toLowerCase().includes(want.toLowerCase()))) problems.push(`does not say any of: ${c.mustSayOneOf.join(" | ")}`);
   const offered = [...d.quick_replies.flatMap((q) => [q.label, q.say]), d.hand_off?.instruction ?? ""].join("\n").toLowerCase();
   for (const bad of c.mustNotOffer) if (offered.includes(bad.toLowerCase())) problems.push(`offers "${bad}" back to the founder`);
   return problems;

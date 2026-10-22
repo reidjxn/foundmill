@@ -1,10 +1,10 @@
 /**
- * `team.personas.ensure` (Anthropomorphic agents): a member of the business gets `{ ready, pending }` for the persona keys of
+ * `team.personas.ensure` (Anthropomorphic agents): a member of the business gets `{ ready, pending, failed }` for the persona keys of
  * that business's own agents and generation starts for the missing ones in the background; anonymous callers and people
  * outside the business are refused; one business can never cause, or learn about, another business's faces.
  */
 import { repos } from "@foundmill/db";
-import { PERSONAS } from "@foundmill/shared";
+import { AppError, PERSONAS } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -18,6 +18,8 @@ const KEY_B = PERSONAS[102]!.key;
 const IMAGE = { mime: "image/webp" as const, base64: Buffer.from("RIFF\u0000\u0000\u0000\u0000WEBPVP8 ", "latin1").toString("base64"), model: "test-image-model" };
 
 const asked: { key: string; businessId?: string }[] = [];
+/** Keys the gateway double refuses for good (as the gateway answers a moderation refusal: 422 portrait_refused). */
+const refuse = new Set<string>();
 let hz: ApiHarness;
 
 beforeAll(async () => {
@@ -36,6 +38,7 @@ beforeAll(async () => {
     },
     generatePortrait: async (key: string, businessId?: string) => {
       asked.push({ key, ...(businessId ? { businessId } : {}) });
+      if (refuse.has(key)) throw new AppError("portrait_refused", "The image service refused to make this portrait.", 422);
       return IMAGE;
     },
   } satisfies ApiGatewayClient;
@@ -47,6 +50,7 @@ afterAll(() => hz.close());
 beforeEach(async () => {
   resetPortraitState();
   asked.length = 0;
+  refuse.clear();
   await hz.db.execute(sql`delete from persona_portraits`);
   await hz.db.execute(sql`update agents set persona_key = null where business_id in (${hz.A.businessId}::uuid, ${hz.B.businessId}::uuid)`);
   await hz.db.execute(sql`update agents set persona_key = ${KEY_A1} where id = ${hz.A.agentId}::uuid`);
@@ -114,9 +118,21 @@ describe("team.personas.ensure", () => {
     expect(asked.map((a) => a.key)).toEqual([KEY_A2]);
   });
 
+  it("a face refused for good moves from pending to failed, so the web stops asking", async () => {
+    refuse.add(KEY_A1);
+    const first = await hz.caller({ userId: hz.A.memberId, email: null }).team.personas.ensure({ businessId: hz.A.businessId });
+    expect([...first.pending].sort()).toEqual([KEY_A1, KEY_A2].sort());
+    expect(first.failed).toEqual([]);
+    await portraitsIdle();
+    const second = await hz.caller({ userId: hz.A.memberId, email: null }).team.personas.ensure({ businessId: hz.A.businessId });
+    expect(second).toEqual({ ready: [KEY_A2], pending: [], failed: [KEY_A1] });
+    await portraitsIdle();
+    expect(asked.filter((a) => a.key === KEY_A1)).toHaveLength(1);
+  });
+
   it("agents without a persona key add nothing", async () => {
     await hz.db.execute(sql`update agents set persona_key = null where business_id = ${hz.A.businessId}::uuid`);
-    expect(await hz.caller({ userId: hz.A.ownerId, email: null }).team.personas.ensure({ businessId: hz.A.businessId })).toEqual({ ready: [], pending: [] });
+    expect(await hz.caller({ userId: hz.A.ownerId, email: null }).team.personas.ensure({ businessId: hz.A.businessId })).toEqual({ ready: [], pending: [], failed: [] });
     expect(asked).toEqual([]);
   });
 });
